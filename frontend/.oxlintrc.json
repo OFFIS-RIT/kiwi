@@ -1,22 +1,13 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "nextjs",
-    "typescript",
-    "unicorn"
-  ],
+  "plugins": ["nextjs", "typescript", "unicorn"],
   "categories": {
     "correctness": "off"
   },
   "env": {
     "builtin": true
   },
-  "ignorePatterns": [
-    ".next/**",
-    "out/**",
-    "build/**",
-    "next-env.d.ts"
-  ],
+  "ignorePatterns": [".next/**", "out/**", "build/**", "next-env.d.ts"],
   "rules": {
     "@next/next/google-font-display": "warn",
     "@next/next/google-font-preconnect": "warn",
@@ -62,9 +53,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "**/*.{js,jsx,mjs,ts,tsx,mts,cts}"
-      ],
+      "files": ["**/*.{js,jsx,mjs,ts,tsx,mts,cts}"],
       "rules": {
         "react/jsx-key": "error",
         "react/jsx-no-comment-textnodes": "error",
@@ -90,12 +79,8 @@
         "jsx-a11y/alt-text": [
           "warn",
           {
-            "elements": [
-              "img"
-            ],
-            "img": [
-              "Image"
-            ]
+            "elements": ["img"],
+            "img": ["Image"]
           }
         ],
         "jsx-a11y/aria-props": "warn",
@@ -104,23 +89,14 @@
         "jsx-a11y/role-has-required-aria-props": "warn",
         "jsx-a11y/role-supports-aria-props": "warn"
       },
-      "plugins": [
-        "react",
-        "import",
-        "jsx-a11y"
-      ],
+      "plugins": ["react", "import", "jsx-a11y"],
       "env": {
         "browser": true,
         "node": true
       }
     },
     {
-      "files": [
-        "**/*.ts",
-        "**/*.tsx",
-        "**/*.mts",
-        "**/*.cts"
-      ],
+      "files": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
       "rules": {
         "constructor-super": "off",
         "no-class-assign": "off",
