@@ -3,8 +3,8 @@ package pptx
 import (
 	"context"
 	"encoding/base64"
-	"kiwi/pkg/loader"
-	"kiwi/pkg/loader/ocr"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/ocr"
 	"sync"
 
 	"golang.org/x/sync/singleflight"

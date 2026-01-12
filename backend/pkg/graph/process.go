@@ -6,10 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	gUtil "kiwi/internal/util"
-	"kiwi/pkg/ai"
-	"kiwi/pkg/common"
-	"kiwi/pkg/loader"
+	gUtil "github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 
 	"golang.org/x/sync/errgroup"
 )

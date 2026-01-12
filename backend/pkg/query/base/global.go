@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 )
 
 // QueryGlobal performs a global query across the entire knowledge graph. Unlike

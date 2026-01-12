@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"kiwi/internal/db"
-	"kiwi/internal/storage"
-	"kiwi/internal/util"
-	"kiwi/pkg/logger"
-	graphstorage "kiwi/pkg/store/base"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,18 +22,18 @@ import (
 	"github.com/pkoukk/tiktoken-go"
 	"github.com/rabbitmq/amqp091-go"
 
-	"kiwi/pkg/ai"
-	"kiwi/pkg/graph"
-	"kiwi/pkg/loader"
-	"kiwi/pkg/loader/audio"
-	"kiwi/pkg/loader/csv"
-	"kiwi/pkg/loader/doc"
-	"kiwi/pkg/loader/excel"
-	"kiwi/pkg/loader/image"
-	"kiwi/pkg/loader/ocr"
-	"kiwi/pkg/loader/pdf"
-	"kiwi/pkg/loader/pptx"
-	"kiwi/pkg/loader/s3"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/graph"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/audio"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/csv"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/doc"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/excel"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/image"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/ocr"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/pdf"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/pptx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/s3"
 )
 
 type QueueProjectFileMsg struct {
@@ -62,7 +62,7 @@ func ProcessIndexMessage(
 
 	q := db.New(conn)
 
-	s3L := s3.NewS3GraphFileLoaderWithClient("kiwi", s3Client)
+	s3L := s3.NewS3GraphFileLoaderWithClient("github.com/OFFIS-RIT/kiwi", s3Client)
 	files := make([]loader.GraphFile, 0)
 
 	for _, file := range *data.ProjectFiles {
@@ -215,7 +215,7 @@ func ProcessUpdateMessage(
 
 	q := db.New(conn)
 
-	s3L := s3.NewS3GraphFileLoaderWithClient("kiwi", s3Client)
+	s3L := s3.NewS3GraphFileLoaderWithClient("github.com/OFFIS-RIT/kiwi", s3Client)
 	files := make([]loader.GraphFile, 0)
 
 	for _, file := range *data.ProjectFiles {
@@ -444,7 +444,7 @@ func ProcessPreprocess(
 	noProcessingFiles := make([]loader.GraphFile, 0)
 	pageCount := 0
 	for _, upload := range *data.ProjectFiles {
-		s3L := s3.NewS3GraphFileLoaderWithClient("kiwi", s3Client)
+		s3L := s3.NewS3GraphFileLoaderWithClient("github.com/OFFIS-RIT/kiwi", s3Client)
 		ocrL := ocr.NewOCRGraphLoader(ocr.NewOCRGraphLoaderParams{
 			AIClient: aiClient,
 			Parallel: int(numParallel),
@@ -556,7 +556,7 @@ func ProcessPreprocess(
 
 			// Estimate work units based on file size
 			head, err := s3Client.HeadObject(ctx, &awss3.HeadObjectInput{
-				Bucket: aws.String("kiwi"),
+				Bucket: aws.String("github.com/OFFIS-RIT/kiwi"),
 				Key:    aws.String(upload.FileKey),
 			})
 			if err == nil && head.ContentLength != nil {
@@ -580,7 +580,7 @@ func ProcessPreprocess(
 			files = append(files, f)
 
 			head, err := s3Client.HeadObject(ctx, &awss3.HeadObjectInput{
-				Bucket: aws.String("kiwi"),
+				Bucket: aws.String("github.com/OFFIS-RIT/kiwi"),
 				Key:    aws.String(upload.FileKey),
 			})
 			if err == nil && head.ContentLength != nil {

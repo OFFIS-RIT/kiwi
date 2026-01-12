@@ -2,11 +2,11 @@ package base
 
 import (
 	"context"
-	"kiwi/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"strconv"
 	"sync"
 
-	"kiwi/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/sync/errgroup"

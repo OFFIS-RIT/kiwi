@@ -1,4 +1,4 @@
-module kiwi
+module github.com/OFFIS-RIT/kiwi/backend
 
 go 1.25
 

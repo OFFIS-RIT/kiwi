@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"kiwi/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 
 	"golang.org/x/sync/singleflight"
 )

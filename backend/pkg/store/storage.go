@@ -3,9 +3,9 @@ package store
 import (
 	"context"
 
-	"kiwi/pkg/ai"
-	"kiwi/pkg/common"
-	"kiwi/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 )
 
 // GraphStorage defines the interface for persisting and querying knowledge graphs.

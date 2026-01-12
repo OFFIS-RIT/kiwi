@@ -3,9 +3,9 @@ package graph
 import (
 	"context"
 	"fmt"
-	"kiwi/pkg/ai"
-	"kiwi/pkg/common"
-	"kiwi/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	"strings"
 
 	_ "github.com/invopop/jsonschema"

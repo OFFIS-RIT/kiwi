@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/ollama/ollama/api"
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 )
 
 const embeddingDimensions = 4096

@@ -2,7 +2,7 @@ package timing
 
 import (
 	"context"
-	"kiwi/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

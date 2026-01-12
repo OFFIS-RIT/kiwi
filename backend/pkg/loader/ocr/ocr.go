@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"kiwi/pkg/ai"
-	"kiwi/pkg/loader"
-	"kiwi/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	"strings"
 	"sync"
 

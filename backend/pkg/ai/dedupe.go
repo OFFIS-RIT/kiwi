@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	gUtil "kiwi/internal/util"
-	"kiwi/pkg/common"
+	gUtil "github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 )
 
 const DedupeBatchSize = 600
