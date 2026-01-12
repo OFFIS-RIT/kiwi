@@ -1,0 +1,22 @@
+FROM golang:1.25-bookworm
+
+WORKDIR /app
+
+RUN apt-get update && \
+        apt-get install -y --no-install-recommends \
+            poppler-utils \
+            unoconv \
+            libreoffice-writer \
+            fonts-dejavu-core \
+            fonts-liberation && \
+        rm -rf /var/lib/apt/lists/*
+
+RUN go install github.com/air-verse/air@latest
+
+COPY go.mod go.sum .
+
+RUN go mod download
+
+COPY . .
+EXPOSE 8080
+CMD ["air", "-c", ".air.server.toml"]

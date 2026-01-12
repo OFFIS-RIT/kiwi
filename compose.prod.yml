@@ -1,0 +1,51 @@
+services:
+  # Disable the standalone frontend service in production
+  # nginx serves the static files instead
+  frontend:
+    deploy:
+      replicas: 0
+
+  nginx:
+    container_name: nginx
+    image: nginx:alpine
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - frontend-static:/usr/share/nginx/html:ro
+    depends_on:
+      frontend-builder:
+        condition: service_completed_successfully
+      server:
+        condition: service_started
+      auth:
+        condition: service_started
+
+  # Build container that copies static files to a volume
+  frontend-builder:
+    container_name: frontend-builder
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: builder
+      args:
+        NEXT_PUBLIC_API_URL: "/api"
+    image: kiwi/frontend:builder
+    volumes:
+      - frontend-static:/export
+    command: sh -c "mkdir -p /export && cp -r /app/out/* /export/"
+
+  auth:
+    build:
+      context: ./auth
+      dockerfile: Dockerfile
+    image: kiwi/auth:latest
+
+volumes:
+  frontend-static:
+
+networks:
+  default:
+    driver: bridge
+    name: kiwi_internal

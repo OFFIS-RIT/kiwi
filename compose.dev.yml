@@ -1,0 +1,85 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    image: kiwi/frontend-dev:latest
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      WATCHPACK_POLLING: true
+      FAST_REFRESH: true
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    command: sh -c "bun install && bun run dev"
+  server:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.server.dev
+    image: kiwi/server-dev:latest
+    volumes:
+      - ./backend:/app
+      - air-server-tmp:/app/tmp
+    ports:
+      - "8080:8080"
+    environment:
+      CI: 1
+      CLICOLOR_FORCE: 1
+      GO_ENV: development
+      AWS_PUBLIC_ENDPOINT: ${AWS_PUBLIC_ENDPOINT}
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker.dev
+    image: kiwi/worker-dev:latest
+    volumes:
+      - ./backend:/app
+      - air-worker-tmp:/app/tmp
+    environment:
+      CI: 1
+      CLICOLOR_FORCE: 1
+      GO_ENV: development
+      AWS_PUBLIC_ENDPOINT: ${AWS_PUBLIC_ENDPOINT}
+  db:
+    ports:
+      - "5432:5432"
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+  rustfs:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+  ollama:
+    ports:
+      - "11434:11434"
+
+  auth:
+    build:
+      context: ./auth
+      dockerfile: Dockerfile.dev
+    image: kiwi/auth-dev:latest
+    volumes:
+      - ./auth:/app
+      - auth-node-modules:/app/node_modules
+    ports:
+      - "4321:4321"
+    environment:
+      NODE_ENV: development
+    command: sh -c "bun install && bun run dev"
+
+volumes:
+  air-server-tmp:
+  air-worker-tmp:
+  frontend-node-modules:
+  auth-node-modules:
+
+networks:
+  default:
+    driver: bridge
+    name: kiwi_internal

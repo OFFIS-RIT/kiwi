@@ -1,0 +1,59 @@
+# Env
+.env
+.env.prod
+.env.ollama
+.env.openai
+.env.local
+
+#cursor
+.cursor/
+
+# vscode
+.vscode/
+
+# certs
+certs/kiwi.*
+
+# Build
+backend/dist/
+backend/bin/
+
+# Tmp
+backend/tmp/
+backend/graphs/
+
+# dependencies
+frontend/node_modules
+frontend/.pnp
+frontend/.pnp.*
+frontend/.yarn/*
+
+# testing
+frontend/coverage
+
+# next.js
+frontend/.next/
+frontend/out/
+
+# production
+frontend/build
+
+# misc
+frontend/.DS_Store
+frontend/*.pem
+
+# debug
+frontend/bun-debug.log*
+
+# vercel
+frontend/.vercel
+
+# typescript
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+
+# Docker
+*.pid
+*.sock
+
+*.log

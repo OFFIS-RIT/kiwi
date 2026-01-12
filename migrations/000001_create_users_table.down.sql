@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS group_users;
+DROP TABLE IF EXISTS project_updates;
+DROP TABLE IF EXISTS project_files;
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS groups;
+DROP TABLE IF EXISTS users;
