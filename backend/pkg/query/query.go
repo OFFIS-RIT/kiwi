@@ -3,7 +3,7 @@ package query
 import (
 	"context"
 
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 )
 
 // GraphQueryClient defines the interface for querying knowledge graphs using AI.

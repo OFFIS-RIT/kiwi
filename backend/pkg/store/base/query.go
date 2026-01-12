@@ -3,8 +3,8 @@ package base
 import (
 	"context"
 	"fmt"
-	"kiwi/internal/db"
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"slices"
 	"strconv"
 	"strings"

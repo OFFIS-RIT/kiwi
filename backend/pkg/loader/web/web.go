@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"kiwi/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 
 	"codeberg.org/readeck/go-readability/v2"
 	"golang.org/x/sync/singleflight"

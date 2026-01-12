@@ -3,7 +3,7 @@ package ollama
 import (
 	"math"
 
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 )
 
 // ResetMetrics clears all accumulated token and timing metrics to zero.

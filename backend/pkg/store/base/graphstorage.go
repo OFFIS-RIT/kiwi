@@ -2,12 +2,12 @@ package base
 
 import (
 	"context"
-	"kiwi/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 )
 
 type pgxIConn interface {

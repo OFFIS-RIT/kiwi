@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"kiwi/pkg/ai"
-	"kiwi/pkg/store"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/store"
 )
 
 type queryOptions struct {

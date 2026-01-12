@@ -5,8 +5,8 @@ import (
 	"encoding/base64"
 	"io"
 
-	"kiwi/pkg/ai"
-	"kiwi/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 )
 
 // ImageGraphLoader loads image files and generates text descriptions using an AI vision model.

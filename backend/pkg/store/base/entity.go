@@ -2,10 +2,10 @@ package base
 
 import (
 	"context"
-	"kiwi/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"strconv"
 
-	"kiwi/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 
 	"github.com/pgvector/pgvector-go"
 	"golang.org/x/sync/errgroup"

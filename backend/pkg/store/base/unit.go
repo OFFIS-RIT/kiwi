@@ -2,11 +2,11 @@ package base
 
 import (
 	"context"
-	"kiwi/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"strconv"
 	"strings"
 
-	"kiwi/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )

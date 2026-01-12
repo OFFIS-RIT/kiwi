@@ -3,7 +3,7 @@ package openai
 import (
 	"sync"
 
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"

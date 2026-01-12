@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"kiwi/internal/db"
-	"kiwi/pkg/ai"
-	"kiwi/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 )
 
 // entityPair represents two potentially duplicate entities

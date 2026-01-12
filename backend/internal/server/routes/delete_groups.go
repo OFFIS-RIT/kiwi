@@ -2,9 +2,9 @@ package routes
 
 import (
 	"fmt"
-	"kiwi/internal/db"
-	"kiwi/internal/server/middleware"
-	"kiwi/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"net/http"
 
 	"slices"

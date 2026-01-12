@@ -2,11 +2,11 @@ package routes
 
 import (
 	"fmt"
-	"kiwi/internal/db"
-	"kiwi/internal/queue"
-	"kiwi/internal/server/middleware"
-	"kiwi/internal/storage"
-	"kiwi/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"net/http"
 
 	"github.com/labstack/echo/v4"

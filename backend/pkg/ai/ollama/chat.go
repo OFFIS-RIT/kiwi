@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"strings"
 
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 
 	"github.com/ollama/ollama/api"
 	"github.com/pkoukk/tiktoken-go"

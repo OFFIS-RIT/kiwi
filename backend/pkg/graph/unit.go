@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"kiwi/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/pkoukk/tiktoken-go"

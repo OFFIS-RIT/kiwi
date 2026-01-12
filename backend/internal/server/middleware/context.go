@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"kiwi/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -9,10 +9,10 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/rabbitmq/amqp091-go"
 
-	"kiwi/pkg/ai"
-	oai "kiwi/pkg/ai/ollama"
-	gai "kiwi/pkg/ai/openai"
-	"kiwi/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	oai "github.com/OFFIS-RIT/kiwi/backend/pkg/ai/ollama"
+	gai "github.com/OFFIS-RIT/kiwi/backend/pkg/ai/openai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
 
 type AppUser struct {

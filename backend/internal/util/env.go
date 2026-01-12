@@ -1,7 +1,7 @@
 package util
 
 import (
-	"kiwi/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	"os"
 	"strconv"
 

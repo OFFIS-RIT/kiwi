@@ -3,10 +3,10 @@ package routes
 import (
 	"context"
 	"fmt"
-	"kiwi/internal/db"
-	"kiwi/internal/server/middleware"
-	"kiwi/internal/storage"
-	"kiwi/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"net/http"
 
 	_ "github.com/go-playground/validator"

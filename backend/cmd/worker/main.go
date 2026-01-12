@@ -8,17 +8,17 @@ import (
 	"syscall"
 	"time"
 
-	"kiwi/internal/queue"
-	"kiwi/internal/storage"
-	"kiwi/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"kiwi/pkg/ai"
-	oai "kiwi/pkg/ai/ollama"
-	gai "kiwi/pkg/ai/openai"
-	"kiwi/pkg/logger"
-	"kiwi/pkg/logger/console"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	oai "github.com/OFFIS-RIT/kiwi/backend/pkg/ai/ollama"
+	gai "github.com/OFFIS-RIT/kiwi/backend/pkg/ai/openai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger/console"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"kiwi/pkg/loader"
-	"kiwi/pkg/loader/ocr"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/ocr"
 
 	"golang.org/x/sync/singleflight"
 )

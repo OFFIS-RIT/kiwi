@@ -1,8 +1,8 @@
 package server
 
 import (
-	"kiwi/internal/server/middleware"
-	"kiwi/internal/server/routes"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server/routes"
 
 	"github.com/labstack/echo/v4"
 )

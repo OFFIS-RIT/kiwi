@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"kiwi/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 )
 
 func TestSplitIntoSentences(t *testing.T) {

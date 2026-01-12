@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"kiwi/internal/db"
-	"kiwi/pkg/ai"
-	"kiwi/pkg/loader"
-	"kiwi/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 
 	"github.com/pgvector/pgvector-go"
 	"golang.org/x/sync/errgroup"
