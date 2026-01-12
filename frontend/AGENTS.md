@@ -20,7 +20,7 @@ bun run format:check
 
 ## Code Style
 
-### Formatting (Prettier enforced)
+### Formatting (Oxfmt enforced)
 
 - Double quotes, semicolons, 2-space indentation
 - Trailing commas: ES5
