@@ -6,6 +6,71 @@
 
 Knowledge graph platform for document processing and AI-powered Q&A. Go backend (API + worker), Next.js frontend, PostgreSQL with pgvector.
 
+## GitHub Workflow
+
+### Pre-Work Checklist
+
+Before starting work on any Issue, always pull the latest `dev` branch:
+
+```bash
+git checkout dev
+git pull origin dev
+git checkout -b <type>/<short-description>
+```
+
+Branch naming examples:
+- `feat/add-user-auth`
+- `fix/chat-scroll-bug`
+- `docs/agents-github-workflow-guidelines`
+
+### Issue & PR Templates
+
+**Creating Issues:**
+- Bug reports: Use `.github/ISSUE_TEMPLATE/bug_report.md` - Title prefix: `[Bug]: `
+- Feature requests: Use `.github/ISSUE_TEMPLATE/feature_request.md` - Title prefix: `[Feature]: `
+- Always assign to the current GitHub user (use `gh api user --jq '.login'` to get username)
+
+**Creating Pull Requests:**
+- Always use `.github/pull_request_template.md`
+- Fill out all sections: Summary, Type of Change, Changes Made, Related Issues, Testing, Checklist
+- Always assign to the current GitHub user
+- Include ALL checkboxes from templates, even if unchecked (don't remove unfilled items)
+
+### GitHub Labels
+
+Always apply appropriate labels when creating Issues and PRs:
+
+| Label | Usage |
+|-------|-------|
+| `bug` | Something isn't working |
+| `enhancement` | New feature or request |
+| `documentation` | Documentation improvements |
+| `frontend` | Frontend-related changes |
+| `backend` | Backend-related changes |
+| `auth` | Authentication-related |
+| `ci` | CI/CD changes |
+| `docker` | Docker/container changes |
+| `dependencies` | Dependency updates |
+| `github_actions` | GitHub Actions changes |
+
+### Commit Messages
+
+Use Conventional Commits-style format:
+
+```
+<type>(<scope>): <short summary>
+```
+
+**Types:** `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`
+
+**Scopes:** `backend`, `frontend`, `worker`, `migrations`, `infra`, `docs`
+
+**Examples:**
+- `feat(backend): add graph traversal endpoint`
+- `fix(frontend): handle empty chat state`
+- `docs(backend): document sqlc regeneration workflow`
+- `refactor(worker): simplify job retry logic`
+
 ## Quick Start
 
 ```bash
