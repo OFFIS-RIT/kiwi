@@ -13,6 +13,7 @@ bun run build
 
 # Lint & format
 bun run lint
+bun run lint:fix
 bun run format
 bun run format:check
 ```
