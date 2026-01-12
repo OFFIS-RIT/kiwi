@@ -1,0 +1,32 @@
+changelog:
+  exclude:
+    labels:
+      - duplicate
+      - invalid
+      - wontfix
+      - "good first issue"
+      - "Good for newcomers"
+      - help wanted
+      - open issues
+      - question
+  categories:
+    - title: 🚀 Features
+      labels:
+        - enhancement
+        - frontend
+        - backend
+        - auth
+    - title: 🐛 Bug Fixes
+      labels:
+        - bug
+    - title: 📚 Documentation
+      labels:
+        - documentation
+    - title: 🔧 CI/CD
+      labels:
+        - ci
+        - github_actions
+        - docker
+    - title: ⬆️ Dependencies
+      labels:
+        - dependencies
