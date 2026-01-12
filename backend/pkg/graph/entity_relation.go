@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"kiwi/pkg/ai"
-	"kiwi/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 )
 
 func generateDescription(

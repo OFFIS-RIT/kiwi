@@ -1,8 +1,8 @@
 package routes
 
 import (
-	"kiwi/internal/db"
-	"kiwi/internal/server/middleware"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"net/http"
 
 	_ "github.com/go-playground/validator"

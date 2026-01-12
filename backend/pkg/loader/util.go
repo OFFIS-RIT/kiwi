@@ -21,7 +21,7 @@ func TransformDocToPdf(input []byte, ext string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nanoid: %w", err)
 	}
-	tmpDir := filepath.Join(os.TempDir(), "kiwi-ocr-"+id)
+	tmpDir := filepath.Join(os.TempDir(), "github.com/OFFIS-RIT/kiwi-ocr-"+id)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir tmp: %w", err)
 	}
@@ -73,7 +73,7 @@ func TransformDocToImages(input []byte, ext string) ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nanoid: %w", err)
 	}
-	tmpDir := filepath.Join(os.TempDir(), "kiwi-ocr-"+id)
+	tmpDir := filepath.Join(os.TempDir(), "github.com/OFFIS-RIT/kiwi-ocr-"+id)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir tmp: %w", err)
 	}
@@ -125,7 +125,7 @@ func TransformPdfToImages(input []byte) ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nanoid: %w", err)
 	}
-	tmpDir := filepath.Join(os.TempDir(), "kiwi-ocr-"+id)
+	tmpDir := filepath.Join(os.TempDir(), "github.com/OFFIS-RIT/kiwi-ocr-"+id)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir tmp: %w", err)
 	}
@@ -195,7 +195,7 @@ func CountPDFPages(input []byte) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("nanoid: %w", err)
 	}
-	tmpDir := filepath.Join(os.TempDir(), "kiwi-count-"+id)
+	tmpDir := filepath.Join(os.TempDir(), "github.com/OFFIS-RIT/kiwi-count-"+id)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return 0, fmt.Errorf("mkdir tmp: %w", err)
 	}
@@ -259,7 +259,7 @@ func TransformExcelToCsv(input []byte, ext string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nanoid: %w", err)
 	}
-	tmpDir := filepath.Join(os.TempDir(), "kiwi-excel-"+id)
+	tmpDir := filepath.Join(os.TempDir(), "github.com/OFFIS-RIT/kiwi-excel-"+id)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir tmp: %w", err)
 	}

@@ -3,23 +3,23 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
-	"kiwi/internal/db"
-	"kiwi/pkg/logger"
-	graphstorage "kiwi/pkg/store/base"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
 
-	"kiwi/internal/queue"
-	"kiwi/internal/server/middleware"
-	"kiwi/internal/storage"
-	"kiwi/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"net/http"
 	"regexp"
 	"strings"
 
 	"slices"
 
-	bqc "kiwi/pkg/query/base"
+	bqc "github.com/OFFIS-RIT/kiwi/backend/pkg/query/base"
 
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 
 	_ "github.com/go-playground/validator"
 	"github.com/labstack/echo/v4"

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 
-	"kiwi/pkg/ai"
-	"kiwi/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 
 	"github.com/ollama/ollama/api"
 )

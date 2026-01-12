@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"kiwi/pkg/ai"
-	"kiwi/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"

@@ -3,8 +3,8 @@ package audio
 import (
 	"context"
 
-	"kiwi/pkg/ai"
-	"kiwi/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 )
 
 // AudioGraphLoader loads audio files and transcribes them to text using an AI client.

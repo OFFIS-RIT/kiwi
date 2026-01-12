@@ -3,7 +3,7 @@ package base
 import (
 	"context"
 
-	"kiwi/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 )
 
 // UpdateProjectProcessStep updates the current step of project processing.

@@ -8,10 +8,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"kiwi/pkg/ai"
-	"kiwi/pkg/loader"
-	"kiwi/pkg/logger"
-	"kiwi/pkg/store"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/store"
 
 	"golang.org/x/sync/errgroup"
 )

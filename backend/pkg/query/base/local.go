@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 )
 
 // QueryLocal performs a local query against the knowledge graph. It retrieves

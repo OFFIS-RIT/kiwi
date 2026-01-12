@@ -2,8 +2,8 @@ package queue
 
 import (
 	"fmt"
-	"kiwi/internal/util"
-	"kiwi/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	"time"
 
 	"github.com/rabbitmq/amqp091-go"

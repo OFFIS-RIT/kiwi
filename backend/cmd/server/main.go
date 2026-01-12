@@ -1,10 +1,10 @@
 package main
 
 import (
-	"kiwi/internal/server"
-	"kiwi/internal/util"
-	"kiwi/pkg/logger"
-	"kiwi/pkg/logger/console"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger/console"
 
 	_ "github.com/lib/pq"
 )

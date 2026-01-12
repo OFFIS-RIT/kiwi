@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 
 	"github.com/openai/openai-go/v3"
 )

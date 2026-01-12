@@ -3,7 +3,7 @@ package base
 import (
 	"context"
 
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 )
 
 // QueryTool performs a query with access to external tools. The AI can invoke

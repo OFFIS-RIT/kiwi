@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"kiwi/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"mime"
 	"net/url"
 	"strings"

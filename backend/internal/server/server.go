@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"kiwi/internal/queue"
-	mid "kiwi/internal/server/middleware"
-	"kiwi/internal/storage"
-	"kiwi/internal/util"
-	"kiwi/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
+	mid "github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/go-playground/validator"

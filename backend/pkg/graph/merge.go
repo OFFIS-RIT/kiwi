@@ -1,7 +1,7 @@
 package graph
 
 import (
-	"kiwi/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 )
 
 func mergeEntitiesAndRelations(

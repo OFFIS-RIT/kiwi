@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"sync"
 
-	"kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 
 	"github.com/ollama/ollama/api"
 )

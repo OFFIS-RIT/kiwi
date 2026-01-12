@@ -7,8 +7,8 @@ import (
 
 	_ "github.com/invopop/jsonschema"
 
-	"kiwi/pkg/ai"
-	"kiwi/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )

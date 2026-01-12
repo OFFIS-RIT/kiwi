@@ -3,7 +3,7 @@ package ai
 import (
 	"context"
 
-	"kiwi/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 )
 
 // ToolHandler is a function that executes a tool call and returns its result.
