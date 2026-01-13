@@ -102,6 +102,40 @@ WHERE e.project_id = $1
 ORDER BY e.embedding <=> $2
 LIMIT $3;
 
+-- name: SearchRelationshipsByEmbedding :many
+SELECT 
+    r.id,
+    r.description,
+    r.rank,
+    r.source_id,
+    r.target_id,
+    se.name as source_name,
+    se.type as source_type,
+    te.name as target_name,
+    te.type as target_type
+FROM relationships r
+JOIN entities se ON r.source_id = se.id
+JOIN entities te ON r.target_id = te.id
+WHERE r.project_id = $1
+ORDER BY r.embedding <=> $2
+LIMIT $3;
+
+-- name: GetRelationshipsByIDs :many
+SELECT 
+    r.id,
+    r.description,
+    r.rank,
+    r.source_id,
+    r.target_id,
+    se.name as source_name,
+    se.type as source_type,
+    te.name as target_name,
+    te.type as target_type
+FROM relationships r
+JOIN entities se ON r.source_id = se.id
+JOIN entities te ON r.target_id = te.id
+WHERE r.id = ANY($1::bigint[]);
+
 -- name: GetEntityNeighboursRanked :many
 SELECT 
     r.id as relationship_id,

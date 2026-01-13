@@ -443,7 +443,7 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 		o(&options)
 	}
 
-	maxRounds := 10
+	maxRounds := 40
 	messages := []openai.ChatCompletionMessageParamUnion{
 		openai.UserMessage(prompt),
 	}
@@ -542,7 +542,7 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 		o(&options)
 	}
 
-	maxRounds := 20
+	maxRounds := 40
 	msgs := make([]openai.ChatCompletionMessageParamUnion, 0)
 	for _, message := range options.SystemPrompts {
 		msgs = append(msgs, openai.SystemMessage(message))
@@ -672,7 +672,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 		})
 	}
 
-	maxRounds := 20
+	maxRounds := 40
 	contentChan := make(chan ai.StreamEvent, 10)
 	go func() {
 		defer close(contentChan)

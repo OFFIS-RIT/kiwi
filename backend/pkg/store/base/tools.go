@@ -659,6 +659,137 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 	}
 }
 
+func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64) ai.Tool {
+	return ai.Tool{
+		Name:        "search_relationships",
+		Description: "Search for relationships in the knowledge graph by semantic similarity. Returns relationships describing how entities are connected, including their strength score. Use this to find specific connections or interactions between entities.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{
+					"type":        "string",
+					"description": "The search query to find relevant relationships using semantic similarity.",
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "Maximum number of relationships to return (default: 10).",
+					"default":     10,
+				},
+			},
+			"required": []string{"query"},
+		},
+		Handler: func(ctx context.Context, args string) (string, error) {
+			var params map[string]any
+			if err := json.Unmarshal([]byte(args), &params); err != nil {
+				return "", fmt.Errorf("failed to parse arguments: %w", err)
+			}
+
+			query, ok := params["query"].(string)
+			if !ok || query == "" {
+				return "", fmt.Errorf("query is required and must be a string")
+			}
+
+			var limit int32 = 10
+			if limitRaw, ok := params["limit"].(float64); ok && limitRaw > 0 {
+				limit = int32(limitRaw)
+			}
+
+			logger.Debug("[Tool] search_relationships", "query", query, "limit", limit)
+
+			embedding, err := aiClient.GenerateEmbedding(ctx, []byte(query))
+			if err != nil {
+				return "", fmt.Errorf("failed to generate embedding: %w", err)
+			}
+
+			q := db.New(conn)
+			relationships, err := q.SearchRelationshipsByEmbedding(ctx, db.SearchRelationshipsByEmbeddingParams{
+				ProjectID: projectId,
+				Embedding: pgvector.NewVector(embedding),
+				Limit:     limit,
+			})
+			if err != nil && err != sql.ErrNoRows {
+				return "", fmt.Errorf("failed to search relationships: %w", err)
+			}
+
+			var result strings.Builder
+			result.WriteString("## Relationships\n")
+			if len(relationships) == 0 {
+				result.WriteString("No relationships found matching the query.\n")
+			} else {
+				for i, r := range relationships {
+					desc := truncateDescription(r.Description, 150)
+					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s) <-> %s (%s) (strength: %.2f)\n   %s\n",
+						i+1, r.ID, r.SourceName, r.SourceType, r.TargetName, r.TargetType, r.Rank, desc)
+				}
+			}
+
+			return result.String(), nil
+		},
+	}
+}
+
+func toolGetRelationshipDetails(conn *pgxpool.Pool) ai.Tool {
+	return ai.Tool{
+		Name:        "get_relationship_details",
+		Description: "Get full details of specific relationships by their IDs. Returns complete relationship information including full descriptions and strength scores. Use this when you need more detail than the truncated descriptions from search results.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"relationship_ids": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "integer"},
+					"description": "The IDs of the relationships to retrieve details for (max 100).",
+				},
+			},
+			"required": []string{"relationship_ids"},
+		},
+		Handler: func(ctx context.Context, args string) (string, error) {
+			var params map[string]any
+			if err := json.Unmarshal([]byte(args), &params); err != nil {
+				return "", fmt.Errorf("failed to parse arguments: %w", err)
+			}
+
+			relationshipIdsRaw, ok := params["relationship_ids"].([]any)
+			if !ok || len(relationshipIdsRaw) == 0 {
+				return "", fmt.Errorf("relationship_ids is required and must be a non-empty array")
+			}
+			if len(relationshipIdsRaw) > 100 {
+				return "", fmt.Errorf("relationship_ids is limited to 100 relationships maximum")
+			}
+
+			relationshipIds := make([]int64, 0, len(relationshipIdsRaw))
+			for _, id := range relationshipIdsRaw {
+				if idFloat, ok := id.(float64); ok {
+					relationshipIds = append(relationshipIds, int64(idFloat))
+				}
+			}
+
+			logger.Debug("[Tool] get_relationship_details", "relationship_ids", relationshipIds)
+
+			q := db.New(conn)
+			relationships, err := q.GetRelationshipsByIDs(ctx, relationshipIds)
+			if err != nil && err != sql.ErrNoRows {
+				return "", fmt.Errorf("failed to get relationship details: %w", err)
+			}
+
+			var result strings.Builder
+			result.WriteString("## Relationship Details\n")
+			if len(relationships) == 0 {
+				result.WriteString("No relationships found with the specified IDs.\n")
+			} else {
+				for i, r := range relationships {
+					desc := strings.ReplaceAll(r.Description, "\n", " ")
+					desc = strings.ReplaceAll(desc, "\r", " ")
+					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s) <-> %s (%s) (strength: %.2f)\n   %s\n\n",
+						i+1, r.ID, r.SourceName, r.SourceType, r.TargetName, r.TargetType, r.Rank, desc)
+				}
+			}
+
+			return result.String(), nil
+		},
+	}
+}
+
 func toolGetSourceDocumentMetadata(conn *pgxpool.Pool) ai.Tool {
 	return ai.Tool{
 		Name:        "get_source_document_metadata",
@@ -726,17 +857,20 @@ func toolGetSourceDocumentMetadata(conn *pgxpool.Pool) ai.Tool {
 }
 
 // GetToolList returns a set of AI tools for exploring and querying a knowledge
-// graph. Tools include entity search, neighbour exploration, path finding,
-// source retrieval, and document metadata access. These tools enable agentic
-// workflows where the AI can navigate the graph structure autonomously.
+// graph. Tools include entity search, relationship search, neighbour exploration,
+// path finding, source retrieval, and document metadata access. These tools
+// enable agentic workflows where the AI can navigate the graph structure
+// autonomously.
 func GetToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64) []ai.Tool {
 	return []ai.Tool{
 		toolSearchEntities(conn, aiClient, projectId),
+		toolSearchRelationships(conn, aiClient, projectId),
 		toolGetEntityNeighbours(conn, aiClient),
 		toolPathBetweenEntities(conn, projectId),
 		toolGetEntitySources(conn, aiClient),
 		toolGetRelationshipSources(conn, aiClient),
 		toolGetEntityDetails(conn),
+		toolGetRelationshipDetails(conn),
 		toolGetEntityTypes(conn, projectId),
 		toolSearchEntitiesByType(conn, aiClient, projectId),
 		toolGetSourceDocumentMetadata(conn),
