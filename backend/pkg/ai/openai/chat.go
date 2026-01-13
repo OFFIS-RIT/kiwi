@@ -340,7 +340,12 @@ func (c *GraphOpenAIClient) GenerateChatStream(
 					var reasoningContent string
 					if reasoningField, ok := chunk.Choices[0].Delta.JSON.ExtraFields["reasoning"]; ok && reasoningField.Raw() != "" {
 						var decoded string
-						if err := json.Unmarshal([]byte(reasoningField.Raw()), &decoded); err == nil {
+						if err := json.Unmarshal([]byte(reasoningField.Raw()), &decoded); err == nil && decoded != "" {
+							reasoningContent = decoded
+						}
+					} else if reasoningField, ok := chunk.Choices[0].Delta.JSON.ExtraFields["reasoning_content"]; ok && reasoningField.Raw() != "" {
+						var decoded string
+						if err := json.Unmarshal([]byte(reasoningField.Raw()), &decoded); err == nil && decoded != "" {
 							reasoningContent = decoded
 						}
 					}
@@ -705,16 +710,26 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 				acc.AddChunk(chunk)
 
 				if len(chunk.Choices) > 0 {
+					reasoningContent := ""
 					if reasoningField, ok := chunk.Choices[0].Delta.JSON.ExtraFields["reasoning"]; ok && reasoningField.Raw() != "" {
 						var decoded string
 						if err := json.Unmarshal([]byte(reasoningField.Raw()), &decoded); err == nil && decoded != "" {
-							select {
-							case contentChan <- ai.StreamEvent{Type: "step", Step: "thinking", Reasoning: decoded}:
-							case <-ctx.Done():
-								stop = true
-								stream.Close()
-								return
-							}
+							reasoningContent = decoded
+						}
+					} else if reasoningField, ok := chunk.Choices[0].Delta.JSON.ExtraFields["reasoning_content"]; ok && reasoningField.Raw() != "" {
+						var decoded string
+						if err := json.Unmarshal([]byte(reasoningField.Raw()), &decoded); err == nil && decoded != "" {
+							reasoningContent = decoded
+						}
+					}
+
+					if reasoningContent != "" {
+						select {
+						case contentChan <- ai.StreamEvent{Type: "step", Step: "thinking", Reasoning: reasoningContent}:
+						case <-ctx.Done():
+							stop = true
+							stream.Close()
+							return
 						}
 					}
 
