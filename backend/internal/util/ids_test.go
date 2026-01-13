@@ -145,6 +145,52 @@ func TestNormalizeIDs(t *testing.T) {
 			in:   "One. [id] [[id]]. Two. [id] [[other id]].",
 			want: "One. [[id]]. Two. [[id]] [[other id]].",
 		},
+		// Malformed IDs with prefixes from LLM
+		{
+			name: "MalformedCommaPrefix",
+			in:   "Reference: [[LEHR,sGvgBXbBcVCjBIKCLS2Os]]",
+			want: "Reference: [[sGvgBXbBcVCjBIKCLS2Os]]",
+		},
+		{
+			name: "MalformedMultipleCommaPrefixes",
+			in:   "Reference: [[LEHR,TIGER,sGvgBXbBcVCjBIKCLS2Os]]",
+			want: "Reference: [[sGvgBXbBcVCjBIKCLS2Os]]",
+		},
+		{
+			name: "MalformedSemicolonPrefix",
+			in:   "Reference: [[PREFIX;abc123xyz]]",
+			want: "Reference: [[abc123xyz]]",
+		},
+		{
+			name: "MalformedPipePrefix",
+			in:   "Reference: [[TYPE|abc123xyz]]",
+			want: "Reference: [[abc123xyz]]",
+		},
+		{
+			name: "MalformedColonPrefix",
+			in:   "Reference: [[DOC:abc123xyz]]",
+			want: "Reference: [[abc123xyz]]",
+		},
+		{
+			name: "MalformedMixedSeparators",
+			in:   "Reference: [[A,B;C|abc123xyz]]",
+			want: "Reference: [[abc123xyz]]",
+		},
+		{
+			name: "MalformedWithSpaces",
+			in:   "Reference: [[PREFIX, abc123xyz ]]",
+			want: "Reference: [[abc123xyz]]",
+		},
+		{
+			name: "MalformedMultipleIDs",
+			in:   "See [[LEHR,id1]] and [[TIGER,id2]]",
+			want: "See [[id1]] and [[id2]]",
+		},
+		{
+			name: "ValidIDNoChange",
+			in:   "Valid: [[sGvgBXbBcVCjBIKCLS2Os]]",
+			want: "Valid: [[sGvgBXbBcVCjBIKCLS2Os]]",
+		},
 	}
 
 	for _, tc := range tests {
@@ -154,7 +200,6 @@ func TestNormalizeIDs(t *testing.T) {
 				t.Fatalf("NormalizeIDs(%q)\nwant: %q\ngot:  %q",
 					tc.in, tc.want, got)
 			}
-			// Idempotence: applying twice yields the same result.
 			twice := NormalizeIDs(got)
 			if twice != got {
 				t.Fatalf("NormalizeIDs not idempotent for %q:\nfirst:  %q\nsecond: %q",

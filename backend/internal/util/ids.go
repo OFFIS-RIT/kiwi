@@ -7,10 +7,12 @@ import (
 )
 
 var (
-	reBoldDouble = regexp.MustCompile(`\*\*\s*\[\[([^][]+)\]\]\s*\*\*`)
-	reBoldSingle = regexp.MustCompile(`\*\*\s*\[([^][]+)\]\s*\*\*`)
-	reToken      = regexp.MustCompile(`\[\[([^][]+)\]\]`)
-	reTokenSep   = regexp.MustCompile(`\]\][\t ]+\[\[`)
+	reBoldDouble  = regexp.MustCompile(`\*\*\s*\[\[([^][]+)\]\]\s*\*\*`)
+	reBoldSingle  = regexp.MustCompile(`\*\*\s*\[([^][]+)\]\s*\*\*`)
+	reToken       = regexp.MustCompile(`\[\[([^][]+)\]\]`)
+	reTokenSep    = regexp.MustCompile(`\]\][\t ]+\[\[`)
+	rePrefixedID  = regexp.MustCompile(`\[\[([^][]*[,;|:][^][]*)\]\]`)
+	idSepSplitter = regexp.MustCompile(`[,;|:]`)
 )
 
 func NormalizeIDs(s string) string {
@@ -19,10 +21,28 @@ func NormalizeIDs(s string) string {
 
 	s = upgradeSingleBracketsSkippingLinks(s)
 	s = dedupeAdjacentIDs(s)
+	s = extractLastIDSegment(s)
 
 	s = reTokenSep.ReplaceAllString(s, "]] [[")
 
 	return s
+}
+
+func extractLastIDSegment(s string) string {
+	return rePrefixedID.ReplaceAllStringFunc(s, func(match string) string {
+		inner := match[2 : len(match)-2]
+		parts := idSepSplitter.Split(inner, -1)
+		if len(parts) <= 1 {
+			return match
+		}
+		for i := len(parts) - 1; i >= 0; i-- {
+			segment := strings.TrimSpace(parts[i])
+			if segment != "" {
+				return "[[" + segment + "]]"
+			}
+		}
+		return match
+	})
 }
 
 func upgradeSingleBracketsSkippingLinks(s string) string {
