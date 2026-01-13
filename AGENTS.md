@@ -8,6 +8,15 @@ Knowledge graph platform for document processing and AI-powered Q&A. Go backend 
 
 ## GitHub Workflow
 
+### Language Requirement
+
+All GitHub contributions **must be written in English** to ensure consistency and accessibility for all contributors. This includes:
+
+- Issue titles and descriptions
+- Pull request titles and descriptions
+- Commit messages
+- Code comments and documentation
+
 ### Pre-Work Checklist
 
 Before starting work on any Issue, always pull the latest `dev` branch:
@@ -17,6 +26,11 @@ git checkout dev
 git pull origin dev
 git checkout -b <type>/<short-description>
 ```
+
+Branch naming rules:
+- Use format `<type>/<short-description>` (e.g., `feat/add-user-auth`)
+- **Do NOT include issue numbers** in branch names (e.g., avoid `feat/123-add-auth`)
+- Use descriptive kebab-case names
 
 Branch naming examples:
 - `feat/add-user-auth`
