@@ -4,6 +4,68 @@ import (
 	"testing"
 )
 
+const (
+	id1 = "sGvgBXbBcVCjBIKCLS2Os"
+	id2 = "tHwhCYcCdWDkCJLDMT3Pt"
+	id3 = "uIxiDZdDeXElDKMENUaPu"
+)
+
+func TestIsNanoid(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"Valid21Chars", id1, true},
+		{"Valid21CharsAlt", id2, true},
+		{"TooShort", "abc123", false},
+		{"TooLong", "sGvgBXbBcVCjBIKCLS2OsX", false},
+		{"WithSpace", "sGvgBXbBcVCjBIKCL 2Os", false},
+		{"WithComma", "sGvgBXbBcVCjBIKCL,2Os", false},
+		{"Empty", "", false},
+		{"AllDashes", "---------------------", true},
+		{"AllUnderscores", "_____________________", true},
+		{"MixedValid", "Aa0_-Bb1_-Cc2_-Dd3_-E", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isNanoid(tc.in)
+			if got != tc.want {
+				t.Fatalf("isNanoid(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExtractNanoid(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"JustNanoid", id1, id1},
+		{"PrefixComma", "LEHR," + id1, id1},
+		{"MultiplePrefixes", "LEHR,TIGER," + id1, id1},
+		{"PrefixSemicolon", "PREFIX;" + id1, id1},
+		{"PrefixPipe", "TYPE|" + id1, id1},
+		{"PrefixColon", "DOC:" + id1, id1},
+		{"MixedSeparators", "A,B;C|" + id1, id1},
+		{"TooShort", "abc123", ""},
+		{"NoValidNanoid", "LEHR,TIGER,SHORT", ""},
+		{"SpacePrefix", "PREFIX " + id1, id1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractNanoid(tc.in)
+			if got != tc.want {
+				t.Fatalf("extractNanoid(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeIDs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -12,48 +74,48 @@ func TestNormalizeIDs(t *testing.T) {
 	}{
 		{
 			name: "AlreadyOK",
-			in:   "Already OK: [[abc-123]]",
-			want: "Already OK: [[abc-123]]",
+			in:   "Already OK: [[" + id1 + "]]",
+			want: "Already OK: [[" + id1 + "]]",
 		},
 		{
 			name: "SingleBracket",
-			in:   "Single: [abc-123]",
-			want: "Single: [[abc-123]]",
+			in:   "Single: [" + id1 + "]",
+			want: "Single: [[" + id1 + "]]",
 		},
 		{
 			name: "BoldSingle",
-			in:   "Bold single: **[abc-123]**",
-			want: "Bold single: [[abc-123]]",
+			in:   "Bold single: **[" + id1 + "]**",
+			want: "Bold single: [[" + id1 + "]]",
 		},
 		{
 			name: "BoldDouble",
-			in:   "Bold double: **[[abc-123]]**",
-			want: "Bold double: [[abc-123]]",
+			in:   "Bold double: **[[" + id1 + "]]**",
+			want: "Bold double: [[" + id1 + "]]",
 		},
 		{
 			name: "LinkSkipped",
-			in:   "Link: [text](http://example.com) and [abc]",
-			want: "Link: [text](http://example.com) and [[abc]]",
+			in:   "Link: [text](http://example.com) and [" + id1 + "]",
+			want: "Link: [text](http://example.com) and [[" + id1 + "]]",
 		},
 		{
 			name: "DedupWhitespace",
-			in:   "Dupes: [[id 1]] [[id 1]] then text",
-			want: "Dupes: [[id 1]] then text",
+			in:   "Dupes: [[" + id1 + "]] [[" + id1 + "]] then text",
+			want: "Dupes: [[" + id1 + "]] then text",
 		},
 		{
 			name: "DedupTight",
-			in:   "Tight dupes: [[id 1]][[id 1]] next",
-			want: "Tight dupes: [[id 1]] next",
+			in:   "Tight dupes: [[" + id1 + "]][[" + id1 + "]] next",
+			want: "Tight dupes: [[" + id1 + "]] next",
 		},
 		{
 			name: "DedupAcrossLines",
-			in:   "Across lines:\n[[id]]\n[[id]] next",
-			want: "Across lines:\n[[id]] next",
+			in:   "Across lines:\n[[" + id1 + "]]\n[[" + id1 + "]] next",
+			want: "Across lines:\n[[" + id1 + "]] next",
 		},
 		{
 			name: "Mixed",
-			in:   "Mixed: start [id] and [[ok]] and **[x]** and [[x]] [[x]]",
-			want: "Mixed: start [[id]] and [[ok]] and [[x]] and [[x]]",
+			in:   "Mixed: start [" + id1 + "] and [[" + id2 + "]] and **[" + id3 + "]** and [[" + id3 + "]] [[" + id3 + "]]",
+			want: "Mixed: start [[" + id1 + "]] and [[" + id2 + "]] and [[" + id3 + "]] and [[" + id3 + "]]",
 		},
 		{
 			name: "NestedSingleBracketKept",
@@ -62,134 +124,139 @@ func TestNormalizeIDs(t *testing.T) {
 		},
 		{
 			name: "DanglingBracket",
-			in:   "Dangling: [abc",
-			want: "Dangling: [abc",
+			in:   "Dangling: [" + id1,
+			want: "Dangling: [" + id1,
 		},
 		{
 			name: "PunctuationAfterSingleBracket",
-			in:   "Comma: [abc],",
-			want: "Comma: [[abc]],",
+			in:   "Comma: [" + id1 + "],",
+			want: "Comma: [[" + id1 + "]],",
 		},
 		{
 			name: "RunOfDuplicatesWithWhitespace",
-			in:   "Run: [[a]]  \t [[a]]   [[a]] end",
-			want: "Run: [[a]] end",
+			in:   "Run: [[" + id1 + "]]  \t [[" + id1 + "]]   [[" + id1 + "]] end",
+			want: "Run: [[" + id1 + "]] end",
 		},
 		{
 			name: "BoldSpaced",
-			in:   "Bold spaced: **  [[id 2]]  **",
-			want: "Bold spaced: [[id 2]]",
+			in:   "Bold spaced: **  [[" + id2 + "]]  **",
+			want: "Bold spaced: [[" + id2 + "]]",
 		},
 		{
 			name: "NotDedupAcrossPunctuation",
-			in:   "Comma separated: [[a]], [[a]]",
-			want: "Comma separated: [[a]], [[a]]",
+			in:   "Comma separated: [[" + id1 + "]], [[" + id1 + "]]",
+			want: "Comma separated: [[" + id1 + "]], [[" + id1 + "]]",
 		},
 		{
 			name: "LeaveDoubleBracketThenParen",
-			in:   "Token then paren: [[a]](x)",
-			want: "Token then paren: [[a]](x)",
+			in:   "Token then paren: [[" + id1 + "]](x)",
+			want: "Token then paren: [[" + id1 + "]](x)",
 		},
 		{
-			name: "MultiSentences_Ellipses", // your example
-			in:   ".... [id] [[id]]. ... [id] [[other id]]",
-			want: ".... [[id]]. ... [[id]] [[other id]]",
+			name: "MultiSentences_Ellipses",
+			in:   ".... [" + id1 + "] [[" + id1 + "]]. ... [" + id1 + "] [[" + id2 + "]]",
+			want: ".... [[" + id1 + "]]. ... [[" + id1 + "]] [[" + id2 + "]]",
 		},
 		{
 			name: "MultiSentences_VariousPunct",
-			in:   "Start: [id] [[id]]! Next? [id] [[id]]...",
-			want: "Start: [[id]]! Next? [[id]]...",
+			in:   "Start: [" + id1 + "] [[" + id1 + "]]! Next? [" + id1 + "] [[" + id1 + "]]...",
+			want: "Start: [[" + id1 + "]]! Next? [[" + id1 + "]]...",
 		},
 		{
 			name: "MultiLine_AdjacentDupesCollapse",
-			in:   "Line1: [id] [[id]]\nLine2: [id] [[other id]]",
-			want: "Line1: [[id]]\nLine2: [[id]] [[other id]]",
+			in:   "Line1: [" + id1 + "] [[" + id1 + "]]\nLine2: [" + id1 + "] [[" + id2 + "]]",
+			want: "Line1: [[" + id1 + "]]\nLine2: [[" + id1 + "]] [[" + id2 + "]]",
 		},
 		{
 			name: "MultiLine_DupeAcrossNewlineWhitespace",
-			in:   "First:\n[id]\n[[id]] next",
-			want: "First:\n[[id]] next",
+			in:   "First:\n[" + id1 + "]\n[[" + id1 + "]] next",
+			want: "First:\n[[" + id1 + "]] next",
 		},
 		{
 			name: "MultiLine_DupeAcrossNewlineIndented",
-			in:   "First:\n[id]\n    [[id]] next",
-			want: "First:\n[[id]] next",
+			in:   "First:\n[" + id1 + "]\n    [[" + id1 + "]] next",
+			want: "First:\n[[" + id1 + "]] next",
 		},
 		{
 			name: "MultiParagraphs",
-			in:   "Intro\n[id] [[id]]\n\nPara 2\n[id] [[other id]]",
-			want: "Intro\n[[id]]\n\nPara 2\n[[id]] [[other id]]",
+			in:   "Intro\n[" + id1 + "] [[" + id1 + "]]\n\nPara 2\n[" + id1 + "] [[" + id2 + "]]",
+			want: "Intro\n[[" + id1 + "]]\n\nPara 2\n[[" + id1 + "]] [[" + id2 + "]]",
 		},
 		{
 			name: "NoDedupAcrossPunctuation_Sentences",
-			in:   "[[id]]. [[id]] next",
-			want: "[[id]]. [[id]] next",
+			in:   "[[" + id1 + "]]. [[" + id1 + "]] next",
+			want: "[[" + id1 + "]]. [[" + id1 + "]] next",
 		},
 		{
 			name: "NoDedupAcrossComma",
-			in:   "[[id]], [[id]] next",
-			want: "[[id]], [[id]] next",
+			in:   "[[" + id1 + "]], [[" + id1 + "]] next",
+			want: "[[" + id1 + "]], [[" + id1 + "]] next",
 		},
 		{
 			name: "TrailingPunctAfterDedup",
-			in:   "See: [id] [[id]], then more.",
-			want: "See: [[id]], then more.",
+			in:   "See: [" + id1 + "] [[" + id1 + "]], then more.",
+			want: "See: [[" + id1 + "]], then more.",
 		},
 		{
 			name: "MixedSpacesTabsNewlines",
-			in:   "A: [id]\t [[id]] \n[id]\t[[other id]]",
-			want: "A: [[id]] \n[[id]] [[other id]]",
+			in:   "A: [" + id1 + "]\t [[" + id1 + "]] \n[" + id1 + "]\t[[" + id2 + "]]",
+			want: "A: [[" + id1 + "]] \n[[" + id1 + "]] [[" + id2 + "]]",
 		},
 		{
 			name: "SentenceBoundariesMultiple",
-			in:   "One. [id] [[id]]. Two. [id] [[other id]].",
-			want: "One. [[id]]. Two. [[id]] [[other id]].",
+			in:   "One. [" + id1 + "] [[" + id1 + "]]. Two. [" + id1 + "] [[" + id2 + "]].",
+			want: "One. [[" + id1 + "]]. Two. [[" + id1 + "]] [[" + id2 + "]].",
 		},
 		// Malformed IDs with prefixes from LLM
 		{
 			name: "MalformedCommaPrefix",
-			in:   "Reference: [[LEHR,sGvgBXbBcVCjBIKCLS2Os]]",
-			want: "Reference: [[sGvgBXbBcVCjBIKCLS2Os]]",
+			in:   "Reference: [[LEHR," + id1 + "]]",
+			want: "Reference: [[" + id1 + "]]",
 		},
 		{
 			name: "MalformedMultipleCommaPrefixes",
-			in:   "Reference: [[LEHR,TIGER,sGvgBXbBcVCjBIKCLS2Os]]",
-			want: "Reference: [[sGvgBXbBcVCjBIKCLS2Os]]",
+			in:   "Reference: [[LEHR,TIGER," + id1 + "]]",
+			want: "Reference: [[" + id1 + "]]",
 		},
 		{
 			name: "MalformedSemicolonPrefix",
-			in:   "Reference: [[PREFIX;abc123xyz]]",
-			want: "Reference: [[abc123xyz]]",
+			in:   "Reference: [[PREFIX;" + id1 + "]]",
+			want: "Reference: [[" + id1 + "]]",
 		},
 		{
 			name: "MalformedPipePrefix",
-			in:   "Reference: [[TYPE|abc123xyz]]",
-			want: "Reference: [[abc123xyz]]",
+			in:   "Reference: [[TYPE|" + id1 + "]]",
+			want: "Reference: [[" + id1 + "]]",
 		},
 		{
 			name: "MalformedColonPrefix",
-			in:   "Reference: [[DOC:abc123xyz]]",
-			want: "Reference: [[abc123xyz]]",
+			in:   "Reference: [[DOC:" + id1 + "]]",
+			want: "Reference: [[" + id1 + "]]",
 		},
 		{
 			name: "MalformedMixedSeparators",
-			in:   "Reference: [[A,B;C|abc123xyz]]",
-			want: "Reference: [[abc123xyz]]",
+			in:   "Reference: [[A,B;C|" + id1 + "]]",
+			want: "Reference: [[" + id1 + "]]",
 		},
 		{
-			name: "MalformedWithSpaces",
-			in:   "Reference: [[PREFIX, abc123xyz ]]",
-			want: "Reference: [[abc123xyz]]",
+			name: "MalformedWithSpacePrefix",
+			in:   "Reference: [[PREFIX " + id1 + "]]",
+			want: "Reference: [[" + id1 + "]]",
 		},
 		{
 			name: "MalformedMultipleIDs",
-			in:   "See [[LEHR,id1]] and [[TIGER,id2]]",
-			want: "See [[id1]] and [[id2]]",
+			in:   "See [[LEHR," + id1 + "]] and [[TIGER," + id2 + "]]",
+			want: "See [[" + id1 + "]] and [[" + id2 + "]]",
 		},
 		{
 			name: "ValidIDNoChange",
-			in:   "Valid: [[sGvgBXbBcVCjBIKCLS2Os]]",
-			want: "Valid: [[sGvgBXbBcVCjBIKCLS2Os]]",
+			in:   "Valid: [[" + id1 + "]]",
+			want: "Valid: [[" + id1 + "]]",
+		},
+		{
+			name: "MalformedNoValidNanoid",
+			in:   "Invalid: [[LEHR,SHORT]]",
+			want: "Invalid: [[LEHR,SHORT]]",
 		},
 	}
 

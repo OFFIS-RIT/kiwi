@@ -6,13 +6,14 @@ import (
 	"unicode"
 )
 
+const nanoidLen = 21
+
 var (
-	reBoldDouble  = regexp.MustCompile(`\*\*\s*\[\[([^][]+)\]\]\s*\*\*`)
-	reBoldSingle  = regexp.MustCompile(`\*\*\s*\[([^][]+)\]\s*\*\*`)
-	reToken       = regexp.MustCompile(`\[\[([^][]+)\]\]`)
-	reTokenSep    = regexp.MustCompile(`\]\][\t ]+\[\[`)
-	rePrefixedID  = regexp.MustCompile(`\[\[([^][]*[,;|:][^][]*)\]\]`)
-	idSepSplitter = regexp.MustCompile(`[,;|:]`)
+	reBoldDouble = regexp.MustCompile(`\*\*\s*\[\[([^][]+)\]\]\s*\*\*`)
+	reBoldSingle = regexp.MustCompile(`\*\*\s*\[([^][]+)\]\s*\*\*`)
+	reToken      = regexp.MustCompile(`\[\[([^][]+)\]\]`)
+	reTokenSep   = regexp.MustCompile(`\]\][\t ]+\[\[`)
+	reMalformed  = regexp.MustCompile(`\[\[[^][]{22,}\]\]`)
 )
 
 func NormalizeIDs(s string) string {
@@ -28,18 +29,46 @@ func NormalizeIDs(s string) string {
 	return s
 }
 
+func isNanoidChar(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		(c >= '0' && c <= '9') || c == '_' || c == '-'
+}
+
+func isNanoid(s string) bool {
+	if len(s) != nanoidLen {
+		return false
+	}
+	for i := range nanoidLen {
+		if !isNanoidChar(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func extractNanoid(s string) string {
+	if len(s) < nanoidLen {
+		return ""
+	}
+	for i := len(s) - nanoidLen; i >= 0; i-- {
+		candidate := s[i : i+nanoidLen]
+		if isNanoid(candidate) {
+			if i == 0 || !isNanoidChar(s[i-1]) {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
 func extractLastIDSegment(s string) string {
-	return rePrefixedID.ReplaceAllStringFunc(s, func(match string) string {
+	return reMalformed.ReplaceAllStringFunc(s, func(match string) string {
 		inner := match[2 : len(match)-2]
-		parts := idSepSplitter.Split(inner, -1)
-		if len(parts) <= 1 {
+		if isNanoid(inner) {
 			return match
 		}
-		for i := len(parts) - 1; i >= 0; i-- {
-			segment := strings.TrimSpace(parts[i])
-			if segment != "" {
-				return "[[" + segment + "]]"
-			}
+		if id := extractNanoid(inner); id != "" {
+			return "[[" + id + "]]"
 		}
 		return match
 	})
