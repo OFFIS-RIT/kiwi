@@ -27,6 +27,11 @@ git pull origin dev
 git checkout -b <type>/<short-description>
 ```
 
+Branch naming rules:
+- Use format `<type>/<short-description>` (e.g., `feat/add-user-auth`)
+- **Do NOT include issue numbers** in branch names (e.g., avoid `feat/123-add-auth`)
+- Use descriptive kebab-case names
+
 Branch naming examples:
 - `feat/add-user-auth`
 - `fix/chat-scroll-bug`
