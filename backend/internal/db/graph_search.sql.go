@@ -503,6 +503,65 @@ func (q *Queries) GetEntityNeighboursRanked(ctx context.Context, arg GetEntityNe
 	return items, nil
 }
 
+const getRelationshipsByIDs = `-- name: GetRelationshipsByIDs :many
+SELECT 
+    r.id,
+    r.description,
+    r.rank,
+    r.source_id,
+    r.target_id,
+    se.name as source_name,
+    se.type as source_type,
+    te.name as target_name,
+    te.type as target_type
+FROM relationships r
+JOIN entities se ON r.source_id = se.id
+JOIN entities te ON r.target_id = te.id
+WHERE r.id = ANY($1::bigint[])
+`
+
+type GetRelationshipsByIDsRow struct {
+	ID          int64   `json:"id"`
+	Description string  `json:"description"`
+	Rank        float64 `json:"rank"`
+	SourceID    int64   `json:"source_id"`
+	TargetID    int64   `json:"target_id"`
+	SourceName  string  `json:"source_name"`
+	SourceType  string  `json:"source_type"`
+	TargetName  string  `json:"target_name"`
+	TargetType  string  `json:"target_type"`
+}
+
+func (q *Queries) GetRelationshipsByIDs(ctx context.Context, dollar_1 []int64) ([]GetRelationshipsByIDsRow, error) {
+	rows, err := q.db.Query(ctx, getRelationshipsByIDs, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetRelationshipsByIDsRow{}
+	for rows.Next() {
+		var i GetRelationshipsByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Description,
+			&i.Rank,
+			&i.SourceID,
+			&i.TargetID,
+			&i.SourceName,
+			&i.SourceType,
+			&i.TargetName,
+			&i.TargetType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchEntitiesByEmbedding = `-- name: SearchEntitiesByEmbedding :many
 SELECT e.id, e.name, e.type, e.description
 FROM entities e
@@ -538,6 +597,73 @@ func (q *Queries) SearchEntitiesByEmbedding(ctx context.Context, arg SearchEntit
 			&i.Name,
 			&i.Type,
 			&i.Description,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchRelationshipsByEmbedding = `-- name: SearchRelationshipsByEmbedding :many
+SELECT 
+    r.id,
+    r.description,
+    r.rank,
+    r.source_id,
+    r.target_id,
+    se.name as source_name,
+    se.type as source_type,
+    te.name as target_name,
+    te.type as target_type
+FROM relationships r
+JOIN entities se ON r.source_id = se.id
+JOIN entities te ON r.target_id = te.id
+WHERE r.project_id = $1
+ORDER BY r.embedding <=> $2
+LIMIT $3
+`
+
+type SearchRelationshipsByEmbeddingParams struct {
+	ProjectID int64           `json:"project_id"`
+	Embedding pgvector.Vector `json:"embedding"`
+	Limit     int32           `json:"limit"`
+}
+
+type SearchRelationshipsByEmbeddingRow struct {
+	ID          int64   `json:"id"`
+	Description string  `json:"description"`
+	Rank        float64 `json:"rank"`
+	SourceID    int64   `json:"source_id"`
+	TargetID    int64   `json:"target_id"`
+	SourceName  string  `json:"source_name"`
+	SourceType  string  `json:"source_type"`
+	TargetName  string  `json:"target_name"`
+	TargetType  string  `json:"target_type"`
+}
+
+func (q *Queries) SearchRelationshipsByEmbedding(ctx context.Context, arg SearchRelationshipsByEmbeddingParams) ([]SearchRelationshipsByEmbeddingRow, error) {
+	rows, err := q.db.Query(ctx, searchRelationshipsByEmbedding, arg.ProjectID, arg.Embedding, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchRelationshipsByEmbeddingRow{}
+	for rows.Next() {
+		var i SearchRelationshipsByEmbeddingRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Description,
+			&i.Rank,
+			&i.SourceID,
+			&i.TargetID,
+			&i.SourceName,
+			&i.SourceType,
+			&i.TargetName,
+			&i.TargetType,
 		); err != nil {
 			return nil, err
 		}

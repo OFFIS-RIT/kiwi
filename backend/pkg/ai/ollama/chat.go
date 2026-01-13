@@ -414,7 +414,7 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 		o(&options)
 	}
 
-	maxRounds := 10
+	maxRounds := 40
 	messages := []api.Message{
 		{Role: "user", Content: prompt},
 	}
@@ -575,7 +575,7 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 		o(&options)
 	}
 
-	maxRounds := 20
+	maxRounds := 40
 	msgs := make([]api.Message, 0, len(options.SystemPrompts)+len(messages))
 	for _, sys := range options.SystemPrompts {
 		msgs = append(msgs, api.Message{Role: "system", Content: sys})
@@ -809,7 +809,7 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 		}
 	}
 
-	maxRounds := 20
+	maxRounds := 40
 	for range maxRounds {
 		stream := false
 		req := &api.ChatRequest{
