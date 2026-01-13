@@ -8,6 +8,9 @@
 #cursor
 .cursor/
 
+# opencode
+.opencode/
+
 # vscode
 .vscode/
 
