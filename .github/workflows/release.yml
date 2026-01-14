@@ -24,6 +24,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Lowercase Image Prefix
+        run: |
+          echo "IMAGE_PREFIX=${IMAGE_PREFIX,,}" >> ${GITHUB_ENV}
+        env:
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
