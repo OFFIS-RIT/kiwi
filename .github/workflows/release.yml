@@ -20,9 +20,6 @@ jobs:
       contents: read
       packages: write
 
-    outputs:
-      image_tag: ${{ steps.meta.outputs.version }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -120,24 +117,3 @@ jobs:
             ${{ env.IMAGE_PREFIX }}/auth:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    environment: production
-
-    steps:
-      - name: Deploy to Production
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.PROD_SERVER_HOST }}
-          username: ${{ secrets.PROD_SERVER_USER }}
-          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
-          script: |
-            cd ${{ secrets.DEPLOY_PATH }}
-            git fetch --tags
-            git checkout ${{ github.ref_name }}
-            make pull TAG=${{ needs.build.outputs.image_tag }}
-            make stop
-            make start
-            make migrate
