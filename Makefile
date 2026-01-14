@@ -51,4 +51,21 @@ migrate:
 			-database "$${DATABASE_URL}" \
 			up
 
-.PHONY: build build-dev start stop dev dev-backend dev-stop migrate
+REGISTRY := ghcr.io/offis-rit/kiwi
+TAG ?= latest
+
+pull:
+	@docker pull $(REGISTRY)/postgres:$(TAG)
+	@docker pull $(REGISTRY)/server:$(TAG)
+	@docker pull $(REGISTRY)/worker:$(TAG)
+	@docker pull $(REGISTRY)/frontend:$(TAG)
+	@docker pull $(REGISTRY)/frontend:$(TAG)-builder
+	@docker pull $(REGISTRY)/auth:$(TAG)
+	@docker tag $(REGISTRY)/postgres:$(TAG) kiwi/postgres:latest
+	@docker tag $(REGISTRY)/server:$(TAG) kiwi/server:latest
+	@docker tag $(REGISTRY)/worker:$(TAG) kiwi/worker:latest
+	@docker tag $(REGISTRY)/frontend:$(TAG) kiwi/frontend:latest
+	@docker tag $(REGISTRY)/frontend:$(TAG)-builder kiwi/frontend:builder
+	@docker tag $(REGISTRY)/auth:$(TAG) kiwi/auth:latest
+
+.PHONY: build build-dev start stop dev dev-backend dev-stop migrate pull
