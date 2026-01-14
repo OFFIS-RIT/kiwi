@@ -30,6 +30,9 @@ jobs:
         env:
           IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -52,6 +55,7 @@ jobs:
         with:
           context: ./backend
           file: ./backend/Dockerfile.postgres
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/postgres:${{ steps.meta.outputs.version }}
@@ -64,6 +68,7 @@ jobs:
         with:
           context: ./backend
           file: ./backend/Dockerfile.server
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/server:${{ steps.meta.outputs.version }}
@@ -76,6 +81,7 @@ jobs:
         with:
           context: ./backend
           file: ./backend/Dockerfile.worker
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/worker:${{ steps.meta.outputs.version }}
@@ -88,6 +94,7 @@ jobs:
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/frontend:${{ steps.meta.outputs.version }}
@@ -103,6 +110,7 @@ jobs:
           context: ./frontend
           file: ./frontend/Dockerfile
           target: builder
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/frontend:${{ steps.meta.outputs.version }}-builder
@@ -117,6 +125,7 @@ jobs:
         with:
           context: ./auth
           file: ./auth/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/auth:${{ steps.meta.outputs.version }}
