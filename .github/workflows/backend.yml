@@ -24,7 +24,17 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: "1.25"
-          cache-dependency-path: backend/go.sum
+          cache: false
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('backend/go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
 
       - name: Run tests
         run: go test ./...
@@ -38,13 +48,23 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: "1.25"
-          cache-dependency-path: backend/go.sum
+          cache: false
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('backend/go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
 
       - name: Build
         run: go build ./...
