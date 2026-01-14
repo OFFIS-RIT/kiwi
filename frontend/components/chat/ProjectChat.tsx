@@ -43,6 +43,7 @@ import {
   useState,
 } from "react";
 import { MessageContent } from "./MessageContent";
+import { ThinkingDropdown } from "./ThinkingDropdown";
 
 // Lazy load dialog for better code splitting
 const ResetChatDialog = lazy(() =>
@@ -57,6 +58,7 @@ const SILENCE_TIMEOUT_MS = 5000;
 type Message = {
   id: string;
   content: string;
+  reasoning?: string;
   role: "user" | "assistant";
   timestamp: Date;
   isLoading?: boolean;
@@ -103,6 +105,11 @@ export function ProjectChat({
   const [interimTranscript, setInterimTranscript] = useState("");
   const [isTemplateSidebarOpen, setIsTemplateSidebarOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<QueryStep | null>(null);
+  const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(
+    null
+  );
+  const [streamingReasoning, setStreamingReasoning] = useState("");
+  const thinkingStartedRef = useRef(false);
 
   // Text-to-speech for message playback
   const {
@@ -308,11 +315,15 @@ export function ProjectChat({
     setMessages((prev) => [...prev, userMessageForState]);
     setInputValue("");
     setIsAssistantTyping(true);
+    setThinkingStartTime(null);
+    setStreamingReasoning("");
+    thinkingStartedRef.current = false;
 
     const assistantMessageId = crypto.randomUUID();
     let assistantMessageCreated = false;
     let accumulatedSourceFiles: { id: string; name: string; key: string }[] =
       [];
+    let accumulatedReasoning = "";
 
     try {
       await queryProjectStream(
@@ -322,26 +333,43 @@ export function ProjectChat({
           streamedMessage: string,
           data: { id: string; name: string; key: string }[],
           metrics,
-          step
+          step,
+          reasoning
         ) => {
           if (step) {
             setCurrentStep(step);
+          }
+
+          if (
+            (step === "thinking" || reasoning) &&
+            !thinkingStartedRef.current
+          ) {
+            thinkingStartedRef.current = true;
+            setThinkingStartTime(Date.now());
           }
 
           if (data && data.length > 0) {
             accumulatedSourceFiles = [...accumulatedSourceFiles, ...data];
           }
 
+          if (reasoning) {
+            accumulatedReasoning = reasoning;
+            setStreamingReasoning(reasoning);
+          }
+
           if (streamedMessage && !assistantMessageCreated) {
             const initialAssistantMessage: Message = {
               id: assistantMessageId,
               content: streamedMessage,
+              reasoning: accumulatedReasoning || undefined,
               role: "assistant",
               timestamp: new Date(),
             };
             setMessages((prev) => [...prev, initialAssistantMessage]);
             setIsAssistantTyping(false);
             setCurrentStep(null);
+            setThinkingStartTime(null);
+            setStreamingReasoning("");
             assistantMessageCreated = true;
           } else if (assistantMessageCreated) {
             setMessages((prev) =>
@@ -350,6 +378,7 @@ export function ProjectChat({
                   ? {
                       ...msg,
                       content: streamedMessage,
+                      reasoning: accumulatedReasoning || msg.reasoning,
                       ...(metrics && { metrics }),
                     }
                   : msg
@@ -379,6 +408,8 @@ export function ProjectChat({
           }
           setIsAssistantTyping(false);
           setCurrentStep(null);
+          setThinkingStartTime(null);
+          setStreamingReasoning("");
         },
         () => {
           if (assistantMessageCreated) {
@@ -398,6 +429,8 @@ export function ProjectChat({
           }
           setIsAssistantTyping(false);
           setCurrentStep(null);
+          setThinkingStartTime(null);
+          setStreamingReasoning("");
         }
       );
     } catch (error) {
@@ -419,6 +452,8 @@ export function ProjectChat({
       }
       setIsAssistantTyping(false);
       setCurrentStep(null);
+      setThinkingStartTime(null);
+      setStreamingReasoning("");
     }
   }, [
     inputValue,
@@ -674,6 +709,7 @@ export function ProjectChat({
                         {message.role === "assistant" ? (
                           <MessageContent
                             content={message.content}
+                            reasoning={message.reasoning}
                             projectId={projectId}
                             sourceFiles={message.sourceFiles}
                           />
@@ -778,15 +814,23 @@ export function ProjectChat({
                     <Avatar className="h-8 w-8">
                       <AvatarFallback>AI</AvatarFallback>
                     </Avatar>
-                    <div>
-                      <div className="rounded-lg bg-muted p-3 flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">
-                          {currentStep
-                            ? t(`step.${currentStep}`)
-                            : t("loading")}
-                        </span>
-                      </div>
+                    <div className="w-full min-w-[200px] bg-muted rounded-lg p-3">
+                      {thinkingStartTime ? (
+                        <ThinkingDropdown
+                          reasoning={streamingReasoning}
+                          isLive={true}
+                          startTime={thinkingStartTime}
+                        />
+                      ) : (
+                        <div className="flex items-center gap-2 w-full text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>
+                            {currentStep
+                              ? t(`step.${currentStep}`)
+                              : t("loading")}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

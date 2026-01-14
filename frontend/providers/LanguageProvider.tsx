@@ -115,6 +115,11 @@ const translations = {
     "step.get_entity_types": "Getting entity types...",
     "step.search_entities_by_type": "Searching entities by type...",
 
+    // Thinking Dropdown
+    "thinking.collapsed": "Thought for {seconds} seconds",
+    "thinking.show": "Show reasoning",
+    "thinking.processing": "Thinking...",
+
     // Process Steps
     "process.queued": "Queued",
     "process.processing_files": "Processing Files",
@@ -282,6 +287,11 @@ const translations = {
     "step.get_entity_details": "Lade Entitätsdetails...",
     "step.get_entity_types": "Lade Entitätstypen...",
     "step.search_entities_by_type": "Suche Entitäten nach Typ...",
+
+    // Thinking Dropdown
+    "thinking.collapsed": "Gedacht für {seconds} Sekunden",
+    "thinking.show": "Reasoning anzeigen",
+    "thinking.processing": "Denkt nach...",
 
     // Process Steps
     "process.queued": "In Warteschlange",

@@ -7,15 +7,18 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { TextReferenceBadge } from "./TextReferenceBadge";
+import { ThinkingDropdown } from "./ThinkingDropdown";
 
 type MessageContentProps = {
   content: string;
+  reasoning?: string;
   projectId?: string;
   sourceFiles?: { id: string; name: string; key: string }[];
 };
 
 export function MessageContent({
   content,
+  reasoning,
   projectId,
   sourceFiles = [],
 }: MessageContentProps) {
@@ -112,6 +115,11 @@ export function MessageContent({
 
   return (
     <div className="leading-relaxed">
+      {reasoning && (
+        <div className="mb-3">
+          <ThinkingDropdown reasoning={reasoning} />
+        </div>
+      )}
       <div className="mb-3 prose prose-sm dark:prose-invert max-w-none overflow-x-auto">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
