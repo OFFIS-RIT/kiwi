@@ -65,6 +65,8 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile.postgres
           push: true
+          provenance: false
+          sbom: false
           tags: ${{ env.IMAGE_PREFIX }}/postgres:${{ env.IMAGE_TAG }}
           cache-from: type=local,src=/tmp/.buildx-cache-postgres
           cache-to: type=local,dest=/tmp/.buildx-cache-postgres-new,mode=max
@@ -75,6 +77,8 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile.server
           push: true
+          provenance: false
+          sbom: false
           tags: ${{ env.IMAGE_PREFIX }}/server:${{ env.IMAGE_TAG }}
           cache-from: type=local,src=/tmp/.buildx-cache-server
           cache-to: type=local,dest=/tmp/.buildx-cache-server-new,mode=max
@@ -85,6 +89,8 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile.worker
           push: true
+          provenance: false
+          sbom: false
           tags: ${{ env.IMAGE_PREFIX }}/worker:${{ env.IMAGE_TAG }}
           cache-from: type=local,src=/tmp/.buildx-cache-worker
           cache-to: type=local,dest=/tmp/.buildx-cache-worker-new,mode=max
@@ -95,6 +101,8 @@ jobs:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
+          provenance: false
+          sbom: false
           tags: ${{ env.IMAGE_PREFIX }}/frontend:${{ env.IMAGE_TAG }}
           build-args: |
             NEXT_PUBLIC_API_URL=/api
@@ -108,6 +116,8 @@ jobs:
           file: ./frontend/Dockerfile
           target: builder
           push: true
+          provenance: false
+          sbom: false
           tags: ${{ env.IMAGE_PREFIX }}/frontend:${{ env.IMAGE_TAG }}-builder
           build-args: |
             NEXT_PUBLIC_API_URL=/api
@@ -120,6 +130,8 @@ jobs:
           context: ./auth
           file: ./auth/Dockerfile
           push: true
+          provenance: false
+          sbom: false
           tags: ${{ env.IMAGE_PREFIX }}/auth:${{ env.IMAGE_TAG }}
           cache-from: type=local,src=/tmp/.buildx-cache-auth
           cache-to: type=local,dest=/tmp/.buildx-cache-auth-new,mode=max
