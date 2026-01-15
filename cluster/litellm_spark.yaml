@@ -1,7 +1,7 @@
 model_list:
   - model_name: gpt-oss
     litellm_params:
-      model: hosted_vllm/openai/gpt-oss-120b
+      model: hosted_vllm/openai/gpt-oss-20b
       api_base: http://gpt-oss:30000/v1
       api_key: test
   - model_name: embed
