@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - dev
+    paths:
+      - 'backend/**'
+      - 'auth/**'
+      - 'frontend/**'
 
 concurrency:
   group: dev-pipeline
