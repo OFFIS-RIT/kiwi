@@ -40,7 +40,7 @@ func (c *GraphOpenAIClient) GenerateEmbedding(ctx context.Context, input []byte)
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfString: param.NewOpt(string(input)),
 		},
-		Model:      c.embeddingModel,
+		Model: c.embeddingModel,
 	}
 
 	start := time.Now()

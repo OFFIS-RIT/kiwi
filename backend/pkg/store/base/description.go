@@ -252,7 +252,7 @@ func (s *GraphDBStorage) generateDescription(
 
 	// Process descriptions in batches
 	for i := 0; i < len(descriptions); i += descriptionBatchSize {
-		end := min(i + descriptionBatchSize, len(descriptions))
+		end := min(i+descriptionBatchSize, len(descriptions))
 		batch := descriptions[i:end]
 		batchText := strings.Join(batch, "\n\n")
 

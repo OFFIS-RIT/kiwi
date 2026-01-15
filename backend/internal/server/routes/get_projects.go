@@ -3,25 +3,35 @@ package routes
 import (
 	"context"
 	"fmt"
+	"net/http"
+
 	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
-	"net/http"
 
 	_ "github.com/go-playground/validator"
 	"github.com/labstack/echo/v4"
 )
 
 func GetProjectsHandler(c echo.Context) error {
+	type BatchStepProgress struct {
+		Pending       string `json:"pending,omitempty"`
+		Preprocessing string `json:"preprocessing,omitempty"`
+		Preprocessed  string `json:"preprocessed,omitempty"`
+		Indexing      string `json:"indexing,omitempty"`
+		Completed     string `json:"completed,omitempty"`
+		Failed        string `json:"failed,omitempty"`
+	}
+
 	type project struct {
-		ProjectID                int64   `json:"project_id"`
-		ProjectName              string  `json:"project_name"`
-		ProjectState             string  `json:"project_state"`
-		ProcessStep              *string `json:"process_step,omitempty"`
-		ProcessPercentage        *int32  `json:"process_percentage,omitempty"`
-		ProcessEstimatedDuration *int64  `json:"process_estimated_duration,omitempty"`
-		ProcessTimeRemaining     *int64  `json:"process_time_remaining,omitempty"`
+		ProjectID                int64              `json:"project_id"`
+		ProjectName              string             `json:"project_name"`
+		ProjectState             string             `json:"project_state"`
+		ProcessStep              *BatchStepProgress `json:"process_step,omitempty"`
+		ProcessPercentage        *int32             `json:"process_percentage,omitempty"`
+		ProcessEstimatedDuration *int64             `json:"process_estimated_duration,omitempty"`
+		ProcessTimeRemaining     *int64             `json:"process_time_remaining,omitempty"`
 	}
 
 	type group struct {
@@ -32,19 +42,12 @@ func GetProjectsHandler(c echo.Context) error {
 	}
 
 	type projectRow struct {
-		GroupID                  int64
-		GroupName                string
-		ProjectID                int64
-		ProjectName              string
-		ProjectState             string
-		Role                     string
-		ProcessStepValid         bool
-		ProcessStepString        string
-		ProcessPercentageValid   bool
-		ProcessPercentageInt32   int32
-		ProcessEstimatedDurValid bool
-		ProcessEstimatedDurInt64 int64
-		ProcessTimeRemaining     any
+		GroupID      int64
+		GroupName    string
+		ProjectID    int64
+		ProjectName  string
+		ProjectState string
+		Role         string
 	}
 
 	user := c.(*middleware.AppContext).User
@@ -65,19 +68,12 @@ func GetProjectsHandler(c echo.Context) error {
 		}
 		for _, r := range res {
 			rows = append(rows, projectRow{
-				GroupID:                  r.GroupID,
-				GroupName:                r.GroupName,
-				ProjectID:                r.ProjectID,
-				ProjectName:              r.ProjectName,
-				ProjectState:             r.ProjectState,
-				Role:                     r.Role,
-				ProcessStepValid:         r.ProcessStep.Valid,
-				ProcessStepString:        r.ProcessStep.String,
-				ProcessPercentageValid:   r.ProcessPercentage.Valid,
-				ProcessPercentageInt32:   r.ProcessPercentage.Int32,
-				ProcessEstimatedDurValid: r.ProcessEstimatedDuration.Valid,
-				ProcessEstimatedDurInt64: r.ProcessEstimatedDuration.Int64,
-				ProcessTimeRemaining:     r.ProcessTimeRemaining,
+				GroupID:      r.GroupID,
+				GroupName:    r.GroupName,
+				ProjectID:    r.ProjectID,
+				ProjectName:  r.ProjectName,
+				ProjectState: r.ProjectState,
+				Role:         r.Role,
 			})
 		}
 	} else {
@@ -87,19 +83,12 @@ func GetProjectsHandler(c echo.Context) error {
 		}
 		for _, r := range res {
 			rows = append(rows, projectRow{
-				GroupID:                  r.GroupID,
-				GroupName:                r.GroupName,
-				ProjectID:                r.ProjectID,
-				ProjectName:              r.ProjectName,
-				ProjectState:             r.ProjectState,
-				Role:                     r.Role,
-				ProcessStepValid:         r.ProcessStep.Valid,
-				ProcessStepString:        r.ProcessStep.String,
-				ProcessPercentageValid:   r.ProcessPercentage.Valid,
-				ProcessPercentageInt32:   r.ProcessPercentage.Int32,
-				ProcessEstimatedDurValid: r.ProcessEstimatedDuration.Valid,
-				ProcessEstimatedDurInt64: r.ProcessEstimatedDuration.Int64,
-				ProcessTimeRemaining:     r.ProcessTimeRemaining,
+				GroupID:      r.GroupID,
+				GroupName:    r.GroupName,
+				ProjectID:    r.ProjectID,
+				ProjectName:  r.ProjectName,
+				ProjectState: r.ProjectState,
+				Role:         r.Role,
 			})
 		}
 	}
@@ -120,20 +109,60 @@ func GetProjectsHandler(c echo.Context) error {
 			ProjectName:  r.ProjectName,
 			ProjectState: r.ProjectState,
 		}
-		if r.ProcessStepValid && r.ProcessStepString != "completed" {
-			p.ProcessStep = &r.ProcessStepString
-			if r.ProcessPercentageValid {
-				p.ProcessPercentage = &r.ProcessPercentageInt32
-			}
-			if r.ProcessEstimatedDurValid {
-				p.ProcessEstimatedDuration = &r.ProcessEstimatedDurInt64
-			}
-			if r.ProcessTimeRemaining != nil {
-				if v, ok := r.ProcessTimeRemaining.(int64); ok {
-					p.ProcessTimeRemaining = &v
+
+		if r.ProjectState != "ready" {
+			correlationID, err := q.GetLatestCorrelationForProject(ctx, r.ProjectID)
+			if err == nil && correlationID != "" {
+				progress, err := q.GetProjectBatchProgress(ctx, correlationID)
+				if err == nil && progress.TotalCount > 0 {
+					total := progress.TotalCount
+					stepProgress := BatchStepProgress{}
+					hasStep := false
+
+					if progress.PendingCount > 0 {
+						stepProgress.Pending = fmt.Sprintf("%d/%d", progress.PendingCount, total)
+						hasStep = true
+					}
+					if progress.PreprocessingCount > 0 {
+						stepProgress.Preprocessing = fmt.Sprintf("%d/%d", progress.PreprocessingCount, total)
+						hasStep = true
+					}
+					if progress.PreprocessedCount > 0 {
+						stepProgress.Preprocessed = fmt.Sprintf("%d/%d", progress.PreprocessedCount, total)
+						hasStep = true
+					}
+					if progress.IndexingCount > 0 {
+						stepProgress.Indexing = fmt.Sprintf("%d/%d", progress.IndexingCount, total)
+						hasStep = true
+					}
+					if progress.CompletedCount > 0 {
+						stepProgress.Completed = fmt.Sprintf("%d/%d", progress.CompletedCount, total)
+						hasStep = true
+					}
+					if progress.FailedCount > 0 {
+						stepProgress.Failed = fmt.Sprintf("%d/%d", progress.FailedCount, total)
+						hasStep = true
+					}
+
+					if hasStep {
+						p.ProcessStep = &stepProgress
+					}
+
+					if progress.TotalCount > 0 {
+						percentage := int32(progress.CompletedCount * 100 / progress.TotalCount)
+						p.ProcessPercentage = &percentage
+					}
+
+					if progress.TotalEstimatedDuration > 0 {
+						p.ProcessEstimatedDuration = &progress.TotalEstimatedDuration
+					}
+					if progress.RemainingEstimatedDuration > 0 {
+						p.ProcessTimeRemaining = &progress.RemainingEstimatedDuration
+					}
 				}
 			}
 		}
+
 		if groupIdx == -1 {
 			groups = append(groups, group{
 				GroupID:   r.GroupID,

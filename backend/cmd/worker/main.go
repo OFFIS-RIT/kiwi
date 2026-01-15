@@ -31,17 +31,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// logger
 	debug := util.GetEnvBool("DEBUG", false)
 	consoleLogger := console.NewConsoleLogger(console.ConsoleLoggerParams{
 		Debug: debug,
 	})
 	logger.Init(consoleLogger)
 
-	// Init s3 client
 	client := storage.NewS3Client(ctx)
 
-	// GraphAiClient
 	adapter := util.GetEnv("AI_ADAPTER")
 	var aiClient ai.GraphAIClient
 
@@ -76,7 +73,6 @@ func main() {
 		})
 	}
 
-	// Init pgx client
 	pgConn, err := pgxpool.New(ctx, util.GetEnv("DATABASE_URL"))
 	if err != nil {
 		logger.Fatal("Unable to connect to database", "err", err)
@@ -86,31 +82,33 @@ func main() {
 		return pgxvec.RegisterTypes(ctx, conn)
 	}
 
-	// Init rabbitmq
 	conn := queue.Init()
 	defer conn.Close()
 
-	// Init rabbitmq queues if not exist
 	ch, err := conn.Channel()
 	if err != nil {
 		logger.Fatal("Failed to open channel", "err", err)
 	}
 	defer ch.Close()
 
-	queues := []string{"index_queue", "update_queue", "delete_queue", "preprocess_queue"}
+	queues := []string{"graph_queue", "delete_queue", "preprocess_queue"}
 	err = queue.SetupQueues(ch, queues)
+
+	logger.Info("Checking for stale batches to recover...")
+	if err := queue.RecoverStaleBatches(ctx, ch, pgConn); err != nil {
+		logger.Error("Failed to recover stale batches", "err", err)
+	}
 
 	logger.Info("Listening for messages")
 
-	// Create a single consumer channel with prefetch=1
-	// This ensures only ONE message is delivered at a time across all queues
 	consumerCh, err := conn.Channel()
 	if err != nil {
 		logger.Fatal("Failed to open consumer channel", "err", err)
 	}
 	defer consumerCh.Close()
 
-	err = consumerCh.Qos(1, 0, true)
+	prefetch := int(util.GetEnvNumeric("WORKER_PREFETCH", 1))
+	err = consumerCh.Qos(prefetch, 0, false)
 	if err != nil {
 		logger.Fatal("Failed to set QoS", "err", err)
 	}
@@ -168,17 +166,15 @@ func main() {
 				switch qm.queueName {
 				case "preprocess_queue":
 					processingErr = queue.ProcessPreprocess(ctx, client, aiClient, ch, pgConn, string(qm.msg.Body))
-				case "index_queue":
-					processingErr = queue.ProcessIndexMessage(ctx, client, aiClient, ch, pgConn, string(qm.msg.Body))
-				case "update_queue":
-					processingErr = queue.ProcessUpdateMessage(ctx, client, aiClient, ch, pgConn, string(qm.msg.Body))
+				case "graph_queue":
+					processingErr = queue.ProcessGraphMessage(ctx, client, aiClient, ch, pgConn, string(qm.msg.Body))
 				case "delete_queue":
 					processingErr = queue.ProcessDeleteMessage(ctx, client, aiClient, ch, pgConn, string(qm.msg.Body))
 				}
 
-				// If there was an error send to retry or dead-letter, otherwise ack the message
 				if processingErr != nil {
 					logger.Error("Error processing message", "queue", qm.queueName, "err", processingErr)
+					queue.ResetBatchStatusForRetry(ctx, pgConn, qm.queueName, qm.msg.Body)
 					handleProcessingError(consumerCh, qm.msg, qm.queueName)
 				} else {
 					err = qm.msg.Ack(false)
@@ -227,7 +223,6 @@ func handleProcessingError(ch *amqp.Channel, msg amqp.Delivery, queueName string
 		}
 	}
 
-	// If message has been retried 10 times, send to dead-letter
 	if retries >= 10 {
 		dlqName := queueName + "_dlq"
 		logger.Info("Sending message to DLQ", "dlq", dlqName)

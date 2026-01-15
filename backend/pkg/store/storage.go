@@ -38,6 +38,4 @@ type GraphStorage interface {
 	DeleteFilesAndRegenerateDescriptions(ctx context.Context, graphID string) error
 	DeleteFile(ctx context.Context, fileID int64, projectID int64) error
 	RollbackFileData(ctx context.Context, fileIDs []int64, projectID int64) error
-	UpdateProjectProcessStep(ctx context.Context, projectID int64, step string) error
-	UpdateProjectProcessPercentage(ctx context.Context, projectID int64, percentage int32) error
 }

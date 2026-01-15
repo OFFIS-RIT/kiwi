@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
@@ -58,29 +57,17 @@ func rollbackFiles(ctx context.Context, files []loader.GraphFile, graphID string
 	}
 }
 
-// CreateGraph builds a new knowledge graph from the provided files.
+// ProcessGraph builds or updates a knowledge graph from the provided files.
 // It processes files in parallel, extracts entities and relationships,
 // performs deduplication, and stores the results using the provided storage client.
-func (g *GraphClient) CreateGraph(
+func (g *GraphClient) ProcessGraph(
 	ctx context.Context,
 	files []loader.GraphFile,
 	graphID string,
 	aiClient ai.GraphAIClient,
 	storeClient store.GraphStorage,
 ) error {
-	return g.processFilesAndBuildGraph(ctx, files, graphID, aiClient, storeClient, "Creating")
-}
-
-// UpdateGraph adds or updates files in an existing knowledge graph.
-// It processes the new files and merges them with existing graph data.
-func (g *GraphClient) UpdateGraph(
-	ctx context.Context,
-	files []loader.GraphFile,
-	graphID string,
-	aiClient ai.GraphAIClient,
-	storeClient store.GraphStorage,
-) error {
-	return g.processFilesAndBuildGraph(ctx, files, graphID, aiClient, storeClient, "Updating")
+	return g.processFilesAndBuildGraph(ctx, files, graphID, aiClient, storeClient)
 }
 
 // DeleteGraph removes files from an existing graph and regenerates entity descriptions.
@@ -108,24 +95,14 @@ func (g *GraphClient) processFilesAndBuildGraph(
 	graphID string,
 	aiClient ai.GraphAIClient,
 	storeClient store.GraphStorage,
-	operationType string,
 ) error {
-	projectID, err := strconv.ParseInt(graphID, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid graphID: %w", err)
-	}
-
-	_ = storeClient.UpdateProjectProcessStep(ctx, projectID, "extraction")
-	_ = storeClient.UpdateProjectProcessPercentage(ctx, projectID, 0)
-
 	eg, gCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(g.parallelFiles)
 	mutex := sync.Mutex{}
 
 	totalFiles := len(files)
-	var completedFiles atomic.Int32
 
-	logger.Info("[Graph] Processing", "type", operationType, "total_files", totalFiles, "graph_id", graphID)
+	logger.Info("[Graph] Processing", "total_files", totalFiles, "graph_id", graphID)
 
 	totalUnits := 0
 	for _, file := range files {
@@ -170,10 +147,6 @@ func (g *GraphClient) processFilesAndBuildGraph(
 					return fmt.Errorf("failed to save relationships: %w", err)
 				}
 
-				completedFiles.Add(1)
-				progress := int32(float64(completedFiles.Load()) / float64(totalFiles) * 70)
-				_ = storeClient.UpdateProjectProcessPercentage(gCtx, projectID, progress)
-
 				return nil
 			}
 		})
@@ -187,10 +160,7 @@ func (g *GraphClient) processFilesAndBuildGraph(
 	logger.Info("[Graph] Files processed")
 	logger.Info("[Graph] Starting cross-document deduplication")
 
-	_ = storeClient.UpdateProjectProcessStep(ctx, projectID, "saving")
-	_ = storeClient.UpdateProjectProcessPercentage(ctx, projectID, 70)
-
-	err = storeClient.DedupeAndMergeEntities(ctx, graphID, aiClient)
+	err := storeClient.DedupeAndMergeEntities(ctx, graphID, aiClient)
 	if err != nil {
 		rollbackFiles(ctx, files, graphID, storeClient)
 		return fmt.Errorf("failed to dedupe entities in DB: %w", err)
@@ -198,9 +168,6 @@ func (g *GraphClient) processFilesAndBuildGraph(
 
 	logger.Info("[Graph] Cross-document deduplication completed")
 	logger.Info("[Graph] Starting description generation")
-
-	_ = storeClient.UpdateProjectProcessStep(ctx, projectID, "generating_descriptions")
-	_ = storeClient.UpdateProjectProcessPercentage(ctx, projectID, 85)
 
 	err = storeClient.GenerateDescriptions(ctx, files)
 	if err != nil {

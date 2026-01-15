@@ -87,6 +87,23 @@ type Project struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ProjectBatchStatus struct {
+	ID                int64              `json:"id"`
+	ProjectID         int64              `json:"project_id"`
+	CorrelationID     string             `json:"correlation_id"`
+	BatchID           int32              `json:"batch_id"`
+	TotalBatches      int32              `json:"total_batches"`
+	FilesCount        int32              `json:"files_count"`
+	FileIds           []int64            `json:"file_ids"`
+	Status            string             `json:"status"`
+	Operation         string             `json:"operation"`
+	EstimatedDuration int64              `json:"estimated_duration"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	ErrorMessage      pgtype.Text        `json:"error_message"`
+}
+
 type ProjectFile struct {
 	ID         int64              `json:"id"`
 	ProjectID  int64              `json:"project_id"`
@@ -97,15 +114,6 @@ type ProjectFile struct {
 	Metadata   pgtype.Text        `json:"metadata"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
-}
-
-type ProjectProcess struct {
-	ProjectID         int64              `json:"project_id"`
-	Percentage        int32              `json:"percentage"`
-	CurrentStep       string             `json:"current_step"`
-	EstimatedDuration int64              `json:"estimated_duration"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ProjectSystemPrompt struct {
