@@ -5,13 +5,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 )
 
-const embeddingDimensions = 4096
+const defaultDimensions = 4096
 
 // GenerateEmbedding creates a vector embedding for the given input text
 // using the configured embedding model.
@@ -28,8 +29,9 @@ const embeddingDimensions = 4096
 //	}
 //	fmt.Println("Embedding length:", len(embedding))
 func (c *GraphOpenAIClient) GenerateEmbedding(ctx context.Context, input []byte) ([]float32, error) {
+	dim := int(util.GetEnvNumeric("AI_EMBED_DIM", defaultDimensions))
 	if len(input) == 0 || len(strings.TrimSpace(string(input))) == 0 {
-		return make([]float32, embeddingDimensions), nil
+		return make([]float32, dim), nil
 	}
 
 	client := c.EmbeddingClient
@@ -39,7 +41,6 @@ func (c *GraphOpenAIClient) GenerateEmbedding(ctx context.Context, input []byte)
 			OfString: param.NewOpt(string(input)),
 		},
 		Model:      c.embeddingModel,
-		Dimensions: openai.Int(embeddingDimensions),
 	}
 
 	start := time.Now()
@@ -58,10 +59,10 @@ func (c *GraphOpenAIClient) GenerateEmbedding(ctx context.Context, input []byte)
 	}
 	c.modifyMetrics(metrics)
 
-	result := make([]float32, 0, embeddingDimensions)
+	result := make([]float32, 0, dim)
 	for _, embedding := range response.Data {
 		for _, embed := range embedding.Embedding {
-			if len(result) >= embeddingDimensions {
+			if len(result) >= dim {
 				break
 			}
 			result = append(result, float32(embed))

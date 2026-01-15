@@ -43,13 +43,19 @@ migrate:
 	@set -a; \
 		if [ -f "$(ENV_FILE)" ]; then . "$(ENV_FILE)"; fi; \
 		set +a; \
+		export AI_EMBED_DIM=$${AI_EMBED_DIM:-4096}; \
+		mkdir -p $(ROOT_DIR).migrations_processed; \
+		for f in $(ROOT_DIR)migrations/*.sql; do \
+			envsubst '$$AI_EMBED_DIM' < "$$f" > "$(ROOT_DIR).migrations_processed/$$(basename $$f)"; \
+		done; \
 		docker run --rm \
-			-v $(ROOT_DIR)migrations:/migrations \
+			-v $(ROOT_DIR).migrations_processed:/migrations \
 			--network kiwi_internal \
 			migrate/migrate \
 			-path=/migrations \
 			-database "$${DATABASE_URL}" \
-			up
+			up; \
+		rm -rf $(ROOT_DIR).migrations_processed
 
 REGISTRY := ghcr.io/offis-rit/kiwi
 TAG ?= latest
