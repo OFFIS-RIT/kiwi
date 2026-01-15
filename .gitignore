@@ -59,4 +59,7 @@ frontend/next-env.d.ts
 *.pid
 *.sock
 
+# Migrations (processed temp files)
+.migrations_processed/
+
 *.log

@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS entities (
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     type TEXT NOT NULL,
-    embedding vector(4096) NOT NULL,
+    embedding vector(${AI_EMBED_DIM}) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS relationships (
     project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     description TEXT NOT NULL,
     rank FLOAT NOT NULL DEFAULT 0,
-    embedding vector(4096) NOT NULL,
+    embedding vector(${AI_EMBED_DIM}) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS communities (
     description TEXT NOT NULL,
     rating FLOAT NOT NULL DEFAULT 0,
     explanation TEXT NOT NULL,
-    embedding vector(4096) NOT NULL,
+    embedding vector(${AI_EMBED_DIM}) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS entity_sources (
     entity_id BIGINT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     text_unit_id BIGINT NOT NULL REFERENCES text_units(id) ON DELETE CASCADE,
     description TEXT NOT NULL,
-    embedding vector(4096) NOT NULL,
+    embedding vector(${AI_EMBED_DIM}) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS relationship_sources (
     relationship_id BIGINT NOT NULL REFERENCES relationships(id) ON DELETE CASCADE,
     text_unit_id BIGINT NOT NULL REFERENCES text_units(id) ON DELETE CASCADE,
     description TEXT NOT NULL,
-    embedding vector(4096) NOT NULL,
+    embedding vector(${AI_EMBED_DIM}) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
