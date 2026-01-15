@@ -71,6 +71,8 @@ jobs:
           file: ./backend/Dockerfile.postgres
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.IMAGE_PREFIX }}/postgres:${{ steps.meta.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/postgres:latest
@@ -84,6 +86,8 @@ jobs:
           file: ./backend/Dockerfile.server
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.IMAGE_PREFIX }}/server:${{ steps.meta.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/server:latest
@@ -97,6 +101,8 @@ jobs:
           file: ./backend/Dockerfile.worker
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.IMAGE_PREFIX }}/worker:${{ steps.meta.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/worker:latest
@@ -110,6 +116,8 @@ jobs:
           file: ./frontend/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.IMAGE_PREFIX }}/frontend:${{ steps.meta.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/frontend:latest
@@ -126,6 +134,8 @@ jobs:
           target: builder
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.IMAGE_PREFIX }}/frontend:${{ steps.meta.outputs.version }}-builder
             ${{ env.IMAGE_PREFIX }}/frontend:latest-builder
@@ -141,6 +151,8 @@ jobs:
           file: ./auth/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.IMAGE_PREFIX }}/auth:${{ steps.meta.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/auth:latest
