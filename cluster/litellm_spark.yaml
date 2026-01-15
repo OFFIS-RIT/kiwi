@@ -1,0 +1,16 @@
+model_list:
+  - model_name: gpt-oss
+    litellm_params:
+      model: hosted_vllm/openai/gpt-oss-120b
+      api_base: http://gpt-oss:30000/v1
+      api_key: test
+  - model_name: embed
+    litellm_params:
+      model: hosted_vllm/Qwen/Qwen3-Embedding-0.6B
+      api_base: http://embed:30000/v1
+      api_key: test
+  - model_name: ocr
+    litellm_params:
+      model: hosted_vllm/deepseek-ai/deepseek-vl2-tiny
+      api_base: http://ocr:30000/v1
+      api_key: test

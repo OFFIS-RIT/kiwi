@@ -1,0 +1,110 @@
+services:
+  gpt-oss:
+    image: lmsysorg/sglang:spark
+    container_name: gpt-oss
+    ports:
+      - "45001:30000"
+    volumes:
+      - ~/.hf_models:/root/.cache/huggingface
+      - ~/tiktoken_encodings:/tiktoken_encodings
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - TIKTOKEN_ENCODINGS_BASE=/tiktoken_encodings
+    shm_size: 32g
+    ipc: host
+    networks:
+      - llm
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      python3 -m sglang.launch_server
+      --model-path openai/gpt-oss-20b
+      --host 0.0.0.0
+      --port 30000
+      --reasoning-parser gpt-oss
+      --tool-call-parser gpt-oss
+      --mem-fraction-static 0.35
+    restart: unless-stopped
+
+  embed:
+    image: lmsysorg/sglang:spark
+    container_name: embed
+    ports:
+      - "45002:30000"
+    volumes:
+      - ~/.hf_models:/root/.cache/huggingface
+      - ~/tiktoken_encodings:/tiktoken_encodings
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - TIKTOKEN_ENCODINGS_BASE=/tiktoken_encodings
+    shm_size: 32g
+    ipc: host
+    networks:
+      - llm
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      python3 -m sglang.launch_server
+      --model-path Qwen/Qwen3-Embedding-0.6B
+      --host 0.0.0.0
+      --port 30000
+      --mem-fraction-static 0.05
+      --is-embedding
+    restart: unless-stopped
+
+  ocr:
+    image: lmsysorg/sglang:spark
+    container_name: ocr
+    ports:
+      - "45003:30000"
+    volumes:
+      - ~/.hf_models:/root/.cache/huggingface
+      - ~/tiktoken_encodings:/tiktoken_encodings
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - TIKTOKEN_ENCODINGS_BASE=/tiktoken_encodings
+    shm_size: 32g
+    ipc: host
+    networks:
+      - llm
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      python3 -m sglang.launch_server
+      --model-path deepseek-ai/deepseek-vl2-tiny
+      --host 0.0.0.0
+      --port 30000
+      --mem-fraction-static 0.35
+      --enable-multimodal
+    restart: unless-stopped
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm
+    ports:
+      - "45000:4000"
+    volumes:
+      - ./litellm_spark.yaml:/app/config.yaml
+    networks:
+      - llm
+    command: --config /app/config.yaml
+    restart: unless-stopped
+
+networks:
+  llm:
+    driver: bridge
