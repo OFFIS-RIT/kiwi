@@ -43,7 +43,7 @@
 | Layer    | Technology                                              |
 | -------- | ------------------------------------------------------- |
 | Frontend | Next.js 16, React 19, TanStack Query, Tailwind CSS, Bun |
-| Backend  | Go, Echo Framework, sqlc                                |
+| Backend  | Go 1.25, Echo Framework, sqlc                           |
 | Database | PostgreSQL + pgvector                                   |
 | Queue    | RabbitMQ                                                |
 | Storage  | RustFS (S3-compatible)                                  |
@@ -103,6 +103,7 @@ make migrate          # Run database migrations
 | Service  | Port        | Description           |
 | -------- | ----------- | --------------------- |
 | frontend | 3000        | Next.js dev server    |
+| auth     | 4321        | Auth                  |
 | server   | 8080        | Go API server         |
 | db       | 5432        | PostgreSQL + pgvector |
 | rabbitmq | 5672, 15672 | Message queue         |
@@ -129,15 +130,21 @@ the Nginx container.
 ## Architecture
 
 ```
-┌──────────────┐     ┌──────────────┐
-│   Frontend   │────▶│    Nginx     │────▶ Backend (Echo)
-│  (Next.js)   │     │   (prod)     │           │
-└──────────────┘     └──────────────┘           │
-                                                ▼
 ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
-│   RabbitMQ   │◀───▶│    Worker    │────▶│  PostgreSQL │
-│   (queue)    │     │ (background) │     │  + pgvector │
+│   Frontend   │────▶│    Nginx     │────▶│   Backend   │
+│  (Next.js)   │     │   (prod)     │     │   (Echo)    │
 └──────────────┘     └──────────────┘     └─────────────┘
+       │                                         │
+       ▼                                         ▼
+┌──────────────┐                          ┌─────────────┐
+│     Auth     │                          │  PostgreSQL │
+│   (Service)  │                          │  + pgvector │
+└──────────────┘                          └─────────────┘
+                                                 ▲
+┌──────────────┐     ┌──────────────┐            │
+│   RabbitMQ   │◀───▶│    Worker    │────────────┘
+│   (queue)    │     │ (background) │
+└──────────────┘     └──────────────┘
        │                    │
        ▼                    ▼
 ┌──────────────┐     ┌──────────────┐
