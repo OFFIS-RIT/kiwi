@@ -95,6 +95,57 @@ export const apiClient = {
   postFormData: <T>(endpoint: string, formData: FormData) =>
     request<T>(endpoint, { method: "POST", body: formData, isFormData: true }),
 
+  postFormDataWithProgress: <T>(
+    endpoint: string,
+    formData: FormData,
+    onProgress?: (progress: number) => void
+  ) => {
+    return new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE_URL}${endpoint}`);
+      xhr.setRequestHeader("Authorization", AUTH_TOKEN);
+
+      if (onProgress) {
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = (event.loaded / event.total) * 100;
+            onProgress(percentComplete);
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (xhr.status === 204) {
+            resolve(null as T);
+            return;
+          }
+          try {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response);
+          } catch {
+            resolve(xhr.responseText as unknown as T);
+          }
+        } else {
+          reject(
+            new ApiError(
+              `Request failed: ${xhr.statusText}`,
+              xhr.status,
+              xhr.statusText,
+              xhr.responseText
+            )
+          );
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error("Network request failed"));
+      };
+
+      xhr.send(formData);
+    });
+  },
+
   patch: <T>(endpoint: string, body: unknown) =>
     request<T>(endpoint, { method: "PATCH", body }),
 

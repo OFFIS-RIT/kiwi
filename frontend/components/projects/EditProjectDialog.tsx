@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -51,6 +52,7 @@ export function EditProjectDialog({
   const [error, setError] = useState<string | null>(null);
   const [projectFiles, setProjectFiles] = useState<ApiProjectFile[]>([]);
   const [newFiles, setNewFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [editedName, setEditedName] = useState("");
   const [filesToDelete, setFilesToDelete] = useState<string[]>([]);
 
@@ -84,6 +86,7 @@ export function EditProjectDialog({
       setError(null);
       setEditedName("");
       setFilesToDelete([]);
+      setUploadProgress(0);
     }
   }, [project, open, loadProjectFiles]);
 
@@ -148,7 +151,9 @@ export function EditProjectDialog({
 
       if (filesAdded && overallSuccess) {
         try {
-          await addFilesToProject(project.id, newFiles);
+          await addFilesToProject(project.id, newFiles, (progress) =>
+            setUploadProgress(progress)
+          );
           setNewFiles([]);
         } catch (err) {
           overallSuccess = false;
@@ -351,6 +356,15 @@ export function EditProjectDialog({
               <div className="space-y-4">
                 <h3 className="text-lg font-medium">{t("add.files")}</h3>
                 <FileUploader files={newFiles} setFiles={setNewFiles} />
+                {isSubmitting && newFiles.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{t("uploading.files")}</span>
+                      <span>{Math.round(uploadProgress)}%</span>
+                    </div>
+                    <Progress value={uploadProgress} />
+                  </div>
+                )}
               </div>
             </div>
           </ScrollArea>

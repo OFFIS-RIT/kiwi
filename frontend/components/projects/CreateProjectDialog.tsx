@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -52,6 +53,7 @@ export function CreateProjectDialog({
   const [selectedGroup, setSelectedGroup] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [groupError, setGroupError] = useState(false);
 
@@ -64,6 +66,7 @@ export function CreateProjectDialog({
       setFiles([]);
       setSubmitError(null);
       setGroupError(false);
+      setUploadProgress(0);
     }
   }, [open, groupId, groups]);
 
@@ -89,7 +92,12 @@ export function CreateProjectDialog({
     }
 
     try {
-      const response = await createProject(selectedGroup, projectName, files);
+      const response = await createProject(
+        selectedGroup,
+        projectName,
+        files,
+        (progress) => setUploadProgress(progress)
+      );
 
       if (!expandedGroups[selectedGroup]) {
         toggleGroupExpanded(selectedGroup);
@@ -189,6 +197,15 @@ export function CreateProjectDialog({
               <Label>{t("upload.documents")}</Label>
               <FileUploader files={files} setFiles={setFiles} />
             </div>
+            {isSubmitting && files.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{t("uploading.files")}</span>
+                  <span>{Math.round(uploadProgress)}%</span>
+                </div>
+                <Progress value={uploadProgress} />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
