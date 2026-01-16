@@ -78,7 +78,7 @@ func (g *GraphClient) DeleteGraph(
 	aiClient ai.GraphAIClient,
 	storeClient store.GraphStorage,
 ) error {
-	logger.Info(fmt.Sprintf("Deleting files from graph ID: %s", graphID))
+	logger.Info("[Graph] Deleting files from graph", "id", graphID)
 
 	err := storeClient.DeleteFilesAndRegenerateDescriptions(ctx, graphID)
 	if err != nil {
@@ -131,7 +131,7 @@ func (g *GraphClient) ExtractAndStage(
 			case <-gCtx.Done():
 				return nil
 			default:
-				result, err := processFile(gCtx, f, g.tokenEncoder, aiClient, g.parallelAiRequests, g.maxRetries)
+				result, err := processFile(gCtx, f, g.tokenEncoder, aiClient, g.maxRetries)
 				if err != nil {
 					return fmt.Errorf("failed to process file %s: %w", f.ID, err)
 				}
@@ -301,7 +301,7 @@ func (g *GraphClient) processFilesAndBuildGraph(
 			case <-gCtx.Done():
 				return nil
 			default:
-				result, err := processFile(gCtx, f, g.tokenEncoder, aiClient, g.parallelAiRequests, g.maxRetries)
+				result, err := processFile(gCtx, f, g.tokenEncoder, aiClient, g.maxRetries)
 				if err != nil {
 					return err
 				}

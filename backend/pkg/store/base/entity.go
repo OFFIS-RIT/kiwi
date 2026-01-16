@@ -165,8 +165,6 @@ func (s *GraphDBStorage) SaveEntities(ctx context.Context, entities []common.Ent
 		}
 
 		eg, gCtx := errgroup.WithContext(ctx)
-		eg.SetLimit(s.maxParallel)
-
 		for _, source := range entity.Sources {
 			src := source
 

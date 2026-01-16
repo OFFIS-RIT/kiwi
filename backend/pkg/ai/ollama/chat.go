@@ -58,6 +58,12 @@ func (c *GraphOllamaClient) GenerateCompletion(
 		req.Options["num_ctx"] = tokens
 	}
 
+	err = c.reqLock.Acquire(ctx, 1)
+	if err != nil {
+		return "", err
+	}
+	defer c.reqLock.Release(1)
+
 	var final api.ChatResponse
 	if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
 		final.Message.Content += cr.Message.Content
@@ -146,6 +152,12 @@ func (c *GraphOllamaClient) GenerateCompletionWithFormat(
 		req.Options["num_ctx"] = tokens
 	}
 
+	err = c.reqLock.Acquire(ctx, 1)
+	if err != nil {
+		return err
+	}
+	defer c.reqLock.Release(1)
+
 	var final api.ChatResponse
 	if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
 		final.Message.Content += cr.Message.Content
@@ -231,6 +243,12 @@ func (c *GraphOllamaClient) GenerateChat(
 		req.Options["num_ctx"] = tokens
 	}
 
+	err = c.reqLock.Acquire(ctx, 1)
+	if err != nil {
+		return "", err
+	}
+	defer c.reqLock.Release(1)
+
 	var final api.ChatResponse
 	if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
 		final.Message.Content += cr.Message.Content
@@ -313,9 +331,14 @@ func (c *GraphOllamaClient) GenerateChatStream(
 		req.Options["num_ctx"] = tokens
 	}
 
+	if err := c.reqLock.Acquire(ctx, 1); err != nil {
+		return nil, err
+	}
+
 	out := make(chan ai.StreamEvent, 16)
 
 	go func() {
+		defer c.reqLock.Release(1)
 		defer close(out)
 
 		_ = c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
@@ -355,6 +378,11 @@ func (c *GraphOllamaClient) LoadModel(ctx context.Context, opts ...ai.GenerateOp
 	req := &api.ChatRequest{
 		Model: options.Model,
 	}
+
+	if err := c.reqLock.Acquire(ctx, 1); err != nil {
+		return err
+	}
+	defer c.reqLock.Release(1)
 
 	if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
 		return nil
@@ -496,6 +524,10 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 			req.Options["num_ctx"] = tokens
 		}
 
+		if err := c.reqLock.Acquire(ctx, 1); err != nil {
+			return "", err
+		}
+
 		var final api.ChatResponse
 		if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
 			final.Message.Content += cr.Message.Content
@@ -506,8 +538,10 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 			}
 			return nil
 		}); err != nil {
+			c.reqLock.Release(1)
 			return "", err
 		}
+		c.reqLock.Release(1)
 
 		metrics := ai.ModelMetrics{
 			InputTokens:  final.Metrics.PromptEvalCount,
@@ -669,6 +703,10 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 			req.Options["num_ctx"] = tokens
 		}
 
+		if err := c.reqLock.Acquire(ctx, 1); err != nil {
+			return "", err
+		}
+
 		var final api.ChatResponse
 		if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
 			final.Message.Content += cr.Message.Content
@@ -680,8 +718,10 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 			}
 			return nil
 		}); err != nil {
+			c.reqLock.Release(1)
 			return "", err
 		}
+		c.reqLock.Release(1)
 
 		metrics := ai.ModelMetrics{
 			InputTokens:  final.Metrics.PromptEvalCount,
@@ -843,6 +883,10 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 			req.Options["num_ctx"] = tokens
 		}
 
+		if err := c.reqLock.Acquire(ctx, 1); err != nil {
+			return nil, err
+		}
+
 		var final api.ChatResponse
 		if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
 			final.Message.Content += cr.Message.Content
@@ -854,8 +898,10 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 			}
 			return nil
 		}); err != nil {
+			c.reqLock.Release(1)
 			return nil, err
 		}
+		c.reqLock.Release(1)
 
 		metrics := ai.ModelMetrics{
 			InputTokens:  final.Metrics.PromptEvalCount,
@@ -901,9 +947,14 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 		}
 	}
 
+	if err := c.reqLock.Acquire(ctx, 1); err != nil {
+		return nil, err
+	}
+
 	out := make(chan ai.StreamEvent, 16)
 
 	go func() {
+		defer c.reqLock.Release(1)
 		defer close(out)
 
 		stream := true

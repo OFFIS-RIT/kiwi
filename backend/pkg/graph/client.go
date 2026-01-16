@@ -8,7 +8,6 @@ package graph
 type GraphClient struct {
 	tokenEncoder       string
 	parallelFiles      int
-	parallelAiRequests int
 	maxRetries         int
 }
 
@@ -21,7 +20,6 @@ type GraphClient struct {
 type NewGraphClientParams struct {
 	TokenEncoder       string
 	ParallelFiles      int
-	ParallelAiRequests int
 	MaxRetries         int
 }
 
@@ -49,7 +47,6 @@ func NewGraphClient(params NewGraphClientParams) (*GraphClient, error) {
 	g := &GraphClient{
 		tokenEncoder:       params.TokenEncoder,
 		parallelFiles:      params.ParallelFiles,
-		parallelAiRequests: params.ParallelAiRequests,
 		maxRetries:         maxRetires,
 	}
 

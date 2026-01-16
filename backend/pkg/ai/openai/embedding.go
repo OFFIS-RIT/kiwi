@@ -43,6 +43,12 @@ func (c *GraphOpenAIClient) GenerateEmbedding(ctx context.Context, input []byte)
 		Model: c.embeddingModel,
 	}
 
+	err := c.reqLock.Acquire(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer c.reqLock.Release(1)
+
 	start := time.Now()
 	response, err := client.Embeddings.New(ctx, body)
 	if err != nil {

@@ -2,7 +2,6 @@ package base
 
 import (
 	"context"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"sync"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
@@ -24,7 +23,6 @@ type GraphDBStorage struct {
 	conn        pgxIConn
 	aiClient    ai.GraphAIClient
 	msgs        []string
-	maxParallel int
 	dbLock      sync.Mutex
 }
 
@@ -37,11 +35,9 @@ func NewGraphDBStorageWithConnection(
 	aiClient ai.GraphAIClient,
 	msgs []string,
 ) (*GraphDBStorage, error) {
-	maxParallel := int(util.GetEnvNumeric("AI_PARALLEL_REQ", 15))
 	return &GraphDBStorage{
 		conn:        conn,
 		aiClient:    aiClient,
-		maxParallel: maxParallel,
 		dbLock:      sync.Mutex{},
 	}, nil
 }

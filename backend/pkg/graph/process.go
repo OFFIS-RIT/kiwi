@@ -25,7 +25,6 @@ func processFile(
 	file loader.GraphFile,
 	encoder string,
 	client ai.GraphAIClient,
-	parallelMax int,
 	maxRetries int,
 ) (*processFileResult, error) {
 	units, err := getUnitsFromText(ctx, file, encoder)
@@ -42,7 +41,6 @@ func processFile(
 	mergeMu := sync.Mutex{}
 
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(parallelMax)
 	for _, unit := range units {
 		u := unit
 		g.Go(func() error {

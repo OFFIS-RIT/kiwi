@@ -12,7 +12,6 @@ import (
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
 
@@ -55,8 +54,6 @@ func ProcessGraphMessage(
 	conn *pgxpool.Pool,
 	msg string,
 ) error {
-	numParallel := util.GetEnvNumeric("AI_PARALLEL_REQ", 15)
-
 	data := new(QueueProjectFileMsg)
 	err := json.Unmarshal([]byte(msg), &data)
 	if err != nil {
@@ -159,7 +156,7 @@ func ProcessGraphMessage(
 	if err != nil {
 		prediction = 0
 	}
-	logger.Info("Prediction for graph operation", "operation", data.Operation, "tokens", tokenCount, "time_ms", prediction)
+	logger.Info("[Queue] Prediction for graph operation", "operation", data.Operation, "tokens", tokenCount, "time_ms", prediction)
 
 	if data.CorrelationID != "" {
 		_ = q.UpdateBatchEstimatedDuration(ctx, db.UpdateBatchEstimatedDurationParams{
@@ -170,9 +167,8 @@ func ProcessGraphMessage(
 	}
 
 	graphClient, err := graph.NewGraphClient(graph.NewGraphClientParams{
-		TokenEncoder:       "o200k_base",
-		ParallelFiles:      1,
-		ParallelAiRequests: int(numParallel),
+		TokenEncoder:  "o200k_base",
+		ParallelFiles: 1,
 	})
 	if err != nil {
 		return err
@@ -185,7 +181,7 @@ func ProcessGraphMessage(
 	graphID := fmt.Sprintf("%d", projectId)
 	start := time.Now()
 
-	logger.Info("Starting extraction phase (no lock)", "project_id", projectId, "batch_id", data.BatchID)
+	logger.Debug("[Queue] Starting extraction phase", "project_id", projectId, "batch_id", data.BatchID)
 	err = graphClient.ExtractAndStage(ctx, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
 	if err != nil {
 		if data.CorrelationID != "" {
@@ -200,7 +196,7 @@ func ProcessGraphMessage(
 		return err
 	}
 
-	logger.Info("Acquiring advisory lock for project", "project_id", projectId)
+	logger.Debug("[Queue] Acquiring advisory lock", "project_id", projectId)
 	err = q.AcquireProjectLock(ctx, projectId)
 	if err != nil {
 		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
@@ -208,9 +204,9 @@ func ProcessGraphMessage(
 	}
 	defer func() {
 		if unlockErr := q.ReleaseProjectLock(ctx, projectId); unlockErr != nil {
-			logger.Error("Failed to release project lock", "project_id", projectId, "err", unlockErr)
+			logger.Error("[Queue] Failed to release project lock", "project_id", projectId, "err", unlockErr)
 		}
-		logger.Info("Released advisory lock for project", "project_id", projectId)
+		logger.Debug("[Queue] Released advisory lock", "project_id", projectId)
 	}()
 
 	if data.CorrelationID != "" {
@@ -267,7 +263,7 @@ func ProcessGraphMessage(
 
 		allDone, checkErr := q.AreAllBatchesCompleted(ctx, data.CorrelationID)
 		if checkErr == nil && allDone {
-			logger.Info("All batches completed for correlation", "correlation_id", data.CorrelationID)
+			logger.Info("[Queue] All batches completed", "correlation_id", data.CorrelationID)
 		}
 	}
 
@@ -296,16 +292,16 @@ func ProcessDeleteMessage(
 
 	q := db.New(conn)
 
-	logger.Info("Acquiring advisory lock for delete operation", "project_id", projectId)
+	logger.Debug("[Queue] Acquiring advisory lock for delete", "project_id", projectId)
 	err = q.AcquireProjectLock(ctx, projectId)
 	if err != nil {
 		return fmt.Errorf("failed to acquire project lock: %w", err)
 	}
 	defer func() {
 		if unlockErr := q.ReleaseProjectLock(ctx, projectId); unlockErr != nil {
-			logger.Error("Failed to release project lock", "project_id", projectId, "err", unlockErr)
+			logger.Error("[Queue] Failed to release project lock", "project_id", projectId, "err", unlockErr)
 		}
-		logger.Info("Released advisory lock for project", "project_id", projectId)
+		logger.Debug("[Queue] Released advisory lock", "project_id", projectId)
 	}()
 
 	deletedFiles, err := q.GetDeletedProjectFiles(ctx, projectId)
@@ -318,9 +314,8 @@ func ProcessDeleteMessage(
 	}
 
 	graphClient, err := graph.NewGraphClient(graph.NewGraphClientParams{
-		TokenEncoder:       "o200k_base",
-		ParallelFiles:      1,
-		ParallelAiRequests: int(util.GetEnvNumeric("AI_PARALLEL_REQ", 15)),
+		TokenEncoder:  "o200k_base",
+		ParallelFiles: 1,
 	})
 	if err != nil {
 		return err
@@ -350,11 +345,11 @@ func ProcessDeleteMessage(
 	}
 	duration := time.Since(start)
 
-	logger.Info("Delete and regenerate completed", "project_id", projectId, "time_sec", duration.Seconds())
+	logger.Info("[Queue] Delete and regenerate completed", "project_id", projectId, "duration_sec", duration.Seconds())
 
 	for _, fileKey := range fileKeys {
 		if err := storage.DeleteFile(ctx, s3Client, fileKey); err != nil {
-			logger.Warn("Failed to delete S3 file:", "file_key", fileKey, "err", err)
+			logger.Warn("[Queue] Failed to delete S3 file", "file_key", fileKey, "err", err)
 		}
 	}
 
@@ -385,7 +380,6 @@ func ProcessPreprocess(
 		})
 	}
 
-	numParallel := util.GetEnvNumeric("AI_PARALLEL_REQ", 15)
 	files := make([]loader.GraphFile, 0)
 	noProcessingFiles := make([]loader.GraphFile, 0)
 	pageCount := 0
@@ -393,7 +387,6 @@ func ProcessPreprocess(
 		s3L := s3.NewS3GraphFileLoaderWithClient("github.com/OFFIS-RIT/kiwi", s3Client)
 		ocrL := ocr.NewOCRGraphLoader(ocr.NewOCRGraphLoaderParams{
 			AIClient: aiClient,
-			Parallel: int(numParallel),
 		})
 
 		ext := filepath.Ext(upload.Name)
@@ -453,7 +446,6 @@ func ProcessPreprocess(
 			ocrL := ocr.NewOCRGraphLoader(ocr.NewOCRGraphLoaderParams{
 				Loader:   nil,
 				AIClient: aiClient,
-				Parallel: int(numParallel),
 			})
 			pdfL := pdf.NewPDFOcrGraphLoader(s3L, ocrL)
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
@@ -603,7 +595,7 @@ func ProcessPreprocess(
 	if err != nil {
 		prediction = 0
 	}
-	logger.Info("Prediction for preprocessing", "batch_id", data.BatchID, "pages", pageCount, "time_ms", prediction)
+	logger.Info("[Queue] Prediction for preprocessing", "batch_id", data.BatchID, "pages", pageCount, "time_ms", prediction)
 
 	if data.CorrelationID != "" {
 		_ = q.UpdateBatchEstimatedDuration(ctx, db.UpdateBatchEstimatedDurationParams{
@@ -777,12 +769,12 @@ func RecoverStaleBatches(
 		return fmt.Errorf("failed to try acquire recovery lock: %w", err)
 	}
 	if !acquired {
-		logger.Info("Another worker is already running stale batch recovery, skipping")
+		logger.Debug("[Queue] Another worker running stale batch recovery, skipping")
 		return nil
 	}
 	defer func() {
 		if unlockErr := q.ReleaseProjectLock(ctx, recoveryLockID); unlockErr != nil {
-			logger.Error("Failed to release recovery lock", "err", unlockErr)
+			logger.Error("[Queue] Failed to release recovery lock", "err", unlockErr)
 		}
 	}()
 
@@ -792,21 +784,21 @@ func RecoverStaleBatches(
 	}
 
 	if len(staleBatches) == 0 {
-		logger.Info("No stale batches found")
+		logger.Debug("[Queue] No stale batches found")
 		return nil
 	}
 
-	logger.Info("Found stale batches", "count", len(staleBatches))
+	logger.Info("[Queue] Found stale batches", "count", len(staleBatches))
 
 	for _, batch := range staleBatches {
 		projectFiles, err := q.GetProjectFilesForBatch(ctx, batch.FileIds)
 		if err != nil {
-			logger.Error("Failed to get project files for batch", "batch_id", batch.BatchID, "err", err)
+			logger.Error("[Queue] Failed to get project files for batch", "batch_id", batch.BatchID, "err", err)
 			continue
 		}
 
 		if len(projectFiles) == 0 {
-			logger.Warn("No project files found for stale batch, skipping", "batch_id", batch.BatchID)
+			logger.Warn("[Queue] No project files found for stale batch, skipping", "batch_id", batch.BatchID)
 			continue
 		}
 
@@ -826,7 +818,7 @@ func RecoverStaleBatches(
 		}
 
 		if err != nil {
-			logger.Error("Failed to reset batch status", "batch_id", batch.BatchID, "err", err)
+			logger.Error("[Queue] Failed to reset batch status", "batch_id", batch.BatchID, "err", err)
 			continue
 		}
 
@@ -845,17 +837,17 @@ func RecoverStaleBatches(
 
 		msgBytes, err := json.Marshal(queueData)
 		if err != nil {
-			logger.Error("Failed to marshal queue message", "batch_id", batch.BatchID, "err", err)
+			logger.Error("[Queue] Failed to marshal queue message", "batch_id", batch.BatchID, "err", err)
 			continue
 		}
 
 		err = PublishFIFO(ch, targetQueue, msgBytes)
 		if err != nil {
-			logger.Error("Failed to republish batch", "batch_id", batch.BatchID, "queue", targetQueue, "err", err)
+			logger.Error("[Queue] Failed to republish batch", "batch_id", batch.BatchID, "queue", targetQueue, "err", err)
 			continue
 		}
 
-		logger.Info("Recovered stale batch", "batch_id", batch.BatchID, "project_id", batch.ProjectID, "queue", targetQueue)
+		logger.Info("[Queue] Recovered stale batch", "batch_id", batch.BatchID, "project_id", batch.ProjectID, "queue", targetQueue)
 	}
 
 	return nil

@@ -37,6 +37,11 @@ func (c *GraphOllamaClient) GenerateImageDescription(
 		Stream: &stream,
 	}
 
+	if err := c.reqLock.Acquire(ctx, 1); err != nil {
+		return "", err
+	}
+	defer c.reqLock.Release(1)
+
 	var final api.ChatResponse
 	if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
 		final = cr
