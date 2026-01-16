@@ -44,11 +44,11 @@ func (c *GraphOpenAIClient) GenerateImageDescription(
 		},
 	}
 
-	err := c.reqLock.Acquire(ctx, 1)
+	err := c.imageLock.Acquire(ctx, 1)
 	if err != nil {
 		return "", err
 	}
-	defer c.reqLock.Release(1)
+	defer c.imageLock.Release(1)
 
 	start := time.Now()
 	response, err := client.Chat.Completions.New(ctx, body)

@@ -32,7 +32,10 @@ type GraphOpenAIClient struct {
 	audioURL     string
 	audioKey     string
 
-	reqLock *semaphore.Weighted
+	chatLock      *semaphore.Weighted
+	embeddingLock *semaphore.Weighted
+	imageLock     *semaphore.Weighted
+	audioLock     *semaphore.Weighted
 
 	metricsLock sync.Mutex
 	metrics     ai.ModelMetrics
@@ -112,7 +115,10 @@ func NewGraphOpenAIClient(
 		audioURL:     params.AudioURL,
 		audioKey:     params.AudioKey,
 
-		reqLock: sem,
+		chatLock:      sem,
+		embeddingLock: semaphore.NewWeighted(params.MaxConcurrentRequests),
+		imageLock:     semaphore.NewWeighted(params.MaxConcurrentRequests),
+		audioLock:     semaphore.NewWeighted(params.MaxConcurrentRequests),
 
 		metricsLock: sync.Mutex{},
 		metrics: ai.ModelMetrics{
