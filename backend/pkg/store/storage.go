@@ -38,4 +38,12 @@ type GraphStorage interface {
 	DeleteFilesAndRegenerateDescriptions(ctx context.Context, graphID string) error
 	DeleteFile(ctx context.Context, fileID int64, projectID int64) error
 	RollbackFileData(ctx context.Context, fileIDs []int64, projectID int64) error
+
+	StageUnits(ctx context.Context, correlationID string, batchID int, projectID int64, units []*common.Unit) error
+	StageEntities(ctx context.Context, correlationID string, batchID int, projectID int64, entities []common.Entity) error
+	StageRelationships(ctx context.Context, correlationID string, batchID int, projectID int64, relations []common.Relationship) error
+	GetStagedUnits(ctx context.Context, correlationID string, batchID int) ([]*common.Unit, error)
+	GetStagedEntities(ctx context.Context, correlationID string, batchID int) ([]common.Entity, error)
+	GetStagedRelationships(ctx context.Context, correlationID string, batchID int) ([]common.Relationship, error)
+	DeleteStagedData(ctx context.Context, correlationID string, batchID int) error
 }

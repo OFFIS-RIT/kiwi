@@ -21,6 +21,8 @@ type Querier interface {
 	AddTokenCountToFile(ctx context.Context, arg AddTokenCountToFileParams) error
 	AddUserToGroup(ctx context.Context, arg AddUserToGroupParams) (GroupUser, error)
 	AreAllBatchesCompleted(ctx context.Context, correlationID string) (bool, error)
+	// For pg_cron: DELETE FROM extraction_staging WHERE created_at < NOW() - INTERVAL '24 hours';
+	CleanupOldStagedData(ctx context.Context) error
 	CountCompletedBatches(ctx context.Context, correlationID string) (int32, error)
 	CountEntitySources(ctx context.Context, entityID int64) (int32, error)
 	CountEntitySourcesFromUnits(ctx context.Context, arg CountEntitySourcesFromUnitsParams) (int32, error)
@@ -42,6 +44,8 @@ type Querier interface {
 	DeleteProjectRelationshipByPublicID(ctx context.Context, publicID string) error
 	DeleteRelationshipSources(ctx context.Context, relationshipID int64) error
 	DeleteRelationshipsWithoutSources(ctx context.Context, projectID int64) error
+	DeleteStagedData(ctx context.Context, arg DeleteStagedDataParams) error
+	DeleteStagedDataByProject(ctx context.Context, projectID int64) error
 	DeleteTextUnitsByFileIDs(ctx context.Context, dollar_1 []int64) error
 	DeleteUserFromGroup(ctx context.Context, arg DeleteUserFromGroupParams) error
 	FindDuplicateRelationships(ctx context.Context, projectID int64) ([]FindDuplicateRelationshipsRow, error)
@@ -103,11 +107,15 @@ type Querier interface {
 	GetProjectsForUser(ctx context.Context, userID int64) ([]GetProjectsForUserRow, error)
 	GetRelationshipsByIDs(ctx context.Context, dollar_1 []int64) ([]GetRelationshipsByIDsRow, error)
 	GetRelationshipsWithSourcesFromUnits(ctx context.Context, arg GetRelationshipsWithSourcesFromUnitsParams) ([]GetRelationshipsWithSourcesFromUnitsRow, error)
+	GetStagedEntities(ctx context.Context, arg GetStagedEntitiesParams) ([][]byte, error)
+	GetStagedRelationships(ctx context.Context, arg GetStagedRelationshipsParams) ([][]byte, error)
+	GetStagedUnits(ctx context.Context, arg GetStagedUnitsParams) ([][]byte, error)
 	GetStaleBatches(ctx context.Context) ([]ProjectBatchStatus, error)
 	GetTextUnitByPublicId(ctx context.Context, publicID string) (TextUnit, error)
 	GetTextUnitIdsForFiles(ctx context.Context, dollar_1 []int64) ([]GetTextUnitIdsForFilesRow, error)
 	GetTokenCountOfFile(ctx context.Context, id int64) (int32, error)
 	GetUsers(ctx context.Context) ([]User, error)
+	InsertStagedData(ctx context.Context, arg InsertStagedDataParams) error
 	IsUserInGroup(ctx context.Context, arg IsUserInGroupParams) (int64, error)
 	IsUserInProject(ctx context.Context, arg IsUserInProjectParams) (int64, error)
 	MarkProjectFileAsDeleted(ctx context.Context, arg MarkProjectFileAsDeletedParams) error
@@ -115,6 +123,7 @@ type Querier interface {
 	ReleaseProjectLock(ctx context.Context, dollar_1 int64) error
 	ResetBatchToPending(ctx context.Context, arg ResetBatchToPendingParams) error
 	ResetBatchToPreprocessed(ctx context.Context, arg ResetBatchToPreprocessedParams) error
+	ResetStaleBatchExtractingToPreprocessed(ctx context.Context, id int64) error
 	ResetStaleBatchToPending(ctx context.Context, id int64) error
 	ResetStaleBatchToPreprocessed(ctx context.Context, id int64) error
 	SearchEntitiesByEmbedding(ctx context.Context, arg SearchEntitiesByEmbeddingParams) ([]SearchEntitiesByEmbeddingRow, error)

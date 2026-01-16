@@ -191,7 +191,7 @@ func (q *Queries) GetLatestCorrelationForProject(ctx context.Context, projectID 
 
 const getPendingBatchesForProject = `-- name: GetPendingBatchesForProject :many
 SELECT id, project_id, correlation_id, batch_id, total_batches, files_count, file_ids, status, operation, estimated_duration, created_at, started_at, completed_at, error_message FROM project_batch_status
-WHERE project_id = $1 AND status IN ('pending', 'preprocessing', 'indexing')
+WHERE project_id = $1 AND status IN ('pending', 'preprocessing', 'extracting', 'indexing')
 ORDER BY created_at
 `
 
@@ -235,6 +235,7 @@ SELECT
     COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count,
     COUNT(*) FILTER (WHERE status = 'preprocessing')::int AS preprocessing_count,
     COUNT(*) FILTER (WHERE status = 'preprocessed')::int AS preprocessed_count,
+    COUNT(*) FILTER (WHERE status = 'extracting')::int AS extracting_count,
     COUNT(*) FILTER (WHERE status = 'indexing')::int AS indexing_count,
     COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_count,
     COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count,
@@ -249,6 +250,7 @@ type GetProjectBatchProgressRow struct {
 	PendingCount               int32 `json:"pending_count"`
 	PreprocessingCount         int32 `json:"preprocessing_count"`
 	PreprocessedCount          int32 `json:"preprocessed_count"`
+	ExtractingCount            int32 `json:"extracting_count"`
 	IndexingCount              int32 `json:"indexing_count"`
 	CompletedCount             int32 `json:"completed_count"`
 	FailedCount                int32 `json:"failed_count"`
@@ -264,6 +266,7 @@ func (q *Queries) GetProjectBatchProgress(ctx context.Context, correlationID str
 		&i.PendingCount,
 		&i.PreprocessingCount,
 		&i.PreprocessedCount,
+		&i.ExtractingCount,
 		&i.IndexingCount,
 		&i.CompletedCount,
 		&i.FailedCount,
@@ -311,7 +314,7 @@ func (q *Queries) GetProjectFilesForBatch(ctx context.Context, dollar_1 []int64)
 
 const getStaleBatches = `-- name: GetStaleBatches :many
 SELECT id, project_id, correlation_id, batch_id, total_batches, files_count, file_ids, status, operation, estimated_duration, created_at, started_at, completed_at, error_message FROM project_batch_status
-WHERE status IN ('preprocessing', 'indexing')
+WHERE status IN ('preprocessing', 'extracting', 'indexing')
   AND started_at < NOW() - INTERVAL '10 hours'
 `
 
@@ -384,6 +387,19 @@ func (q *Queries) ResetBatchToPreprocessed(ctx context.Context, arg ResetBatchTo
 	return err
 }
 
+const resetStaleBatchExtractingToPreprocessed = `-- name: ResetStaleBatchExtractingToPreprocessed :exec
+UPDATE project_batch_status
+SET status = 'preprocessed',
+    started_at = NULL,
+    error_message = 'Reset: stale extracting state'
+WHERE id = $1 AND status = 'extracting'
+`
+
+func (q *Queries) ResetStaleBatchExtractingToPreprocessed(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, resetStaleBatchExtractingToPreprocessed, id)
+	return err
+}
+
 const resetStaleBatchToPending = `-- name: ResetStaleBatchToPending :exec
 UPDATE project_batch_status
 SET status = 'pending',
@@ -430,7 +446,7 @@ func (q *Queries) UpdateBatchEstimatedDuration(ctx context.Context, arg UpdateBa
 const updateBatchStatus = `-- name: UpdateBatchStatus :exec
 UPDATE project_batch_status
 SET status = $3,
-    started_at = CASE WHEN $3 = 'preprocessing' OR $3 = 'indexing' THEN NOW() ELSE started_at END,
+    started_at = CASE WHEN $3 IN ('preprocessing', 'extracting', 'indexing') THEN NOW() ELSE started_at END,
     completed_at = CASE WHEN $3 IN ('completed', 'failed') THEN NOW() ELSE completed_at END,
     error_message = $4
 WHERE correlation_id = $1 AND batch_id = $2

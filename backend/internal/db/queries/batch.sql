@@ -7,7 +7,7 @@ RETURNING *;
 -- name: UpdateBatchStatus :exec
 UPDATE project_batch_status
 SET status = $3,
-    started_at = CASE WHEN $3 = 'preprocessing' OR $3 = 'indexing' THEN NOW() ELSE started_at END,
+    started_at = CASE WHEN $3 IN ('preprocessing', 'extracting', 'indexing') THEN NOW() ELSE started_at END,
     completed_at = CASE WHEN $3 IN ('completed', 'failed') THEN NOW() ELSE completed_at END,
     error_message = $4
 WHERE correlation_id = $1 AND batch_id = $2;
@@ -32,7 +32,7 @@ WHERE correlation_id = $1;
 
 -- name: GetPendingBatchesForProject :many
 SELECT * FROM project_batch_status
-WHERE project_id = $1 AND status IN ('pending', 'preprocessing', 'indexing')
+WHERE project_id = $1 AND status IN ('pending', 'preprocessing', 'extracting', 'indexing')
 ORDER BY created_at;
 
 -- name: DeleteBatchStatusByCorrelation :exec
@@ -44,7 +44,7 @@ WHERE status = 'completed' AND completed_at < NOW() - INTERVAL '7 days';
 
 -- name: GetStaleBatches :many
 SELECT * FROM project_batch_status
-WHERE status IN ('preprocessing', 'indexing')
+WHERE status IN ('preprocessing', 'extracting', 'indexing')
   AND started_at < NOW() - INTERVAL '10 hours';
 
 -- name: ResetStaleBatchToPending :exec
@@ -60,6 +60,13 @@ SET status = 'preprocessed',
     started_at = NULL,
     error_message = 'Reset: stale indexing state'
 WHERE id = $1 AND status = 'indexing';
+
+-- name: ResetStaleBatchExtractingToPreprocessed :exec
+UPDATE project_batch_status
+SET status = 'preprocessed',
+    started_at = NULL,
+    error_message = 'Reset: stale extracting state'
+WHERE id = $1 AND status = 'extracting';
 
 -- name: ResetBatchToPending :exec
 UPDATE project_batch_status
@@ -88,6 +95,7 @@ SELECT
     COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count,
     COUNT(*) FILTER (WHERE status = 'preprocessing')::int AS preprocessing_count,
     COUNT(*) FILTER (WHERE status = 'preprocessed')::int AS preprocessed_count,
+    COUNT(*) FILTER (WHERE status = 'extracting')::int AS extracting_count,
     COUNT(*) FILTER (WHERE status = 'indexing')::int AS indexing_count,
     COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_count,
     COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count,

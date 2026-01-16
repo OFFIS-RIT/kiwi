@@ -232,3 +232,14 @@ CREATE TABLE project_batch_status (
     error_message TEXT,
     UNIQUE(correlation_id, batch_id)
 );
+
+-- Unlogged staging table for parallel extraction before lock acquisition.
+CREATE UNLOGGED TABLE extraction_staging (
+    id BIGSERIAL PRIMARY KEY,
+    correlation_id VARCHAR(21) NOT NULL,
+    batch_id INT NOT NULL,
+    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    data_type VARCHAR(20) NOT NULL,
+    data JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);

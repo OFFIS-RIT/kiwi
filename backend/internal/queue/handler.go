@@ -66,23 +66,11 @@ func ProcessGraphMessage(
 
 	q := db.New(conn)
 
-	logger.Info("Acquiring advisory lock for project", "project_id", projectId)
-	err = q.AcquireProjectLock(ctx, projectId)
-	if err != nil {
-		return fmt.Errorf("failed to acquire project lock: %w", err)
-	}
-	defer func() {
-		if unlockErr := q.ReleaseProjectLock(ctx, projectId); unlockErr != nil {
-			logger.Error("Failed to release project lock", "project_id", projectId, "err", unlockErr)
-		}
-		logger.Info("Released advisory lock for project", "project_id", projectId)
-	}()
-
 	if data.CorrelationID != "" {
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Status:        "indexing",
+			Status:        "extracting",
 		})
 	}
 
@@ -194,22 +182,11 @@ func ProcessGraphMessage(
 		return err
 	}
 
-	_, err = q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
-		ID:    projectId,
-		State: projectState,
-	})
-	if err != nil {
-		return err
-	}
-	defer q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
-		ID:    projectId,
-		State: "ready",
-	})
-
 	graphID := fmt.Sprintf("%d", projectId)
 	start := time.Now()
 
-	err = graphClient.ProcessGraph(ctx, files, graphID, aiClient, storageClient)
+	logger.Info("Starting extraction phase (no lock)", "project_id", projectId, "batch_id", data.BatchID)
+	err = graphClient.ExtractAndStage(ctx, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
 	if err != nil {
 		if data.CorrelationID != "" {
 			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
@@ -219,8 +196,59 @@ func ProcessGraphMessage(
 				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
 			})
 		}
+		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
 		return err
 	}
+
+	logger.Info("Acquiring advisory lock for project", "project_id", projectId)
+	err = q.AcquireProjectLock(ctx, projectId)
+	if err != nil {
+		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+		return fmt.Errorf("failed to acquire project lock: %w", err)
+	}
+	defer func() {
+		if unlockErr := q.ReleaseProjectLock(ctx, projectId); unlockErr != nil {
+			logger.Error("Failed to release project lock", "project_id", projectId, "err", unlockErr)
+		}
+		logger.Info("Released advisory lock for project", "project_id", projectId)
+	}()
+
+	if data.CorrelationID != "" {
+		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+			Status:        "indexing",
+		})
+	}
+
+	_, err = q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
+		ID:    projectId,
+		State: projectState,
+	})
+	if err != nil {
+		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+		return err
+	}
+	defer q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
+		ID:    projectId,
+		State: "ready",
+	})
+
+	err = graphClient.MergeFromStaging(ctx, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
+	if err != nil {
+		if data.CorrelationID != "" {
+			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+				CorrelationID: data.CorrelationID,
+				BatchID:       int32(data.BatchID),
+				Status:        "failed",
+				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+			})
+		}
+		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+		return err
+	}
+
+	_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
 
 	duration := time.Since(start)
 	q.AddProcessTime(ctx, db.AddProcessTimeParams{
@@ -472,7 +500,6 @@ func ProcessPreprocess(
 			})
 			files = append(files, f)
 
-			// Estimate work units based on file size
 			head, err := s3Client.HeadObject(ctx, &awss3.HeadObjectInput{
 				Bucket: aws.String("github.com/OFFIS-RIT/kiwi"),
 				Key:    aws.String(upload.FileKey),
@@ -788,6 +815,9 @@ func RecoverStaleBatches(
 		case "preprocessing":
 			err = q.ResetStaleBatchToPending(ctx, batch.ID)
 			targetQueue = "preprocess_queue"
+		case "extracting":
+			err = q.ResetStaleBatchExtractingToPreprocessed(ctx, batch.ID)
+			targetQueue = "graph_queue"
 		case "indexing":
 			err = q.ResetStaleBatchToPreprocessed(ctx, batch.ID)
 			targetQueue = "graph_queue"

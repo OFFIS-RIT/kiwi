@@ -19,6 +19,7 @@ func GetProjectsHandler(c echo.Context) error {
 		Pending       string `json:"pending,omitempty"`
 		Preprocessing string `json:"preprocessing,omitempty"`
 		Preprocessed  string `json:"preprocessed,omitempty"`
+		Extracting    string `json:"extracting,omitempty"`
 		Indexing      string `json:"indexing,omitempty"`
 		Completed     string `json:"completed,omitempty"`
 		Failed        string `json:"failed,omitempty"`
@@ -129,6 +130,10 @@ func GetProjectsHandler(c echo.Context) error {
 					}
 					if progress.PreprocessedCount > 0 {
 						stepProgress.Preprocessed = fmt.Sprintf("%d/%d", progress.PreprocessedCount, total)
+						hasStep = true
+					}
+					if progress.ExtractingCount > 0 {
+						stepProgress.Extracting = fmt.Sprintf("%d/%d", progress.ExtractingCount, total)
 						hasStep = true
 					}
 					if progress.IndexingCount > 0 {

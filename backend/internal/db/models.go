@@ -57,6 +57,16 @@ type EntitySource struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ExtractionStaging struct {
+	ID            int64              `json:"id"`
+	CorrelationID string             `json:"correlation_id"`
+	BatchID       int32              `json:"batch_id"`
+	ProjectID     int64              `json:"project_id"`
+	DataType      string             `json:"data_type"`
+	Data          []byte             `json:"data"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
 type Group struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
