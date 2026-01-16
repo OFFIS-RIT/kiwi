@@ -5,15 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
-	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -37,13 +37,16 @@ import (
 )
 
 type QueueProjectFileMsg struct {
-	Message      string            `json:"message"`
-	ProjectID    int64             `json:"project_id"`
-	ProjectFiles *[]db.ProjectFile `json:"project_files,omitempty"`
-	QueueType    string            `json:"queue_type,omitempty"`
+	Message       string            `json:"message"`
+	ProjectID     int64             `json:"project_id"`
+	CorrelationID string            `json:"correlation_id,omitempty"`
+	BatchID       int               `json:"batch_id,omitempty"`
+	TotalBatches  int               `json:"total_batches,omitempty"`
+	ProjectFiles  *[]db.ProjectFile `json:"project_files,omitempty"`
+	Operation     string            `json:"operation,omitempty"` // "index" or "update"
 }
 
-func ProcessIndexMessage(
+func ProcessGraphMessage(
 	ctx context.Context,
 	s3Client *awss3.Client,
 	aiClient ai.GraphAIClient,
@@ -51,8 +54,6 @@ func ProcessIndexMessage(
 	conn *pgxpool.Pool,
 	msg string,
 ) error {
-	numParallel := util.GetEnvNumeric("AI_PARALLEL_REQ", 15)
-
 	data := new(QueueProjectFileMsg)
 	err := json.Unmarshal([]byte(msg), &data)
 	if err != nil {
@@ -62,6 +63,22 @@ func ProcessIndexMessage(
 
 	q := db.New(conn)
 
+	if data.CorrelationID != "" {
+		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+			Status:        "extracting",
+		})
+	}
+
+	isUpdate := data.Operation == "update"
+	statType := "graph_creation"
+	projectState := "create"
+	if isUpdate {
+		statType = "graph_update"
+		projectState = "update"
+	}
+
 	s3L := s3.NewS3GraphFileLoaderWithClient("github.com/OFFIS-RIT/kiwi", s3Client)
 	files := make([]loader.GraphFile, 0)
 
@@ -134,34 +151,78 @@ func ProcessIndexMessage(
 
 	prediction, err := q.PredictProjectProcessTime(ctx, db.PredictProjectProcessTimeParams{
 		Duration: int64(tokenCount),
-		StatType: "graph_creation",
+		StatType: statType,
 	})
 	if err != nil {
 		prediction = 0
 	}
-	logger.Info("Prediction for indexing:", "tokens", tokenCount, "time_ms", prediction)
+	logger.Info("[Queue] Prediction for graph operation", "operation", data.Operation, "tokens", tokenCount, "time_ms", prediction)
 
-	_ = q.UpdateProjectProcessStepAndPrediction(ctx, db.UpdateProjectProcessStepAndPredictionParams{
-		ProjectID:         projectId,
-		CurrentStep:       "indexing",
-		EstimatedDuration: prediction,
-	})
+	if data.CorrelationID != "" {
+		_ = q.UpdateBatchEstimatedDuration(ctx, db.UpdateBatchEstimatedDurationParams{
+			CorrelationID:     data.CorrelationID,
+			BatchID:           int32(data.BatchID),
+			EstimatedDuration: prediction,
+		})
+	}
 
 	graphClient, err := graph.NewGraphClient(graph.NewGraphClientParams{
-		TokenEncoder:       "o200k_base",
-		ParallelFiles:      1,
-		ParallelAiRequests: int(numParallel),
+		TokenEncoder:  "o200k_base",
+		ParallelFiles: 1,
 	})
+	if err != nil {
+		return err
+	}
 	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, conn, aiClient, []string{})
 	if err != nil {
 		return err
 	}
 
+	graphID := fmt.Sprintf("%d", projectId)
+	start := time.Now()
+
+	logger.Debug("[Queue] Starting extraction phase", "project_id", projectId, "batch_id", data.BatchID)
+	err = graphClient.ExtractAndStage(ctx, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
+	if err != nil {
+		if data.CorrelationID != "" {
+			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+				CorrelationID: data.CorrelationID,
+				BatchID:       int32(data.BatchID),
+				Status:        "failed",
+				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+			})
+		}
+		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+		return err
+	}
+
+	logger.Debug("[Queue] Acquiring advisory lock", "project_id", projectId)
+	err = q.AcquireProjectLock(ctx, projectId)
+	if err != nil {
+		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+		return fmt.Errorf("failed to acquire project lock: %w", err)
+	}
+	defer func() {
+		if unlockErr := q.ReleaseProjectLock(ctx, projectId); unlockErr != nil {
+			logger.Error("[Queue] Failed to release project lock", "project_id", projectId, "err", unlockErr)
+		}
+		logger.Debug("[Queue] Released advisory lock", "project_id", projectId)
+	}()
+
+	if data.CorrelationID != "" {
+		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+			Status:        "indexing",
+		})
+	}
+
 	_, err = q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
 		ID:    projectId,
-		State: "create",
+		State: projectState,
 	})
 	if err != nil {
+		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
 		return err
 	}
 	defer q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
@@ -169,183 +230,42 @@ func ProcessIndexMessage(
 		State: "ready",
 	})
 
-	graphID := fmt.Sprintf("%d", projectId)
-	start := time.Now()
-	err = graphClient.CreateGraph(ctx, files, graphID, aiClient, storageClient)
+	err = graphClient.MergeFromStaging(ctx, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
 	if err != nil {
+		if data.CorrelationID != "" {
+			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+				CorrelationID: data.CorrelationID,
+				BatchID:       int32(data.BatchID),
+				Status:        "failed",
+				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+			})
+		}
+		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
 		return err
 	}
+
+	_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
 
 	duration := time.Since(start)
 	q.AddProcessTime(ctx, db.AddProcessTimeParams{
 		ProjectID: projectId,
 		Amount:    int32(tokenCount),
 		Duration:  duration.Milliseconds(),
-		StatType:  "graph_creation",
+		StatType:  statType,
 	})
 
-	_ = q.UpdateProjectProcessStepAndPrediction(ctx, db.UpdateProjectProcessStepAndPredictionParams{
-		ProjectID:         projectId,
-		CurrentStep:       "completed",
-		EstimatedDuration: 0,
-	})
-	_ = q.UpdateProjectProcessPercentage(ctx, db.UpdateProjectProcessPercentageParams{
-		ProjectID:  projectId,
-		Percentage: 100,
-	})
+	if data.CorrelationID != "" {
+		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+			Status:        "completed",
+		})
 
-	return nil
-}
-
-func ProcessUpdateMessage(
-	ctx context.Context,
-	s3Client *awss3.Client,
-	aiClient ai.GraphAIClient,
-	ch *amqp091.Channel,
-	conn *pgxpool.Pool,
-	msg string,
-) error {
-	numParallel := util.GetEnvNumeric("AI_PARALLEL_REQ", 15)
-
-	data := new(QueueProjectFileMsg)
-	err := json.Unmarshal([]byte(msg), &data)
-	if err != nil {
-		return err
-	}
-
-	q := db.New(conn)
-
-	s3L := s3.NewS3GraphFileLoaderWithClient("github.com/OFFIS-RIT/kiwi", s3Client)
-	files := make([]loader.GraphFile, 0)
-
-	for _, file := range *data.ProjectFiles {
-		ext := filepath.Ext(file.FileKey)
-		ext = strings.ReplaceAll(ext, ".", "")
-		ext = strings.ToLower(ext)
-
-		switch ext {
-		case "xlsx", "xls":
-			baseName := strings.TrimSuffix(filepath.Base(file.FileKey), "."+ext)
-			dir := filepath.Dir(file.FileKey)
-			prefix := fmt.Sprintf("%s/%s_", dir, baseName)
-
-			sheetFiles, err := storage.ListFilesWithPrefix(ctx, s3Client, prefix)
-			if err != nil {
-				return err
-			}
-
-			sheetIndex := 0
-			for _, sheetFile := range sheetFiles {
-				if !strings.HasSuffix(sheetFile, ".txt") {
-					continue
-				}
-				f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
-					ID:        fmt.Sprintf("%d-sheet-%d", file.ID, sheetIndex),
-					FilePath:  sheetFile,
-					MaxTokens: 500,
-					Loader:    s3L,
-				})
-				files = append(files, f)
-				sheetIndex++
-			}
-		default:
-			key := file.FileKey
-			if ext != "txt" && ext != "md" {
-				base := filepath.Base(file.FileKey)
-				nameWithoutExt := strings.TrimSuffix(base, filepath.Ext(base))
-				name := fmt.Sprintf("%s.txt", nameWithoutExt)
-				key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
-			}
-
-			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", file.ID),
-				FilePath:  key,
-				MaxTokens: 500,
-				Loader:    s3L,
-			})
-			files = append(files, f)
+		allDone, checkErr := q.AreAllBatchesCompleted(ctx, data.CorrelationID)
+		if checkErr == nil && allDone {
+			logger.Info("[Queue] All batches completed", "correlation_id", data.CorrelationID)
 		}
 	}
-
-	tokenCount := 0
-	for _, f := range files {
-		fileID := f.ID
-		if idx := strings.Index(fileID, "-sheet-"); idx != -1 {
-			fileID = fileID[:idx]
-		}
-		id, err := strconv.ParseInt(fileID, 10, 64)
-		if err != nil {
-			return err
-		}
-
-		tokens, err := q.GetTokenCountOfFile(ctx, id)
-		if err != nil {
-			return err
-		}
-		tokenCount += int(tokens)
-	}
-
-	prediction, err := q.PredictProjectProcessTime(ctx, db.PredictProjectProcessTimeParams{
-		Duration: int64(tokenCount),
-		StatType: "graph_update",
-	})
-	if err != nil {
-		prediction = 0
-	}
-	logger.Info("Prediction for updating:", "tokens", tokenCount, "time_ms", prediction)
-
-	_ = q.UpdateProjectProcessStepAndPrediction(ctx, db.UpdateProjectProcessStepAndPredictionParams{
-		ProjectID:         data.ProjectID,
-		CurrentStep:       "updating",
-		EstimatedDuration: prediction,
-	})
-
-	graphClient, err := graph.NewGraphClient(graph.NewGraphClientParams{
-		TokenEncoder:       "o200k_base",
-		ParallelFiles:      1,
-		ParallelAiRequests: int(numParallel),
-	})
-	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, conn, aiClient, []string{})
-	if err != nil {
-		return err
-	}
-
-	_, err = q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
-		ID:    data.ProjectID,
-		State: "update",
-	})
-	if err != nil {
-		return err
-	}
-	defer q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
-		ID:    data.ProjectID,
-		State: "ready",
-	})
-
-	graphID := fmt.Sprintf("%d", data.ProjectID)
-	start := time.Now()
-	err = graphClient.UpdateGraph(ctx, files, graphID, aiClient, storageClient)
-	if err != nil {
-		return err
-	}
-
-	duration := time.Since(start)
-	q.AddProcessTime(ctx, db.AddProcessTimeParams{
-		ProjectID: data.ProjectID,
-		Amount:    int32(tokenCount),
-		Duration:  duration.Milliseconds(),
-		StatType:  "graph_update",
-	})
-
-	_ = q.UpdateProjectProcessStepAndPrediction(ctx, db.UpdateProjectProcessStepAndPredictionParams{
-		ProjectID:         data.ProjectID,
-		CurrentStep:       "completed",
-		EstimatedDuration: 0,
-	})
-	_ = q.UpdateProjectProcessPercentage(ctx, db.UpdateProjectProcessPercentageParams{
-		ProjectID:  data.ProjectID,
-		Percentage: 100,
-	})
 
 	return nil
 }
@@ -372,6 +292,18 @@ func ProcessDeleteMessage(
 
 	q := db.New(conn)
 
+	logger.Debug("[Queue] Acquiring advisory lock for delete", "project_id", projectId)
+	err = q.AcquireProjectLock(ctx, projectId)
+	if err != nil {
+		return fmt.Errorf("failed to acquire project lock: %w", err)
+	}
+	defer func() {
+		if unlockErr := q.ReleaseProjectLock(ctx, projectId); unlockErr != nil {
+			logger.Error("[Queue] Failed to release project lock", "project_id", projectId, "err", unlockErr)
+		}
+		logger.Debug("[Queue] Released advisory lock", "project_id", projectId)
+	}()
+
 	deletedFiles, err := q.GetDeletedProjectFiles(ctx, projectId)
 	if err != nil {
 		return err
@@ -382,9 +314,8 @@ func ProcessDeleteMessage(
 	}
 
 	graphClient, err := graph.NewGraphClient(graph.NewGraphClientParams{
-		TokenEncoder:       "o200k_base",
-		ParallelFiles:      1,
-		ParallelAiRequests: int(util.GetEnvNumeric("AI_PARALLEL_REQ", 15)),
+		TokenEncoder:  "o200k_base",
+		ParallelFiles: 1,
 	})
 	if err != nil {
 		return err
@@ -414,11 +345,11 @@ func ProcessDeleteMessage(
 	}
 	duration := time.Since(start)
 
-	logger.Info("Delete and regenerate completed", "project_id", projectId, "time_sec", duration.Seconds())
+	logger.Info("[Queue] Delete and regenerate completed", "project_id", projectId, "duration_sec", duration.Seconds())
 
 	for _, fileKey := range fileKeys {
 		if err := storage.DeleteFile(ctx, s3Client, fileKey); err != nil {
-			logger.Warn("Failed to delete S3 file:", "file_key", fileKey, "err", err)
+			logger.Warn("[Queue] Failed to delete S3 file", "file_key", fileKey, "err", err)
 		}
 	}
 
@@ -439,7 +370,16 @@ func ProcessPreprocess(
 		return err
 	}
 
-	numParallel := util.GetEnvNumeric("AI_PARALLEL_REQ", 15)
+	q := db.New(conn)
+
+	if data.CorrelationID != "" {
+		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+			Status:        "preprocessing",
+		})
+	}
+
 	files := make([]loader.GraphFile, 0)
 	noProcessingFiles := make([]loader.GraphFile, 0)
 	pageCount := 0
@@ -447,7 +387,6 @@ func ProcessPreprocess(
 		s3L := s3.NewS3GraphFileLoaderWithClient("github.com/OFFIS-RIT/kiwi", s3Client)
 		ocrL := ocr.NewOCRGraphLoader(ocr.NewOCRGraphLoaderParams{
 			AIClient: aiClient,
-			Parallel: int(numParallel),
 		})
 
 		ext := filepath.Ext(upload.Name)
@@ -507,7 +446,6 @@ func ProcessPreprocess(
 			ocrL := ocr.NewOCRGraphLoader(ocr.NewOCRGraphLoaderParams{
 				Loader:   nil,
 				AIClient: aiClient,
-				Parallel: int(numParallel),
 			})
 			pdfL := pdf.NewPDFOcrGraphLoader(s3L, ocrL)
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
@@ -554,7 +492,6 @@ func ProcessPreprocess(
 			})
 			files = append(files, f)
 
-			// Estimate work units based on file size
 			head, err := s3Client.HeadObject(ctx, &awss3.HeadObjectInput{
 				Bucket: aws.String("github.com/OFFIS-RIT/kiwi"),
 				Key:    aws.String(upload.FileKey),
@@ -651,8 +588,6 @@ func ProcessPreprocess(
 		}
 	}
 
-	q := db.New(conn)
-
 	prediction, err := q.PredictProjectProcessTime(ctx, db.PredictProjectProcessTimeParams{
 		Duration: int64(pageCount),
 		StatType: "file_processing",
@@ -660,16 +595,15 @@ func ProcessPreprocess(
 	if err != nil {
 		prediction = 0
 	}
-	logger.Info("Prediction for preprocessing:", "pages", pageCount, "time_ms", prediction)
+	logger.Info("[Queue] Prediction for preprocessing", "batch_id", data.BatchID, "pages", pageCount, "time_ms", prediction)
 
-	totalFiles := len(files) + len(noProcessingFiles)
-	processedFiles := 0
-	_ = q.UpsertProjectProcess(ctx, db.UpsertProjectProcessParams{
-		ProjectID:         data.ProjectID,
-		Percentage:        0,
-		CurrentStep:       "processing_files",
-		EstimatedDuration: prediction,
-	})
+	if data.CorrelationID != "" {
+		_ = q.UpdateBatchEstimatedDuration(ctx, db.UpdateBatchEstimatedDurationParams{
+			CorrelationID:     data.CorrelationID,
+			BatchID:           int32(data.BatchID),
+			EstimatedDuration: prediction,
+		})
+	}
 
 	enc, err := tiktoken.GetEncoding("o200k_base")
 	if err != nil {
@@ -732,12 +666,6 @@ func ProcessPreprocess(
 		if err != nil {
 			return fmt.Errorf("put file %s: %w", f.ID, err)
 		}
-		processedFiles++
-		percentage := int32(float64(processedFiles) / float64(totalFiles) * 100)
-		_ = q.UpdateProjectProcessPercentage(ctx, db.UpdateProjectProcessPercentageParams{
-			ProjectID:  data.ProjectID,
-			Percentage: percentage,
-		})
 	}
 	duration := time.Since(start)
 
@@ -770,12 +698,6 @@ func ProcessPreprocess(
 		tokens := enc.Encode(textContent, nil, nil)
 		count := len(tokens)
 		tokenCounts = append(tokenCounts, fileTokenCount{fileID: id, tokenCount: int32(count), metadata: metadata})
-		processedFiles++
-		percentage := int32(float64(processedFiles) / float64(totalFiles) * 100)
-		_ = q.UpdateProjectProcessPercentage(ctx, db.UpdateProjectProcessPercentageParams{
-			ProjectID:  data.ProjectID,
-			Percentage: percentage,
-		})
 	}
 
 	tx, err := conn.Begin(ctx)
@@ -818,18 +740,146 @@ func ProcessPreprocess(
 		return err
 	}
 
-	switch data.QueueType {
-	case "index":
-		err = PublishFIFO(ch, "index_queue", []byte(msg))
-		if err != nil {
-			return err
-		}
-	case "update":
-		err = PublishFIFO(ch, "update_queue", []byte(msg))
-		if err != nil {
-			return err
-		}
+	if data.CorrelationID != "" {
+		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+			Status:        "preprocessed",
+		})
+	}
+
+	err = PublishFIFO(ch, "graph_queue", []byte(msg))
+	if err != nil {
+		return err
 	}
 
 	return nil
+}
+
+func RecoverStaleBatches(
+	ctx context.Context,
+	ch *amqp091.Channel,
+	conn *pgxpool.Pool,
+) error {
+	q := db.New(conn)
+
+	const recoveryLockID = 1
+	acquired, err := q.TryAcquireProjectLock(ctx, recoveryLockID)
+	if err != nil {
+		return fmt.Errorf("failed to try acquire recovery lock: %w", err)
+	}
+	if !acquired {
+		logger.Debug("[Queue] Another worker running stale batch recovery, skipping")
+		return nil
+	}
+	defer func() {
+		if unlockErr := q.ReleaseProjectLock(ctx, recoveryLockID); unlockErr != nil {
+			logger.Error("[Queue] Failed to release recovery lock", "err", unlockErr)
+		}
+	}()
+
+	staleBatches, err := q.GetStaleBatches(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get stale batches: %w", err)
+	}
+
+	if len(staleBatches) == 0 {
+		logger.Debug("[Queue] No stale batches found")
+		return nil
+	}
+
+	logger.Info("[Queue] Found stale batches", "count", len(staleBatches))
+
+	for _, batch := range staleBatches {
+		projectFiles, err := q.GetProjectFilesForBatch(ctx, batch.FileIds)
+		if err != nil {
+			logger.Error("[Queue] Failed to get project files for batch", "batch_id", batch.BatchID, "err", err)
+			continue
+		}
+
+		if len(projectFiles) == 0 {
+			logger.Warn("[Queue] No project files found for stale batch, skipping", "batch_id", batch.BatchID)
+			continue
+		}
+
+		var targetQueue string
+		switch batch.Status {
+		case "preprocessing":
+			err = q.ResetStaleBatchToPending(ctx, batch.ID)
+			targetQueue = "preprocess_queue"
+		case "extracting":
+			err = q.ResetStaleBatchExtractingToPreprocessed(ctx, batch.ID)
+			targetQueue = "graph_queue"
+		case "indexing":
+			err = q.ResetStaleBatchToPreprocessed(ctx, batch.ID)
+			targetQueue = "graph_queue"
+		default:
+			continue
+		}
+
+		if err != nil {
+			logger.Error("[Queue] Failed to reset batch status", "batch_id", batch.BatchID, "err", err)
+			continue
+		}
+
+		files := make([]db.ProjectFile, len(projectFiles))
+		copy(files, projectFiles)
+
+		queueData := QueueProjectFileMsg{
+			Message:       "Recovered stale batch",
+			ProjectID:     batch.ProjectID,
+			CorrelationID: batch.CorrelationID,
+			BatchID:       int(batch.BatchID),
+			TotalBatches:  int(batch.TotalBatches),
+			ProjectFiles:  &files,
+			Operation:     batch.Operation,
+		}
+
+		msgBytes, err := json.Marshal(queueData)
+		if err != nil {
+			logger.Error("[Queue] Failed to marshal queue message", "batch_id", batch.BatchID, "err", err)
+			continue
+		}
+
+		err = PublishFIFO(ch, targetQueue, msgBytes)
+		if err != nil {
+			logger.Error("[Queue] Failed to republish batch", "batch_id", batch.BatchID, "queue", targetQueue, "err", err)
+			continue
+		}
+
+		logger.Info("[Queue] Recovered stale batch", "batch_id", batch.BatchID, "project_id", batch.ProjectID, "queue", targetQueue)
+	}
+
+	return nil
+}
+
+func ResetBatchStatusForRetry(
+	ctx context.Context,
+	conn *pgxpool.Pool,
+	queueName string,
+	msgBody []byte,
+) {
+	var data QueueProjectFileMsg
+	if err := json.Unmarshal(msgBody, &data); err != nil {
+		return
+	}
+
+	if data.CorrelationID == "" {
+		return
+	}
+
+	q := db.New(conn)
+
+	switch queueName {
+	case "preprocess_queue":
+		_ = q.ResetBatchToPending(ctx, db.ResetBatchToPendingParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+		})
+	case "graph_queue":
+		_ = q.ResetBatchToPreprocessed(ctx, db.ResetBatchToPreprocessedParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+		})
+	}
 }

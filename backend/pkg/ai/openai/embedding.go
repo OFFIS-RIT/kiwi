@@ -40,8 +40,14 @@ func (c *GraphOpenAIClient) GenerateEmbedding(ctx context.Context, input []byte)
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfString: param.NewOpt(string(input)),
 		},
-		Model:      c.embeddingModel,
+		Model: c.embeddingModel,
 	}
+
+	err := c.embeddingLock.Acquire(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer c.embeddingLock.Release(1)
 
 	start := time.Now()
 	response, err := client.Embeddings.New(ctx, body)

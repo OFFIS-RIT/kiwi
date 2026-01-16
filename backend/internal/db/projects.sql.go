@@ -11,6 +11,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acquireProjectLock = `-- name: AcquireProjectLock :exec
+SELECT pg_advisory_lock($1::bigint)
+`
+
+func (q *Queries) AcquireProjectLock(ctx context.Context, dollar_1 int64) error {
+	_, err := q.db.Exec(ctx, acquireProjectLock, dollar_1)
+	return err
+}
+
 const addFileToProject = `-- name: AddFileToProject :one
 INSERT INTO project_files (project_id, name, file_key)
 VALUES ($1, $2, $3) RETURNING id, project_id, name, file_key, deleted, token_count, metadata, created_at, updated_at
@@ -169,28 +178,19 @@ SELECT
     p.id   AS project_id,
     p.name AS project_name,
     p.state AS project_state,
-    'admin'::TEXT AS role,
-    pp.current_step AS process_step,
-    pp.percentage AS process_percentage,
-    pp.estimated_duration AS process_estimated_duration,
-    GREATEST(0::BIGINT, pp.estimated_duration - (EXTRACT(EPOCH FROM (NOW() - pp.updated_at)) * 1000)::BIGINT) AS process_time_remaining
+    'admin'::TEXT AS role
 FROM groups AS g
 JOIN projects AS p ON p.group_id = g.id
-LEFT JOIN project_process AS pp ON pp.project_id = p.id
 ORDER BY g.id, p.id
 `
 
 type GetAllProjectsWithGroupsRow struct {
-	GroupID                  int64       `json:"group_id"`
-	GroupName                string      `json:"group_name"`
-	ProjectID                int64       `json:"project_id"`
-	ProjectName              string      `json:"project_name"`
-	ProjectState             string      `json:"project_state"`
-	Role                     string      `json:"role"`
-	ProcessStep              pgtype.Text `json:"process_step"`
-	ProcessPercentage        pgtype.Int4 `json:"process_percentage"`
-	ProcessEstimatedDuration pgtype.Int8 `json:"process_estimated_duration"`
-	ProcessTimeRemaining     interface{} `json:"process_time_remaining"`
+	GroupID      int64  `json:"group_id"`
+	GroupName    string `json:"group_name"`
+	ProjectID    int64  `json:"project_id"`
+	ProjectName  string `json:"project_name"`
+	ProjectState string `json:"project_state"`
+	Role         string `json:"role"`
 }
 
 func (q *Queries) GetAllProjectsWithGroups(ctx context.Context) ([]GetAllProjectsWithGroupsRow, error) {
@@ -209,10 +209,6 @@ func (q *Queries) GetAllProjectsWithGroups(ctx context.Context) ([]GetAllProject
 			&i.ProjectName,
 			&i.ProjectState,
 			&i.Role,
-			&i.ProcessStep,
-			&i.ProcessPercentage,
-			&i.ProcessEstimatedDuration,
-			&i.ProcessTimeRemaining,
 		); err != nil {
 			return nil, err
 		}
@@ -391,33 +387,23 @@ SELECT
     p.id   AS project_id,
     p.name AS project_name,
     p.state AS project_state,
-    gu.role as role,
-    pp.current_step AS process_step,
-    pp.percentage AS process_percentage,
-    pp.estimated_duration AS process_estimated_duration,
-    GREATEST(0::BIGINT, pp.estimated_duration - (EXTRACT(EPOCH FROM (NOW() - pp.updated_at)) * 1000)::BIGINT) AS process_time_remaining
+    gu.role as role
 FROM groups AS g
 JOIN projects AS p
     ON p.group_id = g.id
 JOIN group_users AS gu
     ON gu.group_id = g.id
-LEFT JOIN project_process AS pp
-    ON pp.project_id = p.id
 WHERE gu.user_id = $1
 ORDER BY g.id, p.id
 `
 
 type GetProjectsForUserRow struct {
-	GroupID                  int64       `json:"group_id"`
-	GroupName                string      `json:"group_name"`
-	ProjectID                int64       `json:"project_id"`
-	ProjectName              string      `json:"project_name"`
-	ProjectState             string      `json:"project_state"`
-	Role                     string      `json:"role"`
-	ProcessStep              pgtype.Text `json:"process_step"`
-	ProcessPercentage        pgtype.Int4 `json:"process_percentage"`
-	ProcessEstimatedDuration pgtype.Int8 `json:"process_estimated_duration"`
-	ProcessTimeRemaining     interface{} `json:"process_time_remaining"`
+	GroupID      int64  `json:"group_id"`
+	GroupName    string `json:"group_name"`
+	ProjectID    int64  `json:"project_id"`
+	ProjectName  string `json:"project_name"`
+	ProjectState string `json:"project_state"`
+	Role         string `json:"role"`
 }
 
 func (q *Queries) GetProjectsForUser(ctx context.Context, userID int64) ([]GetProjectsForUserRow, error) {
@@ -436,10 +422,6 @@ func (q *Queries) GetProjectsForUser(ctx context.Context, userID int64) ([]GetPr
 			&i.ProjectName,
 			&i.ProjectState,
 			&i.Role,
-			&i.ProcessStep,
-			&i.ProcessPercentage,
-			&i.ProcessEstimatedDuration,
-			&i.ProcessTimeRemaining,
 		); err != nil {
 			return nil, err
 		}
@@ -499,6 +481,26 @@ type MarkProjectFileAsDeletedParams struct {
 func (q *Queries) MarkProjectFileAsDeleted(ctx context.Context, arg MarkProjectFileAsDeletedParams) error {
 	_, err := q.db.Exec(ctx, markProjectFileAsDeleted, arg.ProjectID, arg.FileKey)
 	return err
+}
+
+const releaseProjectLock = `-- name: ReleaseProjectLock :exec
+SELECT pg_advisory_unlock($1::bigint)
+`
+
+func (q *Queries) ReleaseProjectLock(ctx context.Context, dollar_1 int64) error {
+	_, err := q.db.Exec(ctx, releaseProjectLock, dollar_1)
+	return err
+}
+
+const tryAcquireProjectLock = `-- name: TryAcquireProjectLock :one
+SELECT pg_try_advisory_lock($1::bigint) as acquired
+`
+
+func (q *Queries) TryAcquireProjectLock(ctx context.Context, dollar_1 int64) (bool, error) {
+	row := q.db.QueryRow(ctx, tryAcquireProjectLock, dollar_1)
+	var acquired bool
+	err := row.Scan(&acquired)
+	return acquired, err
 }
 
 const updateProject = `-- name: UpdateProject :one

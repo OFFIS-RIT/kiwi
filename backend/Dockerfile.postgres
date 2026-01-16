@@ -11,7 +11,8 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         postgresql-${PG_MAJOR}-postgis-3 \
         postgresql-${PG_MAJOR}-postgis-3-scripts \
-        postgresql-${PG_MAJOR}-pgrouting; \
+        postgresql-${PG_MAJOR}-pgrouting \
+        postgresql-${PG_MAJOR}-cron; \
     # Install pgvector
     if ! apt-get install -y --no-install-recommends postgresql-${PG_MAJOR}-pgvector; then \
         apt-get install -y --no-install-recommends build-essential git make postgresql-server-dev-${PG_MAJOR}; \
@@ -43,3 +44,7 @@ RUN set -eux; \
     rm -rf /tmp/pgvectorscale /root/.cargo /root/.rustup; \
     apt-get purge -y --auto-remove build-essential git make pkg-config libssl-dev libclang-dev clang jq postgresql-server-dev-${PG_MAJOR}; \
     rm -rf /var/lib/apt/lists/*
+
+# Add pg_cron to shared_preload_libraries
+RUN echo "shared_preload_libraries = 'pg_cron'" >> /usr/share/postgresql/postgresql.conf.sample && \
+    echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample

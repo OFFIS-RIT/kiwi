@@ -44,7 +44,6 @@ func (s *GraphDBStorage) UpdateGraph(
 	unitMu := sync.Mutex{}
 
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(s.maxParallel)
 	for _, unit := range newUnits {
 		u := unit
 		g.Go(func() error {
@@ -74,7 +73,6 @@ func (s *GraphDBStorage) UpdateGraph(
 	newEntitySourceMu := sync.Mutex{}
 
 	g, gCtx = errgroup.WithContext(ctx)
-	g.SetLimit(s.maxParallel)
 	for _, entity := range newEntities {
 		e := entity
 		g.Go(func() error {
@@ -110,7 +108,6 @@ func (s *GraphDBStorage) UpdateGraph(
 	updatedEntitySourceMu := sync.Mutex{}
 
 	g, gCtx = errgroup.WithContext(ctx)
-	g.SetLimit(s.maxParallel)
 	for _, entity := range updatedEntities {
 		e := entity
 		g.Go(func() error {
@@ -143,7 +140,6 @@ func (s *GraphDBStorage) UpdateGraph(
 	}
 
 	g, gCtx = errgroup.WithContext(ctx)
-	g.SetLimit(s.maxParallel)
 	for _, entity := range deletedEntities {
 		e := entity
 		g.Go(func() error {
@@ -167,7 +163,6 @@ func (s *GraphDBStorage) UpdateGraph(
 	}
 
 	g, gCtx = errgroup.WithContext(ctx)
-	g.SetLimit(s.maxParallel)
 	for eId, srcs := range newEntitySources {
 		for _, source := range srcs {
 			src := source
@@ -198,7 +193,6 @@ func (s *GraphDBStorage) UpdateGraph(
 	}
 
 	g, gCtx = errgroup.WithContext(ctx)
-	g.SetLimit(s.maxParallel)
 	for eId, srcs := range updatedEntitySources {
 		for _, source := range srcs {
 			src := source
@@ -232,7 +226,6 @@ func (s *GraphDBStorage) UpdateGraph(
 	newRelationSourceMu := sync.Mutex{}
 
 	g, gCtx = errgroup.WithContext(ctx)
-	g.SetLimit(s.maxParallel)
 	for _, relation := range newRelations {
 		r := relation
 		g.Go(func() error {
@@ -273,7 +266,6 @@ func (s *GraphDBStorage) UpdateGraph(
 	updatedRelationSourceMu := sync.Mutex{}
 
 	g, gCtx = errgroup.WithContext(ctx)
-	g.SetLimit(s.maxParallel)
 	for _, relation := range updatedRelations {
 		r := relation
 		g.Go(func() error {
@@ -302,7 +294,6 @@ func (s *GraphDBStorage) UpdateGraph(
 	}
 
 	g, gCtx = errgroup.WithContext(ctx)
-	g.SetLimit(s.maxParallel)
 	for rId, srcs := range newRelationSources {
 		for _, source := range srcs {
 			src := source
@@ -333,8 +324,6 @@ func (s *GraphDBStorage) UpdateGraph(
 	}
 
 	g, gCtx = errgroup.WithContext(ctx)
-	g.SetLimit(s.maxParallel)
-
 	for rId, srcs := range updatedRelationSources {
 		for _, source := range srcs {
 			src := source

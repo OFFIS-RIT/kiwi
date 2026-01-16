@@ -8,6 +8,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 
 	"github.com/ollama/ollama/api"
+	"golang.org/x/sync/semaphore"
 )
 
 // GraphOllamaClient implements the ai.GraphAIClient interface using Ollama as the backend.
@@ -17,6 +18,8 @@ type GraphOllamaClient struct {
 	descriptionModel string
 	extractionModel  string
 	imageModel       string
+
+	reqLock *semaphore.Weighted
 
 	metricsLock sync.Mutex
 	metrics     ai.ModelMetrics
@@ -37,6 +40,8 @@ type NewGraphOllamaClientParams struct {
 
 	BaseURL string
 	ApiKey  string
+
+	MaxConcurrentRequests int64
 }
 
 type headerTransport struct {
@@ -85,11 +90,15 @@ func NewGraphOllamaClient(
 
 	cli := api.NewClient(u, httpClient)
 
+	sem := semaphore.NewWeighted(params.MaxConcurrentRequests)
+
 	return &GraphOllamaClient{
 		embeddingModel:   params.EmbeddingModel,
 		descriptionModel: params.DescriptionModel,
 		extractionModel:  params.ExtractionModel,
 		imageModel:       params.ImageModel,
+
+		reqLock: sem,
 
 		metricsLock: sync.Mutex{},
 		metrics: ai.ModelMetrics{

@@ -28,9 +28,15 @@ func (c *GraphOllamaClient) GenerateEmbedding(
 	}
 
 	req := &api.EmbedRequest{
-		Model:      c.embeddingModel,
-		Input:      string(input),
+		Model: c.embeddingModel,
+		Input: string(input),
 	}
+
+	err := c.reqLock.Acquire(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer c.reqLock.Release(1)
 
 	res, err := c.Client.Embed(ctx, req)
 	if err != nil {

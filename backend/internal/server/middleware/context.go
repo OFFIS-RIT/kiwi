@@ -62,6 +62,8 @@ func AppContextMiddleware(
 
 					BaseURL: util.GetEnv("AI_CHAT_URL"),
 					ApiKey:  util.GetEnv("AI_CHAT_KEY"),
+
+					MaxConcurrentRequests: int64(util.GetEnvNumeric("AI_PARALLEL_REQ", 15)),
 				})
 				if err != nil {
 					logger.Fatal("Failed to create Ollama client", "err", err)
@@ -80,6 +82,8 @@ func AppContextMiddleware(
 					ChatKey:      util.GetEnv("AI_CHAT_KEY"),
 					ImageURL:     util.GetEnv("AI_IMAGE_URL"),
 					ImageKey:     util.GetEnv("AI_IMAGE_KEY"),
+
+					MaxConcurrentRequests: int64(util.GetEnvNumeric("AI_PARALLEL_REQ", 15)),
 				})
 			}
 

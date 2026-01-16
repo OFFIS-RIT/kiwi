@@ -65,6 +65,12 @@ func (c *GraphOpenAIClient) GenerateCompletion(
 		body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 	}
 
+	err := c.chatLock.Acquire(ctx, 1)
+	if err != nil {
+		return "", err
+	}
+	defer c.chatLock.Release(1)
+
 	start := time.Now()
 	response, err := client.Chat.Completions.New(ctx, body)
 	if err != nil {
@@ -150,6 +156,12 @@ func (c *GraphOpenAIClient) GenerateCompletionWithFormat(
 		}
 		body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 	}
+
+	err := c.chatLock.Acquire(ctx, 1)
+	if err != nil {
+		return err
+	}
+	defer c.chatLock.Release(1)
 
 	start := time.Now()
 	response, err := c.ChatClient.Chat.Completions.New(ctx, body)
@@ -237,6 +249,12 @@ func (c *GraphOpenAIClient) GenerateChat(
 		body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 	}
 
+	err := c.chatLock.Acquire(ctx, 1)
+	if err != nil {
+		return "", err
+	}
+	defer c.chatLock.Release(1)
+
 	start := time.Now()
 	response, err := client.Chat.Completions.New(ctx, body)
 	if err != nil {
@@ -320,11 +338,17 @@ func (c *GraphOpenAIClient) GenerateChatStream(
 		body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 	}
 
+	err := c.chatLock.Acquire(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
+
 	start := time.Now()
 	stream := client.Chat.Completions.NewStreaming(ctx, body)
 	contentChan := make(chan ai.StreamEvent, 10)
 
 	go func() {
+		defer c.chatLock.Release(1)
 		defer close(contentChan)
 		defer stream.Close()
 
@@ -473,6 +497,12 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 			body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 		}
 
+		err := c.chatLock.Acquire(ctx, 1)
+		if err != nil {
+			return "", err
+		}
+		defer c.chatLock.Release(1)
+
 		start := time.Now()
 		response, err := client.Chat.Completions.New(ctx, body)
 		if err != nil {
@@ -581,6 +611,12 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 			body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 		}
 
+		err := c.chatLock.Acquire(ctx, 1)
+		if err != nil {
+			return "", err
+		}
+		defer c.chatLock.Release(1)
+
 		start := time.Now()
 		response, err := client.Chat.Completions.New(ctx, body)
 		if err != nil {
@@ -672,9 +708,15 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 		})
 	}
 
+	err := c.chatLock.Acquire(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
+
 	maxRounds := 40
 	contentChan := make(chan ai.StreamEvent, 10)
 	go func() {
+		defer c.chatLock.Release(1)
 		defer close(contentChan)
 
 		body := openai.ChatCompletionNewParams{

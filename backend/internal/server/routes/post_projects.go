@@ -3,17 +3,19 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
+
+	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
-	"net/http"
-	"regexp"
-	"strings"
 
 	"slices"
 
@@ -189,24 +191,51 @@ func CreateProjectHandler(c echo.Context) error {
 		ProjectFiles: &projectFiles,
 	}
 
-	type preprocessQueue struct {
-		Message      string            `json:"message"`
-		ProjectID    int64             `json:"project_id,omitempty"`
-		ProjectFiles *[]db.ProjectFile `json:"project_files,omitempty"`
-		QueueType    string            `json:"queue_type"`
-	}
+	batchSize := int(util.GetEnvNumeric("WORKER_BATCH_SIZE", 10))
+	correlationID, _ := gonanoid.New()
+	totalBatches := (len(projectFiles) + batchSize - 1) / batchSize
 
-	queueData := preprocessQueue{
-		Message:      "Project created successfully",
-		ProjectID:    project.ID,
-		ProjectFiles: &projectFiles,
-		QueueType:    "index",
+	for batchID := range totalBatches {
+		startIdx := batchID * batchSize
+		endIdx := min(startIdx+batchSize, len(projectFiles))
+		batchFiles := projectFiles[startIdx:endIdx]
+
+		fileIDs := make([]int64, len(batchFiles))
+		for i, f := range batchFiles {
+			fileIDs[i] = f.ID
+		}
+
+		_, _ = q.CreateBatchStatus(ctx, db.CreateBatchStatusParams{
+			ProjectID:     project.ID,
+			CorrelationID: correlationID,
+			BatchID:       int32(batchID),
+			TotalBatches:  int32(totalBatches),
+			FilesCount:    int32(len(batchFiles)),
+			FileIds:       fileIDs,
+			Operation:     "index",
+		})
 	}
 
 	ch := c.(*middleware.AppContext).App.Queue
-	err = queue.PublishFIFO(ch, "preprocess_queue", []byte(util.ConvertStructToJson(queueData)))
-	if err != nil {
-		logger.Error("Failed to publish to preprocess_queue", "err", err)
+	for batchID := range totalBatches {
+		startIdx := batchID * batchSize
+		endIdx := min(startIdx+batchSize, len(projectFiles))
+		batchFiles := projectFiles[startIdx:endIdx]
+
+		queueData := queue.QueueProjectFileMsg{
+			Message:       "Project created successfully",
+			ProjectID:     project.ID,
+			CorrelationID: correlationID,
+			BatchID:       batchID,
+			TotalBatches:  totalBatches,
+			ProjectFiles:  &batchFiles,
+			Operation:     "index",
+		}
+
+		err = queue.PublishFIFO(ch, "preprocess_queue", []byte(util.ConvertStructToJson(queueData)))
+		if err != nil {
+			logger.Error("Failed to publish batch to preprocess_queue", "batch_id", batchID, "err", err)
+		}
 	}
 
 	return c.JSON(
@@ -339,24 +368,56 @@ func AddFilesToProjectHandler(c echo.Context) error {
 		ProjectFiles: projectFiles,
 	}
 
-	type preprocessQueue struct {
-		Message      string            `json:"message"`
-		ProjectID    int64             `json:"project_id,omitempty"`
-		ProjectFiles []*db.ProjectFile `json:"project_files,omitempty"`
-		QueueType    string            `json:"queue_type"`
-	}
+	batchSize := int(util.GetEnvNumeric("WORKER_BATCH_SIZE", 10))
+	correlationID, _ := gonanoid.New()
+	totalBatches := (len(projectFiles) + batchSize - 1) / batchSize
 
-	queueData := preprocessQueue{
-		Message:      "File added successfully",
-		ProjectID:    params.ProjectID,
-		ProjectFiles: projectFiles,
-		QueueType:    "update",
+	for batchID := range totalBatches {
+		startIdx := batchID * batchSize
+		endIdx := min(startIdx+batchSize, len(projectFiles))
+		batchFiles := projectFiles[startIdx:endIdx]
+
+		fileIDs := make([]int64, len(batchFiles))
+		for i, f := range batchFiles {
+			fileIDs[i] = f.ID
+		}
+
+		_, _ = q.CreateBatchStatus(ctx, db.CreateBatchStatusParams{
+			ProjectID:     params.ProjectID,
+			CorrelationID: correlationID,
+			BatchID:       int32(batchID),
+			TotalBatches:  int32(totalBatches),
+			FilesCount:    int32(len(batchFiles)),
+			FileIds:       fileIDs,
+			Operation:     "update",
+		})
 	}
 
 	ch := c.(*middleware.AppContext).App.Queue
-	err = queue.PublishFIFO(ch, "preprocess_queue", []byte(util.ConvertStructToJson(queueData)))
-	if err != nil {
-		logger.Error("Failed to publish to preprocess_queue", "err", err)
+	for batchID := range totalBatches {
+		startIdx := batchID * batchSize
+		endIdx := min(startIdx+batchSize, len(projectFiles))
+		batchFilesPtrs := projectFiles[startIdx:endIdx]
+
+		batchFiles := make([]db.ProjectFile, len(batchFilesPtrs))
+		for i, pf := range batchFilesPtrs {
+			batchFiles[i] = *pf
+		}
+
+		queueData := queue.QueueProjectFileMsg{
+			Message:       "File added successfully",
+			ProjectID:     params.ProjectID,
+			CorrelationID: correlationID,
+			BatchID:       batchID,
+			TotalBatches:  totalBatches,
+			ProjectFiles:  &batchFiles,
+			Operation:     "update",
+		}
+
+		err = queue.PublishFIFO(ch, "preprocess_queue", []byte(util.ConvertStructToJson(queueData)))
+		if err != nil {
+			logger.Error("Failed to publish batch to preprocess_queue", "batch_id", batchID, "err", err)
+		}
 	}
 
 	return c.JSON(

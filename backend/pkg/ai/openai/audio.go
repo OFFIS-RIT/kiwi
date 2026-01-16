@@ -32,6 +32,12 @@ func (c *GraphOpenAIClient) GenerateAudioTranscription(
 		params.Language = openai.String(language)
 	}
 
+	err := c.audioLock.Acquire(ctx, 1)
+	if err != nil {
+		return "", err
+	}
+	defer c.audioLock.Release(1)
+
 	start := time.Now()
 	transcription, err := client.Audio.Transcriptions.New(ctx, params)
 	if err != nil {

@@ -279,8 +279,6 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 		}
 
 		eg, gCtx := errgroup.WithContext(ctx)
-		eg.SetLimit(s.maxParallel)
-
 		for _, src := range relation.Sources {
 			sSrc := src
 

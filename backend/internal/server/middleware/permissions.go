@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"slices"
 	"net/http"
+	"slices"
 
 	"github.com/labstack/echo/v4"
 )

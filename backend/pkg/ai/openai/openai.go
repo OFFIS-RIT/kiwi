@@ -7,6 +7,8 @@ import (
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+
+	"golang.org/x/sync/semaphore"
 )
 
 // GraphOpenAIClient is a client for interacting with AI models used in the
@@ -29,6 +31,11 @@ type GraphOpenAIClient struct {
 	imageKey     string
 	audioURL     string
 	audioKey     string
+
+	chatLock      *semaphore.Weighted
+	embeddingLock *semaphore.Weighted
+	imageLock     *semaphore.Weighted
+	audioLock     *semaphore.Weighted
 
 	metricsLock sync.Mutex
 	metrics     ai.ModelMetrics
@@ -62,6 +69,8 @@ type NewGraphOpenAIClientParams struct {
 	ImageKey     string
 	AudioURL     string
 	AudioKey     string
+
+	MaxConcurrentRequests int64
 }
 
 // NewGraphAIClient creates and returns a new GraphAIClient configured with
@@ -88,6 +97,8 @@ func NewGraphOpenAIClient(
 	imageClient := newOpenaiClient(params.ImageURL, params.ImageKey)
 	audioClient := newOpenaiClient(params.AudioURL, params.AudioKey)
 
+	sem := semaphore.NewWeighted(params.MaxConcurrentRequests)
+
 	return &GraphOpenAIClient{
 		embeddingModel:   params.EmbeddingModel,
 		descriptionModel: params.DescriptionModel,
@@ -103,6 +114,11 @@ func NewGraphOpenAIClient(
 		imageKey:     params.ImageKey,
 		audioURL:     params.AudioURL,
 		audioKey:     params.AudioKey,
+
+		chatLock:      sem,
+		embeddingLock: semaphore.NewWeighted(params.MaxConcurrentRequests),
+		imageLock:     semaphore.NewWeighted(params.MaxConcurrentRequests),
+		audioLock:     semaphore.NewWeighted(params.MaxConcurrentRequests),
 
 		metricsLock: sync.Mutex{},
 		metrics: ai.ModelMetrics{

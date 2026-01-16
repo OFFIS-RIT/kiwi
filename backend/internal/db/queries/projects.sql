@@ -8,14 +8,9 @@ SELECT
     p.id   AS project_id,
     p.name AS project_name,
     p.state AS project_state,
-    'admin'::TEXT AS role,
-    pp.current_step AS process_step,
-    pp.percentage AS process_percentage,
-    pp.estimated_duration AS process_estimated_duration,
-    GREATEST(0::BIGINT, pp.estimated_duration - (EXTRACT(EPOCH FROM (NOW() - pp.updated_at)) * 1000)::BIGINT) AS process_time_remaining
+    'admin'::TEXT AS role
 FROM groups AS g
 JOIN projects AS p ON p.group_id = g.id
-LEFT JOIN project_process AS pp ON pp.project_id = p.id
 ORDER BY g.id, p.id;
 
 -- name: GetProjectsByGroup :many
@@ -28,18 +23,12 @@ SELECT
     p.id   AS project_id,
     p.name AS project_name,
     p.state AS project_state,
-    gu.role as role,
-    pp.current_step AS process_step,
-    pp.percentage AS process_percentage,
-    pp.estimated_duration AS process_estimated_duration,
-    GREATEST(0::BIGINT, pp.estimated_duration - (EXTRACT(EPOCH FROM (NOW() - pp.updated_at)) * 1000)::BIGINT) AS process_time_remaining
+    gu.role as role
 FROM groups AS g
 JOIN projects AS p
     ON p.group_id = g.id
 JOIN group_users AS gu
     ON gu.group_id = g.id
-LEFT JOIN project_process AS pp
-    ON pp.project_id = p.id
 WHERE gu.user_id = $1
 ORDER BY g.id, p.id;
 
@@ -107,3 +96,12 @@ SELECT token_count FROM project_files WHERE id = $1;
 
 -- name: UpdateProjectFileMetadata :exec
 UPDATE project_files SET metadata = $2, updated_at = NOW() WHERE id = $1;
+
+-- name: AcquireProjectLock :exec
+SELECT pg_advisory_lock($1::bigint);
+
+-- name: ReleaseProjectLock :exec
+SELECT pg_advisory_unlock($1::bigint);
+
+-- name: TryAcquireProjectLock :one
+SELECT pg_try_advisory_lock($1::bigint) as acquired;

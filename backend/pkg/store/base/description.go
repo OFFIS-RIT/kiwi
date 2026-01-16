@@ -75,8 +75,6 @@ func (s *GraphDBStorage) GenerateDescriptions(
 	logger.Debug("[Store] Generating entity descriptions", "count", len(entities))
 
 	eg, gCtx := errgroup.WithContext(ctx)
-	eg.SetLimit(s.maxParallel)
-
 	for _, entity := range entities {
 		ent := entity
 		eg.Go(func() error {
@@ -99,8 +97,6 @@ func (s *GraphDBStorage) GenerateDescriptions(
 	logger.Debug("[Store] Generating relationship descriptions", "count", len(relationships))
 
 	eg, gCtx = errgroup.WithContext(ctx)
-	eg.SetLimit(s.maxParallel)
-
 	for _, rel := range relationships {
 		r := rel
 		eg.Go(func() error {
@@ -252,7 +248,7 @@ func (s *GraphDBStorage) generateDescription(
 
 	// Process descriptions in batches
 	for i := 0; i < len(descriptions); i += descriptionBatchSize {
-		end := min(i + descriptionBatchSize, len(descriptions))
+		end := min(i+descriptionBatchSize, len(descriptions))
 		batch := descriptions[i:end]
 		batchText := strings.Join(batch, "\n\n")
 
@@ -300,11 +296,11 @@ func (s *GraphDBStorage) DeleteFilesAndRegenerateDescriptions(
 	}
 
 	if len(deletedFiles) == 0 {
-		logger.Info("No files marked for deletion")
+		logger.Debug("[Store] No files marked for deletion")
 		return nil
 	}
 
-	logger.Info(fmt.Sprintf("Processing %d files marked for deletion...", len(deletedFiles)))
+	logger.Debug("[Store] Processing files marked for deletion", "count", len(deletedFiles))
 
 	fileIDs := make([]int64, len(deletedFiles))
 	for i, f := range deletedFiles {
@@ -342,7 +338,7 @@ func (s *GraphDBStorage) DeleteFilesAndRegenerateDescriptions(
 		}
 	}
 
-	logger.Info(fmt.Sprintf("Found %d affected entities and %d affected relationships", len(affectedEntities), len(affectedRelationships)))
+	logger.Debug("[Store] Found affected items", "entities", len(affectedEntities), "relationships", len(affectedRelationships))
 
 	tx, err := s.conn.Begin(ctx)
 	if err != nil {
@@ -373,11 +369,9 @@ func (s *GraphDBStorage) DeleteFilesAndRegenerateDescriptions(
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	logger.Info("Deleted files and orphaned entities/relationships, regenerating descriptions...")
+	logger.Debug("[Store] Deleted files and orphaned items, regenerating descriptions")
 
 	eg, gCtx := errgroup.WithContext(ctx)
-	eg.SetLimit(s.maxParallel)
-
 	for _, entity := range affectedEntities {
 		ent := entity
 		eg.Go(func() error {
@@ -395,8 +389,6 @@ func (s *GraphDBStorage) DeleteFilesAndRegenerateDescriptions(
 	}
 
 	eg, gCtx = errgroup.WithContext(ctx)
-	eg.SetLimit(s.maxParallel)
-
 	for _, rel := range affectedRelationships {
 		r := rel
 		eg.Go(func() error {
@@ -413,7 +405,7 @@ func (s *GraphDBStorage) DeleteFilesAndRegenerateDescriptions(
 		return fmt.Errorf("failed to regenerate relationship descriptions: %w", err)
 	}
 
-	logger.Info("Description regeneration completed")
+	logger.Debug("[Store] Description regeneration completed")
 
 	return nil
 }

@@ -19,7 +19,6 @@ import (
 type OCRGraphLoader struct {
 	loader   loader.GraphFileLoader
 	aiClient ai.GraphAIClient
-	parallel int
 
 	cache   map[string][]byte
 	cacheMu sync.RWMutex
@@ -30,7 +29,6 @@ type OCRGraphLoader struct {
 type NewOCRGraphLoaderParams struct {
 	Loader   loader.GraphFileLoader
 	AIClient ai.GraphAIClient
-	Parallel int
 }
 
 // NewOCRGraphLoader creates a new OCR loader that extracts text from images using AI.
@@ -38,7 +36,6 @@ func NewOCRGraphLoader(params NewOCRGraphLoaderParams) *OCRGraphLoader {
 	return &OCRGraphLoader{
 		loader:   params.Loader,
 		aiClient: params.AIClient,
-		parallel: params.Parallel,
 		cache:    make(map[string][]byte),
 	}
 }
@@ -50,8 +47,6 @@ func (l *OCRGraphLoader) ProcessImages(ctx context.Context, file loader.GraphFil
 	outputMtx := sync.Mutex{}
 
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(l.parallel)
-
 	for i, img := range images {
 		idx := i
 		image := img
