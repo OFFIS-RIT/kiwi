@@ -1,6 +1,7 @@
 name: Dev Build & Deploy
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - dev
@@ -45,12 +46,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            /tmp/.buildx-cache-postgres
-            /tmp/.buildx-cache-server
-            /tmp/.buildx-cache-worker
-            /tmp/.buildx-cache-frontend
-            /tmp/.buildx-cache-frontend-builder
-            /tmp/.buildx-cache-auth
+            ${{ runner.temp }}/.buildx-cache-postgres
+            ${{ runner.temp }}/.buildx-cache-server
+            ${{ runner.temp }}/.buildx-cache-worker
+            ${{ runner.temp }}/.buildx-cache-frontend
+            ${{ runner.temp }}/.buildx-cache-frontend-builder
+            ${{ runner.temp }}/.buildx-cache-auth
           key: docker-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
             docker-${{ runner.os }}-
@@ -70,8 +71,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/postgres:${{ env.IMAGE_TAG }}
-          cache-from: type=local,src=/tmp/.buildx-cache-postgres
-          cache-to: type=local,dest=/tmp/.buildx-cache-postgres-new,mode=max
+          cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-postgres
+          cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-postgres-new,mode=max
 
       - name: Build and push server
         uses: docker/build-push-action@v6
@@ -81,8 +82,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/server:${{ env.IMAGE_TAG }}
-          cache-from: type=local,src=/tmp/.buildx-cache-server
-          cache-to: type=local,dest=/tmp/.buildx-cache-server-new,mode=max
+          cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-server
+          cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-server-new,mode=max
 
       - name: Build and push worker
         uses: docker/build-push-action@v6
@@ -92,8 +93,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/worker:${{ env.IMAGE_TAG }}
-          cache-from: type=local,src=/tmp/.buildx-cache-worker
-          cache-to: type=local,dest=/tmp/.buildx-cache-worker-new,mode=max
+          cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-worker
+          cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-worker-new,mode=max
 
       - name: Build and push frontend
         uses: docker/build-push-action@v6
@@ -105,8 +106,8 @@ jobs:
           tags: ${{ env.IMAGE_PREFIX }}/frontend:${{ env.IMAGE_TAG }}
           build-args: |
             NEXT_PUBLIC_API_URL=/api
-          cache-from: type=local,src=/tmp/.buildx-cache-frontend
-          cache-to: type=local,dest=/tmp/.buildx-cache-frontend-new,mode=max
+          cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-frontend
+          cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-frontend-new,mode=max
 
       - name: Build and push frontend-builder
         uses: docker/build-push-action@v6
@@ -119,8 +120,8 @@ jobs:
           tags: ${{ env.IMAGE_PREFIX }}/frontend:${{ env.IMAGE_TAG }}-builder
           build-args: |
             NEXT_PUBLIC_API_URL=/api
-          cache-from: type=local,src=/tmp/.buildx-cache-frontend-builder
-          cache-to: type=local,dest=/tmp/.buildx-cache-frontend-builder-new,mode=max
+          cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-frontend-builder
+          cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-frontend-builder-new,mode=max
 
       - name: Build and push auth
         uses: docker/build-push-action@v6
@@ -130,20 +131,20 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/auth:${{ env.IMAGE_TAG }}
-          cache-from: type=local,src=/tmp/.buildx-cache-auth
-          cache-to: type=local,dest=/tmp/.buildx-cache-auth-new,mode=max
+          cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-auth
+          cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-auth-new,mode=max
 
       - name: Move cache
         run: |
-          rm -rf /tmp/.buildx-cache-postgres
-          mv /tmp/.buildx-cache-postgres-new /tmp/.buildx-cache-postgres
-          rm -rf /tmp/.buildx-cache-server
-          mv /tmp/.buildx-cache-server-new /tmp/.buildx-cache-server
-          rm -rf /tmp/.buildx-cache-worker
-          mv /tmp/.buildx-cache-worker-new /tmp/.buildx-cache-worker
-          rm -rf /tmp/.buildx-cache-frontend
-          mv /tmp/.buildx-cache-frontend-new /tmp/.buildx-cache-frontend
-          rm -rf /tmp/.buildx-cache-frontend-builder
-          mv /tmp/.buildx-cache-frontend-builder-new /tmp/.buildx-cache-frontend-builder
-          rm -rf /tmp/.buildx-cache-auth
-          mv /tmp/.buildx-cache-auth-new /tmp/.buildx-cache-auth
+          rm -rf ${{ runner.temp }}/.buildx-cache-postgres
+          mv ${{ runner.temp }}/.buildx-cache-postgres-new ${{ runner.temp }}/.buildx-cache-postgres
+          rm -rf ${{ runner.temp }}/.buildx-cache-server
+          mv ${{ runner.temp }}/.buildx-cache-server-new ${{ runner.temp }}/.buildx-cache-server
+          rm -rf ${{ runner.temp }}/.buildx-cache-worker
+          mv ${{ runner.temp }}/.buildx-cache-worker-new ${{ runner.temp }}/.buildx-cache-worker
+          rm -rf ${{ runner.temp }}/.buildx-cache-frontend
+          mv ${{ runner.temp }}/.buildx-cache-frontend-new ${{ runner.temp }}/.buildx-cache-frontend
+          rm -rf ${{ runner.temp }}/.buildx-cache-frontend-builder
+          mv ${{ runner.temp }}/.buildx-cache-frontend-builder-new ${{ runner.temp }}/.buildx-cache-frontend-builder
+          rm -rf ${{ runner.temp }}/.buildx-cache-auth
+          mv ${{ runner.temp }}/.buildx-cache-auth-new ${{ runner.temp }}/.buildx-cache-auth
