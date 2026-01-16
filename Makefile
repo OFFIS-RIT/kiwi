@@ -74,4 +74,44 @@ pull:
 	@docker tag $(REGISTRY)/frontend:$(TAG)-builder kiwi/frontend:builder
 	@docker tag $(REGISTRY)/auth:$(TAG) kiwi/auth:latest
 
-.PHONY: build build-dev start stop dev dev-backend dev-stop migrate pull
+db-dump:
+	@set -a; \
+		if [ -f "$(ENV_FILE)" ]; then . "$(ENV_FILE)"; fi; \
+		set +a; \
+		mkdir -p $(ROOT_DIR).backup; \
+		DUMP_FILE="kiwi_$$(date +%Y%m%d_%H%M%S).dump"; \
+		echo "Creating database dump: .backup/$$DUMP_FILE"; \
+		docker run --rm \
+			-v $(ROOT_DIR).backup:/backups \
+			--network kiwi_internal \
+			postgres:17 \
+			pg_dump "$${DATABASE_URL}" -Fc -f "/backups/$$DUMP_FILE"; \
+		echo "Backup complete: backups/$$DUMP_FILE"
+
+DUMP_FILE ?=
+db-restore:
+	@if [ -z "$(DUMP_FILE)" ]; then \
+		echo "Error: DUMP_FILE is required"; \
+		echo "Usage: make db-restore DUMP_FILE=kiwi_YYYYMMDD_HHMMSS.dump"; \
+		exit 1; \
+	fi
+	@DUMP_PATH="$(DUMP_FILE)"; \
+		if [ ! -f "$$DUMP_PATH" ] && [ -f "$(ROOT_DIR).backup/$(DUMP_FILE)" ]; then \
+			DUMP_PATH="$(ROOT_DIR).backup/$(DUMP_FILE)"; \
+		fi; \
+		if [ ! -f "$$DUMP_PATH" ]; then \
+			echo "Error: File not found: $(DUMP_FILE)"; \
+			exit 1; \
+		fi; \
+		set -a; \
+		if [ -f "$(ENV_FILE)" ]; then . "$(ENV_FILE)"; fi; \
+		set +a; \
+		echo "Restoring database from: $$DUMP_PATH"; \
+		docker run --rm \
+			-v $(ROOT_DIR).backup:/backups \
+			--network kiwi_internal \
+			postgres:17 \
+			pg_restore --clean --if-exists -d "$${DATABASE_URL}" "/backups/$$(basename $$DUMP_PATH)"; \
+		echo "Restore complete"
+
+.PHONY: build build-dev start stop dev dev-backend dev-stop migrate pull db-dump db-restore
