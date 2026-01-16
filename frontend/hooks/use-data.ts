@@ -409,12 +409,14 @@ export function useUploadProjectFiles() {
     mutationFn: async ({
       projectId,
       files,
+      onProgress,
     }: {
       projectId: string;
       files: File[];
+      onProgress?: (progress: number) => void;
     }) => {
       const { addFilesToProject } = await import("@/lib/api");
-      return addFilesToProject(projectId, files);
+      return addFilesToProject(projectId, files, onProgress);
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({

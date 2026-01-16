@@ -78,6 +78,7 @@ const translations = {
     "create.new.group.description":
       "Create a new group by entering a name below.",
     "upload.files": "Upload Files",
+    "uploading.files": "Uploading Files",
     uploading: "Uploading...",
     edit: "Edit",
     delete: "Delete",
@@ -250,6 +251,7 @@ const translations = {
     "create.new.group.description":
       "Erstelle eine neue Gruppe, indem du unten einen Namen eingibst.",
     "upload.files": "Dateien hochladen",
+    "uploading.files": "Dateien werden hochgeladen",
     uploading: "Lade hoch...",
     edit: "Bearbeiten",
     delete: "Löschen",

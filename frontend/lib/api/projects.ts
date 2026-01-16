@@ -35,18 +35,24 @@ type CreateProjectResponse = {
  * @param groupId - Parent group ID
  * @param name - Project name
  * @param files - Files to upload initially
+ * @param onProgress - Optional callback for upload progress (0-100)
  */
 export async function createProject(
   groupId: string,
   name: string,
-  files: File[]
+  files: File[],
+  onProgress?: (progress: number) => void
 ): Promise<CreateProjectResponse> {
   const formData = new FormData();
   formData.append("group_id", groupId);
   formData.append("name", name);
   files.forEach((file) => formData.append("files", file));
 
-  return apiClient.postFormData<CreateProjectResponse>("/projects", formData);
+  return apiClient.postFormDataWithProgress<CreateProjectResponse>(
+    "/projects",
+    formData,
+    onProgress
+  );
 }
 
 /**
@@ -80,12 +86,21 @@ export async function fetchProjectFiles(
  * Uploads additional files to an existing project.
  * @param projectId - Target project
  * @param files - Files to upload
+ * @param onProgress - Optional callback for upload progress (0-100)
  */
-export async function addFilesToProject(projectId: string, files: File[]) {
+export async function addFilesToProject(
+  projectId: string,
+  files: File[],
+  onProgress?: (progress: number) => void
+) {
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
 
-  return apiClient.postFormData(`/projects/${projectId}/files`, formData);
+  return apiClient.postFormDataWithProgress(
+    `/projects/${projectId}/files`,
+    formData,
+    onProgress
+  );
 }
 
 /**
