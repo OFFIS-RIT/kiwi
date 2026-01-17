@@ -10,10 +10,18 @@ services:
     image: nginx:alpine
     ports:
       - "443:443"
+    environment:
+      - AWS_PUBLIC_ENDPOINT=${AWS_PUBLIC_ENDPOINT:-http://localhost:9000}
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
       - ./certs:/etc/nginx/certs:ro
       - frontend-static:/usr/share/nginx/html:ro
+    command: >
+      /bin/sh -c "
+        export S3_PUBLIC_HOST=$$(echo $$AWS_PUBLIC_ENDPOINT | sed -E 's|^https?://([^/:]+).*|\1|');
+        envsubst '$${S3_PUBLIC_HOST}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf &&
+        nginx -g 'daemon off;'
+      "
     depends_on:
       frontend-builder:
         condition: service_completed_successfully

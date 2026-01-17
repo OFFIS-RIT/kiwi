@@ -81,7 +81,9 @@ http {
             proxy_pass http://rustfs:9000/;
             proxy_http_version 1.1;
 
-            proxy_set_header Host $host;
+            # Use the public host for S3 presigned URL signature verification
+            # This must match the host used when generating presigned URLs (AWS_PUBLIC_ENDPOINT)
+            proxy_set_header Host ${S3_PUBLIC_HOST};
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
