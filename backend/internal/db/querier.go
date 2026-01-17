@@ -21,7 +21,6 @@ type Querier interface {
 	AddTokenCountToFile(ctx context.Context, arg AddTokenCountToFileParams) error
 	AddUserToGroup(ctx context.Context, arg AddUserToGroupParams) (GroupUser, error)
 	AreAllBatchesCompleted(ctx context.Context, correlationID string) (bool, error)
-	// For pg_cron: DELETE FROM extraction_staging WHERE created_at < NOW() - INTERVAL '24 hours';
 	CleanupOldStagedData(ctx context.Context) error
 	CountCompletedBatches(ctx context.Context, correlationID string) (int32, error)
 	CountEntitySources(ctx context.Context, entityID int64) (int32, error)

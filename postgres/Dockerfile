@@ -1,6 +1,8 @@
 ARG PG_MAJOR=17
 FROM postgres:${PG_MAJOR}-bookworm
 
+COPY db-init/ /docker-entrypoint-initdb.d/
+
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl gnupg; \
@@ -45,6 +47,3 @@ RUN set -eux; \
     apt-get purge -y --auto-remove build-essential git make pkg-config libssl-dev libclang-dev clang jq postgresql-server-dev-${PG_MAJOR}; \
     rm -rf /var/lib/apt/lists/*
 
-# Add pg_cron to shared_preload_libraries
-RUN echo "shared_preload_libraries = 'pg_cron'" >> /usr/share/postgresql/postgresql.conf.sample && \
-    echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample

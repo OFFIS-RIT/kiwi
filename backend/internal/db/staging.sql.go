@@ -14,7 +14,6 @@ DELETE FROM extraction_staging
 WHERE created_at < NOW() - INTERVAL '24 hours'
 `
 
-// For pg_cron: DELETE FROM extraction_staging WHERE created_at < NOW() - INTERVAL '24 hours';
 func (q *Queries) CleanupOldStagedData(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, cleanupOldStagedData)
 	return err
