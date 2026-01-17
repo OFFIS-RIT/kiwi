@@ -12,6 +12,7 @@ import (
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
 
@@ -79,7 +80,8 @@ func ProcessGraphMessage(
 		projectState = "update"
 	}
 
-	s3L := s3.NewS3GraphFileLoaderWithClient("github.com/OFFIS-RIT/kiwi", s3Client)
+	s3Bucket := util.GetEnvString("AWS_BUCKET", "kiwi")
+	s3L := s3.NewS3GraphFileLoaderWithClient(s3Bucket, s3Client)
 	files := make([]loader.GraphFile, 0)
 
 	for _, file := range *data.ProjectFiles {
@@ -383,8 +385,9 @@ func ProcessPreprocess(
 	files := make([]loader.GraphFile, 0)
 	noProcessingFiles := make([]loader.GraphFile, 0)
 	pageCount := 0
+	s3Bucket := util.GetEnvString("AWS_BUCKET", "kiwi")
 	for _, upload := range *data.ProjectFiles {
-		s3L := s3.NewS3GraphFileLoaderWithClient("github.com/OFFIS-RIT/kiwi", s3Client)
+		s3L := s3.NewS3GraphFileLoaderWithClient(s3Bucket, s3Client)
 		ocrL := ocr.NewOCRGraphLoader(ocr.NewOCRGraphLoaderParams{
 			AIClient: aiClient,
 		})
@@ -493,7 +496,7 @@ func ProcessPreprocess(
 			files = append(files, f)
 
 			head, err := s3Client.HeadObject(ctx, &awss3.HeadObjectInput{
-				Bucket: aws.String("github.com/OFFIS-RIT/kiwi"),
+				Bucket: aws.String(util.GetEnv("AWS_BUCKET")),
 				Key:    aws.String(upload.FileKey),
 			})
 			if err == nil && head.ContentLength != nil {
@@ -517,7 +520,7 @@ func ProcessPreprocess(
 			files = append(files, f)
 
 			head, err := s3Client.HeadObject(ctx, &awss3.HeadObjectInput{
-				Bucket: aws.String("github.com/OFFIS-RIT/kiwi"),
+				Bucket: aws.String(util.GetEnv("AWS_BUCKET")),
 				Key:    aws.String(upload.FileKey),
 			})
 			if err == nil && head.ContentLength != nil {
