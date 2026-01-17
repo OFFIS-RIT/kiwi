@@ -14,23 +14,44 @@ export function LoginPage() {
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [name, setName] = useState("");
-    const [error, setError] = useState<string | null>(null);
+
+    // State für allgemeine Fehler (API) und Feld-Fehler
+    const [generalError, setGeneralError] = useState<string | null>(null);
+    const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string; name?: string }>({});
+
     const [loading, setLoading] = useState(false);
+
+    const validate = () => {
+        const errors: typeof fieldErrors = {};
+        if (!email) errors.email = "E-Mail ist erforderlich";
+        else if (!/\S+@\S+\.\S+/.test(email)) errors.email = "Ungültige E-Mail-Adresse";
+
+        if (!password) errors.password = "Passwort ist erforderlich";
+        else if (password.length < 8) errors.password = "Passwort muss mindestens 8 Zeichen lang sein";
+
+        if (!isLogin && !name) errors.name = "Name ist erforderlich";
+
+        setFieldErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setError(null);
+        setGeneralError(null);
+
+        if (!validate()) return;
+
         setLoading(true);
         try {
             if (isLogin) {
                 const { error } = await signIn.email({ email, password });
-                if (error) setError(error.message ?? "Login fehlgeschlagen");
+                if (error) setGeneralError(error.message ?? "Login fehlgeschlagen");
             } else {
                 const { error } = await signUp.email({ email, password, name });
-                if (error) setError(error.message ?? "Registrierung fehlgeschlagen");
+                if (error) setGeneralError(error.message ?? "Registrierung fehlgeschlagen");
             }
         } catch {
-            setError("Ein Fehler ist aufgetreten");
+            setGeneralError("Ein Fehler ist aufgetreten");
         } finally {
             setLoading(false);
         }
@@ -55,7 +76,7 @@ export function LoginPage() {
                     </p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-4" noValidate>
                     {!isLogin && (
                         <div className="space-y-2">
                             <Label htmlFor="name">Name</Label>
@@ -63,10 +84,16 @@ export function LoginPage() {
                                 id="name"
                                 placeholder="Max Mustermann"
                                 value={name}
-                                onChange={(e) => setName(e.target.value)}
-                                required
+                                onChange={(e) => {
+                                    setName(e.target.value);
+                                    if (fieldErrors.name) setFieldErrors({ ...fieldErrors, name: undefined });
+                                }}
                                 autoComplete="name"
+                                className={fieldErrors.name ? "border-destructive focus-visible:ring-destructive" : ""}
                             />
+                            {fieldErrors.name && (
+                                <p className="text-xs text-destructive">{fieldErrors.name}</p>
+                            )}
                         </div>
                     )}
                     <div className="space-y-2">
@@ -76,10 +103,16 @@ export function LoginPage() {
                             type="email"
                             placeholder="mail@example.com"
                             value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            required
+                            onChange={(e) => {
+                                setEmail(e.target.value);
+                                if (fieldErrors.email) setFieldErrors({ ...fieldErrors, email: undefined });
+                            }}
                             autoComplete="username"
+                            className={fieldErrors.email ? "border-destructive focus-visible:ring-destructive" : ""}
                         />
+                        {fieldErrors.email && (
+                            <p className="text-xs text-destructive">{fieldErrors.email}</p>
+                        )}
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="password">Passwort</Label>
@@ -89,11 +122,12 @@ export function LoginPage() {
                                 type={showPassword ? "text" : "password"}
                                 placeholder="••••••••"
                                 value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                required
-                                minLength={8}
+                                onChange={(e) => {
+                                    setPassword(e.target.value);
+                                    if (fieldErrors.password) setFieldErrors({ ...fieldErrors, password: undefined });
+                                }}
                                 autoComplete={isLogin ? "current-password" : "new-password"}
-                                className="pr-10"
+                                className={`pr-10 ${fieldErrors.password ? "border-destructive focus-visible:ring-destructive" : ""}`}
                             />
                             <Button
                                 type="button"
@@ -112,17 +146,17 @@ export function LoginPage() {
                                 </span>
                             </Button>
                         </div>
-                        {!isLogin && (
-                            <p className="text-xs text-muted-foreground">
-                                Mindestens 8 Zeichen
-                            </p>
+                        {fieldErrors.password ? (
+                            <p className="text-xs text-destructive">{fieldErrors.password}</p>
+                        ) : (
+                            !isLogin && <p className="text-xs text-muted-foreground">Mindestens 8 Zeichen</p>
                         )}
                     </div>
 
-                    {error && (
+                    {generalError && (
                         <div className="flex items-center gap-2 rounded-md bg-destructive/15 p-3 text-sm text-destructive">
                             <AlertCircle className="h-4 w-4 shrink-0" />
-                            <p>{error}</p>
+                            <p>{generalError}</p>
                         </div>
                     )}
 
@@ -171,7 +205,8 @@ export function LoginPage() {
                         className="text-sm text-muted-foreground hover:text-foreground hover:underline"
                         onClick={() => {
                             setIsLogin(!isLogin);
-                            setError(null);
+                            setGeneralError(null);
+                            setFieldErrors({});
                         }}
                     >
                         {isLogin
