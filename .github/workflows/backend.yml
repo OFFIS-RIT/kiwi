@@ -7,6 +7,11 @@ on:
       - main
     paths:
       - "backend/**"
+  push:
+    branches:
+      - dev
+    paths:
+      - "backend/**"
 
 jobs:
   test:
