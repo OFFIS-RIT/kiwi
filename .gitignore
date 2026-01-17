@@ -62,4 +62,7 @@ frontend/next-env.d.ts
 # Migrations (processed temp files)
 .migrations_processed/
 
+# Backups
+.backup/
+
 *.log
