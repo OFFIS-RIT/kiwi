@@ -45,6 +45,11 @@ export const auth = betterAuth({
     emailAndPassword: {
         enabled: true,
     },
+    advanced: {
+        database: {
+            generateId: "serial",
+        },
+    },
     plugins: [
         jwt({
             jwt: {

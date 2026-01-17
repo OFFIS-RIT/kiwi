@@ -1,6 +1,6 @@
 -- Users Table
 CREATE TABLE users (
-    id BIGSERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT NOT NULL,
     "emailVerified" BOOLEAN NOT NULL DEFAULT FALSE,
@@ -15,23 +15,23 @@ CREATE TABLE users (
 
 -- Session table
 CREATE TABLE session (
-    id BIGSERIAL PRIMARY KEY,
-    "userId" BIGINT NOT NULL REFERENCES "users"(id) ON DELETE CASCADE,
+    id SERIAL PRIMARY KEY,
+    "userId" INTEGER NOT NULL REFERENCES "users"(id) ON DELETE CASCADE,
     token TEXT NOT NULL,
     "expiresAt" TIMESTAMPTZ NOT NULL,
     "ipAddress" TEXT,
     "userAgent" TEXT,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "impersonatedBy" BIGINT REFERENCES "users"(id) ON DELETE CASCADE
+    "impersonatedBy" INTEGER REFERENCES "users"(id) ON DELETE CASCADE
 );
 
 CREATE UNIQUE INDEX session_token_idx ON session(token);
 
 -- Account table
 CREATE TABLE account (
-    id BIGSERIAL PRIMARY KEY,
-    "userId" BIGINT NOT NULL REFERENCES "users"(id) ON DELETE CASCADE,
+    id SERIAL PRIMARY KEY,
+    "userId" INTEGER NOT NULL REFERENCES "users"(id) ON DELETE CASCADE,
     "accountId" TEXT NOT NULL,
     "providerId" TEXT NOT NULL,
     "accessToken" TEXT,
@@ -47,7 +47,7 @@ CREATE TABLE account (
 
 -- Verification table
 CREATE TABLE verification (
-    id BIGSERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     identifier TEXT NOT NULL,
     value TEXT NOT NULL,
     "expiresAt" TIMESTAMPTZ NOT NULL,
@@ -73,7 +73,7 @@ CREATE TABLE groups (
 -- Group Users Table
 CREATE TABLE group_users (
     group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    user_id BIGINT NOT NULL,
+    user_id INTEGER NOT NULL,
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -187,7 +187,7 @@ CREATE TABLE relationship_sources (
 CREATE TABLE IF NOT EXISTS user_chats (
     id BIGSERIAL PRIMARY KEY,
     public_id TEXT UNIQUE NOT NULL,
-    user_id BIGINT NOT NULL,
+    user_id INTEGER NOT NULL,
     title TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
