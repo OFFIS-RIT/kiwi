@@ -6,9 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
+import { useLanguage } from "@/providers/LanguageProvider";
+import { LanguageSwitcher } from "@/components/header/LanguageSwitcher";
 
 export function LoginPage() {
     const { signIn, signUp } = useAuth();
+    const { t } = useLanguage();
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -23,13 +26,13 @@ export function LoginPage() {
 
     const validate = () => {
         const errors: typeof fieldErrors = {};
-        if (!email) errors.email = "E-Mail ist erforderlich";
-        else if (!/\S+@\S+\.\S+/.test(email)) errors.email = "Ungültige E-Mail-Adresse";
+        if (!email) errors.email = t("auth.error.email.required");
+        else if (!/\S+@\S+\.\S+/.test(email)) errors.email = t("auth.error.email.invalid");
 
-        if (!password) errors.password = "Passwort ist erforderlich";
-        else if (password.length < 8) errors.password = "Passwort muss mindestens 8 Zeichen lang sein";
+        if (!password) errors.password = t("auth.error.password.required");
+        else if (password.length < 8) errors.password = t("auth.error.password.min");
 
-        if (!isLogin && !name) errors.name = "Name ist erforderlich";
+        if (!isLogin && !name) errors.name = t("auth.error.name.required");
 
         setFieldErrors(errors);
         return Object.keys(errors).length === 0;
@@ -45,13 +48,13 @@ export function LoginPage() {
         try {
             if (isLogin) {
                 const { error } = await signIn.email({ email, password });
-                if (error) setGeneralError(error.message ?? "Login fehlgeschlagen");
+                if (error) setGeneralError(error.message ?? t("auth.error.login.failed"));
             } else {
                 const { error } = await signUp.email({ email, password, name });
-                if (error) setGeneralError(error.message ?? "Registrierung fehlgeschlagen");
+                if (error) setGeneralError(error.message ?? t("auth.error.registration.failed"));
             }
         } catch {
-            setGeneralError("Ein Fehler ist aufgetreten");
+            setGeneralError(t("auth.error.generic"));
         } finally {
             setLoading(false);
         }
@@ -59,7 +62,10 @@ export function LoginPage() {
 
     return (
         <div className="flex min-h-screen w-screen items-center justify-center bg-background">
-            <div className="w-full max-w-sm space-y-6 rounded-lg border bg-card p-6 shadow-lg">
+            <div className="relative w-full max-w-sm space-y-6 rounded-lg border bg-card p-6 shadow-lg">
+                <div className="absolute top-4 right-4">
+                    <LanguageSwitcher />
+                </div>
                 <div className="space-y-2 text-center flex flex-col items-center">
                     <img
                         src="/KIWI.jpg"
@@ -67,22 +73,22 @@ export function LoginPage() {
                         className="h-24 w-24 rounded-full object-cover mb-4"
                     />
                     <h1 className="text-2xl font-bold tracking-tight">
-                        {isLogin ? "Willkommen zurück" : "Konto erstellen"}
+                        {isLogin ? t("auth.welcome.back") : t("auth.create.account")}
                     </h1>
                     <p className="text-sm text-muted-foreground">
                         {isLogin
-                            ? "Melde dich an, um fortzufahren"
-                            : "Gib deine Daten ein, um dich zu registrieren"}
+                            ? t("auth.signin.description")
+                            : t("auth.signup.description")}
                     </p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4" noValidate>
                     {!isLogin && (
                         <div className="space-y-2">
-                            <Label htmlFor="name">Name</Label>
+                            <Label htmlFor="name">{t("auth.name")}</Label>
                             <Input
                                 id="name"
-                                placeholder="Max Mustermann"
+                                placeholder={t("auth.username.placeholder")}
                                 value={name}
                                 onChange={(e) => {
                                     setName(e.target.value);
@@ -97,11 +103,11 @@ export function LoginPage() {
                         </div>
                     )}
                     <div className="space-y-2">
-                        <Label htmlFor="email">E-Mail</Label>
+                        <Label htmlFor="email">{t("auth.email")}</Label>
                         <Input
                             id="email"
                             type="email"
-                            placeholder="mail@example.com"
+                            placeholder={t("auth.email.placeholder")}
                             value={email}
                             onChange={(e) => {
                                 setEmail(e.target.value);
@@ -115,12 +121,12 @@ export function LoginPage() {
                         )}
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="password">Passwort</Label>
+                        <Label htmlFor="password">{t("auth.password")}</Label>
                         <div className="relative">
                             <Input
                                 id="password"
                                 type={showPassword ? "text" : "password"}
-                                placeholder="••••••••"
+                                placeholder={t("auth.password.placeholder")}
                                 value={password}
                                 onChange={(e) => {
                                     setPassword(e.target.value);
@@ -142,14 +148,14 @@ export function LoginPage() {
                                     <Eye className="h-4 w-4 text-muted-foreground" />
                                 )}
                                 <span className="sr-only">
-                                    {showPassword ? "Passwort verbergen" : "Passwort anzeigen"}
+                                    {showPassword ? t("auth.hide.password") : t("auth.show.password")}
                                 </span>
                             </Button>
                         </div>
                         {fieldErrors.password ? (
                             <p className="text-xs text-destructive">{fieldErrors.password}</p>
                         ) : (
-                            !isLogin && <p className="text-xs text-muted-foreground">Mindestens 8 Zeichen</p>
+                            !isLogin && <p className="text-xs text-muted-foreground">{t("auth.password.min")}</p>
                         )}
                     </div>
 
@@ -164,10 +170,10 @@ export function LoginPage() {
                         {loading ? (
                             <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                {isLogin ? "Anmelden..." : "Registrieren..."}
+                                {isLogin ? t("auth.signing.in") : t("auth.signing.up")}
                             </>
                         ) : (
-                            isLogin ? "Anmelden" : "Registrieren"
+                            isLogin ? t("auth.signin") : t("auth.signup")
                         )}
                     </Button>
 
@@ -177,7 +183,7 @@ export function LoginPage() {
                         </div>
                         <div className="relative flex justify-center text-xs uppercase">
                             <span className="bg-card px-2 text-muted-foreground">
-                                Oder
+                                {t("auth.or")}
                             </span>
                         </div>
                     </div>
@@ -187,7 +193,7 @@ export function LoginPage() {
                         variant="outline"
                         className="w-full"
                         disabled={true}
-                        title="Microsoft Login noch nicht konfiguriert"
+                        title={t("auth.microsoft.not.configured")}
                     >
                         <svg className="mr-2 h-4 w-4" viewBox="0 0 23 23">
                             <path fill="#f35325" d="M1 1h10v10H1z" />
@@ -195,7 +201,7 @@ export function LoginPage() {
                             <path fill="#05a6f0" d="M1 12h10v10H1z" />
                             <path fill="#ffba08" d="M12 12h10v10H12z" />
                         </svg>
-                        Mit Microsoft anmelden
+                        {t("auth.microsoft")}
                     </Button>
                 </form>
 
@@ -210,11 +216,12 @@ export function LoginPage() {
                         }}
                     >
                         {isLogin
-                            ? "Noch kein Konto? Registrieren"
-                            : "Bereits registriert? Anmelden"}
+                            ? t("auth.no.account")
+                            : t("auth.has.account")}
                     </button>
                 </div>
             </div>
         </div>
     );
 }
+
