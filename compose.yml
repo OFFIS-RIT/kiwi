@@ -20,6 +20,12 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_URL: ${AUTH_URL}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4321/auth/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
       db:
         condition: service_healthy

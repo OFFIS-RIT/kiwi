@@ -26,9 +26,9 @@ services:
       frontend-builder:
         condition: service_completed_successfully
       server:
-        condition: service_started
+        condition: service_healthy
       auth:
-        condition: service_started
+        condition: service_healthy
 
   # Build container that copies static files to a volume
   frontend-builder:
