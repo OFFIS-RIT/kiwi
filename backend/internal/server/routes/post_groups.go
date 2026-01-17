@@ -12,7 +12,7 @@ import (
 // CreateGroupHandler creates a new group
 func CreateGroupHandler(c echo.Context) error {
 	type userInGroupBody struct {
-		UserID int64  `json:"user_id" validate:"required,numeric"`
+		UserID int32  `json:"user_id" validate:"required,numeric"`
 		Role   string `json:"role" validate:"required,oneof=admin user"`
 	}
 
@@ -105,7 +105,7 @@ func AddUserToGroupHandler(c echo.Context) error {
 	}
 
 	type addUserToGroupBody struct {
-		UserID int64  `json:"user_id" validate:"required,numeric"`
+		UserID int32  `json:"user_id" validate:"required,numeric"`
 		Role   string `json:"role" validate:"required,oneof=admin user"`
 	}
 

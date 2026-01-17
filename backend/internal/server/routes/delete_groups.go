@@ -15,7 +15,7 @@ import (
 func DeleteUserFromGroupHandler(c echo.Context) error {
 	type deleteGroupData struct {
 		GroupID int64   `param:"id" validate:"required,numeric"`
-		UserIDs []int64 `json:"user_id" validate:"required,numeric"`
+		UserIDs []int32 `json:"user_id" validate:"required,numeric"`
 	}
 
 	type deleteGroupResponse struct {

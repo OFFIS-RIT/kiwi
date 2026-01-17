@@ -10,8 +10,8 @@ import (
 )
 
 type Account struct {
-	ID                    int64              `json:"id"`
-	UserId                int64              `json:"user_id"`
+	ID                    int32              `json:"id"`
+	UserId                int32              `json:"user_id"`
 	AccountId             string             `json:"account_id"`
 	ProviderId            string             `json:"provider_id"`
 	AccessToken           pgtype.Text        `json:"access_token"`
@@ -74,7 +74,7 @@ type Group struct {
 
 type GroupUser struct {
 	GroupID   int64              `json:"group_id"`
-	UserID    int64              `json:"user_id"`
+	UserID    int32              `json:"user_id"`
 	Role      string             `json:"role"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
@@ -168,15 +168,15 @@ type RelationshipSource struct {
 }
 
 type Session struct {
-	ID             int64              `json:"id"`
-	UserId         int64              `json:"user_id"`
+	ID             int32              `json:"id"`
+	UserId         int32              `json:"user_id"`
 	Token          string             `json:"token"`
 	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
 	IpAddress      pgtype.Text        `json:"ip_address"`
 	UserAgent      pgtype.Text        `json:"user_agent"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	ImpersonatedBy pgtype.Int8        `json:"impersonated_by"`
+	ImpersonatedBy pgtype.Int4        `json:"impersonated_by"`
 }
 
 type Stat struct {
@@ -199,7 +199,7 @@ type TextUnit struct {
 }
 
 type User struct {
-	ID            int64              `json:"id"`
+	ID            int32              `json:"id"`
 	Name          string             `json:"name"`
 	Email         string             `json:"email"`
 	EmailVerified bool               `json:"email_verified"`
@@ -215,14 +215,14 @@ type User struct {
 type UserChat struct {
 	ID        int64              `json:"id"`
 	PublicID  string             `json:"public_id"`
-	UserID    int64              `json:"user_id"`
+	UserID    int32              `json:"user_id"`
 	Title     string             `json:"title"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Verification struct {
-	ID         int64              `json:"id"`
+	ID         int32              `json:"id"`
 	Identifier string             `json:"identifier"`
 	Value      string             `json:"value"`
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
