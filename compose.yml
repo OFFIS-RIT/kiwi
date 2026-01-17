@@ -125,8 +125,8 @@ services:
     container_name: db
     image: kiwi/postgres:latest
     build:
-      dockerfile: Dockerfile.postgres
-      context: ./backend
+      dockerfile: Dockerfile
+      context: ./postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: kiwi

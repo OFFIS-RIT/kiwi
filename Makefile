@@ -1,7 +1,7 @@
 build:
 	@cd backend && make generate
 	@cd ../
-	@docker build -f backend/Dockerfile.postgres -t kiwi/postgres ./backend/
+	@docker build -f postgres/Dockerfile -t kiwi/postgres ./postgres/
 	@docker build -f backend/Dockerfile.server -t kiwi/server ./backend/
 	@docker build -f backend/Dockerfile.worker -t kiwi/worker ./backend/
 	@docker build -f frontend/Dockerfile -t kiwi/frontend ./frontend
@@ -11,7 +11,7 @@ build:
 build-dev:
 	@cd backend && make generate
 	@cd ../
-	@docker build -f backend/Dockerfile.postgres -t kiwi/postgres ./backend/
+	@docker build -f postgres/Dockerfile -t kiwi/postgres ./postgres/ --build
 	@docker build -f backend/Dockerfile.server.dev -t kiwi/server-dev ./backend/
 	@docker build -f backend/Dockerfile.worker.dev -t kiwi/worker-dev ./backend/
 	@docker build -f frontend/Dockerfile.dev -t kiwi/frontend-dev:latest ./frontend/
