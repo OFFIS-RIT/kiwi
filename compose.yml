@@ -180,24 +180,27 @@ services:
       start_period: 40s
   rustfs-setup:
     container_name: rustfs-setup
-    image: minio/mc:latest
+    image: amazon/aws-cli:latest
     depends_on:
-      rustfs:
-        condition: service_healthy
+        rustfs:
+            condition: service_healthy
     environment:
-      AWS_ACCESS_KEY: ${AWS_ACCESS_KEY}
-      AWS_SECRET_KEY: ${AWS_SECRET_KEY}
-      AWS_ENDPOINT: ${AWS_ENDPOINT}
-      AWS_BUCKET: ${AWS_BUCKET}
+        AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY}
+        AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_KEY}
+        AWS_DEFAULT_REGION: us-east-1
+        AWS_ENDPOINT: ${AWS_ENDPOINT}
+        AWS_BUCKET: ${AWS_BUCKET}
     entrypoint: >
-      /bin/sh -c " set -e; mc alias set myrustfs ${AWS_ENDPOINT} ${AWS_ACCESS_KEY}
-      ${AWS_SECRET_KEY}; if mc ls myrustfs/${AWS_BUCKET} > /dev/null 2>&1; then
-        echo 'Bucket already exists, skipping init...';
-      else
-        echo 'Setting up bucket';
-        mc mb myrustfs/${AWS_BUCKET};
-        echo 'Setup completed';
-      fi "
+        sh -c "
+        set -e;
+        if aws --endpoint-url ${AWS_ENDPOINT} s3 ls s3://${AWS_BUCKET} >/dev/null 2>&1; then
+            echo 'Bucket already exists, skipping init...';
+        else
+            echo 'Setting up bucket';
+            aws --endpoint-url ${AWS_ENDPOINT} s3 mb s3://${AWS_BUCKET};
+            echo 'Setup completed';
+        fi
+        "
   ollama:
     container_name: ollama
     image: ollama/ollama
