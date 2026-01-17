@@ -12,7 +12,8 @@ import { ProjectList } from "@/components/projects";
 import { AppSidebar } from "@/components/sidebar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppProviders, useData, useLanguage, useNavigation } from "@/providers";
+import { AppProviders, useData, useLanguage, useNavigation, useAuth } from "@/providers";
+import { LoginPage } from "@/components/auth/LoginPage";
 import type { Group, Project } from "@/types";
 import { Suspense, lazy, useState } from "react";
 
@@ -267,10 +268,35 @@ function Dashboard() {
   );
 }
 
+function AuthenticatedApp() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  // Optimierung: Wenn kein Auth-Cookie existiert, direkt Login zeigen
+  // ohne auf den langsamen Session-API-Call zu warten
+  const hasAuthCookie =
+    typeof document !== "undefined" &&
+    document.cookie.includes("better-auth");
+
+  // Nur Loading-State zeigen wenn Cookie existiert (Session-Check nötig)
+  if (isLoading && hasAuthCookie) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-muted-foreground">Laden...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
+
+  return <Dashboard />;
+}
+
 export default function Page() {
   return (
     <AppProviders defaultTheme="light">
-      <Dashboard />
+      <AuthenticatedApp />
     </AppProviders>
   );
 }

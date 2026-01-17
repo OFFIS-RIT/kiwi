@@ -39,6 +39,7 @@ services:
       target: builder
       args:
         NEXT_PUBLIC_API_URL: "/api"
+        NEXT_PUBLIC_AUTH_URL: "/auth"
     image: kiwi/frontend:builder
     volumes:
       - frontend-static:/export

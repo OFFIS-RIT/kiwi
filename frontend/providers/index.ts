@@ -1,5 +1,6 @@
 // Main App Provider
 export { AppProviders } from "./AppProviders";
+export { AuthProvider, useAuth } from "./AuthProvider";
 
 // Individual Providers
 export { DataProvider, useData } from "./DataProvider";

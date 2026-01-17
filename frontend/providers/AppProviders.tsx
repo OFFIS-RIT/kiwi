@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { AuthProvider } from "@/providers/AuthProvider";
 import { DataProvider } from "@/providers/DataProvider";
 import { LanguageProvider } from "@/providers/LanguageProvider";
 import { NavigationProvider } from "@/providers/NavigationProvider";
@@ -23,21 +24,23 @@ export function AppProviders({
   defaultTheme = "light",
 }: AppProvidersProps) {
   return (
-    <ThemeProvider defaultTheme={defaultTheme}>
-      <LanguageProvider>
-        <QueryErrorBoundary>
-          <QueryProvider>
-            <DataProvider>
-              <SidebarExpansionProvider>
-                <NavigationProvider>
-                  <SidebarProvider>{children}</SidebarProvider>
-                </NavigationProvider>
-              </SidebarExpansionProvider>
-            </DataProvider>
-          </QueryProvider>
-        </QueryErrorBoundary>
-      </LanguageProvider>
-    </ThemeProvider>
+    <AuthProvider>
+      <ThemeProvider defaultTheme={defaultTheme}>
+        <LanguageProvider>
+          <QueryErrorBoundary>
+            <QueryProvider>
+              <DataProvider>
+                <SidebarExpansionProvider>
+                  <NavigationProvider>
+                    <SidebarProvider>{children}</SidebarProvider>
+                  </NavigationProvider>
+                </SidebarExpansionProvider>
+              </DataProvider>
+            </QueryProvider>
+          </QueryErrorBoundary>
+        </LanguageProvider>
+      </ThemeProvider>
+    </AuthProvider>
   );
 }
 

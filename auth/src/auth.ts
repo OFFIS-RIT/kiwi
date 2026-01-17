@@ -32,6 +32,10 @@ function getPermissionStrings(role: string | undefined): string[] {
 export const auth = betterAuth({
     secret: env.AUTH_SECRET as string,
     baseURL: env.AUTH_URL as string,
+    trustedOrigins: [
+        'http://localhost:3000', // Frontend dev
+        env.FRONTEND_URL as string, // Production frontend
+    ].filter(Boolean),
     database: new Pool({
         connectionString: env.DATABASE_URL as string,
     }),
