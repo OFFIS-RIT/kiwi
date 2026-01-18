@@ -45,6 +45,8 @@ import {
 import { MessageContent } from "./MessageContent";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
+import { v4 as uuidv4 } from "uuid";
+
 // Lazy load dialog for better code splitting
 const ResetChatDialog = lazy(() =>
   import("./ResetChatDialog").then((mod) => ({
@@ -128,7 +130,7 @@ export function ProjectChat({
 
   const createWelcomeMessage = useCallback(
     (): Message => ({
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       content: t("welcome.message", { projectName }),
       role: "assistant",
       timestamp: new Date(),
@@ -293,7 +295,7 @@ export function ProjectChat({
 
     const userMessageContent = inputValue;
     const userMessageForState: Message = {
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       content: userMessageContent,
       role: "user",
       timestamp: new Date(),
@@ -319,7 +321,7 @@ export function ProjectChat({
     setStreamingReasoning("");
     thinkingStartedRef.current = false;
 
-    const assistantMessageId = crypto.randomUUID();
+    const assistantMessageId = uuidv4();
     let assistantMessageCreated = false;
     let accumulatedSourceFiles: { id: string; name: string; key: string }[] =
       [];
