@@ -5,7 +5,7 @@
 <h1 align="center">KIWI</h1>
 
 <p align="center">
-  <strong>Knowledge Graph Platform for Document Processing and AI-powered Q&A</strong>
+  <strong>Knowledge Graph Platform for Document Processing and AI-powered Q&A created by [OFFIS e.V.](https://www.offis.de/)</strong>
 </p>
 
 <p align="center">
