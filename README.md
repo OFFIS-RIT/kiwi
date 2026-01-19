@@ -5,7 +5,7 @@
 <h1 align="center">KIWI</h1>
 
 <p align="center">
-  <strong>Knowledge Graph Platform for Document Processing and AI-powered Q&A created by [OFFIS e.V.](https://www.offis.de/)</strong>
+  <strong>Knowledge Graph Platform for Document Processing and AI-powered Q&A created by <a href="https://www.offis.de/">OFFIS e.V.</a></strong>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
   <a href="#architecture">Architecture</a> •
   <a href="#library-usage">Library Usage</a> •
   <a href="#configuration">Configuration</a> •
-  <a href="#documentation">Documentation</a>
+  <a href="#agentsmd">Documentation</a>
 </p>
 
 ---
@@ -36,7 +36,8 @@
 - **Chat Interface** – Ask questions about your documents with streaming AI
   responses (fast, normal, or detailed modes)
 - **Multi-Model Support** – Works with OpenAI API or local Ollama models
-  - **Note:** When using OpenAI API with reasoning enabled, temperature is fixed to 1.0 (required by o-series and gpt-5+ models)
+  - **Note:** When using OpenAI API with reasoning enabled, temperature is fixed
+    to 1.0 (required by o-series and gpt-5+ models)
 
 ## Tech Stack
 
@@ -61,7 +62,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/kiwi.git
+git clone https://github.com/offis-rit/kiwi.git
 cd kiwi
 
 # Configure environment
