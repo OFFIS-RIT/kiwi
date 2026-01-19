@@ -229,6 +229,7 @@ func (g *GraphClient) MergeFromStaging(
 		"relations", len(relations),
 		"batch_id", batchID,
 	)
+	logger.Info("[Graph] Saving staged data to main tables")
 
 	_, err = storeClient.SaveUnits(ctx, units)
 	if err != nil {
@@ -248,7 +249,7 @@ func (g *GraphClient) MergeFromStaging(
 		return fmt.Errorf("failed to save relationships: %w", err)
 	}
 
-	logger.Info("[Graph] Data merged, starting cross-document deduplication")
+	logger.Info("[Graph] Data saved and merged, starting cross-document deduplication")
 
 	err = storeClient.DedupeAndMergeEntities(ctx, graphID, aiClient)
 	if err != nil {

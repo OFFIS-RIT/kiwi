@@ -4,7 +4,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: kiwi/frontend:latest
+    image: ghcr.io/offis-rit/kiwi/frontend:latest
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -16,6 +16,10 @@ services:
   auth:
     container_name: auth
     restart: unless-stopped
+    image: ghcr.io/offis-rit/kiwi/auth:latest
+    build:
+      context: ./auth
+      dockerfile: Dockerfile
     environment:
       DATABASE_URL: ${DATABASE_URL}
       AUTH_SECRET: ${AUTH_SECRET}
@@ -34,7 +38,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.server
-    image: kiwi/server:latest
+    image: ghcr.io/offis-rit/kiwi/server:latest
     restart: unless-stopped
     environment:
       DEBUG: ${DEBUG}
@@ -85,7 +89,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.worker
-    image: kiwi/worker:latest
+    image: ghcr.io/offis-rit/kiwi/worker:latest
     restart: unless-stopped
     environment:
       DEBUG: ${DEBUG}
@@ -123,7 +127,7 @@ services:
         condition: service_healthy
   db:
     container_name: db
-    image: kiwi/postgres:latest
+    image: ghcr.io/offis-rit/kiwi/postgres:latest
     build:
       dockerfile: Dockerfile
       context: ./postgres
@@ -201,18 +205,11 @@ services:
             echo 'Setup completed';
         fi
         "
-  ollama:
-    container_name: ollama
-    image: ollama/ollama
-    volumes:
-      - ollama_data:/root/.ollama
-    restart: unless-stopped
 
 volumes:
   postgres_data:
   rabbitmq_data:
   rustfs_data:
-  ollama_data:
 
 networks:
   default:

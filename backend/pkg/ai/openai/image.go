@@ -20,27 +20,15 @@ func (c *GraphOpenAIClient) GenerateImageDescription(
 ) (string, error) {
 	client := c.ImageClient
 
-	msg := openai.ChatCompletionMessageParamUnion{
-		OfUser: &openai.ChatCompletionUserMessageParam{
-			Content: openai.ChatCompletionUserMessageParamContentUnion{
-				OfArrayOfContentParts: []openai.ChatCompletionContentPartUnionParam{
-					{
-						OfImageURL: &openai.ChatCompletionContentPartImageParam{
-							ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
-								URL: fmt.Sprintf("%s%s", base64.FileType, base64.Base64),
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
 	body := openai.ChatCompletionNewParams{
 		Model: openai.ChatModel(c.imageModel),
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(prompt),
-			msg,
+			openai.UserMessage([]openai.ChatCompletionContentPartUnionParam{
+				openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+					URL: fmt.Sprintf("%s%s", base64.FileType, base64.Base64),
+				}),
+			}),
 		},
 	}
 

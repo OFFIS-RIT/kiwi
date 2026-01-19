@@ -1,21 +1,20 @@
 build:
 	@cd backend && make generate
 	@cd ../
-	@docker build -f postgres/Dockerfile -t kiwi/postgres ./postgres/
-	@docker build -f backend/Dockerfile.server -t kiwi/server ./backend/
-	@docker build -f backend/Dockerfile.worker -t kiwi/worker ./backend/
-	@docker build -f frontend/Dockerfile -t kiwi/frontend ./frontend
-	@docker build -f frontend/Dockerfile --target builder -t kiwi/frontend:builder ./frontend
-	@docker build -f auth/Dockerfile -t kiwi/auth ./auth/
+	@docker build -f postgres/Dockerfile -t ghcr.io/offis-rit/kiwi/postgres:latest ./postgres/
+	@docker build -f backend/Dockerfile.server -t ghcr.io/offis-rit/kiwi/server:latest ./backend/
+	@docker build -f backend/Dockerfile.worker -t ghcr.io/offis-rit/kiwi/worker:latest ./backend/
+	@docker build -f frontend/Dockerfile -t ghcr.io/offis-rit/kiwi/frontend:latest ./frontend
+	@docker build -f auth/Dockerfile -t ghcr.io/offis-rit/kiwi/auth:latest ./auth/
 
 build-dev:
 	@cd backend && make generate
 	@cd ../
-	@docker build -f postgres/Dockerfile -t kiwi/postgres ./postgres/ --build
-	@docker build -f backend/Dockerfile.server.dev -t kiwi/server-dev ./backend/
-	@docker build -f backend/Dockerfile.worker.dev -t kiwi/worker-dev ./backend/
-	@docker build -f frontend/Dockerfile.dev -t kiwi/frontend-dev:latest ./frontend/
-	@docker build -f auth/Dockerfile.dev -t kiwi/auth-dev ./auth/
+	@docker build -f postgres/Dockerfile -t ghcr.io/offis-rit/kiwi/postgres:dev ./postgres/
+	@docker build -f backend/Dockerfile.server.dev -t ghcr.io/offis-rit/kiwi/server:dev ./backend/
+	@docker build -f backend/Dockerfile.worker.dev -t ghcr.io/offis-rit/kiwi/worker:dev ./backend/
+	@docker build -f frontend/Dockerfile.dev -t ghcr.io/offis-rit/kiwi/frontend:dev ./frontend/
+	@docker build -f auth/Dockerfile.dev -t ghcr.io/offis-rit/kiwi/auth:dev ./auth/
 
 start:
 	@docker compose -f compose.yml -f compose.prod.yml up -d
@@ -57,23 +56,6 @@ migrate:
 			up; \
 		rm -rf $(ROOT_DIR).migrations_processed
 
-REGISTRY := ghcr.io/offis-rit/kiwi
-TAG ?= latest
-
-pull:
-	@docker pull $(REGISTRY)/postgres:$(TAG)
-	@docker pull $(REGISTRY)/server:$(TAG)
-	@docker pull $(REGISTRY)/worker:$(TAG)
-	@docker pull $(REGISTRY)/frontend:$(TAG)
-	@docker pull $(REGISTRY)/frontend:$(TAG)-builder
-	@docker pull $(REGISTRY)/auth:$(TAG)
-	@docker tag $(REGISTRY)/postgres:$(TAG) kiwi/postgres:latest
-	@docker tag $(REGISTRY)/server:$(TAG) kiwi/server:latest
-	@docker tag $(REGISTRY)/worker:$(TAG) kiwi/worker:latest
-	@docker tag $(REGISTRY)/frontend:$(TAG) kiwi/frontend:latest
-	@docker tag $(REGISTRY)/frontend:$(TAG)-builder kiwi/frontend:builder
-	@docker tag $(REGISTRY)/auth:$(TAG) kiwi/auth:latest
-
 db-dump:
 	@set -a; \
 		if [ -f "$(ENV_FILE)" ]; then . "$(ENV_FILE)"; fi; \
@@ -114,4 +96,4 @@ db-restore:
 			pg_restore --clean --if-exists -d "$${DATABASE_URL}" "/backups/$$(basename $$DUMP_PATH)"; \
 		echo "Restore complete"
 
-.PHONY: build build-dev start stop dev dev-backend dev-stop migrate pull db-dump db-restore
+.PHONY: build build-dev start stop dev dev-backend dev-stop migrate db-dump db-restore

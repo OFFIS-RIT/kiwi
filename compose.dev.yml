@@ -3,7 +3,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
-    image: kiwi/frontend-dev:latest
+    image: ghcr.io/offis-rit/kiwi/frontend:dev
     volumes:
       - ./frontend:/app
       - frontend-node-modules:/app/node_modules
@@ -19,7 +19,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.server.dev
-    image: kiwi/server-dev:latest
+    image: ghcr.io/offis-rit/kiwi/server:dev
     volumes:
       - ./backend:/app
       - air-server-tmp:/app/tmp
@@ -30,12 +30,11 @@ services:
       CLICOLOR_FORCE: 1
       GO_ENV: development
       AWS_PUBLIC_ENDPOINT: ${AWS_PUBLIC_ENDPOINT}
-
   worker:
     build:
       context: ./backend
       dockerfile: Dockerfile.worker.dev
-    image: kiwi/worker-dev:latest
+    image: ghcr.io/offis-rit/kiwi/worker:dev
     volumes:
       - ./backend:/app
       - air-worker-tmp:/app/tmp
@@ -44,7 +43,21 @@ services:
       CLICOLOR_FORCE: 1
       GO_ENV: development
       AWS_PUBLIC_ENDPOINT: ${AWS_PUBLIC_ENDPOINT}
+  auth:
+    build:
+      context: ./auth
+      dockerfile: Dockerfile.dev
+    image: ghcr.io/offis-rit/kiwi/auth:dev
+    volumes:
+      - ./auth:/app
+      - auth-node-modules:/app/node_modules
+    ports:
+      - "4321:4321"
+    environment:
+      NODE_ENV: development
+    command: sh -c "bun install && bun run dev"
   db:
+    image: ghcr.io/offis-rit/kiwi/postgres:dev
     ports:
       - "5432:5432"
   rabbitmq:
@@ -55,23 +68,7 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
-  ollama:
-    ports:
-      - "11434:11434"
 
-  auth:
-    build:
-      context: ./auth
-      dockerfile: Dockerfile.dev
-    image: kiwi/auth-dev:latest
-    volumes:
-      - ./auth:/app
-      - auth-node-modules:/app/node_modules
-    ports:
-      - "4321:4321"
-    environment:
-      NODE_ENV: development
-    command: sh -c "bun install && bun run dev"
 
 volumes:
   air-server-tmp:
