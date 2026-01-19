@@ -1,19 +1,16 @@
 services:
   gpt-oss:
-    image: lmsysorg/sglang:spark
+    image: scitrera/dgx-spark-vllm:0.14.0rc2-t5
     container_name: gpt-oss
     ports:
       - "45001:30000"
     volumes:
-      - ~/.hf_models:/root/.cache/huggingface
-      - ~/tiktoken_encodings:/tiktoken_encodings
+      - ./models:/root/.cache/huggingface
     environment:
-      - HF_TOKEN=${HF_TOKEN}
-      - TIKTOKEN_ENCODINGS_BASE=/tiktoken_encodings
+      - HF_TOKEN=<HF_TOKEN>
+      - VLLM_NO_USAGE_STATS=1
     shm_size: 32g
     ipc: host
-    networks:
-      - llm
     deploy:
       resources:
         reservations:
@@ -22,30 +19,39 @@ services:
               count: all
               capabilities: [gpu]
     command: >
-      python3 -m sglang.launch_server
-      --model-path openai/gpt-oss-20b
+      vllm serve openai/gpt-oss-20b
       --host 0.0.0.0
       --port 30000
-      --reasoning-parser gpt-oss
-      --tool-call-parser gpt-oss
-      --mem-fraction-static 0.35
+      --gpu-memory-utilization 0.3
+      --max-model-len 8192
+      --max-num-batched-tokens 8192
+      --max-num-seqs 16
+      --enable-prefix-caching
+      --tool-call-parser openai
+      --async-scheduling
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:30000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 240s
     restart: unless-stopped
 
   embed:
-    image: lmsysorg/sglang:spark
+    image: scitrera/dgx-spark-vllm:0.14.0rc2-t5
     container_name: embed
     ports:
       - "45002:30000"
     volumes:
-      - ~/.hf_models:/root/.cache/huggingface
-      - ~/tiktoken_encodings:/tiktoken_encodings
+      - ./models:/root/.cache/huggingface
     environment:
-      - HF_TOKEN=${HF_TOKEN}
-      - TIKTOKEN_ENCODINGS_BASE=/tiktoken_encodings
+      - HF_TOKEN=<HF_TOKEN>
+      - VLLM_NO_USAGE_STATS=1
     shm_size: 32g
     ipc: host
-    networks:
-      - llm
+    depends_on:
+      gpt-oss:
+        condition: service_healthy
     deploy:
       resources:
         reservations:
@@ -54,29 +60,33 @@ services:
               count: all
               capabilities: [gpu]
     command: >
-      python3 -m sglang.launch_server
-      --model-path Qwen/Qwen3-Embedding-0.6B
+      vllm serve Qwen/Qwen3-Embedding-0.6B
       --host 0.0.0.0
       --port 30000
-      --mem-fraction-static 0.05
-      --is-embedding
+      --gpu-memory-utilization 0.1
+      --max-model-len 2048
+      --max-num-batched-tokens 16384
+      --max-num-seqs 128
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:30000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
     restart: unless-stopped
 
   ocr:
-    image: lmsysorg/sglang:spark
+    image: scitrera/dgx-spark-vllm:0.14.0rc2-t5
     container_name: ocr
     ports:
       - "45003:30000"
     volumes:
-      - ~/.hf_models:/root/.cache/huggingface
-      - ~/tiktoken_encodings:/tiktoken_encodings
+      - ./models:/root/.cache/huggingface
     environment:
-      - HF_TOKEN=${HF_TOKEN}
-      - TIKTOKEN_ENCODINGS_BASE=/tiktoken_encodings
+      - HF_TOKEN=<HF_TOKEN>
+      - VLLM_NO_USAGE_STATS=1
     shm_size: 32g
     ipc: host
-    networks:
-      - llm
     deploy:
       resources:
         reservations:
@@ -84,13 +94,25 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    depends_on:
+      embed:
+        condition: service_healthy
     command: >
-      python3 -m sglang.launch_server
-      --model-path deepseek-ai/deepseek-vl2-tiny
+      vllm serve Qwen/Qwen3-VL-4B-Instruct-FP8
       --host 0.0.0.0
       --port 30000
-      --mem-fraction-static 0.35
-      --enable-multimodal
+      --gpu-memory-utilization 0.25
+      --max-model-len 4096
+      --max-num-batched-tokens 8192
+      --max-num-seqs 16
+      --limit-mm-per-prompt '{"image":1,"video":0}'
+      --enable-prefix-caching
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:30000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 240s
     restart: unless-stopped
 
   litellm:
@@ -100,11 +122,18 @@ services:
       - "45000:4000"
     volumes:
       - ./litellm_spark.yaml:/app/config.yaml
-    networks:
-      - llm
+    depends_on:
+      gpt-oss:
+        condition: service_healthy
+      embed:
+        condition: service_healthy
+      ocr:
+        condition: service_healthy
     command: --config /app/config.yaml
     restart: unless-stopped
 
 networks:
-  llm:
+  default:
+    external: true
     driver: bridge
+    name: kiwi_internal

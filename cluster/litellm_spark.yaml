@@ -11,6 +11,6 @@ model_list:
       api_key: test
   - model_name: ocr
     litellm_params:
-      model: hosted_vllm/deepseek-ai/deepseek-vl2-tiny
+      model: hosted_vllm/Qwen/Qwen3-VL-4B-Instruct-FP8
       api_base: http://ocr:30000/v1
       api_key: test
