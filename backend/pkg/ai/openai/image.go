@@ -20,13 +20,14 @@ func (c *GraphOpenAIClient) GenerateImageDescription(
 ) (string, error) {
 	client := c.ImageClient
 
+	url := fmt.Sprintf("%s%s", base64.FileType, base64.Base64)
 	body := openai.ChatCompletionNewParams{
 		Model: openai.ChatModel(c.imageModel),
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(prompt),
 			openai.UserMessage([]openai.ChatCompletionContentPartUnionParam{
 				openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
-					URL: fmt.Sprintf("%s%s", base64.FileType, base64.Base64),
+					URL: url,
 				}),
 			}),
 		},

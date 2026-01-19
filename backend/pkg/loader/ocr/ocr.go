@@ -54,7 +54,7 @@ func (l *OCRGraphLoader) ProcessImages(ctx context.Context, file loader.GraphFil
 			logger.Debug("[OCR] Processing image", "number", idx+1, "total", len(images))
 			prompt := ai.TranscribePrompt
 			b64String := base64.StdEncoding.EncodeToString(image)
-			filePrefix := "data:application/png;base64,"
+			filePrefix := "data:image/png;base64,"
 			b64 := loader.GraphBase64{
 				Base64:   b64String,
 				FileType: filePrefix,

@@ -55,7 +55,7 @@ func GetFileTextFromIO(ctx context.Context, aiClient ai.GraphAIClient, input io.
 	}
 
 	b64String := base64.StdEncoding.EncodeToString(content)
-	filePrefix := "data:application/png;base64,"
+	filePrefix := "data:image/png;base64,"
 	b64Image := loader.GraphBase64{
 		Base64:   b64String,
 		FileType: filePrefix,
