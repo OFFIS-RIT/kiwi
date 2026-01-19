@@ -62,7 +62,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/offis-rit/kiwi.git
+git clone https://github.com/OFFIS-RIT/kiwi.git
 cd kiwi
 
 # Configure environment
