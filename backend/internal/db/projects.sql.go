@@ -406,7 +406,7 @@ type GetProjectsForUserRow struct {
 	Role         string `json:"role"`
 }
 
-func (q *Queries) GetProjectsForUser(ctx context.Context, userID int64) ([]GetProjectsForUserRow, error) {
+func (q *Queries) GetProjectsForUser(ctx context.Context, userID int32) ([]GetProjectsForUserRow, error) {
 	rows, err := q.db.Query(ctx, getProjectsForUser, userID)
 	if err != nil {
 		return nil, err
@@ -456,7 +456,7 @@ WHERE gu.user_id = $1 AND p.id = $2
 `
 
 type IsUserInProjectParams struct {
-	UserID int64 `json:"user_id"`
+	UserID int32 `json:"user_id"`
 	ID     int64 `json:"id"`
 }
 

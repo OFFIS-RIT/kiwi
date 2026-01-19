@@ -59,14 +59,15 @@ func AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
 		}
 
-		var userID int64
+		var userID int32
 		if idClaim, ok := claims["id"].(string); ok {
-			userID, err = strconv.ParseInt(idClaim, 10, 64)
+			parsedId, err := strconv.ParseInt(idClaim, 10, 64)
 			if err != nil {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid user ID"})
 			}
+			userID = int32(parsedId)
 		} else if idFloat, ok := claims["id"].(float64); ok {
-			userID = int64(idFloat)
+			userID = int32(idFloat)
 		} else {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid user ID"})
 		}

@@ -27,7 +27,7 @@ func GetGroupsHandler(c echo.Context) error {
 		return c.JSON(http.StatusOK, res)
 	}
 
-	userID := int64(user.UserID)
+	userID := int32(user.UserID)
 
 	res, err := q.GetGroupsForUser(ctx, userID)
 	if err != nil {

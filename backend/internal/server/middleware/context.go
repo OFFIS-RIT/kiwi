@@ -16,7 +16,7 @@ import (
 )
 
 type AppUser struct {
-	UserID      int64
+	UserID      int32
 	Role        string
 	Permissions []string
 }
@@ -28,7 +28,7 @@ type App struct {
 	S3             *s3.Client
 	AiClient       ai.GraphAIClient
 	MasterAPIKey   string
-	MasterUserID   int64
+	MasterUserID   int32
 	MasterUserRole string
 }
 
@@ -44,7 +44,7 @@ func AppContextMiddleware(
 	key *keyfunc.Keyfunc,
 	s3 *s3.Client,
 	masterAPIKey string,
-	masterUserID int64,
+	masterUserID int32,
 	masterUserRole string,
 ) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {

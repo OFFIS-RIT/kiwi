@@ -75,8 +75,9 @@ func Init() {
 	s3 := storage.NewS3Client(ctx)
 
 	masterAPIKey := util.GetEnv("MASTER_API_KEY")
-	masterUserID, _ := strconv.ParseInt(util.GetEnv("MASTER_USER_ID"), 10, 64)
+	parsedMasterUserID, _ := strconv.ParseInt(util.GetEnv("MASTER_USER_ID"), 10, 32)
 	masterUserRole := util.GetEnv("MASTER_USER_ROLE")
+	masterUserID := int32(parsedMasterUserID)
 
 	e.Use(mid.AppContextMiddleware(conn, ch, &k, s3, masterAPIKey, masterUserID, masterUserRole))
 	e.Use(middleware.CORS())
