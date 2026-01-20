@@ -85,6 +85,11 @@ func ProcessGraphMessage(
 	files := make([]loader.GraphFile, 0)
 
 	for _, file := range *data.ProjectFiles {
+		metadataText := ""
+		if file.Metadata.Valid {
+			metadataText = file.Metadata.String
+		}
+
 		ext := filepath.Ext(file.FileKey)
 		ext = strings.ReplaceAll(ext, ".", "")
 		ext = strings.ToLower(ext)
@@ -110,7 +115,9 @@ func ProcessGraphMessage(
 					FilePath:  sheetFile,
 					MaxTokens: 500,
 					Loader:    s3L,
+					Metadata:  metadataText,
 				})
+
 				files = append(files, f)
 				sheetIndex++
 			}
@@ -128,6 +135,7 @@ func ProcessGraphMessage(
 				FilePath:  key,
 				MaxTokens: 500,
 				Loader:    s3L,
+				Metadata:  metadataText,
 			})
 			files = append(files, f)
 		}
@@ -387,6 +395,11 @@ func ProcessPreprocess(
 	pageCount := 0
 	s3Bucket := util.GetEnvString("AWS_BUCKET", "kiwi")
 	for _, upload := range *data.ProjectFiles {
+		metadataText := ""
+		if upload.Metadata.Valid {
+			metadataText = upload.Metadata.String
+		}
+
 		s3L := s3.NewS3GraphFileLoaderWithClient(s3Bucket, s3Client)
 		ocrL := ocr.NewOCRGraphLoader(ocr.NewOCRGraphLoaderParams{
 			AIClient: aiClient,
@@ -404,6 +417,7 @@ func ProcessPreprocess(
 				FilePath:  upload.FileKey,
 				MaxTokens: 500,
 				Loader:    docL,
+				Metadata:  metadataText,
 			})
 			files = append(files, f)
 
@@ -428,6 +442,7 @@ func ProcessPreprocess(
 				FilePath:  upload.FileKey,
 				MaxTokens: 500,
 				Loader:    pptxL,
+				Metadata:  metadataText,
 			})
 			files = append(files, f)
 
@@ -456,6 +471,7 @@ func ProcessPreprocess(
 				FilePath:  upload.FileKey,
 				MaxTokens: 500,
 				Loader:    pdfL,
+				Metadata:  metadataText,
 			})
 			files = append(files, f)
 
@@ -479,6 +495,7 @@ func ProcessPreprocess(
 				FilePath:  upload.FileKey,
 				MaxTokens: 500,
 				Loader:    imgL,
+				Metadata:  metadataText,
 			})
 			files = append(files, f)
 			pageCount += 1
@@ -492,6 +509,7 @@ func ProcessPreprocess(
 				FilePath:  upload.FileKey,
 				MaxTokens: 500,
 				Loader:    audioL,
+				Metadata:  metadataText,
 			})
 			files = append(files, f)
 
@@ -516,6 +534,7 @@ func ProcessPreprocess(
 				FilePath:  upload.FileKey,
 				MaxTokens: 500,
 				Loader:    csvL,
+				Metadata:  metadataText,
 			})
 			files = append(files, f)
 
@@ -538,6 +557,7 @@ func ProcessPreprocess(
 				FilePath:  upload.FileKey,
 				MaxTokens: 500,
 				Loader:    s3L,
+				Metadata:  metadataText,
 			})
 			content, err := s3L.GetFileText(ctx, tempFile)
 			if err != nil {
@@ -572,6 +592,7 @@ func ProcessPreprocess(
 					FilePath:  sheetFilePath,
 					MaxTokens: 500,
 					Loader:    excelL,
+					Metadata:  metadataText,
 				})
 				files = append(files, f)
 				sheetIndex++
@@ -586,6 +607,7 @@ func ProcessPreprocess(
 				FilePath:  upload.FileKey,
 				MaxTokens: 500,
 				Loader:    s3L,
+				Metadata:  metadataText,
 			})
 			noProcessingFiles = append(noProcessingFiles, f)
 		}

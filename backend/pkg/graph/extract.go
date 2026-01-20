@@ -3,12 +3,15 @@ package graph
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	_ "github.com/invopop/jsonschema"
 
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )
@@ -34,28 +37,51 @@ type extractResponse struct {
 func extractFromUnit(
 	ctx context.Context,
 	unit processUnit,
-	filename string,
-	customEntities []string,
+	file loader.GraphFile,
 	client ai.GraphAIClient,
 ) (*common.Unit, []common.Entity, []common.Relationship, error) {
-	var e []string
-	if len(customEntities) > 0 {
-		e = customEntities
-	} else {
+	e := file.CustomEntities
+	if len(e) == 0 {
 		e = []string{"ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"}
 	}
 
-	prompt := fmt.Sprintf(
-		ai.ExtractPrompt,
-		strings.Join(e, ","),
-		filename,
-		strings.Join(e, ","),
-		strings.Join(e, ","),
-	)
+	promptTemplate := ai.ExtractPromptText
+	if file.FileType == loader.GraphFileTypeCSV {
+		promptTemplate = ai.ExtractPromptCSV
+	}
+	if file.FileType == loader.GraphFileTypeImage {
+		promptTemplate = ai.ExtractPromptChart
+	}
+
+	baseName := filepath.Base(file.FilePath)
+	var systemPrompt string
+	if file.FileType == loader.GraphFileTypeCSV {
+		csvSummary := summarizeCSV(unit.text, baseName)
+		systemPrompt = fmt.Sprintf(
+			promptTemplate,
+			strings.Join(e, ","),
+			baseName,
+			csvSummary,
+			strings.Join(e, ","),
+			strings.Join(e, ","),
+		)
+	} else {
+		systemPrompt = fmt.Sprintf(
+			promptTemplate,
+			strings.Join(e, ","),
+			baseName,
+			strings.Join(e, ","),
+			strings.Join(e, ","),
+		)
+	}
+
+	if strings.TrimSpace(file.Metadata) != "" {
+		systemPrompt = fmt.Sprintf("%s\n\nDocument metadata:\n%s", systemPrompt, strings.TrimSpace(file.Metadata))
+	}
 
 	var res extractResponse
 	opts := []ai.GenerateOption{
-		ai.WithSystemPrompts(prompt),
+		ai.WithSystemPrompts(systemPrompt),
 	}
 	err := client.GenerateCompletionWithFormat(
 		ctx,
@@ -141,4 +167,47 @@ func extractFromUnit(
 	}
 
 	return finalUnit, entities, relations, nil
+}
+
+func summarizeCSV(text string, baseName string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return ""
+	}
+
+	rows := strings.Split(trimmed, "\n")
+	if len(rows) == 0 {
+		return ""
+	}
+
+	header := rows[0]
+	dataRows := rows
+	if isCSVHeader(rows) {
+		dataRows = rows[1:]
+	}
+
+	sampleCount := util.Min(3, len(dataRows))
+	var sampleRows []string
+	for i := range sampleCount {
+		sampleRows = append(sampleRows, dataRows[i])
+	}
+
+	var summary strings.Builder
+	if baseName != "" {
+		summary.WriteString("Filename: ")
+		summary.WriteString(baseName)
+		summary.WriteString("\n")
+	}
+	if header != "" {
+		summary.WriteString("Headers: ")
+		summary.WriteString(header)
+		summary.WriteString("\n")
+	}
+	fmt.Fprintf(&summary, "Row count: %d\n", len(dataRows))
+	if len(sampleRows) > 0 {
+		summary.WriteString("Sample rows:\n")
+		summary.WriteString(strings.Join(sampleRows, "\n"))
+	}
+
+	return summary.String()
 }

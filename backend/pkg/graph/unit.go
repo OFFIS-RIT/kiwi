@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
@@ -38,7 +39,7 @@ func isCSVHeader(rows []string) bool {
 		}
 	}
 
-	sampleSize := min(5, len(rows)-1)
+	sampleSize := util.Min(5, len(rows)-1)
 	dataNumericTotal := 0
 	dataFieldTotal := 0
 
@@ -270,6 +271,25 @@ func getUnitsFromText(
 		return nil, err
 	}
 	text := string(textBytes)
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, nil
+	}
+
+	if file.FileType == loader.GraphFileTypeImage {
+		uID, err := gonanoid.New()
+		if err != nil {
+			return nil, err
+		}
+		unit := processUnit{
+			id:     uID,
+			fileID: file.ID,
+			start:  0,
+			end:    1,
+			text:   text,
+		}
+		return []processUnit{unit}, nil
+	}
 
 	if file.FileType == loader.GraphFileTypeCSV {
 		return transformCSVIntoUnits(text, file.ID, encoder, file.MaxTokens)

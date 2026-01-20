@@ -16,6 +16,13 @@ func ConvertStructToJson(data any) string {
 	return string(jsonData)
 }
 
+func Min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 type Event struct {
 	ID      []byte
 	Data    []byte

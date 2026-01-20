@@ -90,7 +90,7 @@ Return JSON with the following structure:
 Output must be valid JSON only (no commentary, no extra text).
 `
 
-const ExtractPrompt = `
+const ExtractPromptText = `
 # Task Context
 You are tasked with extracting **structured entity and relationship information** from the provided text. The process must capture **all details explicitly present in the text**, without omission.
 
@@ -190,6 +190,121 @@ Bathrooms: 3
 
 # Thinking Step by Step
 Think step-by-step and extract all entities and relationships as specified.
+
+# Output Formatting
+The output must be a single valid JSON object in this structure:
+{
+  "entities": [
+    {
+      "entity_name": "string",
+      "entity_type": "string",
+      "entity_description": "string"
+    }
+  ],
+  "relationships": [
+    {
+      "source_entity": "string",
+      "target_entity": "string",
+      "relationship_description": "string",
+      "relationship_strength": "float"
+    }
+  ]
+}
+Do not include any commentary, explanations, or text outside of the JSON.
+Always return valid JSON, even if no entities or relationships are found (use empty arrays in that case).
+Make sure to follow the rules and output format carefully.
+`
+
+const ExtractPromptCSV = `
+# Task Context
+You are tasked with extracting **structured entity and relationship information** from a CSV or tabular dataset.
+The output must follow the exact JSON schema described below.
+
+# Background Data
+- **Entity_types:** [%s]
+- **Document_name:** [%s]
+- **CSV_summary:** [%s]
+
+# Instructions for CSV Data
+- Use the table content and document metadata (if provided) to decide whether the table represents:
+  1) **A single implicit entity** (e.g., one system, one product, one project) with many attributes over time, or
+  2) **Multiple distinct entities** (e.g., one entity per row).
+- You must make this decision based only on the CSV content and metadata context. Do NOT ask the user.
+- If a single implicit entity is appropriate, extract ONE entity and include all relevant attributes, measurements, and trends in its description.
+- If multiple entities are appropriate, extract one entity per row (or per unique identifier) and summarize each row's attributes.
+- Infer relationships only when the table clearly expresses them (e.g., key/foreign key columns, explicit references).
+
+## Entity Extraction
+1. Identify all entities of the specified types [%s].
+2. For each entity, extract:
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
+   - **entity_type:** One of the provided types [%s].
+   - **entity_description:** A comprehensive description of all attributes, measurements, and information present in the row or dataset.
+
+## Relationship Extraction
+1. From the identified entities, determine all clear relationships between pairs of entities.
+2. For each relationship, extract:
+   - **source_entity:** name of the source entity.
+   - **target_entity:** name of the target entity.
+   - **relationship_description:** detailed explanation of how and why the entities are related, based strictly on the table data.
+   - **relationship_strength:** a numeric score (0.0–1.0) indicating the strength of the relationship (higher = stronger).
+3. If the table implies a single implicit entity, return an **empty array** for "relationships".
+
+# Output Formatting
+The output must be a single valid JSON object in this structure:
+{
+  "entities": [
+    {
+      "entity_name": "string",
+      "entity_type": "string",
+      "entity_description": "string"
+    }
+  ],
+  "relationships": [
+    {
+      "source_entity": "string",
+      "target_entity": "string",
+      "relationship_description": "string",
+      "relationship_strength": "float"
+    }
+  ]
+}
+Do not include any commentary, explanations, or text outside of the JSON.
+Always return valid JSON, even if no entities or relationships are found (use empty arrays in that case).
+Make sure to follow the rules and output format carefully.
+`
+
+const ExtractPromptChart = `
+# Task Context
+You are tasked with extracting **structured entity and relationship information** from chart/diagram text (OCR or captions).
+The output must follow the exact JSON schema described below.
+
+# Background Data
+- **Entity_types:** [%s]
+- **Document_name:** [%s]
+
+# Instructions for Charts/Diagrams
+- Treat axes, legends, labels, series names, titles, and annotations as key sources of entity and relationship signals.
+- If the content represents measurements over time or categories for a single subject, infer a single implicit entity.
+- If the chart compares multiple subjects (multiple series or categories), extract one entity per subject.
+- Use units, time ranges, and category labels to populate entity descriptions.
+- Infer relationships only when explicitly stated (e.g., "A increases as B decreases", "A is higher than B in 2022").
+
+## Entity Extraction
+1. Identify all entities of the specified types [%s].
+2. For each entity, extract:
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
+   - **entity_type:** One of the provided types [%s].
+   - **entity_description:** A comprehensive description of attributes, measures, ranges, and annotations present in the chart text.
+
+## Relationship Extraction
+1. From the identified entities, determine all clear relationships between pairs of entities.
+2. For each relationship, extract:
+   - **source_entity:** name of the source entity.
+   - **target_entity:** name of the target entity.
+   - **relationship_description:** detailed explanation of how and why the entities are related, based strictly on the chart text.
+   - **relationship_strength:** a numeric score (0.0–1.0) indicating the strength of the relationship (higher = stronger).
+3. If the chart implies a single implicit entity, return an **empty array** for "relationships".
 
 # Output Formatting
 The output must be a single valid JSON object in this structure:
@@ -412,8 +527,8 @@ Connecting Entities:
   * Do not choose one version; include them all so the user can decide.
   * Example: "Entity A is described as X [[id1]]. However, Entity A is also described as Y [[id2]]. These statements are contradictory."
 - If no source ID applies to a statement, do not include that statement.
-- If you cannot find an answer, respond with: "I don't know, but you can provide new sources with that information."
-- If the question is not related to the data, respond with: "There is no information available."
+- If you cannot find an answer, respond with: "I don't know, but you can provide new sources with that information." in the language of the user.
+- If the question is not related to the data, respond with: "There is no information available." in the language of the user.
 
 # Immediate Task Description or Request
 Your goal is to provide the most complete, accurate, and source-grounded answer possible.
@@ -544,8 +659,8 @@ For each relevant entity found:
   * Do not choose one version; include them all so the user can decide.
   * Example: "Entity A is described as X [[id1]]. However, Entity A is also described as Y [[id2]]. These statements are contradictory."
 - If no source ID applies to a statement, do not include that statement.
-- If you cannot find an answer, respond with: "I don't know, but you can provide new sources with that information."
-- If the question is not related to the data, respond with: "There is no information available."
+- If you cannot find an answer, respond with: "I don't know, but you can provide new sources with that information." in the language of the user.
+- If the question is not related to the data, respond with: "There is no information available." in the language of the user.
 
 # Immediate Task Description or Request
 Your goal is to provide the most complete, accurate, and source-grounded answer
@@ -616,7 +731,6 @@ Consider and include any of the following that are relevant:
 - Document type (e.g., contract, invoice, technical manual, correspondence, report, legal filing, policy document, meeting minutes, ordinance, citizen request, memo, proposal, etc.)
 - Date(s) - creation date, effective date, signing date, filing date, reception date, etc.
 - Topic or subject matter
-- Key parties, organizations, or entities involved
 - Legal or binding nature (if this is a legally binding document such as a contract, agreement, ordinance)
 - Technical classification (if this is a technical document, specification, manual)
 - Confidentiality or sensitivity level (if indicated)
@@ -628,7 +742,8 @@ Consider and include any of the following that are relevant:
 - Recipient information
 
 # Output Format
-Provide a plain-text summary containing all relevant metadata. Be comprehensive but concise. Include only information that can be determined from the document content - do not speculate.
+Provide a single-line, compact set of labeled fields separated by semicolons. Use short labels, omit any fields that are not supported by the content, and do not speculate.
 
-Format as natural prose or simple labeled fields. Do not use markdown formatting.
+Example:
+Type: contract; Date: 2023-04-01; Topic: procurement policy; Status: final; Jurisdiction: Berlin; Ref: DP-2023-14
 `

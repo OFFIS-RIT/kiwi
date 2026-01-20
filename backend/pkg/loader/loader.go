@@ -32,6 +32,7 @@ type GraphFile struct {
 	CustomEntities []string
 	Loader         GraphFileLoader
 	Description    string
+	Metadata       string
 }
 
 // NewGraphFileParams defines the input parameters for creating a new GraphFile
@@ -43,6 +44,7 @@ type NewGraphFileParams struct {
 	MaxTokens      int
 	CustomEntities []string
 	Loader         GraphFileLoader
+	Metadata       string
 }
 
 // NewGraphImageFile creates a new GraphFile of type GraphFileTypeImage
@@ -58,6 +60,7 @@ func NewGraphImageFile(
 		MaxTokens:      params.MaxTokens,
 		Loader:         params.Loader,
 		CustomEntities: params.CustomEntities,
+		Metadata:       params.Metadata,
 	}
 }
 
@@ -74,6 +77,7 @@ func NewGraphDocumentFile(
 		MaxTokens:      params.MaxTokens,
 		Loader:         params.Loader,
 		CustomEntities: params.CustomEntities,
+		Metadata:       params.Metadata,
 	}
 }
 
@@ -90,6 +94,7 @@ func NewGraphAudioFile(
 		MaxTokens:      params.MaxTokens,
 		Loader:         params.Loader,
 		CustomEntities: params.CustomEntities,
+		Metadata:       params.Metadata,
 	}
 }
 
@@ -108,6 +113,7 @@ func NewGraphGenericFile(
 		Loader:         params.Loader,
 		CustomEntities: params.CustomEntities,
 		Description:    description,
+		Metadata:       params.Metadata,
 	}
 }
 
@@ -120,6 +126,7 @@ func NewGraphCSVFile(params NewGraphFileParams) GraphFile {
 		MaxTokens:      params.MaxTokens,
 		Loader:         params.Loader,
 		CustomEntities: params.CustomEntities,
+		Metadata:       params.Metadata,
 	}
 }
 
