@@ -32,47 +32,53 @@ jobs:
       matrix:
         include:
           - name: postgres
+            image: postgres
             context: ./postgres
             file: ./postgres/Dockerfile
-            tags: ${{ env.IMAGE_PREFIX }}/postgres:${{ env.IMAGE_TAG }}
             cache: postgres
             target: ""
             build_args: ""
+            tag_suffix: ""
           - name: server
+            image: server
             context: ./backend
             file: ./backend/Dockerfile.server
-            tags: ${{ env.IMAGE_PREFIX }}/server:${{ env.IMAGE_TAG }}
             cache: server
             target: ""
             build_args: ""
+            tag_suffix: ""
           - name: worker
+            image: worker
             context: ./backend
             file: ./backend/Dockerfile.worker
-            tags: ${{ env.IMAGE_PREFIX }}/worker:${{ env.IMAGE_TAG }}
             cache: worker
             target: ""
             build_args: ""
+            tag_suffix: ""
           - name: frontend
+            image: frontend
             context: ./frontend
             file: ./frontend/Dockerfile
-            tags: ${{ env.IMAGE_PREFIX }}/frontend:${{ env.IMAGE_TAG }}
             cache: frontend
             target: ""
             build_args: NEXT_PUBLIC_API_URL=/api
+            tag_suffix: ""
           - name: frontend-builder
+            image: frontend
             context: ./frontend
             file: ./frontend/Dockerfile
-            tags: ${{ env.IMAGE_PREFIX }}/frontend:${{ env.IMAGE_TAG }}-builder
             cache: frontend-builder
             target: builder
             build_args: NEXT_PUBLIC_API_URL=/api
+            tag_suffix: -builder
           - name: auth
+            image: auth
             context: ./auth
             file: ./auth/Dockerfile
-            tags: ${{ env.IMAGE_PREFIX }}/auth:${{ env.IMAGE_TAG }}
             cache: auth
             target: ""
             build_args: ""
+            tag_suffix: ""
 
     steps:
       - name: Checkout code
@@ -112,7 +118,7 @@ jobs:
           file: ${{ matrix.file }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ matrix.tags }}
+          tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ env.IMAGE_TAG }}${{ matrix.tag_suffix }}
           target: ${{ matrix.target }}
           build-args: ${{ matrix.build_args }}
           cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-${{ matrix.cache }}
