@@ -1,5 +1,5 @@
 # Build Stage
-FROM oven/bun:1-alpine AS builder
+FROM oven/bun:1 AS builder
 WORKDIR /app
 
 # Accept build arguments for Next.js public environment variables
@@ -12,7 +12,7 @@ COPY . .
 RUN bun run build
 
 # Production Stage
-FROM oven/bun:1-alpine AS runner
+FROM oven/bun:1 AS runner
 WORKDIR /app
 
 # Set production environment
