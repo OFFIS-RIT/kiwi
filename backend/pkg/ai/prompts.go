@@ -101,15 +101,18 @@ You are tasked with extracting **structured entity and relationship information*
 The document name may contain hints about the primary entity (e.g., *“House Data X”* → inferred entity: *“HOUSE X”*). Use it only if the text itself does not clearly specify an entity.
 
 # Detailed Task Description & Rules
+- If the text includes relevant information that cannot be confidently assigned to a specific entity, extract it as a FACT entity with a short, specific, all-caps title and describe the full information in the description.
 - If the text primarily consists of **factual, tabular, or key–value data** (e.g., “Size: 120m2”, “Bathrooms: 3”) and does not explicitly name multiple entities or relationships, you must still extract the information by **inferring a single implicit entity**.
 - This implicit entity should represent the main subject of the text (e.g., “HOUSE”, “CAR”, “PRODUCT”, “PROJECT”) based on context, document type, or the document name.
 
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
 2. For each entity, extract:
-   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
-     - If the text does not explicitly name any entity, infer one implicit entity representing the subject of the document.
-     - Use the **document_name** as a hint.
+    - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
+      - If the text does not explicitly name any entity, infer one implicit entity representing the subject of the document.
+      - If using type FACT, provide a short, specific title instead of a long sentence.
+      - Use the **document_name** as a hint.
+
    - **entity_type:** One of the provided types [%s].
    - **entity_description:** A comprehensive description of all attributes, roles, activities, events, timelines, frequencies, or other explicit details in the text.
      - Include factual or key–value information if present.
@@ -232,12 +235,13 @@ The output must follow the exact JSON schema described below.
 - You must make this decision based only on the CSV content and metadata context. Do NOT ask the user.
 - If a single implicit entity is appropriate, extract ONE entity and include all relevant attributes, measurements, and trends in its description.
 - If multiple entities are appropriate, extract one entity per row (or per unique identifier) and summarize each row's attributes.
+- If the dataset contains relevant information that does not map cleanly to an entity, extract it as a FACT entity with a short, specific, all-caps title and put the full details in the description.
 - Infer relationships only when the table clearly expresses them (e.g., key/foreign key columns, explicit references).
 
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
 2. For each entity, extract:
-   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, provide a short, specific title.
    - **entity_type:** One of the provided types [%s].
    - **entity_description:** A comprehensive description of all attributes, measurements, and information present in the row or dataset.
 
@@ -288,12 +292,13 @@ The output must follow the exact JSON schema described below.
 - If the content represents measurements over time or categories for a single subject, infer a single implicit entity.
 - If the chart compares multiple subjects (multiple series or categories), extract one entity per subject.
 - Use units, time ranges, and category labels to populate entity descriptions.
+- If the chart contains relevant information that does not map cleanly to an entity, extract it as a FACT entity with a short, specific, all-caps title and put the full details in the description.
 - Infer relationships only when explicitly stated (e.g., "A increases as B decreases", "A is higher than B in 2022").
 
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
 2. For each entity, extract:
-   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, provide a short, specific title.
    - **entity_type:** One of the provided types [%s].
    - **entity_description:** A comprehensive description of attributes, measures, ranges, and annotations present in the chart text.
 

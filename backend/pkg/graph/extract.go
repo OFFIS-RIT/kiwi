@@ -17,7 +17,7 @@ import (
 )
 
 type extractEntity struct {
-	EntityName        string `json:"entity_name" jsonschema_description:"Name of the entity, all letters capitalized"`
+	EntityName        string `json:"entity_name" jsonschema_description:"Name of the entity, all letters capitalized. For FACT entities, use a short, specific title."`
 	EntityType        string `json:"entity_type" jsonschema_description:"One of the provided entity types"`
 	EntityDescription string `json:"entity_description" jsonschema_description:"Comprehensive description of the entity's attributes, activities and information provided by the source."`
 }
@@ -34,6 +34,16 @@ type extractResponse struct {
 	Relationships []extractRelationship `json:"relationships" jsonschema_description:"Relationships identified in the text document"`
 }
 
+func ensureEntityType(entityTypes []string, entityType string) []string {
+	for _, existing := range entityTypes {
+		if strings.EqualFold(existing, entityType) {
+			return entityTypes
+		}
+	}
+
+	return append(entityTypes, entityType)
+}
+
 func extractFromUnit(
 	ctx context.Context,
 	unit processUnit,
@@ -43,6 +53,9 @@ func extractFromUnit(
 	e := file.CustomEntities
 	if len(e) == 0 {
 		e = []string{"ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"}
+	}
+	if len(e) > 0 {
+		e = ensureEntityType(e, "FACT")
 	}
 
 	promptTemplate := ai.ExtractPromptText

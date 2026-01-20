@@ -88,7 +88,7 @@ SELECT e1.id as id1, e1.public_id as public_id1, e1.name as name1, e1.type as ty
        e2.id as id2, e2.public_id as public_id2, e2.name as name2, e2.type as type2
 FROM entities e1
 JOIN entities e2 ON similarity(e1.name, e2.name) > 0.5 AND e1.type = e2.type AND e2.project_id = $1
-WHERE e1.id < e2.id AND e1.project_id = $1;
+WHERE e1.id < e2.id AND e1.project_id = $1 AND e1.type <> 'FACT';
 
 -- name: TransferEntitySources :exec
 UPDATE entity_sources SET entity_id = $2 WHERE entity_id = $1;
