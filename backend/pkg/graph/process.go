@@ -3,7 +3,6 @@ package graph
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	gUtil "github.com/OFFIS-RIT/kiwi/backend/internal/util"
@@ -32,9 +31,6 @@ func processFile(
 		return nil, fmt.Errorf("Failed to extract units from input text:\n%w", err)
 	}
 
-	filenamesplit := strings.Split(file.FilePath, "/")
-	filename := filenamesplit[len(filenamesplit)-1]
-
 	entities := make([]common.Entity, 0)
 	relations := make([]common.Relationship, 0)
 	finaleUnits := make([]*common.Unit, 0, len(units))
@@ -49,7 +45,7 @@ func processFile(
 				return nil
 			default:
 				fu, e, r, err := gUtil.Retry3WithContext(gCtx, maxRetries, func(ctx context.Context) (*common.Unit, []common.Entity, []common.Relationship, error) {
-					return extractFromUnit(gCtx, u, filename, file.CustomEntities, client)
+					return extractFromUnit(gCtx, u, file, client)
 				})
 				if err != nil {
 					return fmt.Errorf("Failed to extract entities and relationships from text:\n%w", err)

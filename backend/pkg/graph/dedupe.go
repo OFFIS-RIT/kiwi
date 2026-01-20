@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
@@ -63,7 +64,7 @@ func (g *GraphClient) dedupeEntitiesInBatches(
 	batchSize := ai.GetDedupeBatchSize()
 
 	for i := 0; i < len(entities); i += batchSize {
-		end := min(i+batchSize, len(entities))
+		end := util.Min(i+batchSize, len(entities))
 
 		batchEntities := entities[i:end]
 		batchRelations := g.getRelationsForEntities(batchEntities, relations)

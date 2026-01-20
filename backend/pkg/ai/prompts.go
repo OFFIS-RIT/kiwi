@@ -90,7 +90,7 @@ Return JSON with the following structure:
 Output must be valid JSON only (no commentary, no extra text).
 `
 
-const ExtractPrompt = `
+const ExtractPromptText = `
 # Task Context
 You are tasked with extracting **structured entity and relationship information** from the provided text. The process must capture **all details explicitly present in the text**, without omission.
 
@@ -101,15 +101,18 @@ You are tasked with extracting **structured entity and relationship information*
 The document name may contain hints about the primary entity (e.g., *“House Data X”* → inferred entity: *“HOUSE X”*). Use it only if the text itself does not clearly specify an entity.
 
 # Detailed Task Description & Rules
+- If the text includes relevant information that cannot be confidently assigned to a specific entity, extract it as a FACT entity with a short, specific, all-caps title and describe the full information in the description.
 - If the text primarily consists of **factual, tabular, or key–value data** (e.g., “Size: 120m2”, “Bathrooms: 3”) and does not explicitly name multiple entities or relationships, you must still extract the information by **inferring a single implicit entity**.
 - This implicit entity should represent the main subject of the text (e.g., “HOUSE”, “CAR”, “PRODUCT”, “PROJECT”) based on context, document type, or the document name.
 
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
 2. For each entity, extract:
-   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
-     - If the text does not explicitly name any entity, infer one implicit entity representing the subject of the document.
-     - Use the **document_name** as a hint.
+    - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
+      - If the text does not explicitly name any entity, infer one implicit entity representing the subject of the document.
+      - If using type FACT, provide a short, specific title instead of a long sentence.
+      - Use the **document_name** as a hint.
+
    - **entity_type:** One of the provided types [%s].
    - **entity_description:** A comprehensive description of all attributes, roles, activities, events, timelines, frequencies, or other explicit details in the text.
      - Include factual or key–value information if present.
@@ -190,6 +193,191 @@ Bathrooms: 3
 
 # Thinking Step by Step
 Think step-by-step and extract all entities and relationships as specified.
+
+# Output Formatting
+The output must be a single valid JSON object in this structure:
+{
+  "entities": [
+    {
+      "entity_name": "string",
+      "entity_type": "string",
+      "entity_description": "string"
+    }
+  ],
+  "relationships": [
+    {
+      "source_entity": "string",
+      "target_entity": "string",
+      "relationship_description": "string",
+      "relationship_strength": "float"
+    }
+  ]
+}
+Do not include any commentary, explanations, or text outside of the JSON.
+Always return valid JSON, even if no entities or relationships are found (use empty arrays in that case).
+Make sure to follow the rules and output format carefully.
+`
+
+const ExtractPromptCSV = `
+# Task Context
+You are tasked with extracting **structured entity and relationship information** from a CSV or tabular dataset.
+The output must follow the exact JSON schema described below.
+
+# Background Data
+- **Entity_types:** [%s]
+- **Document_name:** [%s]
+- **CSV_summary:** [%s]
+
+# Instructions for CSV Data
+- Use the table content and document metadata (if provided) to decide whether the table represents:
+  1) **A single implicit entity** (e.g., one system, one product, one project) with many attributes over time, or
+  2) **Multiple distinct entities** (e.g., one entity per row).
+- You must make this decision based only on the CSV content and metadata context. Do NOT ask the user.
+- If a single implicit entity is appropriate, extract ONE entity and include all relevant attributes, measurements, and trends in its description.
+- If multiple entities are appropriate, extract one entity per row (or per unique identifier) and summarize each row's attributes.
+- If the dataset contains relevant information that does not map cleanly to an entity, extract it as a FACT entity with a short, specific, all-caps title and put the full details in the description.
+- Infer relationships only when the table clearly expresses them (e.g., key/foreign key columns, explicit references).
+
+## Entity Extraction
+1. Identify all entities of the specified types [%s].
+2. For each entity, extract:
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, provide a short, specific title.
+   - **entity_type:** One of the provided types [%s].
+   - **entity_description:** A comprehensive description of all attributes, measurements, and information present in the row or dataset.
+
+## Relationship Extraction
+1. From the identified entities, determine all clear relationships between pairs of entities.
+2. For each relationship, extract:
+   - **source_entity:** name of the source entity.
+   - **target_entity:** name of the target entity.
+   - **relationship_description:** detailed explanation of how and why the entities are related, based strictly on the table data.
+   - **relationship_strength:** a numeric score (0.0–1.0) indicating the strength of the relationship (higher = stronger).
+3. If the table implies a single implicit entity, return an **empty array** for "relationships".
+
+# Output Formatting
+The output must be a single valid JSON object in this structure:
+{
+  "entities": [
+    {
+      "entity_name": "string",
+      "entity_type": "string",
+      "entity_description": "string"
+    }
+  ],
+  "relationships": [
+    {
+      "source_entity": "string",
+      "target_entity": "string",
+      "relationship_description": "string",
+      "relationship_strength": "float"
+    }
+  ]
+}
+Do not include any commentary, explanations, or text outside of the JSON.
+Always return valid JSON, even if no entities or relationships are found (use empty arrays in that case).
+Make sure to follow the rules and output format carefully.
+`
+
+const ExtractPromptAudio = `
+# Task Context
+You are tasked with extracting **structured entity and relationship information** from an audio transcription (meeting, interview, call, lecture, podcast).
+The output must follow the exact JSON schema described below.
+
+# Background Data
+- **Entity_types:** [%s]
+- **Document_name:** [%s]
+
+# Transcript Handling
+- Speaker labels (e.g., "HOST", "SPEAKER 1", names, roles) indicate distinct PERSON entities when present.
+- Keep meaningful timestamps or time ranges in descriptions when they clarify events or sequences.
+- Ignore filler words and disfluencies unless they contain explicit factual information.
+- If the transcript is a single narrator without speaker labels, infer one implicit entity that represents the primary speaker or subject.
+- If the audio is a structured session (meeting, interview, hearing, lecture), infer an implicit EVENT entity only if that entity type exists in the provided list; otherwise use a FACT entity with a short, specific title.
+
+## Entity Extraction
+1. Identify all entities of the specified types [%s].
+2. For each entity, extract:
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, provide a short, specific title.
+   - **entity_type:** One of the provided types [%s].
+   - **entity_description:** A comprehensive description of all explicit statements, decisions, actions, dates, numbers, roles, or commitments tied to the entity.
+
+## Relationship Extraction
+1. From the identified entities, determine all clear relationships between pairs of entities.
+2. For each relationship, extract:
+   - **source_entity:** name of the source entity.
+   - **target_entity:** name of the target entity.
+   - **relationship_description:** detailed explanation of how and why the entities are related, based strictly on the transcript.
+   - **relationship_strength:** a numeric score (0.0–1.0) indicating the strength of the relationship (higher = stronger).
+3. If the transcript implies a single implicit entity, return an **empty array** for "relationships".
+
+# Output Formatting
+The output must be a single valid JSON object in this structure:
+{
+  "entities": [
+    {
+      "entity_name": "string",
+      "entity_type": "string",
+      "entity_description": "string"
+    }
+  ],
+  "relationships": [
+    {
+      "source_entity": "string",
+      "target_entity": "string",
+      "relationship_description": "string",
+      "relationship_strength": "float"
+    }
+  ]
+}
+Do not include any commentary, explanations, or text outside of the JSON.
+Always return valid JSON, even if no entities or relationships are found (use empty arrays in that case).
+Make sure to follow the rules and output format carefully.
+`
+
+const ExtractPromptChart = `
+# Task Context
+You are tasked with extracting **structured entity and relationship information** from text extracted from images (OCR or captions).
+The output must follow the exact JSON schema described below.
+
+# Background Data
+- **Entity_types:** [%s]
+- **Document_name:** [%s]
+
+# Image Type Handling
+- Determine whether the text describes a chart/diagram/flow or a general image.
+- If it is a chart/diagram/flow, follow the chart/diagram rules below.
+- If it is a general image, treat the text as a free-form image description and extract a single implicit entity representing the image itself.
+
+# Instructions for Charts/Diagrams
+- Treat axes, legends, labels, series names, titles, and annotations as key sources of entity and relationship signals.
+- If the content represents measurements over time or categories for a single subject, infer a single implicit entity.
+- If the chart compares multiple subjects (multiple series or categories), extract one entity per subject.
+- Use units, time ranges, and category labels to populate entity descriptions.
+- If the chart contains relevant information that does not map cleanly to an entity, extract it as a FACT entity with a short, specific, all-caps title and put the full details in the description.
+- Infer relationships only when explicitly stated (e.g., "A increases as B decreases", "A is higher than B in 2022").
+
+# Instructions for General Images
+- Extract exactly one implicit entity representing the image itself.
+- Use a short, specific, all-caps entity name that scopes to the image content, such as "LOGO ACME", "SUNSET BEACH", or "PORTRAIT JOHN DOE".
+- Capture visual attributes, actions, setting, and any visible text in the entity description.
+- If the description contains information that does not map cleanly to the image entity, extract it as a FACT entity with a short, specific, all-caps title and put the full details in the description.
+- Infer relationships only when explicitly stated in the description.
+
+## Entity Extraction
+1. Identify all entities of the specified types [%s].
+2. For each entity, extract:
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, provide a short, specific title.
+   - **entity_type:** One of the provided types [%s].
+   - **entity_description:** A comprehensive description of attributes, measures, ranges, and annotations present in the image text.
+
+## Relationship Extraction
+1. From the identified entities, determine all clear relationships between pairs of entities.
+2. For each relationship, extract:
+   - **source_entity:** name of the source entity.
+   - **target_entity:** name of the target entity.
+   - **relationship_description:** detailed explanation of how and why the entities are related, based strictly on the image text.
+   - **relationship_strength:** a numeric score (0.0–1.0) indicating the strength of the relationship (higher = stronger).
+3. If the image implies a single implicit entity, return an **empty array** for "relationships".
 
 # Output Formatting
 The output must be a single valid JSON object in this structure:
@@ -322,32 +510,25 @@ You are a specialized image description assistant.
 # Detailed Task Description & Rules
 ## Core Instructions
 1. Analyze the entire image carefully and comprehensively
-2. Generate clear, structured descriptions appropriate to the image type
-3. Preserve all visible text, labels, and annotations exactly as they appear
-4. Identify and describe key visual elements, relationships, and context
-5. Adapt your description style to match the image category (casual, chart, scientific)
+2. Determine whether the image is a chart/diagram/flow or a general image
+3. Always transcribe all visible text exactly as it appears
+4. Provide a detailed description appropriate to the image type
+5. Do not omit labels, annotations, or symbols
 
-## Image Type Handling
-### Casual Images
-- Describe the scene, setting, and main subjects
-- Include details about composition, colors, and atmosphere
-- Note any text, signs, or written content visible
-- Describe people, objects, and their interactions naturally
-- Provide context about what's happening or the mood conveyed
+## Chart/Diagram/Flow Handling
+If the image is a chart, diagram, or flow:
+- Identify the chart/diagram/flow type (bar, line, pie, scatter, flowchart, etc.)
+- Extract all axis labels, titles, legends, series names, and annotations exactly
+- List all visible data points, categories, or steps clearly
+- Describe trends, comparisons, or notable relationships
+- Include units, scales, and time ranges if present
 
-### Charts and Graphs
-- Identify the chart type (bar, pie, line, scatter, etc.)
-- Extract all axis labels, titles, and legends exactly as written
-- List all data points, values, and categories clearly
-- Describe trends, patterns, and notable relationships in the data
-- Include any annotations, notes, or explanatory text
-
-### Scientific Images
-- Identify the subject matter (diagram, microscopy, illustration, etc.)
-- Extract all labels, annotations, and technical terms exactly
-- Describe the structure, components, and their relationships
-- Explain the purpose or what the image demonstrates
-- Include scale information, measurements, or units if visible
+## General Image Handling
+If the image is not a chart/diagram/flow:
+- Describe the scene, setting, and main subjects in detail
+- Include composition, colors, and notable objects
+- Describe people, objects, and their interactions
+- Include any text or labels exactly as written
 
 ## Text Preservation Rules
 - Transcribe all visible text exactly, including spelling and punctuation
@@ -356,11 +537,10 @@ You are a specialized image description assistant.
 - Do not alter or correct any text from the original image
 
 # Immediate Task Description or Request
-Your task is to analyze images and generate accurate, detailed descriptions while adapting your approach based on the image type.
+Your task is to analyze the image and produce a detailed description appropriate to the image type while preserving all visible text exactly.
 
 # Output Formatting
 Return only the description without preamble or commentary.
-Structure your response with clear sections as appropriate to the image type.
 `
 
 const QueryPrompt = `
@@ -412,8 +592,8 @@ Connecting Entities:
   * Do not choose one version; include them all so the user can decide.
   * Example: "Entity A is described as X [[id1]]. However, Entity A is also described as Y [[id2]]. These statements are contradictory."
 - If no source ID applies to a statement, do not include that statement.
-- If you cannot find an answer, respond with: "I don't know, but you can provide new sources with that information."
-- If the question is not related to the data, respond with: "There is no information available."
+- If you cannot find an answer, respond with: "I don't know, but you can provide new sources with that information." in the language of the user.
+- If the question is not related to the data, respond with: "There is no information available." in the language of the user.
 
 # Immediate Task Description or Request
 Your goal is to provide the most complete, accurate, and source-grounded answer possible.
@@ -544,8 +724,8 @@ For each relevant entity found:
   * Do not choose one version; include them all so the user can decide.
   * Example: "Entity A is described as X [[id1]]. However, Entity A is also described as Y [[id2]]. These statements are contradictory."
 - If no source ID applies to a statement, do not include that statement.
-- If you cannot find an answer, respond with: "I don't know, but you can provide new sources with that information."
-- If the question is not related to the data, respond with: "There is no information available."
+- If you cannot find an answer, respond with: "I don't know, but you can provide new sources with that information." in the language of the user.
+- If the question is not related to the data, respond with: "There is no information available." in the language of the user.
 
 # Immediate Task Description or Request
 Your goal is to provide the most complete, accurate, and source-grounded answer
@@ -616,7 +796,6 @@ Consider and include any of the following that are relevant:
 - Document type (e.g., contract, invoice, technical manual, correspondence, report, legal filing, policy document, meeting minutes, ordinance, citizen request, memo, proposal, etc.)
 - Date(s) - creation date, effective date, signing date, filing date, reception date, etc.
 - Topic or subject matter
-- Key parties, organizations, or entities involved
 - Legal or binding nature (if this is a legally binding document such as a contract, agreement, ordinance)
 - Technical classification (if this is a technical document, specification, manual)
 - Confidentiality or sensitivity level (if indicated)
@@ -628,7 +807,8 @@ Consider and include any of the following that are relevant:
 - Recipient information
 
 # Output Format
-Provide a plain-text summary containing all relevant metadata. Be comprehensive but concise. Include only information that can be determined from the document content - do not speculate.
+Provide a single-line, compact set of labeled fields separated by semicolons. Use short labels, omit any fields that are not supported by the content, and do not speculate.
 
-Format as natural prose or simple labeled fields. Do not use markdown formatting.
+Example:
+Type: contract; Date: 2023-04-01; Topic: procurement policy; Status: final; Jurisdiction: Berlin; Ref: DP-2023-14
 `

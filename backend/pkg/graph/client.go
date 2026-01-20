@@ -6,9 +6,9 @@ package graph
 //
 // A GraphClient should be created using NewGraphClient.
 type GraphClient struct {
-	tokenEncoder       string
-	parallelFiles      int
-	maxRetries         int
+	tokenEncoder  string
+	parallelFiles int
+	maxRetries    int
 }
 
 // NewGraphClientParams defines the configuration parameters for creating
@@ -18,9 +18,9 @@ type GraphClient struct {
 // ParallelFiles controls how many files can be processed in parallel.
 // ParallelAiRequests controls how many AI requests can be executed concurrently.
 type NewGraphClientParams struct {
-	TokenEncoder       string
-	ParallelFiles      int
-	MaxRetries         int
+	TokenEncoder  string
+	ParallelFiles int
+	MaxRetries    int
 }
 
 // NewGraphClient creates and returns a new GraphClient configured with
@@ -45,9 +45,9 @@ func NewGraphClient(params NewGraphClientParams) (*GraphClient, error) {
 		maxRetires = 3
 	}
 	g := &GraphClient{
-		tokenEncoder:       params.TokenEncoder,
-		parallelFiles:      params.ParallelFiles,
-		maxRetries:         maxRetires,
+		tokenEncoder:  params.TokenEncoder,
+		parallelFiles: params.ParallelFiles,
+		maxRetries:    maxRetires,
 	}
 
 	return g, nil

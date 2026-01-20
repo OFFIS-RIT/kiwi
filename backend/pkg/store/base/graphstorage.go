@@ -20,10 +20,10 @@ type pgxIConn interface {
 // pgvector for vector similarity search. It manages concurrent access with
 // a mutex and limits parallel AI requests to prevent overloading.
 type GraphDBStorage struct {
-	conn        pgxIConn
-	aiClient    ai.GraphAIClient
-	msgs        []string
-	dbLock      sync.Mutex
+	conn     pgxIConn
+	aiClient ai.GraphAIClient
+	msgs     []string
+	dbLock   sync.Mutex
 }
 
 // NewGraphDBStorageWithConnection creates a new GraphDBStorage using an existing
@@ -36,8 +36,8 @@ func NewGraphDBStorageWithConnection(
 	msgs []string,
 ) (*GraphDBStorage, error) {
 	return &GraphDBStorage{
-		conn:        conn,
-		aiClient:    aiClient,
-		dbLock:      sync.Mutex{},
+		conn:     conn,
+		aiClient: aiClient,
+		dbLock:   sync.Mutex{},
 	}, nil
 }

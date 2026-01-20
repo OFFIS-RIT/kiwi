@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
@@ -19,6 +20,60 @@ type processUnit struct {
 	start  int
 	end    int
 	text   string
+}
+
+type unitRequest struct {
+	text    string
+	file    loader.GraphFile
+	encoder string
+}
+
+type unitBuilder interface {
+	buildUnits(req unitRequest) ([]processUnit, error)
+}
+
+type textUnitBuilder struct{}
+
+type csvUnitBuilder struct{}
+
+type singleUnitBuilder struct{}
+
+func (textUnitBuilder) buildUnits(req unitRequest) ([]processUnit, error) {
+	return transformIntoUnits(req.text, req.file.ID, req.encoder, req.file.MaxTokens)
+}
+
+func (csvUnitBuilder) buildUnits(req unitRequest) ([]processUnit, error) {
+	return transformCSVIntoUnits(req.text, req.file.ID, req.encoder, req.file.MaxTokens)
+}
+
+func (singleUnitBuilder) buildUnits(req unitRequest) ([]processUnit, error) {
+	uID, err := gonanoid.New()
+	if err != nil {
+		return nil, err
+	}
+	unit := processUnit{
+		id:     uID,
+		fileID: req.file.ID,
+		start:  0,
+		end:    1,
+		text:   req.text,
+	}
+	return []processUnit{unit}, nil
+}
+
+var defaultUnitBuilder unitBuilder = textUnitBuilder{}
+
+var unitBuildersByType = map[loader.GraphFileType]unitBuilder{
+	loader.GraphFileTypeCSV:   csvUnitBuilder{},
+	loader.GraphFileTypeImage: singleUnitBuilder{},
+	loader.GraphFileTypeFile:  singleUnitBuilder{},
+}
+
+func unitBuilderForFileType(fileType loader.GraphFileType) unitBuilder {
+	if builder, ok := unitBuildersByType[fileType]; ok {
+		return builder
+	}
+	return defaultUnitBuilder
 }
 
 func isCSVHeader(rows []string) bool {
@@ -38,7 +93,7 @@ func isCSVHeader(rows []string) bool {
 		}
 	}
 
-	sampleSize := min(5, len(rows)-1)
+	sampleSize := util.Min(5, len(rows)-1)
 	dataNumericTotal := 0
 	dataFieldTotal := 0
 
@@ -270,12 +325,17 @@ func getUnitsFromText(
 		return nil, err
 	}
 	text := string(textBytes)
-
-	if file.FileType == loader.GraphFileTypeCSV {
-		return transformCSVIntoUnits(text, file.ID, encoder, file.MaxTokens)
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, nil
 	}
 
-	return transformIntoUnits(text, file.ID, encoder, file.MaxTokens)
+	req := unitRequest{
+		text:    text,
+		file:    file,
+		encoder: encoder,
+	}
+	return unitBuilderForFileType(file.FileType).buildUnits(req)
 }
 
 func splitIntoSentences(text string) []string {
