@@ -280,12 +280,17 @@ Make sure to follow the rules and output format carefully.
 
 const ExtractPromptChart = `
 # Task Context
-You are tasked with extracting **structured entity and relationship information** from chart/diagram text (OCR or captions).
+You are tasked with extracting **structured entity and relationship information** from text extracted from images (OCR or captions).
 The output must follow the exact JSON schema described below.
 
 # Background Data
 - **Entity_types:** [%s]
 - **Document_name:** [%s]
+
+# Image Type Handling
+- Determine whether the text describes a chart/diagram/flow or a general image.
+- If it is a chart/diagram/flow, follow the chart/diagram rules below.
+- If it is a general image, treat the text as a free-form image description and extract a single implicit entity representing the image itself.
 
 # Instructions for Charts/Diagrams
 - Treat axes, legends, labels, series names, titles, and annotations as key sources of entity and relationship signals.
@@ -295,21 +300,28 @@ The output must follow the exact JSON schema described below.
 - If the chart contains relevant information that does not map cleanly to an entity, extract it as a FACT entity with a short, specific, all-caps title and put the full details in the description.
 - Infer relationships only when explicitly stated (e.g., "A increases as B decreases", "A is higher than B in 2022").
 
+# Instructions for General Images
+- Extract exactly one implicit entity representing the image itself.
+- Use a short, specific, all-caps entity name that scopes to the image content, such as "LOGO ACME", "SUNSET BEACH", or "PORTRAIT JOHN DOE".
+- Capture visual attributes, actions, setting, and any visible text in the entity description.
+- If the description contains information that does not map cleanly to the image entity, extract it as a FACT entity with a short, specific, all-caps title and put the full details in the description.
+- Infer relationships only when explicitly stated in the description.
+
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
 2. For each entity, extract:
    - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, provide a short, specific title.
    - **entity_type:** One of the provided types [%s].
-   - **entity_description:** A comprehensive description of attributes, measures, ranges, and annotations present in the chart text.
+   - **entity_description:** A comprehensive description of attributes, measures, ranges, and annotations present in the image text.
 
 ## Relationship Extraction
 1. From the identified entities, determine all clear relationships between pairs of entities.
 2. For each relationship, extract:
    - **source_entity:** name of the source entity.
    - **target_entity:** name of the target entity.
-   - **relationship_description:** detailed explanation of how and why the entities are related, based strictly on the chart text.
+   - **relationship_description:** detailed explanation of how and why the entities are related, based strictly on the image text.
    - **relationship_strength:** a numeric score (0.0–1.0) indicating the strength of the relationship (higher = stronger).
-3. If the chart implies a single implicit entity, return an **empty array** for "relationships".
+3. If the image implies a single implicit entity, return an **empty array** for "relationships".
 
 # Output Formatting
 The output must be a single valid JSON object in this structure:
@@ -442,32 +454,25 @@ You are a specialized image description assistant.
 # Detailed Task Description & Rules
 ## Core Instructions
 1. Analyze the entire image carefully and comprehensively
-2. Generate clear, structured descriptions appropriate to the image type
-3. Preserve all visible text, labels, and annotations exactly as they appear
-4. Identify and describe key visual elements, relationships, and context
-5. Adapt your description style to match the image category (casual, chart, scientific)
+2. Determine whether the image is a chart/diagram/flow or a general image
+3. Always transcribe all visible text exactly as it appears
+4. Provide a detailed description appropriate to the image type
+5. Do not omit labels, annotations, or symbols
 
-## Image Type Handling
-### Casual Images
-- Describe the scene, setting, and main subjects
-- Include details about composition, colors, and atmosphere
-- Note any text, signs, or written content visible
-- Describe people, objects, and their interactions naturally
-- Provide context about what's happening or the mood conveyed
+## Chart/Diagram/Flow Handling
+If the image is a chart, diagram, or flow:
+- Identify the chart/diagram/flow type (bar, line, pie, scatter, flowchart, etc.)
+- Extract all axis labels, titles, legends, series names, and annotations exactly
+- List all visible data points, categories, or steps clearly
+- Describe trends, comparisons, or notable relationships
+- Include units, scales, and time ranges if present
 
-### Charts and Graphs
-- Identify the chart type (bar, pie, line, scatter, etc.)
-- Extract all axis labels, titles, and legends exactly as written
-- List all data points, values, and categories clearly
-- Describe trends, patterns, and notable relationships in the data
-- Include any annotations, notes, or explanatory text
-
-### Scientific Images
-- Identify the subject matter (diagram, microscopy, illustration, etc.)
-- Extract all labels, annotations, and technical terms exactly
-- Describe the structure, components, and their relationships
-- Explain the purpose or what the image demonstrates
-- Include scale information, measurements, or units if visible
+## General Image Handling
+If the image is not a chart/diagram/flow:
+- Describe the scene, setting, and main subjects in detail
+- Include composition, colors, and notable objects
+- Describe people, objects, and their interactions
+- Include any text or labels exactly as written
 
 ## Text Preservation Rules
 - Transcribe all visible text exactly, including spelling and punctuation
@@ -476,11 +481,10 @@ You are a specialized image description assistant.
 - Do not alter or correct any text from the original image
 
 # Immediate Task Description or Request
-Your task is to analyze images and generate accurate, detailed descriptions while adapting your approach based on the image type.
+Your task is to analyze the image and produce a detailed description appropriate to the image type while preserving all visible text exactly.
 
 # Output Formatting
 Return only the description without preamble or commentary.
-Structure your response with clear sections as appropriate to the image type.
 `
 
 const QueryPrompt = `
