@@ -248,6 +248,20 @@ Copy `.env.sample` to `.env` and configure:
 | `PORT`                   | Server port (default: 8080)        |
 | `AUTH_SECRET`            | Secret key for authentication      |
 | `AUTH_URL`               | Authentication service URL         |
+| `APPLE_CLIENT_ID`        | Apple OAuth client ID              |
+| `APPLE_CLIENT_SECRET`    | Apple OAuth client secret          |
+| `APPLE_BUNDLE_ID`        | Apple bundle identifier (optional) |
+| `GOOGLE_CLIENT_ID`       | Google OAuth client ID             |
+| `GOOGLE_CLIENT_SECRET`   | Google OAuth client secret         |
+| `MICROSOFT_CLIENT_ID`    | Microsoft OAuth client ID          |
+| `MICROSOFT_CLIENT_SECRET`| Microsoft OAuth client secret      |
+| `MICROSOFT_TENANT_ID`    | Microsoft tenant ID (optional)     |
+| `MICROSOFT_AUTHORITY_URL`| Microsoft authority URL (optional) |
+| `LDAP_URL`               | LDAP server URL                    |
+| `LDAP_BIND_DN`           | LDAP bind DN                       |
+| `LDAP_PASSW`             | LDAP bind password                 |
+| `LDAP_BASE_DN`           | LDAP base DN                       |
+| `LDAP_SEARCH_ATTR`       | LDAP search attribute              |
 | `MASTER_API_KEY`         | Master API key for authentication  |
 | `MASTER_USER_ID`         | Master user ID (integer)           |
 | `MASTER_USER_ROLE`       | Master user role (e.g., admin)     |
@@ -275,6 +289,8 @@ Copy `.env.sample` to `.env` and configure:
 | `RABBITMQ_PASSWORD`      | RabbitMQ password                  |
 | `RABBITMQ_HOST`          | RabbitMQ host                      |
 | `RABBITMQ_PORT`          | RabbitMQ port                      |
+
+Note: When all LDAP variables are set, LDAP sign-in is enabled and email/password auth is disabled.
 
 </details>
 
