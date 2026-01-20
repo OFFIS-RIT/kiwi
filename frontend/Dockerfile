@@ -22,8 +22,8 @@ ENV NODE_ENV=production
 RUN bun install -g serve@14.2.5
 
 # Create a non-root user for security
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
+RUN groupadd --system --gid 1001 nodejs && \
+    useradd --system --uid 1001 --gid nodejs --no-create-home nextjs
 
 # Copy the static export output
 COPY --from=builder --chown=nextjs:nodejs /app/out ./out
