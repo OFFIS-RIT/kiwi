@@ -101,7 +101,7 @@ You are tasked with extracting **structured entity and relationship information*
 The document name may contain hints about the primary entity (e.g., *“House Data X”* → inferred entity: *“HOUSE X”*). Use it only if the text itself does not clearly specify an entity.
 
 # Detailed Task Description & Rules
-- If the text includes relevant information that cannot be confidently assigned to a specific entity, extract it as a FACT entity with a short, specific, all-caps title and describe the full information in the description.
+- If the text includes relevant information that cannot be confidently assigned to a specific entity, extract it as a FACT entity with a name in the format "FACT: <SHORT TITLE>" (all-caps) and describe the full information in the description.
 - If the text primarily consists of **factual, tabular, or key–value data** (e.g., “Size: 120m2”, “Bathrooms: 3”) and does not explicitly name multiple entities or relationships, you must still extract the information by **inferring a single implicit entity**.
 - This implicit entity should represent the main subject of the text (e.g., “HOUSE”, “CAR”, “PRODUCT”, “PROJECT”) based on context, document type, or the document name.
 
@@ -110,7 +110,7 @@ The document name may contain hints about the primary entity (e.g., *“House Da
 2. For each entity, extract:
     - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
       - If the text does not explicitly name any entity, infer one implicit entity representing the subject of the document.
-      - If using type FACT, provide a short, specific title instead of a long sentence.
+      - If using type FACT, use the format "FACT: <SHORT TITLE>" (all-caps).
       - Use the **document_name** as a hint.
 
    - **entity_type:** One of the provided types [%s].
@@ -235,13 +235,13 @@ The output must follow the exact JSON schema described below.
 - You must make this decision based only on the CSV content and metadata context. Do NOT ask the user.
 - If a single implicit entity is appropriate, extract ONE entity and include all relevant attributes, measurements, and trends in its description.
 - If multiple entities are appropriate, extract one entity per row (or per unique identifier) and summarize each row's attributes.
-- If the dataset contains relevant information that does not map cleanly to an entity, extract it as a FACT entity with a short, specific, all-caps title and put the full details in the description.
+- If the dataset contains relevant information that does not map cleanly to an entity, extract it as a FACT entity with a name in the format "FACT: <SHORT TITLE>" (all-caps) and put the full details in the description.
 - Infer relationships only when the table clearly expresses them (e.g., key/foreign key columns, explicit references).
 
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
 2. For each entity, extract:
-   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, provide a short, specific title.
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, use the format "FACT: <SHORT TITLE>" (all-caps).
    - **entity_type:** One of the provided types [%s].
    - **entity_description:** A comprehensive description of all attributes, measurements, and information present in the row or dataset.
 
@@ -292,12 +292,12 @@ The output must follow the exact JSON schema described below.
 - Keep meaningful timestamps or time ranges in descriptions when they clarify events or sequences.
 - Ignore filler words and disfluencies unless they contain explicit factual information.
 - If the transcript is a single narrator without speaker labels, infer one implicit entity that represents the primary speaker or subject.
-- If the audio is a structured session (meeting, interview, hearing, lecture), infer an implicit EVENT entity only if that entity type exists in the provided list; otherwise use a FACT entity with a short, specific title.
+- If the audio is a structured session (meeting, interview, hearing, lecture), infer an implicit EVENT entity only if that entity type exists in the provided list; otherwise use a FACT entity with a name in the format "FACT: <SHORT TITLE>" (all-caps).
 
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
 2. For each entity, extract:
-   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, provide a short, specific title.
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, use the format "FACT: <SHORT TITLE>" (all-caps).
    - **entity_type:** One of the provided types [%s].
    - **entity_description:** A comprehensive description of all explicit statements, decisions, actions, dates, numbers, roles, or commitments tied to the entity.
 
@@ -353,20 +353,20 @@ The output must follow the exact JSON schema described below.
 - If the content represents measurements over time or categories for a single subject, infer a single implicit entity.
 - If the chart compares multiple subjects (multiple series or categories), extract one entity per subject.
 - Use units, time ranges, and category labels to populate entity descriptions.
-- If the chart contains relevant information that does not map cleanly to an entity, extract it as a FACT entity with a short, specific, all-caps title and put the full details in the description.
+- If the chart contains relevant information that does not map cleanly to an entity, extract it as a FACT entity with a name in the format "FACT: <SHORT TITLE>" (all-caps) and put the full details in the description.
 - Infer relationships only when explicitly stated (e.g., "A increases as B decreases", "A is higher than B in 2022").
 
 # Instructions for General Images
 - Extract exactly one implicit entity representing the image itself.
 - Use a short, specific, all-caps entity name that scopes to the image content, such as "LOGO ACME", "SUNSET BEACH", or "PORTRAIT JOHN DOE".
 - Capture visual attributes, actions, setting, and any visible text in the entity description.
-- If the description contains information that does not map cleanly to the image entity, extract it as a FACT entity with a short, specific, all-caps title and put the full details in the description.
+- If the description contains information that does not map cleanly to the image entity, extract it as a FACT entity with a name in the format "FACT: <SHORT TITLE>" (all-caps) and put the full details in the description.
 - Infer relationships only when explicitly stated in the description.
 
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
 2. For each entity, extract:
-   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, provide a short, specific title.
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, use the format "FACT: <SHORT TITLE>" (all-caps).
    - **entity_type:** One of the provided types [%s].
    - **entity_description:** A comprehensive description of attributes, measures, ranges, and annotations present in the image text.
 
