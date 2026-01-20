@@ -121,14 +121,57 @@ func ProcessGraphMessage(
 				files = append(files, f)
 				sheetIndex++
 			}
-		default:
+		case "csv":
 			key := file.FileKey
-			if ext != "txt" && ext != "md" {
-				base := filepath.Base(file.FileKey)
-				nameWithoutExt := strings.TrimSuffix(base, filepath.Ext(base))
-				name := fmt.Sprintf("%s.txt", nameWithoutExt)
-				key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
-			}
+			base := filepath.Base(file.FileKey)
+			nameWithoutExt := strings.TrimSuffix(base, filepath.Ext(base))
+			name := fmt.Sprintf("%s.txt", nameWithoutExt)
+			key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
+
+			f := loader.NewGraphCSVFile(loader.NewGraphFileParams{
+				ID:        fmt.Sprintf("%d", file.ID),
+				FilePath:  key,
+				MaxTokens: 500,
+				Loader:    s3L,
+				Metadata:  metadataText,
+			})
+			files = append(files, f)
+		case "jpg", "jpeg", "png", "bmp", "gif", "tiff", "heic", "webp":
+			key := file.FileKey
+			base := filepath.Base(file.FileKey)
+			nameWithoutExt := strings.TrimSuffix(base, filepath.Ext(base))
+			name := fmt.Sprintf("%s.txt", nameWithoutExt)
+			key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
+
+			f := loader.NewGraphImageFile(loader.NewGraphFileParams{
+				ID:        fmt.Sprintf("%d", file.ID),
+				FilePath:  key,
+				MaxTokens: 500,
+				Loader:    s3L,
+				Metadata:  metadataText,
+			})
+			files = append(files, f)
+		case "mp3", "wav", "mpeg", "mpga", "m4a", "ogg", "webm":
+			key := file.FileKey
+			base := filepath.Base(file.FileKey)
+			nameWithoutExt := strings.TrimSuffix(base, filepath.Ext(base))
+			name := fmt.Sprintf("%s.txt", nameWithoutExt)
+			key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
+
+			f := loader.NewGraphAudioFile(loader.NewGraphFileParams{
+				ID:        fmt.Sprintf("%d", file.ID),
+				FilePath:  key,
+				MaxTokens: 500,
+				Loader:    s3L,
+				Metadata:  metadataText,
+			})
+			files = append(files, f)
+		case "doc", "docx", "odt", "pptx", "pdf":
+			key := file.FileKey
+			base := filepath.Base(file.FileKey)
+			nameWithoutExt := strings.TrimSuffix(base, filepath.Ext(base))
+			name := fmt.Sprintf("%s.txt", nameWithoutExt)
+			key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
 
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
 				ID:        fmt.Sprintf("%d", file.ID),
@@ -137,6 +180,32 @@ func ProcessGraphMessage(
 				Loader:    s3L,
 				Metadata:  metadataText,
 			})
+			files = append(files, f)
+		case "txt", "md":
+			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
+				ID:        fmt.Sprintf("%d", file.ID),
+				FilePath:  file.FileKey,
+				MaxTokens: 500,
+				Loader:    s3L,
+				Metadata:  metadataText,
+			})
+			files = append(files, f)
+		default:
+			key := file.FileKey
+			base := filepath.Base(file.FileKey)
+			nameWithoutExt := strings.TrimSuffix(base, filepath.Ext(base))
+			name := fmt.Sprintf("%s.txt", nameWithoutExt)
+			key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
+
+			f := loader.NewGraphGenericFile(
+				loader.NewGraphFileParams{
+					ID:        fmt.Sprintf("%d", file.ID),
+					FilePath:  key,
+					MaxTokens: 500,
+					Loader:    s3L,
+				},
+				file.Name,
+			)
 			files = append(files, f)
 		}
 	}
@@ -601,7 +670,7 @@ func ProcessPreprocess(
 				pages := max(sizeKB/2, 1)
 				pageCount += pages
 			}
-		default:
+		case "txt", "md":
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
 				ID:        fmt.Sprintf("%d", upload.ID),
 				FilePath:  upload.FileKey,
@@ -609,6 +678,29 @@ func ProcessPreprocess(
 				Loader:    s3L,
 				Metadata:  metadataText,
 			})
+			files = append(files, f)
+
+			head, err := s3Client.HeadObject(ctx, &awss3.HeadObjectInput{
+				Bucket: aws.String(util.GetEnv("AWS_BUCKET")),
+				Key:    aws.String(upload.FileKey),
+			})
+			if err == nil && head.ContentLength != nil {
+				sizeKB := *head.ContentLength / 1024
+				pages := max(int(sizeKB/50), 1)
+				pageCount += pages
+			} else {
+				pageCount += 1
+			}
+		default:
+			f := loader.NewGraphGenericFile(
+				loader.NewGraphFileParams{
+					ID:        fmt.Sprintf("%d", upload.ID),
+					FilePath:  upload.FileKey,
+					MaxTokens: 500,
+					Loader:    s3L,
+				},
+				upload.Name,
+			)
 			noProcessingFiles = append(noProcessingFiles, f)
 		}
 	}
@@ -639,6 +731,7 @@ func ProcessPreprocess(
 		fileID     int64
 		tokenCount int32
 		metadata   string
+		isGeneric  bool
 	}
 	tokenCounts := make([]fileTokenCount, 0)
 
@@ -678,7 +771,7 @@ func ProcessPreprocess(
 		tokens := enc.Encode(cleanText, nil, nil)
 		count := len(tokens)
 
-		tokenCounts = append(tokenCounts, fileTokenCount{fileID: id, tokenCount: int32(count), metadata: metadata})
+		tokenCounts = append(tokenCounts, fileTokenCount{fileID: id, tokenCount: int32(count), metadata: metadata, isGeneric: false})
 
 		key := filepath.Base(f.FilePath)
 		path := filepath.Dir(f.FilePath)
@@ -707,22 +800,25 @@ func ProcessPreprocess(
 			return err
 		}
 
-		var fileName string
-		for _, upload := range *data.ProjectFiles {
-			if fmt.Sprintf("%d", upload.ID) == f.ID {
-				fileName = upload.Name
-				break
-			}
-		}
-
-		metadata, err := ai.ExtractDocumentMetadata(ctx, aiClient, fileName, textContent)
-		if err != nil {
-			return fmt.Errorf("extract metadata for file %s: %w", f.ID, err)
-		}
-
 		tokens := enc.Encode(textContent, nil, nil)
 		count := len(tokens)
-		tokenCounts = append(tokenCounts, fileTokenCount{fileID: id, tokenCount: int32(count), metadata: metadata})
+		tokenCounts = append(tokenCounts, fileTokenCount{fileID: id, tokenCount: int32(count), metadata: "", isGeneric: true})
+
+		if strings.TrimSpace(textContent) == "" {
+			continue
+		}
+
+		key := filepath.Base(f.FilePath)
+		path := filepath.Dir(f.FilePath)
+		ext := filepath.Ext(key)
+		nameWithoutExt := strings.TrimSuffix(key, ext)
+		name := nameWithoutExt + ".txt"
+
+		contentReader := bytes.NewReader([]byte(textContent))
+		_, err = storage.PutFile(ctx, s3Client, path, name, nameWithoutExt, contentReader)
+		if err != nil {
+			return fmt.Errorf("put file %s: %w", f.ID, err)
+		}
 	}
 
 	tx, err := conn.Begin(ctx)
@@ -739,6 +835,10 @@ func ProcessPreprocess(
 		})
 		if err != nil {
 			return fmt.Errorf("add token count for file %d: %w", tc.fileID, err)
+		}
+
+		if tc.isGeneric {
+			continue
 		}
 
 		err = qtx.UpdateProjectFileMetadata(ctx, db.UpdateProjectFileMetadataParams{

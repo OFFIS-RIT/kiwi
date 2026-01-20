@@ -278,6 +278,62 @@ Always return valid JSON, even if no entities or relationships are found (use em
 Make sure to follow the rules and output format carefully.
 `
 
+const ExtractPromptAudio = `
+# Task Context
+You are tasked with extracting **structured entity and relationship information** from an audio transcription (meeting, interview, call, lecture, podcast).
+The output must follow the exact JSON schema described below.
+
+# Background Data
+- **Entity_types:** [%s]
+- **Document_name:** [%s]
+
+# Transcript Handling
+- Speaker labels (e.g., "HOST", "SPEAKER 1", names, roles) indicate distinct PERSON entities when present.
+- Keep meaningful timestamps or time ranges in descriptions when they clarify events or sequences.
+- Ignore filler words and disfluencies unless they contain explicit factual information.
+- If the transcript is a single narrator without speaker labels, infer one implicit entity that represents the primary speaker or subject.
+- If the audio is a structured session (meeting, interview, hearing, lecture), infer an implicit EVENT entity only if that entity type exists in the provided list; otherwise use a FACT entity with a short, specific title.
+
+## Entity Extraction
+1. Identify all entities of the specified types [%s].
+2. For each entity, extract:
+   - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**. If using type FACT, provide a short, specific title.
+   - **entity_type:** One of the provided types [%s].
+   - **entity_description:** A comprehensive description of all explicit statements, decisions, actions, dates, numbers, roles, or commitments tied to the entity.
+
+## Relationship Extraction
+1. From the identified entities, determine all clear relationships between pairs of entities.
+2. For each relationship, extract:
+   - **source_entity:** name of the source entity.
+   - **target_entity:** name of the target entity.
+   - **relationship_description:** detailed explanation of how and why the entities are related, based strictly on the transcript.
+   - **relationship_strength:** a numeric score (0.0–1.0) indicating the strength of the relationship (higher = stronger).
+3. If the transcript implies a single implicit entity, return an **empty array** for "relationships".
+
+# Output Formatting
+The output must be a single valid JSON object in this structure:
+{
+  "entities": [
+    {
+      "entity_name": "string",
+      "entity_type": "string",
+      "entity_description": "string"
+    }
+  ],
+  "relationships": [
+    {
+      "source_entity": "string",
+      "target_entity": "string",
+      "relationship_description": "string",
+      "relationship_strength": "float"
+    }
+  ]
+}
+Do not include any commentary, explanations, or text outside of the JSON.
+Always return valid JSON, even if no entities or relationships are found (use empty arrays in that case).
+Make sure to follow the rules and output format carefully.
+`
+
 const ExtractPromptChart = `
 # Task Context
 You are tasked with extracting **structured entity and relationship information** from text extracted from images (OCR or captions).

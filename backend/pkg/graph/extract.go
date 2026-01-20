@@ -49,6 +49,8 @@ type csvExtractor struct{}
 
 type imageExtractor struct{}
 
+type audioExtractor struct{}
+
 func (textExtractor) buildSystemPrompt(req extractRequest, entityTypes []string) (string, error) {
 	baseName := filepath.Base(req.file.FilePath)
 	entityList := strings.Join(entityTypes, ",")
@@ -87,11 +89,24 @@ func (imageExtractor) buildSystemPrompt(req extractRequest, entityTypes []string
 	), nil
 }
 
+func (audioExtractor) buildSystemPrompt(req extractRequest, entityTypes []string) (string, error) {
+	baseName := filepath.Base(req.file.FilePath)
+	entityList := strings.Join(entityTypes, ",")
+	return fmt.Sprintf(
+		ai.ExtractPromptAudio,
+		entityList,
+		baseName,
+		entityList,
+		entityList,
+	), nil
+}
+
 var defaultExtractor extractor = textExtractor{}
 
 var extractorsByType = map[loader.GraphFileType]extractor{
 	loader.GraphFileTypeCSV:   csvExtractor{},
 	loader.GraphFileTypeImage: imageExtractor{},
+	loader.GraphFileTypeAudio: audioExtractor{},
 }
 
 func extractorForFileType(fileType loader.GraphFileType) extractor {
@@ -125,6 +140,22 @@ func extractFromUnit(
 		e = ensureEntityType(e, "FACT")
 	}
 
+	finalUnit := &common.Unit{
+		ID:     unit.id,
+		FileID: unit.fileID,
+		Start:  unit.start,
+		End:    unit.end,
+		Text:   unit.text,
+	}
+
+	if file.FileType == loader.GraphFileTypeFile {
+		entities, err := buildFileEntities(file, finalUnit)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return finalUnit, entities, nil, nil
+	}
+
 	req := extractRequest{
 		unit: unit,
 		file: file,
@@ -152,14 +183,6 @@ func extractFromUnit(
 	)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-
-	finalUnit := &common.Unit{
-		ID:     unit.id,
-		FileID: unit.fileID,
-		Start:  unit.start,
-		End:    unit.end,
-		Text:   unit.text,
 	}
 
 	entities := make([]common.Entity, 0, len(res.Entities))
@@ -226,6 +249,37 @@ func extractFromUnit(
 	}
 
 	return finalUnit, entities, relations, nil
+}
+
+func buildFileEntities(file loader.GraphFile, unit *common.Unit) ([]common.Entity, error) {
+	description := strings.TrimSpace(file.Description)
+	if description == "" {
+		return nil, nil
+	}
+	name := strings.ToUpper(fmt.Sprintf("FILE: %s", description))
+
+	eID, err := gonanoid.New()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ID for entity: %w", err)
+	}
+	sID, err := gonanoid.New()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ID for source: %w", err)
+	}
+
+	source := common.Source{
+		ID:          sID,
+		Unit:        unit,
+		Description: description,
+	}
+	entity := common.Entity{
+		ID:          eID,
+		Name:        name,
+		Description: description,
+		Type:        "FILE",
+		Sources:     []common.Source{source},
+	}
+	return []common.Entity{entity}, nil
 }
 
 func summarizeCSV(text string, baseName string) string {
