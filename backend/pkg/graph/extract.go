@@ -34,6 +34,73 @@ type extractResponse struct {
 	Relationships []extractRelationship `json:"relationships" jsonschema_description:"Relationships identified in the text document"`
 }
 
+type extractRequest struct {
+	unit processUnit
+	file loader.GraphFile
+}
+
+type extractor interface {
+	buildSystemPrompt(req extractRequest, entityTypes []string) (string, error)
+}
+
+type textExtractor struct{}
+
+type csvExtractor struct{}
+
+type imageExtractor struct{}
+
+func (textExtractor) buildSystemPrompt(req extractRequest, entityTypes []string) (string, error) {
+	baseName := filepath.Base(req.file.FilePath)
+	entityList := strings.Join(entityTypes, ",")
+	return fmt.Sprintf(
+		ai.ExtractPromptText,
+		entityList,
+		baseName,
+		entityList,
+		entityList,
+	), nil
+}
+
+func (csvExtractor) buildSystemPrompt(req extractRequest, entityTypes []string) (string, error) {
+	baseName := filepath.Base(req.file.FilePath)
+	entityList := strings.Join(entityTypes, ",")
+	csvSummary := summarizeCSV(req.unit.text, baseName)
+	return fmt.Sprintf(
+		ai.ExtractPromptCSV,
+		entityList,
+		baseName,
+		csvSummary,
+		entityList,
+		entityList,
+	), nil
+}
+
+func (imageExtractor) buildSystemPrompt(req extractRequest, entityTypes []string) (string, error) {
+	baseName := filepath.Base(req.file.FilePath)
+	entityList := strings.Join(entityTypes, ",")
+	return fmt.Sprintf(
+		ai.ExtractPromptChart,
+		entityList,
+		baseName,
+		entityList,
+		entityList,
+	), nil
+}
+
+var defaultExtractor extractor = textExtractor{}
+
+var extractorsByType = map[loader.GraphFileType]extractor{
+	loader.GraphFileTypeCSV:   csvExtractor{},
+	loader.GraphFileTypeImage: imageExtractor{},
+}
+
+func extractorForFileType(fileType loader.GraphFileType) extractor {
+	if extractor, ok := extractorsByType[fileType]; ok {
+		return extractor
+	}
+	return defaultExtractor
+}
+
 func ensureEntityType(entityTypes []string, entityType string) []string {
 	for _, existing := range entityTypes {
 		if strings.EqualFold(existing, entityType) {
@@ -58,34 +125,13 @@ func extractFromUnit(
 		e = ensureEntityType(e, "FACT")
 	}
 
-	promptTemplate := ai.ExtractPromptText
-	if file.FileType == loader.GraphFileTypeCSV {
-		promptTemplate = ai.ExtractPromptCSV
+	req := extractRequest{
+		unit: unit,
+		file: file,
 	}
-	if file.FileType == loader.GraphFileTypeImage {
-		promptTemplate = ai.ExtractPromptChart
-	}
-
-	baseName := filepath.Base(file.FilePath)
-	var systemPrompt string
-	if file.FileType == loader.GraphFileTypeCSV {
-		csvSummary := summarizeCSV(unit.text, baseName)
-		systemPrompt = fmt.Sprintf(
-			promptTemplate,
-			strings.Join(e, ","),
-			baseName,
-			csvSummary,
-			strings.Join(e, ","),
-			strings.Join(e, ","),
-		)
-	} else {
-		systemPrompt = fmt.Sprintf(
-			promptTemplate,
-			strings.Join(e, ","),
-			baseName,
-			strings.Join(e, ","),
-			strings.Join(e, ","),
-		)
+	systemPrompt, err := extractorForFileType(file.FileType).buildSystemPrompt(req, e)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	if strings.TrimSpace(file.Metadata) != "" {
@@ -96,7 +142,7 @@ func extractFromUnit(
 	opts := []ai.GenerateOption{
 		ai.WithSystemPrompts(systemPrompt),
 	}
-	err := client.GenerateCompletionWithFormat(
+	err = client.GenerateCompletionWithFormat(
 		ctx,
 		"extract_entities_and_relationships",
 		"Extract entities and relationships form a provided document.",
