@@ -6,10 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )
@@ -249,6 +251,121 @@ func CountPDFPages(input []byte) (int, error) {
 // CacheKey generates a unique cache key for a GraphFile based on its ID and path.
 func CacheKey(file GraphFile) string {
 	return file.ID + ":" + file.FilePath
+}
+
+var markdownImageTagPattern = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
+
+// NormalizeMarkdownImageDescriptions replaces markdown image tags with <image> tags
+// and de-duplicates repeated descriptions based on normalized whitespace.
+func NormalizeMarkdownImageDescriptions(content string) string {
+	for {
+		match := markdownImageTagPattern.FindStringSubmatchIndex(content)
+		if match == nil {
+			return content
+		}
+
+		tagStart, tagEnd := match[0], match[1]
+		altStart, altEnd := match[2], match[3]
+		alt := content[altStart:altEnd]
+		altTokens := strings.Fields(alt)
+		if len(altTokens) == 0 {
+			content = content[:tagStart] + content[tagEnd:]
+			continue
+		}
+
+		matchStart, matchEnd, found := findTokenSequence(content, tagEnd, altTokens)
+		if found {
+			between := content[tagEnd:matchStart]
+			if strings.HasSuffix(content[:tagStart], "\n") && strings.HasPrefix(between, "\n") {
+				between = between[1:]
+			}
+			content = content[:tagStart] + between + "<image>" + content[matchStart:matchEnd] + "</image>" + content[matchEnd:]
+			continue
+		}
+
+		content = content[:tagStart] + "<image>" + alt + "</image>" + content[tagEnd:]
+	}
+}
+
+type tokenPosition struct {
+	text  string
+	start int
+	end   int
+}
+
+func findTokenSequence(content string, startIndex int, tokens []string) (int, int, bool) {
+	if len(tokens) == 0 || startIndex >= len(content) {
+		return 0, 0, false
+	}
+	if startIndex < 0 {
+		startIndex = 0
+	}
+
+	contentTokens := tokenizeWithPositions(content, startIndex)
+	if len(contentTokens) < len(tokens) {
+		return 0, 0, false
+	}
+
+	for i := 0; i <= len(contentTokens)-len(tokens); i++ {
+		if contentTokens[i].text != tokens[0] {
+			continue
+		}
+		matched := true
+		for j := 1; j < len(tokens); j++ {
+			if contentTokens[i+j].text != tokens[j] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return contentTokens[i].start, contentTokens[i+len(tokens)-1].end, true
+		}
+	}
+
+	return 0, 0, false
+}
+
+func tokenizeWithPositions(content string, startIndex int) []tokenPosition {
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	if startIndex >= len(content) {
+		return nil
+	}
+
+	segment := content[startIndex:]
+	positions := make([]tokenPosition, 0)
+	inToken := false
+	tokenStart := 0
+
+	for i, r := range segment {
+		if unicode.IsSpace(r) {
+			if inToken {
+				positions = append(positions, tokenPosition{
+					text:  segment[tokenStart:i],
+					start: startIndex + tokenStart,
+					end:   startIndex + i,
+				})
+				inToken = false
+			}
+			continue
+		}
+
+		if !inToken {
+			inToken = true
+			tokenStart = i
+		}
+	}
+
+	if inToken {
+		positions = append(positions, tokenPosition{
+			text:  segment[tokenStart:],
+			start: startIndex + tokenStart,
+			end:   startIndex + len(segment),
+		})
+	}
+
+	return positions
 }
 
 // TransformExcelToCsv converts an Excel file (.xlsx, .xls) to CSV files using unoconv.
