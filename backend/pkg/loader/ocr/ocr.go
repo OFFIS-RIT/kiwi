@@ -63,6 +63,7 @@ func (l *OCRGraphLoader) ProcessImages(ctx context.Context, file loader.GraphFil
 			if err != nil {
 				return err
 			}
+			desc = loader.NormalizeMarkdownImageDescriptions(desc)
 
 			outputMtx.Lock()
 			output[idx] = []byte(desc)
