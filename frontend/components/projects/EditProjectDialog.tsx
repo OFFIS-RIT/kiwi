@@ -53,6 +53,9 @@ export function EditProjectDialog({
   const [projectFiles, setProjectFiles] = useState<ApiProjectFile[]>([]);
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedBytes, setUploadedBytes] = useState(0);
+  const [totalBytes, setTotalBytes] = useState(0);
+  const [uploadSpeed, setUploadSpeed] = useState(0);
   const [editedName, setEditedName] = useState("");
   const [filesToDelete, setFilesToDelete] = useState<string[]>([]);
 
@@ -87,8 +90,19 @@ export function EditProjectDialog({
       setEditedName("");
       setFilesToDelete([]);
       setUploadProgress(0);
+      setUploadedBytes(0);
+      setTotalBytes(0);
+      setUploadSpeed(0);
     }
   }, [project, open, loadProjectFiles]);
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  };
 
   const handleToggleFileForDeletion = (fileKey: string) => {
     setFilesToDelete((prev) =>
@@ -151,8 +165,29 @@ export function EditProjectDialog({
 
       if (filesAdded && overallSuccess) {
         try {
-          await addFilesToProject(project.id, newFiles, (progress) =>
-            setUploadProgress(progress)
+          const startTime = Date.now();
+          let lastTime = startTime;
+          let lastLoaded = 0;
+
+          await addFilesToProject(
+            project.id,
+            newFiles,
+            (progress, loaded, total) => {
+              setUploadProgress(progress);
+              setUploadedBytes(loaded);
+              setTotalBytes(total);
+
+              const currentTime = Date.now();
+              const timeDiff = currentTime - lastTime;
+
+              if (timeDiff > 500) {
+                const bytesDiff = loaded - lastLoaded;
+                const speed = (bytesDiff / timeDiff) * 1000;
+                setUploadSpeed(speed);
+                lastTime = currentTime;
+                lastLoaded = loaded;
+              }
+            }
           );
           setNewFiles([]);
         } catch (err) {
@@ -363,6 +398,12 @@ export function EditProjectDialog({
                       <span>{Math.round(uploadProgress)}%</span>
                     </div>
                     <Progress value={uploadProgress} />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>
+                        {formatBytes(uploadedBytes)} / {formatBytes(totalBytes)}
+                      </span>
+                      <span>{formatBytes(uploadSpeed)}/s</span>
+                    </div>
                   </div>
                 )}
               </div>
