@@ -13,7 +13,16 @@ import (
 
 const addProjectRelationship = `-- name: AddProjectRelationship :one
 INSERT INTO relationships (public_id, project_id, source_id, target_id, rank, description, embedding)
-VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (public_id) DO UPDATE
+SET project_id = EXCLUDED.project_id,
+    source_id = EXCLUDED.source_id,
+    target_id = EXCLUDED.target_id,
+    rank = EXCLUDED.rank,
+    description = EXCLUDED.description,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+RETURNING id
 `
 
 type AddProjectRelationshipParams struct {
@@ -43,7 +52,14 @@ func (q *Queries) AddProjectRelationship(ctx context.Context, arg AddProjectRela
 
 const addProjectRelationshipSource = `-- name: AddProjectRelationshipSource :one
 INSERT INTO relationship_sources (public_id, relationship_id, text_unit_id, description, embedding)
-VALUES ($1, $2, $3, $4, $5) RETURNING id
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (public_id) DO UPDATE
+SET relationship_id = EXCLUDED.relationship_id,
+    text_unit_id = EXCLUDED.text_unit_id,
+    description = EXCLUDED.description,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+RETURNING id
 `
 
 type AddProjectRelationshipSourceParams struct {

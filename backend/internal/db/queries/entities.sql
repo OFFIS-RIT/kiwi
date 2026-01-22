@@ -1,6 +1,14 @@
 -- name: AddProjectEntity :one
 INSERT INTO entities (public_id, project_id, name, description, type, embedding)
-VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (public_id) DO UPDATE
+SET project_id = EXCLUDED.project_id,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    type = EXCLUDED.type,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+RETURNING id;
 
 -- name: GetProjectEntities :many
 SELECT e.id, e.public_id, e.name, e.description, e.type FROM entities e WHERE e.project_id = $1;
@@ -54,7 +62,14 @@ WHERE pe.id = (
 
 -- name: AddProjectEntitySource :one
 INSERT INTO entity_sources (public_id, entity_id, text_unit_id, description, embedding)
-VALUES ($1, $2, $3, $4, $5) RETURNING id;
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (public_id) DO UPDATE
+SET entity_id = EXCLUDED.entity_id,
+    text_unit_id = EXCLUDED.text_unit_id,
+    description = EXCLUDED.description,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+RETURNING id;
 
 -- name: GetProjectEntitySourcesByPublicID :many
 SELECT ps.public_id, ps.description FROM entity_sources ps

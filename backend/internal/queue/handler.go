@@ -263,6 +263,15 @@ func ProcessGraphMessage(
 	if err != nil {
 		return err
 	}
+	deleteStagedData := func() error {
+		if data.CorrelationID == "" {
+			return nil
+		}
+		return storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+	}
+	if err := deleteStagedData(); err != nil {
+		return fmt.Errorf("failed to cleanup staged data before extraction: %w", err)
+	}
 
 	graphID := fmt.Sprintf("%d", projectId)
 	start := time.Now()
@@ -278,14 +287,18 @@ func ProcessGraphMessage(
 				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
 			})
 		}
-		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+		if cleanupErr := deleteStagedData(); cleanupErr != nil {
+			logger.Warn("[Queue] Failed to delete staged data", "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", cleanupErr)
+		}
 		return err
 	}
 
 	logger.Debug("[Queue] Acquiring advisory lock", "project_id", projectId)
 	err = q.AcquireProjectLock(ctx, projectId)
 	if err != nil {
-		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+		if cleanupErr := deleteStagedData(); cleanupErr != nil {
+			logger.Warn("[Queue] Failed to delete staged data", "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", cleanupErr)
+		}
 		return fmt.Errorf("failed to acquire project lock: %w", err)
 	}
 	defer func() {
@@ -308,7 +321,9 @@ func ProcessGraphMessage(
 		State: projectState,
 	})
 	if err != nil {
-		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+		if cleanupErr := deleteStagedData(); cleanupErr != nil {
+			logger.Warn("[Queue] Failed to delete staged data", "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", cleanupErr)
+		}
 		return err
 	}
 	defer q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
@@ -326,11 +341,15 @@ func ProcessGraphMessage(
 				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
 			})
 		}
-		_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+		if cleanupErr := deleteStagedData(); cleanupErr != nil {
+			logger.Warn("[Queue] Failed to delete staged data", "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", cleanupErr)
+		}
 		return err
 	}
 
-	_ = storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+	if cleanupErr := deleteStagedData(); cleanupErr != nil {
+		logger.Warn("[Queue] Failed to delete staged data", "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", cleanupErr)
+	}
 
 	duration := time.Since(start)
 	q.AddProcessTime(ctx, db.AddProcessTimeParams{

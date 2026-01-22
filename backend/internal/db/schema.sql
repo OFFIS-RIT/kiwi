@@ -125,7 +125,7 @@ CREATE TABLE project_files (
 -- Text Units Table
 CREATE TABLE text_units (
     id BIGSERIAL PRIMARY KEY,
-    public_id TEXT NOT NULL,
+    public_id TEXT NOT NULL UNIQUE,
     project_file_id BIGINT NOT NULL REFERENCES project_files(id) ON DELETE CASCADE,
     text TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),

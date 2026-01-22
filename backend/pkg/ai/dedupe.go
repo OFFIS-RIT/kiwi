@@ -29,9 +29,35 @@ func CallDedupeAI(
 	aiClient GraphAIClient,
 	maxRetries int,
 ) (*DuplicatesResponse, error) {
+	if maxRetries < 1 {
+		maxRetries = 1
+	}
+	if aiClient == nil {
+		return nil, fmt.Errorf("ai client is nil")
+	}
+	if len(entities) < 2 {
+		return &DuplicatesResponse{Duplicates: []DuplicateGroup{}}, nil
+	}
+
+	cleaned := make([]common.Entity, 0, len(entities))
+	for _, entity := range entities {
+		name := sanitizeDedupeValue(entity.Name)
+		typeName := sanitizeDedupeValue(entity.Type)
+		if name == "" || typeName == "" {
+			continue
+		}
+		cleaned = append(cleaned, common.Entity{Name: name, Type: typeName})
+	}
+	if len(cleaned) < 2 {
+		return &DuplicatesResponse{Duplicates: []DuplicateGroup{}}, nil
+	}
+	if len(cleaned) > DedupeBatchSize {
+		return nil, fmt.Errorf("dedupe batch size exceeded: %d > %d", len(cleaned), DedupeBatchSize)
+	}
+
 	var entityData strings.Builder
 	entityData.WriteString("Entities:\n")
-	for _, e := range entities {
+	for _, e := range cleaned {
 		fmt.Fprintf(&entityData, "- Name: %s, Type: %s\n", e.Name, e.Type)
 	}
 	prompt := fmt.Sprintf(DedupePrompt, entityData.String())
@@ -46,6 +72,17 @@ func CallDedupeAI(
 		return nil, err
 	}
 	return &res, nil
+}
+
+func sanitizeDedupeValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.Join(strings.Fields(value), " ")
+	return value
 }
 
 // GetDedupeBatchSize returns the batch size for deduplication
