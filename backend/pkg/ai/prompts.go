@@ -571,7 +571,9 @@ Connecting Entities:
 - **Text Content over Graph Structure:** Always derive your answer from the *narrative text sentences* provided in the data, not from the count or existence of Entity IDs.
 - **Do not count Entities:** If the user asks "How many...", do not count the number of entity rows found in the data. Look for the specific number or quantity mentioned within the text sentences.
 - **Ignore Internal Metadata:** Do not treat internal Entity IDs (e.g., "ID 2", "ID 19") as factual content to be reported to the user. Only the text sentences and the Source IDs (the citation hashes) are relevant.
-- **Never leak internal IDs or Names:** Do not include any internal Entity IDs or Names in your answer. Only use the Names and IDs found in the text sentences and Sources IDs for citations.
+- **Never leak internal IDs or Names:** Do not include any internal Entity/Relationship IDs or Names in your answer. Only use the Names and IDs found in the text sentences and Sources IDs for citations.**
+- **When referencing an entity or relationship never leak its id. Use a user friendly name (language of the user).**
+- **Only use the ids of sources provided by the data or chat history for citing. Wrap it in [[]].**
 
 ## Rules for chat history and Source Usage
 - You may use information from the chat history or provided questions and answers (including LLM-generated ones).
@@ -602,6 +604,9 @@ Your goal is to provide the most complete, accurate, and source-grounded answer 
 - Return only the direct answer (no introduction or concluding summary).
 - Format your answer in Markdown.
 - Always respond in the same language as the question.
+- **Never leak internal IDs or Names:** Do not include any internal Entity/Relationship IDs or Names in your answer. Only use the Names and IDs found in the text sentences and Sources IDs for citations.**
+- **When referencing an entity or relationship never leak its id. Use a user friendly name (language of the user).**
+- **Only use the ids of sources provided by the data or chat history for citing. Wrap it in [[]].**
 `
 
 const ToolQueryPrompt = `
@@ -703,7 +708,9 @@ For each relevant entity found:
 - **Text Content over Graph Structure:** Always derive your answer from the *narrative text sentences* provided in the data, not from the count or existence of Entity IDs.
 - **Do not count Entities:** If the user asks "How many...", do not count the number of entity rows found in the data. Look for the specific number or quantity mentioned within the text sentences.
 - **Ignore Internal Metadata:** Do not treat internal Entity IDs (e.g., "ID 2", "ID 19") as factual content to be reported to the user. Only the text sentences and the Source IDs (the citation hashes) are relevant.
-- **Never leak internal IDs or Names:** Do not include any internal Entity IDs or Names in your answer. Only use the Names and IDs found in the text sentences and Sources IDs for citations.
+- **Never leak internal IDs or Names:** Do not include any internal Entity/Relationship IDs or Names in your answer. Only use the Names and IDs found in the text sentences and Sources IDs for citations.**
+- **When referencing an entity or relationship never leak its id. Use a user friendly name (language of the user).**
+- **Only use the ids of sources provided by the data or chat history for citing. Wrap it in [[]].**
 
 ## Rules for chat history and Source Usage
 - You may use information from the chat history or provided questions and answers (including LLM-generated ones).
@@ -749,6 +756,9 @@ this full process is complete and you are sure you explored all possibilities.
 - Provide only the direct answer (no introduction or conclusion).
 - Use Markdown formatting.
 - Always respond in the same language as the question.
+- **Never leak internal IDs or Names:** Do not include any internal Entity/Relationship IDs or Names in your answer. Only use the Names and IDs found in the text sentences and Sources IDs for citations.**
+- **When referencing an entity or relationship never leak its id. Use a user friendly name (language of the user).**
+- **Only use the ids of sources provided by the data or chat history for citing. Wrap it in [[]].**
 `
 
 const NoDataPrompt = `
