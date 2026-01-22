@@ -17,10 +17,10 @@ import (
 //
 // A GraphOpenAIClient should be created using NewGraphAIClient.
 type GraphOpenAIClient struct {
-	embeddingModel  string
-	chatModel       string
-	imageModel      string
-	audioModel      string
+	embeddingModel string
+	chatModel      string
+	imageModel     string
+	audioModel     string
 
 	embeddingURL string
 	embeddingKey string
@@ -54,10 +54,10 @@ type GraphOpenAIClient struct {
 // EmbeddingURL and EmbeddingKey configure the embedding API endpoint.
 // ChatURL and ChatKey configure the chat/completion API endpoint.
 type NewGraphOpenAIClientParams struct {
-	EmbeddingModel  string
-	ChatModel       string
-	ImageModel      string
-	AudioModel      string
+	EmbeddingModel string
+	ChatModel      string
+	ImageModel     string
+	AudioModel     string
 
 	EmbeddingURL string
 	EmbeddingKey string
@@ -98,10 +98,10 @@ func NewGraphOpenAIClient(
 	sem := semaphore.NewWeighted(params.MaxConcurrentRequests)
 
 	return &GraphOpenAIClient{
-		embeddingModel:  params.EmbeddingModel,
-		chatModel:       params.ChatModel,
-		imageModel:      params.ImageModel,
-		audioModel:      params.AudioModel,
+		embeddingModel: params.EmbeddingModel,
+		chatModel:      params.ChatModel,
+		imageModel:     params.ImageModel,
+		audioModel:     params.AudioModel,
 
 		chatURL:      params.ChatURL,
 		chatKey:      params.ChatKey,

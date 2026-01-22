@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pkoukk/tiktoken-go"
@@ -45,6 +47,11 @@ type QueueProjectFileMsg struct {
 	TotalBatches  int               `json:"total_batches,omitempty"`
 	ProjectFiles  *[]db.ProjectFile `json:"project_files,omitempty"`
 	Operation     string            `json:"operation,omitempty"` // "index" or "update"
+}
+
+type graphDBConn interface {
+	db.DBTX
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
 func ProcessGraphMessage(
@@ -342,13 +349,9 @@ func ProcessGraphMessage(
 
 		allDone, checkErr := q.AreAllBatchesCompleted(ctx, data.CorrelationID)
 		if checkErr == nil && allDone {
-			logger.Info("[Queue] All batches completed, starting description generation", "correlation_id", data.CorrelationID)
-
-			err := FinalizeDescriptionsForCorrelation(ctx, s3Client, conn, aiClient, data.CorrelationID, projectId)
+			err := FinalizeDescriptionsForCorrelationWithLock(ctx, conn, aiClient, data.CorrelationID)
 			if err != nil {
 				logger.Error("[Queue] Failed to generate descriptions for correlation", "correlation_id", data.CorrelationID, "err", err)
-			} else {
-				logger.Info("[Queue] Description generation completed", "correlation_id", data.CorrelationID)
 			}
 		}
 	}
@@ -1020,11 +1023,9 @@ func ResetBatchStatusForRetry(
 // that have new sources from the batches in the given correlation ID.
 func FinalizeDescriptionsForCorrelation(
 	ctx context.Context,
-	s3Client *awss3.Client,
-	conn *pgxpool.Pool,
+	conn graphDBConn,
 	aiClient ai.GraphAIClient,
 	correlationID string,
-	projectID int64,
 ) error {
 	q := db.New(conn)
 
@@ -1050,23 +1051,9 @@ func FinalizeDescriptionsForCorrelation(
 		fileIDs = append(fileIDs, fid)
 	}
 
-	projectFiles, err := q.GetProjectFilesForBatch(ctx, fileIDs)
-	if err != nil {
-		return fmt.Errorf("failed to get project files: %w", err)
-	}
-
-	s3Bucket := util.GetEnvString("AWS_BUCKET", "kiwi")
-	s3L := s3.NewS3GraphFileLoaderWithClient(s3Bucket, s3Client)
-	files := make([]loader.GraphFile, 0, len(projectFiles))
-
-	for _, pf := range projectFiles {
-		f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
-			ID:        fmt.Sprintf("%d", pf.ID),
-			FilePath:  pf.FileKey,
-			MaxTokens: 500,
-			Loader:    s3L,
-		})
-		files = append(files, f)
+	files := make([]loader.GraphFile, 0, len(fileIDs))
+	for _, fid := range fileIDs {
+		files = append(files, loader.GraphFile{ID: fmt.Sprintf("%d", fid)})
 	}
 
 	logger.Info("[Queue] Starting description generation with retry", "correlation_id", correlationID, "file_count", len(files))
@@ -1085,4 +1072,58 @@ func FinalizeDescriptionsForCorrelation(
 	}
 
 	return nil
+}
+
+func FinalizeDescriptionsForCorrelationWithLock(
+	ctx context.Context,
+	conn *pgxpool.Pool,
+	aiClient ai.GraphAIClient,
+	correlationID string,
+) error {
+	lockConn, err := conn.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire lock connection: %w", err)
+	}
+	defer lockConn.Release()
+
+	lockID := correlationLockID(correlationID)
+	q := db.New(lockConn)
+	acquired, err := q.TryAcquireProjectLock(ctx, lockID)
+	if err != nil {
+		return fmt.Errorf("failed to acquire description lock: %w", err)
+	}
+	if !acquired {
+		logger.Debug("[Queue] Description generation already in progress", "correlation_id", correlationID)
+		return nil
+	}
+	defer func() {
+		if unlockErr := q.ReleaseProjectLock(ctx, lockID); unlockErr != nil {
+			logger.Error("[Queue] Failed to release description lock", "correlation_id", correlationID, "err", unlockErr)
+		}
+	}()
+
+	allDone, checkErr := q.AreAllBatchesCompleted(ctx, correlationID)
+	if checkErr != nil {
+		return fmt.Errorf("failed to re-check batch completion: %w", checkErr)
+	}
+	if !allDone {
+		logger.Debug("[Queue] Batches no longer complete, skipping description generation", "correlation_id", correlationID)
+		return nil
+	}
+
+	logger.Info("[Queue] All batches completed, starting description generation", "correlation_id", correlationID)
+
+	err = FinalizeDescriptionsForCorrelation(ctx, lockConn, aiClient, correlationID)
+	if err != nil {
+		return err
+	}
+
+	logger.Info("[Queue] Description generation completed", "correlation_id", correlationID)
+	return nil
+}
+
+func correlationLockID(correlationID string) int64 {
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte("correlation:" + correlationID))
+	return int64(hasher.Sum64())
 }
