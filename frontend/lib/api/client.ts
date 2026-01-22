@@ -98,7 +98,7 @@ export const apiClient = {
   postFormDataWithProgress: <T>(
     endpoint: string,
     formData: FormData,
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number, loaded: number, total: number) => void
   ) => {
     return new Promise<T>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -109,7 +109,7 @@ export const apiClient = {
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
             const percentComplete = (event.loaded / event.total) * 100;
-            onProgress(percentComplete);
+            onProgress(percentComplete, event.loaded, event.total);
           }
         };
       }

@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createProject } from "@/lib/api/projects";
+import { formatBytes } from "@/lib/utils";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
@@ -54,6 +55,9 @@ export function CreateProjectDialog({
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedBytes, setUploadedBytes] = useState(0);
+  const [totalBytes, setTotalBytes] = useState(0);
+  const [uploadSpeed, setUploadSpeed] = useState(0); // Bytes per second
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [groupError, setGroupError] = useState(false);
 
@@ -67,6 +71,9 @@ export function CreateProjectDialog({
       setSubmitError(null);
       setGroupError(false);
       setUploadProgress(0);
+      setUploadedBytes(0);
+      setTotalBytes(0);
+      setUploadSpeed(0);
     }
   }, [open, groupId, groups]);
 
@@ -92,11 +99,31 @@ export function CreateProjectDialog({
     }
 
     try {
+      const startTime = Date.now();
+      let lastTime = startTime;
+      let lastLoaded = 0;
+
       const response = await createProject(
         selectedGroup,
         projectName,
         files,
-        (progress) => setUploadProgress(progress)
+        (progress, loaded, total) => {
+          setUploadProgress(progress);
+          setUploadedBytes(loaded);
+          setTotalBytes(total);
+
+          const currentTime = Date.now();
+          const timeDiff = currentTime - lastTime;
+
+          // Update speed every 500ms to avoid flickering
+          if (timeDiff > 500) {
+            const bytesDiff = loaded - lastLoaded;
+            const speed = (bytesDiff / timeDiff) * 1000; // Bytes/sec
+            setUploadSpeed(speed);
+            lastTime = currentTime;
+            lastLoaded = loaded;
+          }
+        }
       );
 
       if (!expandedGroups[selectedGroup]) {
@@ -204,6 +231,12 @@ export function CreateProjectDialog({
                   <span>{Math.round(uploadProgress)}%</span>
                 </div>
                 <Progress value={uploadProgress} />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>
+                    {formatBytes(uploadedBytes)} / {formatBytes(totalBytes)}
+                  </span>
+                  <span>{formatBytes(uploadSpeed)}/s</span>
+                </div>
               </div>
             )}
           </div>
