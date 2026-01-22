@@ -49,8 +49,8 @@ func main() {
 			ChatModel:       util.GetEnv("AI_EXTRACT_MODEL"),
 			ImageModel:      util.GetEnv("AI_IMAGE_MODEL"),
 
-			BaseURL: util.GetEnv("AI_CHAT_URL"),
-			ApiKey:  util.GetEnv("AI_CHAT_KEY"),
+			BaseURL: util.GetEnv("AI_EXTRACT_URL"),
+			ApiKey:  util.GetEnv("AI_EXTRACT_KEY"),
 
 			MaxConcurrentRequests: int64(util.GetEnvNumeric("AI_PARALLEL_REQ", 15)),
 		})
