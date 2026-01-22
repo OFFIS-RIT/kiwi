@@ -14,10 +14,9 @@ import (
 // GraphOllamaClient implements the ai.GraphAIClient interface using Ollama as the backend.
 // It supports text generation, embeddings, and image description via locally-hosted models.
 type GraphOllamaClient struct {
-	embeddingModel   string
-	descriptionModel string
-	extractionModel  string
-	imageModel       string
+	embeddingModel  string
+	chatModel       string
+	imageModel      string
 
 	reqLock *semaphore.Weighted
 
@@ -33,10 +32,9 @@ type GraphOllamaClient struct {
 
 // NewGraphOllamaClientParams contains configuration options for creating a new GraphOllamaClient.
 type NewGraphOllamaClientParams struct {
-	EmbeddingModel   string
-	DescriptionModel string
-	ExtractionModel  string
-	ImageModel       string
+	EmbeddingModel  string
+	ChatModel       string
+	ImageModel      string
 
 	BaseURL string
 	ApiKey  string
@@ -93,10 +91,9 @@ func NewGraphOllamaClient(
 	sem := semaphore.NewWeighted(params.MaxConcurrentRequests)
 
 	return &GraphOllamaClient{
-		embeddingModel:   params.EmbeddingModel,
-		descriptionModel: params.DescriptionModel,
-		extractionModel:  params.ExtractionModel,
-		imageModel:       params.ImageModel,
+		embeddingModel:  params.EmbeddingModel,
+		chatModel:       params.ChatModel,
+		imageModel:      params.ImageModel,
 
 		reqLock: sem,
 

@@ -277,8 +277,10 @@ Copy `.env.sample` to `.env` and configure:
 | `AI_PARALLEL_REQ`        | Max parallel AI requests           |
 | `AI_CHAT_KEY`            | Chat API key                       |
 | `AI_CHAT_URL`            | Chat model endpoint                |
-| `AI_CHAT_DESCRIBE_MODEL` | Model for descriptions             |
-| `AI_CHAT_EXTRACT_MODEL`  | Model for extraction               |
+| `AI_CHAT_MODEL`          | Model for descriptions             |
+| `AI_EXTRACT_KEY`         | Extract API key                    |
+| `AI_EXTRACT_URL`         | Extract model endpoint             |
+| `AI_EXTRACT_MODEL`       | Model for extraction               |
 | `AI_IMAGE_KEY`           | Image API key                      |
 | `AI_IMAGE_URL`           | Image/OCR endpoint                 |
 | `AI_IMAGE_MODEL`         | Image model name                   |
