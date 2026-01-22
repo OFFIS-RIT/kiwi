@@ -275,6 +275,8 @@ Copy `.env.sample` to `.env` and configure:
 | `AWS_BUCKET`             | S3 bucket name                     |
 | `AI_ADAPTER`             | `openai` or `ollama`               |
 | `AI_PARALLEL_REQ`        | Max parallel AI requests           |
+| `AI_TIMEOUT_WORKER`      | Worker AI timeout minutes (<=0 for unlimited, mapped to `AI_TIMEOUT`) |
+| `AI_TIMEOUT_SERVER`      | Server AI timeout minutes (<=0 for unlimited, mapped to `AI_TIMEOUT`) |
 | `AI_CHAT_KEY`            | Chat API key                       |
 | `AI_CHAT_URL`            | Chat model endpoint                |
 | `AI_CHAT_MODEL`          | Model for descriptions             |

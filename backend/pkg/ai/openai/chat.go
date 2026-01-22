@@ -30,6 +30,8 @@ func (c *GraphOpenAIClient) GenerateCompletion(
 	prompt string,
 	opts ...ai.GenerateOption,
 ) (string, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
@@ -65,14 +67,14 @@ func (c *GraphOpenAIClient) GenerateCompletion(
 		body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 	}
 
-	err := c.chatLock.Acquire(ctx, 1)
+	err := c.chatLock.Acquire(rCtx, 1)
 	if err != nil {
 		return "", err
 	}
 	defer c.chatLock.Release(1)
 
 	start := time.Now()
-	response, err := client.Chat.Completions.New(ctx, body)
+	response, err := client.Chat.Completions.New(rCtx, body)
 	if err != nil {
 		return "", err
 	}
@@ -112,6 +114,9 @@ func (c *GraphOpenAIClient) GenerateCompletionWithFormat(
 	out any,
 	opts ...ai.GenerateOption,
 ) error {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	schema := ai.GenerateSchema(out)
 	schemaParam := openai.ResponseFormatJSONSchemaJSONSchemaParam{
 		Name:        name,
@@ -157,14 +162,14 @@ func (c *GraphOpenAIClient) GenerateCompletionWithFormat(
 		body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 	}
 
-	err := c.chatLock.Acquire(ctx, 1)
+	err := c.chatLock.Acquire(rCtx, 1)
 	if err != nil {
 		return err
 	}
 	defer c.chatLock.Release(1)
 
 	start := time.Now()
-	response, err := c.ChatClient.Chat.Completions.New(ctx, body)
+	response, err := c.ChatClient.Chat.Completions.New(rCtx, body)
 	if err != nil {
 		return err
 	}
@@ -210,6 +215,9 @@ func (c *GraphOpenAIClient) GenerateChat(
 	messages []ai.ChatMessage,
 	opts ...ai.GenerateOption,
 ) (string, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
@@ -249,14 +257,14 @@ func (c *GraphOpenAIClient) GenerateChat(
 		body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 	}
 
-	err := c.chatLock.Acquire(ctx, 1)
+	err := c.chatLock.Acquire(rCtx, 1)
 	if err != nil {
 		return "", err
 	}
 	defer c.chatLock.Release(1)
 
 	start := time.Now()
-	response, err := client.Chat.Completions.New(ctx, body)
+	response, err := client.Chat.Completions.New(rCtx, body)
 	if err != nil {
 		return "", err
 	}
@@ -296,6 +304,8 @@ func (c *GraphOpenAIClient) GenerateChatStream(
 	messages []ai.ChatMessage,
 	opts ...ai.GenerateOption,
 ) (<-chan ai.StreamEvent, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
@@ -338,16 +348,18 @@ func (c *GraphOpenAIClient) GenerateChatStream(
 		body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 	}
 
-	err := c.chatLock.Acquire(ctx, 1)
+	err := c.chatLock.Acquire(rCtx, 1)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
 	start := time.Now()
-	stream := client.Chat.Completions.NewStreaming(ctx, body)
+	stream := client.Chat.Completions.NewStreaming(rCtx, body)
 	contentChan := make(chan ai.StreamEvent, 10)
 
 	go func() {
+		defer cancel()
 		defer c.chatLock.Release(1)
 		defer close(contentChan)
 		defer stream.Close()
@@ -377,7 +389,7 @@ func (c *GraphOpenAIClient) GenerateChatStream(
 					if reasoningContent != "" {
 						select {
 						case contentChan <- ai.StreamEvent{Type: "step", Step: "thinking", Reasoning: reasoningContent}:
-						case <-ctx.Done():
+						case <-rCtx.Done():
 							stream.Close()
 							return
 						}
@@ -389,7 +401,7 @@ func (c *GraphOpenAIClient) GenerateChatStream(
 					contentStarted = true
 					select {
 					case contentChan <- ai.StreamEvent{Type: "content", Content: chunk.Choices[0].Delta.Content}:
-					case <-ctx.Done():
+					case <-rCtx.Done():
 						stream.Close()
 						return
 					}
@@ -456,6 +468,9 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 	tools []ai.Tool,
 	opts ...ai.GenerateOption,
 ) (string, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
@@ -497,14 +512,14 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 			body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 		}
 
-		err := c.chatLock.Acquire(ctx, 1)
+		err := c.chatLock.Acquire(rCtx, 1)
 		if err != nil {
 			return "", err
 		}
 		defer c.chatLock.Release(1)
 
 		start := time.Now()
-		response, err := client.Chat.Completions.New(ctx, body)
+		response, err := client.Chat.Completions.New(rCtx, body)
 		if err != nil {
 			return "", err
 		}
@@ -539,7 +554,7 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 				return "", fmt.Errorf("no handler found for tool: %s", ftc.Function.Name)
 			}
 
-			result, err := handler(ctx, ftc.Function.Arguments)
+			result, err := handler(rCtx, ftc.Function.Arguments)
 			if err != nil {
 				return "", fmt.Errorf("tool %s failed: %w", ftc.Function.Name, err)
 			}
@@ -560,6 +575,9 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 	tools []ai.Tool,
 	opts ...ai.GenerateOption,
 ) (string, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
@@ -611,14 +629,14 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 			body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 		}
 
-		err := c.chatLock.Acquire(ctx, 1)
+		err := c.chatLock.Acquire(rCtx, 1)
 		if err != nil {
 			return "", err
 		}
 		defer c.chatLock.Release(1)
 
 		start := time.Now()
-		response, err := client.Chat.Completions.New(ctx, body)
+		response, err := client.Chat.Completions.New(rCtx, body)
 		if err != nil {
 			return "", err
 		}
@@ -653,7 +671,7 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 				return "", fmt.Errorf("no handler found for tool: %s", ftc.Function.Name)
 			}
 
-			result, err := handler(ctx, ftc.Function.Arguments)
+			result, err := handler(rCtx, ftc.Function.Arguments)
 			if err != nil {
 				return "", fmt.Errorf("tool %s failed: %w", ftc.Function.Name, err)
 			}
@@ -674,6 +692,8 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 	tools []ai.Tool,
 	opts ...ai.GenerateOption,
 ) (<-chan ai.StreamEvent, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
@@ -708,14 +728,16 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 		})
 	}
 
-	err := c.chatLock.Acquire(ctx, 1)
+	err := c.chatLock.Acquire(rCtx, 1)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
 	maxRounds := 40
 	contentChan := make(chan ai.StreamEvent, 10)
 	go func() {
+		defer cancel()
 		defer c.chatLock.Release(1)
 		defer close(contentChan)
 
@@ -741,7 +763,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 			body.Messages = msgs
 
 			start := time.Now()
-			stream := client.Chat.Completions.NewStreaming(ctx, body)
+			stream := client.Chat.Completions.NewStreaming(rCtx, body)
 
 			acc := openai.ChatCompletionAccumulator{}
 			hasContent := false
@@ -768,7 +790,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 					if reasoningContent != "" {
 						select {
 						case contentChan <- ai.StreamEvent{Type: "step", Step: "thinking", Reasoning: reasoningContent}:
-						case <-ctx.Done():
+						case <-rCtx.Done():
 							stop = true
 							stream.Close()
 							return
@@ -779,7 +801,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 						hasContent = true
 						select {
 						case contentChan <- ai.StreamEvent{Type: "content", Content: chunk.Choices[0].Delta.Content}:
-						case <-ctx.Done():
+						case <-rCtx.Done():
 							stop = true
 							stream.Close()
 							return
@@ -828,11 +850,11 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 
 					select {
 					case contentChan <- ai.StreamEvent{Type: "step", Step: functionName}:
-					case <-ctx.Done():
+					case <-rCtx.Done():
 						return
 					}
 
-					result, err := handler(ctx, functionArgs)
+					result, err := handler(rCtx, functionArgs)
 					if err != nil {
 						logger.Error("[Tool] failed", "tool", functionName, "err", err)
 						return

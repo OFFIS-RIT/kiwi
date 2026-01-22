@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 
@@ -20,6 +21,9 @@ func (c *GraphOllamaClient) GenerateCompletion(
 	prompt string,
 	opts ...ai.GenerateOption,
 ) (string, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	options := ai.GenerateOptions{
 		Model:       c.chatModel,
 		Temperature: 0.3,
@@ -58,14 +62,14 @@ func (c *GraphOllamaClient) GenerateCompletion(
 		req.Options["num_ctx"] = tokens
 	}
 
-	err = c.reqLock.Acquire(ctx, 1)
+	err = c.reqLock.Acquire(rCtx, 1)
 	if err != nil {
 		return "", err
 	}
 	defer c.reqLock.Release(1)
 
 	var final api.ChatResponse
-	if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
+	if err := c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
 		final.Message.Content += cr.Message.Content
 		if cr.Done {
 			final.Done = true
@@ -105,6 +109,9 @@ func (c *GraphOllamaClient) GenerateCompletionWithFormat(
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return errors.New("out must be a non-nil pointer")
 	}
+
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
 
 	schemaObj := ai.GenerateSchema(out)
 	formatBytes, err := json.Marshal(schemaObj)
@@ -152,14 +159,14 @@ func (c *GraphOllamaClient) GenerateCompletionWithFormat(
 		req.Options["num_ctx"] = tokens
 	}
 
-	err = c.reqLock.Acquire(ctx, 1)
+	err = c.reqLock.Acquire(rCtx, 1)
 	if err != nil {
 		return err
 	}
 	defer c.reqLock.Release(1)
 
 	var final api.ChatResponse
-	if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
+	if err := c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
 		final.Message.Content += cr.Message.Content
 		if cr.Done {
 			final.Done = true
@@ -190,6 +197,9 @@ func (c *GraphOllamaClient) GenerateChat(
 	messages []ai.ChatMessage,
 	opts ...ai.GenerateOption,
 ) (string, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	options := ai.GenerateOptions{
 		Model:         c.chatModel,
 		SystemPrompts: []string{},
@@ -243,14 +253,14 @@ func (c *GraphOllamaClient) GenerateChat(
 		req.Options["num_ctx"] = tokens
 	}
 
-	err = c.reqLock.Acquire(ctx, 1)
+	err = c.reqLock.Acquire(rCtx, 1)
 	if err != nil {
 		return "", err
 	}
 	defer c.reqLock.Release(1)
 
 	var final api.ChatResponse
-	if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
+	if err := c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
 		final.Message.Content += cr.Message.Content
 		if cr.Done {
 			final.Done = true
@@ -278,6 +288,8 @@ func (c *GraphOllamaClient) GenerateChatStream(
 	messages []ai.ChatMessage,
 	opts ...ai.GenerateOption,
 ) (<-chan ai.StreamEvent, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+
 	options := ai.GenerateOptions{
 		Model:         c.chatModel,
 		SystemPrompts: []string{},
@@ -317,6 +329,7 @@ func (c *GraphOllamaClient) GenerateChatStream(
 	tokens := 200
 	enc, err := tiktoken.GetEncoding("o200k_base")
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	var chatString strings.Builder
@@ -331,22 +344,24 @@ func (c *GraphOllamaClient) GenerateChatStream(
 		req.Options["num_ctx"] = tokens
 	}
 
-	if err := c.reqLock.Acquire(ctx, 1); err != nil {
+	if err := c.reqLock.Acquire(rCtx, 1); err != nil {
+		cancel()
 		return nil, err
 	}
 
 	out := make(chan ai.StreamEvent, 16)
 
 	go func() {
+		defer cancel()
 		defer c.reqLock.Release(1)
 		defer close(out)
 
-		_ = c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
+		_ = c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
 			if s := cr.Message.Content; s != "" {
 				select {
 				case out <- ai.StreamEvent{Type: "content", Content: s}:
-				case <-ctx.Done():
-					return ctx.Err()
+				case <-rCtx.Done():
+					return rCtx.Err()
 				}
 			}
 			if cr.Done {
@@ -368,6 +383,9 @@ func (c *GraphOllamaClient) GenerateChatStream(
 
 // LoadModel preloads a model into memory to reduce latency on subsequent requests.
 func (c *GraphOllamaClient) LoadModel(ctx context.Context, opts ...ai.GenerateOption) error {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	options := ai.GenerateOptions{
 		Model: c.chatModel,
 	}
@@ -379,12 +397,12 @@ func (c *GraphOllamaClient) LoadModel(ctx context.Context, opts ...ai.GenerateOp
 		Model: options.Model,
 	}
 
-	if err := c.reqLock.Acquire(ctx, 1); err != nil {
+	if err := c.reqLock.Acquire(rCtx, 1); err != nil {
 		return err
 	}
 	defer c.reqLock.Release(1)
 
-	if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
+	if err := c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
 		return nil
 	}); err != nil {
 		return err
@@ -433,6 +451,9 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 	tools []ai.Tool,
 	opts ...ai.GenerateOption,
 ) (string, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	options := ai.GenerateOptions{
 		Model:       c.chatModel,
 		Temperature: 0.3,
@@ -524,12 +545,12 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 			req.Options["num_ctx"] = tokens
 		}
 
-		if err := c.reqLock.Acquire(ctx, 1); err != nil {
+		if err := c.reqLock.Acquire(rCtx, 1); err != nil {
 			return "", err
 		}
 
 		var final api.ChatResponse
-		if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
+		if err := c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
 			final.Message.Content += cr.Message.Content
 			final.Message.ToolCalls = cr.Message.ToolCalls
 			if cr.Done {
@@ -575,7 +596,7 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 				return "", fmt.Errorf("failed to marshal tool arguments: %w", err)
 			}
 
-			result, err := handler(ctx, string(argsBytes))
+			result, err := handler(rCtx, string(argsBytes))
 			if err != nil {
 				return "", fmt.Errorf("tool %s failed: %w", tc.Function.Name, err)
 			}
@@ -599,6 +620,9 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 	tools []ai.Tool,
 	opts ...ai.GenerateOption,
 ) (string, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	options := ai.GenerateOptions{
 		Model:         c.chatModel,
 		SystemPrompts: []string{},
@@ -703,12 +727,12 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 			req.Options["num_ctx"] = tokens
 		}
 
-		if err := c.reqLock.Acquire(ctx, 1); err != nil {
+		if err := c.reqLock.Acquire(rCtx, 1); err != nil {
 			return "", err
 		}
 
 		var final api.ChatResponse
-		if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
+		if err := c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
 			final.Message.Content += cr.Message.Content
 			final.Message.ToolCalls = cr.Message.ToolCalls
 			if cr.Done {
@@ -755,7 +779,7 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 				return "", fmt.Errorf("failed to marshal tool arguments: %w", err)
 			}
 
-			result, err := handler(ctx, string(argsBytes))
+			result, err := handler(rCtx, string(argsBytes))
 			if err != nil {
 				return "", fmt.Errorf("tool %s failed: %w", tc.Function.Name, err)
 			}
@@ -779,6 +803,8 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 	tools []ai.Tool,
 	opts ...ai.GenerateOption,
 ) (<-chan ai.StreamEvent, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+
 	options := ai.GenerateOptions{
 		Model:         c.chatModel,
 		SystemPrompts: []string{},
@@ -869,6 +895,7 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 		tokens := 200
 		enc, err := tiktoken.GetEncoding("o200k_base")
 		if err != nil {
+			cancel()
 			return nil, err
 		}
 		var chatString strings.Builder
@@ -883,12 +910,13 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 			req.Options["num_ctx"] = tokens
 		}
 
-		if err := c.reqLock.Acquire(ctx, 1); err != nil {
+		if err := c.reqLock.Acquire(rCtx, 1); err != nil {
+			cancel()
 			return nil, err
 		}
 
 		var final api.ChatResponse
-		if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
+		if err := c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
 			final.Message.Content += cr.Message.Content
 			final.Message.ToolCalls = cr.Message.ToolCalls
 			if cr.Done {
@@ -899,6 +927,7 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 			return nil
 		}); err != nil {
 			c.reqLock.Release(1)
+			cancel()
 			return nil, err
 		}
 		c.reqLock.Release(1)
@@ -927,16 +956,19 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 			}
 
 			if handler == nil {
+				cancel()
 				return nil, fmt.Errorf("no handler found for tool: %s", tc.Function.Name)
 			}
 
 			argsBytes, err := json.Marshal(tc.Function.Arguments)
 			if err != nil {
+				cancel()
 				return nil, fmt.Errorf("failed to marshal tool arguments: %w", err)
 			}
 
-			result, err := handler(ctx, string(argsBytes))
+			result, err := handler(rCtx, string(argsBytes))
 			if err != nil {
+				cancel()
 				return nil, fmt.Errorf("tool %s failed: %w", tc.Function.Name, err)
 			}
 
@@ -947,13 +979,15 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 		}
 	}
 
-	if err := c.reqLock.Acquire(ctx, 1); err != nil {
+	if err := c.reqLock.Acquire(rCtx, 1); err != nil {
+		cancel()
 		return nil, err
 	}
 
 	out := make(chan ai.StreamEvent, 16)
 
 	go func() {
+		defer cancel()
 		defer c.reqLock.Release(1)
 		defer close(out)
 
@@ -988,12 +1022,12 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 			req.Options["num_ctx"] = tokens
 		}
 
-		_ = c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
+		_ = c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
 			if s := cr.Message.Content; s != "" {
 				select {
 				case out <- ai.StreamEvent{Type: "content", Content: s}:
-				case <-ctx.Done():
-					return ctx.Err()
+				case <-rCtx.Done():
+					return rCtx.Err()
 				}
 			}
 			if cr.Done {

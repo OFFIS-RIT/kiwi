@@ -18,6 +18,9 @@ func (c *GraphOpenAIClient) GenerateAudioTranscription(
 	audio []byte,
 	language string,
 ) (string, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	client := c.AudioClient
 	if client == nil {
 		return "", fmt.Errorf("audio client not configured")
@@ -32,14 +35,14 @@ func (c *GraphOpenAIClient) GenerateAudioTranscription(
 		params.Language = openai.String(language)
 	}
 
-	err := c.audioLock.Acquire(ctx, 1)
+	err := c.audioLock.Acquire(rCtx, 1)
 	if err != nil {
 		return "", err
 	}
 	defer c.audioLock.Release(1)
 
 	start := time.Now()
-	transcription, err := client.Audio.Transcriptions.New(ctx, params)
+	transcription, err := client.Audio.Transcriptions.New(rCtx, params)
 	if err != nil {
 		return "", err
 	}

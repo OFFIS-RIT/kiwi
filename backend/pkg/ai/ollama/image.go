@@ -3,6 +3,7 @@ package ollama
 import (
 	"context"
 	"encoding/base64"
+	"time"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
@@ -22,6 +23,9 @@ func (c *GraphOllamaClient) GenerateImageDescription(
 		return "", err
 	}
 
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	stream := false
 
 	req := &api.ChatRequest{
@@ -37,13 +41,13 @@ func (c *GraphOllamaClient) GenerateImageDescription(
 		Stream: &stream,
 	}
 
-	if err := c.reqLock.Acquire(ctx, 1); err != nil {
+	if err := c.reqLock.Acquire(rCtx, 1); err != nil {
 		return "", err
 	}
 	defer c.reqLock.Release(1)
 
 	var final api.ChatResponse
-	if err := c.Client.Chat(ctx, req, func(cr api.ChatResponse) error {
+	if err := c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
 		final = cr
 		return nil
 	}); err != nil {

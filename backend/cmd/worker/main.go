@@ -41,6 +41,7 @@ func main() {
 
 	adapter := util.GetEnv("AI_ADAPTER")
 	var aiClient ai.GraphAIClient
+	timeoutMin := int(util.GetEnvNumeric("AI_TIMEOUT", 3))
 
 	switch adapter {
 	case "ollama":
@@ -53,6 +54,7 @@ func main() {
 			ApiKey:  util.GetEnv("AI_EXTRACT_KEY"),
 
 			MaxConcurrentRequests: int64(util.GetEnvNumeric("AI_PARALLEL_REQ", 15)),
+			TimeoutMin:            timeoutMin,
 		})
 		if err != nil {
 			logger.Fatal("Could not create Ollama client", "err", err)
@@ -72,6 +74,7 @@ func main() {
 			ImageKey:     util.GetEnv("AI_IMAGE_KEY"),
 
 			MaxConcurrentRequests: int64(util.GetEnvNumeric("AI_PARALLEL_REQ", 15)),
+			TimeoutMin:            timeoutMin,
 		})
 	}
 
