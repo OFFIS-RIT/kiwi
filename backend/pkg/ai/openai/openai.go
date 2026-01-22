@@ -31,6 +31,8 @@ type GraphOpenAIClient struct {
 	audioURL     string
 	audioKey     string
 
+	timeoutMin int
+
 	chatLock      *semaphore.Weighted
 	embeddingLock *semaphore.Weighted
 	imageLock     *semaphore.Weighted
@@ -69,6 +71,7 @@ type NewGraphOpenAIClientParams struct {
 	AudioKey     string
 
 	MaxConcurrentRequests int64
+	TimeoutMin            int
 }
 
 // NewGraphAIClient creates and returns a new GraphAIClient configured with
@@ -95,6 +98,11 @@ func NewGraphOpenAIClient(
 	imageClient := newOpenaiClient(params.ImageURL, params.ImageKey)
 	audioClient := newOpenaiClient(params.AudioURL, params.AudioKey)
 
+	timeoutMin := params.TimeoutMin
+	if timeoutMin <= 0 {
+		timeoutMin = 10000
+	}
+
 	sem := semaphore.NewWeighted(params.MaxConcurrentRequests)
 
 	return &GraphOpenAIClient{
@@ -111,6 +119,8 @@ func NewGraphOpenAIClient(
 		imageKey:     params.ImageKey,
 		audioURL:     params.AudioURL,
 		audioKey:     params.AudioKey,
+
+		timeoutMin: timeoutMin,
 
 		chatLock:      sem,
 		embeddingLock: semaphore.NewWeighted(params.MaxConcurrentRequests),

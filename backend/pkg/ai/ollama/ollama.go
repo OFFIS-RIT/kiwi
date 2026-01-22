@@ -17,6 +17,7 @@ type GraphOllamaClient struct {
 	embeddingModel string
 	chatModel      string
 	imageModel     string
+	timeoutMin     int
 
 	reqLock *semaphore.Weighted
 
@@ -40,6 +41,7 @@ type NewGraphOllamaClientParams struct {
 	ApiKey  string
 
 	MaxConcurrentRequests int64
+	TimeoutMin            int
 }
 
 type headerTransport struct {
@@ -77,6 +79,11 @@ func NewGraphOllamaClient(
 		}
 	}
 
+	timeoutMin := params.TimeoutMin
+	if timeoutMin <= 0 {
+		timeoutMin = 10000
+	}
+
 	httpClient := &http.Client{
 		Transport: &headerTransport{
 			headers: map[string]string{
@@ -94,6 +101,7 @@ func NewGraphOllamaClient(
 		embeddingModel: params.EmbeddingModel,
 		chatModel:      params.ChatModel,
 		imageModel:     params.ImageModel,
+		timeoutMin:     timeoutMin,
 
 		reqLock: sem,
 

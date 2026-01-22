@@ -34,6 +34,9 @@ func (c *GraphOpenAIClient) GenerateEmbedding(ctx context.Context, input []byte)
 		return make([]float32, dim), nil
 	}
 
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	client := c.EmbeddingClient
 
 	body := openai.EmbeddingNewParams{
@@ -43,14 +46,14 @@ func (c *GraphOpenAIClient) GenerateEmbedding(ctx context.Context, input []byte)
 		Model: c.embeddingModel,
 	}
 
-	err := c.embeddingLock.Acquire(ctx, 1)
+	err := c.embeddingLock.Acquire(rCtx, 1)
 	if err != nil {
 		return nil, err
 	}
 	defer c.embeddingLock.Release(1)
 
 	start := time.Now()
-	response, err := client.Embeddings.New(ctx, body)
+	response, err := client.Embeddings.New(rCtx, body)
 	if err != nil {
 		return nil, err
 	}

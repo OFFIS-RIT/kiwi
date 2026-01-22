@@ -18,6 +18,9 @@ func (c *GraphOpenAIClient) GenerateImageDescription(
 	prompt string,
 	base64 loader.GraphBase64,
 ) (string, error) {
+	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
+	defer cancel()
+
 	client := c.ImageClient
 
 	url := fmt.Sprintf("%s%s", base64.FileType, base64.Base64)
@@ -33,14 +36,14 @@ func (c *GraphOpenAIClient) GenerateImageDescription(
 		},
 	}
 
-	err := c.imageLock.Acquire(ctx, 1)
+	err := c.imageLock.Acquire(rCtx, 1)
 	if err != nil {
 		return "", err
 	}
 	defer c.imageLock.Release(1)
 
 	start := time.Now()
-	response, err := client.Chat.Completions.New(ctx, body)
+	response, err := client.Chat.Completions.New(rCtx, body)
 	if err != nil {
 		return "", err
 	}

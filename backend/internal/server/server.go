@@ -77,8 +77,9 @@ func Init() {
 	masterAPIKey := util.GetEnv("MASTER_API_KEY")
 	masterUserID, _ := strconv.ParseInt(util.GetEnv("MASTER_USER_ID"), 10, 64)
 	masterUserRole := util.GetEnv("MASTER_USER_ROLE")
+	timeoutMin := int(util.GetEnvNumeric("AI_TIMEOUT", 10))
 
-	e.Use(mid.AppContextMiddleware(conn, ch, &k, s3, masterAPIKey, masterUserID, masterUserRole))
+	e.Use(mid.AppContextMiddleware(conn, ch, &k, s3, masterAPIKey, masterUserID, masterUserRole, timeoutMin))
 	e.Use(middleware.CORS())
 	e.Use(middleware.RequestLogger())
 	e.Use(middleware.Recover())

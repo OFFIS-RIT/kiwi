@@ -46,6 +46,7 @@ func AppContextMiddleware(
 	masterAPIKey string,
 	masterUserID int64,
 	masterUserRole string,
+	timeoutMin int,
 ) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -63,6 +64,7 @@ func AppContextMiddleware(
 					ApiKey:  util.GetEnv("AI_CHAT_KEY"),
 
 					MaxConcurrentRequests: int64(util.GetEnvNumeric("AI_PARALLEL_REQ", 15)),
+					TimeoutMin:            timeoutMin,
 				})
 				if err != nil {
 					logger.Fatal("Failed to create Ollama client", "err", err)
@@ -82,6 +84,7 @@ func AppContextMiddleware(
 					ImageKey:     util.GetEnv("AI_IMAGE_KEY"),
 
 					MaxConcurrentRequests: int64(util.GetEnvNumeric("AI_PARALLEL_REQ", 15)),
+					TimeoutMin:            timeoutMin,
 				})
 			}
 
