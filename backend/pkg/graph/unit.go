@@ -22,6 +22,20 @@ type processUnit struct {
 	text   string
 }
 
+type unitSegmentKind int
+
+const (
+	segmentText unitSegmentKind = iota
+	segmentTableRow
+)
+
+type unitSegment struct {
+	text        string
+	kind        unitSegmentKind
+	tableHeader string
+	tableID     int
+}
+
 type unitRequest struct {
 	text    string
 	file    loader.GraphFile
@@ -241,8 +255,8 @@ func transformIntoUnits(
 		return nil, err
 	}
 
-	sentences := splitIntoSentences(text)
-	if len(sentences) == 0 {
+	segments := splitIntoSegments(text)
+	if len(segments) == 0 {
 		return nil, nil
 	}
 
@@ -259,20 +273,14 @@ func transformIntoUnits(
 			return err
 		}
 
-		var chunkText strings.Builder
-		for i := chunkStart; i < chunkEnd; i++ {
-			if i > chunkStart {
-				chunkText.WriteString(" ")
-			}
-			chunkText.WriteString(sentences[i])
-		}
+		chunkText := buildChunkText(segments, chunkStart, chunkEnd)
 
 		unit := processUnit{
 			id:     uID,
 			fileID: fileId,
 			start:  chunkStart,
 			end:    chunkEnd,
-			text:   strings.TrimSpace(chunkText.String()),
+			text:   strings.TrimSpace(chunkText),
 		}
 		chunks = append(chunks, unit)
 		chunkStart = -1
@@ -280,22 +288,15 @@ func transformIntoUnits(
 		return nil
 	}
 
-	for i := range sentences {
+	for i := range segments {
 		if chunkStart < 0 {
 			chunkStart = i
 			chunkEnd = i + 1
 			continue
 		}
 
-		var testText strings.Builder
-		for j := chunkStart; j <= i; j++ {
-			if j > chunkStart {
-				testText.WriteString(" ")
-			}
-			testText.WriteString(sentences[j])
-		}
-
-		testTokens := len(enc.Encode(testText.String(), nil, nil))
+		testText := buildChunkText(segments, chunkStart, i+1)
+		testTokens := len(enc.Encode(testText, nil, nil))
 
 		if testTokens <= maxTokens {
 			chunkEnd = i + 1
@@ -313,6 +314,53 @@ func transformIntoUnits(
 	}
 
 	return chunks, nil
+}
+
+func buildChunkText(segments []unitSegment, start, end int) string {
+	var chunkText strings.Builder
+	currentTableID := -1
+	lastKind := segmentText
+	hasContent := false
+
+	for i := start; i < end; i++ {
+		segment := segments[i]
+
+		if segment.kind == segmentTableRow && segment.tableHeader != "" && segment.tableID != currentTableID {
+			if hasContent {
+				chunkText.WriteString("\n")
+			}
+			chunkText.WriteString(segment.tableHeader)
+			chunkText.WriteString("\n")
+			chunkText.WriteString(segment.text)
+			hasContent = true
+			currentTableID = segment.tableID
+			lastKind = segmentTableRow
+			continue
+		}
+
+		if hasContent {
+			if segment.kind == segmentTableRow {
+				chunkText.WriteString("\n")
+			} else if lastKind == segmentTableRow {
+				chunkText.WriteString("\n")
+			} else {
+				chunkText.WriteString(" ")
+			}
+		}
+
+		chunkText.WriteString(segment.text)
+		hasContent = true
+
+		if segment.kind == segmentTableRow {
+			currentTableID = segment.tableID
+			lastKind = segmentTableRow
+		} else {
+			currentTableID = -1
+			lastKind = segmentText
+		}
+	}
+
+	return chunkText.String()
 }
 
 func getUnitsFromText(
@@ -336,6 +384,142 @@ func getUnitsFromText(
 		encoder: encoder,
 	}
 	return unitBuilderForFileType(file.FileType).buildUnits(req)
+}
+
+func splitIntoSegments(text string) []unitSegment {
+	lines := strings.Split(text, "\n")
+	var segments []unitSegment
+	var currentSentence strings.Builder
+
+	appendSentence := func() {
+		if currentSentence.Len() == 0 {
+			return
+		}
+		segments = append(segments, unitSegment{
+			text: strings.TrimSpace(currentSentence.String()),
+			kind: segmentText,
+		})
+		currentSentence.Reset()
+	}
+
+	tableDelimRe := regexp.MustCompile(`^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$`)
+
+	isTableRow := func(line string) bool {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			return false
+		}
+		return strings.Contains(trimmed, "|")
+	}
+
+	inTable := false
+	tableID := 0
+	tableHeader := ""
+	tableHasRows := false
+
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimRight(lines[i], "\r")
+		trimmed := strings.TrimSpace(line)
+
+		if !inTable && isTableRow(line) && i+1 < len(lines) && tableDelimRe.MatchString(strings.TrimSpace(lines[i+1])) {
+			appendSentence()
+			inTable = true
+			tableID++
+			tableHeader = line + "\n" + strings.TrimRight(lines[i+1], "\r")
+			tableHasRows = false
+			i++
+			continue
+		}
+
+		if inTable {
+			if trimmed == "" || !isTableRow(line) {
+				if !tableHasRows && tableHeader != "" {
+					segments = append(segments, unitSegment{
+						text: tableHeader,
+						kind: segmentText,
+					})
+				}
+				inTable = false
+				tableHeader = ""
+				tableHasRows = false
+				if trimmed == "" {
+					appendSentence()
+					continue
+				}
+				lineSentences := splitLineIntoSentences(trimmed)
+				for _, sentence := range lineSentences {
+					if currentSentence.Len() > 0 {
+						currentSentence.WriteString(" ")
+					}
+					currentSentence.WriteString(sentence)
+
+					if strings.HasSuffix(strings.TrimSpace(sentence), ".") ||
+						strings.HasSuffix(strings.TrimSpace(sentence), "!") ||
+						strings.HasSuffix(strings.TrimSpace(sentence), "?") {
+						appendSentence()
+					}
+				}
+				continue
+			}
+
+			segments = append(segments, unitSegment{
+				text:        line,
+				kind:        segmentTableRow,
+				tableHeader: tableHeader,
+				tableID:     tableID,
+			})
+			tableHasRows = true
+			continue
+		}
+
+		if !inTable && isTableRow(line) {
+			appendSentence()
+			if trimmed != "" {
+				segments = append(segments, unitSegment{
+					text: trimmed,
+					kind: segmentText,
+				})
+			}
+			continue
+		}
+
+		if trimmed == "" {
+			appendSentence()
+			continue
+		}
+
+		lineSentences := splitLineIntoSentences(trimmed)
+		for _, sentence := range lineSentences {
+			if currentSentence.Len() > 0 {
+				currentSentence.WriteString(" ")
+			}
+			currentSentence.WriteString(sentence)
+
+			if strings.HasSuffix(strings.TrimSpace(sentence), ".") ||
+				strings.HasSuffix(strings.TrimSpace(sentence), "!") ||
+				strings.HasSuffix(strings.TrimSpace(sentence), "?") {
+				appendSentence()
+			}
+		}
+	}
+
+	if inTable && !tableHasRows && tableHeader != "" {
+		segments = append(segments, unitSegment{
+			text: tableHeader,
+			kind: segmentText,
+		})
+	}
+
+	appendSentence()
+
+	var result []unitSegment
+	for _, segment := range segments {
+		if strings.TrimSpace(segment.text) != "" {
+			result = append(result, segment)
+		}
+	}
+
+	return result
 }
 
 func splitIntoSentences(text string) []string {
