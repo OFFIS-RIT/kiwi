@@ -604,7 +604,7 @@ Your goal is to provide the most complete, accurate, and source-grounded answer 
 - Return only the direct answer (no introduction or concluding summary).
 - Format your answer in Markdown.
 - Always respond in the same language as the question.
-- **Never leak internal IDs or Names:** Do not include any internal Entity/Relationship IDs or Names in your answer. Only use the Names and IDs found in the text sentences and Sources IDs for citations.**
+- **Never leak internal IDs or Names:** Do not include any internal Entity/Relationship IDs or Names in your answer. Only use the Names and IDs found in the text sentences and Sources IDs for citations.
 - **When referencing an entity or relationship never leak its id. Use a user friendly name (language of the user).**
 - **Only use the ids of sources provided by the data or chat history for citing. Wrap it in [[]].**
 `
