@@ -41,7 +41,7 @@ export async function createProject(
   groupId: string,
   name: string,
   files: File[],
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number, loaded: number, total: number) => void
 ): Promise<CreateProjectResponse> {
   const formData = new FormData();
   formData.append("group_id", groupId);
@@ -91,7 +91,7 @@ export async function fetchProjectFiles(
 export async function addFilesToProject(
   projectId: string,
   files: File[],
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number, loaded: number, total: number) => void
 ) {
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
