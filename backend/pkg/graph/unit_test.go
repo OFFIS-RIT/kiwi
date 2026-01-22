@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
+	"github.com/pkoukk/tiktoken-go"
 )
 
 func TestSplitIntoSentences(t *testing.T) {
@@ -227,6 +228,84 @@ func TestGetUnitsFromText(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTransformIntoUnitsMarkdownTableChunking(t *testing.T) {
+	enc, err := tiktoken.GetEncoding("cl100k_base")
+	if err != nil {
+		t.Fatalf("GetEncoding error = %v", err)
+	}
+
+	t.Run("split table rows with header repetition", func(t *testing.T) {
+		header := "| Col1 | Col2 |"
+		delimiter := "|------|------|"
+		rows := []string{"| A | B |", "| C | D |", "| E | F |"}
+
+		tableOnly := strings.Join([]string{header, delimiter, rows[0], rows[1], rows[2]}, "\n")
+		rowChunk := strings.Join([]string{header, delimiter, rows[0]}, "\n")
+		maxTokens := len(enc.Encode(rowChunk, nil, nil))
+		if len(enc.Encode(strings.Join([]string{header, delimiter, rows[0], rows[1]}, "\n"), nil, nil)) <= maxTokens {
+			maxTokens = maxTokens - 1
+			if maxTokens < 1 {
+				maxTokens = 1
+			}
+		}
+
+		units, err := transformIntoUnits(tableOnly, "test.txt", "cl100k_base", maxTokens)
+		if err != nil {
+			t.Fatalf("transformIntoUnits error = %v", err)
+		}
+		if len(units) != len(rows) {
+			t.Fatalf("transformIntoUnits returned %d units, want %d", len(units), len(rows))
+		}
+
+		for i, row := range rows {
+			wantText := strings.Join([]string{header, delimiter, row}, "\n")
+			gotText := strings.TrimSpace(units[i].text)
+			if gotText != wantText {
+				t.Errorf("unit[%d].text = %q, want %q", i, gotText, wantText)
+			}
+		}
+	})
+
+	t.Run("table chunking with surrounding text", func(t *testing.T) {
+		intro := "Intro sentence with extra context for chunking."
+		outro := "Outro."
+		header := "| Name | Value |"
+		delimiter := "|------|-------|"
+		row1 := "| VeryLongValue | 1234567890 |"
+		row2 := "| Short | 1 |"
+
+		fullText := strings.Join([]string{intro, header, delimiter, row1, row2, outro}, "\n")
+		chunk1 := strings.Join([]string{intro, header, delimiter, row1}, "\n")
+		chunk1WithRow2 := strings.Join([]string{intro, header, delimiter, row1, row2}, "\n")
+		chunk2 := strings.Join([]string{header, delimiter, row2, outro}, "\n")
+
+		chunk1Tokens := len(enc.Encode(chunk1, nil, nil))
+		chunk2Tokens := len(enc.Encode(chunk2, nil, nil))
+		maxTokens := chunk1Tokens
+		if chunk2Tokens > maxTokens {
+			maxTokens = chunk2Tokens
+		}
+		if len(enc.Encode(chunk1WithRow2, nil, nil)) <= maxTokens {
+			t.Fatalf("test setup invalid: table should split before second row")
+		}
+
+		units, err := transformIntoUnits(fullText, "test.txt", "cl100k_base", maxTokens)
+		if err != nil {
+			t.Fatalf("transformIntoUnits error = %v", err)
+		}
+		if len(units) != 2 {
+			t.Fatalf("transformIntoUnits returned %d units, want 2", len(units))
+		}
+
+		if strings.TrimSpace(units[0].text) != chunk1 {
+			t.Errorf("unit[0].text = %q, want %q", strings.TrimSpace(units[0].text), chunk1)
+		}
+		if strings.TrimSpace(units[1].text) != chunk2 {
+			t.Errorf("unit[1].text = %q, want %q", strings.TrimSpace(units[1].text), chunk2)
+		}
+	})
 }
 
 type mockLoader struct {
