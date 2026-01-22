@@ -79,7 +79,6 @@ components/         # Feature-based component folders
 hooks/
   use-data.ts       # TanStack Query hooks (groups, projects, files)
   use-local-storage.ts
-  use-project-events.ts
 
 lib/
   api/

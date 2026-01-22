@@ -15,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useProjectEvents } from "@/hooks/use-project-events";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { queryProjectStream } from "@/lib/api/projects";
 import { getChatStorageKey } from "@/lib/utils";
@@ -120,8 +119,6 @@ export function ProjectChat({
     speak: speakText,
     stop: stopSpeaking,
   } = useSpeechSynthesis(language);
-
-  useProjectEvents(projectId);
 
   const CHAT_STORAGE_KEY = useMemo(
     () => getChatStorageKey(projectId),
