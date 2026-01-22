@@ -258,15 +258,6 @@ func (g *GraphClient) MergeFromStaging(
 	}
 
 	logger.Info("[Graph] Cross-document deduplication completed")
-	logger.Info("[Graph] Starting description generation")
-
-	err = storeClient.GenerateDescriptions(ctx, files)
-	if err != nil {
-		rollbackFiles(ctx, files, graphID, storeClient)
-		return fmt.Errorf("failed to generate descriptions: %w", err)
-	}
-
-	logger.Info("[Graph] Descriptions generated")
 	logger.Info("[Graph] Merge from staging completed", "batch_id", batchID)
 
 	return nil

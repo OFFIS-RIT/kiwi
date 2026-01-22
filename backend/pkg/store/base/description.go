@@ -120,7 +120,6 @@ func (s *GraphDBStorage) generateEntityDescription(
 ) error {
 	q := db.New(s.conn)
 
-	// Check if entity has new sources (sources from newUnitIDs)
 	newSourceCount, err := q.CountEntitySourcesFromUnits(ctx, db.CountEntitySourcesFromUnitsParams{
 		EntityID: entityID,
 		Column2:  newUnitIDs,
@@ -175,7 +174,6 @@ func (s *GraphDBStorage) generateRelationshipDescription(
 ) error {
 	q := db.New(s.conn)
 
-	// Check if relationship has new sources
 	newSourceCount, err := q.CountRelationshipSourcesFromUnits(ctx, db.CountRelationshipSourcesFromUnitsParams{
 		RelationshipID: relationshipID,
 		Column2:        newUnitIDs,
@@ -246,7 +244,6 @@ func (s *GraphDBStorage) generateDescription(
 
 	var currentDescription string
 
-	// Process descriptions in batches
 	for i := 0; i < len(descriptions); i += descriptionBatchSize {
 		end := min(i+descriptionBatchSize, len(descriptions))
 		batch := descriptions[i:end]

@@ -342,7 +342,14 @@ func ProcessGraphMessage(
 
 		allDone, checkErr := q.AreAllBatchesCompleted(ctx, data.CorrelationID)
 		if checkErr == nil && allDone {
-			logger.Info("[Queue] All batches completed", "correlation_id", data.CorrelationID)
+			logger.Info("[Queue] All batches completed, starting description generation", "correlation_id", data.CorrelationID)
+
+			err := FinalizeDescriptionsForCorrelation(ctx, s3Client, conn, aiClient, data.CorrelationID, projectId)
+			if err != nil {
+				logger.Error("[Queue] Failed to generate descriptions for correlation", "correlation_id", data.CorrelationID, "err", err)
+			} else {
+				logger.Info("[Queue] Description generation completed", "correlation_id", data.CorrelationID)
+			}
 		}
 	}
 
@@ -1007,4 +1014,75 @@ func ResetBatchStatusForRetry(
 			BatchID:       int32(data.BatchID),
 		})
 	}
+}
+
+// FinalizeDescriptionsForCorrelation generates descriptions for all entities/relationships
+// that have new sources from the batches in the given correlation ID.
+func FinalizeDescriptionsForCorrelation(
+	ctx context.Context,
+	s3Client *awss3.Client,
+	conn *pgxpool.Pool,
+	aiClient ai.GraphAIClient,
+	correlationID string,
+	projectID int64,
+) error {
+	q := db.New(conn)
+
+	batches, err := q.GetBatchesByCorrelation(ctx, correlationID)
+	if err != nil {
+		return fmt.Errorf("failed to get batches: %w", err)
+	}
+
+	fileIDSet := make(map[int64]struct{})
+	for _, batch := range batches {
+		for _, fid := range batch.FileIds {
+			fileIDSet[fid] = struct{}{}
+		}
+	}
+
+	if len(fileIDSet) == 0 {
+		logger.Debug("[Queue] No files to generate descriptions for", "correlation_id", correlationID)
+		return nil
+	}
+
+	fileIDs := make([]int64, 0, len(fileIDSet))
+	for fid := range fileIDSet {
+		fileIDs = append(fileIDs, fid)
+	}
+
+	projectFiles, err := q.GetProjectFilesForBatch(ctx, fileIDs)
+	if err != nil {
+		return fmt.Errorf("failed to get project files: %w", err)
+	}
+
+	s3Bucket := util.GetEnvString("AWS_BUCKET", "kiwi")
+	s3L := s3.NewS3GraphFileLoaderWithClient(s3Bucket, s3Client)
+	files := make([]loader.GraphFile, 0, len(projectFiles))
+
+	for _, pf := range projectFiles {
+		f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
+			ID:        fmt.Sprintf("%d", pf.ID),
+			FilePath:  pf.FileKey,
+			MaxTokens: 500,
+			Loader:    s3L,
+		})
+		files = append(files, f)
+	}
+
+	logger.Info("[Queue] Starting description generation with retry", "correlation_id", correlationID, "file_count", len(files))
+
+	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, conn, aiClient, []string{})
+	if err != nil {
+		return fmt.Errorf("failed to create storage client: %w", err)
+	}
+
+	err = util.RetryErrWithContext(ctx, 3, func(ctx context.Context) error {
+		return storageClient.GenerateDescriptions(ctx, files)
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to generate descriptions after retries: %w", err)
+	}
+
+	return nil
 }
