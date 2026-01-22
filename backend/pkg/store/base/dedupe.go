@@ -3,13 +3,17 @@ package base
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
+
+const maxDedupeIterations = 100
 
 // entityPair represents two potentially duplicate entities
 type entityPair struct {
@@ -51,56 +55,47 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 
 	qtx := db.New(s.conn).WithTx(tx)
 
-	// 1. Find similar entity pairs using pg_trgm
-	pairs, err := s.findSimilarEntityPairs(ctx, qtx, projectID)
-	if err != nil {
-		return fmt.Errorf("failed to find similar entities: %w", err)
-	}
-
-	if len(pairs) == 0 {
-		return tx.Commit(ctx)
-	}
-
-	groups := buildConnectedComponents(pairs)
-
-	for _, group := range groups {
-		if len(group) <= 1 {
-			continue
-		}
-
-		entities, err := s.getEntitiesWithMeta(ctx, qtx, group)
+	for iteration := 1; iteration <= maxDedupeIterations; iteration++ {
+		pairs, err := s.findSimilarEntityPairs(ctx, qtx, projectID)
 		if err != nil {
-			return fmt.Errorf("failed to get entities: %w", err)
+			return fmt.Errorf("failed to find similar entities: %w", err)
+		}
+		if len(pairs) == 0 {
+			logger.Debug("[Dedupe] No similar entity pairs found", "iteration", iteration)
+			break
 		}
 
-		commonEntities := make([]common.Entity, len(entities))
-		for i, e := range entities {
-			commonEntities[i] = e.Entity
+		groups := buildConnectedComponents(pairs)
+		logger.Debug("[Dedupe] Processing entity groups", "iteration", iteration, "groups", len(groups))
+
+		iterationMerged := false
+		for _, group := range groups {
+			if len(group) <= 1 {
+				continue
+			}
+			merged, err := s.dedupeEntityGroup(ctx, qtx, projectID, group, aiClient, iteration)
+			if err != nil {
+				return fmt.Errorf("failed to merge entities: %w", err)
+			}
+			if merged {
+				iterationMerged = true
+			}
 		}
 
-		batchSize := ai.GetDedupeBatchSize()
-		if len(commonEntities) > batchSize {
-			// NOTE: Large connected components are truncated to batch size.
-			// Entities beyond this limit won't be processed in this pass.
-			// This is a performance tradeoff to limit AI call size.
-			commonEntities = commonEntities[:batchSize]
-			entities = entities[:batchSize]
-		}
-
-		dupeResponse, err := ai.CallDedupeAI(ctx, commonEntities, aiClient, 3)
+		err = s.dedupeRelationships(ctx, qtx, projectID)
 		if err != nil {
-			return fmt.Errorf("AI dedupe failed: %w", err)
+			return fmt.Errorf("failed to dedupe relationships: %w", err)
 		}
 
-		err = s.applyEntityMerges(ctx, qtx, projectID, entities, dupeResponse)
-		if err != nil {
-			return fmt.Errorf("failed to merge entities: %w", err)
+		if !iterationMerged {
+			logger.Warn("[Dedupe] No merges detected in iteration", "iteration", iteration)
+			break
 		}
-	}
 
-	err = s.dedupeRelationships(ctx, qtx, projectID)
-	if err != nil {
-		return fmt.Errorf("failed to dedupe relationships: %w", err)
+		if iteration == maxDedupeIterations {
+			logger.Warn("[Dedupe] Max iterations reached before convergence", "iteration", iteration)
+			break
+		}
 	}
 
 	return tx.Commit(ctx)
@@ -303,6 +298,100 @@ func (s *GraphDBStorage) applyEntityMerges(
 	}
 
 	return nil
+}
+
+func (s *GraphDBStorage) dedupeEntityGroup(
+	ctx context.Context,
+	qtx *db.Queries,
+	projectID int64,
+	group []int64,
+	aiClient ai.GraphAIClient,
+	iteration int,
+) (bool, error) {
+	entities, err := s.getEntitiesWithMeta(ctx, qtx, group)
+	if err != nil {
+		return false, fmt.Errorf("failed to get entities: %w", err)
+	}
+	if len(entities) <= 1 {
+		return false, nil
+	}
+
+	batchSize := ai.GetDedupeBatchSize()
+	ordered := reorderEntitiesWithMeta(entities, iteration, batchSize)
+	merged := false
+
+	for i := 0; i < len(ordered); i += batchSize {
+		end := i + batchSize
+		if end > len(ordered) {
+			end = len(ordered)
+		}
+		chunk := ordered[i:end]
+		commonEntities := make([]common.Entity, len(chunk))
+		for idx, e := range chunk {
+			commonEntities[idx] = e.Entity
+		}
+
+		dupeResponse, err := ai.CallDedupeAI(ctx, commonEntities, aiClient, 3)
+		if err != nil {
+			return false, fmt.Errorf("AI dedupe failed: %w", err)
+		}
+		if !hasDuplicateGroups(dupeResponse) {
+			continue
+		}
+
+		if err := s.applyEntityMerges(ctx, qtx, projectID, chunk, dupeResponse); err != nil {
+			return false, err
+		}
+		merged = true
+	}
+
+	return merged, nil
+}
+
+func hasDuplicateGroups(res *ai.DuplicatesResponse) bool {
+	for _, group := range res.Duplicates {
+		if len(group.Entities) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func reorderEntitiesWithMeta(entities []entityWithMeta, iteration int, batchSize int) []entityWithMeta {
+	reordered := make([]entityWithMeta, len(entities))
+	copy(reordered, entities)
+
+	switch iteration % 3 {
+	case 1:
+		return reordered
+	case 2:
+		return interleaveEntitiesWithMeta(reordered, batchSize)
+	default:
+		sort.Slice(reordered, func(i, j int) bool {
+			left := strings.ToUpper(strings.TrimSpace(reordered[i].Name)) + "|" + strings.ToUpper(strings.TrimSpace(reordered[i].Type))
+			right := strings.ToUpper(strings.TrimSpace(reordered[j].Name)) + "|" + strings.ToUpper(strings.TrimSpace(reordered[j].Type))
+			return left < right
+		})
+		return reordered
+	}
+}
+
+func interleaveEntitiesWithMeta(entities []entityWithMeta, batchSize int) []entityWithMeta {
+	if batchSize <= 0 {
+		return entities
+	}
+
+	batchCount := (len(entities) + batchSize - 1) / batchSize
+	result := make([]entityWithMeta, 0, len(entities))
+	for i := 0; i < batchSize; i++ {
+		for batch := 0; batch < batchCount; batch++ {
+			idx := batch*batchSize + i
+			if idx < len(entities) {
+				result = append(result, entities[idx])
+			}
+		}
+	}
+	return result
 }
 
 // dedupeRelationships merges duplicate relationships (same source-target pair)

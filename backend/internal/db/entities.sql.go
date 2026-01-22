@@ -13,7 +13,15 @@ import (
 
 const addProjectEntity = `-- name: AddProjectEntity :one
 INSERT INTO entities (public_id, project_id, name, description, type, embedding)
-VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (public_id) DO UPDATE
+SET project_id = EXCLUDED.project_id,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    type = EXCLUDED.type,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+RETURNING id
 `
 
 type AddProjectEntityParams struct {
@@ -41,7 +49,14 @@ func (q *Queries) AddProjectEntity(ctx context.Context, arg AddProjectEntityPara
 
 const addProjectEntitySource = `-- name: AddProjectEntitySource :one
 INSERT INTO entity_sources (public_id, entity_id, text_unit_id, description, embedding)
-VALUES ($1, $2, $3, $4, $5) RETURNING id
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (public_id) DO UPDATE
+SET entity_id = EXCLUDED.entity_id,
+    text_unit_id = EXCLUDED.text_unit_id,
+    description = EXCLUDED.description,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+RETURNING id
 `
 
 type AddProjectEntitySourceParams struct {

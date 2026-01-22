@@ -3,14 +3,18 @@ package graph
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
+
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
-	"strings"
 
 	_ "github.com/invopop/jsonschema"
 )
+
+const maxDedupeIterations = 100
 
 func (g *GraphClient) callDedupeAI(
 	ctx context.Context,
@@ -26,42 +30,97 @@ func (g *GraphClient) dedupeEntitiesAndRelations(
 	relations []common.Relationship,
 	aiClient ai.GraphAIClient,
 ) ([]common.Entity, []common.Relationship, error) {
-	entityCount := len(entities)
-	batchSize := ai.GetDedupeBatchSize()
-
-	if entityCount <= batchSize {
-		logger.Debug("[Dedupe] Deduplicating entities in a single batch", "count", entityCount)
-		return g.dedupeEntitiesSingleBatch(ctx, entities, relations, aiClient)
-	}
-
-	batchCount := (entityCount + batchSize - 1) / batchSize
-	logger.Debug("[Dedupe] Deduplicating entities in batches", "count", entityCount, "batches", batchCount)
-	return g.dedupeEntitiesInBatches(ctx, entities, relations, aiClient)
+	return g.dedupeEntitiesStrict(ctx, entities, relations, aiClient)
 }
 
-func (g *GraphClient) dedupeEntitiesSingleBatch(
+func (g *GraphClient) dedupeEntitiesStrict(
 	ctx context.Context,
 	entities []common.Entity,
 	relations []common.Relationship,
 	aiClient ai.GraphAIClient,
 ) ([]common.Entity, []common.Relationship, error) {
+	if len(entities) == 0 {
+		return entities, relations, nil
+	}
+
+	batchSize := ai.GetDedupeBatchSize()
+	dedupedEntities := entities
+	dedupedRelations := relations
+	var lastIterationHadDuplicates bool
+
+	for iteration := 1; iteration <= maxDedupeIterations; iteration++ {
+		prevCount := len(dedupedEntities)
+		orderedEntities := reorderEntitiesForIteration(dedupedEntities, iteration, batchSize)
+
+		var hadDuplicates bool
+		var err error
+		if len(orderedEntities) <= batchSize {
+			logger.Debug("[Dedupe] Deduplicating entities in a single batch", "count", len(orderedEntities), "iteration", iteration)
+			dedupedEntities, dedupedRelations, hadDuplicates, err = g.dedupeEntitiesSingleBatchWithMeta(ctx, orderedEntities, dedupedRelations, aiClient)
+		} else {
+			batchCount := (len(orderedEntities) + batchSize - 1) / batchSize
+			logger.Debug("[Dedupe] Deduplicating entities in batches", "count", len(orderedEntities), "batches", batchCount, "iteration", iteration)
+			dedupedEntities, dedupedRelations, hadDuplicates, err = g.dedupeEntitiesInBatchesOnce(ctx, orderedEntities, dedupedRelations, aiClient)
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+
+		lastIterationHadDuplicates = hadDuplicates
+		logger.Debug("[Dedupe] Iteration completed", "iteration", iteration, "count", len(dedupedEntities), "duplicates", hadDuplicates)
+
+		if !hadDuplicates || len(dedupedEntities) == prevCount {
+			if iteration == maxDedupeIterations && hadDuplicates {
+				logger.Warn("[Dedupe] Max iterations reached with remaining duplicates", "count", len(dedupedEntities), "iteration", iteration)
+			}
+			break
+		}
+
+		if iteration == maxDedupeIterations {
+			logger.Warn("[Dedupe] Max iterations reached before convergence", "count", len(dedupedEntities), "iteration", iteration)
+			break
+		}
+	}
+
+	if lastIterationHadDuplicates {
+		logger.Debug("[Dedupe] Deduplication finished with possible remaining duplicates", "count", len(dedupedEntities))
+	}
+
+	return dedupedEntities, dedupedRelations, nil
+}
+
+func (g *GraphClient) dedupeEntitiesSingleBatchWithMeta(
+	ctx context.Context,
+	entities []common.Entity,
+	relations []common.Relationship,
+	aiClient ai.GraphAIClient,
+) ([]common.Entity, []common.Relationship, bool, error) {
 	res, err := g.callDedupeAI(ctx, entities, aiClient)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 
-	return g.applyDeduplication(entities, relations, res)
+	if !hasDuplicateGroups(res) {
+		return entities, relations, false, nil
+	}
+
+	dedupedEntities, dedupedRelations, err := g.applyDeduplication(entities, relations, res)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	return dedupedEntities, dedupedRelations, true, nil
 }
 
-func (g *GraphClient) dedupeEntitiesInBatches(
+func (g *GraphClient) dedupeEntitiesInBatchesOnce(
 	ctx context.Context,
 	entities []common.Entity,
 	relations []common.Relationship,
 	aiClient ai.GraphAIClient,
-) ([]common.Entity, []common.Relationship, error) {
+) ([]common.Entity, []common.Relationship, bool, error) {
 	var allDedupedEntities []common.Entity
 	var allDedupedRelations []common.Relationship
 	batchSize := ai.GetDedupeBatchSize()
+	duplicatesFound := false
 
 	for i := 0; i < len(entities); i += batchSize {
 		end := util.Min(i+batchSize, len(entities))
@@ -69,25 +128,65 @@ func (g *GraphClient) dedupeEntitiesInBatches(
 		batchEntities := entities[i:end]
 		batchRelations := g.getRelationsForEntities(batchEntities, relations)
 
-		dedupedE, dedupedR, err := g.dedupeEntitiesSingleBatch(ctx, batchEntities, batchRelations, aiClient)
+		dedupedE, dedupedR, hadDuplicates, err := g.dedupeEntitiesSingleBatchWithMeta(ctx, batchEntities, batchRelations, aiClient)
 		if err != nil {
-			return nil, nil, fmt.Errorf("batch %d failed: %w", i/batchSize+1, err)
+			return nil, nil, false, fmt.Errorf("batch %d failed: %w", i/batchSize+1, err)
+		}
+		if hadDuplicates {
+			duplicatesFound = true
 		}
 
 		allDedupedEntities = append(allDedupedEntities, dedupedE...)
 		allDedupedRelations = append(allDedupedRelations, dedupedR...)
 	}
 
-	if len(allDedupedEntities) <= batchSize {
-		logger.Debug("[Dedupe] Performing cross-batch deduplication", "count", len(allDedupedEntities))
-		return g.dedupeEntitiesSingleBatch(ctx, allDedupedEntities, allDedupedRelations, aiClient)
+	return allDedupedEntities, allDedupedRelations, duplicatesFound, nil
+}
+
+func hasDuplicateGroups(res *ai.DuplicatesResponse) bool {
+	for _, group := range res.Duplicates {
+		if len(group.Entities) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func reorderEntitiesForIteration(entities []common.Entity, iteration int, batchSize int) []common.Entity {
+	reordered := make([]common.Entity, len(entities))
+	copy(reordered, entities)
+
+	switch iteration % 3 {
+	case 1:
+		return reordered
+	case 2:
+		return interleaveEntities(reordered, batchSize)
+	default:
+		sort.Slice(reordered, func(i, j int) bool {
+			left := strings.ToUpper(strings.TrimSpace(reordered[i].Name)) + "|" + strings.ToUpper(strings.TrimSpace(reordered[i].Type))
+			right := strings.ToUpper(strings.TrimSpace(reordered[j].Name)) + "|" + strings.ToUpper(strings.TrimSpace(reordered[j].Type))
+			return left < right
+		})
+		return reordered
+	}
+}
+
+func interleaveEntities(entities []common.Entity, batchSize int) []common.Entity {
+	if batchSize <= 0 {
+		return entities
 	}
 
-	// NOTE: When entity count exceeds batch size after initial deduplication,
-	// cross-batch deduplication is skipped. Duplicates spanning batches may remain.
-	// This is a performance tradeoff to avoid excessive AI calls.
-	logger.Warn("[Dedupe] Cross-batch deduplication skipped; entity count still exceeds batch size", "count", len(allDedupedEntities))
-	return allDedupedEntities, allDedupedRelations, nil
+	batchCount := (len(entities) + batchSize - 1) / batchSize
+	result := make([]common.Entity, 0, len(entities))
+	for i := range batchSize {
+		for batch := range batchCount {
+			idx := batch*batchSize + i
+			if idx < len(entities) {
+				result = append(result, entities[idx])
+			}
+		}
+	}
+	return result
 }
 
 func (g *GraphClient) getRelationsForEntities(

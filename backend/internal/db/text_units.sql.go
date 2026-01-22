@@ -13,7 +13,12 @@ import (
 
 const addProjectFileTextUnit = `-- name: AddProjectFileTextUnit :one
 INSERT INTO text_units (public_id, project_file_id, text)
-VALUES ($1, $2, $3) RETURNING id
+VALUES ($1, $2, $3)
+ON CONFLICT (public_id) DO UPDATE
+SET project_file_id = EXCLUDED.project_file_id,
+    text = EXCLUDED.text,
+    updated_at = NOW()
+RETURNING id
 `
 
 type AddProjectFileTextUnitParams struct {
