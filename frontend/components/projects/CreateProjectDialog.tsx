@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createProject } from "@/lib/api/projects";
+import { formatBytes } from "@/lib/utils";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
@@ -75,14 +76,6 @@ export function CreateProjectDialog({
       setUploadSpeed(0);
     }
   }, [open, groupId, groups]);
-
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-  };
 
   const handleGroupChange = (value: string) => {
     setSelectedGroup(value);

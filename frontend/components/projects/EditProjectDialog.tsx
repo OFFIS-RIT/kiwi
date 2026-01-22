@@ -22,7 +22,7 @@ import {
   fetchProjectFiles,
   updateProject,
 } from "@/lib/api/projects";
-import { cn } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { ApiProjectFile } from "@/types";
@@ -95,14 +95,6 @@ export function EditProjectDialog({
       setUploadSpeed(0);
     }
   }, [project, open, loadProjectFiles]);
-
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-  };
 
   const handleToggleFileForDeletion = (fileKey: string) => {
     setFilesToDelete((prev) =>
