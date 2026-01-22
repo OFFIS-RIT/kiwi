@@ -57,7 +57,6 @@ export function CreateProjectDialog({
   const [uploadedBytes, setUploadedBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
   const [uploadSpeed, setUploadSpeed] = useState(0); // Bytes per second
-  const [lastUploadUpdate, setLastUploadUpdate] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [groupError, setGroupError] = useState(false);
 
