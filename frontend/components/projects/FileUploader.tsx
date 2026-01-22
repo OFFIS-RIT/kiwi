@@ -94,25 +94,27 @@ export function FileUploader({ files, setFiles }: FileUploaderProps) {
             {files.map((file, index) => (
               <li
                 key={index}
-                className="flex items-center justify-between rounded-md bg-muted p-2 text-sm"
+                className="flex items-center justify-between gap-2 rounded-md bg-muted p-2 text-sm"
               >
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  <span className="truncate max-w-[300px]">{file.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    ({formatFileSize(file.size)})
-                  </span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate">{file.name}</span>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => removeFile(index)}
-                >
-                  <X className="h-4 w-4" />
-                  <span className="sr-only">{t("remove.file")}</span>
-                </Button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-xs text-muted-foreground">
+                    {formatFileSize(file.size)}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => removeFile(index)}
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">{t("remove.file")}</span>
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
