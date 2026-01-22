@@ -45,10 +45,9 @@ func main() {
 	switch adapter {
 	case "ollama":
 		client, err := oai.NewGraphOllamaClient(oai.NewGraphOllamaClientParams{
-			EmbeddingModel:   util.GetEnv("AI_EMBED_MODEL"),
-			DescriptionModel: util.GetEnv("AI_CHAT_DESCRIBE_MODEL"),
-			ExtractionModel:  util.GetEnv("AI_CHAT_EXTRACT_MODEL"),
-			ImageModel:       util.GetEnv("AI_IMAGE_MODEL"),
+			EmbeddingModel:  util.GetEnv("AI_EMBED_MODEL"),
+			ChatModel:       util.GetEnv("AI_EXTRACT_MODEL"),
+			ImageModel:      util.GetEnv("AI_IMAGE_MODEL"),
 
 			BaseURL: util.GetEnv("AI_CHAT_URL"),
 			ApiKey:  util.GetEnv("AI_CHAT_KEY"),
@@ -61,10 +60,9 @@ func main() {
 		aiClient = client
 	default:
 		aiClient = gai.NewGraphOpenAIClient(gai.NewGraphOpenAIClientParams{
-			EmbeddingModel:   util.GetEnv("AI_EMBED_MODEL"),
-			DescriptionModel: util.GetEnv("AI_CHAT_DESCRIBE_MODEL"),
-			ExtractionModel:  util.GetEnv("AI_CHAT_EXTRACT_MODEL"),
-			ImageModel:       util.GetEnv("AI_IMAGE_MODEL"),
+			EmbeddingModel:  util.GetEnv("AI_EMBED_MODEL"),
+			ChatModel:       util.GetEnv("AI_EXTRACT_MODEL"),
+			ImageModel:      util.GetEnv("AI_IMAGE_MODEL"),
 
 			EmbeddingURL: util.GetEnv("AI_EMBED_URL"),
 			EmbeddingKey: util.GetEnv("AI_EMBED_KEY"),

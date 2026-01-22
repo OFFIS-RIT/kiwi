@@ -21,7 +21,7 @@ func (c *GraphOllamaClient) GenerateCompletion(
 	opts ...ai.GenerateOption,
 ) (string, error) {
 	options := ai.GenerateOptions{
-		Model:       c.descriptionModel,
+		Model:       c.chatModel,
 		Temperature: 0.3,
 		Thinking:    "",
 	}
@@ -114,7 +114,7 @@ func (c *GraphOllamaClient) GenerateCompletionWithFormat(
 	var format json.RawMessage = formatBytes
 
 	options := ai.GenerateOptions{
-		Model:       c.extractionModel,
+		Model:       c.chatModel,
 		Temperature: 0.1,
 		Thinking:    "",
 	}
@@ -191,7 +191,7 @@ func (c *GraphOllamaClient) GenerateChat(
 	opts ...ai.GenerateOption,
 ) (string, error) {
 	options := ai.GenerateOptions{
-		Model:         c.descriptionModel,
+		Model:         c.chatModel,
 		SystemPrompts: []string{},
 		Temperature:   0.2,
 		Thinking:      "",
@@ -279,7 +279,7 @@ func (c *GraphOllamaClient) GenerateChatStream(
 	opts ...ai.GenerateOption,
 ) (<-chan ai.StreamEvent, error) {
 	options := ai.GenerateOptions{
-		Model:         c.descriptionModel,
+		Model:         c.chatModel,
 		SystemPrompts: []string{},
 		Temperature:   0.2,
 		Thinking:      "",
@@ -369,7 +369,7 @@ func (c *GraphOllamaClient) GenerateChatStream(
 // LoadModel preloads a model into memory to reduce latency on subsequent requests.
 func (c *GraphOllamaClient) LoadModel(ctx context.Context, opts ...ai.GenerateOption) error {
 	options := ai.GenerateOptions{
-		Model: c.descriptionModel,
+		Model: c.chatModel,
 	}
 	for _, o := range opts {
 		o(&options)
@@ -434,7 +434,7 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 	opts ...ai.GenerateOption,
 ) (string, error) {
 	options := ai.GenerateOptions{
-		Model:       c.descriptionModel,
+		Model:       c.chatModel,
 		Temperature: 0.3,
 		Thinking:    "",
 	}
@@ -600,7 +600,7 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 	opts ...ai.GenerateOption,
 ) (string, error) {
 	options := ai.GenerateOptions{
-		Model:         c.descriptionModel,
+		Model:         c.chatModel,
 		SystemPrompts: []string{},
 		Temperature:   0.2,
 		Thinking:      "",
@@ -780,7 +780,7 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 	opts ...ai.GenerateOption,
 ) (<-chan ai.StreamEvent, error) {
 	options := ai.GenerateOptions{
-		Model:         c.descriptionModel,
+		Model:         c.chatModel,
 		SystemPrompts: []string{},
 		Temperature:   0.2,
 		Thinking:      "",

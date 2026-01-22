@@ -33,7 +33,7 @@ func (c *GraphOpenAIClient) GenerateCompletion(
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
-		Model:       c.descriptionModel,
+		Model:       c.chatModel,
 		Temperature: 0.3,
 		Thinking:    "",
 	}
@@ -121,7 +121,7 @@ func (c *GraphOpenAIClient) GenerateCompletionWithFormat(
 	}
 
 	options := ai.GenerateOptions{
-		Model:       c.descriptionModel,
+		Model:       c.chatModel,
 		Temperature: 0.1,
 		Thinking:    "",
 	}
@@ -213,7 +213,7 @@ func (c *GraphOpenAIClient) GenerateChat(
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
-		Model:         c.descriptionModel,
+		Model:         c.chatModel,
 		SystemPrompts: []string{},
 		Temperature:   0.2,
 		Thinking:      "",
@@ -299,7 +299,7 @@ func (c *GraphOpenAIClient) GenerateChatStream(
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
-		Model:         c.descriptionModel,
+		Model:         c.chatModel,
 		SystemPrompts: []string{},
 		Temperature:   0.2,
 		Thinking:      "",
@@ -459,7 +459,7 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
-		Model:       c.descriptionModel,
+		Model:       c.chatModel,
 		Temperature: 0.3,
 		Thinking:    "",
 	}
@@ -563,7 +563,7 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
-		Model:         c.descriptionModel,
+		Model:         c.chatModel,
 		SystemPrompts: []string{},
 		Temperature:   0.2,
 		Thinking:      "",
@@ -677,7 +677,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 	client := c.ChatClient
 
 	options := ai.GenerateOptions{
-		Model:         c.descriptionModel,
+		Model:         c.chatModel,
 		SystemPrompts: []string{},
 		Temperature:   0.2,
 		Thinking:      "",
