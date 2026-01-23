@@ -117,6 +117,10 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
               state: project.state,
               lastUpdated: projectMeta[project.id]?.lastUpdated,
               sourcesCount: projectMeta[project.id]?.sourcesCount ?? 0,
+              processStep: project.processStep,
+              processPercentage: project.processPercentage,
+              processEstimatedDuration: project.processEstimatedDuration,
+              processTimeRemaining: project.processTimeRemaining,
             }}
             groupName={group.name}
             onSelect={() => selectItem(group, project)}
