@@ -56,9 +56,14 @@ export function ProjectCard({
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground flex items-center gap-2">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {project.processStep
-                ? t(`process.${project.processStep}`) || project.processStep
-                : t("processing")}
+              {(() => {
+                if (!project.processStep) return t("processing");
+                const stepKey = `process.${project.processStep}`;
+                const translated = t(stepKey);
+                return translated === stepKey
+                  ? project.processStep
+                  : translated;
+              })()}
             </span>
             <span className="font-medium text-xs">
               {project.processPercentage}%
