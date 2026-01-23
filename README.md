@@ -34,7 +34,7 @@
 - **Graph Exploration Tools** – AI-powered tools for relationship traversal,
   multi-hop path finding, and autonomous knowledge exploration
 - **Chat Interface** – Ask questions about your documents with streaming AI
-  responses (fast, normal, or detailed modes)
+  responses (normal and agentic modes)
 - **Multi-Model Support** – Works with OpenAI API or local Ollama models
   - **Note:** When using OpenAI API with reasoning enabled, temperature is fixed
     to 1.0 (required by o-series and gpt-5+ models)
@@ -166,13 +166,12 @@ the Nginx container.
 
 ### Query Modes
 
-| Mode     | API             | Description                                                              |
-| -------- | --------------- | ------------------------------------------------------------------------ |
-| Fast     | `mode=fast`     | Global entity aggregation for quick answers                              |
-| Normal   | `mode=normal`   | Vector similarity search with path finding between relevant entities     |
-| Detailed | `mode=detailed` | Agentic exploration using graph tools for autonomous knowledge discovery |
+| Mode     | API              | Description                                                              |
+| -------- | ---------------- | ------------------------------------------------------------------------ |
+| Normal   | `mode=normal`    | Vector similarity search with path finding between relevant entities     |
+| Agentic  | `mode=agentic`   | Agentic exploration using graph tools for autonomous knowledge discovery |
 
-#### Graph Exploration Tools (Detailed Mode)
+#### Graph Exploration Tools (Agentic Mode)
 
 | Tool                           | Capability                                                          |
 | ------------------------------ | ------------------------------------------------------------------- |

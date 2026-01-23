@@ -6,11 +6,11 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 )
 
-// QueryTool performs a query with access to external tools. The AI can invoke
+// QueryAgentic performs a query with access to external tools. The AI can invoke
 // the provided tools to gather additional information or perform actions before
 // generating a final response. This enables agentic workflows where the AI
 // can interact with external systems.
-func (c *BaseQueryClient) QueryTool(
+func (c *BaseQueryClient) QueryAgentic(
 	ctx context.Context,
 	msgs []ai.ChatMessage,
 	tools []ai.Tool,
@@ -40,10 +40,10 @@ func (c *BaseQueryClient) QueryTool(
 	return resp, nil
 }
 
-// QueryStreamTool performs a streaming query with access to external tools.
+// QueryStreamAgentic performs a streaming query with access to external tools.
 // It emits events for tool invocations and content chunks as they become
 // available, enabling real-time visibility into the AI's reasoning and actions.
-func (c *BaseQueryClient) QueryStreamTool(
+func (c *BaseQueryClient) QueryStreamAgentic(
 	ctx context.Context,
 	msgs []ai.ChatMessage,
 	tools []ai.Tool,

@@ -18,9 +18,8 @@ import { apiClient, streamRequest } from "./client";
  * Maps frontend query modes to backend API modes.
  */
 const MODE_MAPPING: Record<QueryMode, string> = {
-  detailed: "detailed",
+  agentic: "agentic",
   normal: "normal",
-  fast: "fast",
 };
 
 type CreateProjectResponse = {
@@ -156,7 +155,7 @@ type SourceFile = {
  * @param projectId - Project to query
  * @param messages - Chat message history
  * @param onMessage - Callback for each streamed response chunk
- * @param mode - Query mode: "fast", "normal", or "detailed"
+ * @param mode - Query mode: "normal" or "agentic"
  * @param model - Optional model override
  * @param think - Enable thinking mode
  * @param onError - Error callback

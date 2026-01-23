@@ -505,20 +505,18 @@ func QueryProjectHandler(c echo.Context) error {
 		opts = append(opts, bqc.WithModel(data.Model))
 	}
 	if data.Think {
-		opts = append(opts, bqc.WithThinking("medium"))
+		opts = append(opts, bqc.WithThinking("high"))
 	}
 
 	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, fmt.Sprintf("%d", data.ProjectID), opts)
 
 	var answer string
 	switch data.Mode {
-	case "fast":
-		answer, err = queryClient.QueryGlobal(ctx, data.Messages)
 	case "normal":
 		answer, err = queryClient.QueryLocal(ctx, data.Messages)
-	case "detailed":
+	case "agentic":
 		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID)
-		answer, err = queryClient.QueryTool(ctx, data.Messages, toolList)
+		answer, err = queryClient.QueryAgentic(ctx, data.Messages, toolList)
 	default:
 		answer, err = queryClient.QueryLocal(ctx, data.Messages)
 	}
@@ -646,7 +644,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		opts = append(opts, bqc.WithModel(data.Model))
 	}
 	if data.Think {
-		opts = append(opts, bqc.WithThinking("medium"))
+		opts = append(opts, bqc.WithThinking("high"))
 	}
 
 	c.Response().Header().Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -656,13 +654,11 @@ func QueryProjectStreamHandler(c echo.Context) error {
 
 	var contentChan <-chan ai.StreamEvent
 	switch data.Mode {
-	case "fast":
-		contentChan, err = queryClient.QueryStreamGlobal(ctx, data.Messages)
 	case "normal":
 		contentChan, err = queryClient.QueryStreamLocal(ctx, data.Messages)
-	case "detailed":
+	case "agentic":
 		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID)
-		contentChan, err = queryClient.QueryStreamTool(ctx, data.Messages, toolList)
+		contentChan, err = queryClient.QueryStreamAgentic(ctx, data.Messages, toolList)
 	default:
 		contentChan, err = queryClient.QueryStreamLocal(ctx, data.Messages)
 	}

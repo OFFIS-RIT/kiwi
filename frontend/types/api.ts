@@ -95,7 +95,7 @@ export type ApiChatMessage = {
 /**
  * Query speed/depth modes.
  */
-export type QueryMode = "detailed" | "normal" | "fast";
+export type QueryMode = "agentic" | "normal";
 
 /**
  * Query processing stages shown during streaming responses.
