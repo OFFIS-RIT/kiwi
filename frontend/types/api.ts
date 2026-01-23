@@ -26,6 +26,20 @@ export type ProcessStep =
   | "failed";
 
 /**
+ * Detailed progress counts for batch processing steps.
+ * Matches BatchStepProgress in backend.
+ */
+export type ApiBatchStepProgress = {
+  pending?: string;
+  preprocessing?: string;
+  preprocessed?: string;
+  extracting?: string;
+  indexing?: string;
+  completed?: string;
+  failed?: string;
+};
+
+/**
  * Project as returned by the /projects endpoint.
  * Includes processing state for in-progress operations.
  */
@@ -33,7 +47,7 @@ export type ApiProject = {
   project_id: number;
   project_name: string;
   project_state: "ready" | "create" | "update";
-  process_step?: ProcessStep;
+  process_step?: ApiBatchStepProgress;
   process_percentage?: number;
   process_estimated_duration?: number;
   process_time_remaining?: number;
