@@ -7,7 +7,7 @@ import (
 )
 
 // GraphQueryClient defines the interface for querying knowledge graphs using AI.
-// It provides methods for local queries (manuell context building), and agentic queries that can invoke
+// It provides methods for local queries (manual context building), and agentic queries that can invoke
 // external functions (self context building). Each query type has both blocking and streaming variants.
 type GraphQueryClient interface {
 	QueryLocal(

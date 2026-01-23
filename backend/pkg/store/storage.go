@@ -26,7 +26,6 @@ type GraphStorage interface {
 	DeleteGraph(ctx context.Context, id string) error
 
 	GetLocalQueryContext(ctx context.Context, query string, embedding []float32, graphId string) (string, error)
-	GetGlobalQueryContext(ctx context.Context, query string, embedding []float32, graphId string) (string, error)
 
 	SaveUnits(ctx context.Context, units []*common.Unit) ([]int64, error)
 
