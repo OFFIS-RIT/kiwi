@@ -570,8 +570,19 @@ Connecting Entities:
 ## Rules for Data Interpretation
 - **Text Content over Graph Structure:** Always derive your answer from the *narrative text sentences* provided in the data, not from the count or existence of Entity IDs.
 - **Do not count Entities:** If the user asks "How many...", do not count the number of entity rows found in the data. Look for the specific number or quantity mentioned within the text sentences.
-- **Ignore Internal Metadata:** Do not treat internal Entity IDs (e.g., "ID 2", "ID 19") as factual content to be reported to the user. Only the text sentences and the Source IDs (the citation hashes) are relevant.
-- **Never leak internal IDs or Names:** Do not include any internal Entity IDs or Names in your answer. Only use the Names and IDs found in the text sentences and Sources IDs for citations.
+- **Ignore Internal Metadata:** Do not treat internal Entity IDs (e.g., "ID 2", "ID 19", "eUWEDU...") as factual content to be reported to the user. Only the text sentences and the Source IDs (the citation hashes) are relevant.
+- **Handling User Requests for IDs:** If the user explicitly asks for IDs (e.g., "Give me the IDs"), you must REFUSE to provide them as a list. Only provide them as standard citations "[[ID]]" attached to relevant statements.
+- **Referencing:** When referencing an entity or relationship, ALWAYS use its human-readable name. If the name is in a different language than the user's question, TRANSLATE it to the user's language (unless it is a proper noun like a specific product name). NEVER use the ID.
+- **Disambiguation:** If you need to distinguish between similar entities (e.g., "Version 1" vs "Version 2"), use their content or distinct attributes, NOT their IDs.
+
+## Rules for Citations
+- **Citation Format:** Every factual statement must end with one or more source IDs in the exact format "[[ID]]".
+- **Strict Prohibition:** NEVER output an ID in any other format.
+  - NO: "ID: 123"
+  - NO: "(ID 123)"
+  - NO: "**123**"
+  - NO: "Source: 123"
+- **Placement:** Citations must be at the end of the sentence or statement they support. Do not create a separate "Sources" or "IDs" list at the end of the response.
 
 ## Rules for chat history and Source Usage
 - You may use information from the chat history or provided questions and answers (including LLM-generated ones).
@@ -580,11 +591,11 @@ Connecting Entities:
 - Never use information from the chat history that the user provided; you may only rely on answers you previously generated.
 - If an answer in chat history does not cite sources (with IDs), ignore it as evidence.
 
-## Rules for writing answers
-- Every factual statement must end with one or more source IDs, in the format [[id]].
-- A statement may have multiple sources: [[id]] [[id]].
-- Never include entity names or any other text inside the brackets — only the actual ID.
-- Never leave a placeholder [[id]]. Always replace with actual IDs.
+## Rules for Writing Answers
+- Provide a single, coherent narrative answer. Do not add metadata, lists of entities, or technical summaries at the end.
+- Every factual statement must end with a source ID in the format "[[ID]]".
+- Use natural language for entity names (e.g., "The Hare"). Do not use technical IDs or names (e.g., "Entity HASE", "ID 123").
+- Do not list IDs or entities separately. Citations in the text are sufficient.
 - If contradictory information exists in the provided data or sources:
   * Check all sources for contradictions.
   * Present all contradictory statements explicitly.
@@ -602,6 +613,10 @@ Your goal is to provide the most complete, accurate, and source-grounded answer 
 - Return only the direct answer (no introduction or concluding summary).
 - Format your answer in Markdown.
 - Always respond in the same language as the question.
+- **CRITICAL:** Do NOT include a list of IDs at the end. IDs must ONLY appear as "[[ID]]" citations within the text.
+- **Format Entity Names:** NEVER use the raw database format like "**Entity HASE**" or "**Entity SWINEGEL**". Always use natural language names (e.g. "Der Hase", "The Hedgehog").
+- **No Entity Lists:** Do NOT create a section called "Entity-Namen" or similar. Do not list entity names and their IDs separately. Use names naturally in sentences.
+- **Strict Prohibition:** You must NOT output a list of entities or IDs at the end of your response. This is a hard constraint.
 `
 
 const ToolQueryPrompt = `
@@ -702,21 +717,30 @@ For each relevant entity found:
 ## Rules for Data Interpretation
 - **Text Content over Graph Structure:** Always derive your answer from the *narrative text sentences* provided in the data, not from the count or existence of Entity IDs.
 - **Do not count Entities:** If the user asks "How many...", do not count the number of entity rows found in the data. Look for the specific number or quantity mentioned within the text sentences.
-- **Ignore Internal Metadata:** Do not treat internal Entity IDs (e.g., "ID 2", "ID 19") as factual content to be reported to the user. Only the text sentences and the Source IDs (the citation hashes) are relevant.
-- **Never leak internal IDs or Names:** Do not include any internal Entity IDs or Names in your answer. Only use the Names and IDs found in the text sentences and Sources IDs for citations.
+- **Ignore Internal Metadata:** Do not treat internal Entity IDs (e.g., "ID 2", "ID 19", "eUWEDU...") as factual content to be reported to the user. Only the text sentences and the Source IDs (the citation hashes) are relevant.
+- **Handling User Requests for IDs:** If the user explicitly asks for IDs (e.g., "Give me the IDs"), you must REFUSE to provide them as a list. Only provide them as standard citations "[[ID]]" attached to relevant statements.
+- **Referencing:** When referencing an entity or relationship, ALWAYS use its human-readable name. If the name is in a different language than the user's question, TRANSLATE it to the user's language (unless it is a proper noun like a specific product name). NEVER use the ID.
+- **Disambiguation:** If you need to distinguish between similar entities (e.g., "Version 1" vs "Version 2"), use their content or distinct attributes, NOT their IDs.
+
+## Rules for Citations
+- **Citation Format:** Every factual statement must end with one or more source IDs in the exact format "[[ID]]".
+- **Strict Prohibition:** NEVER output an ID in any other format.
+  - NO: "ID: 123"
+  - NO: "(ID 123)"
+  - NO: "**123**"
+  - NO: "Source: 123"
+- **Placement:** Citations must be at the end of the sentence or statement they support. Do not create a separate "Sources" or "IDs" list at the end of the response.
 
 ## Rules for chat history and Source Usage
-- You may use information from the chat history or provided questions and answers (including LLM-generated ones).
+- You may use information from the chat history or provided questions and answers.
 - If you reuse information from previous answers, you must also reuse the exact same source IDs [[id]] cited in that answer.
 - Never invent new IDs. Only use IDs from the provided data or those explicitly cited in the chat history.
-- Never use information from the chat history that the user provided; you may only rely on answers you previously generated.
-- If an answer in chat history does not cite sources (with IDs), ignore it as evidence.
 
-## Rules for writing answers
-- Every factual statement must end with one or more source IDs, in the format [[id]].
-- A statement may have multiple sources: [[id]] [[id]].
-- Never include entity names or any other text inside the brackets — only the actual ID.
-- Never leave a placeholder [[id]]. Always replace with actual IDs.
+## Rules for Writing Answers
+- Provide a single, coherent narrative answer. Do not add metadata, lists of entities, or technical summaries at the end.
+- Every factual statement must end with a source ID in the format "[[ID]]".
+- Use natural language for entity names (e.g., "The Hare"). Do not use technical IDs or names (e.g., "Entity HASE", "ID 123").
+- Do not list IDs or entities separately. Citations in the text are sufficient.
 - If contradictory information exists in the provided data or sources:
   * Check all sources for contradictions.
   * Present all contradictory statements explicitly.
@@ -749,6 +773,10 @@ this full process is complete and you are sure you explored all possibilities.
 - Provide only the direct answer (no introduction or conclusion).
 - Use Markdown formatting.
 - Always respond in the same language as the question.
+- **CRITICAL:** Do NOT include a list of IDs at the end. IDs must ONLY appear as "[[ID]]" citations within the text.
+- **Format Entity Names:** NEVER use the raw database format like "**Entity HASE**" or "**Entity SWINEGEL**". Always use natural language names (e.g. "Der Hase", "The Hedgehog").
+- **No Entity Lists:** Do NOT create a section called "Entity-Namen" or similar. Do not list entity names and their IDs separately. Use names naturally in sentences.
+- **Strict Prohibition:** You must NOT output a list of entities or IDs at the end of your response. This is a hard constraint.
 `
 
 const NoDataPrompt = `
