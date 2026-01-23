@@ -118,6 +118,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
               lastUpdated: projectMeta[project.id]?.lastUpdated,
               sourcesCount: projectMeta[project.id]?.sourcesCount ?? 0,
               processStep: project.processStep,
+              processProgress: project.processProgress,
               processPercentage: project.processPercentage,
               processEstimatedDuration: project.processEstimatedDuration,
               processTimeRemaining: project.processTimeRemaining,
