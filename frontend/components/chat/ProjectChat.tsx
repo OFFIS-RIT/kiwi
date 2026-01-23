@@ -616,9 +616,8 @@ export function ProjectChat({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="fast">Fast</SelectItem>
                   <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="detailed">Detailed</SelectItem>
+                  <SelectItem value="agentic">Agentic</SelectItem>
                 </SelectContent>
               </Select>
             </div>

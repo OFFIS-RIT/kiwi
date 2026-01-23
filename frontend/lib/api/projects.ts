@@ -18,9 +18,8 @@ import { apiClient, streamRequest } from "./client";
  * Maps frontend query modes to backend API modes.
  */
 const MODE_MAPPING: Record<QueryMode, string> = {
-  detailed: "detailed",
+  agentic: "agentic",
   normal: "normal",
-  fast: "fast",
 };
 
 type CreateProjectResponse = {
