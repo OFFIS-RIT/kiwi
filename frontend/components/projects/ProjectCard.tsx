@@ -1,9 +1,10 @@
 "use client";
 
 import { CardTemplate } from "@/components/common/CardTemplate";
+import { Progress } from "@/components/ui/progress";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { Project } from "@/types";
-import { BookOpen, Calendar } from "lucide-react";
+import { BookOpen, Calendar, Loader2 } from "lucide-react";
 
 type ProjectCardProps = {
   project: Project;
@@ -11,6 +12,22 @@ type ProjectCardProps = {
   onSelect: () => void;
   onEdit: () => void;
 };
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return "< 1s";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    return remainingSeconds > 0
+      ? `${minutes}m ${remainingSeconds}s`
+      : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
 
 export function ProjectCard({
   project,
@@ -21,6 +38,7 @@ export function ProjectCard({
   const { t } = useLanguage();
   const lastUpdated = project.lastUpdated;
   const sourcesCount = project.sourcesCount ?? 0;
+  const isProcessing = project.processPercentage !== undefined;
 
   return (
     <CardTemplate
@@ -31,21 +49,48 @@ export function ProjectCard({
       buttonText={t("open")}
       onSelect={onSelect}
       onEdit={onEdit}
-      disabled={project.state === "create"}
+      disabled={project.state === "create" && !isProcessing}
     >
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Calendar className="h-4 w-4" />
-        <span>
-          {t("last.updated")}{" "}
-          {lastUpdated ? lastUpdated.toLocaleDateString() : "-"}
-        </span>
-      </div>
-      <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-        <BookOpen className="h-4 w-4" />
-        <span>
-          {sourcesCount} {t("sources")}
-        </span>
-      </div>
+      {isProcessing ? (
+        <div className="space-y-3 pt-1">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {project.processStep
+                ? t(`process.${project.processStep}`) || project.processStep
+                : t("processing")}
+            </span>
+            <span className="font-medium text-xs">
+              {project.processPercentage}%
+            </span>
+          </div>
+          <Progress value={project.processPercentage} className="h-2" />
+          {project.processTimeRemaining !== undefined &&
+            project.processTimeRemaining > 0 && (
+              <div className="text-xs text-muted-foreground text-right">
+                {t("process.remaining", {
+                  time: formatDuration(project.processTimeRemaining),
+                })}
+              </div>
+            )}
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Calendar className="h-4 w-4" />
+            <span>
+              {t("last.updated")}{" "}
+              {lastUpdated ? lastUpdated.toLocaleDateString() : "-"}
+            </span>
+          </div>
+          <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+            <BookOpen className="h-4 w-4" />
+            <span>
+              {sourcesCount} {t("sources")}
+            </span>
+          </div>
+        </>
+      )}
     </CardTemplate>
   );
 }
