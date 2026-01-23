@@ -130,6 +130,7 @@ const translations = {
     "process.completed": "Completed",
     "process.failed": "Failed",
     "process.remaining": "~{time} remaining",
+    processing: "Processing...",
 
     // Language
     language: "Language",
@@ -304,6 +305,7 @@ const translations = {
     "process.completed": "Abgeschlossen",
     "process.failed": "Fehlgeschlagen",
     "process.remaining": "~{time} verbleibend",
+    processing: "Verarbeitung...",
 
     // Language
     language: "Sprache",
