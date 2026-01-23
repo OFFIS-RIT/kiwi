@@ -34,9 +34,6 @@ func RegisterRoutes(e *echo.Echo) {
 	apiRoutes.POST("/projects/:id/query", routes.QueryProjectHandler)
 	apiRoutes.POST("/projects/:id/stream", routes.QueryProjectStreamHandler)
 
-	// Project event routes
-	apiRoutes.GET("/projects/:id/events", routes.GetProjectEventsHandler)
-
 	// Group Routes
 	apiRoutes.GET("/groups", routes.GetGroupsHandler, middleware.RequireAnyPermission("group.view", "group.view:all"))
 	apiRoutes.POST("/groups", routes.CreateGroupHandler, middleware.RequirePermission("group.create"))

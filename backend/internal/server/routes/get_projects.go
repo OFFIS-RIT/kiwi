@@ -8,7 +8,6 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 
 	_ "github.com/go-playground/validator"
 	"github.com/labstack/echo/v4"
@@ -227,128 +226,6 @@ func GetProjectFilesHandler(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, projectFiles)
-}
-
-func GetProjectEventsHandler(c echo.Context) error {
-	type getProjectFilesParams struct {
-		ProjectID int64 `param:"id" validate:"required,numeric"`
-	}
-
-	type getProjectEventsResponse struct {
-		Message string `json:"message"`
-	}
-
-	params := new(getProjectFilesParams)
-	if err := c.Bind(params); err != nil {
-		return c.JSON(http.StatusBadRequest, getProjectEventsResponse{
-			Message: "Invalid request params",
-		})
-	}
-
-	user := c.(*middleware.AppContext).User
-	if user == nil {
-		return c.JSON(http.StatusUnauthorized, getProjectEventsResponse{
-			Message: "Unauthorized",
-		})
-	}
-
-	ctx := c.Request().Context()
-	conn := c.(*middleware.AppContext).App.DBConn
-	queries := db.New(conn)
-
-	if !middleware.IsAdmin(user) {
-		count, err := queries.IsUserInProject(ctx, db.IsUserInProjectParams{
-			ID:     params.ProjectID,
-			UserID: user.UserID,
-		})
-		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, getProjectEventsResponse{
-				Message: "You are not a member of this project",
-			})
-		}
-	}
-
-	ch := c.(*middleware.AppContext).App.Queue
-	err := ch.ExchangeDeclare(
-		"pubsub", // name
-		"topic",  // type
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, getProjectEventsResponse{
-			Message: "Internal server error",
-		})
-	}
-
-	q, err := ch.QueueDeclare(
-		"",    // name (let server generate a unique name)
-		false, // durable
-		true,  // autoDelete
-		true,  // exclusive
-		false, // noWait
-		nil,   // args
-	)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, getProjectEventsResponse{
-			Message: "Internal server error",
-		})
-	}
-
-	routingKey := fmt.Sprintf("project_%d", params.ProjectID)
-	if err := ch.QueueBind(
-		q.Name,     // queue
-		routingKey, // key
-		"pubsub",   // exchange
-		false,      // noWait
-		nil,        // args
-	); err != nil {
-		return c.JSON(http.StatusInternalServerError, getProjectEventsResponse{
-			Message: "Internal server error",
-		})
-	}
-
-	msgs, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		true,   // autoAck
-		true,   // exclusive
-		false,  // noLocal
-		false,  // noWait
-		nil,    // args
-	)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, getProjectEventsResponse{
-			Message: "Internal server error",
-		})
-	}
-
-	w := c.Response()
-	r := c.Request()
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	ctx = r.Context()
-	for {
-		select {
-		case msg := <-msgs:
-			event := util.Event{
-				Event: []byte("message"),
-				Data:  []byte(msg.Body),
-				ID:    []byte(msg.MessageId),
-			}
-			if err := event.MarshalTo(w); err != nil {
-				return err
-			}
-			w.Flush()
-		case <-ctx.Done():
-			return nil
-		}
-	}
 }
 
 func GetTextUnitHandler(c echo.Context) error {
