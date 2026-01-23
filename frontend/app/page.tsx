@@ -163,8 +163,9 @@ function NavigationWrapper({
   ) => {
     const group = groups.find((g) => g.id === groupId);
     if (group) {
-      const project = { id: projectId, name: projectName };
-      selectItem(group, project);
+      // Select only the group to show the Project Overview (ProjectList)
+      // This allows the user to see the processing status of the new project
+      selectItem(group);
     }
   };
 
