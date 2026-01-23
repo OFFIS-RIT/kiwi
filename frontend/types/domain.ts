@@ -4,7 +4,7 @@
  * @module types/domain
  */
 
-import type { ProcessStep } from "./api";
+import type { ApiBatchStepProgress, ProcessStep } from "./api";
 
 /**
  * Project lifecycle states.
@@ -23,6 +23,7 @@ export type Project = {
   lastUpdated?: Date;
   sourcesCount?: number;
   processStep?: ProcessStep;
+  processProgress?: ApiBatchStepProgress;
   processPercentage?: number;
   processEstimatedDuration?: number;
   processTimeRemaining?: number;

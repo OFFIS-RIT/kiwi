@@ -2,6 +2,12 @@
 
 import { CardTemplate } from "@/components/common/CardTemplate";
 import { Progress } from "@/components/ui/progress";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { Project } from "@/types";
 import { BookOpen, Calendar, Loader2 } from "lucide-react";
@@ -54,17 +60,48 @@ export function ProjectCard({
       {isProcessing ? (
         <div className="space-y-3 pt-1">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {(() => {
-                if (!project.processStep) return t("processing");
-                const stepKey = `process.${project.processStep}`;
-                const translated = t(stepKey);
-                return translated === stepKey
-                  ? project.processStep
-                  : translated;
-              })()}
-            </span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-muted-foreground flex items-center gap-2 cursor-help">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {(() => {
+                      if (!project.processStep) return t("processing");
+                      const stepKey = `process.${project.processStep}`;
+                      const translated = t(stepKey);
+                      return translated === stepKey
+                        ? project.processStep
+                        : translated;
+                    })()}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <div className="text-xs space-y-1">
+                    {project.processProgress &&
+                      Object.entries(project.processProgress)
+                        .filter(([_, value]) => value) // Only show active steps
+                        .map(([key, value]) => {
+                          const labelKey = `process.${key === "pending" ? "queued" : key === "preprocessing" ? "processing_files" : key === "extracting" ? "graph_creation" : key === "indexing" ? "saving" : key}`;
+                          const translatedLabel = t(labelKey);
+                          return (
+                            <div
+                              key={key}
+                              className="flex justify-between gap-4"
+                            >
+                              <span>
+                                {translatedLabel === labelKey
+                                  ? key
+                                  : translatedLabel}
+                                :
+                              </span>
+                              <span className="font-mono">{value}</span>
+                            </div>
+                          );
+                        })}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <span className="font-medium text-xs">
               {project.processPercentage}%
             </span>

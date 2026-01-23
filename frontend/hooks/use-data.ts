@@ -19,12 +19,13 @@ function determineProcessStep(
 ): ProcessStep | undefined {
   if (!progress) return undefined;
   if (progress.failed) return "failed";
+  if (progress.completed) return "completed";
+  // Check steps in reverse order (furthest along first)
   if (progress.indexing) return "saving";
   if (progress.extracting) return "graph_creation";
   if (progress.preprocessing || progress.preprocessed)
     return "processing_files";
   if (progress.pending) return "queued";
-  if (progress.completed) return "completed";
   return undefined;
 }
 
@@ -81,6 +82,7 @@ export function useGroupsWithProjects() {
             name: apiProject.project_name,
             state: apiProject.project_state,
             processStep: determineProcessStep(apiProject.process_step),
+            processProgress: apiProject.process_step,
             processPercentage: apiProject.process_percentage,
             processEstimatedDuration: apiProject.process_estimated_duration,
             processTimeRemaining: apiProject.process_time_remaining,
@@ -125,6 +127,7 @@ export function useGroupsWithProjectsSuspense() {
             name: apiProject.project_name,
             state: apiProject.project_state,
             processStep: determineProcessStep(apiProject.process_step),
+            processProgress: apiProject.process_step,
             processPercentage: apiProject.process_percentage,
             processEstimatedDuration: apiProject.process_estimated_duration,
             processTimeRemaining: apiProject.process_time_remaining,
