@@ -157,9 +157,9 @@ function NavigationWrapper({
   const { groups } = useData();
 
   const handleProjectCreated = (
-    projectId: string,
+    _projectId: string,
     groupId: string,
-    projectName: string
+    _projectName: string
   ) => {
     const group = groups.find((g) => g.id === groupId);
     if (group) {
