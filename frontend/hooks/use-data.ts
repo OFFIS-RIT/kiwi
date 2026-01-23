@@ -1,13 +1,33 @@
 "use client";
 
 import { fetchGroups, fetchProjects } from "@/lib/api/groups";
-import type { ApiProjectFile, Group } from "@/types";
+import type {
+  ApiBatchStepProgress,
+  ApiProjectFile,
+  Group,
+  ProcessStep,
+} from "@/types";
 import {
   useMutation,
   useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query";
+
+function determineProcessStep(
+  progress?: ApiBatchStepProgress
+): ProcessStep | undefined {
+  if (!progress) return undefined;
+  if (progress.failed) return "failed";
+  if (progress.completed) return "completed";
+  // Check steps in reverse order (furthest along first)
+  if (progress.indexing) return "saving";
+  if (progress.extracting) return "graph_creation";
+  if (progress.preprocessing || progress.preprocessed)
+    return "processing_files";
+  if (progress.pending) return "queued";
+  return undefined;
+}
 
 /**
  * Centralized query keys for React Query cache management.
@@ -61,7 +81,8 @@ export function useGroupsWithProjects() {
             id: apiProject.project_id.toString(),
             name: apiProject.project_name,
             state: apiProject.project_state,
-            processStep: apiProject.process_step,
+            processStep: determineProcessStep(apiProject.process_step),
+            processProgress: apiProject.process_step,
             processPercentage: apiProject.process_percentage,
             processEstimatedDuration: apiProject.process_estimated_duration,
             processTimeRemaining: apiProject.process_time_remaining,
@@ -105,7 +126,8 @@ export function useGroupsWithProjectsSuspense() {
             id: apiProject.project_id.toString(),
             name: apiProject.project_name,
             state: apiProject.project_state,
-            processStep: apiProject.process_step,
+            processStep: determineProcessStep(apiProject.process_step),
+            processProgress: apiProject.process_step,
             processPercentage: apiProject.process_percentage,
             processEstimatedDuration: apiProject.process_estimated_duration,
             processTimeRemaining: apiProject.process_time_remaining,
