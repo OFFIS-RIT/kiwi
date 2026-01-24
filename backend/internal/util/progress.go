@@ -23,7 +23,7 @@ type BatchProgress struct {
 	TimeRemaining     *int64
 }
 
-const batchProgressStepCount int64 = 3
+const batchProgressStepCount int64 = 4
 
 func BuildBatchProgress(progress db.GetProjectBatchProgressRow) BatchProgress {
 	if progress.TotalCount <= 0 {
@@ -88,11 +88,13 @@ func CalculateBatchProgressPercentage(progress db.GetProjectBatchProgressRow) in
 	}
 
 	totalWork := total * batchProgressStepCount
+	// Weight phases cumulatively so progress only hits 100% at completed.
+	// Steps: preprocessing=1, extracting=2, indexing=3, completed=4.
 	completedWork := min(int64(progress.PreprocessingCount)+
 		int64(progress.PreprocessedCount)+
 		int64(progress.ExtractingCount)*2+
 		int64(progress.IndexingCount)*3+
-		int64(progress.CompletedCount)*3, totalWork)
+		int64(progress.CompletedCount)*4, totalWork)
 
 	return int32(completedWork * 100 / totalWork)
 }
