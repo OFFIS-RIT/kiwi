@@ -249,12 +249,9 @@ func (s *GraphDBStorage) applyEntityMerges(
 			groupEntities = append(groupEntities, e)
 		}
 
-		groupType := ""
+		groupType := selectGroupTypeBySources(groupEntities)
 		filtered := groupEntities[:0]
 		for _, e := range groupEntities {
-			if groupType == "" {
-				groupType = e.Type
-			}
 			if e.Type == groupType {
 				filtered = append(filtered, e)
 			}
@@ -433,6 +430,39 @@ func normalizeDedupeKey(value string) string {
 
 func normalizeDedupeKeyWithType(name, typ string) string {
 	return normalizeDedupeKey(name) + "|" + normalizeDedupeKey(typ)
+}
+
+func selectGroupTypeBySources(entities []*entityWithMeta) string {
+	if len(entities) == 0 {
+		return ""
+	}
+
+	typeStats := make(map[string]struct {
+		sources int
+		count   int
+	})
+
+	for _, entity := range entities {
+		stats := typeStats[entity.Type]
+		stats.sources += entity.SourceCount
+		stats.count++
+		typeStats[entity.Type] = stats
+	}
+
+	bestType := ""
+	bestSources := -1
+	bestCount := -1
+	for typ, stats := range typeStats {
+		if stats.sources > bestSources ||
+			(stats.sources == bestSources && stats.count > bestCount) ||
+			(stats.sources == bestSources && stats.count == bestCount && (bestType == "" || typ < bestType)) {
+			bestType = typ
+			bestSources = stats.sources
+			bestCount = stats.count
+		}
+	}
+
+	return bestType
 }
 
 // dedupeRelationships merges duplicate relationships (same source-target pair)

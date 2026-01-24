@@ -232,14 +232,14 @@ func (g *GraphClient) applyDeduplication(
 		}
 
 		groupIndices := make([]int, 0)
-		var groupType string
+		groupType := pickGroupTypeBySources(entities, group.Entities)
+		if groupType == "" {
+			continue
+		}
 		for _, name := range group.Entities {
 			prefix := normalizeDedupeKey(name, "")
 			for key, idx := range entityIndex {
 				if strings.HasPrefix(key, prefix) {
-					if groupType == "" {
-						groupType = entities[idx].Type
-					}
 					if entities[idx].Type == groupType {
 						groupIndices = append(groupIndices, idx)
 					}
@@ -414,4 +414,52 @@ func (g *GraphClient) applyDeduplication(
 
 func normalizeDedupeKey(name, typ string) string {
 	return strings.ToUpper(ai.NormalizeDedupeValue(name)) + "|" + strings.ToUpper(ai.NormalizeDedupeValue(typ))
+}
+
+func pickGroupTypeBySources(entities []common.Entity, groupNames []string) string {
+	if len(groupNames) == 0 {
+		return ""
+	}
+
+	groupNameSet := make(map[string]bool, len(groupNames))
+	for _, name := range groupNames {
+		key := normalizeDedupeKey(name, "")
+		if key == "" {
+			continue
+		}
+		groupNameSet[key] = true
+	}
+	if len(groupNameSet) == 0 {
+		return ""
+	}
+
+	typeStats := make(map[string]struct {
+		sources int
+		count   int
+	})
+	for _, entity := range entities {
+		entityKey := normalizeDedupeKey(entity.Name, "")
+		if !groupNameSet[entityKey] {
+			continue
+		}
+		stats := typeStats[entity.Type]
+		stats.sources += len(entity.Sources)
+		stats.count++
+		typeStats[entity.Type] = stats
+	}
+
+	bestType := ""
+	bestSources := -1
+	bestCount := -1
+	for typ, stats := range typeStats {
+		if stats.sources > bestSources ||
+			(stats.sources == bestSources && stats.count > bestCount) ||
+			(stats.sources == bestSources && stats.count == bestCount && (bestType == "" || typ < bestType)) {
+			bestType = typ
+			bestSources = stats.sources
+			bestCount = stats.count
+		}
+	}
+
+	return bestType
 }
