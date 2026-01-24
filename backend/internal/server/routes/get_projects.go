@@ -2,36 +2,26 @@ package routes
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 
 	_ "github.com/go-playground/validator"
 	"github.com/labstack/echo/v4"
 )
 
 func GetProjectsHandler(c echo.Context) error {
-	type BatchStepProgress struct {
-		Pending       string `json:"pending,omitempty"`
-		Preprocessing string `json:"preprocessing,omitempty"`
-		Preprocessed  string `json:"preprocessed,omitempty"`
-		Extracting    string `json:"extracting,omitempty"`
-		Indexing      string `json:"indexing,omitempty"`
-		Completed     string `json:"completed,omitempty"`
-		Failed        string `json:"failed,omitempty"`
-	}
-
 	type project struct {
-		ProjectID                int64              `json:"project_id"`
-		ProjectName              string             `json:"project_name"`
-		ProjectState             string             `json:"project_state"`
-		ProcessStep              *BatchStepProgress `json:"process_step,omitempty"`
-		ProcessPercentage        *int32             `json:"process_percentage,omitempty"`
-		ProcessEstimatedDuration *int64             `json:"process_estimated_duration,omitempty"`
-		ProcessTimeRemaining     *int64             `json:"process_time_remaining,omitempty"`
+		ProjectID                int64                   `json:"project_id"`
+		ProjectName              string                  `json:"project_name"`
+		ProjectState             string                  `json:"project_state"`
+		ProcessStep              *util.BatchStepProgress `json:"process_step,omitempty"`
+		ProcessPercentage        *int32                  `json:"process_percentage,omitempty"`
+		ProcessEstimatedDuration *int64                  `json:"process_estimated_duration,omitempty"`
+		ProcessTimeRemaining     *int64                  `json:"process_time_remaining,omitempty"`
 	}
 
 	type group struct {
@@ -114,54 +104,19 @@ func GetProjectsHandler(c echo.Context) error {
 			correlationID, err := q.GetLatestCorrelationForProject(ctx, r.ProjectID)
 			if err == nil && correlationID != "" {
 				progress, err := q.GetProjectBatchProgress(ctx, correlationID)
-				if err == nil && progress.TotalCount > 0 {
-					total := progress.TotalCount
-					stepProgress := BatchStepProgress{}
-					hasStep := false
-
-					if progress.PendingCount > 0 {
-						stepProgress.Pending = fmt.Sprintf("%d/%d", progress.PendingCount, total)
-						hasStep = true
+				if err == nil {
+					batchProgress := util.BuildBatchProgress(progress)
+					if batchProgress.Step != nil {
+						p.ProcessStep = batchProgress.Step
 					}
-					if progress.PreprocessingCount > 0 {
-						stepProgress.Preprocessing = fmt.Sprintf("%d/%d", progress.PreprocessingCount, total)
-						hasStep = true
+					if batchProgress.Percentage != nil {
+						p.ProcessPercentage = batchProgress.Percentage
 					}
-					if progress.PreprocessedCount > 0 {
-						stepProgress.Preprocessed = fmt.Sprintf("%d/%d", progress.PreprocessedCount, total)
-						hasStep = true
+					if batchProgress.EstimatedDuration != nil {
+						p.ProcessEstimatedDuration = batchProgress.EstimatedDuration
 					}
-					if progress.ExtractingCount > 0 {
-						stepProgress.Extracting = fmt.Sprintf("%d/%d", progress.ExtractingCount, total)
-						hasStep = true
-					}
-					if progress.IndexingCount > 0 {
-						stepProgress.Indexing = fmt.Sprintf("%d/%d", progress.IndexingCount, total)
-						hasStep = true
-					}
-					if progress.CompletedCount > 0 {
-						stepProgress.Completed = fmt.Sprintf("%d/%d", progress.CompletedCount, total)
-						hasStep = true
-					}
-					if progress.FailedCount > 0 {
-						stepProgress.Failed = fmt.Sprintf("%d/%d", progress.FailedCount, total)
-						hasStep = true
-					}
-
-					if hasStep {
-						p.ProcessStep = &stepProgress
-					}
-
-					if progress.TotalCount > 0 {
-						percentage := int32(progress.CompletedCount * 100 / progress.TotalCount)
-						p.ProcessPercentage = &percentage
-					}
-
-					if progress.TotalEstimatedDuration > 0 {
-						p.ProcessEstimatedDuration = &progress.TotalEstimatedDuration
-					}
-					if progress.RemainingEstimatedDuration > 0 {
-						p.ProcessTimeRemaining = &progress.RemainingEstimatedDuration
+					if batchProgress.TimeRemaining != nil {
+						p.ProcessTimeRemaining = batchProgress.TimeRemaining
 					}
 				}
 			}
