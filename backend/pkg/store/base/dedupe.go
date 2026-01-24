@@ -13,7 +13,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
 
-const maxDedupeIterations = 100
+const maxDedupeIterations = 3
 
 // entityPair represents two potentially duplicate entities
 type entityPair struct {
@@ -212,12 +212,15 @@ func (s *GraphDBStorage) applyEntityMerges(
 	projectID int64,
 	entities []entityWithMeta,
 	dupeResponse *ai.DuplicatesResponse,
-) error {
-	// Build lookup by name (uppercase for matching)
-	entityByName := make(map[string]*entityWithMeta)
+) (bool, error) {
+	merged := false
+	entityByName := make(map[string][]*entityWithMeta)
 	for i := range entities {
-		key := strings.ToUpper(strings.TrimSpace(entities[i].Name))
-		entityByName[key] = &entities[i]
+		key := normalizeDedupeKey(entities[i].Name)
+		if key == "" {
+			continue
+		}
+		entityByName[key] = append(entityByName[key], &entities[i])
 	}
 
 	for _, group := range dupeResponse.Duplicates {
@@ -225,20 +228,42 @@ func (s *GraphDBStorage) applyEntityMerges(
 			continue
 		}
 
-		// Find all entities in this duplicate group
-		var groupEntities []*entityWithMeta
+		entitiesByID := make(map[int64]*entityWithMeta)
 		for _, name := range group.Entities {
-			key := strings.ToUpper(strings.TrimSpace(name))
-			if e, ok := entityByName[key]; ok {
-				groupEntities = append(groupEntities, e)
+			key := normalizeDedupeKey(name)
+			if key == "" {
+				continue
+			}
+			if matches, ok := entityByName[key]; ok {
+				for _, e := range matches {
+					entitiesByID[e.DBID] = e
+				}
 			}
 		}
+		if len(entitiesByID) <= 1 {
+			continue
+		}
 
+		groupEntities := make([]*entityWithMeta, 0, len(entitiesByID))
+		for _, e := range entitiesByID {
+			groupEntities = append(groupEntities, e)
+		}
+
+		groupType := ""
+		filtered := groupEntities[:0]
+		for _, e := range groupEntities {
+			if groupType == "" {
+				groupType = e.Type
+			}
+			if e.Type == groupType {
+				filtered = append(filtered, e)
+			}
+		}
+		groupEntities = filtered
 		if len(groupEntities) <= 1 {
 			continue
 		}
 
-		// Select canonical (most sources)
 		canonical := groupEntities[0]
 		for _, e := range groupEntities[1:] {
 			if e.SourceCount > canonical.SourceCount {
@@ -252,7 +277,7 @@ func (s *GraphDBStorage) applyEntityMerges(
 			Name: group.Name,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to update canonical name: %w", err)
+			return merged, fmt.Errorf("failed to update canonical name: %w", err)
 		}
 
 		// Merge non-canonical into canonical
@@ -267,7 +292,7 @@ func (s *GraphDBStorage) applyEntityMerges(
 				EntityID_2: canonical.DBID,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to transfer sources: %w", err)
+				return merged, fmt.Errorf("failed to transfer sources: %w", err)
 			}
 
 			// Update relationships pointing to dupe
@@ -277,7 +302,7 @@ func (s *GraphDBStorage) applyEntityMerges(
 				ProjectID:  projectID,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to update relationship sources: %w", err)
+				return merged, fmt.Errorf("failed to update relationship sources: %w", err)
 			}
 
 			err = qtx.UpdateRelationshipTargetEntity(ctx, db.UpdateRelationshipTargetEntityParams{
@@ -286,18 +311,19 @@ func (s *GraphDBStorage) applyEntityMerges(
 				ProjectID:  projectID,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to update relationship targets: %w", err)
+				return merged, fmt.Errorf("failed to update relationship targets: %w", err)
 			}
 
 			// Delete duplicate entity
 			err = qtx.DeleteProjectEntity(ctx, dupe.DBID)
 			if err != nil {
-				return fmt.Errorf("failed to delete duplicate entity: %w", err)
+				return merged, fmt.Errorf("failed to delete duplicate entity: %w", err)
 			}
+			merged = true
 		}
 	}
 
-	return nil
+	return merged, nil
 }
 
 func (s *GraphDBStorage) dedupeEntityGroup(
@@ -339,10 +365,13 @@ func (s *GraphDBStorage) dedupeEntityGroup(
 			continue
 		}
 
-		if err := s.applyEntityMerges(ctx, qtx, projectID, chunk, dupeResponse); err != nil {
+		batchMerged, err := s.applyEntityMerges(ctx, qtx, projectID, chunk, dupeResponse)
+		if err != nil {
 			return false, err
 		}
-		merged = true
+		if batchMerged {
+			merged = true
+		}
 	}
 
 	return merged, nil
@@ -368,8 +397,8 @@ func reorderEntitiesWithMeta(entities []entityWithMeta, iteration int, batchSize
 		return interleaveEntitiesWithMeta(reordered, batchSize)
 	default:
 		sort.Slice(reordered, func(i, j int) bool {
-			left := strings.ToUpper(strings.TrimSpace(reordered[i].Name)) + "|" + strings.ToUpper(strings.TrimSpace(reordered[i].Type))
-			right := strings.ToUpper(strings.TrimSpace(reordered[j].Name)) + "|" + strings.ToUpper(strings.TrimSpace(reordered[j].Type))
+			left := normalizeDedupeKeyWithType(reordered[i].Name, reordered[i].Type)
+			right := normalizeDedupeKeyWithType(reordered[j].Name, reordered[j].Type)
 			return left < right
 		})
 		return reordered
@@ -392,6 +421,18 @@ func interleaveEntitiesWithMeta(entities []entityWithMeta, batchSize int) []enti
 		}
 	}
 	return result
+}
+
+func normalizeDedupeKey(value string) string {
+	normalized := ai.NormalizeDedupeValue(value)
+	if normalized == "" {
+		return ""
+	}
+	return strings.ToUpper(normalized)
+}
+
+func normalizeDedupeKeyWithType(name, typ string) string {
+	return normalizeDedupeKey(name) + "|" + normalizeDedupeKey(typ)
 }
 
 // dedupeRelationships merges duplicate relationships (same source-target pair)

@@ -41,8 +41,8 @@ func CallDedupeAI(
 
 	cleaned := make([]common.Entity, 0, len(entities))
 	for _, entity := range entities {
-		name := sanitizeDedupeValue(entity.Name)
-		typeName := sanitizeDedupeValue(entity.Type)
+		name := NormalizeDedupeValue(entity.Name)
+		typeName := NormalizeDedupeValue(entity.Type)
 		if name == "" || typeName == "" {
 			continue
 		}
@@ -74,7 +74,8 @@ func CallDedupeAI(
 	return &res, nil
 }
 
-func sanitizeDedupeValue(value string) string {
+// NormalizeDedupeValue standardizes names for dedupe comparisons.
+func NormalizeDedupeValue(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""

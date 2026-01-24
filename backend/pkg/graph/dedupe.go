@@ -14,7 +14,7 @@ import (
 	_ "github.com/invopop/jsonschema"
 )
 
-const maxDedupeIterations = 100
+const maxDedupeIterations = 3
 
 func (g *GraphClient) callDedupeAI(
 	ctx context.Context,
@@ -163,8 +163,8 @@ func reorderEntitiesForIteration(entities []common.Entity, iteration int, batchS
 		return interleaveEntities(reordered, batchSize)
 	default:
 		sort.Slice(reordered, func(i, j int) bool {
-			left := strings.ToUpper(strings.TrimSpace(reordered[i].Name)) + "|" + strings.ToUpper(strings.TrimSpace(reordered[i].Type))
-			right := strings.ToUpper(strings.TrimSpace(reordered[j].Name)) + "|" + strings.ToUpper(strings.TrimSpace(reordered[j].Type))
+			left := normalizeDedupeKey(reordered[i].Name, reordered[i].Type)
+			right := normalizeDedupeKey(reordered[j].Name, reordered[j].Type)
 			return left < right
 		})
 		return reordered
@@ -193,13 +193,9 @@ func (g *GraphClient) getRelationsForEntities(
 	entities []common.Entity,
 	relations []common.Relationship,
 ) []common.Relationship {
-	normalizeKey := func(name, typ string) string {
-		return strings.ToUpper(strings.TrimSpace(name)) + "|" + strings.ToUpper(strings.TrimSpace(typ))
-	}
-
 	entitySet := make(map[string]bool)
 	for _, e := range entities {
-		entitySet[normalizeKey(e.Name, e.Type)] = true
+		entitySet[normalizeDedupeKey(e.Name, e.Type)] = true
 	}
 
 	var result []common.Relationship
@@ -207,8 +203,8 @@ func (g *GraphClient) getRelationsForEntities(
 		if rel.Source == nil || rel.Target == nil {
 			continue
 		}
-		srcKey := normalizeKey(rel.Source.Name, rel.Source.Type)
-		tgtKey := normalizeKey(rel.Target.Name, rel.Target.Type)
+		srcKey := normalizeDedupeKey(rel.Source.Name, rel.Source.Type)
+		tgtKey := normalizeDedupeKey(rel.Target.Name, rel.Target.Type)
 		if entitySet[srcKey] && entitySet[tgtKey] {
 			result = append(result, rel)
 		}
@@ -221,13 +217,9 @@ func (g *GraphClient) applyDeduplication(
 	relations []common.Relationship,
 	res *ai.DuplicatesResponse,
 ) ([]common.Entity, []common.Relationship, error) {
-	normalizeKey := func(name, typ string) string {
-		return strings.ToUpper(strings.TrimSpace(name)) + "|" + strings.ToUpper(strings.TrimSpace(typ))
-	}
-
 	entityIndex := make(map[string]int)
 	for i := range entities {
-		key := normalizeKey(entities[i].Name, entities[i].Type)
+		key := normalizeDedupeKey(entities[i].Name, entities[i].Type)
 		entityIndex[key] = i
 	}
 
@@ -242,7 +234,7 @@ func (g *GraphClient) applyDeduplication(
 		groupIndices := make([]int, 0)
 		var groupType string
 		for _, name := range group.Entities {
-			prefix := normalizeKey(name, "")
+			prefix := normalizeDedupeKey(name, "")
 			for key, idx := range entityIndex {
 				if strings.HasPrefix(key, prefix) {
 					if groupType == "" {
@@ -290,17 +282,17 @@ func (g *GraphClient) applyDeduplication(
 		entities[canonicalIdx].Sources = allSources
 		entities[canonicalIdx].Description = bestDescription
 
-		canonKey := normalizeKey(entities[canonicalIdx].Name, entities[canonicalIdx].Type)
+		canonKey := normalizeDedupeKey(entities[canonicalIdx].Name, entities[canonicalIdx].Type)
 		canonicalsIndex[canonKey] = canonicalIdx
 
 		for _, i := range groupIndices {
-			key := normalizeKey(entities[i].Name, entities[i].Type)
+			key := normalizeDedupeKey(entities[i].Name, entities[i].Type)
 			oldToCanonicalIndex[key] = canonicalIdx
 		}
 	}
 
 	for i := range entities {
-		key := normalizeKey(entities[i].Name, entities[i].Type)
+		key := normalizeDedupeKey(entities[i].Name, entities[i].Type)
 		if _, alreadyMapped := oldToCanonicalIndex[key]; alreadyMapped {
 			continue
 		}
@@ -330,9 +322,9 @@ func (g *GraphClient) applyDeduplication(
 
 	dedupedKeyToOldIndex := make(map[string]int)
 	for i := range entities {
-		key := normalizeKey(entities[i].Name, entities[i].Type)
+		key := normalizeDedupeKey(entities[i].Name, entities[i].Type)
 		if canonicalIdx, ok := oldToCanonicalIndex[key]; ok {
-			canonKey := normalizeKey(entities[canonicalIdx].Name, entities[canonicalIdx].Type)
+			canonKey := normalizeDedupeKey(entities[canonicalIdx].Name, entities[canonicalIdx].Type)
 			dedupedKeyToOldIndex[canonKey] = canonicalIdx
 		} else {
 			dedupedKeyToOldIndex[key] = i
@@ -348,9 +340,9 @@ func (g *GraphClient) applyDeduplication(
 	}
 
 	resolveIndex := func(name, typ string) (int, bool) {
-		key := normalizeKey(name, typ)
+		key := normalizeDedupeKey(name, typ)
 		if canonicalIdx, ok := oldToCanonicalIndex[key]; ok {
-			canonKey := normalizeKey(entities[canonicalIdx].Name, entities[canonicalIdx].Type)
+			canonKey := normalizeDedupeKey(entities[canonicalIdx].Name, entities[canonicalIdx].Type)
 			if newIdx, ok2 := dedupedKeyToNewIndex[canonKey]; ok2 {
 				return newIdx, true
 			}
@@ -391,8 +383,8 @@ func (g *GraphClient) applyDeduplication(
 	relMap := make(map[string]*common.Relationship)
 	for _, rel := range remappedRelations {
 		key := undirectedKey(
-			normalizeKey(rel.Source.Name, rel.Source.Type),
-			normalizeKey(rel.Target.Name, rel.Target.Type),
+			normalizeDedupeKey(rel.Source.Name, rel.Source.Type),
+			normalizeDedupeKey(rel.Target.Name, rel.Target.Type),
 		)
 
 		if existing, ok := relMap[key]; ok {
@@ -418,4 +410,8 @@ func (g *GraphClient) applyDeduplication(
 	}
 
 	return dedupedEntities, dedupedRelations, nil
+}
+
+func normalizeDedupeKey(name, typ string) string {
+	return strings.ToUpper(ai.NormalizeDedupeValue(name)) + "|" + strings.ToUpper(ai.NormalizeDedupeValue(typ))
 }
