@@ -6,9 +6,9 @@ RETURNING *;
 
 -- name: UpdateBatchStatus :exec
 UPDATE project_batch_status
-SET status = $3,
-    started_at = CASE WHEN $3 IN ('preprocessing', 'extracting', 'indexing') THEN NOW() ELSE started_at END,
-    completed_at = CASE WHEN $3 IN ('completed', 'failed') THEN NOW() ELSE completed_at END,
+SET status = $3::text,
+    started_at = CASE WHEN $3::text IN ('preprocessing', 'extracting', 'indexing') THEN NOW() ELSE started_at END,
+    completed_at = CASE WHEN $3::text IN ('completed', 'failed') THEN NOW() ELSE completed_at END,
     error_message = $4
 WHERE correlation_id = $1 AND batch_id = $2;
 
