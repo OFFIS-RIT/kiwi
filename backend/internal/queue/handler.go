@@ -75,7 +75,7 @@ func ProcessGraphMessage(
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Status:        "extracting",
+			Column3:        "extracting",
 		})
 	}
 
@@ -283,7 +283,7 @@ func ProcessGraphMessage(
 			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 				CorrelationID: data.CorrelationID,
 				BatchID:       int32(data.BatchID),
-				Status:        "failed",
+				Column3:        "failed",
 				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
 			})
 		}
@@ -312,7 +312,7 @@ func ProcessGraphMessage(
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Status:        "indexing",
+			Column3:        "indexing",
 		})
 	}
 
@@ -337,7 +337,7 @@ func ProcessGraphMessage(
 			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 				CorrelationID: data.CorrelationID,
 				BatchID:       int32(data.BatchID),
-				Status:        "failed",
+				Column3:        "failed",
 				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
 			})
 		}
@@ -363,7 +363,7 @@ func ProcessGraphMessage(
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Status:        "completed",
+			Column3:        "completed",
 		})
 
 		allDone, checkErr := q.AreAllBatchesCompleted(ctx, data.CorrelationID)
@@ -484,7 +484,7 @@ func ProcessPreprocess(
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Status:        "preprocessing",
+			Column3:        "preprocessing",
 		})
 	}
 
@@ -898,7 +898,7 @@ func ProcessPreprocess(
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Status:        "preprocessed",
+			Column3:        "preprocessed",
 		})
 	}
 

@@ -445,9 +445,9 @@ func (q *Queries) UpdateBatchEstimatedDuration(ctx context.Context, arg UpdateBa
 
 const updateBatchStatus = `-- name: UpdateBatchStatus :exec
 UPDATE project_batch_status
-SET status = $3,
-    started_at = CASE WHEN $3 IN ('preprocessing', 'extracting', 'indexing') THEN NOW() ELSE started_at END,
-    completed_at = CASE WHEN $3 IN ('completed', 'failed') THEN NOW() ELSE completed_at END,
+SET status = $3::text,
+    started_at = CASE WHEN $3::text IN ('preprocessing', 'extracting', 'indexing') THEN NOW() ELSE started_at END,
+    completed_at = CASE WHEN $3::text IN ('completed', 'failed') THEN NOW() ELSE completed_at END,
     error_message = $4
 WHERE correlation_id = $1 AND batch_id = $2
 `
@@ -455,7 +455,7 @@ WHERE correlation_id = $1 AND batch_id = $2
 type UpdateBatchStatusParams struct {
 	CorrelationID string      `json:"correlation_id"`
 	BatchID       int32       `json:"batch_id"`
-	Status        string      `json:"status"`
+	Column3       string      `json:"column_3"`
 	ErrorMessage  pgtype.Text `json:"error_message"`
 }
 
@@ -463,7 +463,7 @@ func (q *Queries) UpdateBatchStatus(ctx context.Context, arg UpdateBatchStatusPa
 	_, err := q.db.Exec(ctx, updateBatchStatus,
 		arg.CorrelationID,
 		arg.BatchID,
-		arg.Status,
+		arg.Column3,
 		arg.ErrorMessage,
 	)
 	return err

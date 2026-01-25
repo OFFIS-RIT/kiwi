@@ -74,6 +74,8 @@ services:
       MASTER_API_KEY: ${MASTER_API_KEY}
       MASTER_USER_ID: ${MASTER_USER_ID}
       MASTER_USER_ROLE: ${MASTER_USER_ROLE}
+      WORKER_PREFETCH: ${WORKER_PREFETCH}
+      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 30s
@@ -124,6 +126,8 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       RABBITMQ_HOST: ${RABBITMQ_HOST}
       RABBITMQ_PORT: ${RABBITMQ_PORT}
+      WORKER_PREFETCH: ${WORKER_PREFETCH}
+      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE}
     depends_on:
       db:
         condition: service_healthy

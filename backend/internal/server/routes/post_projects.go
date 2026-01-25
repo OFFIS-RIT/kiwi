@@ -205,6 +205,7 @@ func CreateProjectHandler(c echo.Context) error {
 			fileIDs[i] = f.ID
 		}
 
+		logger.Debug("[Server] Creating batch status", "project_id", project.ID, "correlation_id", correlationID, "batch_id", batchID, "total_batches", totalBatches, "files_count", len(batchFiles))
 		_, _ = q.CreateBatchStatus(ctx, db.CreateBatchStatusParams{
 			ProjectID:     project.ID,
 			CorrelationID: correlationID,
