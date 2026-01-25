@@ -44,12 +44,40 @@ func (g *GraphClient) dedupeEntitiesStrict(
 	}
 
 	batchSize := ai.GetDedupeBatchSize()
+	if len(entities) <= batchSize {
+		logger.Debug("[Dedupe] Deduplicating entities in a single batch", "count", len(entities))
+		dedupedEntities, dedupedRelations, hadDuplicates, err := g.dedupeEntitiesSingleBatchWithMeta(ctx, entities, relations, aiClient)
+		if err != nil {
+			return nil, nil, err
+		}
+		if hadDuplicates {
+			logger.Debug("[Dedupe] Single-batch deduplication found duplicates", "count", len(dedupedEntities))
+		}
+		return dedupedEntities, dedupedRelations, nil
+	}
+
 	dedupedEntities := entities
 	dedupedRelations := relations
 	var lastIterationHadDuplicates bool
 
 	for iteration := 1; iteration <= maxDedupeIterations; iteration++ {
 		prevCount := len(dedupedEntities)
+
+		// Once everything fits in a single batch, run one final single-batch pass and stop.
+		// Iterations are only needed to overcome duplicates split across different batches.
+		if len(dedupedEntities) <= batchSize {
+			logger.Debug("[Dedupe] Final single-batch deduplication", "count", len(dedupedEntities), "iteration", iteration)
+			var hadDuplicates bool
+			var err error
+			dedupedEntities, dedupedRelations, hadDuplicates, err = g.dedupeEntitiesSingleBatchWithMeta(ctx, dedupedEntities, dedupedRelations, aiClient)
+			if err != nil {
+				return nil, nil, err
+			}
+			lastIterationHadDuplicates = hadDuplicates
+			logger.Debug("[Dedupe] Iteration completed", "iteration", iteration, "count", len(dedupedEntities), "duplicates", hadDuplicates)
+			break
+		}
+
 		orderedEntities := reorderEntitiesForIteration(dedupedEntities, iteration, batchSize)
 
 		var hadDuplicates bool

@@ -54,6 +54,7 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 	defer tx.Rollback(ctx)
 
 	qtx := db.New(s.conn).WithTx(tx)
+	batchSize := ai.GetDedupeBatchSize()
 
 	for iteration := 1; iteration <= maxDedupeIterations; iteration++ {
 		pairs, err := s.findSimilarEntityPairs(ctx, qtx, projectID)
@@ -67,6 +68,13 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 
 		groups := buildConnectedComponents(pairs)
 		logger.Debug("[Dedupe] Processing entity groups", "iteration", iteration, "groups", len(groups))
+		multiBatch := false
+		for _, group := range groups {
+			if len(group) > batchSize {
+				multiBatch = true
+				break
+			}
+		}
 
 		iterationMerged := false
 		for _, group := range groups {
@@ -85,6 +93,13 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 		err = s.dedupeRelationships(ctx, qtx, projectID)
 		if err != nil {
 			return fmt.Errorf("failed to dedupe relationships: %w", err)
+		}
+
+		// If every group fits in a single AI batch, there is no cross-batch miss to recover,
+		// so further iterations don't add value.
+		if !multiBatch {
+			logger.Debug("[Dedupe] All groups fit in a single batch; stopping iterations", "iteration", iteration)
+			break
 		}
 
 		if !iterationMerged {
