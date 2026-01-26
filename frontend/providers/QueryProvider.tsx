@@ -13,7 +13,9 @@ import { useState } from "react";
  * - gcTime: 5 minutes
  * - retry: 1 attempt for both queries and mutations
  * - refetchOnWindowFocus: enabled
+ * - refetchOnReconnect: enabled
  * - refetchOnMount: disabled (uses stale data)
+ * - refetchInterval: 30 seconds
  */
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -25,7 +27,9 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             gcTime: 5 * 60 * 1000,
             retry: 1,
             refetchOnWindowFocus: true,
+            refetchOnReconnect: true,
             refetchOnMount: false,
+            refetchInterval: 30 * 1000,
           },
           mutations: {
             retry: 1,
