@@ -66,3 +66,9 @@ frontend/next-env.d.ts
 .backup/
 
 *.log
+
+# Binaries
+backend/worker
+backend/server
+backend/worker.exe
+backend/server.exe
