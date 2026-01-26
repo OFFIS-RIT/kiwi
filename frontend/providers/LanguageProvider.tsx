@@ -91,8 +91,9 @@ const translations = {
     "delete.project.description":
       "Are you sure you want to delete the project \"{projectName}\"? This action cannot be undone.",
     "delete.project.error": "An error occurred while deleting the project.",
-    "delete.group.confirm":
-      "Are you sure you want to delete this group? This will also delete all projects within the group. This action cannot be undone.",
+    "delete.group.confirm": "Delete Group?",
+    "delete.group.description":
+      "Are you sure you want to delete the group \"{groupName}\"? This will also delete all projects within the group. This action cannot be undone.",
     "delete.group.error": "An error occurred while deleting the group.",
     "reset.chat": "Reset Chat",
     "reset.chat.confirm": "Reset Chat History?",
@@ -268,8 +269,9 @@ const translations = {
       "Möchtest du das Projekt \"{projectName}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
     "delete.project.error":
       "Beim Löschen des Projekts ist ein Fehler aufgetreten.",
-    "delete.group.confirm":
-      "Möchtest du diese Gruppe wirklich löschen? Dadurch werden auch alle Projekte in der Gruppe gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
+    "delete.group.confirm": "Gruppe löschen?",
+    "delete.group.description":
+      "Möchtest du die Gruppe \"{groupName}\" wirklich löschen? Dadurch werden auch alle Projekte in der Gruppe gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
     "delete.group.error": "Beim Löschen der Gruppe ist ein Fehler aufgetreten.",
     "reset.chat": "Chat zurücksetzen",
     "reset.chat.confirm": "Chat-Verlauf zurücksetzen?",
