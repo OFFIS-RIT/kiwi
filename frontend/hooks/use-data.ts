@@ -14,18 +14,73 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 
+/**
+ * Parses a string count to a number, defaulting to 0.
+ */
+function parseCount(value?: string): number {
+  if (!value) return 0;
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+/**
+ * Determines the current process step based on the step with the highest file count.
+ * Steps are aggregated as follows:
+ * - pending → queued (shown if no active processing steps)
+ * - preprocessing + preprocessed → processing_files
+ * - extracting → graph_creation
+ * - indexing → saving
+ * - failed → failed (only if majority)
+ *
+ * "Completed" is never shown. If only completed files remain, falls back to "saving".
+ */
 function determineProcessStep(
   progress?: ApiBatchStepProgress
 ): ProcessStep | undefined {
   if (!progress) return undefined;
-  if (progress.failed) return "failed";
-  if (progress.completed) return "completed";
-  // Check steps in reverse order (furthest along first)
-  if (progress.indexing) return "saving";
-  if (progress.extracting) return "graph_creation";
-  if (progress.preprocessing || progress.preprocessed)
-    return "processing_files";
-  if (progress.pending) return "queued";
+
+  const queuedCount = parseCount(progress.pending);
+  const processingFilesCount =
+    parseCount(progress.preprocessing) + parseCount(progress.preprocessed);
+  const graphCreationCount = parseCount(progress.extracting);
+  const savingCount = parseCount(progress.indexing);
+  const failedCount = parseCount(progress.failed);
+  const completedCount = parseCount(progress.completed);
+
+  // Active steps ordered by progress (furthest first for tie-breaking)
+  const activeStepCounts: { step: ProcessStep; count: number }[] = [
+    { step: "saving", count: savingCount },
+    { step: "graph_creation", count: graphCreationCount },
+    { step: "processing_files", count: processingFilesCount },
+    { step: "failed", count: failedCount },
+  ];
+
+  // Find the step with the highest count (furthest step wins ties)
+  let maxStep: ProcessStep | undefined = undefined;
+  let maxCount = 0;
+
+  for (const { step, count } of activeStepCounts) {
+    if (count > maxCount) {
+      maxCount = count;
+      maxStep = step;
+    }
+  }
+
+  // If there's an active step, show it
+  if (maxStep) {
+    return maxStep;
+  }
+
+  // Show "queued" if files are waiting and no active processing
+  if (queuedCount > 0) {
+    return "queued";
+  }
+
+  // If only completed files remain, show "saving" as fallback
+  if (completedCount > 0) {
+    return "saving";
+  }
+
   return undefined;
 }
 
