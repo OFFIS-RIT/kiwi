@@ -42,13 +42,15 @@ export function CardTemplate({
   const { t } = useLanguage();
 
   return (
-    <Card className="overflow-hidden transition-all hover:shadow-md">
-      <CardHeader className="pb-3">
+    <Card className="flex h-full min-h-[255px] flex-col gap-0 overflow-hidden pb-0 transition-all hover:shadow-md">
+      <CardHeader className="px-6 pb-4 min-h-[76px]">
         <CardTitle className="text-lg font-semibold">{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
-      <CardContent>{children}</CardContent>
-      <CardFooter className="flex items-center justify-between border-t bg-muted/50 px-6 py-3">
+      <CardContent className="flex-1 px-6 pb-6 min-h-[80px]">
+        {children}
+      </CardContent>
+      <CardFooter className="flex items-center justify-between border-t bg-muted/50 px-6 py-3 !pt-3">
         <Badge variant="outline" className="bg-background">
           <BadgeIcon className="mr-1 h-3 w-3" />
           {badgeText}

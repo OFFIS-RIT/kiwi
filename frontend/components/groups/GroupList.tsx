@@ -37,7 +37,7 @@ export function GroupList({ onEditGroup }: GroupListProps) {
         <p className="text-muted-foreground">{t("select.group")}</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid auto-rows-fr items-stretch gap-4 md:grid-cols-2 lg:grid-cols-3">
         {groups.map((group) => (
           <GroupCard
             key={group.id}
