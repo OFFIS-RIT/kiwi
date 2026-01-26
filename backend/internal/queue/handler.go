@@ -75,7 +75,7 @@ func ProcessGraphMessage(
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Column3:        "extracting",
+			Column3:       "extracting",
 		})
 	}
 
@@ -85,6 +85,12 @@ func ProcessGraphMessage(
 	if isUpdate {
 		statType = "graph_update"
 		projectState = "update"
+	}
+	if _, err := q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
+		ID:    projectId,
+		State: projectState,
+	}); err != nil {
+		logger.Warn("[Queue] Failed to update project state at graph start", "project_id", projectId, "state", projectState, "err", err)
 	}
 
 	s3Bucket := util.GetEnvString("AWS_BUCKET", "kiwi")
@@ -283,7 +289,7 @@ func ProcessGraphMessage(
 			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 				CorrelationID: data.CorrelationID,
 				BatchID:       int32(data.BatchID),
-				Column3:        "failed",
+				Column3:       "failed",
 				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
 			})
 		}
@@ -312,7 +318,7 @@ func ProcessGraphMessage(
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Column3:        "indexing",
+			Column3:       "indexing",
 		})
 	}
 
@@ -326,18 +332,13 @@ func ProcessGraphMessage(
 		}
 		return err
 	}
-	defer q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
-		ID:    projectId,
-		State: "ready",
-	})
-
 	err = graphClient.MergeFromStaging(ctx, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
 	if err != nil {
 		if data.CorrelationID != "" {
 			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 				CorrelationID: data.CorrelationID,
 				BatchID:       int32(data.BatchID),
-				Column3:        "failed",
+				Column3:       "failed",
 				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
 			})
 		}
@@ -363,7 +364,7 @@ func ProcessGraphMessage(
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Column3:        "completed",
+			Column3:       "completed",
 		})
 
 		allDone, checkErr := q.AreAllBatchesCompleted(ctx, data.CorrelationID)
@@ -372,6 +373,19 @@ func ProcessGraphMessage(
 			if err != nil {
 				logger.Error("[Queue] Failed to generate descriptions for correlation", "correlation_id", data.CorrelationID, "err", err)
 			}
+
+			latestCorrelationID, latestErr := q.GetLatestCorrelationForProject(ctx, projectId)
+			if latestErr != nil {
+				logger.Warn("[Queue] Failed to fetch latest correlation for project", "project_id", projectId, "correlation_id", data.CorrelationID, "err", latestErr)
+			} else if latestCorrelationID == data.CorrelationID {
+				if _, err := q.UpdateProjectState(ctx, db.UpdateProjectStateParams{ID: projectId, State: "ready"}); err != nil {
+					logger.Error("[Queue] Failed to set project state to ready", "project_id", projectId, "correlation_id", data.CorrelationID, "err", err)
+				}
+			}
+		}
+	} else {
+		if _, err := q.UpdateProjectState(ctx, db.UpdateProjectStateParams{ID: projectId, State: "ready"}); err != nil {
+			logger.Error("[Queue] Failed to set project state to ready", "project_id", projectId, "err", err)
 		}
 	}
 
@@ -480,11 +494,19 @@ func ProcessPreprocess(
 
 	q := db.New(conn)
 
+	projectState := "create"
+	if data.Operation == "update" {
+		projectState = "update"
+	}
+	if _, err := q.UpdateProjectState(ctx, db.UpdateProjectStateParams{ID: data.ProjectID, State: projectState}); err != nil {
+		logger.Warn("[Queue] Failed to update project state at preprocess start", "project_id", data.ProjectID, "state", projectState, "err", err)
+	}
+
 	if data.CorrelationID != "" {
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Column3:        "preprocessing",
+			Column3:       "preprocessing",
 		})
 	}
 
@@ -898,7 +920,7 @@ func ProcessPreprocess(
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Column3:        "preprocessed",
+			Column3:       "preprocessed",
 		})
 	}
 
