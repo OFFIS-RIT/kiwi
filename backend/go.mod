@@ -95,7 +95,7 @@ require (
 	codeberg.org/readeck/go-readability/v2 v2.1.0
 	github.com/charmbracelet/log v0.4.2
 	github.com/invopop/jsonschema v0.13.0
-	github.com/kaptinlin/jsonrepair v0.2.6
+	github.com/kaptinlin/jsonrepair v0.2.7
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/ollama/ollama v0.13.5
 	github.com/openai/openai-go/v3 v3.16.0
