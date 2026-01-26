@@ -144,9 +144,9 @@ export function CreateProjectDialog({
 
       onOpenChange(false);
     } catch (error) {
-      console.error("Fehler beim Erstellen des Projekts:", error);
+      console.error(t("error.creating.project"), error);
       setSubmitError(
-        error instanceof Error ? error.message : "Unbekannter Fehler"
+        error instanceof Error ? error.message : t("error.unknown")
       );
     } finally {
       setIsSubmitting(false);

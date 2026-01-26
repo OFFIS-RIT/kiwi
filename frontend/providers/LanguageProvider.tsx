@@ -168,6 +168,8 @@ const translations = {
     create: "Create",
     creating: "Creating...",
     "error.group.required": "Please select a group to create a project.",
+    "error.creating.project": "Error creating project:",
+    "error.unknown": "Unknown error",
 
     // Edit Project
     "edit.project": "Edit Project",
@@ -345,6 +347,8 @@ const translations = {
     creating: "Erstelle...",
     "error.group.required":
       "Bitte wähle eine Gruppe aus, um ein Projekt zu erstellen.",
+    "error.creating.project": "Fehler beim Erstellen des Projekts:",
+    "error.unknown": "Unbekannter Fehler",
 
     // Edit Project
     "edit.project": "Projekt bearbeiten",
