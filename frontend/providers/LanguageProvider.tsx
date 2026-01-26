@@ -87,8 +87,9 @@ const translations = {
     close: "Close",
     "save.changes": "Save Changes",
     "add.user": "Add User",
-    "delete.project.confirm":
-      "Are you sure you want to delete this project? This action cannot be undone.",
+    "delete.project.confirm": "Delete Project?",
+    "delete.project.description":
+      "Are you sure you want to delete the project \"{projectName}\"? This action cannot be undone.",
     "delete.project.error": "An error occurred while deleting the project.",
     "delete.group.confirm":
       "Are you sure you want to delete this group? This will also delete all projects within the group. This action cannot be undone.",
@@ -262,8 +263,9 @@ const translations = {
     close: "Schließen",
     "save.changes": "Änderungen speichern",
     "add.user": "Benutzer hinzufügen",
-    "delete.project.confirm":
-      "Möchtest du dieses Projekt wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+    "delete.project.confirm": "Projekt löschen?",
+    "delete.project.description":
+      "Möchtest du das Projekt \"{projectName}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
     "delete.project.error":
       "Beim Löschen des Projekts ist ein Fehler aufgetreten.",
     "delete.group.confirm":
