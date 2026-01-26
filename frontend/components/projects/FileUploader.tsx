@@ -56,7 +56,7 @@ export function FileUploader({ files, setFiles }: FileUploaderProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 w-full min-w-0">
       <div
         className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors ${
           isDragging
@@ -88,27 +88,29 @@ export function FileUploader({ files, setFiles }: FileUploaderProps) {
       </div>
 
       {files.length > 0 && (
-        <div className="space-y-2 rounded-lg border p-2">
+        <div className="space-y-2 rounded-lg border p-2 w-full">
           <p className="px-2 text-sm font-medium">{t("selected.files")}</p>
-          <ul className="max-h-[200px] space-y-2 overflow-y-auto">
+          <ul className="max-h-[200px] space-y-2 overflow-y-auto w-full">
             {files.map((file, index) => (
               <li
                 key={index}
-                className="flex items-center justify-between gap-2 rounded-md bg-muted p-2 text-sm"
+                className="flex items-center justify-between gap-2 rounded-md bg-muted p-2 text-sm w-full max-w-full"
               >
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex flex-1 items-center gap-2 min-w-0 overflow-hidden">
                   <FileText className="h-4 w-4 flex-shrink-0" />
-                  <span className="truncate">{file.name}</span>
+                  <span className="truncate" title={file.name}>
+                    {file.name}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
                     {formatFileSize(file.size)}
                   </span>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6"
+                    className="h-6 w-6 flex-shrink-0"
                     onClick={() => removeFile(index)}
                   >
                     <X className="h-4 w-4" />
