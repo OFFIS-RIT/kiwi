@@ -107,7 +107,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
         <p className="text-muted-foreground">{t("select.knowledge.project")}</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid auto-rows-fr items-stretch gap-4 md:grid-cols-2 lg:grid-cols-3">
         {group.projects.map((project) => (
           <ProjectCard
             key={project.id}
