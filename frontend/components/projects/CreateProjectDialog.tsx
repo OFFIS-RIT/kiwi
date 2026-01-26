@@ -144,9 +144,9 @@ export function CreateProjectDialog({
 
       onOpenChange(false);
     } catch (error) {
-      console.error("Fehler beim Erstellen des Projekts:", error);
+      console.error(t("error.creating.project"), error);
       setSubmitError(
-        error instanceof Error ? error.message : "Unbekannter Fehler"
+        error instanceof Error ? error.message : t("error.unknown")
       );
     } finally {
       setIsSubmitting(false);
@@ -156,14 +156,14 @@ export function CreateProjectDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px]">
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="w-full">
           <DialogHeader>
             <DialogTitle>{t("create.new.project")}</DialogTitle>
             <DialogDescription>
               {t("create.new.project.description")}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-6 py-4">
+          <div className="grid gap-6 py-4 min-w-0">
             {submitError && (
               <div className="bg-destructive/15 text-destructive px-4 py-2 rounded-md text-sm">
                 {submitError}
@@ -220,7 +220,7 @@ export function CreateProjectDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
+            <div className="grid gap-2 w-full min-w-0">
               <Label>{t("upload.documents")}</Label>
               <FileUploader files={files} setFiles={setFiles} />
             </div>
