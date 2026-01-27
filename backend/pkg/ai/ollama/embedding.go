@@ -2,6 +2,7 @@ package ollama
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -65,6 +66,105 @@ func (c *GraphOllamaClient) GenerateEmbedding(
 			}
 			out = append(out, float32(val))
 		}
+	}
+	return out, nil
+}
+
+// GenerateEmbeddings creates embeddings for multiple inputs.
+//
+// Requests are issued concurrently; the client's internal semaphore (reqLock)
+// limits actual parallelism.
+func (c *GraphOllamaClient) GenerateEmbeddings(ctx context.Context, inputs [][]byte) ([][]float32, error) {
+	dim := int(util.GetEnvNumeric("AI_EMBED_DIM", defaultDimensions))
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+
+	out := make([][]float32, len(inputs))
+
+	type result struct {
+		idx int
+		vec []float32
+		err error
+	}
+
+	resCh := make(chan result, len(inputs))
+
+	for i := range inputs {
+		idx := i
+		in := inputs[i]
+		go func() {
+			if len(in) == 0 || len(strings.TrimSpace(string(in))) == 0 {
+				resCh <- result{idx: idx, vec: make([]float32, dim)}
+				return
+			}
+			vec, err := c.GenerateEmbedding(ctx, in)
+			resCh <- result{idx: idx, vec: vec, err: err}
+		}()
+	}
+
+	for range inputs {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case r := <-resCh:
+			if r.err != nil {
+				return nil, r.err
+			}
+			if r.vec == nil {
+				return nil, fmt.Errorf("nil embedding for index %d", r.idx)
+			}
+			out[r.idx] = r.vec
+		}
+	}
+
+	return out, nil
+}
+
+// GenerateEmbeddingsChunks generates embeddings for each chunk and returns a
+// flattened result slice, preserving chunk order and input order within each chunk.
+func (c *GraphOllamaClient) GenerateEmbeddingsChunks(ctx context.Context, chunks [][][]byte) ([][]float32, error) {
+	if len(chunks) == 0 {
+		return nil, nil
+	}
+
+	outChunks := make([][][]float32, len(chunks))
+
+	type chunkRes struct {
+		idx int
+		out [][]float32
+		err error
+	}
+
+	ch := make(chan chunkRes, len(chunks))
+	for i := range chunks {
+		idx := i
+		chunk := chunks[i]
+		go func() {
+			res, err := c.GenerateEmbeddings(ctx, chunk)
+			ch <- chunkRes{idx: idx, out: res, err: err}
+		}()
+	}
+
+	for range chunks {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case r := <-ch:
+			if r.err != nil {
+				return nil, r.err
+			}
+			outChunks[r.idx] = r.out
+		}
+	}
+
+	total := 0
+	for _, c := range outChunks {
+		total += len(c)
+	}
+	out := make([][]float32, 0, total)
+	for _, c := range outChunks {
+		out = append(out, c...)
 	}
 	return out, nil
 }

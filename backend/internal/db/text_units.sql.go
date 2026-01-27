@@ -149,6 +149,37 @@ func (q *Queries) GetTextUnitByPublicId(ctx context.Context, publicID string) (T
 	return i, err
 }
 
+const getTextUnitIDsByPublicIDs = `-- name: GetTextUnitIDsByPublicIDs :many
+SELECT id, public_id
+FROM text_units
+WHERE public_id = ANY($1::text[])
+`
+
+type GetTextUnitIDsByPublicIDsRow struct {
+	ID       int64  `json:"id"`
+	PublicID string `json:"public_id"`
+}
+
+func (q *Queries) GetTextUnitIDsByPublicIDs(ctx context.Context, publicIds []string) ([]GetTextUnitIDsByPublicIDsRow, error) {
+	rows, err := q.db.Query(ctx, getTextUnitIDsByPublicIDs, publicIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetTextUnitIDsByPublicIDsRow{}
+	for rows.Next() {
+		var i GetTextUnitIDsByPublicIDsRow
+		if err := rows.Scan(&i.ID, &i.PublicID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTextUnitIdsForFiles = `-- name: GetTextUnitIdsForFiles :many
 SELECT id, public_id FROM text_units WHERE project_file_id = ANY($1::bigint[])
 `
@@ -171,6 +202,50 @@ func (q *Queries) GetTextUnitIdsForFiles(ctx context.Context, dollar_1 []int64) 
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const upsertTextUnits = `-- name: UpsertTextUnits :many
+WITH input AS (
+    SELECT
+        u.public_id,
+        ($1::bigint[])[u.ord]::bigint AS project_file_id,
+        ($2::text[])[u.ord]::text AS text
+    FROM unnest($3::text[]) WITH ORDINALITY AS u(public_id, ord)
+)
+INSERT INTO text_units (public_id, project_file_id, text)
+SELECT public_id, project_file_id, text
+FROM input
+ON CONFLICT (public_id) DO UPDATE
+SET project_file_id = EXCLUDED.project_file_id,
+    text = EXCLUDED.text,
+    updated_at = NOW()
+RETURNING id
+`
+
+type UpsertTextUnitsParams struct {
+	ProjectFileIds []int64  `json:"project_file_ids"`
+	Texts          []string `json:"texts"`
+	PublicIds      []string `json:"public_ids"`
+}
+
+func (q *Queries) UpsertTextUnits(ctx context.Context, arg UpsertTextUnitsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, upsertTextUnits, arg.ProjectFileIds, arg.Texts, arg.PublicIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

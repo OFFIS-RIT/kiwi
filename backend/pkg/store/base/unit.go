@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )
@@ -46,38 +47,52 @@ func (s *GraphDBStorage) AddUnit(ctx context.Context, qtx *db.Queries, unit *com
 // transaction. Text units represent chunks of source documents that are linked
 // to entities and relationships through sources.
 func (s *GraphDBStorage) SaveUnits(ctx context.Context, units []*common.Unit) ([]int64, error) {
-	ids := make([]int64, 0, len(units))
-
-	trx, err := s.conn.Begin(ctx)
-	if err != nil {
-		return nil, err
+	if len(units) == 0 {
+		return nil, nil
 	}
 
-	q := db.New(s.conn)
-	qtx := q.WithTx(trx)
+	logger.Debug("[Graph][SaveUnits] Bulk upserting text units", "units", len(units))
 
-	for _, unit := range units {
-		fId, err := parseBaseFileID(unit.FileID)
+	ids := make([]int64, 0, len(units))
+	chunkSize := 1000
+	err := chunkRange(len(units), chunkSize, func(start, end int) error {
+		tx, err := s.conn.Begin(ctx)
 		if err != nil {
-			return nil, err
+			return err
+		}
+		defer tx.Rollback(ctx)
+		qtx := db.New(tx)
+
+		count := end - start
+		publicIDs := make([]string, 0, count)
+		fileIDs := make([]int64, 0, count)
+		texts := make([]string, 0, count)
+		for _, unit := range units[start:end] {
+			fId, err := parseBaseFileID(unit.FileID)
+			if err != nil {
+				return err
+			}
+			publicIDs = append(publicIDs, unit.ID)
+			fileIDs = append(fileIDs, fId)
+			texts = append(texts, unit.Text)
 		}
 
-		id, err := qtx.AddProjectFileTextUnit(ctx, db.AddProjectFileTextUnitParams{
-			PublicID:      unit.ID,
-			ProjectFileID: fId,
-			Text:          unit.Text,
+		chunkIDs, err := qtx.UpsertTextUnits(ctx, db.UpsertTextUnitsParams{
+			PublicIds:      publicIDs,
+			ProjectFileIds: fileIDs,
+			Texts:          texts,
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
+		ids = append(ids, chunkIDs...)
 
-		ids = append(ids, id)
-	}
-
-	err = trx.Commit(ctx)
+		return tx.Commit(ctx)
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return nil, nil
+	logger.Debug("[Graph][SaveUnits] Bulk upsert completed", "units", len(units), "chunks", (len(units)+chunkSize-1)/chunkSize)
+	return ids, nil
 }

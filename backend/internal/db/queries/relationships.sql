@@ -11,6 +11,30 @@ SET project_id = EXCLUDED.project_id,
     updated_at = NOW()
 RETURNING id;
 
+-- name: UpsertProjectRelationships :many
+WITH input AS (
+    SELECT
+        u.public_id,
+        (sqlc.arg(source_ids)::bigint[])[u.ord]::bigint AS source_id,
+        (sqlc.arg(target_ids)::bigint[])[u.ord]::bigint AS target_id,
+        (sqlc.arg(ranks)::float8[])[u.ord]::float8 AS rank,
+        (sqlc.arg(descriptions)::text[])[u.ord]::text AS description,
+        (sqlc.arg(embeddings)::vector[])[u.ord]::vector AS embedding
+    FROM unnest(sqlc.arg(public_ids)::text[]) WITH ORDINALITY AS u(public_id, ord)
+)
+INSERT INTO relationships (public_id, project_id, source_id, target_id, rank, description, embedding)
+SELECT public_id, sqlc.arg(project_id)::bigint, source_id, target_id, rank, description, embedding
+FROM input
+ON CONFLICT (public_id) DO UPDATE
+SET project_id = EXCLUDED.project_id,
+    source_id = EXCLUDED.source_id,
+    target_id = EXCLUDED.target_id,
+    rank = EXCLUDED.rank,
+    description = EXCLUDED.description,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+RETURNING id, public_id;
+
 -- name: GetProjectRelationships :many
 SELECT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank FROM relationships r WHERE r.project_id = $1;
 
@@ -65,6 +89,26 @@ SET relationship_id = EXCLUDED.relationship_id,
     embedding = EXCLUDED.embedding,
     updated_at = NOW()
 RETURNING id;
+
+-- name: UpsertRelationshipSources :exec
+WITH input AS (
+    SELECT
+        u.public_id,
+        (sqlc.arg(relationship_ids)::bigint[])[u.ord]::bigint AS relationship_id,
+        (sqlc.arg(text_unit_ids)::bigint[])[u.ord]::bigint AS text_unit_id,
+        (sqlc.arg(descriptions)::text[])[u.ord]::text AS description,
+        (sqlc.arg(embeddings)::vector[])[u.ord]::vector AS embedding
+    FROM unnest(sqlc.arg(public_ids)::text[]) WITH ORDINALITY AS u(public_id, ord)
+)
+INSERT INTO relationship_sources (public_id, relationship_id, text_unit_id, description, embedding)
+SELECT public_id, relationship_id, text_unit_id, description, embedding
+FROM input
+ON CONFLICT (public_id) DO UPDATE
+SET relationship_id = EXCLUDED.relationship_id,
+    text_unit_id = EXCLUDED.text_unit_id,
+    description = EXCLUDED.description,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW();
 
 -- name: GetProjectRelationshipSourcesByPublicID :many
 SELECT ps.public_id, ps.description FROM relationship_sources ps

@@ -145,6 +145,8 @@ type GraphAIClient interface {
 	) (<-chan StreamEvent, error)
 
 	GenerateEmbedding(ctx context.Context, input []byte) ([]float32, error)
+	GenerateEmbeddings(ctx context.Context, inputs [][]byte) ([][]float32, error)
+	GenerateEmbeddingsChunks(ctx context.Context, chunks [][][]byte) ([][]float32, error)
 	GenerateImageDescription(
 		ctx context.Context,
 		prompt string,

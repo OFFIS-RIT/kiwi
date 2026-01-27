@@ -22,6 +22,33 @@ LIMIT 1;
 -- name: GetProjectEntityByPublicID :one
 SELECT e.id, e.public_id, e.name, e.description, e.type FROM entities e WHERE e.public_id = $1;
 
+-- name: GetEntityIDsByPublicIDs :many
+SELECT e.id, e.public_id
+FROM entities e
+WHERE e.project_id = sqlc.arg(project_id) AND e.public_id = ANY(sqlc.arg(public_ids)::text[]);
+
+-- name: UpsertProjectEntities :many
+WITH input AS (
+    SELECT
+        u.public_id,
+        (sqlc.arg(names)::text[])[u.ord]::text AS name,
+        (sqlc.arg(descriptions)::text[])[u.ord]::text AS description,
+        (sqlc.arg(types)::text[])[u.ord]::text AS type,
+        (sqlc.arg(embeddings)::vector[])[u.ord]::vector AS embedding
+    FROM unnest(sqlc.arg(public_ids)::text[]) WITH ORDINALITY AS u(public_id, ord)
+)
+INSERT INTO entities (public_id, project_id, name, description, type, embedding)
+SELECT public_id, sqlc.arg(project_id)::bigint, name, description, type, embedding
+FROM input
+ON CONFLICT (public_id) DO UPDATE
+SET project_id = EXCLUDED.project_id,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    type = EXCLUDED.type,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+RETURNING id, public_id;
+
 -- name: GetProjectEntityByID :one
 SELECT e.id, e.public_id, e.name, e.description, e.type FROM entities e WHERE e.id = $1;
 
@@ -70,6 +97,26 @@ SET entity_id = EXCLUDED.entity_id,
     embedding = EXCLUDED.embedding,
     updated_at = NOW()
 RETURNING id;
+
+-- name: UpsertEntitySources :exec
+WITH input AS (
+    SELECT
+        u.public_id,
+        (sqlc.arg(entity_ids)::bigint[])[u.ord]::bigint AS entity_id,
+        (sqlc.arg(text_unit_ids)::bigint[])[u.ord]::bigint AS text_unit_id,
+        (sqlc.arg(descriptions)::text[])[u.ord]::text AS description,
+        (sqlc.arg(embeddings)::vector[])[u.ord]::vector AS embedding
+    FROM unnest(sqlc.arg(public_ids)::text[]) WITH ORDINALITY AS u(public_id, ord)
+)
+INSERT INTO entity_sources (public_id, entity_id, text_unit_id, description, embedding)
+SELECT public_id, entity_id, text_unit_id, description, embedding
+FROM input
+ON CONFLICT (public_id) DO UPDATE
+SET entity_id = EXCLUDED.entity_id,
+    text_unit_id = EXCLUDED.text_unit_id,
+    description = EXCLUDED.description,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW();
 
 -- name: GetProjectEntitySourcesByPublicID :many
 SELECT ps.public_id, ps.description FROM entity_sources ps
