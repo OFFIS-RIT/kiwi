@@ -53,14 +53,18 @@ func Init() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	conn, err := pgxpool.New(ctx, util.GetEnv("DATABASE_URL"))
+	pgCfg, err := pgxpool.ParseConfig(util.GetEnv("DATABASE_URL"))
+	if err != nil {
+		logger.Fatal("Failed to parse database config", "err", err)
+	}
+	pgCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		return pgxvec.RegisterTypes(ctx, conn)
+	}
+	conn, err := pgxpool.NewWithConfig(ctx, pgCfg)
 	if err != nil {
 		logger.Fatal("Failed to connect to database", "err", err)
 	}
 	defer conn.Close()
-	conn.Config().AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		return pgxvec.RegisterTypes(ctx, conn)
-	}
 
 	que := queue.Init()
 	defer que.Close()

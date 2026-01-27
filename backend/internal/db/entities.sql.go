@@ -275,6 +275,42 @@ func (q *Queries) GetEntitiesWithSourcesFromUnits(ctx context.Context, arg GetEn
 	return items, nil
 }
 
+const getEntityIDsByPublicIDs = `-- name: GetEntityIDsByPublicIDs :many
+SELECT e.id, e.public_id
+FROM entities e
+WHERE e.project_id = $1 AND e.public_id = ANY($2::text[])
+`
+
+type GetEntityIDsByPublicIDsParams struct {
+	ProjectID int64    `json:"project_id"`
+	PublicIds []string `json:"public_ids"`
+}
+
+type GetEntityIDsByPublicIDsRow struct {
+	ID       int64  `json:"id"`
+	PublicID string `json:"public_id"`
+}
+
+func (q *Queries) GetEntityIDsByPublicIDs(ctx context.Context, arg GetEntityIDsByPublicIDsParams) ([]GetEntityIDsByPublicIDsRow, error) {
+	rows, err := q.db.Query(ctx, getEntityIDsByPublicIDs, arg.ProjectID, arg.PublicIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetEntityIDsByPublicIDsRow{}
+	for rows.Next() {
+		var i GetEntityIDsByPublicIDsRow
+		if err := rows.Scan(&i.ID, &i.PublicID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getEntityTypes = `-- name: GetEntityTypes :many
 SELECT e.type, COUNT(*) as count
 FROM entities e
@@ -803,4 +839,108 @@ func (q *Queries) UpdateProjectEntityByID(ctx context.Context, arg UpdateProject
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const upsertEntitySources = `-- name: UpsertEntitySources :exec
+WITH input AS (
+    SELECT
+        u.public_id,
+        ($1::bigint[])[u.ord]::bigint AS entity_id,
+        ($2::bigint[])[u.ord]::bigint AS text_unit_id,
+        ($3::text[])[u.ord]::text AS description,
+        ($4::vector[])[u.ord]::vector AS embedding
+    FROM unnest($5::text[]) WITH ORDINALITY AS u(public_id, ord)
+)
+INSERT INTO entity_sources (public_id, entity_id, text_unit_id, description, embedding)
+SELECT public_id, entity_id, text_unit_id, description, embedding
+FROM input
+ON CONFLICT (public_id) DO UPDATE
+SET entity_id = EXCLUDED.entity_id,
+    text_unit_id = EXCLUDED.text_unit_id,
+    description = EXCLUDED.description,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+`
+
+type UpsertEntitySourcesParams struct {
+	EntityIds    []int64           `json:"entity_ids"`
+	TextUnitIds  []int64           `json:"text_unit_ids"`
+	Descriptions []string          `json:"descriptions"`
+	Embeddings   []pgvector.Vector `json:"embeddings"`
+	PublicIds    []string          `json:"public_ids"`
+}
+
+func (q *Queries) UpsertEntitySources(ctx context.Context, arg UpsertEntitySourcesParams) error {
+	_, err := q.db.Exec(ctx, upsertEntitySources,
+		arg.EntityIds,
+		arg.TextUnitIds,
+		arg.Descriptions,
+		arg.Embeddings,
+		arg.PublicIds,
+	)
+	return err
+}
+
+const upsertProjectEntities = `-- name: UpsertProjectEntities :many
+WITH input AS (
+    SELECT
+        u.public_id,
+        ($2::text[])[u.ord]::text AS name,
+        ($3::text[])[u.ord]::text AS description,
+        ($4::text[])[u.ord]::text AS type,
+        ($5::vector[])[u.ord]::vector AS embedding
+    FROM unnest($6::text[]) WITH ORDINALITY AS u(public_id, ord)
+)
+INSERT INTO entities (public_id, project_id, name, description, type, embedding)
+SELECT public_id, $1::bigint, name, description, type, embedding
+FROM input
+ON CONFLICT (public_id) DO UPDATE
+SET project_id = EXCLUDED.project_id,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    type = EXCLUDED.type,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+RETURNING id, public_id
+`
+
+type UpsertProjectEntitiesParams struct {
+	ProjectID    int64             `json:"project_id"`
+	Names        []string          `json:"names"`
+	Descriptions []string          `json:"descriptions"`
+	Types        []string          `json:"types"`
+	Embeddings   []pgvector.Vector `json:"embeddings"`
+	PublicIds    []string          `json:"public_ids"`
+}
+
+type UpsertProjectEntitiesRow struct {
+	ID       int64  `json:"id"`
+	PublicID string `json:"public_id"`
+}
+
+func (q *Queries) UpsertProjectEntities(ctx context.Context, arg UpsertProjectEntitiesParams) ([]UpsertProjectEntitiesRow, error) {
+	rows, err := q.db.Query(ctx, upsertProjectEntities,
+		arg.ProjectID,
+		arg.Names,
+		arg.Descriptions,
+		arg.Types,
+		arg.Embeddings,
+		arg.PublicIds,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UpsertProjectEntitiesRow{}
+	for rows.Next() {
+		var i UpsertProjectEntitiesRow
+		if err := rows.Scan(&i.ID, &i.PublicID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

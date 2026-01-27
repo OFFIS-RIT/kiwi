@@ -65,6 +65,7 @@ type Querier interface {
 	GetBatchesByCorrelation(ctx context.Context, correlationID string) ([]ProjectBatchStatus, error)
 	GetDeletedProjectFiles(ctx context.Context, projectID int64) ([]ProjectFile, error)
 	GetEntitiesWithSourcesFromUnits(ctx context.Context, arg GetEntitiesWithSourcesFromUnitsParams) ([]GetEntitiesWithSourcesFromUnitsRow, error)
+	GetEntityIDsByPublicIDs(ctx context.Context, arg GetEntityIDsByPublicIDsParams) ([]GetEntityIDsByPublicIDsRow, error)
 	GetEntityNeighbours(ctx context.Context, sourceID int64) ([]GetEntityNeighboursRow, error)
 	GetEntityNeighboursRanked(ctx context.Context, arg GetEntityNeighboursRankedParams) ([]GetEntityNeighboursRankedRow, error)
 	GetEntityTypes(ctx context.Context, projectID int64) ([]GetEntityTypesRow, error)
@@ -111,6 +112,7 @@ type Querier interface {
 	GetStagedUnits(ctx context.Context, arg GetStagedUnitsParams) ([][]byte, error)
 	GetStaleBatches(ctx context.Context) ([]ProjectBatchStatus, error)
 	GetTextUnitByPublicId(ctx context.Context, publicID string) (TextUnit, error)
+	GetTextUnitIDsByPublicIDs(ctx context.Context, publicIds []string) ([]GetTextUnitIDsByPublicIDsRow, error)
 	GetTextUnitIdsForFiles(ctx context.Context, dollar_1 []int64) ([]GetTextUnitIdsForFilesRow, error)
 	GetTokenCountOfFile(ctx context.Context, id int64) (int32, error)
 	GetUsers(ctx context.Context) ([]User, error)
@@ -145,6 +147,11 @@ type Querier interface {
 	UpdateRelationshipRank(ctx context.Context, arg UpdateRelationshipRankParams) error
 	UpdateRelationshipSourceEntity(ctx context.Context, arg UpdateRelationshipSourceEntityParams) error
 	UpdateRelationshipTargetEntity(ctx context.Context, arg UpdateRelationshipTargetEntityParams) error
+	UpsertEntitySources(ctx context.Context, arg UpsertEntitySourcesParams) error
+	UpsertProjectEntities(ctx context.Context, arg UpsertProjectEntitiesParams) ([]UpsertProjectEntitiesRow, error)
+	UpsertProjectRelationships(ctx context.Context, arg UpsertProjectRelationshipsParams) ([]UpsertProjectRelationshipsRow, error)
+	UpsertRelationshipSources(ctx context.Context, arg UpsertRelationshipSourcesParams) error
+	UpsertTextUnits(ctx context.Context, arg UpsertTextUnitsParams) ([]int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

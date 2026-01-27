@@ -733,3 +733,111 @@ func (q *Queries) UpdateRelationshipTargetEntity(ctx context.Context, arg Update
 	_, err := q.db.Exec(ctx, updateRelationshipTargetEntity, arg.TargetID, arg.TargetID_2, arg.ProjectID)
 	return err
 }
+
+const upsertProjectRelationships = `-- name: UpsertProjectRelationships :many
+WITH input AS (
+    SELECT
+        u.public_id,
+        ($2::bigint[])[u.ord]::bigint AS source_id,
+        ($3::bigint[])[u.ord]::bigint AS target_id,
+        ($4::float8[])[u.ord]::float8 AS rank,
+        ($5::text[])[u.ord]::text AS description,
+        ($6::vector[])[u.ord]::vector AS embedding
+    FROM unnest($7::text[]) WITH ORDINALITY AS u(public_id, ord)
+)
+INSERT INTO relationships (public_id, project_id, source_id, target_id, rank, description, embedding)
+SELECT public_id, $1::bigint, source_id, target_id, rank, description, embedding
+FROM input
+ON CONFLICT (public_id) DO UPDATE
+SET project_id = EXCLUDED.project_id,
+    source_id = EXCLUDED.source_id,
+    target_id = EXCLUDED.target_id,
+    rank = EXCLUDED.rank,
+    description = EXCLUDED.description,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+RETURNING id, public_id
+`
+
+type UpsertProjectRelationshipsParams struct {
+	ProjectID    int64             `json:"project_id"`
+	SourceIds    []int64           `json:"source_ids"`
+	TargetIds    []int64           `json:"target_ids"`
+	Ranks        []float64         `json:"ranks"`
+	Descriptions []string          `json:"descriptions"`
+	Embeddings   []pgvector.Vector `json:"embeddings"`
+	PublicIds    []string          `json:"public_ids"`
+}
+
+type UpsertProjectRelationshipsRow struct {
+	ID       int64  `json:"id"`
+	PublicID string `json:"public_id"`
+}
+
+func (q *Queries) UpsertProjectRelationships(ctx context.Context, arg UpsertProjectRelationshipsParams) ([]UpsertProjectRelationshipsRow, error) {
+	rows, err := q.db.Query(ctx, upsertProjectRelationships,
+		arg.ProjectID,
+		arg.SourceIds,
+		arg.TargetIds,
+		arg.Ranks,
+		arg.Descriptions,
+		arg.Embeddings,
+		arg.PublicIds,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UpsertProjectRelationshipsRow{}
+	for rows.Next() {
+		var i UpsertProjectRelationshipsRow
+		if err := rows.Scan(&i.ID, &i.PublicID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const upsertRelationshipSources = `-- name: UpsertRelationshipSources :exec
+WITH input AS (
+    SELECT
+        u.public_id,
+        ($1::bigint[])[u.ord]::bigint AS relationship_id,
+        ($2::bigint[])[u.ord]::bigint AS text_unit_id,
+        ($3::text[])[u.ord]::text AS description,
+        ($4::vector[])[u.ord]::vector AS embedding
+    FROM unnest($5::text[]) WITH ORDINALITY AS u(public_id, ord)
+)
+INSERT INTO relationship_sources (public_id, relationship_id, text_unit_id, description, embedding)
+SELECT public_id, relationship_id, text_unit_id, description, embedding
+FROM input
+ON CONFLICT (public_id) DO UPDATE
+SET relationship_id = EXCLUDED.relationship_id,
+    text_unit_id = EXCLUDED.text_unit_id,
+    description = EXCLUDED.description,
+    embedding = EXCLUDED.embedding,
+    updated_at = NOW()
+`
+
+type UpsertRelationshipSourcesParams struct {
+	RelationshipIds []int64           `json:"relationship_ids"`
+	TextUnitIds     []int64           `json:"text_unit_ids"`
+	Descriptions    []string          `json:"descriptions"`
+	Embeddings      []pgvector.Vector `json:"embeddings"`
+	PublicIds       []string          `json:"public_ids"`
+}
+
+func (q *Queries) UpsertRelationshipSources(ctx context.Context, arg UpsertRelationshipSourcesParams) error {
+	_, err := q.db.Exec(ctx, upsertRelationshipSources,
+		arg.RelationshipIds,
+		arg.TextUnitIds,
+		arg.Descriptions,
+		arg.Embeddings,
+		arg.PublicIds,
+	)
+	return err
+}

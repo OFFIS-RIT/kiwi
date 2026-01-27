@@ -2,13 +2,14 @@ package base
 
 import (
 	"context"
+	"fmt"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"strconv"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 
 	"github.com/pgvector/pgvector-go"
-	"golang.org/x/sync/errgroup"
 )
 
 func (s *GraphDBStorage) AddEntity(ctx context.Context, qtx *db.Queries, entity *common.Entity, projectId int64) (int64, error) {
@@ -128,87 +129,214 @@ func (s *GraphDBStorage) getSimilarEntityIdsByEmebedding(
 
 // SaveEntities persists a batch of entities and their sources to the database.
 // It generates vector embeddings for each entity and source description to enable
-// semantic similarity search. All operations are wrapped in a single transaction.
+// semantic similarity search.
 func (s *GraphDBStorage) SaveEntities(ctx context.Context, entities []common.Entity, graphId string) ([]int64, error) {
-	ids := make([]int64, 0, len(entities))
+	if len(entities) == 0 {
+		return nil, nil
+	}
 
-	trx, err := s.conn.Begin(ctx)
+	projectID, err := strconv.ParseInt(graphId, 10, 64)
 	if err != nil {
 		return nil, err
 	}
 
-	q := db.New(s.conn)
-	qtx := q.WithTx(trx)
+	entityChunk := 250
+	sourceChunk := 500
 
-	for _, entity := range entities {
-		embedding, err := s.aiClient.GenerateEmbedding(ctx, []byte(entity.Description))
-		if err != nil {
-			return nil, err
-		}
-		embed := pgvector.NewVector(embedding)
+	ids := make([]int64, 0, len(entities))
 
-		gId, err := strconv.ParseInt(graphId, 10, 64)
-		if err != nil {
-			return nil, err
+	err = chunkRange(len(entities), entityChunk, func(start, end int) error {
+		merged := mergeEntitiesByPublicID(entities[start:end])
+		if len(merged) == 0 {
+			return nil
 		}
 
-		id, err := qtx.AddProjectEntity(ctx, db.AddProjectEntityParams{
-			PublicID:    entity.ID,
-			ProjectID:   gId,
-			Name:        entity.Name,
-			Description: entity.Description,
-			Type:        entity.Type,
-			Embedding:   embed,
+		logger.Debug("[Graph][SaveEntities] Saving chunk", "entities", len(merged))
+
+		tx, err := s.conn.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		qtx := db.New(tx)
+
+		entityInputs := make([][]byte, len(merged))
+		for i := range merged {
+			entityInputs[i] = []byte(merged[i].Description)
+		}
+		logger.Debug("[Graph][SaveEntities] Generating entity embeddings", "count", len(entityInputs))
+		entityEmb, err := generateEmbeddings(ctx, s.aiClient, entityInputs)
+		if err != nil {
+			return err
+		}
+
+		entityPublicIDs := make([]string, 0, len(merged))
+		names := make([]string, 0, len(merged))
+		descriptions := make([]string, 0, len(merged))
+		types := make([]string, 0, len(merged))
+		embeddings := make([]pgvector.Vector, 0, len(merged))
+		for i, e := range merged {
+			if e.ID == "" {
+				return fmt.Errorf("entity public_id is empty")
+			}
+			entityPublicIDs = append(entityPublicIDs, e.ID)
+			names = append(names, e.Name)
+			descriptions = append(descriptions, e.Description)
+			types = append(types, e.Type)
+			embeddings = append(embeddings, pgvector.NewVector(entityEmb[i]))
+		}
+
+		logger.Debug("[Graph][SaveEntities] Bulk upserting entities", "count", len(merged))
+		rows, err := qtx.UpsertProjectEntities(ctx, db.UpsertProjectEntitiesParams{
+			ProjectID:    projectID,
+			Names:        names,
+			Descriptions: descriptions,
+			Types:        types,
+			Embeddings:   embeddings,
+			PublicIds:    entityPublicIDs,
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		eg, gCtx := errgroup.WithContext(ctx)
-		for _, source := range entity.Sources {
-			src := source
+		entityIDByPublicID := make(map[string]int64, len(rows))
+		for _, r := range rows {
+			entityIDByPublicID[r.PublicID] = r.ID
+			ids = append(ids, r.ID)
+		}
 
-			eg.Go(func() error {
-				embedding, err := s.aiClient.GenerateEmbedding(gCtx, []byte(src.Description))
+		sources := flattenEntitySources(merged, entityIDByPublicID)
+		if len(sources) > 0 {
+			err = chunkRange(len(sources), sourceChunk, func(sStart, sEnd int) error {
+				part := sources[sStart:sEnd]
+				logger.Debug("[Graph][SaveEntities] Saving entity sources chunk", "sources", len(part))
+
+				unitPublicIDs := make([]string, 0, len(part))
+				for _, src := range part {
+					unitPublicIDs = append(unitPublicIDs, src.unitPublicID)
+				}
+				unitRows, err := qtx.GetTextUnitIDsByPublicIDs(ctx, dedupeStrings(unitPublicIDs))
 				if err != nil {
 					return err
 				}
-				embed := pgvector.NewVector(embedding)
+				unitIDByPublicID := make(map[string]int64, len(unitRows))
+				for _, r := range unitRows {
+					unitIDByPublicID[r.PublicID] = r.ID
+				}
 
-				s.dbLock.Lock()
-				defer s.dbLock.Unlock()
-				unit, err := qtx.GetTextUnitByPublicId(gCtx, src.Unit.ID)
+				inputs := make([][]byte, len(part))
+				for i := range part {
+					inputs[i] = []byte(part[i].description)
+				}
+				logger.Debug("[Graph][SaveEntities] Generating entity source embeddings", "count", len(inputs))
+				embs, err := generateEmbeddings(ctx, s.aiClient, inputs)
 				if err != nil {
 					return err
 				}
 
-				_, err = qtx.AddProjectEntitySource(gCtx, db.AddProjectEntitySourceParams{
-					PublicID:    src.ID,
-					EntityID:    id,
-					TextUnitID:  unit.ID,
-					Description: src.Description,
-					Embedding:   embed,
+				sPublicIDs := make([]string, 0, len(part))
+				sEntityIDs := make([]int64, 0, len(part))
+				sUnitIDs := make([]int64, 0, len(part))
+				sDescriptions := make([]string, 0, len(part))
+				sEmbeddings := make([]pgvector.Vector, 0, len(part))
+				for i := range part {
+					unitID, ok := unitIDByPublicID[part[i].unitPublicID]
+					if !ok {
+						return fmt.Errorf("missing text unit for source: unit_public_id=%s", part[i].unitPublicID)
+					}
+					sPublicIDs = append(sPublicIDs, part[i].publicID)
+					sEntityIDs = append(sEntityIDs, part[i].entityID)
+					sUnitIDs = append(sUnitIDs, unitID)
+					sDescriptions = append(sDescriptions, part[i].description)
+					sEmbeddings = append(sEmbeddings, pgvector.NewVector(embs[i]))
+				}
+
+				logger.Debug("[Graph][SaveEntities] Bulk upserting entity sources", "count", len(part))
+				return qtx.UpsertEntitySources(ctx, db.UpsertEntitySourcesParams{
+					EntityIds:    sEntityIDs,
+					TextUnitIds:  sUnitIDs,
+					Descriptions: sDescriptions,
+					Embeddings:   sEmbeddings,
+					PublicIds:    sPublicIDs,
 				})
-
-				if err != nil {
-					return err
-				}
-
-				return nil
 			})
+			if err != nil {
+				return err
+			}
 		}
 
-		if err := eg.Wait(); err != nil {
-			return nil, err
-		}
-
-		ids = append(ids, id)
-	}
-
-	err = trx.Commit(ctx)
+		logger.Debug("[Graph][SaveEntities] Chunk committed", "entities", len(merged))
+		return tx.Commit(ctx)
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return ids, nil
+}
+
+type entitySourceRow struct {
+	publicID     string
+	entityID     int64
+	unitPublicID string
+	description  string
+}
+
+func mergeEntitiesByPublicID(in []common.Entity) []common.Entity {
+	byID := make(map[string]int, len(in))
+	out := make([]common.Entity, 0, len(in))
+	for _, e := range in {
+		if e.ID == "" {
+			continue
+		}
+		if idx, ok := byID[e.ID]; ok {
+			if e.Name != "" {
+				out[idx].Name = e.Name
+			}
+			if e.Description != "" {
+				out[idx].Description = e.Description
+			}
+			if e.Type != "" {
+				out[idx].Type = e.Type
+			}
+			if len(e.Sources) > 0 {
+				out[idx].Sources = append(out[idx].Sources, e.Sources...)
+			}
+			continue
+		}
+		byID[e.ID] = len(out)
+		out = append(out, e)
+	}
+	return out
+}
+
+func flattenEntitySources(entities []common.Entity, entityIDByPublicID map[string]int64) []entitySourceRow {
+	rows := make([]entitySourceRow, 0)
+	indexByPublicID := make(map[string]int)
+
+	for _, e := range entities {
+		entityID, ok := entityIDByPublicID[e.ID]
+		if !ok {
+			continue
+		}
+		for _, src := range e.Sources {
+			if src.ID == "" || src.Unit == nil || src.Unit.ID == "" {
+				continue
+			}
+			row := entitySourceRow{
+				publicID:     src.ID,
+				entityID:     entityID,
+				unitPublicID: src.Unit.ID,
+				description:  src.Description,
+			}
+			if idx, ok := indexByPublicID[row.publicID]; ok {
+				rows[idx] = row
+				continue
+			}
+			indexByPublicID[row.publicID] = len(rows)
+			rows = append(rows, row)
+		}
+	}
+
+	return rows
 }

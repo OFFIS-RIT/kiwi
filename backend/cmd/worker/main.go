@@ -78,14 +78,18 @@ func main() {
 		})
 	}
 
-	pgConn, err := pgxpool.New(ctx, util.GetEnv("DATABASE_URL"))
+	pgCfg, err := pgxpool.ParseConfig(util.GetEnv("DATABASE_URL"))
+	if err != nil {
+		logger.Fatal("Unable to parse database config", "err", err)
+	}
+	pgCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		return pgxvec.RegisterTypes(ctx, conn)
+	}
+	pgConn, err := pgxpool.NewWithConfig(ctx, pgCfg)
 	if err != nil {
 		logger.Fatal("Unable to connect to database", "err", err)
 	}
 	defer pgConn.Close()
-	pgConn.Config().AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		return pgxvec.RegisterTypes(ctx, conn)
-	}
 
 	conn := queue.Init()
 	defer conn.Close()
