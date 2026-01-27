@@ -168,11 +168,26 @@ SELECT es.id, es.description, es.text_unit_id
 FROM entity_sources es
 WHERE es.entity_id = $1;
 
+-- name: GetEntitySourceDescriptionsForFiles :many
+SELECT es.description
+FROM entity_sources es
+JOIN text_units tu ON tu.id = es.text_unit_id
+WHERE es.entity_id = $1
+  AND tu.project_file_id = ANY($2::bigint[]);
+
 -- name: GetEntitiesWithSourcesFromUnits :many
 SELECT DISTINCT e.id, e.public_id, e.name, e.type, e.description
 FROM entities e
 JOIN entity_sources es ON es.entity_id = e.id
 WHERE es.text_unit_id = ANY($1::bigint[])
+  AND e.project_id = $2;
+
+-- name: GetEntitiesWithSourcesFromFiles :many
+SELECT DISTINCT e.id, e.public_id, e.name, e.type, e.description
+FROM entities e
+JOIN entity_sources es ON es.entity_id = e.id
+JOIN text_units tu ON tu.id = es.text_unit_id
+WHERE tu.project_file_id = ANY($1::bigint[])
   AND e.project_id = $2;
 
 -- name: CountEntitySourcesFromUnits :one

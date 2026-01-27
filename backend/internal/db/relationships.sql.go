@@ -587,6 +587,89 @@ func (q *Queries) GetProjectRelationshipsByIDs(ctx context.Context, dollar_1 []i
 	return items, nil
 }
 
+const getRelationshipSourceDescriptionsForFiles = `-- name: GetRelationshipSourceDescriptionsForFiles :many
+SELECT rs.description
+FROM relationship_sources rs
+JOIN text_units tu ON tu.id = rs.text_unit_id
+WHERE rs.relationship_id = $1
+  AND tu.project_file_id = ANY($2::bigint[])
+`
+
+type GetRelationshipSourceDescriptionsForFilesParams struct {
+	RelationshipID int64   `json:"relationship_id"`
+	Column2        []int64 `json:"column_2"`
+}
+
+func (q *Queries) GetRelationshipSourceDescriptionsForFiles(ctx context.Context, arg GetRelationshipSourceDescriptionsForFilesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, getRelationshipSourceDescriptionsForFiles, arg.RelationshipID, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var description string
+		if err := rows.Scan(&description); err != nil {
+			return nil, err
+		}
+		items = append(items, description)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getRelationshipsWithSourcesFromFiles = `-- name: GetRelationshipsWithSourcesFromFiles :many
+SELECT DISTINCT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank
+FROM relationships r
+JOIN relationship_sources rs ON rs.relationship_id = r.id
+JOIN text_units tu ON tu.id = rs.text_unit_id
+WHERE tu.project_file_id = ANY($1::bigint[])
+  AND r.project_id = $2
+`
+
+type GetRelationshipsWithSourcesFromFilesParams struct {
+	Column1   []int64 `json:"column_1"`
+	ProjectID int64   `json:"project_id"`
+}
+
+type GetRelationshipsWithSourcesFromFilesRow struct {
+	ID          int64   `json:"id"`
+	PublicID    string  `json:"public_id"`
+	SourceID    int64   `json:"source_id"`
+	TargetID    int64   `json:"target_id"`
+	Description string  `json:"description"`
+	Rank        float64 `json:"rank"`
+}
+
+func (q *Queries) GetRelationshipsWithSourcesFromFiles(ctx context.Context, arg GetRelationshipsWithSourcesFromFilesParams) ([]GetRelationshipsWithSourcesFromFilesRow, error) {
+	rows, err := q.db.Query(ctx, getRelationshipsWithSourcesFromFiles, arg.Column1, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetRelationshipsWithSourcesFromFilesRow{}
+	for rows.Next() {
+		var i GetRelationshipsWithSourcesFromFilesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.SourceID,
+			&i.TargetID,
+			&i.Description,
+			&i.Rank,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRelationshipsWithSourcesFromUnits = `-- name: GetRelationshipsWithSourcesFromUnits :many
 SELECT DISTINCT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank
 FROM relationships r

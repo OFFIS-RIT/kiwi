@@ -73,7 +73,7 @@ func Init() {
 		logger.Fatal("Failed to open channel", "err", err)
 	}
 
-	queues := []string{"index_queue", "update_queue", "delete_queue", "preprocess_queue"}
+	queues := []string{"index_queue", "update_queue", "delete_queue", "preprocess_queue", "description_queue"}
 	err = queue.SetupQueues(ch, queues)
 
 	s3 := storage.NewS3Client(ctx)

@@ -100,7 +100,7 @@ func main() {
 	}
 	defer ch.Close()
 
-	queues := []string{"graph_queue", "delete_queue", "preprocess_queue"}
+	queues := []string{"graph_queue", "delete_queue", "preprocess_queue", "description_queue"}
 	err = queue.SetupQueues(ch, queues)
 
 	logger.Info("Checking for stale batches to recover...")
@@ -179,6 +179,8 @@ func main() {
 					processingErr = queue.ProcessGraphMessage(ctx, client, aiClient, ch, pgConn, string(qm.msg.Body))
 				case "delete_queue":
 					processingErr = queue.ProcessDeleteMessage(ctx, client, aiClient, ch, pgConn, string(qm.msg.Body))
+				case "description_queue":
+					processingErr = queue.ProcessDescriptionMessage(ctx, aiClient, ch, pgConn, string(qm.msg.Body))
 				}
 
 				if processingErr != nil {

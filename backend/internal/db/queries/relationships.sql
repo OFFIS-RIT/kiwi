@@ -170,11 +170,26 @@ SELECT rs.id, rs.description, rs.text_unit_id
 FROM relationship_sources rs
 WHERE rs.relationship_id = $1;
 
+-- name: GetRelationshipSourceDescriptionsForFiles :many
+SELECT rs.description
+FROM relationship_sources rs
+JOIN text_units tu ON tu.id = rs.text_unit_id
+WHERE rs.relationship_id = $1
+  AND tu.project_file_id = ANY($2::bigint[]);
+
 -- name: GetRelationshipsWithSourcesFromUnits :many
 SELECT DISTINCT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank
 FROM relationships r
 JOIN relationship_sources rs ON rs.relationship_id = r.id
 WHERE rs.text_unit_id = ANY($1::bigint[])
+  AND r.project_id = $2;
+
+-- name: GetRelationshipsWithSourcesFromFiles :many
+SELECT DISTINCT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank
+FROM relationships r
+JOIN relationship_sources rs ON rs.relationship_id = r.id
+JOIN text_units tu ON tu.id = rs.text_unit_id
+WHERE tu.project_file_id = ANY($1::bigint[])
   AND r.project_id = $2;
 
 -- name: CountRelationshipSourcesFromUnits :one

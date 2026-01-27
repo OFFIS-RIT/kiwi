@@ -228,6 +228,54 @@ func (q *Queries) GetAllEntitySourceDescriptions(ctx context.Context, entityID i
 	return items, nil
 }
 
+const getEntitiesWithSourcesFromFiles = `-- name: GetEntitiesWithSourcesFromFiles :many
+SELECT DISTINCT e.id, e.public_id, e.name, e.type, e.description
+FROM entities e
+JOIN entity_sources es ON es.entity_id = e.id
+JOIN text_units tu ON tu.id = es.text_unit_id
+WHERE tu.project_file_id = ANY($1::bigint[])
+  AND e.project_id = $2
+`
+
+type GetEntitiesWithSourcesFromFilesParams struct {
+	Column1   []int64 `json:"column_1"`
+	ProjectID int64   `json:"project_id"`
+}
+
+type GetEntitiesWithSourcesFromFilesRow struct {
+	ID          int64  `json:"id"`
+	PublicID    string `json:"public_id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+}
+
+func (q *Queries) GetEntitiesWithSourcesFromFiles(ctx context.Context, arg GetEntitiesWithSourcesFromFilesParams) ([]GetEntitiesWithSourcesFromFilesRow, error) {
+	rows, err := q.db.Query(ctx, getEntitiesWithSourcesFromFiles, arg.Column1, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetEntitiesWithSourcesFromFilesRow{}
+	for rows.Next() {
+		var i GetEntitiesWithSourcesFromFilesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.Name,
+			&i.Type,
+			&i.Description,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getEntitiesWithSourcesFromUnits = `-- name: GetEntitiesWithSourcesFromUnits :many
 SELECT DISTINCT e.id, e.public_id, e.name, e.type, e.description
 FROM entities e
@@ -304,6 +352,39 @@ func (q *Queries) GetEntityIDsByPublicIDs(ctx context.Context, arg GetEntityIDsB
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getEntitySourceDescriptionsForFiles = `-- name: GetEntitySourceDescriptionsForFiles :many
+SELECT es.description
+FROM entity_sources es
+JOIN text_units tu ON tu.id = es.text_unit_id
+WHERE es.entity_id = $1
+  AND tu.project_file_id = ANY($2::bigint[])
+`
+
+type GetEntitySourceDescriptionsForFilesParams struct {
+	EntityID int64   `json:"entity_id"`
+	Column2  []int64 `json:"column_2"`
+}
+
+func (q *Queries) GetEntitySourceDescriptionsForFiles(ctx context.Context, arg GetEntitySourceDescriptionsForFilesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, getEntitySourceDescriptionsForFiles, arg.EntityID, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var description string
+		if err := rows.Scan(&description); err != nil {
+			return nil, err
+		}
+		items = append(items, description)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

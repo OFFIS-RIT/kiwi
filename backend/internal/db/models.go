@@ -114,6 +114,21 @@ type ProjectBatchStatus struct {
 	ErrorMessage      pgtype.Text        `json:"error_message"`
 }
 
+type ProjectDescriptionJobStatus struct {
+	ID              int64              `json:"id"`
+	ProjectID       int64              `json:"project_id"`
+	CorrelationID   string             `json:"correlation_id"`
+	JobID           int32              `json:"job_id"`
+	TotalJobs       int32              `json:"total_jobs"`
+	EntityIds       []int64            `json:"entity_ids"`
+	RelationshipIds []int64            `json:"relationship_ids"`
+	Status          string             `json:"status"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
+	ErrorMessage    pgtype.Text        `json:"error_message"`
+}
+
 type ProjectFile struct {
 	ID         int64              `json:"id"`
 	ProjectID  int64              `json:"project_id"`

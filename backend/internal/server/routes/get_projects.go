@@ -103,7 +103,7 @@ func GetProjectsHandler(c echo.Context) error {
 		if r.ProjectState != "ready" {
 			correlationID, err := q.GetLatestCorrelationForProject(ctx, r.ProjectID)
 			if err == nil && correlationID != "" {
-				progress, err := q.GetProjectBatchProgress(ctx, correlationID)
+				progress, err := q.GetProjectFullProgress(ctx, correlationID)
 				if err == nil {
 					batchProgress := util.BuildBatchProgress(progress)
 					if batchProgress.Step != nil {
