@@ -79,7 +79,7 @@ export function ProjectCard({
                   <div className="text-xs space-y-1">
                     {project.processProgress &&
                       Object.entries(project.processProgress)
-                        .filter(([key, value]) => value && key !== "completed") // Hide completed
+                        .filter(([, value]) => value) // Show all non-empty values
                         .map(([key, value]) => {
                           const labelKey = `process.${key === "pending" ? "queued" : key === "preprocessing" || key === "preprocessed" ? "processing_files" : key === "extracting" ? "graph_creation" : key === "indexing" ? "saving" : key}`;
                           const translatedLabel = t(labelKey);
