@@ -19,7 +19,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pkoukk/tiktoken-go"
@@ -46,12 +45,7 @@ type QueueProjectFileMsg struct {
 	BatchID       int               `json:"batch_id,omitempty"`
 	TotalBatches  int               `json:"total_batches,omitempty"`
 	ProjectFiles  *[]db.ProjectFile `json:"project_files,omitempty"`
-	Operation     string            `json:"operation,omitempty"` // "index" or "update"
-}
-
-type graphDBConn interface {
-	db.DBTX
-	Begin(ctx context.Context) (pgx.Tx, error)
+	Operation     string            `json:"operation,omitempty"`
 }
 
 func ProcessGraphMessage(
@@ -309,7 +303,12 @@ func ProcessGraphMessage(
 	}
 	defer func() {
 		if unlockErr := q.ReleaseProjectLock(ctx, projectId); unlockErr != nil {
-			logger.Error("[Queue] Failed to release project lock", "project_id", projectId, "err", unlockErr)
+			errMsg := unlockErr.Error()
+			if strings.Contains(errMsg, "conn closed") {
+				logger.Debug("[Queue] Failed to release project lock (connection closed, lock auto-released)", "project_id", projectId, "err", unlockErr)
+			} else {
+				logger.Error("[Queue] Failed to release project lock", "project_id", projectId, "err", unlockErr)
+			}
 		}
 		logger.Debug("[Queue] Released advisory lock", "project_id", projectId)
 	}()
@@ -421,7 +420,12 @@ func ProcessDeleteMessage(
 	}
 	defer func() {
 		if unlockErr := q.ReleaseProjectLock(ctx, projectId); unlockErr != nil {
-			logger.Error("[Queue] Failed to release project lock", "project_id", projectId, "err", unlockErr)
+			errMsg := unlockErr.Error()
+			if strings.Contains(errMsg, "conn closed") {
+				logger.Debug("[Queue] Failed to release project lock (connection closed, lock auto-released)", "project_id", projectId, "err", unlockErr)
+			} else {
+				logger.Error("[Queue] Failed to release project lock", "project_id", projectId, "err", unlockErr)
+			}
 		}
 		logger.Debug("[Queue] Released advisory lock", "project_id", projectId)
 	}()
@@ -1064,11 +1068,11 @@ func ResetBatchStatusForRetry(
 // that have new sources from the batches in the given correlation ID.
 func FinalizeDescriptionsForCorrelation(
 	ctx context.Context,
-	conn graphDBConn,
+	pool *pgxpool.Pool,
 	aiClient ai.GraphAIClient,
 	correlationID string,
 ) error {
-	q := db.New(conn)
+	q := db.New(pool)
 
 	batches, err := q.GetBatchesByCorrelation(ctx, correlationID)
 	if err != nil {
@@ -1099,29 +1103,48 @@ func FinalizeDescriptionsForCorrelation(
 
 	logger.Info("[Queue] Starting description generation with retry", "correlation_id", correlationID, "file_count", len(files))
 
-	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, conn, aiClient, []string{})
-	if err != nil {
-		return fmt.Errorf("failed to create storage client: %w", err)
+	const maxRetries = 3
+	const baseBackoffMs = 100
+
+	var lastErr error
+	for attempt := range maxRetries {
+		if attempt > 0 {
+			backoffDuration := time.Duration((attempt)*baseBackoffMs) * time.Millisecond
+			logger.Debug("[Queue] Retrying description generation", "correlation_id", correlationID, "attempt", attempt+1, "backoff_ms", backoffDuration.Milliseconds())
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoffDuration):
+			}
+		}
+
+		storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, pool, aiClient, []string{})
+		if err != nil {
+			lastErr = fmt.Errorf("failed to create storage client: %w", err)
+			logger.Warn("[Queue] Failed to create storage client", "correlation_id", correlationID, "attempt", attempt+1, "err", lastErr)
+			continue
+		}
+
+		err = storageClient.GenerateDescriptions(ctx, files)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		logger.Warn("[Queue] Description generation failed", "correlation_id", correlationID, "attempt", attempt+1, "err", err)
 	}
 
-	err = util.RetryErrWithContext(ctx, 3, func(ctx context.Context) error {
-		return storageClient.GenerateDescriptions(ctx, files)
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to generate descriptions after retries: %w", err)
-	}
-
-	return nil
+	return fmt.Errorf("failed to generate descriptions after %d retries: %w", maxRetries, lastErr)
 }
 
 func FinalizeDescriptionsForCorrelationWithLock(
 	ctx context.Context,
-	conn *pgxpool.Pool,
+	pool *pgxpool.Pool,
 	aiClient ai.GraphAIClient,
 	correlationID string,
 ) error {
-	lockConn, err := conn.Acquire(ctx)
+	lockConn, err := pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to acquire lock connection: %w", err)
 	}
@@ -1139,7 +1162,12 @@ func FinalizeDescriptionsForCorrelationWithLock(
 	}
 	defer func() {
 		if unlockErr := q.ReleaseProjectLock(ctx, lockID); unlockErr != nil {
-			logger.Error("[Queue] Failed to release description lock", "correlation_id", correlationID, "err", unlockErr)
+			errMsg := unlockErr.Error()
+			if strings.Contains(errMsg, "conn closed") {
+				logger.Debug("[Queue] Failed to release description lock (connection closed, lock auto-released)", "correlation_id", correlationID, "err", unlockErr)
+			} else {
+				logger.Error("[Queue] Failed to release description lock", "correlation_id", correlationID, "err", unlockErr)
+			}
 		}
 	}()
 
@@ -1154,7 +1182,7 @@ func FinalizeDescriptionsForCorrelationWithLock(
 
 	logger.Info("[Queue] All batches completed, starting description generation", "correlation_id", correlationID)
 
-	err = FinalizeDescriptionsForCorrelation(ctx, lockConn, aiClient, correlationID)
+	err = FinalizeDescriptionsForCorrelation(ctx, pool, aiClient, correlationID)
 	if err != nil {
 		return err
 	}
