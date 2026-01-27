@@ -9,7 +9,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 )
 
-const DedupeBatchSize = 600
+const DedupeBatchSize = 300
 
 // DuplicateGroup represents a group of duplicate entities with a canonical name
 type DuplicateGroup struct {
