@@ -24,6 +24,19 @@ func (q *Queries) AreAllBatchesCompleted(ctx context.Context, correlationID stri
 	return all_completed, err
 }
 
+const areAllDescriptionJobsCompleted = `-- name: AreAllDescriptionJobsCompleted :one
+SELECT (COUNT(*) FILTER (WHERE status != 'completed') = 0)::bool as all_completed
+FROM project_description_job_status
+WHERE correlation_id = $1
+`
+
+func (q *Queries) AreAllDescriptionJobsCompleted(ctx context.Context, correlationID string) (bool, error) {
+	row := q.db.QueryRow(ctx, areAllDescriptionJobsCompleted, correlationID)
+	var all_completed bool
+	err := row.Scan(&all_completed)
+	return all_completed, err
+}
+
 const countCompletedBatches = `-- name: CountCompletedBatches :one
 SELECT COUNT(*)::int FROM project_batch_status
 WHERE correlation_id = $1 AND status = 'completed'
@@ -75,6 +88,53 @@ func (q *Queries) CreateBatchStatus(ctx context.Context, arg CreateBatchStatusPa
 		&i.Status,
 		&i.Operation,
 		&i.EstimatedDuration,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.ErrorMessage,
+	)
+	return i, err
+}
+
+const createDescriptionJobStatus = `-- name: CreateDescriptionJobStatus :one
+INSERT INTO project_description_job_status (
+    project_id, correlation_id, job_id, total_jobs, entity_ids, relationship_ids
+) VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (correlation_id, job_id) DO UPDATE
+SET total_jobs = EXCLUDED.total_jobs,
+    entity_ids = EXCLUDED.entity_ids,
+    relationship_ids = EXCLUDED.relationship_ids
+RETURNING id, project_id, correlation_id, job_id, total_jobs, entity_ids, relationship_ids, status, created_at, started_at, completed_at, error_message
+`
+
+type CreateDescriptionJobStatusParams struct {
+	ProjectID       int64   `json:"project_id"`
+	CorrelationID   string  `json:"correlation_id"`
+	JobID           int32   `json:"job_id"`
+	TotalJobs       int32   `json:"total_jobs"`
+	EntityIds       []int64 `json:"entity_ids"`
+	RelationshipIds []int64 `json:"relationship_ids"`
+}
+
+func (q *Queries) CreateDescriptionJobStatus(ctx context.Context, arg CreateDescriptionJobStatusParams) (ProjectDescriptionJobStatus, error) {
+	row := q.db.QueryRow(ctx, createDescriptionJobStatus,
+		arg.ProjectID,
+		arg.CorrelationID,
+		arg.JobID,
+		arg.TotalJobs,
+		arg.EntityIds,
+		arg.RelationshipIds,
+	)
+	var i ProjectDescriptionJobStatus
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.CorrelationID,
+		&i.JobID,
+		&i.TotalJobs,
+		&i.EntityIds,
+		&i.RelationshipIds,
+		&i.Status,
 		&i.CreatedAt,
 		&i.StartedAt,
 		&i.CompletedAt,
@@ -160,6 +220,45 @@ func (q *Queries) GetBatchesByCorrelation(ctx context.Context, correlationID str
 			&i.Status,
 			&i.Operation,
 			&i.EstimatedDuration,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.ErrorMessage,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDescriptionJobsByCorrelation = `-- name: GetDescriptionJobsByCorrelation :many
+SELECT id, project_id, correlation_id, job_id, total_jobs, entity_ids, relationship_ids, status, created_at, started_at, completed_at, error_message FROM project_description_job_status
+WHERE correlation_id = $1
+ORDER BY job_id
+`
+
+func (q *Queries) GetDescriptionJobsByCorrelation(ctx context.Context, correlationID string) ([]ProjectDescriptionJobStatus, error) {
+	rows, err := q.db.Query(ctx, getDescriptionJobsByCorrelation, correlationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProjectDescriptionJobStatus{}
+	for rows.Next() {
+		var i ProjectDescriptionJobStatus
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.CorrelationID,
+			&i.JobID,
+			&i.TotalJobs,
+			&i.EntityIds,
+			&i.RelationshipIds,
+			&i.Status,
 			&i.CreatedAt,
 			&i.StartedAt,
 			&i.CompletedAt,
@@ -312,6 +411,92 @@ func (q *Queries) GetProjectFilesForBatch(ctx context.Context, dollar_1 []int64)
 	return items, nil
 }
 
+const getProjectFullProgress = `-- name: GetProjectFullProgress :one
+WITH batch AS (
+    SELECT 
+        COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count,
+        COUNT(*) FILTER (WHERE status = 'preprocessing')::int AS preprocessing_count,
+        COUNT(*) FILTER (WHERE status = 'preprocessed')::int AS preprocessed_count,
+        COUNT(*) FILTER (WHERE status = 'extracting')::int AS extracting_count,
+        COUNT(*) FILTER (WHERE status = 'indexing')::int AS indexing_count,
+        COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_count,
+        COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count,
+        COUNT(*)::int AS total_count,
+        COALESCE(SUM(estimated_duration), 0)::bigint AS total_estimated_duration,
+        COALESCE(SUM(estimated_duration) FILTER (WHERE status NOT IN ('completed', 'failed')), 0)::bigint AS remaining_estimated_duration
+    FROM project_batch_status
+    WHERE project_batch_status.correlation_id = $1
+),
+desc_jobs AS (
+    SELECT
+        COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count,
+        COUNT(*) FILTER (WHERE status = 'processing')::int AS processing_count,
+        COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_count,
+        COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count,
+        COUNT(*)::int AS total_count
+    FROM project_description_job_status
+    WHERE project_description_job_status.correlation_id = $1
+)
+SELECT
+    batch.pending_count AS batch_pending_count,
+    batch.preprocessing_count AS batch_preprocessing_count,
+    batch.preprocessed_count AS batch_preprocessed_count,
+    batch.extracting_count AS batch_extracting_count,
+    batch.indexing_count AS batch_indexing_count,
+    batch.completed_count AS batch_completed_count,
+    batch.failed_count AS batch_failed_count,
+    batch.total_count AS batch_total_count,
+    batch.total_estimated_duration,
+    batch.remaining_estimated_duration,
+    desc_jobs.pending_count AS description_pending_count,
+    desc_jobs.processing_count AS description_processing_count,
+    desc_jobs.completed_count AS description_completed_count,
+    desc_jobs.failed_count AS description_failed_count,
+    desc_jobs.total_count AS description_total_count
+FROM batch, desc_jobs
+`
+
+type GetProjectFullProgressRow struct {
+	BatchPendingCount          int32 `json:"batch_pending_count"`
+	BatchPreprocessingCount    int32 `json:"batch_preprocessing_count"`
+	BatchPreprocessedCount     int32 `json:"batch_preprocessed_count"`
+	BatchExtractingCount       int32 `json:"batch_extracting_count"`
+	BatchIndexingCount         int32 `json:"batch_indexing_count"`
+	BatchCompletedCount        int32 `json:"batch_completed_count"`
+	BatchFailedCount           int32 `json:"batch_failed_count"`
+	BatchTotalCount            int32 `json:"batch_total_count"`
+	TotalEstimatedDuration     int64 `json:"total_estimated_duration"`
+	RemainingEstimatedDuration int64 `json:"remaining_estimated_duration"`
+	DescriptionPendingCount    int32 `json:"description_pending_count"`
+	DescriptionProcessingCount int32 `json:"description_processing_count"`
+	DescriptionCompletedCount  int32 `json:"description_completed_count"`
+	DescriptionFailedCount     int32 `json:"description_failed_count"`
+	DescriptionTotalCount      int32 `json:"description_total_count"`
+}
+
+func (q *Queries) GetProjectFullProgress(ctx context.Context, correlationID string) (GetProjectFullProgressRow, error) {
+	row := q.db.QueryRow(ctx, getProjectFullProgress, correlationID)
+	var i GetProjectFullProgressRow
+	err := row.Scan(
+		&i.BatchPendingCount,
+		&i.BatchPreprocessingCount,
+		&i.BatchPreprocessedCount,
+		&i.BatchExtractingCount,
+		&i.BatchIndexingCount,
+		&i.BatchCompletedCount,
+		&i.BatchFailedCount,
+		&i.BatchTotalCount,
+		&i.TotalEstimatedDuration,
+		&i.RemainingEstimatedDuration,
+		&i.DescriptionPendingCount,
+		&i.DescriptionProcessingCount,
+		&i.DescriptionCompletedCount,
+		&i.DescriptionFailedCount,
+		&i.DescriptionTotalCount,
+	)
+	return i, err
+}
+
 const getStaleBatches = `-- name: GetStaleBatches :many
 SELECT id, project_id, correlation_id, batch_id, total_batches, files_count, file_ids, status, operation, estimated_duration, created_at, started_at, completed_at, error_message FROM project_batch_status
 WHERE status IN ('preprocessing', 'extracting', 'indexing')
@@ -387,6 +572,24 @@ func (q *Queries) ResetBatchToPreprocessed(ctx context.Context, arg ResetBatchTo
 	return err
 }
 
+const resetDescriptionJobToPending = `-- name: ResetDescriptionJobToPending :exec
+UPDATE project_description_job_status
+SET status = 'pending',
+    started_at = NULL,
+    error_message = NULL
+WHERE correlation_id = $1 AND job_id = $2 AND status = 'processing'
+`
+
+type ResetDescriptionJobToPendingParams struct {
+	CorrelationID string `json:"correlation_id"`
+	JobID         int32  `json:"job_id"`
+}
+
+func (q *Queries) ResetDescriptionJobToPending(ctx context.Context, arg ResetDescriptionJobToPendingParams) error {
+	_, err := q.db.Exec(ctx, resetDescriptionJobToPending, arg.CorrelationID, arg.JobID)
+	return err
+}
+
 const resetStaleBatchExtractingToPreprocessed = `-- name: ResetStaleBatchExtractingToPreprocessed :exec
 UPDATE project_batch_status
 SET status = 'preprocessed',
@@ -426,6 +629,28 @@ func (q *Queries) ResetStaleBatchToPreprocessed(ctx context.Context, id int64) e
 	return err
 }
 
+const tryStartDescriptionJob = `-- name: TryStartDescriptionJob :one
+UPDATE project_description_job_status
+SET status = 'processing',
+    started_at = NOW()
+WHERE correlation_id = $1
+  AND job_id = $2
+  AND status IN ('pending', 'failed')
+RETURNING true
+`
+
+type TryStartDescriptionJobParams struct {
+	CorrelationID string `json:"correlation_id"`
+	JobID         int32  `json:"job_id"`
+}
+
+func (q *Queries) TryStartDescriptionJob(ctx context.Context, arg TryStartDescriptionJobParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tryStartDescriptionJob, arg.CorrelationID, arg.JobID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const updateBatchEstimatedDuration = `-- name: UpdateBatchEstimatedDuration :exec
 UPDATE project_batch_status
 SET estimated_duration = $3
@@ -463,6 +688,32 @@ func (q *Queries) UpdateBatchStatus(ctx context.Context, arg UpdateBatchStatusPa
 	_, err := q.db.Exec(ctx, updateBatchStatus,
 		arg.CorrelationID,
 		arg.BatchID,
+		arg.Column3,
+		arg.ErrorMessage,
+	)
+	return err
+}
+
+const updateDescriptionJobStatus = `-- name: UpdateDescriptionJobStatus :exec
+UPDATE project_description_job_status
+SET status = $3::text,
+    started_at = CASE WHEN $3::text = 'processing' THEN NOW() ELSE started_at END,
+    completed_at = CASE WHEN $3::text IN ('completed', 'failed') THEN NOW() ELSE completed_at END,
+    error_message = $4
+WHERE correlation_id = $1 AND job_id = $2
+`
+
+type UpdateDescriptionJobStatusParams struct {
+	CorrelationID string      `json:"correlation_id"`
+	JobID         int32       `json:"job_id"`
+	Column3       string      `json:"column_3"`
+	ErrorMessage  pgtype.Text `json:"error_message"`
+}
+
+func (q *Queries) UpdateDescriptionJobStatus(ctx context.Context, arg UpdateDescriptionJobStatusParams) error {
+	_, err := q.db.Exec(ctx, updateDescriptionJobStatus,
+		arg.CorrelationID,
+		arg.JobID,
 		arg.Column3,
 		arg.ErrorMessage,
 	)

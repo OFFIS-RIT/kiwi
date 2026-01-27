@@ -47,7 +47,10 @@ func SetupQueues(ch *amqp091.Channel, queueNames []string) error {
 		logger.Fatal("ExchangeDeclare failed", "err", err)
 	}
 
-	queues := []string{"graph_queue", "delete_queue", "preprocess_queue"}
+	queues := queueNames
+	if len(queues) == 0 {
+		queues = []string{"graph_queue", "delete_queue", "preprocess_queue", "description_queue"}
+	}
 	for _, name := range queues {
 		_, err := ch.QueueDeclare(
 			name,

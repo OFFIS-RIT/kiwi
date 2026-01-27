@@ -12,6 +12,7 @@ type BatchStepProgress struct {
 	Preprocessed  string `json:"preprocessed,omitempty"`
 	Extracting    string `json:"extracting,omitempty"`
 	Indexing      string `json:"indexing,omitempty"`
+	Describing    string `json:"describing,omitempty"`
 	Completed     string `json:"completed,omitempty"`
 	Failed        string `json:"failed,omitempty"`
 }
@@ -23,44 +24,63 @@ type BatchProgress struct {
 	TimeRemaining     *int64
 }
 
-const batchProgressStepCount int64 = 4
+const (
+	fileBatchProgressStepCount  int64 = 4
+	totalProgressStepCount      int64 = 5
+	fileBatchProgressWeightStep int64 = 4
+)
 
-func BuildBatchProgress(progress db.GetProjectBatchProgressRow) BatchProgress {
-	if progress.TotalCount <= 0 {
+func BuildBatchProgress(progress db.GetProjectFullProgressRow) BatchProgress {
+	batchTotal := int64(progress.BatchTotalCount)
+	descTotal := int64(progress.DescriptionTotalCount)
+	if batchTotal <= 0 && descTotal <= 0 {
 		return BatchProgress{}
 	}
 
-	total := progress.TotalCount
 	stepProgress := BatchStepProgress{}
 	hasStep := false
 
-	if progress.PendingCount > 0 {
-		stepProgress.Pending = fmt.Sprintf("%d/%d", progress.PendingCount, total)
-		hasStep = true
+	if batchTotal > 0 {
+		if progress.BatchPendingCount > 0 {
+			stepProgress.Pending = fmt.Sprintf("%d/%d", progress.BatchPendingCount, batchTotal)
+			hasStep = true
+		}
+		if progress.BatchPreprocessingCount > 0 {
+			stepProgress.Preprocessing = fmt.Sprintf("%d/%d", progress.BatchPreprocessingCount, batchTotal)
+			hasStep = true
+		}
+		if progress.BatchPreprocessedCount > 0 {
+			stepProgress.Preprocessed = fmt.Sprintf("%d/%d", progress.BatchPreprocessedCount, batchTotal)
+			hasStep = true
+		}
+		if progress.BatchExtractingCount > 0 {
+			stepProgress.Extracting = fmt.Sprintf("%d/%d", progress.BatchExtractingCount, batchTotal)
+			hasStep = true
+		}
+		if progress.BatchIndexingCount > 0 {
+			stepProgress.Indexing = fmt.Sprintf("%d/%d", progress.BatchIndexingCount, batchTotal)
+			hasStep = true
+		}
+		if progress.BatchCompletedCount > 0 {
+			stepProgress.Completed = fmt.Sprintf("%d/%d", progress.BatchCompletedCount, batchTotal)
+			hasStep = true
+		}
+		if progress.BatchFailedCount > 0 {
+			stepProgress.Failed = fmt.Sprintf("%d/%d", progress.BatchFailedCount, batchTotal)
+			hasStep = true
+		}
 	}
-	if progress.PreprocessingCount > 0 {
-		stepProgress.Preprocessing = fmt.Sprintf("%d/%d", progress.PreprocessingCount, total)
-		hasStep = true
-	}
-	if progress.PreprocessedCount > 0 {
-		stepProgress.Preprocessed = fmt.Sprintf("%d/%d", progress.PreprocessedCount, total)
-		hasStep = true
-	}
-	if progress.ExtractingCount > 0 {
-		stepProgress.Extracting = fmt.Sprintf("%d/%d", progress.ExtractingCount, total)
-		hasStep = true
-	}
-	if progress.IndexingCount > 0 {
-		stepProgress.Indexing = fmt.Sprintf("%d/%d", progress.IndexingCount, total)
-		hasStep = true
-	}
-	if progress.CompletedCount > 0 {
-		stepProgress.Completed = fmt.Sprintf("%d/%d", progress.CompletedCount, total)
-		hasStep = true
-	}
-	if progress.FailedCount > 0 {
-		stepProgress.Failed = fmt.Sprintf("%d/%d", progress.FailedCount, total)
-		hasStep = true
+
+	if descTotal > 0 {
+		describingCount := int64(progress.DescriptionPendingCount) + int64(progress.DescriptionProcessingCount)
+		if describingCount > 0 {
+			stepProgress.Describing = fmt.Sprintf("%d/%d", describingCount, descTotal)
+			hasStep = true
+		}
+		if progress.DescriptionFailedCount > 0 {
+			stepProgress.Failed = fmt.Sprintf("%d/%d", int64(progress.BatchFailedCount)+int64(progress.DescriptionFailedCount), batchTotal+descTotal)
+			hasStep = true
+		}
 	}
 
 	batchProgress := BatchProgress{}
@@ -81,20 +101,55 @@ func BuildBatchProgress(progress db.GetProjectBatchProgressRow) BatchProgress {
 	return batchProgress
 }
 
-func CalculateBatchProgressPercentage(progress db.GetProjectBatchProgressRow) int32 {
-	total := int64(progress.TotalCount)
+func CalculateBatchProgressPercentage(progress db.GetProjectFullProgressRow) int32 {
+	batchTotal := int64(progress.BatchTotalCount)
+	descTotal := int64(progress.DescriptionTotalCount)
+
+	filePct := calculateFileBatchProgressPercentage(
+		batchTotal,
+		int64(progress.BatchPreprocessingCount),
+		int64(progress.BatchPreprocessedCount),
+		int64(progress.BatchExtractingCount),
+		int64(progress.BatchIndexingCount),
+		int64(progress.BatchCompletedCount),
+	)
+
+	if batchTotal == 0 {
+		if descTotal == 0 {
+			return 0
+		}
+		return int32(int64(progress.DescriptionCompletedCount) * 100 / descTotal)
+	}
+
+	if filePct < 100 {
+		return int32(int64(filePct) * fileBatchProgressWeightStep / totalProgressStepCount)
+	}
+
+	if descTotal == 0 {
+		return 100
+	}
+	descPct := int32(int64(progress.DescriptionCompletedCount) * 100 / descTotal)
+	return int32(fileBatchProgressWeightStep*100/totalProgressStepCount) + descPct/int32(totalProgressStepCount)
+}
+
+func calculateFileBatchProgressPercentage(
+	total int64,
+	preprocessing int64,
+	preprocessed int64,
+	extracting int64,
+	indexing int64,
+	completed int64,
+) int32 {
 	if total <= 0 {
 		return 0
 	}
 
-	totalWork := total * batchProgressStepCount
-	// Weight phases cumulatively so progress only hits 100% at completed.
-	// Steps: preprocessing=1, extracting=2, indexing=3, completed=4.
-	completedWork := min(int64(progress.PreprocessingCount)+
-		int64(progress.PreprocessedCount)+
-		int64(progress.ExtractingCount)*2+
-		int64(progress.IndexingCount)*3+
-		int64(progress.CompletedCount)*4, totalWork)
+	totalWork := total * fileBatchProgressStepCount
+	completedWork := min(preprocessing+
+		preprocessed+
+		extracting*2+
+		indexing*3+
+		completed*4, totalWork)
 
 	return int32(completedWork * 100 / totalWork)
 }

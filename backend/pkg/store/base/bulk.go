@@ -8,7 +8,7 @@ func chunkRange(total, chunkSize int, fn func(start, end int) error) error {
 		chunkSize = total
 	}
 	for start := 0; start < total; start += chunkSize {
-		end := min(start + chunkSize, total)
+		end := min(start+chunkSize, total)
 		if err := fn(start, end); err != nil {
 			return err
 		}

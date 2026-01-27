@@ -233,6 +233,23 @@ CREATE TABLE project_batch_status (
     UNIQUE(correlation_id, batch_id)
 );
 
+-- Track parallel description generation jobs per correlation.
+CREATE TABLE project_description_job_status (
+    id BIGSERIAL PRIMARY KEY,
+    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    correlation_id VARCHAR(21) NOT NULL,
+    job_id INT NOT NULL,
+    total_jobs INT NOT NULL,
+    entity_ids BIGINT[] DEFAULT '{}',
+    relationship_ids BIGINT[] DEFAULT '{}',
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    error_message TEXT,
+    UNIQUE(correlation_id, job_id)
+);
+
 -- Unlogged staging table for parallel extraction before lock acquisition.
 CREATE UNLOGGED TABLE extraction_staging (
     id BIGSERIAL PRIMARY KEY,

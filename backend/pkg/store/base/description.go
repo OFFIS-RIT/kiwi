@@ -261,13 +261,49 @@ func (s *GraphDBStorage) generateDescription(
 			return "", err
 		}
 
-		res = strings.ReplaceAll(res, "\r\n", " ")
-		res = strings.ReplaceAll(res, "\n", " ")
-		res = strings.ReplaceAll(res, "\r", " ")
-		res = strings.TrimSpace(res)
-		res = strings.Join(strings.Fields(res), " ")
+		currentDescription = normalizeDescriptionText(res)
+	}
 
-		currentDescription = res
+	return currentDescription, nil
+}
+
+func normalizeDescriptionText(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.TrimSpace(s)
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// mergeDescriptionIntoCurrent merges new descriptive segments into an existing description.
+// If currentDescription is empty, it falls back to generating a fresh description from new segments.
+func (s *GraphDBStorage) mergeDescriptionIntoCurrent(
+	ctx context.Context,
+	name string,
+	currentDescription string,
+	newDescriptions []string,
+) (string, error) {
+	if len(newDescriptions) == 0 {
+		return currentDescription, nil
+	}
+
+	currentDescription = strings.TrimSpace(currentDescription)
+	if currentDescription == "" {
+		return s.generateDescription(ctx, newDescriptions, name)
+	}
+
+	for i := 0; i < len(newDescriptions); i += descriptionBatchSize {
+		end := min(i+descriptionBatchSize, len(newDescriptions))
+		batch := newDescriptions[i:end]
+		batchText := strings.Join(batch, "\n\n")
+
+		prompt := fmt.Sprintf(ai.DescUpdatePrompt, name, currentDescription, batchText)
+		res, err := s.aiClient.GenerateCompletion(ctx, prompt)
+		if err != nil {
+			return "", err
+		}
+
+		currentDescription = normalizeDescriptionText(res)
 	}
 
 	return currentDescription, nil
@@ -505,4 +541,198 @@ func (s *GraphDBStorage) regenerateRelationshipDescription(
 	s.dbLock.Unlock()
 
 	return err
+}
+
+// RegenerateEntityDescriptionsByIDs regenerates descriptions for the provided entity IDs
+// using all remaining sources for each entity.
+func (s *GraphDBStorage) RegenerateEntityDescriptionsByIDs(ctx context.Context, entityIDs []int64) error {
+	if len(entityIDs) == 0 {
+		return nil
+	}
+
+	q := db.New(s.conn)
+	entities, err := q.GetProjectEntitiesByIDs(ctx, entityIDs)
+	if err != nil {
+		return err
+	}
+
+	nameByID := make(map[int64]string, len(entities))
+	for _, e := range entities {
+		nameByID[e.ID] = e.Name
+	}
+
+	for _, id := range entityIDs {
+		name, ok := nameByID[id]
+		if !ok {
+			continue
+		}
+		if err := s.regenerateEntityDescription(ctx, id, name); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// RegenerateRelationshipDescriptionsByIDs regenerates descriptions for the provided relationship IDs
+// using all remaining sources for each relationship.
+func (s *GraphDBStorage) RegenerateRelationshipDescriptionsByIDs(ctx context.Context, relationshipIDs []int64) error {
+	if len(relationshipIDs) == 0 {
+		return nil
+	}
+
+	q := db.New(s.conn)
+	rels, err := q.GetProjectRelationshipsByIDs(ctx, relationshipIDs)
+	if err != nil {
+		return err
+	}
+
+	relByID := make(map[int64]db.GetProjectRelationshipsByIDsRow, len(rels))
+	for _, r := range rels {
+		relByID[r.ID] = r
+	}
+
+	for _, id := range relationshipIDs {
+		r, ok := relByID[id]
+		if !ok {
+			continue
+		}
+		if err := s.regenerateRelationshipDescription(ctx, r.ID, r.SourceID, r.TargetID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// UpdateEntityDescriptionsByIDsFromFiles updates entity descriptions by merging in only sources
+// that come from the given file IDs.
+func (s *GraphDBStorage) UpdateEntityDescriptionsByIDsFromFiles(ctx context.Context, entityIDs []int64, fileIDs []int64) error {
+	if len(entityIDs) == 0 || len(fileIDs) == 0 {
+		return nil
+	}
+
+	q := db.New(s.conn)
+	entities, err := q.GetProjectEntitiesByIDs(ctx, entityIDs)
+	if err != nil {
+		return err
+	}
+
+	entityByID := make(map[int64]db.GetProjectEntitiesByIDsRow, len(entities))
+	for _, e := range entities {
+		entityByID[e.ID] = e
+	}
+
+	for _, id := range entityIDs {
+		e, ok := entityByID[id]
+		if !ok {
+			continue
+		}
+
+		newDescriptions, err := q.GetEntitySourceDescriptionsForFiles(ctx, db.GetEntitySourceDescriptionsForFilesParams{
+			EntityID: id,
+			Column2:  fileIDs,
+		})
+		if err != nil {
+			return err
+		}
+		if len(newDescriptions) == 0 {
+			continue
+		}
+
+		updated, err := s.mergeDescriptionIntoCurrent(ctx, e.Name, e.Description, newDescriptions)
+		if err != nil {
+			return err
+		}
+
+		embedding, err := s.aiClient.GenerateEmbedding(ctx, []byte(updated))
+		if err != nil {
+			return err
+		}
+		embed := pgvector.NewVector(embedding)
+
+		s.dbLock.Lock()
+		_, err = q.UpdateProjectEntityByID(ctx, db.UpdateProjectEntityByIDParams{
+			ID:          id,
+			Description: updated,
+			Embedding:   embed,
+		})
+		s.dbLock.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// UpdateRelationshipDescriptionsByIDsFromFiles updates relationship descriptions by merging in only sources
+// that come from the given file IDs.
+func (s *GraphDBStorage) UpdateRelationshipDescriptionsByIDsFromFiles(ctx context.Context, relationshipIDs []int64, fileIDs []int64) error {
+	if len(relationshipIDs) == 0 || len(fileIDs) == 0 {
+		return nil
+	}
+
+	q := db.New(s.conn)
+	rels, err := q.GetProjectRelationshipsByIDs(ctx, relationshipIDs)
+	if err != nil {
+		return err
+	}
+
+	relByID := make(map[int64]db.GetProjectRelationshipsByIDsRow, len(rels))
+	for _, r := range rels {
+		relByID[r.ID] = r
+	}
+
+	for _, id := range relationshipIDs {
+		r, ok := relByID[id]
+		if !ok {
+			continue
+		}
+
+		newDescriptions, err := q.GetRelationshipSourceDescriptionsForFiles(ctx, db.GetRelationshipSourceDescriptionsForFilesParams{
+			RelationshipID: id,
+			Column2:        fileIDs,
+		})
+		if err != nil {
+			return err
+		}
+		if len(newDescriptions) == 0 {
+			continue
+		}
+
+		sourceEntity, err := q.GetProjectEntityByID(ctx, r.SourceID)
+		if err != nil {
+			return err
+		}
+		targetEntity, err := q.GetProjectEntityByID(ctx, r.TargetID)
+		if err != nil {
+			return err
+		}
+		relationName := fmt.Sprintf("%s -> %s", sourceEntity.Name, targetEntity.Name)
+
+		updated, err := s.mergeDescriptionIntoCurrent(ctx, relationName, r.Description, newDescriptions)
+		if err != nil {
+			return err
+		}
+
+		embedding, err := s.aiClient.GenerateEmbedding(ctx, []byte(updated))
+		if err != nil {
+			return err
+		}
+		embed := pgvector.NewVector(embedding)
+
+		s.dbLock.Lock()
+		_, err = q.UpdateProjectRelationshipByID(ctx, db.UpdateProjectRelationshipByIDParams{
+			ID:          id,
+			Description: updated,
+			Embedding:   embed,
+		})
+		s.dbLock.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
