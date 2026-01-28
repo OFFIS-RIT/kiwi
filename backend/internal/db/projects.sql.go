@@ -20,6 +20,15 @@ func (q *Queries) AcquireProjectLock(ctx context.Context, dollar_1 int64) error 
 	return err
 }
 
+const acquireProjectXactLock = `-- name: AcquireProjectXactLock :exec
+SELECT pg_advisory_xact_lock($1::bigint)
+`
+
+func (q *Queries) AcquireProjectXactLock(ctx context.Context, dollar_1 int64) error {
+	_, err := q.db.Exec(ctx, acquireProjectXactLock, dollar_1)
+	return err
+}
+
 const addFileToProject = `-- name: AddFileToProject :one
 INSERT INTO project_files (project_id, name, file_key)
 VALUES ($1, $2, $3) RETURNING id, project_id, name, file_key, deleted, token_count, metadata, created_at, updated_at
@@ -524,6 +533,17 @@ SELECT pg_try_advisory_lock($1::bigint) as acquired
 
 func (q *Queries) TryAcquireProjectLock(ctx context.Context, dollar_1 int64) (bool, error) {
 	row := q.db.QueryRow(ctx, tryAcquireProjectLock, dollar_1)
+	var acquired bool
+	err := row.Scan(&acquired)
+	return acquired, err
+}
+
+const tryAcquireProjectXactLock = `-- name: TryAcquireProjectXactLock :one
+SELECT pg_try_advisory_xact_lock($1::bigint) as acquired
+`
+
+func (q *Queries) TryAcquireProjectXactLock(ctx context.Context, dollar_1 int64) (bool, error) {
+	row := q.db.QueryRow(ctx, tryAcquireProjectXactLock, dollar_1)
 	var acquired bool
 	err := row.Scan(&acquired)
 	return acquired, err

@@ -46,14 +46,17 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 		return fmt.Errorf("invalid graph ID: %w", err)
 	}
 
-	// Start transaction for rollback on failure
 	tx, err := s.conn.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	qtx := db.New(s.conn).WithTx(tx)
+	qtx := db.New(tx)
+	if err := qtx.AcquireProjectXactLock(ctx, projectID); err != nil {
+		return fmt.Errorf("failed to acquire project xact lock: %w", err)
+	}
+
 	batchSize := ai.GetDedupeBatchSize()
 
 	for iteration := 1; iteration <= maxDedupeIterations; iteration++ {
@@ -95,8 +98,6 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 			return fmt.Errorf("failed to dedupe relationships: %w", err)
 		}
 
-		// If every group fits in a single AI batch, there is no cross-batch miss to recover,
-		// so further iterations don't add value.
 		if !multiBatch {
 			logger.Debug("[Dedupe] All groups fit in a single batch; stopping iterations", "iteration", iteration)
 			break
@@ -166,19 +167,16 @@ func buildConnectedComponents(pairs []entityPair) [][]int64 {
 		}
 	}
 
-	// Build unions from pairs
 	for _, p := range pairs {
 		union(p.ID1, p.ID2)
 	}
 
-	// Group by root
 	components := make(map[int64][]int64)
 	for id := range parent {
 		root := find(id)
 		components[root] = append(components[root], id)
 	}
 
-	// Convert to slice
 	result := make([][]int64, 0, len(components))
 	for _, group := range components {
 		if len(group) > 1 {
@@ -283,7 +281,6 @@ func (s *GraphDBStorage) applyEntityMerges(
 			}
 		}
 
-		// Update canonical entity name to AI-chosen name
 		err := qtx.UpdateEntityName(ctx, db.UpdateEntityNameParams{
 			ID:   canonical.DBID,
 			Name: group.Name,
@@ -292,13 +289,11 @@ func (s *GraphDBStorage) applyEntityMerges(
 			return merged, fmt.Errorf("failed to update canonical name: %w", err)
 		}
 
-		// Merge non-canonical into canonical
 		for _, dupe := range groupEntities {
 			if dupe.DBID == canonical.DBID {
 				continue
 			}
 
-			// Transfer sources
 			err := qtx.TransferEntitySources(ctx, db.TransferEntitySourcesParams{
 				EntityID:   dupe.DBID,
 				EntityID_2: canonical.DBID,
@@ -307,7 +302,6 @@ func (s *GraphDBStorage) applyEntityMerges(
 				return merged, fmt.Errorf("failed to transfer sources: %w", err)
 			}
 
-			// Update relationships pointing to dupe
 			err = qtx.UpdateRelationshipSourceEntity(ctx, db.UpdateRelationshipSourceEntityParams{
 				SourceID:   dupe.DBID,
 				SourceID_2: canonical.DBID,
@@ -326,7 +320,6 @@ func (s *GraphDBStorage) applyEntityMerges(
 				return merged, fmt.Errorf("failed to update relationship targets: %w", err)
 			}
 
-			// Delete duplicate entity
 			err = qtx.DeleteProjectEntity(ctx, dupe.DBID)
 			if err != nil {
 				return merged, fmt.Errorf("failed to delete duplicate entity: %w", err)
@@ -359,10 +352,7 @@ func (s *GraphDBStorage) dedupeEntityGroup(
 	merged := false
 
 	for i := 0; i < len(ordered); i += batchSize {
-		end := i + batchSize
-		if end > len(ordered) {
-			end = len(ordered)
-		}
+		end := min(i + batchSize, len(ordered))
 		chunk := ordered[i:end]
 		commonEntities := make([]common.Entity, len(chunk))
 		for idx, e := range chunk {
@@ -424,8 +414,8 @@ func interleaveEntitiesWithMeta(entities []entityWithMeta, batchSize int) []enti
 
 	batchCount := (len(entities) + batchSize - 1) / batchSize
 	result := make([]entityWithMeta, 0, len(entities))
-	for i := 0; i < batchSize; i++ {
-		for batch := 0; batch < batchCount; batch++ {
+	for i := range batchSize {
+		for batch := range batchCount {
 			idx := batch*batchSize + i
 			if idx < len(entities) {
 				result = append(result, entities[idx])
@@ -491,7 +481,6 @@ func (s *GraphDBStorage) dedupeRelationships(
 		return err
 	}
 
-	// Track already deleted IDs to avoid double processing
 	deleted := make(map[int64]bool)
 
 	for _, pair := range dupePairs {
@@ -499,7 +488,6 @@ func (s *GraphDBStorage) dedupeRelationships(
 			continue
 		}
 
-		// Transfer sources from r2 to r1
 		err := qtx.TransferRelationshipSources(ctx, db.TransferRelationshipSourcesParams{
 			RelationshipID:   pair.Id2,
 			RelationshipID_2: pair.Id1,
@@ -508,7 +496,6 @@ func (s *GraphDBStorage) dedupeRelationships(
 			return fmt.Errorf("failed to transfer relationship sources: %w", err)
 		}
 
-		// Average the ranks
 		newRank := (pair.Rank1 + pair.Rank2) / 2
 		err = qtx.UpdateRelationshipRank(ctx, db.UpdateRelationshipRankParams{
 			Rank: newRank,
@@ -518,7 +505,6 @@ func (s *GraphDBStorage) dedupeRelationships(
 			return fmt.Errorf("failed to update relationship rank: %w", err)
 		}
 
-		// Delete r2
 		err = qtx.DeleteProjectRelationship(ctx, pair.Id2)
 		if err != nil {
 			return fmt.Errorf("failed to delete duplicate relationship: %w", err)

@@ -110,3 +110,9 @@ SELECT pg_advisory_unlock($1::bigint);
 
 -- name: TryAcquireProjectLock :one
 SELECT pg_try_advisory_lock($1::bigint) as acquired;
+
+-- name: AcquireProjectXactLock :exec
+SELECT pg_advisory_xact_lock($1::bigint);
+
+-- name: TryAcquireProjectXactLock :one
+SELECT pg_try_advisory_xact_lock($1::bigint) as acquired;
