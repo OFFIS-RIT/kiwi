@@ -10,6 +10,7 @@ import (
 
 type Querier interface {
 	AcquireProjectLock(ctx context.Context, dollar_1 int64) error
+	AcquireProjectXactLock(ctx context.Context, dollar_1 int64) error
 	AddFileToProject(ctx context.Context, arg AddFileToProjectParams) (ProjectFile, error)
 	AddProcessTime(ctx context.Context, arg AddProcessTimeParams) error
 	AddProjectEntity(ctx context.Context, arg AddProjectEntityParams) (int64, error)
@@ -148,6 +149,7 @@ type Querier interface {
 	TransferEntitySources(ctx context.Context, arg TransferEntitySourcesParams) error
 	TransferRelationshipSources(ctx context.Context, arg TransferRelationshipSourcesParams) error
 	TryAcquireProjectLock(ctx context.Context, dollar_1 int64) (bool, error)
+	TryAcquireProjectXactLock(ctx context.Context, dollar_1 int64) (bool, error)
 	TryStartDescriptionJob(ctx context.Context, arg TryStartDescriptionJobParams) (bool, error)
 	UpdateBatchEstimatedDuration(ctx context.Context, arg UpdateBatchEstimatedDurationParams) error
 	UpdateBatchStatus(ctx context.Context, arg UpdateBatchStatusParams) error
