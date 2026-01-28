@@ -62,6 +62,11 @@ VALUES ($1, $2, $3) RETURNING *;
 -- name: GetProjectFiles :many
 SELECT * FROM project_files WHERE project_id = $1;
 
+-- name: GetProjectIDsForFiles :many
+SELECT DISTINCT project_id
+FROM project_files
+WHERE id = ANY(sqlc.arg(file_ids)::bigint[]);
+
 -- name: DeleteFileFromProject :exec
 DELETE FROM project_files
 WHERE project_id = $1 AND file_key = $2;

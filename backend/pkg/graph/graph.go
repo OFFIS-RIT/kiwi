@@ -22,28 +22,9 @@ func rollbackFiles(ctx context.Context, files []loader.GraphFile, graphID string
 		return
 	}
 
-	// Extract unique file IDs from the files
-	fileIDSet := make(map[int64]struct{})
-	for _, file := range files {
-		fileID := file.ID
-		// Handle sheet IDs (e.g., "123-sheet-0" -> "123")
-		if idx := strings.Index(fileID, "-sheet-"); idx != -1 {
-			fileID = fileID[:idx]
-		}
-		fid, err := strconv.ParseInt(fileID, 10, 64)
-		if err != nil {
-			continue
-		}
-		fileIDSet[fid] = struct{}{}
-	}
-
-	if len(fileIDSet) == 0 {
+	fileIDs := fileIDsFromGraphFiles(files)
+	if len(fileIDs) == 0 {
 		return
-	}
-
-	fileIDs := make([]int64, 0, len(fileIDSet))
-	for fid := range fileIDSet {
-		fileIDs = append(fileIDs, fid)
 	}
 
 	const maxRetries = 3
@@ -56,6 +37,28 @@ func rollbackFiles(ctx context.Context, files []loader.GraphFile, graphID string
 			return
 		}
 	}
+}
+
+func fileIDsFromGraphFiles(files []loader.GraphFile) []int64 {
+	fileIDSet := make(map[int64]struct{})
+	for _, file := range files {
+		fileID := file.ID
+		if idx := strings.Index(fileID, "-sheet-"); idx != -1 {
+			fileID = fileID[:idx]
+		}
+		fid, err := strconv.ParseInt(fileID, 10, 64)
+		if err != nil {
+			continue
+		}
+		fileIDSet[fid] = struct{}{}
+	}
+
+	fileIDs := make([]int64, 0, len(fileIDSet))
+	for fid := range fileIDSet {
+		fileIDs = append(fileIDs, fid)
+	}
+
+	return fileIDs
 }
 
 // ProcessGraph builds or updates a knowledge graph from the provided files.
@@ -342,11 +345,14 @@ func (g *GraphClient) processFilesAndBuildGraph(
 
 	logger.Info("[Graph] Cross-document deduplication completed")
 	logger.Info("[Graph] Starting description generation")
-
-	err = storeClient.GenerateDescriptions(ctx, files)
-	if err != nil {
+	fileIDs := fileIDsFromGraphFiles(files)
+	if err := storeClient.UpdateEntityDescriptions(ctx, fileIDs); err != nil {
 		rollbackFiles(ctx, files, graphID, storeClient)
-		return fmt.Errorf("failed to generate descriptions: %w", err)
+		return fmt.Errorf("failed to update entity descriptions: %w", err)
+	}
+	if err := storeClient.UpdateRelationshipDescriptions(ctx, fileIDs); err != nil {
+		rollbackFiles(ctx, files, graphID, storeClient)
+		return fmt.Errorf("failed to update relationship descriptions: %w", err)
 	}
 
 	logger.Info("[Graph] Descriptions generated")

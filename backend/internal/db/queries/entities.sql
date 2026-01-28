@@ -168,12 +168,30 @@ SELECT es.id, es.description, es.text_unit_id
 FROM entity_sources es
 WHERE es.entity_id = $1;
 
+-- name: GetEntitySourceDescriptionsBatch :many
+SELECT es.id, es.description
+FROM entity_sources es
+WHERE es.entity_id = $1
+  AND es.id > $2
+ORDER BY es.id
+LIMIT $3;
+
 -- name: GetEntitySourceDescriptionsForFiles :many
 SELECT es.description
 FROM entity_sources es
 JOIN text_units tu ON tu.id = es.text_unit_id
 WHERE es.entity_id = $1
   AND tu.project_file_id = ANY($2::bigint[]);
+
+-- name: GetEntitySourceDescriptionsForFilesBatch :many
+SELECT es.id, es.description
+FROM entity_sources es
+JOIN text_units tu ON tu.id = es.text_unit_id
+WHERE es.entity_id = $1
+  AND tu.project_file_id = ANY($2::bigint[])
+  AND es.id > $3
+ORDER BY es.id
+LIMIT $4;
 
 -- name: GetEntitiesWithSourcesFromUnits :many
 SELECT DISTINCT e.id, e.public_id, e.name, e.type, e.description
@@ -198,3 +216,18 @@ WHERE es.entity_id = $1
 
 -- name: UpdateProjectEntityByID :one
 UPDATE entities SET description = $2, embedding = $3, updated_at = NOW() WHERE id = $1 RETURNING id;
+
+-- name: UpdateProjectEntitiesByIDs :exec
+WITH input AS (
+    SELECT
+        u.id,
+        (sqlc.arg(descriptions)::text[])[u.ord]::text AS description,
+        (sqlc.arg(embeddings)::vector[])[u.ord]::vector AS embedding
+    FROM unnest(sqlc.arg(ids)::bigint[]) WITH ORDINALITY AS u(id, ord)
+)
+UPDATE entities e
+SET description = input.description,
+    embedding = input.embedding,
+    updated_at = NOW()
+FROM input
+WHERE e.id = input.id;

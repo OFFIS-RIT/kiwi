@@ -47,6 +47,15 @@ SELECT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank FROM r
 -- name: GetProjectRelationshipsByIDs :many
 SELECT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank FROM relationships r WHERE r.id = ANY($1::bigint[]);
 
+-- name: GetProjectRelationshipsWithEntityNamesByIDs :many
+SELECT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank,
+       se.name AS source_name,
+       te.name AS target_name
+FROM relationships r
+JOIN entities se ON r.source_id = se.id
+JOIN entities te ON r.target_id = te.id
+WHERE r.id = ANY(sqlc.arg(ids)::bigint[]);
+
 -- name: GetProjectRelationshipByEntityIDs :one
 SELECT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank
 FROM relationships r
@@ -170,12 +179,30 @@ SELECT rs.id, rs.description, rs.text_unit_id
 FROM relationship_sources rs
 WHERE rs.relationship_id = $1;
 
+-- name: GetRelationshipSourceDescriptionsBatch :many
+SELECT rs.id, rs.description
+FROM relationship_sources rs
+WHERE rs.relationship_id = $1
+  AND rs.id > $2
+ORDER BY rs.id
+LIMIT $3;
+
 -- name: GetRelationshipSourceDescriptionsForFiles :many
 SELECT rs.description
 FROM relationship_sources rs
 JOIN text_units tu ON tu.id = rs.text_unit_id
 WHERE rs.relationship_id = $1
   AND tu.project_file_id = ANY($2::bigint[]);
+
+-- name: GetRelationshipSourceDescriptionsForFilesBatch :many
+SELECT rs.id, rs.description
+FROM relationship_sources rs
+JOIN text_units tu ON tu.id = rs.text_unit_id
+WHERE rs.relationship_id = $1
+  AND tu.project_file_id = ANY($2::bigint[])
+  AND rs.id > $3
+ORDER BY rs.id
+LIMIT $4;
 
 -- name: GetRelationshipsWithSourcesFromUnits :many
 SELECT DISTINCT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank
@@ -200,3 +227,18 @@ WHERE rs.relationship_id = $1
 
 -- name: UpdateProjectRelationshipByID :one
 UPDATE relationships SET description = $2, embedding = $3, updated_at = NOW() WHERE id = $1 RETURNING id;
+
+-- name: UpdateProjectRelationshipsByIDs :exec
+WITH input AS (
+    SELECT
+        u.id,
+        (sqlc.arg(descriptions)::text[])[u.ord]::text AS description,
+        (sqlc.arg(embeddings)::vector[])[u.ord]::vector AS embedding
+    FROM unnest(sqlc.arg(ids)::bigint[]) WITH ORDINALITY AS u(id, ord)
+)
+UPDATE relationships r
+SET description = input.description,
+    embedding = input.embedding,
+    updated_at = NOW()
+FROM input
+WHERE r.id = input.id;

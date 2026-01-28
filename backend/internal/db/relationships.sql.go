@@ -587,6 +587,96 @@ func (q *Queries) GetProjectRelationshipsByIDs(ctx context.Context, dollar_1 []i
 	return items, nil
 }
 
+const getProjectRelationshipsWithEntityNamesByIDs = `-- name: GetProjectRelationshipsWithEntityNamesByIDs :many
+SELECT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank,
+       se.name AS source_name,
+       te.name AS target_name
+FROM relationships r
+JOIN entities se ON r.source_id = se.id
+JOIN entities te ON r.target_id = te.id
+WHERE r.id = ANY($1::bigint[])
+`
+
+type GetProjectRelationshipsWithEntityNamesByIDsRow struct {
+	ID          int64   `json:"id"`
+	PublicID    string  `json:"public_id"`
+	SourceID    int64   `json:"source_id"`
+	TargetID    int64   `json:"target_id"`
+	Description string  `json:"description"`
+	Rank        float64 `json:"rank"`
+	SourceName  string  `json:"source_name"`
+	TargetName  string  `json:"target_name"`
+}
+
+func (q *Queries) GetProjectRelationshipsWithEntityNamesByIDs(ctx context.Context, ids []int64) ([]GetProjectRelationshipsWithEntityNamesByIDsRow, error) {
+	rows, err := q.db.Query(ctx, getProjectRelationshipsWithEntityNamesByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetProjectRelationshipsWithEntityNamesByIDsRow{}
+	for rows.Next() {
+		var i GetProjectRelationshipsWithEntityNamesByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.SourceID,
+			&i.TargetID,
+			&i.Description,
+			&i.Rank,
+			&i.SourceName,
+			&i.TargetName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getRelationshipSourceDescriptionsBatch = `-- name: GetRelationshipSourceDescriptionsBatch :many
+SELECT rs.id, rs.description
+FROM relationship_sources rs
+WHERE rs.relationship_id = $1
+  AND rs.id > $2
+ORDER BY rs.id
+LIMIT $3
+`
+
+type GetRelationshipSourceDescriptionsBatchParams struct {
+	RelationshipID int64 `json:"relationship_id"`
+	ID             int64 `json:"id"`
+	Limit          int32 `json:"limit"`
+}
+
+type GetRelationshipSourceDescriptionsBatchRow struct {
+	ID          int64  `json:"id"`
+	Description string `json:"description"`
+}
+
+func (q *Queries) GetRelationshipSourceDescriptionsBatch(ctx context.Context, arg GetRelationshipSourceDescriptionsBatchParams) ([]GetRelationshipSourceDescriptionsBatchRow, error) {
+	rows, err := q.db.Query(ctx, getRelationshipSourceDescriptionsBatch, arg.RelationshipID, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetRelationshipSourceDescriptionsBatchRow{}
+	for rows.Next() {
+		var i GetRelationshipSourceDescriptionsBatchRow
+		if err := rows.Scan(&i.ID, &i.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRelationshipSourceDescriptionsForFiles = `-- name: GetRelationshipSourceDescriptionsForFiles :many
 SELECT rs.description
 FROM relationship_sources rs
@@ -613,6 +703,54 @@ func (q *Queries) GetRelationshipSourceDescriptionsForFiles(ctx context.Context,
 			return nil, err
 		}
 		items = append(items, description)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getRelationshipSourceDescriptionsForFilesBatch = `-- name: GetRelationshipSourceDescriptionsForFilesBatch :many
+SELECT rs.id, rs.description
+FROM relationship_sources rs
+JOIN text_units tu ON tu.id = rs.text_unit_id
+WHERE rs.relationship_id = $1
+  AND tu.project_file_id = ANY($2::bigint[])
+  AND rs.id > $3
+ORDER BY rs.id
+LIMIT $4
+`
+
+type GetRelationshipSourceDescriptionsForFilesBatchParams struct {
+	RelationshipID int64   `json:"relationship_id"`
+	Column2        []int64 `json:"column_2"`
+	ID             int64   `json:"id"`
+	Limit          int32   `json:"limit"`
+}
+
+type GetRelationshipSourceDescriptionsForFilesBatchRow struct {
+	ID          int64  `json:"id"`
+	Description string `json:"description"`
+}
+
+func (q *Queries) GetRelationshipSourceDescriptionsForFilesBatch(ctx context.Context, arg GetRelationshipSourceDescriptionsForFilesBatchParams) ([]GetRelationshipSourceDescriptionsForFilesBatchRow, error) {
+	rows, err := q.db.Query(ctx, getRelationshipSourceDescriptionsForFilesBatch,
+		arg.RelationshipID,
+		arg.Column2,
+		arg.ID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetRelationshipSourceDescriptionsForFilesBatchRow{}
+	for rows.Next() {
+		var i GetRelationshipSourceDescriptionsForFilesBatchRow
+		if err := rows.Scan(&i.ID, &i.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -771,6 +909,33 @@ func (q *Queries) UpdateProjectRelationshipByID(ctx context.Context, arg UpdateP
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const updateProjectRelationshipsByIDs = `-- name: UpdateProjectRelationshipsByIDs :exec
+WITH input AS (
+    SELECT
+        u.id,
+        ($1::text[])[u.ord]::text AS description,
+        ($2::vector[])[u.ord]::vector AS embedding
+    FROM unnest($3::bigint[]) WITH ORDINALITY AS u(id, ord)
+)
+UPDATE relationships r
+SET description = input.description,
+    embedding = input.embedding,
+    updated_at = NOW()
+FROM input
+WHERE r.id = input.id
+`
+
+type UpdateProjectRelationshipsByIDsParams struct {
+	Descriptions []string          `json:"descriptions"`
+	Embeddings   []pgvector.Vector `json:"embeddings"`
+	Ids          []int64           `json:"ids"`
+}
+
+func (q *Queries) UpdateProjectRelationshipsByIDs(ctx context.Context, arg UpdateProjectRelationshipsByIDsParams) error {
+	_, err := q.db.Exec(ctx, updateProjectRelationshipsByIDs, arg.Descriptions, arg.Embeddings, arg.Ids)
+	return err
 }
 
 const updateRelationshipRank = `-- name: UpdateRelationshipRank :exec
