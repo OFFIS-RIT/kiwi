@@ -11,24 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const acquireProjectLock = `-- name: AcquireProjectLock :exec
-SELECT pg_advisory_lock($1::bigint)
-`
-
-func (q *Queries) AcquireProjectLock(ctx context.Context, dollar_1 int64) error {
-	_, err := q.db.Exec(ctx, acquireProjectLock, dollar_1)
-	return err
-}
-
-const acquireProjectXactLock = `-- name: AcquireProjectXactLock :exec
-SELECT pg_advisory_xact_lock($1::bigint)
-`
-
-func (q *Queries) AcquireProjectXactLock(ctx context.Context, dollar_1 int64) error {
-	_, err := q.db.Exec(ctx, acquireProjectXactLock, dollar_1)
-	return err
-}
-
 const addFileToProject = `-- name: AddFileToProject :one
 INSERT INTO project_files (project_id, name, file_key)
 VALUES ($1, $2, $3) RETURNING id, project_id, name, file_key, deleted, token_count, metadata, created_at, updated_at
@@ -518,35 +500,31 @@ func (q *Queries) MarkProjectFileAsDeleted(ctx context.Context, arg MarkProjectF
 	return err
 }
 
-const releaseProjectLock = `-- name: ReleaseProjectLock :exec
-SELECT pg_advisory_unlock($1::bigint)
+const projectLockActAdvisory = `-- name: ProjectLockActAdvisory :exec
+SELECT pg_advisory_xact_lock($1)
 `
 
-func (q *Queries) ReleaseProjectLock(ctx context.Context, dollar_1 int64) error {
-	_, err := q.db.Exec(ctx, releaseProjectLock, dollar_1)
+func (q *Queries) ProjectLockActAdvisory(ctx context.Context, pgAdvisoryXactLock int64) error {
+	_, err := q.db.Exec(ctx, projectLockActAdvisory, pgAdvisoryXactLock)
 	return err
 }
 
-const tryAcquireProjectLock = `-- name: TryAcquireProjectLock :one
-SELECT pg_try_advisory_lock($1::bigint) as acquired
+const projectLockAdvisory = `-- name: ProjectLockAdvisory :exec
+SELECT pg_advisory_lock($1)
 `
 
-func (q *Queries) TryAcquireProjectLock(ctx context.Context, dollar_1 int64) (bool, error) {
-	row := q.db.QueryRow(ctx, tryAcquireProjectLock, dollar_1)
-	var acquired bool
-	err := row.Scan(&acquired)
-	return acquired, err
+func (q *Queries) ProjectLockAdvisory(ctx context.Context, pgAdvisoryLock int64) error {
+	_, err := q.db.Exec(ctx, projectLockAdvisory, pgAdvisoryLock)
+	return err
 }
 
-const tryAcquireProjectXactLock = `-- name: TryAcquireProjectXactLock :one
-SELECT pg_try_advisory_xact_lock($1::bigint) as acquired
+const projectUnlockAdvisory = `-- name: ProjectUnlockAdvisory :exec
+SELECT pg_advisory_unlock($1)
 `
 
-func (q *Queries) TryAcquireProjectXactLock(ctx context.Context, dollar_1 int64) (bool, error) {
-	row := q.db.QueryRow(ctx, tryAcquireProjectXactLock, dollar_1)
-	var acquired bool
-	err := row.Scan(&acquired)
-	return acquired, err
+func (q *Queries) ProjectUnlockAdvisory(ctx context.Context, pgAdvisoryUnlock int64) error {
+	_, err := q.db.Exec(ctx, projectUnlockAdvisory, pgAdvisoryUnlock)
+	return err
 }
 
 const updateProject = `-- name: UpdateProject :one

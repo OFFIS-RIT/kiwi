@@ -32,7 +32,7 @@ WHERE correlation_id = $1;
 
 -- name: GetPendingBatchesForProject :many
 SELECT * FROM project_batch_status
-WHERE project_id = $1 AND status IN ('pending', 'preprocessing', 'extracting', 'indexing')
+WHERE project_id = $1 AND status IN ('pending', 'preprocessing', 'preprocessed', 'extracting', 'indexing')
 ORDER BY created_at;
 
 -- name: DeleteBatchStatusByCorrelation :exec

@@ -19,21 +19,6 @@ func RecoverStaleBatches(
 ) error {
 	q := db.New(conn)
 
-	const recoveryLockID = 1
-	acquired, err := q.TryAcquireProjectLock(ctx, recoveryLockID)
-	if err != nil {
-		return fmt.Errorf("failed to try acquire recovery lock: %w", err)
-	}
-	if !acquired {
-		logger.Debug("[Queue] Another worker running stale batch recovery, skipping")
-		return nil
-	}
-	defer func() {
-		if unlockErr := q.ReleaseProjectLock(ctx, recoveryLockID); unlockErr != nil {
-			logger.Error("[Queue] Failed to release recovery lock", "err", unlockErr)
-		}
-	}()
-
 	staleBatches, err := q.GetStaleBatches(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get stale batches: %w", err)

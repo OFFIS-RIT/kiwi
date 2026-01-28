@@ -46,16 +46,7 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 		return fmt.Errorf("invalid graph ID: %w", err)
 	}
 
-	tx, err := s.conn.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	qtx := db.New(tx)
-	if err := qtx.AcquireProjectXactLock(ctx, projectID); err != nil {
-		return fmt.Errorf("failed to acquire project xact lock: %w", err)
-	}
+	qtx := db.New(s.conn)
 
 	batchSize := ai.GetDedupeBatchSize()
 
@@ -114,7 +105,7 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 		}
 	}
 
-	return tx.Commit(ctx)
+	return nil
 }
 
 // findSimilarEntityPairs uses pg_trgm to find entities with similar names
@@ -352,7 +343,7 @@ func (s *GraphDBStorage) dedupeEntityGroup(
 	merged := false
 
 	for i := 0; i < len(ordered); i += batchSize {
-		end := min(i + batchSize, len(ordered))
+		end := min(i+batchSize, len(ordered))
 		chunk := ordered[i:end]
 		commonEntities := make([]common.Entity, len(chunk))
 		for idx, e := range chunk {

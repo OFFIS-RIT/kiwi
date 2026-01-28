@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/leaselock"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
 
@@ -40,26 +40,39 @@ func ProcessDeleteMessage(
 	projectId := data.ProjectID
 	graphID := fmt.Sprintf("%d", projectId)
 
-	q := db.New(conn)
-
-	logger.Debug("[Queue] Acquiring advisory lock for delete", "project_id", projectId)
-	err = q.AcquireProjectLock(ctx, projectId)
+	tx, err := conn.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to acquire project lock: %w", err)
+		return err
 	}
-	defer func() {
-		if unlockErr := q.ReleaseProjectLock(ctx, projectId); unlockErr != nil {
-			errMsg := unlockErr.Error()
-			if strings.Contains(errMsg, "conn closed") {
-				logger.Debug("[Queue] Failed to release project lock (connection closed, lock auto-released)", "project_id", projectId, "err", unlockErr)
-			} else {
-				logger.Error("[Queue] Failed to release project lock", "project_id", projectId, "err", unlockErr)
-			}
-		}
-		logger.Debug("[Queue] Released advisory lock", "project_id", projectId)
-	}()
+	defer tx.Rollback(ctx)
 
-	deletedFiles, err := q.GetDeletedProjectFiles(ctx, projectId)
+	q := db.New(conn)
+	qtx := q.WithTx(tx)
+
+	for {
+		pending, err := qtx.GetPendingBatchesForProject(ctx, projectId)
+		if err != nil {
+			return fmt.Errorf("failed to check pending batches before delete: %w", err)
+		}
+		if len(pending) > 0 {
+			logger.Info("[Queue] Delete waiting for in-flight batches", "project_id", projectId, "pending_batches", len(pending))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+			continue
+		}
+
+		err = qtx.ProjectLockActAdvisory(ctx, projectId)
+		if err != nil {
+			return err
+		}
+
+		break
+	}
+
+	deletedFiles, err := qtx.GetDeletedProjectFiles(ctx, projectId)
 	if err != nil {
 		return err
 	}
@@ -94,7 +107,21 @@ func ProcessDeleteMessage(
 	})
 
 	start := time.Now()
-	err = graphClient.DeleteGraph(ctx, graphID, aiClient, storageClient)
+	lockClient := leaselock.New(conn)
+	lease, err := lockClient.Acquire(ctx, fmt.Sprintf("project:%d", projectId), leaselock.Options{
+		TTL:         10 * time.Minute,
+		RenewEvery:  4 * time.Minute,
+		Wait:        true,
+		TokenPrefix: fmt.Sprintf("delete/%d/", projectId),
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = lease.Release(context.Background())
+	}()
+
+	err = graphClient.DeleteGraph(lease.Context, graphID, aiClient, storageClient)
 	if err != nil {
 		return err
 	}
@@ -106,6 +133,11 @@ func ProcessDeleteMessage(
 		if err := storage.DeleteFile(ctx, s3Client, fileKey); err != nil {
 			logger.Warn("[Queue] Failed to delete S3 file", "file_key", fileKey, "err", err)
 		}
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return err
 	}
 
 	return nil

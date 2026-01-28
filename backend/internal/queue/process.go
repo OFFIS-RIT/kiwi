@@ -12,6 +12,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/leaselock"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
 
@@ -271,26 +272,6 @@ func ProcessGraphMessage(
 		return err
 	}
 
-	logger.Debug("[Queue] Acquiring advisory lock", "project_id", projectId)
-	err = q.AcquireProjectLock(ctx, projectId)
-	if err != nil {
-		if cleanupErr := deleteStagedData(); cleanupErr != nil {
-			logger.Warn("[Queue] Failed to delete staged data", "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", cleanupErr)
-		}
-		return fmt.Errorf("failed to acquire project lock: %w", err)
-	}
-	defer func() {
-		if unlockErr := q.ReleaseProjectLock(ctx, projectId); unlockErr != nil {
-			errMsg := unlockErr.Error()
-			if strings.Contains(errMsg, "conn closed") {
-				logger.Debug("[Queue] Failed to release project lock (connection closed, lock auto-released)", "project_id", projectId, "err", unlockErr)
-			} else {
-				logger.Error("[Queue] Failed to release project lock", "project_id", projectId, "err", unlockErr)
-			}
-		}
-		logger.Debug("[Queue] Released advisory lock", "project_id", projectId)
-	}()
-
 	if data.CorrelationID != "" {
 		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
@@ -309,7 +290,26 @@ func ProcessGraphMessage(
 		}
 		return err
 	}
-	err = graphClient.MergeFromStaging(ctx, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
+
+	logger.Debug("[Queue] Acquiring project mutex for merge", "project_id", projectId)
+	lockClient := leaselock.New(conn)
+	lease, err := lockClient.Acquire(ctx, fmt.Sprintf("project:%d", projectId), leaselock.Options{
+		TTL:         10 * time.Minute,
+		RenewEvery:  4 * time.Minute,
+		Wait:        true,
+		TokenPrefix: fmt.Sprintf("graph-merge/%d/", projectId),
+	})
+	if err != nil {
+		if cleanupErr := deleteStagedData(); cleanupErr != nil {
+			logger.Warn("[Queue] Failed to delete staged data", "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", cleanupErr)
+		}
+		return err
+	}
+	defer func() {
+		_ = lease.Release(context.Background())
+	}()
+
+	err = graphClient.MergeFromStaging(lease.Context, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
 	if err != nil {
 		if data.CorrelationID != "" {
 			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
@@ -379,10 +379,10 @@ func ProcessGraphMessage(
 			}
 			fileIDs = append(fileIDs, id)
 		}
-		if err := storageClient.UpdateEntityDescriptions(ctx, fileIDs); err != nil {
+		if err := storageClient.UpdateEntityDescriptions(lease.Context, fileIDs); err != nil {
 			logger.Error("[Queue] Failed to update entity descriptions", "project_id", projectId, "err", err)
 		}
-		if err := storageClient.UpdateRelationshipDescriptions(ctx, fileIDs); err != nil {
+		if err := storageClient.UpdateRelationshipDescriptions(lease.Context, fileIDs); err != nil {
 			logger.Error("[Queue] Failed to update relationship descriptions", "project_id", projectId, "err", err)
 		}
 		if _, err := q.UpdateProjectState(ctx, db.UpdateProjectStateParams{ID: projectId, State: "ready"}); err != nil {
