@@ -359,6 +359,46 @@ func (q *Queries) GetEntityIDsByPublicIDs(ctx context.Context, arg GetEntityIDsB
 	return items, nil
 }
 
+const getEntitySourceDescriptionsBatch = `-- name: GetEntitySourceDescriptionsBatch :many
+SELECT es.id, es.description
+FROM entity_sources es
+WHERE es.entity_id = $1
+  AND es.id > $2
+ORDER BY es.id
+LIMIT $3
+`
+
+type GetEntitySourceDescriptionsBatchParams struct {
+	EntityID int64 `json:"entity_id"`
+	ID       int64 `json:"id"`
+	Limit    int32 `json:"limit"`
+}
+
+type GetEntitySourceDescriptionsBatchRow struct {
+	ID          int64  `json:"id"`
+	Description string `json:"description"`
+}
+
+func (q *Queries) GetEntitySourceDescriptionsBatch(ctx context.Context, arg GetEntitySourceDescriptionsBatchParams) ([]GetEntitySourceDescriptionsBatchRow, error) {
+	rows, err := q.db.Query(ctx, getEntitySourceDescriptionsBatch, arg.EntityID, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetEntitySourceDescriptionsBatchRow{}
+	for rows.Next() {
+		var i GetEntitySourceDescriptionsBatchRow
+		if err := rows.Scan(&i.ID, &i.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getEntitySourceDescriptionsForFiles = `-- name: GetEntitySourceDescriptionsForFiles :many
 SELECT es.description
 FROM entity_sources es
@@ -385,6 +425,54 @@ func (q *Queries) GetEntitySourceDescriptionsForFiles(ctx context.Context, arg G
 			return nil, err
 		}
 		items = append(items, description)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getEntitySourceDescriptionsForFilesBatch = `-- name: GetEntitySourceDescriptionsForFilesBatch :many
+SELECT es.id, es.description
+FROM entity_sources es
+JOIN text_units tu ON tu.id = es.text_unit_id
+WHERE es.entity_id = $1
+  AND tu.project_file_id = ANY($2::bigint[])
+  AND es.id > $3
+ORDER BY es.id
+LIMIT $4
+`
+
+type GetEntitySourceDescriptionsForFilesBatchParams struct {
+	EntityID int64   `json:"entity_id"`
+	Column2  []int64 `json:"column_2"`
+	ID       int64   `json:"id"`
+	Limit    int32   `json:"limit"`
+}
+
+type GetEntitySourceDescriptionsForFilesBatchRow struct {
+	ID          int64  `json:"id"`
+	Description string `json:"description"`
+}
+
+func (q *Queries) GetEntitySourceDescriptionsForFilesBatch(ctx context.Context, arg GetEntitySourceDescriptionsForFilesBatchParams) ([]GetEntitySourceDescriptionsForFilesBatchRow, error) {
+	rows, err := q.db.Query(ctx, getEntitySourceDescriptionsForFilesBatch,
+		arg.EntityID,
+		arg.Column2,
+		arg.ID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetEntitySourceDescriptionsForFilesBatchRow{}
+	for rows.Next() {
+		var i GetEntitySourceDescriptionsForFilesBatchRow
+		if err := rows.Scan(&i.ID, &i.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -885,6 +973,33 @@ type UpdateEntityNameParams struct {
 
 func (q *Queries) UpdateEntityName(ctx context.Context, arg UpdateEntityNameParams) error {
 	_, err := q.db.Exec(ctx, updateEntityName, arg.ID, arg.Name)
+	return err
+}
+
+const updateProjectEntitiesByIDs = `-- name: UpdateProjectEntitiesByIDs :exec
+WITH input AS (
+    SELECT
+        u.id,
+        ($1::text[])[u.ord]::text AS description,
+        ($2::vector[])[u.ord]::vector AS embedding
+    FROM unnest($3::bigint[]) WITH ORDINALITY AS u(id, ord)
+)
+UPDATE entities e
+SET description = input.description,
+    embedding = input.embedding,
+    updated_at = NOW()
+FROM input
+WHERE e.id = input.id
+`
+
+type UpdateProjectEntitiesByIDsParams struct {
+	Descriptions []string          `json:"descriptions"`
+	Embeddings   []pgvector.Vector `json:"embeddings"`
+	Ids          []int64           `json:"ids"`
+}
+
+func (q *Queries) UpdateProjectEntitiesByIDs(ctx context.Context, arg UpdateProjectEntitiesByIDsParams) error {
+	_, err := q.db.Exec(ctx, updateProjectEntitiesByIDs, arg.Descriptions, arg.Embeddings, arg.Ids)
 	return err
 }
 

@@ -288,6 +288,32 @@ func (q *Queries) GetProjectFiles(ctx context.Context, projectID int64) ([]Proje
 	return items, nil
 }
 
+const getProjectIDsForFiles = `-- name: GetProjectIDsForFiles :many
+SELECT DISTINCT project_id
+FROM project_files
+WHERE id = ANY($1::bigint[])
+`
+
+func (q *Queries) GetProjectIDsForFiles(ctx context.Context, fileIds []int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, getProjectIDsForFiles, fileIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var project_id int64
+		if err := rows.Scan(&project_id); err != nil {
+			return nil, err
+		}
+		items = append(items, project_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getProjectSystemPrompts = `-- name: GetProjectSystemPrompts :many
 SELECT id, project_id, prompt, created_at, updated_at FROM project_system_prompts WHERE project_id = $1
 `

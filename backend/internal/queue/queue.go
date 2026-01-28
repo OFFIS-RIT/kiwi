@@ -2,12 +2,33 @@ package queue
 
 import (
 	"fmt"
+	"time"
+
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
-	"time"
 
 	"github.com/rabbitmq/amqp091-go"
 )
+
+type QueueProjectFileMsg struct {
+	Message       string            `json:"message"`
+	ProjectID     int64             `json:"project_id"`
+	CorrelationID string            `json:"correlation_id,omitempty"`
+	BatchID       int               `json:"batch_id,omitempty"`
+	TotalBatches  int               `json:"total_batches,omitempty"`
+	ProjectFiles  *[]db.ProjectFile `json:"project_files,omitempty"`
+	Operation     string            `json:"operation,omitempty"`
+}
+
+type QueueDescriptionJobMsg struct {
+	ProjectID       int64   `json:"project_id"`
+	CorrelationID   string  `json:"correlation_id"`
+	JobID           int     `json:"job_id"`
+	TotalJobs       int     `json:"total_jobs"`
+	EntityIDs       []int64 `json:"entity_ids,omitempty"`
+	RelationshipIDs []int64 `json:"relationship_ids,omitempty"`
+}
 
 func Init() *amqp091.Connection {
 	user := util.GetEnv("RABBITMQ_USER")

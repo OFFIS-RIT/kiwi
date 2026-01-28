@@ -5,7 +5,6 @@ import (
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 )
 
 // GraphStorage defines the interface for persisting and querying knowledge graphs.
@@ -33,7 +32,12 @@ type GraphStorage interface {
 
 	SaveRelationships(ctx context.Context, relations []common.Relationship, graphId string) ([]int64, error)
 	DedupeAndMergeEntities(ctx context.Context, graphID string, aiClient ai.GraphAIClient) error
-	GenerateDescriptions(ctx context.Context, files []loader.GraphFile) error
+	GenerateEntityDescriptions(ctx context.Context, entityIDs []int64) error
+	GenerateRelationshipDescriptions(ctx context.Context, relationshipIDs []int64) error
+	UpdateEntityDescriptions(ctx context.Context, fileIDs []int64) error
+	UpdateRelationshipDescriptions(ctx context.Context, fileIDs []int64) error
+	UpdateEntityDescriptionsByIDsFromFiles(ctx context.Context, entityIDs []int64, fileIDs []int64) error
+	UpdateRelationshipDescriptionsByIDsFromFiles(ctx context.Context, relationshipIDs []int64, fileIDs []int64) error
 	DeleteFilesAndRegenerateDescriptions(ctx context.Context, graphID string) error
 	DeleteFile(ctx context.Context, fileID int64, projectID int64) error
 	RollbackFileData(ctx context.Context, fileIDs []int64, projectID int64) error

@@ -72,7 +72,9 @@ type Querier interface {
 	GetEntityIDsByPublicIDs(ctx context.Context, arg GetEntityIDsByPublicIDsParams) ([]GetEntityIDsByPublicIDsRow, error)
 	GetEntityNeighbours(ctx context.Context, sourceID int64) ([]GetEntityNeighboursRow, error)
 	GetEntityNeighboursRanked(ctx context.Context, arg GetEntityNeighboursRankedParams) ([]GetEntityNeighboursRankedRow, error)
+	GetEntitySourceDescriptionsBatch(ctx context.Context, arg GetEntitySourceDescriptionsBatchParams) ([]GetEntitySourceDescriptionsBatchRow, error)
 	GetEntitySourceDescriptionsForFiles(ctx context.Context, arg GetEntitySourceDescriptionsForFilesParams) ([]string, error)
+	GetEntitySourceDescriptionsForFilesBatch(ctx context.Context, arg GetEntitySourceDescriptionsForFilesBatchParams) ([]GetEntitySourceDescriptionsForFilesBatchRow, error)
 	GetEntityTypes(ctx context.Context, projectID int64) ([]GetEntityTypesRow, error)
 	GetFilesFromTextUnitIDs(ctx context.Context, dollar_1 []string) ([]GetFilesFromTextUnitIDsRow, error)
 	GetFilesWithMetadataFromTextUnitIDs(ctx context.Context, dollar_1 []string) ([]GetFilesWithMetadataFromTextUnitIDsRow, error)
@@ -99,6 +101,7 @@ type Querier interface {
 	GetProjectFilesForBatch(ctx context.Context, dollar_1 []int64) ([]ProjectFile, error)
 	GetProjectFullProgress(ctx context.Context, correlationID string) (GetProjectFullProgressRow, error)
 	GetProjectIDFromTextUnit(ctx context.Context, publicID string) (int64, error)
+	GetProjectIDsForFiles(ctx context.Context, fileIds []int64) ([]int64, error)
 	GetProjectRelationshipByEntityIDs(ctx context.Context, arg GetProjectRelationshipByEntityIDsParams) (GetProjectRelationshipByEntityIDsRow, error)
 	GetProjectRelationshipByEntityNames(ctx context.Context, arg GetProjectRelationshipByEntityNamesParams) (GetProjectRelationshipByEntityNamesRow, error)
 	GetProjectRelationshipByID(ctx context.Context, id int64) (GetProjectRelationshipByIDRow, error)
@@ -107,11 +110,14 @@ type Querier interface {
 	GetProjectRelationshipWithSourcesFromUnitID(ctx context.Context, textUnitID int64) ([]GetProjectRelationshipWithSourcesFromUnitIDRow, error)
 	GetProjectRelationships(ctx context.Context, projectID int64) ([]GetProjectRelationshipsRow, error)
 	GetProjectRelationshipsByIDs(ctx context.Context, dollar_1 []int64) ([]GetProjectRelationshipsByIDsRow, error)
+	GetProjectRelationshipsWithEntityNamesByIDs(ctx context.Context, ids []int64) ([]GetProjectRelationshipsWithEntityNamesByIDsRow, error)
 	GetProjectSystemPrompts(ctx context.Context, projectID int64) ([]ProjectSystemPrompt, error)
 	GetProjects(ctx context.Context) ([]Project, error)
 	GetProjectsByGroup(ctx context.Context, groupID int64) ([]Project, error)
 	GetProjectsForUser(ctx context.Context, userID int64) ([]GetProjectsForUserRow, error)
+	GetRelationshipSourceDescriptionsBatch(ctx context.Context, arg GetRelationshipSourceDescriptionsBatchParams) ([]GetRelationshipSourceDescriptionsBatchRow, error)
 	GetRelationshipSourceDescriptionsForFiles(ctx context.Context, arg GetRelationshipSourceDescriptionsForFilesParams) ([]string, error)
+	GetRelationshipSourceDescriptionsForFilesBatch(ctx context.Context, arg GetRelationshipSourceDescriptionsForFilesBatchParams) ([]GetRelationshipSourceDescriptionsForFilesBatchRow, error)
 	GetRelationshipsByIDs(ctx context.Context, dollar_1 []int64) ([]GetRelationshipsByIDsRow, error)
 	GetRelationshipsWithSourcesFromFiles(ctx context.Context, arg GetRelationshipsWithSourcesFromFilesParams) ([]GetRelationshipsWithSourcesFromFilesRow, error)
 	GetRelationshipsWithSourcesFromUnits(ctx context.Context, arg GetRelationshipsWithSourcesFromUnitsParams) ([]GetRelationshipsWithSourcesFromUnitsRow, error)
@@ -149,11 +155,13 @@ type Querier interface {
 	UpdateEntityName(ctx context.Context, arg UpdateEntityNameParams) error
 	UpdateGroup(ctx context.Context, arg UpdateGroupParams) (Group, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
+	UpdateProjectEntitiesByIDs(ctx context.Context, arg UpdateProjectEntitiesByIDsParams) error
 	UpdateProjectEntity(ctx context.Context, arg UpdateProjectEntityParams) (int64, error)
 	UpdateProjectEntityByID(ctx context.Context, arg UpdateProjectEntityByIDParams) (int64, error)
 	UpdateProjectFileMetadata(ctx context.Context, arg UpdateProjectFileMetadataParams) error
 	UpdateProjectRelationship(ctx context.Context, arg UpdateProjectRelationshipParams) (int64, error)
 	UpdateProjectRelationshipByID(ctx context.Context, arg UpdateProjectRelationshipByIDParams) (int64, error)
+	UpdateProjectRelationshipsByIDs(ctx context.Context, arg UpdateProjectRelationshipsByIDsParams) error
 	UpdateProjectState(ctx context.Context, arg UpdateProjectStateParams) (Project, error)
 	UpdateRelationshipRank(ctx context.Context, arg UpdateRelationshipRankParams) error
 	UpdateRelationshipSourceEntity(ctx context.Context, arg UpdateRelationshipSourceEntityParams) error
