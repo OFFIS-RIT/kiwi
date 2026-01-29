@@ -1,16 +1,21 @@
 package pgx
 
 import (
+	"slices"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const maxDedupeIterations = 3
@@ -34,8 +39,14 @@ type entityWithMeta struct {
 	SourceCount int
 }
 
+type entityMergeComponent struct {
+	CanonicalID   int64
+	DupeIDs       []int64
+	CanonicalName string
+}
+
 // DedupeAndMergeEntities finds and merges duplicate entities in the DB.
-// All changes are wrapped in a transaction - rolls back on any error.
+// Each merge is performed in its own transaction; AI calls happen outside DB transactions.
 func (s *GraphDBStorage) DedupeAndMergeEntities(
 	ctx context.Context,
 	graphID string,
@@ -212,114 +223,425 @@ func (s *GraphDBStorage) getEntitiesWithMeta(
 // applyEntityMerges applies the AI dedupe results to merge entities
 func (s *GraphDBStorage) applyEntityMerges(
 	ctx context.Context,
-	qtx *pgdb.Queries,
 	projectID int64,
 	entities []entityWithMeta,
 	dupeResponse *ai.DuplicatesResponse,
 ) (bool, error) {
 	merged := false
-	entityByName := make(map[string][]*entityWithMeta)
-	for i := range entities {
-		key := normalizeDedupeKey(entities[i].Name)
-		if key == "" {
-			continue
-		}
-		entityByName[key] = append(entityByName[key], &entities[i])
+	if dupeResponse == nil {
+		return false, nil
 	}
 
-	for _, group := range dupeResponse.Duplicates {
-		if len(group.Entities) <= 1 {
-			continue
-		}
+	plan := planEntityMergeComponents(entities, dupeResponse)
+	if len(plan) == 0 {
+		return false, nil
+	}
 
-		entitiesByID := make(map[int64]*entityWithMeta)
-		for _, name := range group.Entities {
-			key := normalizeDedupeKey(name)
-			if key == "" {
-				continue
-			}
-			if matches, ok := entityByName[key]; ok {
-				for _, e := range matches {
-					entitiesByID[e.DBID] = e
-				}
-			}
-		}
-		if len(entitiesByID) <= 1 {
-			continue
-		}
+	entityByID := make(map[int64]*entityWithMeta, len(entities))
+	for i := range entities {
+		entityByID[entities[i].DBID] = &entities[i]
+	}
 
-		groupEntities := make([]*entityWithMeta, 0, len(entitiesByID))
-		for _, e := range entitiesByID {
-			groupEntities = append(groupEntities, e)
-		}
-
-		groupType := selectGroupTypeBySources(groupEntities)
-		filtered := groupEntities[:0]
-		for _, e := range groupEntities {
-			if e.Type == groupType {
-				filtered = append(filtered, e)
-			}
-		}
-		groupEntities = filtered
-		if len(groupEntities) <= 1 {
-			continue
-		}
-
-		canonical := groupEntities[0]
-		for _, e := range groupEntities[1:] {
-			if e.SourceCount > canonical.SourceCount {
-				canonical = e
-			}
-		}
-
-		err := qtx.UpdateEntityName(ctx, pgdb.UpdateEntityNameParams{
-			ID:   canonical.DBID,
-			Name: group.Name,
-		})
+	for _, comp := range plan {
+		applied, err := s.applyEntityMergeComponent(ctx, projectID, comp, entityByID)
 		if err != nil {
-			return merged, fmt.Errorf("failed to update canonical name: %w", err)
+			return merged, err
 		}
-
-		for _, dupe := range groupEntities {
-			if dupe.DBID == canonical.DBID {
-				continue
-			}
-
-			err := qtx.TransferEntitySources(ctx, pgdb.TransferEntitySourcesParams{
-				EntityID:   dupe.DBID,
-				EntityID_2: canonical.DBID,
-			})
-			if err != nil {
-				return merged, fmt.Errorf("failed to transfer sources: %w", err)
-			}
-
-			err = qtx.UpdateRelationshipSourceEntity(ctx, pgdb.UpdateRelationshipSourceEntityParams{
-				SourceID:   dupe.DBID,
-				SourceID_2: canonical.DBID,
-				ProjectID:  projectID,
-			})
-			if err != nil {
-				return merged, fmt.Errorf("failed to update relationship sources: %w", err)
-			}
-
-			err = qtx.UpdateRelationshipTargetEntity(ctx, pgdb.UpdateRelationshipTargetEntityParams{
-				TargetID:   dupe.DBID,
-				TargetID_2: canonical.DBID,
-				ProjectID:  projectID,
-			})
-			if err != nil {
-				return merged, fmt.Errorf("failed to update relationship targets: %w", err)
-			}
-
-			err = qtx.DeleteProjectEntity(ctx, dupe.DBID)
-			if err != nil {
-				return merged, fmt.Errorf("failed to delete duplicate entity: %w", err)
-			}
+		if applied {
 			merged = true
 		}
 	}
 
 	return merged, nil
+}
+
+func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.DuplicatesResponse) []entityMergeComponent {
+	if dupeResponse == nil {
+		return nil
+	}
+	if len(entities) == 0 {
+		return nil
+	}
+
+	byName := make(map[string][]*entityWithMeta)
+	byID := make(map[int64]*entityWithMeta, len(entities))
+	for i := range entities {
+		e := &entities[i]
+		byID[e.DBID] = e
+		nameKey := normalizeDedupeKey(e.Name)
+		if nameKey == "" {
+			continue
+		}
+		byName[nameKey] = append(byName[nameKey], e)
+	}
+
+	type resolvedGroup struct {
+		ids           []int64
+		canonicalName string
+	}
+	resolved := make([]resolvedGroup, 0, len(dupeResponse.Duplicates))
+	for _, group := range dupeResponse.Duplicates {
+		if len(group.Entities) <= 1 {
+			continue
+		}
+
+		candidateByID := make(map[int64]*entityWithMeta)
+		for _, name := range group.Entities {
+			nameKey := normalizeDedupeKey(name)
+			if nameKey == "" {
+				continue
+			}
+			for _, e := range byName[nameKey] {
+				candidateByID[e.DBID] = e
+			}
+		}
+		if len(candidateByID) <= 1 {
+			continue
+		}
+
+		candidates := make([]*entityWithMeta, 0, len(candidateByID))
+		for _, e := range candidateByID {
+			candidates = append(candidates, e)
+		}
+
+		groupType := selectGroupTypeBySources(candidates)
+		if groupType == "" {
+			continue
+		}
+
+		idsSet := make(map[int64]struct{})
+		for _, e := range candidates {
+			if e == nil {
+				continue
+			}
+			if e.Type != groupType {
+				continue
+			}
+			idsSet[e.DBID] = struct{}{}
+		}
+		if len(idsSet) <= 1 {
+			continue
+		}
+
+		ids := make([]int64, 0, len(idsSet))
+		for id := range idsSet {
+			ids = append(ids, id)
+		}
+		slices.Sort(ids)
+
+		resolved = append(resolved, resolvedGroup{ids: ids, canonicalName: strings.TrimSpace(group.Name)})
+	}
+
+	if len(resolved) == 0 {
+		return nil
+	}
+
+	// Union-find on entity DB IDs to merge overlapping groups.
+	parent := make(map[int64]int64)
+	var find func(int64) int64
+	find = func(x int64) int64 {
+		p, ok := parent[x]
+		if !ok {
+			parent[x] = x
+			return x
+		}
+		if p != x {
+			parent[x] = find(p)
+		}
+		return parent[x]
+	}
+	union := func(x, y int64) {
+		px, py := find(x), find(y)
+		if px != py {
+			parent[px] = py
+		}
+	}
+
+	for _, g := range resolved {
+		if len(g.ids) == 0 {
+			continue
+		}
+		first := g.ids[0]
+		for _, id := range g.ids {
+			union(first, id)
+		}
+	}
+
+	components := make(map[int64][]int64)
+	for id := range parent {
+		root := find(id)
+		components[root] = append(components[root], id)
+	}
+
+	nameCandidates := make(map[int64][]string)
+	for _, g := range resolved {
+		if len(g.ids) == 0 {
+			continue
+		}
+		if g.canonicalName == "" {
+			continue
+		}
+		root := find(g.ids[0])
+		nameCandidates[root] = append(nameCandidates[root], g.canonicalName)
+	}
+
+	plan := make([]entityMergeComponent, 0, len(components))
+	for root, ids := range components {
+		if len(ids) <= 1 {
+			continue
+		}
+		slices.Sort(ids)
+
+		canonicalID := int64(0)
+		for _, id := range ids {
+			e := byID[id]
+			if e == nil {
+				continue
+			}
+			if canonicalID == 0 {
+				canonicalID = id
+				continue
+			}
+			cur := byID[canonicalID]
+			if cur == nil {
+				canonicalID = id
+				continue
+			}
+			if e.SourceCount > cur.SourceCount || (e.SourceCount == cur.SourceCount && id < canonicalID) {
+				canonicalID = id
+			}
+		}
+		if canonicalID == 0 {
+			continue
+		}
+
+		dupeIDs := make([]int64, 0, len(ids)-1)
+		for _, id := range ids {
+			if id == canonicalID {
+				continue
+			}
+			dupeIDs = append(dupeIDs, id)
+		}
+		if len(dupeIDs) == 0 {
+			continue
+		}
+		slices.Sort(dupeIDs)
+
+		fallbackName := byID[canonicalID].Name
+		canonicalName := chooseCanonicalName(nameCandidates[root], fallbackName)
+
+		plan = append(plan, entityMergeComponent{
+			CanonicalID:   canonicalID,
+			DupeIDs:       dupeIDs,
+			CanonicalName: canonicalName,
+		})
+	}
+
+	sort.Slice(plan, func(i, j int) bool {
+		if plan[i].CanonicalID == plan[j].CanonicalID {
+			return len(plan[i].DupeIDs) > len(plan[j].DupeIDs)
+		}
+		return plan[i].CanonicalID < plan[j].CanonicalID
+	})
+
+	return plan
+}
+
+func chooseCanonicalName(candidates []string, fallback string) string {
+	best := ""
+	bestLen := -1
+	seen := make(map[string]struct{})
+
+	for _, c := range candidates {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if _, ok := seen[c]; ok {
+			continue
+		}
+		seen[c] = struct{}{}
+		cl := len(c)
+		if cl > bestLen || (cl == bestLen && (best == "" || c < best)) {
+			best = c
+			bestLen = cl
+		}
+	}
+
+	if best != "" {
+		return best
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func (s *GraphDBStorage) applyEntityMergeComponent(
+	ctx context.Context,
+	projectID int64,
+	comp entityMergeComponent,
+	entityByID map[int64]*entityWithMeta,
+) (bool, error) {
+	if comp.CanonicalID == 0 || len(comp.DupeIDs) == 0 {
+		return false, nil
+	}
+
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+
+		applied, err := s.applyEntityMergeComponentOnce(ctx, projectID, comp, entityByID)
+		if err == nil {
+			return applied, nil
+		}
+		if attempt == maxAttempts || !isRetryableTxError(err) {
+			return false, err
+		}
+
+		// small backoff before retrying
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(time.Duration(attempt*100) * time.Millisecond):
+		}
+	}
+
+	return false, nil
+}
+
+func (s *GraphDBStorage) applyEntityMergeComponentOnce(
+	ctx context.Context,
+	projectID int64,
+	comp entityMergeComponent,
+	entityByID map[int64]*entityWithMeta,
+) (bool, error) {
+	tx, err := s.conn.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	qtx := pgdb.New(tx)
+
+	idsToCheck := make([]int64, 0, 1+len(comp.DupeIDs))
+	idsToCheck = append(idsToCheck, comp.CanonicalID)
+	idsToCheck = append(idsToCheck, comp.DupeIDs...)
+
+	existingRows, err := qtx.GetProjectEntitiesByIDs(ctx, idsToCheck)
+	if err != nil {
+		return false, err
+	}
+	if len(existingRows) <= 1 {
+		return false, nil
+	}
+	exists := make(map[int64]pgdb.GetProjectEntitiesByIDsRow, len(existingRows))
+	for _, r := range existingRows {
+		exists[r.ID] = r
+	}
+
+	canonicalID := comp.CanonicalID
+	if _, ok := exists[canonicalID]; !ok {
+		// canonical disappeared; pick a new canonical deterministically from remaining IDs
+		canonicalID = 0
+		for id := range exists {
+			if canonicalID == 0 {
+				canonicalID = id
+				continue
+			}
+			cur := entityByID[canonicalID]
+			cand := entityByID[id]
+			if cur == nil || cand == nil {
+				if id < canonicalID {
+					canonicalID = id
+				}
+				continue
+			}
+			if cand.SourceCount > cur.SourceCount || (cand.SourceCount == cur.SourceCount && id < canonicalID) {
+				canonicalID = id
+			}
+		}
+		if canonicalID == 0 {
+			return false, nil
+		}
+	}
+
+	dupeIDs := make([]int64, 0, len(comp.DupeIDs))
+	for _, id := range comp.DupeIDs {
+		if id == canonicalID {
+			continue
+		}
+		if _, ok := exists[id]; !ok {
+			continue
+		}
+		dupeIDs = append(dupeIDs, id)
+	}
+	if len(dupeIDs) == 0 {
+		return false, nil
+	}
+	slices.Sort(dupeIDs)
+
+	canonicalName := strings.TrimSpace(comp.CanonicalName)
+	if canonicalName != "" {
+		err = qtx.UpdateEntityName(ctx, pgdb.UpdateEntityNameParams{
+			ID:   canonicalID,
+			Name: canonicalName,
+		})
+		if err != nil {
+			return false, fmt.Errorf("failed to update canonical name: %w", err)
+		}
+	}
+
+	for _, dupeID := range dupeIDs {
+		err := qtx.TransferEntitySources(ctx, pgdb.TransferEntitySourcesParams{
+			EntityID:   dupeID,
+			EntityID_2: canonicalID,
+		})
+		if err != nil {
+			return false, fmt.Errorf("failed to transfer sources: %w", err)
+		}
+
+		err = qtx.UpdateRelationshipSourceEntity(ctx, pgdb.UpdateRelationshipSourceEntityParams{
+			SourceID:   dupeID,
+			SourceID_2: canonicalID,
+			ProjectID:  projectID,
+		})
+		if err != nil {
+			return false, fmt.Errorf("failed to update relationship sources: %w", err)
+		}
+
+		err = qtx.UpdateRelationshipTargetEntity(ctx, pgdb.UpdateRelationshipTargetEntityParams{
+			TargetID:   dupeID,
+			TargetID_2: canonicalID,
+			ProjectID:  projectID,
+		})
+		if err != nil {
+			return false, fmt.Errorf("failed to update relationship targets: %w", err)
+		}
+
+		err = qtx.DeleteProjectEntity(ctx, dupeID)
+		if err != nil {
+			return false, fmt.Errorf("failed to delete duplicate entity: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func isRetryableTxError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "40001", "40P01":
+			return true
+		}
+	}
+	return false
 }
 
 func (s *GraphDBStorage) dedupeEntityGroup(
@@ -358,7 +680,7 @@ func (s *GraphDBStorage) dedupeEntityGroup(
 			continue
 		}
 
-		batchMerged, err := s.applyEntityMerges(ctx, qtx, projectID, chunk, dupeResponse)
+		batchMerged, err := s.applyEntityMerges(ctx, projectID, chunk, dupeResponse)
 		if err != nil {
 			return false, err
 		}
