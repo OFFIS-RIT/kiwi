@@ -134,9 +134,6 @@ type Querier interface {
 	IsUserInProject(ctx context.Context, arg IsUserInProjectParams) (int64, error)
 	MarkProjectFileAsDeleted(ctx context.Context, arg MarkProjectFileAsDeletedParams) error
 	PredictProjectProcessTime(ctx context.Context, arg PredictProjectProcessTimeParams) (int64, error)
-	ProjectLockActAdvisory(ctx context.Context, pgAdvisoryXactLock int64) error
-	ProjectLockAdvisory(ctx context.Context, pgAdvisoryLock int64) error
-	ProjectUnlockAdvisory(ctx context.Context, pgAdvisoryUnlock int64) error
 	ResetBatchToPending(ctx context.Context, arg ResetBatchToPendingParams) error
 	ResetBatchToPreprocessed(ctx context.Context, arg ResetBatchToPreprocessedParams) error
 	ResetDescriptionJobToPending(ctx context.Context, arg ResetDescriptionJobToPendingParams) error

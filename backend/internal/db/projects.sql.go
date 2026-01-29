@@ -500,33 +500,6 @@ func (q *Queries) MarkProjectFileAsDeleted(ctx context.Context, arg MarkProjectF
 	return err
 }
 
-const projectLockActAdvisory = `-- name: ProjectLockActAdvisory :exec
-SELECT pg_advisory_xact_lock($1)
-`
-
-func (q *Queries) ProjectLockActAdvisory(ctx context.Context, pgAdvisoryXactLock int64) error {
-	_, err := q.db.Exec(ctx, projectLockActAdvisory, pgAdvisoryXactLock)
-	return err
-}
-
-const projectLockAdvisory = `-- name: ProjectLockAdvisory :exec
-SELECT pg_advisory_lock($1)
-`
-
-func (q *Queries) ProjectLockAdvisory(ctx context.Context, pgAdvisoryLock int64) error {
-	_, err := q.db.Exec(ctx, projectLockAdvisory, pgAdvisoryLock)
-	return err
-}
-
-const projectUnlockAdvisory = `-- name: ProjectUnlockAdvisory :exec
-SELECT pg_advisory_unlock($1)
-`
-
-func (q *Queries) ProjectUnlockAdvisory(ctx context.Context, pgAdvisoryUnlock int64) error {
-	_, err := q.db.Exec(ctx, projectUnlockAdvisory, pgAdvisoryUnlock)
-	return err
-}
-
 const updateProject = `-- name: UpdateProject :one
 UPDATE projects SET name = $2 WHERE id = $1 RETURNING id, group_id, name, state, created_at, updated_at
 `

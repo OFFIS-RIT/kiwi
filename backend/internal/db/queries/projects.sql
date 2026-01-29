@@ -101,12 +101,3 @@ SELECT token_count FROM project_files WHERE id = $1;
 
 -- name: UpdateProjectFileMetadata :exec
 UPDATE project_files SET metadata = $2, updated_at = NOW() WHERE id = $1;
-
--- name: ProjectLockAdvisory :exec
-SELECT pg_advisory_lock($1);
-
--- name: ProjectUnlockAdvisory :exec
-SELECT pg_advisory_unlock($1);
-
--- name: ProjectLockActAdvisory :exec
-SELECT pg_advisory_xact_lock($1);
