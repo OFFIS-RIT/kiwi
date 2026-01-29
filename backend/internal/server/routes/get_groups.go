@@ -1,8 +1,8 @@
 package routes
 
 import (
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"net/http"
 
 	_ "github.com/go-playground/validator"
@@ -16,7 +16,7 @@ func GetGroupsHandler(c echo.Context) error {
 	}
 
 	conn := c.(*middleware.AppContext).App.DBConn
-	q := db.New(conn)
+	q := pgdb.New(conn)
 	ctx := c.Request().Context()
 
 	if middleware.HasPermission(user, "group.view:all") {
@@ -57,10 +57,10 @@ func GetGroupUsersHandler(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	conn := c.(*middleware.AppContext).App.DBConn
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	if !middleware.IsAdmin(user) {
-		count, err := q.IsUserInGroup(ctx, db.IsUserInGroupParams{
+		count, err := q.IsUserInGroup(ctx, pgdb.IsUserInGroupParams{
 			GroupID: params.GroupID,
 			UserID:  user.UserID,
 		})

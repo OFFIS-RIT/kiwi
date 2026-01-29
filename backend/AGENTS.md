@@ -49,17 +49,17 @@ go test -v -run "TestRetry.*" ./internal/util/...
 Group imports in this order, separated by blank lines:
 1. Standard library
 2. External dependencies
-3. Internal packages (`kiwi/...`)
+3. Internal packages (`github.com/OFFIS-RIT/kiwi/backend/...`)
 
 ```go
 import (
     "context"
     "fmt"
 
-    "github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4"
 
-    "kiwi/internal/db"
-    "kiwi/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 )
 ```
 
@@ -130,10 +130,6 @@ cmd/
   worker/main.go     # Background worker (RabbitMQ consumer)
 
 internal/
-  db/                # Database layer
-    queries/*.sql    # Raw SQL queries for sqlc
-    schema.sql       # PostgreSQL schema (with pgvector)
-    *.go             # Generated code (sqlc) - DO NOT EDIT
   server/
     routes/          # HTTP route handlers
     middleware/      # Auth and context middleware
@@ -148,6 +144,8 @@ pkg/
     openai/          # OpenAI implementation
     ollama/          # Ollama implementation
   common/            # Shared data structures (Graph, Entity, Relationship)
+  db/                # Database adapters
+    pgx/             # PostgreSQL adapter (schema.sql, queries/, sqlc output)
   graph/             # Graph creation, processing, deduplication
   loader/            # File loaders (PDF, image, audio, CSV, Excel)
   store/             # Graph storage interface
@@ -157,7 +155,7 @@ pkg/
 
 ## Database (sqlc)
 
-SQL queries live in `internal/db/queries/*.sql`. After modifying, run:
+SQL queries live in `pkg/db/pgx/queries/*.sql`. After modifying, run:
 
 ```bash
 make generate
@@ -175,7 +173,7 @@ INSERT INTO projects (...) VALUES (...) RETURNING *;
 DELETE FROM projects WHERE id = $1;
 ```
 
-Generated code goes to `internal/db/` - never edit these files directly.
+Generated code goes to `pkg/db/pgx/` - never edit these files directly.
 
 **Note:** After running `make generate`, gopls may show stale errors for newly generated
 query methods. If you've added a new query and regenerated, the method exists even if

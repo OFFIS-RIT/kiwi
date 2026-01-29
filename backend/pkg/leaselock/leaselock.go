@@ -79,10 +79,10 @@ func (c *Client) Acquire(ctx context.Context, key string, opts Options) (*Lease,
 		ttlMs = int64((5 * time.Minute).Milliseconds())
 	}
 	if opts.RenewEvery <= 0 {
-		opts.RenewEvery = max(opts.TTL / 2, time.Second)
+		opts.RenewEvery = max(opts.TTL/2, time.Second)
 	}
 	if opts.RenewEvery >= opts.TTL {
-		opts.RenewEvery = max(opts.TTL / 2, time.Second)
+		opts.RenewEvery = max(opts.TTL/2, time.Second)
 	}
 	if opts.WaitInterval <= 0 {
 		opts.WaitInterval = 250 * time.Millisecond

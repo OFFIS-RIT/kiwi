@@ -144,7 +144,7 @@ kiwi/
 | Task             | Location                                | Notes                                 |
 | ---------------- | --------------------------------------- | ------------------------------------- |
 | Add API endpoint | `backend/internal/server/routes/`       | Follow `{verb}_{resource}.go` pattern |
-| Add SQL query    | `backend/internal/db/queries/`          | Run `make generate` after             |
+| Add SQL query    | `backend/pkg/db/pgx/queries/`          | Run `make generate` after             |
 | Add UI component | `frontend/components/{feature}/`        | Add to barrel exports                 |
 | Add data hook    | `frontend/hooks/use-data.ts`            | Use TanStack Query                    |
 | Add provider     | `frontend/providers/`                   | Compose in AppProviders               |
@@ -261,7 +261,7 @@ Before committing any changes, ensure the following steps are performed:
 ### Adding a New Feature (Full Stack)
 
 1. **Database**: Add migration in `migrations/`
-2. **Backend Query**: Add to `backend/internal/db/queries/`, run `make generate`
+2. **Backend Query**: Add to `backend/pkg/db/pgx/queries/`, run `make generate`
 3. **Backend Route**: Add handler in `backend/internal/server/routes/`
 4. **Frontend API**: Add function in `frontend/lib/api/`
 5. **Frontend Hook**: Add to `frontend/hooks/use-data.ts`

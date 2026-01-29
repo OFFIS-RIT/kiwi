@@ -2,9 +2,9 @@ package routes
 
 import (
 	"fmt"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"net/http"
 
 	"slices"
@@ -19,8 +19,8 @@ func DeleteUserFromGroupHandler(c echo.Context) error {
 	}
 
 	type deleteGroupResponse struct {
-		Message string          `json:"message"`
-		Users   *[]db.GroupUser `json:"users,omitempty"`
+		Message string            `json:"message"`
+		Users   *[]pgdb.GroupUser `json:"users,omitempty"`
 	}
 
 	data := new(deleteGroupData)
@@ -49,11 +49,11 @@ func DeleteUserFromGroupHandler(c echo.Context) error {
 		})
 	}
 	defer tx.Rollback(ctx)
-	q := db.New(conn)
+	q := pgdb.New(conn)
 	qtx := q.WithTx(tx)
 
 	if !middleware.IsAdmin(user) {
-		count, err := qtx.IsUserInGroup(ctx, db.IsUserInGroupParams{
+		count, err := qtx.IsUserInGroup(ctx, pgdb.IsUserInGroupParams{
 			GroupID: data.GroupID,
 			UserID:  user.UserID,
 		})
@@ -85,7 +85,7 @@ func DeleteUserFromGroupHandler(c echo.Context) error {
 		if !found {
 			continue
 		}
-		err = qtx.DeleteUserFromGroup(ctx, db.DeleteUserFromGroupParams{
+		err = qtx.DeleteUserFromGroup(ctx, pgdb.DeleteUserFromGroupParams{
 			GroupID: data.GroupID,
 			UserID:  userID,
 		})
@@ -144,11 +144,11 @@ func DeleteGroupHandler(c echo.Context) error {
 		})
 	}
 	defer tx.Rollback(ctx)
-	q := db.New(conn)
+	q := pgdb.New(conn)
 	qtx := q.WithTx(tx)
 
 	if !middleware.IsAdmin(user) {
-		count, err := qtx.IsUserInGroup(ctx, db.IsUserInGroupParams{
+		count, err := qtx.IsUserInGroup(ctx, pgdb.IsUserInGroupParams{
 			GroupID: params.ID,
 			UserID:  user.UserID,
 		})

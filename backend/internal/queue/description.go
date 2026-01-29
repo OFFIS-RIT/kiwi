@@ -8,10 +8,10 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
-	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
+	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/pgx"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -28,7 +28,7 @@ func KickoffDescriptionJobsForCorrelation(
 	correlationID string,
 	projectID int64,
 ) (int, error) {
-	q := db.New(pool)
+	q := pgdb.New(pool)
 
 	jobs, err := q.GetDescriptionJobsByCorrelation(ctx, correlationID)
 	if err != nil {
@@ -58,14 +58,14 @@ func KickoffDescriptionJobsForCorrelation(
 		}
 		slices.Sort(fileIDs)
 
-		entities, err := q.GetEntitiesWithSourcesFromFiles(ctx, db.GetEntitiesWithSourcesFromFilesParams{
+		entities, err := q.GetEntitiesWithSourcesFromFiles(ctx, pgdb.GetEntitiesWithSourcesFromFilesParams{
 			Column1:   fileIDs,
 			ProjectID: projectID,
 		})
 		if err != nil {
 			return 0, fmt.Errorf("failed to get entities: %w", err)
 		}
-		rels, err := q.GetRelationshipsWithSourcesFromFiles(ctx, db.GetRelationshipsWithSourcesFromFilesParams{
+		rels, err := q.GetRelationshipsWithSourcesFromFiles(ctx, pgdb.GetRelationshipsWithSourcesFromFilesParams{
 			Column1:   fileIDs,
 			ProjectID: projectID,
 		})
@@ -113,7 +113,7 @@ func KickoffDescriptionJobsForCorrelation(
 				}
 			}
 
-			_, err := q.CreateDescriptionJobStatus(ctx, db.CreateDescriptionJobStatusParams{
+			_, err := q.CreateDescriptionJobStatus(ctx, pgdb.CreateDescriptionJobStatusParams{
 				ProjectID:       projectID,
 				CorrelationID:   correlationID,
 				JobID:           int32(i + 1),
@@ -175,10 +175,10 @@ func ProcessDescriptionMessage(
 		return fmt.Errorf("invalid job_id")
 	}
 
-	q := db.New(pool)
+	q := pgdb.New(pool)
 	latestCorrelationID, latestErr := q.GetLatestCorrelationForProject(ctx, data.ProjectID)
 	if latestErr == nil && latestCorrelationID != "" && latestCorrelationID != data.CorrelationID {
-		_ = q.UpdateDescriptionJobStatus(ctx, db.UpdateDescriptionJobStatusParams{
+		_ = q.UpdateDescriptionJobStatus(ctx, pgdb.UpdateDescriptionJobStatusParams{
 			CorrelationID: data.CorrelationID,
 			JobID:         int32(data.JobID),
 			Column3:       "completed",
@@ -187,7 +187,7 @@ func ProcessDescriptionMessage(
 		return nil
 	}
 
-	_, err := q.TryStartDescriptionJob(ctx, db.TryStartDescriptionJobParams{
+	_, err := q.TryStartDescriptionJob(ctx, pgdb.TryStartDescriptionJobParams{
 		CorrelationID: data.CorrelationID,
 		JobID:         int32(data.JobID),
 	})
@@ -200,7 +200,7 @@ func ProcessDescriptionMessage(
 
 	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, pool, aiClient, []string{})
 	if err != nil {
-		_ = q.UpdateDescriptionJobStatus(ctx, db.UpdateDescriptionJobStatusParams{
+		_ = q.UpdateDescriptionJobStatus(ctx, pgdb.UpdateDescriptionJobStatusParams{
 			CorrelationID: data.CorrelationID,
 			JobID:         int32(data.JobID),
 			Column3:       "failed",
@@ -226,7 +226,7 @@ func ProcessDescriptionMessage(
 	slices.Sort(fileIDs)
 
 	if err := storageClient.UpdateEntityDescriptionsByIDsFromFiles(ctx, data.EntityIDs, fileIDs); err != nil {
-		_ = q.UpdateDescriptionJobStatus(ctx, db.UpdateDescriptionJobStatusParams{
+		_ = q.UpdateDescriptionJobStatus(ctx, pgdb.UpdateDescriptionJobStatusParams{
 			CorrelationID: data.CorrelationID,
 			JobID:         int32(data.JobID),
 			Column3:       "failed",
@@ -235,7 +235,7 @@ func ProcessDescriptionMessage(
 		return err
 	}
 	if err := storageClient.UpdateRelationshipDescriptionsByIDsFromFiles(ctx, data.RelationshipIDs, fileIDs); err != nil {
-		_ = q.UpdateDescriptionJobStatus(ctx, db.UpdateDescriptionJobStatusParams{
+		_ = q.UpdateDescriptionJobStatus(ctx, pgdb.UpdateDescriptionJobStatusParams{
 			CorrelationID: data.CorrelationID,
 			JobID:         int32(data.JobID),
 			Column3:       "failed",
@@ -244,7 +244,7 @@ func ProcessDescriptionMessage(
 		return err
 	}
 
-	_ = q.UpdateDescriptionJobStatus(ctx, db.UpdateDescriptionJobStatusParams{
+	_ = q.UpdateDescriptionJobStatus(ctx, pgdb.UpdateDescriptionJobStatusParams{
 		CorrelationID: data.CorrelationID,
 		JobID:         int32(data.JobID),
 		Column3:       "completed",
@@ -274,7 +274,7 @@ func ProcessDescriptionMessage(
 		return nil
 	}
 
-	if _, err := q.UpdateProjectState(ctx, db.UpdateProjectStateParams{ID: data.ProjectID, State: "ready"}); err != nil {
+	if _, err := q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{ID: data.ProjectID, State: "ready"}); err != nil {
 		logger.Error("[Queue] Failed to set project state to ready", "project_id", data.ProjectID, "correlation_id", data.CorrelationID, "err", err)
 	}
 

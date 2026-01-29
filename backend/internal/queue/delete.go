@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/leaselock"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
-	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
+	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/pgx"
 
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,7 +40,7 @@ func ProcessDeleteMessage(
 	projectId := data.ProjectID
 	graphID := fmt.Sprintf("%d", projectId)
 
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	for {
 		pending, err := q.GetPendingBatchesForProject(ctx, projectId)
@@ -82,14 +82,14 @@ func ProcessDeleteMessage(
 		return err
 	}
 
-	_, err = q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
+	_, err = q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{
 		ID:    projectId,
 		State: "update",
 	})
 	if err != nil {
 		return err
 	}
-	defer q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
+	defer q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{
 		ID:    projectId,
 		State: "ready",
 	})

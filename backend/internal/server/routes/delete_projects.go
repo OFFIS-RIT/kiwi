@@ -2,11 +2,11 @@ package routes
 
 import (
 	"fmt"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -20,8 +20,8 @@ func DeleteFileFromProjectHandler(c echo.Context) error {
 	}
 
 	type deleteProjectResponse struct {
-		Message string            `json:"message"`
-		Files   *[]db.ProjectFile `json:"files,omitempty"`
+		Message string              `json:"message"`
+		Files   *[]pgdb.ProjectFile `json:"files,omitempty"`
 	}
 
 	data := new(deleteProjectData)
@@ -50,11 +50,11 @@ func DeleteFileFromProjectHandler(c echo.Context) error {
 		})
 	}
 	defer tx.Rollback(ctx)
-	q := db.New(conn)
+	q := pgdb.New(conn)
 	qtx := q.WithTx(tx)
 
 	if !middleware.IsAdmin(user) {
-		count, err := qtx.IsUserInProject(ctx, db.IsUserInProjectParams{
+		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     data.ProjectID,
 			UserID: user.UserID,
 		})
@@ -66,7 +66,7 @@ func DeleteFileFromProjectHandler(c echo.Context) error {
 	}
 
 	for _, fileKey := range data.FileKeys {
-		err = qtx.MarkProjectFileAsDeleted(ctx, db.MarkProjectFileAsDeletedParams{
+		err = qtx.MarkProjectFileAsDeleted(ctx, pgdb.MarkProjectFileAsDeletedParams{
 			ProjectID: data.ProjectID,
 			FileKey:   fileKey,
 		})
@@ -142,11 +142,11 @@ func DeleteProjectHandler(c echo.Context) error {
 		})
 	}
 	defer tx.Rollback(ctx)
-	q := db.New(conn)
+	q := pgdb.New(conn)
 	qtx := q.WithTx(tx)
 
 	if !middleware.IsAdmin(user) {
-		count, err := qtx.IsUserInProject(ctx, db.IsUserInProjectParams{
+		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ID,
 			UserID: user.UserID,
 		})

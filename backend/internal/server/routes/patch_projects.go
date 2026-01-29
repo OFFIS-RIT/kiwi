@@ -1,8 +1,8 @@
 package routes
 
 import (
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -15,8 +15,8 @@ func EditProjectHandler(c echo.Context) error {
 	}
 
 	type editProjectResponse struct {
-		Message string      `json:"message"`
-		Project *db.Project `json:"project,omitempty"`
+		Message string        `json:"message"`
+		Project *pgdb.Project `json:"project,omitempty"`
 	}
 
 	data := new(editProjectData)
@@ -38,10 +38,10 @@ func EditProjectHandler(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	conn := c.(*middleware.AppContext).App.DBConn
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	if !middleware.IsAdmin(user) {
-		count, err := q.IsUserInProject(ctx, db.IsUserInProjectParams{
+		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     data.ID,
 			UserID: user.UserID,
 		})
@@ -52,7 +52,7 @@ func EditProjectHandler(c echo.Context) error {
 		}
 	}
 
-	project, err := q.UpdateProject(ctx, db.UpdateProjectParams{
+	project, err := q.UpdateProject(ctx, pgdb.UpdateProjectParams{
 		ID:   data.ID,
 		Name: data.Name,
 	})

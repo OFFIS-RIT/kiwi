@@ -2,7 +2,7 @@ package timing
 
 import (
 	"context"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -14,9 +14,9 @@ func AddFileProcessingTime(
 	statType string,
 	conn *pgxpool.Pool,
 ) error {
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
-	return q.AddProcessTime(ctx, db.AddProcessTimeParams{
+	return q.AddProcessTime(ctx, pgdb.AddProcessTimeParams{
 		ProjectID: id,
 		Amount:    int32(amount),
 		Duration:  durationMs,
@@ -25,9 +25,9 @@ func AddFileProcessingTime(
 }
 
 func PredictFileProcessingTime(ctx context.Context, amount int64, statType string, conn *pgxpool.Pool) (int64, error) {
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
-	return q.PredictProjectProcessTime(ctx, db.PredictProjectProcessTimeParams{
+	return q.PredictProjectProcessTime(ctx, pgdb.PredictProjectProcessTimeParams{
 		Duration: amount,
 		StatType: statType,
 	})

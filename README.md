@@ -206,7 +206,7 @@ adapters. Implement these interfaces to integrate with your own infrastructure:
 | ---------- | -------------------- | ---------------------------------------------- |
 | OpenAI     | `pkg/ai/openai`      | OpenAI API for chat, embeddings, vision, audio |
 | Ollama     | `pkg/ai/ollama`      | Local LLM inference via Ollama                 |
-| PostgreSQL | `pkg/store/base`     | Graph storage with pgvector                    |
+| PostgreSQL | `pkg/store/pgx`      | Graph storage with pgvector                    |
 | Console    | `pkg/logger/console` | Structured console logging                     |
 
 ### Built-in File Loaders

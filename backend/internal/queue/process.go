@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/leaselock"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
-	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
+	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/pgx"
 
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -42,10 +42,10 @@ func ProcessGraphMessage(
 	}
 	projectId := data.ProjectID
 
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	if data.CorrelationID != "" {
-		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+		_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 			Column3:       "extracting",
@@ -59,7 +59,7 @@ func ProcessGraphMessage(
 		statType = "graph_update"
 		projectState = "update"
 	}
-	if _, err := q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
+	if _, err := q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{
 		ID:    projectId,
 		State: projectState,
 	}); err != nil {
@@ -214,7 +214,7 @@ func ProcessGraphMessage(
 		tokenCount += int(tokens)
 	}
 
-	prediction, err := q.PredictProjectProcessTime(ctx, db.PredictProjectProcessTimeParams{
+	prediction, err := q.PredictProjectProcessTime(ctx, pgdb.PredictProjectProcessTimeParams{
 		Duration: int64(tokenCount),
 		StatType: statType,
 	})
@@ -224,7 +224,7 @@ func ProcessGraphMessage(
 	logger.Info("[Queue] Prediction for graph operation", "operation", data.Operation, "tokens", tokenCount, "time_ms", prediction)
 
 	if data.CorrelationID != "" {
-		_ = q.UpdateBatchEstimatedDuration(ctx, db.UpdateBatchEstimatedDurationParams{
+		_ = q.UpdateBatchEstimatedDuration(ctx, pgdb.UpdateBatchEstimatedDurationParams{
 			CorrelationID:     data.CorrelationID,
 			BatchID:           int32(data.BatchID),
 			EstimatedDuration: prediction,
@@ -259,7 +259,7 @@ func ProcessGraphMessage(
 	err = graphClient.ExtractAndStage(ctx, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
 	if err != nil {
 		if data.CorrelationID != "" {
-			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+			_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
 				CorrelationID: data.CorrelationID,
 				BatchID:       int32(data.BatchID),
 				Column3:       "failed",
@@ -273,14 +273,14 @@ func ProcessGraphMessage(
 	}
 
 	if data.CorrelationID != "" {
-		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+		_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 			Column3:       "indexing",
 		})
 	}
 
-	_, err = q.UpdateProjectState(ctx, db.UpdateProjectStateParams{
+	_, err = q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{
 		ID:    projectId,
 		State: projectState,
 	})
@@ -312,7 +312,7 @@ func ProcessGraphMessage(
 	err = graphClient.MergeFromStaging(lease.Context, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
 	if err != nil {
 		if data.CorrelationID != "" {
-			_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+			_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
 				CorrelationID: data.CorrelationID,
 				BatchID:       int32(data.BatchID),
 				Column3:       "failed",
@@ -330,7 +330,7 @@ func ProcessGraphMessage(
 	}
 
 	duration := time.Since(start)
-	q.AddProcessTime(ctx, db.AddProcessTimeParams{
+	q.AddProcessTime(ctx, pgdb.AddProcessTimeParams{
 		ProjectID: projectId,
 		Amount:    int32(tokenCount),
 		Duration:  duration.Milliseconds(),
@@ -338,7 +338,7 @@ func ProcessGraphMessage(
 	})
 
 	if data.CorrelationID != "" {
-		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+		_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 			Column3:       "completed",
@@ -360,7 +360,7 @@ func ProcessGraphMessage(
 				if latestErr != nil {
 					logger.Warn("[Queue] Failed to fetch latest correlation for project", "project_id", projectId, "correlation_id", data.CorrelationID, "err", latestErr)
 				} else if latestCorrelationID == data.CorrelationID {
-					if _, err := q.UpdateProjectState(ctx, db.UpdateProjectStateParams{ID: projectId, State: "ready"}); err != nil {
+					if _, err := q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{ID: projectId, State: "ready"}); err != nil {
 						logger.Error("[Queue] Failed to set project state to ready", "project_id", projectId, "correlation_id", data.CorrelationID, "err", err)
 					}
 				}
@@ -385,7 +385,7 @@ func ProcessGraphMessage(
 		if err := storageClient.UpdateRelationshipDescriptions(lease.Context, fileIDs); err != nil {
 			logger.Error("[Queue] Failed to update relationship descriptions", "project_id", projectId, "err", err)
 		}
-		if _, err := q.UpdateProjectState(ctx, db.UpdateProjectStateParams{ID: projectId, State: "ready"}); err != nil {
+		if _, err := q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{ID: projectId, State: "ready"}); err != nil {
 			logger.Error("[Queue] Failed to set project state to ready", "project_id", projectId, "err", err)
 		}
 	}
