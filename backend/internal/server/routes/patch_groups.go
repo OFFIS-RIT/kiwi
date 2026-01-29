@@ -1,8 +1,8 @@
 package routes
 
 import (
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -22,9 +22,9 @@ func EditGroupHandler(c echo.Context) error {
 	}
 
 	type editGroupResponse struct {
-		Message string          `json:"message"`
-		Group   *db.Group       `json:"group,omitempty"`
-		Users   *[]db.GroupUser `json:"users,omitempty"`
+		Message string            `json:"message"`
+		Group   *pgdb.Group       `json:"group,omitempty"`
+		Users   *[]pgdb.GroupUser `json:"users,omitempty"`
 	}
 
 	data := new(editGroupData)
@@ -53,11 +53,11 @@ func EditGroupHandler(c echo.Context) error {
 		})
 	}
 	defer tx.Rollback(ctx)
-	queries := db.New(conn)
+	queries := pgdb.New(conn)
 	qtx := queries.WithTx(tx)
 
 	if !middleware.IsAdmin(user) {
-		count, err := qtx.IsUserInGroup(ctx, db.IsUserInGroupParams{
+		count, err := qtx.IsUserInGroup(ctx, pgdb.IsUserInGroupParams{
 			GroupID: data.GroupID,
 			UserID:  user.UserID,
 		})
@@ -75,7 +75,7 @@ func EditGroupHandler(c echo.Context) error {
 		})
 	}
 	if data.Name != nil {
-		g, err := qtx.UpdateGroup(ctx, db.UpdateGroupParams{
+		g, err := qtx.UpdateGroup(ctx, pgdb.UpdateGroupParams{
 			ID:   data.GroupID,
 			Name: *data.Name,
 		})
@@ -95,7 +95,7 @@ func EditGroupHandler(c echo.Context) error {
 				}
 			}
 
-			dbUser, err := qtx.AddUserToGroup(ctx, db.AddUserToGroupParams{
+			dbUser, err := qtx.AddUserToGroup(ctx, pgdb.AddUserToGroupParams{
 				GroupID: group.ID,
 				UserID:  user.UserID,
 				Role:    user.Role,

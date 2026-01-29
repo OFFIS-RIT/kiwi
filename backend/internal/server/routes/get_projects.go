@@ -4,10 +4,10 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 
 	_ "github.com/go-playground/validator"
 	"github.com/labstack/echo/v4"
@@ -47,7 +47,7 @@ func GetProjectsHandler(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	conn := c.(*middleware.AppContext).App.DBConn
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	var rows []projectRow
 
@@ -163,10 +163,10 @@ func GetProjectFilesHandler(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	conn := c.(*middleware.AppContext).App.DBConn
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	if !middleware.IsAdmin(user) {
-		count, err := q.IsUserInProject(ctx, db.IsUserInProjectParams{
+		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
 			UserID: user.UserID,
 		})
@@ -189,8 +189,8 @@ func GetTextUnitHandler(c echo.Context) error {
 	}
 
 	type getTextUnitResponse struct {
-		Message string       `json:"message"`
-		Unit    *db.TextUnit `json:"data,omitempty"`
+		Message string         `json:"message"`
+		Unit    *pgdb.TextUnit `json:"data,omitempty"`
 	}
 
 	params := new(getTextUnitParams)
@@ -214,7 +214,7 @@ func GetTextUnitHandler(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	conn := c.(*middleware.AppContext).App.DBConn
-	qtx := db.New(conn)
+	qtx := pgdb.New(conn)
 
 	projectID, err := qtx.GetProjectIDFromTextUnit(ctx, params.ID)
 	if err != nil {
@@ -224,7 +224,7 @@ func GetTextUnitHandler(c echo.Context) error {
 	}
 
 	if !middleware.IsAdmin(user) {
-		count, err := qtx.IsUserInProject(ctx, db.IsUserInProjectParams{
+		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			UserID: user.UserID,
 			ID:     projectID,
 		})
@@ -279,10 +279,10 @@ func GetProjectFile(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	conn := c.(*middleware.AppContext).App.DBConn
-	qtx := db.New(conn)
+	qtx := pgdb.New(conn)
 
 	if !middleware.IsAdmin(user) {
-		count, err := qtx.IsUserInProject(ctx, db.IsUserInProjectParams{
+		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			UserID: user.UserID,
 			ID:     params.ProjectID,
 		})

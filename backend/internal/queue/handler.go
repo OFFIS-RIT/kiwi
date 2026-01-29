@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,7 +17,7 @@ func RecoverStaleBatches(
 	ch *amqp091.Channel,
 	conn *pgxpool.Pool,
 ) error {
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	staleBatches, err := q.GetStaleBatches(ctx)
 	if err != nil {
@@ -63,7 +63,7 @@ func RecoverStaleBatches(
 			continue
 		}
 
-		files := make([]db.ProjectFile, len(projectFiles))
+		files := make([]pgdb.ProjectFile, len(projectFiles))
 		copy(files, projectFiles)
 
 		queueData := QueueProjectFileMsg{
@@ -103,14 +103,14 @@ func ResetBatchStatusForRetry(
 	var data QueueProjectFileMsg
 	_ = json.Unmarshal(msgBody, &data)
 
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	switch queueName {
 	case "preprocess_queue":
 		if data.CorrelationID == "" {
 			return
 		}
-		_ = q.ResetBatchToPending(ctx, db.ResetBatchToPendingParams{
+		_ = q.ResetBatchToPending(ctx, pgdb.ResetBatchToPendingParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 		})
@@ -118,7 +118,7 @@ func ResetBatchStatusForRetry(
 		if data.CorrelationID == "" {
 			return
 		}
-		_ = q.ResetBatchToPreprocessed(ctx, db.ResetBatchToPreprocessedParams{
+		_ = q.ResetBatchToPreprocessed(ctx, pgdb.ResetBatchToPreprocessedParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 		})
@@ -130,7 +130,7 @@ func ResetBatchStatusForRetry(
 		if descMsg.CorrelationID == "" {
 			return
 		}
-		_ = q.ResetDescriptionJobToPending(ctx, db.ResetDescriptionJobToPendingParams{
+		_ = q.ResetDescriptionJobToPending(ctx, pgdb.ResetDescriptionJobToPendingParams{
 			CorrelationID: descMsg.CorrelationID,
 			JobID:         int32(descMsg.JobID),
 		})

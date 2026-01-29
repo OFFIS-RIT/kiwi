@@ -4,21 +4,21 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 
 	"github.com/rabbitmq/amqp091-go"
 )
 
 type QueueProjectFileMsg struct {
-	Message       string            `json:"message"`
-	ProjectID     int64             `json:"project_id"`
-	CorrelationID string            `json:"correlation_id,omitempty"`
-	BatchID       int               `json:"batch_id,omitempty"`
-	TotalBatches  int               `json:"total_batches,omitempty"`
-	ProjectFiles  *[]db.ProjectFile `json:"project_files,omitempty"`
-	Operation     string            `json:"operation,omitempty"`
+	Message       string              `json:"message"`
+	ProjectID     int64               `json:"project_id"`
+	CorrelationID string              `json:"correlation_id,omitempty"`
+	BatchID       int                 `json:"batch_id,omitempty"`
+	TotalBatches  int                 `json:"total_batches,omitempty"`
+	ProjectFiles  *[]pgdb.ProjectFile `json:"project_files,omitempty"`
+	Operation     string              `json:"operation,omitempty"`
 }
 
 type QueueDescriptionJobMsg struct {

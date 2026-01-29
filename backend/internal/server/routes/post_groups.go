@@ -1,8 +1,8 @@
 package routes
 
 import (
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"net/http"
 
 	_ "github.com/go-playground/validator"
@@ -22,9 +22,9 @@ func CreateGroupHandler(c echo.Context) error {
 	}
 
 	type createGroupResponse struct {
-		Message string          `json:"message"`
-		Group   *db.Group       `json:"group,omitempty"`
-		Users   []*db.GroupUser `json:"users,omitempty"`
+		Message string            `json:"message"`
+		Group   *pgdb.Group       `json:"group,omitempty"`
+		Users   []*pgdb.GroupUser `json:"users,omitempty"`
 	}
 
 	data := new(createGroupBody)
@@ -56,7 +56,7 @@ func CreateGroupHandler(c echo.Context) error {
 		})
 	}
 	defer tx.Rollback(ctx)
-	queries := db.New(conn)
+	queries := pgdb.New(conn)
 	qtx := queries.WithTx(tx)
 
 	group, err := qtx.CreateGroup(ctx, data.Name)
@@ -66,9 +66,9 @@ func CreateGroupHandler(c echo.Context) error {
 		})
 	}
 
-	dbUsers := make([]*db.GroupUser, 0)
+	dbUsers := make([]*pgdb.GroupUser, 0)
 	for _, user := range data.Users {
-		dbUser, err := qtx.AddUserToGroup(ctx, db.AddUserToGroupParams{
+		dbUser, err := qtx.AddUserToGroup(ctx, pgdb.AddUserToGroupParams{
 			GroupID: group.ID,
 			UserID:  user.UserID,
 			Role:    user.Role,
@@ -110,8 +110,8 @@ func AddUserToGroupHandler(c echo.Context) error {
 	}
 
 	type addUserToGroupResponse struct {
-		Message string        `json:"message"`
-		User    *db.GroupUser `json:"user,omitempty"`
+		Message string          `json:"message"`
+		User    *pgdb.GroupUser `json:"user,omitempty"`
 	}
 
 	user := c.(*middleware.AppContext).User
@@ -145,7 +145,7 @@ func AddUserToGroupHandler(c echo.Context) error {
 		})
 	}
 
-	addUserParams := db.AddUserToGroupParams{
+	addUserParams := pgdb.AddUserToGroupParams{
 		GroupID: params.GroupID,
 		UserID:  data.UserID,
 		Role:    data.Role,
@@ -153,10 +153,10 @@ func AddUserToGroupHandler(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	conn := c.(*middleware.AppContext).App.DBConn
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	if !middleware.IsAdmin(user) {
-		count, err := q.IsUserInGroup(ctx, db.IsUserInGroupParams{
+		count, err := q.IsUserInGroup(ctx, pgdb.IsUserInGroupParams{
 			GroupID: addUserParams.GroupID,
 			UserID:  user.UserID,
 		})
@@ -167,7 +167,7 @@ func AddUserToGroupHandler(c echo.Context) error {
 		}
 	}
 
-	count, err := q.IsUserInGroup(ctx, db.IsUserInGroupParams{
+	count, err := q.IsUserInGroup(ctx, pgdb.IsUserInGroupParams{
 		GroupID: addUserParams.GroupID,
 		UserID:  addUserParams.UserID,
 	})

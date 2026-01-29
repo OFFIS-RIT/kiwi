@@ -3,7 +3,7 @@ package util
 import (
 	"fmt"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 )
 
 type BatchStepProgress struct {
@@ -30,7 +30,7 @@ const (
 	fileBatchProgressWeightStep int64 = 4
 )
 
-func BuildBatchProgress(progress db.GetProjectFullProgressRow) BatchProgress {
+func BuildBatchProgress(progress pgdb.GetProjectFullProgressRow) BatchProgress {
 	batchTotal := int64(progress.BatchTotalCount)
 	descTotal := int64(progress.DescriptionTotalCount)
 	if batchTotal <= 0 && descTotal <= 0 {
@@ -101,7 +101,7 @@ func BuildBatchProgress(progress db.GetProjectFullProgressRow) BatchProgress {
 	return batchProgress
 }
 
-func CalculateBatchProgressPercentage(progress db.GetProjectFullProgressRow) int32 {
+func CalculateBatchProgressPercentage(progress pgdb.GetProjectFullProgressRow) int32 {
 	batchTotal := int64(progress.BatchTotalCount)
 	descTotal := int64(progress.DescriptionTotalCount)
 

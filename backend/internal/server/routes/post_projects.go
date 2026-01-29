@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
-	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/base"
+	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/pgx"
 
 	"net/http"
 	"regexp"
@@ -19,7 +19,7 @@ import (
 
 	"slices"
 
-	bqc "github.com/OFFIS-RIT/kiwi/backend/pkg/query/base"
+	bqc "github.com/OFFIS-RIT/kiwi/backend/pkg/query/pgx"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 
@@ -36,9 +36,9 @@ func CreateProjectHandler(c echo.Context) error {
 	}
 
 	type createProjectResponse struct {
-		Message      string            `json:"message"`
-		Project      *db.Project       `json:"project,omitempty"`
-		ProjectFiles *[]db.ProjectFile `json:"project_files,omitempty"`
+		Message      string              `json:"message"`
+		Project      *pgdb.Project       `json:"project,omitempty"`
+		ProjectFiles *[]pgdb.ProjectFile `json:"project_files,omitempty"`
 	}
 
 	data := new(createProjectBody)
@@ -78,11 +78,11 @@ func CreateProjectHandler(c echo.Context) error {
 		})
 	}
 	defer tx.Rollback(ctx)
-	q := db.New(conn)
+	q := pgdb.New(conn)
 	qtx := q.WithTx(tx)
 
 	if !middleware.IsAdmin(user) {
-		count, err := qtx.IsUserInGroup(ctx, db.IsUserInGroupParams{
+		count, err := qtx.IsUserInGroup(ctx, pgdb.IsUserInGroupParams{
 			GroupID: data.GroupID,
 			UserID:  user.UserID,
 		})
@@ -93,7 +93,7 @@ func CreateProjectHandler(c echo.Context) error {
 		}
 	}
 
-	project, err := qtx.CreateProject(ctx, db.CreateProjectParams{
+	project, err := qtx.CreateProject(ctx, pgdb.CreateProjectParams{
 		GroupID: data.GroupID,
 		Name:    data.Name,
 		State:   "create",
@@ -104,7 +104,7 @@ func CreateProjectHandler(c echo.Context) error {
 			Message: "Internal server error",
 		})
 	}
-	err = qtx.AddProjectUpdate(ctx, db.AddProjectUpdateParams{
+	err = qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 		ProjectID:     project.ID,
 		UpdateType:    "create",
 		UpdateMessage: json.RawMessage(util.ConvertStructToJson(project)),
@@ -150,9 +150,9 @@ func CreateProjectHandler(c echo.Context) error {
 		keys[key] = file.Filename
 	}
 
-	projectFiles := make([]db.ProjectFile, 0)
+	projectFiles := make([]pgdb.ProjectFile, 0)
 	for key, name := range keys {
-		projectFile, err := qtx.AddFileToProject(ctx, db.AddFileToProjectParams{
+		projectFile, err := qtx.AddFileToProject(ctx, pgdb.AddFileToProjectParams{
 			ProjectID: project.ID,
 			Name:      name,
 			FileKey:   key,
@@ -163,7 +163,7 @@ func CreateProjectHandler(c echo.Context) error {
 				Message: "Internal server error",
 			})
 		}
-		err = qtx.AddProjectUpdate(ctx, db.AddProjectUpdateParams{
+		err = qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 			ProjectID:     project.ID,
 			UpdateType:    "add_file",
 			UpdateMessage: json.RawMessage(util.ConvertStructToJson(projectFile)),
@@ -206,7 +206,7 @@ func CreateProjectHandler(c echo.Context) error {
 		}
 
 		logger.Debug("[Server] Creating batch status", "project_id", project.ID, "correlation_id", correlationID, "batch_id", batchID, "total_batches", totalBatches, "files_count", len(batchFiles))
-		_, _ = q.CreateBatchStatus(ctx, db.CreateBatchStatusParams{
+		_, _ = q.CreateBatchStatus(ctx, pgdb.CreateBatchStatusParams{
 			ProjectID:     project.ID,
 			CorrelationID: correlationID,
 			BatchID:       int32(batchID),
@@ -252,9 +252,9 @@ func AddFilesToProjectHandler(c echo.Context) error {
 	}
 
 	type addFilesResponse struct {
-		Message      string            `json:"message"`
-		ProjectID    int64             `json:"project_id"`
-		ProjectFiles []*db.ProjectFile `json:"project_files,omitempty"`
+		Message      string              `json:"message"`
+		ProjectID    int64               `json:"project_id"`
+		ProjectFiles []*pgdb.ProjectFile `json:"project_files,omitempty"`
 	}
 
 	params := new(addFilesParams)
@@ -324,10 +324,10 @@ func AddFilesToProjectHandler(c echo.Context) error {
 	}
 
 	conn := c.(*middleware.AppContext).App.DBConn
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	if !middleware.IsAdmin(user) {
-		count, err := q.IsUserInProject(ctx, db.IsUserInProjectParams{
+		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
 			UserID: user.UserID,
 		})
@@ -338,9 +338,9 @@ func AddFilesToProjectHandler(c echo.Context) error {
 		}
 	}
 
-	projectFiles := make([]*db.ProjectFile, 0)
+	projectFiles := make([]*pgdb.ProjectFile, 0)
 	for key, name := range keys {
-		projectFile, err := q.AddFileToProject(ctx, db.AddFileToProjectParams{
+		projectFile, err := q.AddFileToProject(ctx, pgdb.AddFileToProjectParams{
 			ProjectID: params.ProjectID,
 			Name:      name,
 			FileKey:   key,
@@ -350,7 +350,7 @@ func AddFilesToProjectHandler(c echo.Context) error {
 				Message: "Failed to add file to project",
 			})
 		}
-		err = q.AddProjectUpdate(ctx, db.AddProjectUpdateParams{
+		err = q.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 			ProjectID:     params.ProjectID,
 			UpdateType:    "add_file",
 			UpdateMessage: json.RawMessage(util.ConvertStructToJson(projectFile)),
@@ -383,7 +383,7 @@ func AddFilesToProjectHandler(c echo.Context) error {
 			fileIDs[i] = f.ID
 		}
 
-		_, _ = q.CreateBatchStatus(ctx, db.CreateBatchStatusParams{
+		_, _ = q.CreateBatchStatus(ctx, pgdb.CreateBatchStatusParams{
 			ProjectID:     params.ProjectID,
 			CorrelationID: correlationID,
 			BatchID:       int32(batchID),
@@ -400,7 +400,7 @@ func AddFilesToProjectHandler(c echo.Context) error {
 		endIdx := min(startIdx+batchSize, len(projectFiles))
 		batchFilesPtrs := projectFiles[startIdx:endIdx]
 
-		batchFiles := make([]db.ProjectFile, len(batchFilesPtrs))
+		batchFiles := make([]pgdb.ProjectFile, len(batchFilesPtrs))
 		for i, pf := range batchFilesPtrs {
 			batchFiles[i] = *pf
 		}
@@ -469,10 +469,10 @@ func QueryProjectHandler(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	conn := c.(*middleware.AppContext).App.DBConn
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	if !middleware.IsAdmin(user) {
-		count, err := q.IsUserInProject(ctx, db.IsUserInProjectParams{
+		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			UserID: user.UserID,
 			ID:     data.ProjectID,
 		})
@@ -608,10 +608,10 @@ func QueryProjectStreamHandler(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	conn := c.(*middleware.AppContext).App.DBConn
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	if !middleware.IsAdmin(user) {
-		count, err := q.IsUserInProject(ctx, db.IsUserInProjectParams{
+		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			UserID: user.UserID,
 			ID:     data.ProjectID,
 		})

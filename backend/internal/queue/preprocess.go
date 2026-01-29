@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -49,18 +49,18 @@ func ProcessPreprocess(
 		return err
 	}
 
-	q := db.New(conn)
+	q := pgdb.New(conn)
 
 	projectState := "create"
 	if data.Operation == "update" {
 		projectState = "update"
 	}
-	if _, err := q.UpdateProjectState(ctx, db.UpdateProjectStateParams{ID: data.ProjectID, State: projectState}); err != nil {
+	if _, err := q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{ID: data.ProjectID, State: projectState}); err != nil {
 		logger.Warn("[Queue] Failed to update project state at preprocess start", "project_id", data.ProjectID, "state", projectState, "err", err)
 	}
 
 	if data.CorrelationID != "" {
-		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+		_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 			Column3:       "preprocessing",
@@ -313,7 +313,7 @@ func ProcessPreprocess(
 		}
 	}
 
-	prediction, err := q.PredictProjectProcessTime(ctx, db.PredictProjectProcessTimeParams{
+	prediction, err := q.PredictProjectProcessTime(ctx, pgdb.PredictProjectProcessTimeParams{
 		Duration: int64(pageCount),
 		StatType: "file_processing",
 	})
@@ -323,7 +323,7 @@ func ProcessPreprocess(
 	logger.Info("[Queue] Prediction for preprocessing", "batch_id", data.BatchID, "pages", pageCount, "time_ms", prediction)
 
 	if data.CorrelationID != "" {
-		_ = q.UpdateBatchEstimatedDuration(ctx, db.UpdateBatchEstimatedDurationParams{
+		_ = q.UpdateBatchEstimatedDuration(ctx, pgdb.UpdateBatchEstimatedDurationParams{
 			CorrelationID:     data.CorrelationID,
 			BatchID:           int32(data.BatchID),
 			EstimatedDuration: prediction,
@@ -437,7 +437,7 @@ func ProcessPreprocess(
 	qtx := q.WithTx(tx)
 
 	for _, tc := range tokenCounts {
-		err = qtx.AddTokenCountToFile(ctx, db.AddTokenCountToFileParams{
+		err = qtx.AddTokenCountToFile(ctx, pgdb.AddTokenCountToFileParams{
 			ID:         tc.fileID,
 			TokenCount: tc.tokenCount,
 		})
@@ -449,7 +449,7 @@ func ProcessPreprocess(
 			continue
 		}
 
-		err = qtx.UpdateProjectFileMetadata(ctx, db.UpdateProjectFileMetadataParams{
+		err = qtx.UpdateProjectFileMetadata(ctx, pgdb.UpdateProjectFileMetadataParams{
 			ID:       tc.fileID,
 			Metadata: pgtype.Text{String: tc.metadata, Valid: true},
 		})
@@ -458,7 +458,7 @@ func ProcessPreprocess(
 		}
 	}
 
-	err = qtx.AddProcessTime(ctx, db.AddProcessTimeParams{
+	err = qtx.AddProcessTime(ctx, pgdb.AddProcessTimeParams{
 		ProjectID: data.ProjectID,
 		Amount:    int32(pageCount),
 		Duration:  duration.Milliseconds(),
@@ -474,7 +474,7 @@ func ProcessPreprocess(
 	}
 
 	if data.CorrelationID != "" {
-		_ = q.UpdateBatchStatus(ctx, db.UpdateBatchStatusParams{
+		_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 			Column3:       "preprocessed",
