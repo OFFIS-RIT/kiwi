@@ -290,7 +290,7 @@ func (q *Queries) GetLatestCorrelationForProject(ctx context.Context, projectID 
 
 const getPendingBatchesForProject = `-- name: GetPendingBatchesForProject :many
 SELECT id, project_id, correlation_id, batch_id, total_batches, files_count, file_ids, status, operation, estimated_duration, created_at, started_at, completed_at, error_message FROM project_batch_status
-WHERE project_id = $1 AND status IN ('pending', 'preprocessing', 'extracting', 'indexing')
+WHERE project_id = $1 AND status IN ('pending', 'preprocessing', 'preprocessed', 'extracting', 'indexing')
 ORDER BY created_at
 `
 

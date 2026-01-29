@@ -1,4 +1,4 @@
-package base
+package store
 
 import (
 	"context"
@@ -8,11 +8,46 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+func ChunkRange(total, chunkSize int, fn func(start, end int) error) error {
+	if total <= 0 {
+		return nil
+	}
+	if chunkSize <= 0 {
+		chunkSize = total
+	}
+	for start := 0; start < total; start += chunkSize {
+		end := min(start+chunkSize, total)
+		if err := fn(start, end); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func DedupeStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
 type embeddingBatcher interface {
 	GenerateEmbeddings(ctx context.Context, inputs [][]byte) ([][]float32, error)
 }
 
-func generateEmbeddings(
+func GenerateEmbeddings(
 	ctx context.Context,
 	client ai.GraphAIClient,
 	inputs [][]byte,

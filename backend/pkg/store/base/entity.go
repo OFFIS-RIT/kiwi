@@ -3,67 +3,16 @@ package base
 import (
 	"context"
 	"fmt"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"strconv"
+
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/store"
 
 	"github.com/pgvector/pgvector-go"
 )
-
-func (s *GraphDBStorage) AddEntity(ctx context.Context, qtx *db.Queries, entity *common.Entity, projectId int64) (int64, error) {
-	embedding, err := s.aiClient.GenerateEmbedding(ctx, []byte(entity.Description))
-	if err != nil {
-		return -1, err
-	}
-	embed := pgvector.NewVector(embedding)
-
-	s.dbLock.Lock()
-	id, err := qtx.AddProjectEntity(ctx, db.AddProjectEntityParams{
-		PublicID:    entity.ID,
-		ProjectID:   projectId,
-		Name:        entity.Name,
-		Description: entity.Description,
-		Type:        entity.Type,
-		Embedding:   embed,
-	})
-	s.dbLock.Unlock()
-	if err != nil {
-		return -1, err
-	}
-
-	return id, nil
-}
-
-func (s *GraphDBStorage) AddEntitySource(
-	ctx context.Context,
-	qtx *db.Queries,
-	source *common.Source,
-	entityId int64,
-	textUnitId int64,
-) (int64, error) {
-	embedding, err := s.aiClient.GenerateEmbedding(ctx, []byte(source.Description))
-	if err != nil {
-		return -1, err
-	}
-	embed := pgvector.NewVector(embedding)
-
-	s.dbLock.Lock()
-	id, err := qtx.AddProjectEntitySource(ctx, db.AddProjectEntitySourceParams{
-		PublicID:    source.ID,
-		EntityID:    entityId,
-		TextUnitID:  textUnitId,
-		Description: source.Description,
-		Embedding:   embed,
-	})
-	s.dbLock.Unlock()
-	if err != nil {
-		return -1, err
-	}
-
-	return id, nil
-}
 
 func (s *GraphDBStorage) GetEntitiesByProjectID(
 	ctx context.Context,
@@ -145,7 +94,7 @@ func (s *GraphDBStorage) SaveEntities(ctx context.Context, entities []common.Ent
 
 	ids := make([]int64, 0, len(entities))
 
-	err = chunkRange(len(entities), entityChunk, func(start, end int) error {
+	err = store.ChunkRange(len(entities), entityChunk, func(start, end int) error {
 		merged := mergeEntitiesByPublicID(entities[start:end])
 		if len(merged) == 0 {
 			return nil
@@ -165,7 +114,7 @@ func (s *GraphDBStorage) SaveEntities(ctx context.Context, entities []common.Ent
 			entityInputs[i] = []byte(merged[i].Description)
 		}
 		logger.Debug("[Graph][SaveEntities] Generating entity embeddings", "count", len(entityInputs))
-		entityEmb, err := generateEmbeddings(ctx, s.aiClient, entityInputs)
+		entityEmb, err := store.GenerateEmbeddings(ctx, s.aiClient, entityInputs)
 		if err != nil {
 			return err
 		}
@@ -207,7 +156,7 @@ func (s *GraphDBStorage) SaveEntities(ctx context.Context, entities []common.Ent
 
 		sources := flattenEntitySources(merged, entityIDByPublicID)
 		if len(sources) > 0 {
-			err = chunkRange(len(sources), sourceChunk, func(sStart, sEnd int) error {
+			err = store.ChunkRange(len(sources), sourceChunk, func(sStart, sEnd int) error {
 				part := sources[sStart:sEnd]
 				logger.Debug("[Graph][SaveEntities] Saving entity sources chunk", "sources", len(part))
 
@@ -215,7 +164,7 @@ func (s *GraphDBStorage) SaveEntities(ctx context.Context, entities []common.Ent
 				for _, src := range part {
 					unitPublicIDs = append(unitPublicIDs, src.unitPublicID)
 				}
-				unitRows, err := qtx.GetTextUnitIDsByPublicIDs(ctx, dedupeStrings(unitPublicIDs))
+				unitRows, err := qtx.GetTextUnitIDsByPublicIDs(ctx, store.DedupeStrings(unitPublicIDs))
 				if err != nil {
 					return err
 				}
@@ -229,7 +178,7 @@ func (s *GraphDBStorage) SaveEntities(ctx context.Context, entities []common.Ent
 					inputs[i] = []byte(part[i].description)
 				}
 				logger.Debug("[Graph][SaveEntities] Generating entity source embeddings", "count", len(inputs))
-				embs, err := generateEmbeddings(ctx, s.aiClient, inputs)
+				embs, err := store.GenerateEmbeddings(ctx, s.aiClient, inputs)
 				if err != nil {
 					return err
 				}

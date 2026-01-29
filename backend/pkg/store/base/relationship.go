@@ -3,76 +3,17 @@ package base
 import (
 	"context"
 	"fmt"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"slices"
 	"strconv"
 
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/store"
 
 	"github.com/pgvector/pgvector-go"
 )
-
-func (s *GraphDBStorage) AddRelationship(
-	ctx context.Context,
-	qtx *db.Queries,
-	relation *common.Relationship,
-	projectId int64,
-	sourceID int64,
-	targetID int64,
-) (int64, error) {
-	embedding, err := s.aiClient.GenerateEmbedding(ctx, []byte(relation.Description))
-	if err != nil {
-		return -1, err
-	}
-	embed := pgvector.NewVector(embedding)
-
-	s.dbLock.Lock()
-	id, err := qtx.AddProjectRelationship(ctx, db.AddProjectRelationshipParams{
-		PublicID:    relation.ID,
-		ProjectID:   projectId,
-		SourceID:    sourceID,
-		TargetID:    targetID,
-		Description: relation.Description,
-		Rank:        relation.Strength,
-		Embedding:   embed,
-	})
-	s.dbLock.Unlock()
-	if err != nil {
-		return -1, err
-	}
-
-	return id, nil
-}
-
-func (s *GraphDBStorage) AddRelationshipSource(
-	ctx context.Context,
-	qtx *db.Queries,
-	source *common.Source,
-	relationId int64,
-	textUnitId int64,
-) (int64, error) {
-	embedding, err := s.aiClient.GenerateEmbedding(ctx, []byte(source.Description))
-	if err != nil {
-		return -1, err
-	}
-	embed := pgvector.NewVector(embedding)
-
-	s.dbLock.Lock()
-	id, err := qtx.AddProjectRelationshipSource(ctx, db.AddProjectRelationshipSourceParams{
-		PublicID:       source.ID,
-		RelationshipID: relationId,
-		TextUnitID:     textUnitId,
-		Description:    source.Description,
-		Embedding:      embed,
-	})
-	s.dbLock.Unlock()
-	if err != nil {
-		return -1, err
-	}
-
-	return id, nil
-}
 
 func (s *GraphDBStorage) GetRelationshipByProjectID(
 	ctx context.Context,
@@ -247,7 +188,7 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 
 	ids := make([]int64, 0, len(relations))
 
-	err = chunkRange(len(relations), relChunk, func(start, end int) error {
+	err = store.ChunkRange(len(relations), relChunk, func(start, end int) error {
 		merged := mergeRelationshipsByPublicID(relations[start:end])
 		if len(merged) == 0 {
 			return nil
@@ -273,7 +214,7 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 		}
 		entityRows, err := qtx.GetEntityIDsByPublicIDs(ctx, db.GetEntityIDsByPublicIDsParams{
 			ProjectID: projectID,
-			PublicIds: dedupeStrings(entityPublicIDs),
+			PublicIds: store.DedupeStrings(entityPublicIDs),
 		})
 		if err != nil {
 			return err
@@ -288,7 +229,7 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 			relInputs[i] = []byte(merged[i].Description)
 		}
 		logger.Debug("[Graph][SaveRelationships] Generating relationship embeddings", "count", len(relInputs))
-		relEmb, err := generateEmbeddings(ctx, s.aiClient, relInputs)
+		relEmb, err := store.GenerateEmbeddings(ctx, s.aiClient, relInputs)
 		if err != nil {
 			return err
 		}
@@ -344,7 +285,7 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 
 		sources := flattenRelationshipSources(merged, relIDByPublicID)
 		if len(sources) > 0 {
-			err = chunkRange(len(sources), sourceChunk, func(sStart, sEnd int) error {
+			err = store.ChunkRange(len(sources), sourceChunk, func(sStart, sEnd int) error {
 				part := sources[sStart:sEnd]
 				logger.Debug("[Graph][SaveRelationships] Saving relationship sources chunk", "sources", len(part))
 
@@ -352,7 +293,7 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 				for _, src := range part {
 					unitPublicIDs = append(unitPublicIDs, src.unitPublicID)
 				}
-				unitRows, err := qtx.GetTextUnitIDsByPublicIDs(ctx, dedupeStrings(unitPublicIDs))
+				unitRows, err := qtx.GetTextUnitIDsByPublicIDs(ctx, store.DedupeStrings(unitPublicIDs))
 				if err != nil {
 					return err
 				}
@@ -366,7 +307,7 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 					inputs[i] = []byte(part[i].description)
 				}
 				logger.Debug("[Graph][SaveRelationships] Generating relationship source embeddings", "count", len(inputs))
-				embs, err := generateEmbeddings(ctx, s.aiClient, inputs)
+				embs, err := store.GenerateEmbeddings(ctx, s.aiClient, inputs)
 				if err != nil {
 					return err
 				}

@@ -337,8 +337,7 @@ func (g *GraphClient) processFilesAndBuildGraph(
 	logger.Info("[Graph] Files processed")
 	logger.Info("[Graph] Starting cross-document deduplication")
 
-	err := storeClient.DedupeAndMergeEntities(ctx, graphID, aiClient)
-	if err != nil {
+	if err := storeClient.DedupeAndMergeEntities(ctx, graphID, aiClient); err != nil {
 		rollbackFiles(ctx, files, graphID, storeClient)
 		return fmt.Errorf("failed to dedupe entities in DB: %w", err)
 	}

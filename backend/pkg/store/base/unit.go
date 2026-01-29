@@ -2,14 +2,14 @@ package base
 
 import (
 	"context"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
 	"strconv"
 	"strings"
 
+	"github.com/OFFIS-RIT/kiwi/backend/internal/db"
+
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
-
-	gonanoid "github.com/matoous/go-nanoid/v2"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/store"
 )
 
 func parseBaseFileID(fileID string) (int64, error) {
@@ -18,29 +18,6 @@ func parseBaseFileID(fileID string) (int64, error) {
 		baseID = before
 	}
 	return strconv.ParseInt(baseID, 10, 64)
-}
-
-func (s *GraphDBStorage) AddUnit(ctx context.Context, qtx *db.Queries, unit *common.Unit) (int64, error) {
-	uId, err := gonanoid.New()
-	if err != nil {
-		return -1, err
-	}
-	fId, err := parseBaseFileID(unit.FileID)
-	if err != nil {
-		return -1, err
-	}
-	s.dbLock.Lock()
-	id, err := qtx.AddProjectFileTextUnit(ctx, db.AddProjectFileTextUnitParams{
-		PublicID:      uId,
-		ProjectFileID: fId,
-		Text:          unit.Text,
-	})
-	s.dbLock.Unlock()
-	if err != nil {
-		return -1, err
-	}
-
-	return id, nil
 }
 
 // SaveUnits persists a batch of text units to the database within a single
@@ -55,7 +32,7 @@ func (s *GraphDBStorage) SaveUnits(ctx context.Context, units []*common.Unit) ([
 
 	ids := make([]int64, 0, len(units))
 	chunkSize := 1000
-	err := chunkRange(len(units), chunkSize, func(start, end int) error {
+	err := store.ChunkRange(len(units), chunkSize, func(start, end int) error {
 		tx, err := s.conn.Begin(ctx)
 		if err != nil {
 			return err
