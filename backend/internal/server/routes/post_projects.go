@@ -506,7 +506,7 @@ func QueryProjectHandler(c echo.Context) error {
 		opts = append(opts, bqc.WithModel(data.Model))
 	}
 	if data.Think {
-		opts = append(opts, bqc.WithThinking("high"))
+		opts = append(opts, bqc.WithThinking("medium"))
 	}
 
 	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, fmt.Sprintf("%d", data.ProjectID), opts)
@@ -645,7 +645,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		opts = append(opts, bqc.WithModel(data.Model))
 	}
 	if data.Think {
-		opts = append(opts, bqc.WithThinking("high"))
+		opts = append(opts, bqc.WithThinking("medium"))
 	}
 
 	c.Response().Header().Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
