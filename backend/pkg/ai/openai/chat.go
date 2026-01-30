@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
@@ -542,21 +543,30 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 		for _, tc := range response.Choices[0].Message.ToolCalls {
 			ftc := tc.AsFunction()
 
+			// Clean function name by removing special tokens (e.g., <|channel|>commentary)
+			// Some OpenAI models may append special tokens to function names
+			rawFunctionName := ftc.Function.Name
+			functionName := rawFunctionName
+			if idx := findFirstSpecialToken(rawFunctionName); idx > 0 {
+				functionName = rawFunctionName[:idx]
+			}
+
 			var handler ai.ToolHandler
 			for _, tool := range tools {
-				if tool.Name == ftc.Function.Name {
+				if tool.Name == functionName {
 					handler = tool.Handler
 					break
 				}
 			}
 
 			if handler == nil {
-				return "", fmt.Errorf("no handler found for tool: %s", ftc.Function.Name)
+				return "", fmt.Errorf("no handler found for tool: %s (cleaned: %s)", rawFunctionName, functionName)
 			}
 
+			// Function.Arguments is already a JSON string, use it directly
 			result, err := handler(rCtx, ftc.Function.Arguments)
 			if err != nil {
-				return "", fmt.Errorf("tool %s failed: %w", ftc.Function.Name, err)
+				return "", fmt.Errorf("tool %s failed: %w", functionName, err)
 			}
 
 			messages = append(messages, openai.ToolMessage(result, ftc.ID))
@@ -659,18 +669,27 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 		for _, tc := range response.Choices[0].Message.ToolCalls {
 			ftc := tc.AsFunction()
 
+			// Clean function name by removing special tokens (e.g., <|channel|>commentary)
+			// Some OpenAI models may append special tokens to function names
+			rawFunctionName := ftc.Function.Name
+			functionName := rawFunctionName
+			if idx := findFirstSpecialToken(rawFunctionName); idx > 0 {
+				functionName = rawFunctionName[:idx]
+			}
+
 			var handler ai.ToolHandler
 			for _, tool := range tools {
-				if tool.Name == ftc.Function.Name {
+				if tool.Name == functionName {
 					handler = tool.Handler
 					break
 				}
 			}
 
 			if handler == nil {
-				return "", fmt.Errorf("no handler found for tool: %s", ftc.Function.Name)
+				return "", fmt.Errorf("no handler found for tool: %s (cleaned: %s)", rawFunctionName, functionName)
 			}
 
+			// Function.Arguments is already a JSON string, use it directly
 			result, err := handler(rCtx, ftc.Function.Arguments)
 			if err != nil {
 				return "", fmt.Errorf("tool %s failed: %w", ftc.Function.Name, err)
@@ -832,8 +851,15 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 				}
 
 				for _, tc := range acc.Choices[0].Message.ToolCalls {
-					functionName := tc.Function.Name
-					functionArgs := tc.Function.Arguments
+					rawFunctionName := tc.Function.Name
+					functionArgsRaw := tc.Function.Arguments
+
+					// Clean function name by removing special tokens (e.g., <|channel|>commentary)
+					// Some OpenAI models may append special tokens to function names
+					functionName := rawFunctionName
+					if idx := findFirstSpecialToken(rawFunctionName); idx > 0 {
+						functionName = rawFunctionName[:idx]
+					}
 
 					var handler ai.ToolHandler
 					for _, t := range tools {
@@ -844,17 +870,18 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 					}
 
 					if handler == nil {
-						logger.Error("[Tool] no handler found", "tool", functionName)
+						logger.Error("[Tool] no handler found", "tool", rawFunctionName, "cleaned", functionName)
 						return
 					}
 
+					// Function.Arguments is already a JSON string, use it directly
 					select {
 					case contentChan <- ai.StreamEvent{Type: "step", Step: functionName}:
 					case <-rCtx.Done():
 						return
 					}
 
-					result, err := handler(rCtx, functionArgs)
+					result, err := handler(rCtx, functionArgsRaw)
 					if err != nil {
 						logger.Error("[Tool] failed", "tool", functionName, "err", err)
 						return
@@ -884,4 +911,22 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 	}()
 
 	return contentChan, nil
+}
+
+// findFirstSpecialToken finds the first occurrence of special tokens that may be
+// appended to function names by some OpenAI models (e.g., <|channel|>commentary).
+// Returns the index of the first special token, or -1 if none found.
+func findFirstSpecialToken(s string) int {
+	specialTokens := []string{"<|channel|>", "<|", "|>"}
+	minIdx := len(s)
+	for _, token := range specialTokens {
+		idx := strings.Index(s, token)
+		if idx >= 0 && idx < minIdx {
+			minIdx = idx
+		}
+	}
+	if minIdx < len(s) {
+		return minIdx
+	}
+	return -1
 }

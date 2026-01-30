@@ -50,8 +50,12 @@ func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId
 			}
 
 			query, ok := params["query"].(string)
-			if !ok || query == "" {
+			if !ok {
 				return "", fmt.Errorf("query is required and must be a string")
+			}
+			// If query is empty, use a generic fallback query
+			if query == "" {
+				query = "relationship connection"
 			}
 
 			var limit int32 = 10
@@ -128,8 +132,20 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.T
 			entityId := int64(entityIdRaw)
 
 			query, ok := params["query"].(string)
-			if !ok || query == "" {
+			if !ok {
 				return "", fmt.Errorf("query is required and must be a string")
+			}
+			// If query is empty, fetch entity name and use it as fallback query
+			if query == "" {
+				q := pgdb.New(conn)
+				entity, err := q.GetProjectEntityByID(ctx, entityId)
+				if err != nil && err != sql.ErrNoRows {
+					return "", fmt.Errorf("failed to get entity name for fallback query: %w", err)
+				}
+				if err == sql.ErrNoRows {
+					return "", fmt.Errorf("query is required and must be a non-empty string")
+				}
+				query = entity.Name
 			}
 
 			var limit int32 = 10
@@ -359,8 +375,25 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.Tool
 			}
 
 			query, ok := params["query"].(string)
-			if !ok || query == "" {
+			if !ok {
 				return "", fmt.Errorf("query is required and must be a string")
+			}
+			// If query is empty, fetch entity names and use them as fallback query
+			if query == "" {
+				q := pgdb.New(conn)
+				entities, err := q.GetProjectEntitiesByIDs(ctx, entityIds)
+				if err != nil && err != sql.ErrNoRows {
+					return "", fmt.Errorf("failed to get entity names for fallback query: %w", err)
+				}
+				if len(entities) == 0 {
+					return "", fmt.Errorf("query is required and must be a non-empty string")
+				}
+				// Use entity names as query
+				names := make([]string, len(entities))
+				for i, e := range entities {
+					names[i] = e.Name
+				}
+				query = strings.Join(names, " ")
 			}
 
 			var limit int32 = 10
@@ -444,8 +477,12 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient) a
 			}
 
 			query, ok := params["query"].(string)
-			if !ok || query == "" {
+			if !ok {
 				return "", fmt.Errorf("query is required and must be a string")
+			}
+			// If query is empty, use a generic fallback query
+			if query == "" {
+				query = "relationship connection"
 			}
 
 			var limit int32 = 10
@@ -611,8 +648,12 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 			}
 
 			query, ok := params["query"].(string)
-			if !ok || query == "" {
+			if !ok {
 				return "", fmt.Errorf("query is required and must be a string")
+			}
+			// If query is empty, use a generic fallback query
+			if query == "" {
+				query = "relationship connection"
 			}
 
 			entityType, ok := params["type"].(string)
@@ -685,8 +726,12 @@ func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, proj
 			}
 
 			query, ok := params["query"].(string)
-			if !ok || query == "" {
+			if !ok {
 				return "", fmt.Errorf("query is required and must be a string")
+			}
+			// If query is empty, use a generic fallback query
+			if query == "" {
+				query = "relationship connection"
 			}
 
 			var limit int32 = 10
