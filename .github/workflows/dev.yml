@@ -1,4 +1,4 @@
-name: Dev Build & Deploy
+name: Dev Build
 
 on:
   workflow_dispatch:
@@ -42,7 +42,7 @@ jobs:
           - name: server
             image: server
             context: ./backend
-            file: ./backend/Dockerfile.server
+            file: ./backend/Dockerfile.server.dev
             cache: server
             target: ""
             build_args: ""
@@ -50,7 +50,7 @@ jobs:
           - name: worker
             image: worker
             context: ./backend
-            file: ./backend/Dockerfile.worker
+            file: ./backend/Dockerfile.worker.dev
             cache: worker
             target: ""
             build_args: ""
@@ -58,10 +58,10 @@ jobs:
           - name: frontend
             image: frontend
             context: ./frontend
-            file: ./frontend/Dockerfile
+            file: ./frontend/Dockerfile.dev
             cache: frontend
             target: ""
-            build_args: NEXT_PUBLIC_API_URL=/api
+            build_args: ""
             tag_suffix: ""
           - name: frontend-builder
             image: frontend
@@ -74,7 +74,7 @@ jobs:
           - name: auth
             image: auth
             context: ./auth
-            file: ./auth/Dockerfile
+            file: ./auth/Dockerfile.dev
             cache: auth
             target: ""
             build_args: ""
