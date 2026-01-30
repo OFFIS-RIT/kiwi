@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/store"
 )
 
@@ -77,5 +78,11 @@ func NewGraphQueryClient(aiC ai.GraphAIClient, s store.GraphStorage, graphId str
 // relevant context is found in the knowledge base
 func (c *BaseQueryClient) generateNoDataResponse(ctx context.Context, query string) (string, error) {
 	prompt := fmt.Sprintf(ai.NoDataPrompt, query)
-	return c.aiClient.GenerateCompletion(ctx, prompt)
+	res, err := c.aiClient.GenerateCompletion(ctx, prompt)
+	if err != nil {
+		logger.Error("Failed to generate no data response", "err", err)
+		return "There was a server error, please try again later.", err
+	}
+
+	return res, nil
 }

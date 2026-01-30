@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
 
 // QueryAgentic performs a query with access to external tools. The AI can invoke
@@ -34,7 +35,8 @@ func (c *BaseQueryClient) QueryAgentic(
 
 	resp, err := aiC.GenerateChatWithTools(ctx, msgs, tools, generateOpts...)
 	if err != nil {
-		return "", err
+		logger.Error("Error during agentic query", "err", err)
+		return c.generateNoDataResponse(ctx, msgs[len(msgs)-1].Message)
 	}
 
 	return resp, nil
@@ -48,27 +50,38 @@ func (c *BaseQueryClient) QueryStreamAgentic(
 	msgs []ai.ChatMessage,
 	tools []ai.Tool,
 ) (<-chan ai.StreamEvent, error) {
+	out := make(chan ai.StreamEvent, 10)
 	aiC := c.aiClient
 
-	systemPrompts := []string{ai.ToolQueryPrompt}
-	if len(systemPrompts) > 0 {
-		systemPrompts = append(systemPrompts, c.options.SystemPrompts...)
-	}
+	go func() {
+		defer close(out)
 
-	generateOpts := []ai.GenerateOption{
-		ai.WithSystemPrompts(systemPrompts...),
-	}
-	if c.options.Model != "" {
-		generateOpts = append(generateOpts, ai.WithModel(c.options.Model))
-	}
-	if c.options.Thinking != "" {
-		generateOpts = append(generateOpts, ai.WithThinking(c.options.Thinking))
-	}
+		systemPrompts := []string{ai.ToolQueryPrompt}
+		if len(systemPrompts) > 0 {
+			systemPrompts = append(systemPrompts, c.options.SystemPrompts...)
+		}
 
-	resp, err := aiC.GenerateChatStreamWithTools(ctx, msgs, tools, generateOpts...)
-	if err != nil {
-		return nil, err
-	}
+		generateOpts := []ai.GenerateOption{
+			ai.WithSystemPrompts(systemPrompts...),
+		}
+		if c.options.Model != "" {
+			generateOpts = append(generateOpts, ai.WithModel(c.options.Model))
+		}
+		if c.options.Thinking != "" {
+			generateOpts = append(generateOpts, ai.WithThinking(c.options.Thinking))
+		}
 
-	return resp, nil
+		resp, err := aiC.GenerateChatStreamWithTools(ctx, msgs, tools, generateOpts...)
+		if err != nil {
+			noDataResp, _ := c.generateNoDataResponse(ctx, msgs[len(msgs)-1].Message)
+			out <- ai.StreamEvent{Type: "content", Content: noDataResp}
+			return
+		}
+
+		for event := range resp {
+			out <- event
+		}
+	}()
+
+	return out, nil
 }
