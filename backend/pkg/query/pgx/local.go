@@ -58,7 +58,7 @@ func (c *BaseQueryClient) QueryLocal(
 
 	resp, err := aiC.GenerateChat(ctx, msgs, generateOpts...)
 	if err != nil {
-		logger.Error("Failed to get local query context", "err", err)
+		logger.Error("Failed to generate answer from AI", "err", err)
 		return c.generateNoDataResponse(ctx, query)
 	}
 
