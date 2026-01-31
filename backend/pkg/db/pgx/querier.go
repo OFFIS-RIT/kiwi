@@ -54,6 +54,7 @@ type Querier interface {
 	GetFilesFromTextUnitIDs(ctx context.Context, dollar_1 []string) ([]GetFilesFromTextUnitIDsRow, error)
 	GetFilesWithMetadataFromTextUnitIDs(ctx context.Context, dollar_1 []string) ([]GetFilesWithMetadataFromTextUnitIDsRow, error)
 	GetGroup(ctx context.Context, id int64) (Group, error)
+	GetGroupByProjectId(ctx context.Context, id int64) (Group, error)
 	GetGroupUsers(ctx context.Context, groupID int64) ([]GroupUser, error)
 	GetGroupsForUser(ctx context.Context, userID int64) ([]GetGroupsForUserRow, error)
 	GetLatestCorrelationForProject(ctx context.Context, projectID int64) (string, error)

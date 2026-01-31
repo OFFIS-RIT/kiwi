@@ -303,6 +303,35 @@ func AddFilesToProjectHandler(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+	conn := c.(*middleware.AppContext).App.DBConn
+	q := pgdb.New(conn)
+
+	if !middleware.IsAdmin(user) {
+		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
+			ID:     params.ProjectID,
+			UserID: user.UserID,
+		})
+		if err != nil || count == 0 {
+			return c.JSON(http.StatusForbidden, addFilesResponse{
+				Message: "You are not a member of this project",
+			})
+		}
+	}
+
+	_, err = q.GetGroupByProjectId(ctx, params.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, addFilesResponse{
+				Message: "Project or Group not found",
+			})
+		} else {
+			logger.Error("Failed to get group", "err", err)
+			return c.JSON(http.StatusInternalServerError, addFilesResponse{
+				Message: "Internal server error",
+			})
+		}
+	}
+
 	s3Client := c.(*middleware.AppContext).App.S3
 
 	keys := make(map[string]string, 0)
@@ -338,34 +367,6 @@ func AddFilesToProjectHandler(c echo.Context) error {
 		keys[key] = file.Filename
 	}
 
-	conn := c.(*middleware.AppContext).App.DBConn
-	q := pgdb.New(conn)
-
-	if !middleware.IsAdmin(user) {
-		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
-			ID:     params.ProjectID,
-			UserID: user.UserID,
-		})
-		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, addFilesResponse{
-				Message: "You are not a member of this project",
-			})
-		}
-	}
-
-	_ , err = q.GetGroup(ctx, params.ProjectID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return c.JSON(http.StatusNotFound, addFilesResponse{
-				Message: "Group not found",
-			})
-		} else {
-			logger.Error("Failed to get group", "err", err)
-			return c.JSON(http.StatusInternalServerError, addFilesResponse{
-				Message: "Internal server error",
-			})
-		}
-	}
 
 	projectFiles := make([]*pgdb.ProjectFile, 0)
 	for key, name := range keys {
@@ -514,11 +515,11 @@ func QueryProjectHandler(c echo.Context) error {
 		}
 	}
 
-	_ , err := q.GetGroup(ctx, data.ProjectID)
+	_, err := q.GetGroupByProjectId(ctx, data.ProjectID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return c.JSON(http.StatusNotFound, queryProjectResponse{
-				Message: "Group not found",
+				Message: "Project or Group not found",
 			})
 		} else {
 			logger.Error("Failed to get group", "err", err)
@@ -673,11 +674,11 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		}
 	}
 
-	_ , err := q.GetGroup(ctx, data.ProjectID)
+	_, err := q.GetGroupByProjectId(ctx, data.ProjectID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return c.JSON(http.StatusNotFound, streamResponse{
-				Message: "Group not found",
+				Message: "Project or Group not found",
 				Data:    []responseData{},
 			})
 		} else {
