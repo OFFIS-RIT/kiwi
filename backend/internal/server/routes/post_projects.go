@@ -94,7 +94,7 @@ func CreateProjectHandler(c echo.Context) error {
 		}
 	}
 
-	_ , err = qtx.GetGroup(ctx, data.GroupID)
+	_, err = qtx.GetGroup(ctx, data.GroupID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return c.JSON(http.StatusNotFound, createProjectResponse{
