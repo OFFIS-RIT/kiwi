@@ -1,14 +1,16 @@
 package pgx
 
 import (
-	"slices"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
@@ -336,7 +338,6 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 		return nil
 	}
 
-	// Union-find on entity DB IDs to merge overlapping groups.
 	parent := make(map[int64]int64)
 	var find func(int64) int64
 	find = func(x int64) int64 {
@@ -498,7 +499,6 @@ func (s *GraphDBStorage) applyEntityMergeComponent(
 			return false, err
 		}
 
-		// small backoff before retrying
 		select {
 		case <-ctx.Done():
 			return false, ctx.Err()
@@ -540,7 +540,6 @@ func (s *GraphDBStorage) applyEntityMergeComponentOnce(
 
 	canonicalID := comp.CanonicalID
 	if _, ok := exists[canonicalID]; !ok {
-		// canonical disappeared; pick a new canonical deterministically from remaining IDs
 		canonicalID = 0
 		for id := range exists {
 			if canonicalID == 0 {
@@ -664,6 +663,13 @@ func (s *GraphDBStorage) dedupeEntityGroup(
 	ordered := reorderEntitiesWithMeta(entities, iteration, batchSize)
 	merged := false
 
+	type dedupeChunk struct {
+		start          int
+		end            int
+		commonEntities []common.Entity
+	}
+
+	chunks := make([]dedupeChunk, 0, (len(ordered)+batchSize-1)/batchSize)
 	for i := 0; i < len(ordered); i += batchSize {
 		end := min(i+batchSize, len(ordered))
 		chunk := ordered[i:end]
@@ -671,15 +677,34 @@ func (s *GraphDBStorage) dedupeEntityGroup(
 		for idx, e := range chunk {
 			commonEntities[idx] = e.Entity
 		}
+		chunks = append(chunks, dedupeChunk{start: i, end: end, commonEntities: commonEntities})
+	}
 
-		dupeResponse, err := ai.CallDedupeAI(ctx, commonEntities, aiClient, 3)
-		if err != nil {
-			return false, fmt.Errorf("AI dedupe failed: %w", err)
-		}
+	dupeResponses := make([]*ai.DuplicatesResponse, len(chunks))
+
+	eg, gCtx := errgroup.WithContext(ctx)
+	for i := range chunks {
+		idx := i
+		chunk := chunks[i]
+		eg.Go(func() error {
+			dupeResponse, err := ai.CallDedupeAI(gCtx, chunk.commonEntities, aiClient, 3)
+			if err != nil {
+				return fmt.Errorf("AI dedupe failed: %w", err)
+			}
+			dupeResponses[idx] = dupeResponse
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return false, err
+	}
+
+	for i := range chunks {
+		dupeResponse := dupeResponses[i]
 		if !hasDuplicateGroups(dupeResponse) {
 			continue
 		}
-
+		chunk := ordered[chunks[i].start:chunks[i].end]
 		batchMerged, err := s.applyEntityMerges(ctx, projectID, chunk, dupeResponse)
 		if err != nil {
 			return false, err
