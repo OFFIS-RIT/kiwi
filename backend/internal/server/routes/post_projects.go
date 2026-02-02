@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 
@@ -89,6 +90,20 @@ func CreateProjectHandler(c echo.Context) error {
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, createProjectResponse{
 				Message: "You are not a member of this group",
+			})
+		}
+	}
+
+	_, err = qtx.GetGroup(ctx, data.GroupID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, createProjectResponse{
+				Message: "Group not found",
+			})
+		} else {
+			logger.Error("Failed to get group", "err", err)
+			return c.JSON(http.StatusInternalServerError, createProjectResponse{
+				Message: "Internal server error",
 			})
 		}
 	}
@@ -288,6 +303,35 @@ func AddFilesToProjectHandler(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+	conn := c.(*middleware.AppContext).App.DBConn
+	q := pgdb.New(conn)
+
+	if !middleware.IsAdmin(user) {
+		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
+			ID:     params.ProjectID,
+			UserID: user.UserID,
+		})
+		if err != nil || count == 0 {
+			return c.JSON(http.StatusForbidden, addFilesResponse{
+				Message: "You are not a member of this project",
+			})
+		}
+	}
+
+	_, err = q.GetGroupByProjectId(ctx, params.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, addFilesResponse{
+				Message: "Project or Group not found",
+			})
+		} else {
+			logger.Error("Failed to get group", "err", err)
+			return c.JSON(http.StatusInternalServerError, addFilesResponse{
+				Message: "Internal server error",
+			})
+		}
+	}
+
 	s3Client := c.(*middleware.AppContext).App.S3
 
 	keys := make(map[string]string, 0)
@@ -323,20 +367,6 @@ func AddFilesToProjectHandler(c echo.Context) error {
 		keys[key] = file.Filename
 	}
 
-	conn := c.(*middleware.AppContext).App.DBConn
-	q := pgdb.New(conn)
-
-	if !middleware.IsAdmin(user) {
-		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
-			ID:     params.ProjectID,
-			UserID: user.UserID,
-		})
-		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, addFilesResponse{
-				Message: "You are not a member of this project",
-			})
-		}
-	}
 
 	projectFiles := make([]*pgdb.ProjectFile, 0)
 	for key, name := range keys {
@@ -464,7 +494,9 @@ func QueryProjectHandler(c echo.Context) error {
 
 	user := c.(*middleware.AppContext).User
 	if user == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return c.JSON(http.StatusUnauthorized, queryProjectResponse{
+			Message: "Unauthorized",
+		})
 	}
 
 	ctx := c.Request().Context()
@@ -477,7 +509,23 @@ func QueryProjectHandler(c echo.Context) error {
 			ID:     data.ProjectID,
 		})
 		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "Unauthorized"})
+			return c.JSON(http.StatusForbidden, queryProjectResponse{
+				Message: "Unauthorized",
+			})
+		}
+	}
+
+	_, err := q.GetGroupByProjectId(ctx, data.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, queryProjectResponse{
+				Message: "Project or Group not found",
+			})
+		} else {
+			logger.Error("Failed to get group", "err", err)
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{
+				Message: "Internal server error",
+			})
 		}
 	}
 
@@ -603,7 +651,10 @@ func QueryProjectStreamHandler(c echo.Context) error {
 
 	user := c.(*middleware.AppContext).User
 	if user == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return c.JSON(http.StatusUnauthorized, streamResponse{
+			Message: "Unauthorized",
+			Data:    []responseData{},
+		})
 	}
 
 	ctx := c.Request().Context()
@@ -616,7 +667,26 @@ func QueryProjectStreamHandler(c echo.Context) error {
 			ID:     data.ProjectID,
 		})
 		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "Unauthorized"})
+			return c.JSON(http.StatusForbidden, streamResponse{
+				Message: "Unauthorized",
+				Data:    []responseData{},
+			})
+		}
+	}
+
+	_, err := q.GetGroupByProjectId(ctx, data.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, streamResponse{
+				Message: "Project or Group not found",
+				Data:    []responseData{},
+			})
+		} else {
+			logger.Error("Failed to get group", "err", err)
+			return c.JSON(http.StatusInternalServerError, streamResponse{
+				Message: "Internal server error",
+				Data:    []responseData{},
+			})
 		}
 	}
 

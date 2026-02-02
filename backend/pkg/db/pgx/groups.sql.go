@@ -114,6 +114,19 @@ func (q *Queries) GetGroup(ctx context.Context, id int64) (Group, error) {
 	return i, err
 }
 
+const getGroupByProjectId = `-- name: GetGroupByProjectId :one
+SELECT g.id, g.name FROM groups g
+JOIN projects p ON p.group_id = g.id
+WHERE p.id = $1
+`
+
+func (q *Queries) GetGroupByProjectId(ctx context.Context, id int64) (Group, error) {
+	row := q.db.QueryRow(ctx, getGroupByProjectId, id)
+	var i Group
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
 const getGroupUsers = `-- name: GetGroupUsers :many
 SELECT group_id, user_id, role, created_at, updated_at FROM group_users WHERE group_id = $1
 `
