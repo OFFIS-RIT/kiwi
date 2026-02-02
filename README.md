@@ -115,7 +115,7 @@ make migrate          # Run database migrations
 
 The background worker (`backend/cmd/worker`) can be started in different modes to control which RabbitMQ queues it consumes.
 
-- `full` (default): consumes `preprocess_queue`, `graph_queue`, `delete_queue`, `description_queue`
+- `full` (default): consumes `graph_queue`, `delete_queue`, `preprocess_queue`, `description_queue`
 - `preprocess`: consumes only `preprocess_queue`
 - `graph`: consumes `graph_queue`, `delete_queue`, `description_queue`
 
