@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
 
 // QueryLocal performs a local query against the knowledge graph. It retrieves
@@ -24,16 +25,18 @@ func (c *BaseQueryClient) QueryLocal(
 
 	embedding, err := aiC.GenerateEmbedding(ctx, []byte(query))
 	if err != nil {
-		return "", err
+		logger.Error("Failed to generate question embeddings", "err", err)
+		return c.generateNoDataResponse(ctx, query)
 	}
 
 	context, err = sC.GetLocalQueryContext(ctx, query, embedding, c.graphId)
 	if err != nil {
-		return "", err
+		logger.Error("Failed to get local query context", "err", err)
+		return c.generateNoDataResponse(ctx, query)
 	}
 
-	// If no relevant context found, generate a "no data" response instead of hallucinating
 	if context == "" {
+		logger.Info("No relevant context found for query")
 		return c.generateNoDataResponse(ctx, query)
 	}
 
@@ -55,7 +58,8 @@ func (c *BaseQueryClient) QueryLocal(
 
 	resp, err := aiC.GenerateChat(ctx, msgs, generateOpts...)
 	if err != nil {
-		return "", fmt.Errorf("Failed to generate answer from AI:\n%w", err)
+		logger.Error("Failed to generate answer from AI", "err", err)
+		return c.generateNoDataResponse(ctx, query)
 	}
 
 	return resp, nil
@@ -83,20 +87,22 @@ func (c *BaseQueryClient) QueryStreamLocal(
 
 		embedding, err := aiC.GenerateEmbedding(ctx, []byte(query))
 		if err != nil {
+			logger.Error("Failed to generate embedding", "err", err)
+			noDataResp, _ := c.generateNoDataResponse(ctx, query)
+			out <- ai.StreamEvent{Type: "content", Content: noDataResp}
 			return
 		}
 
 		context, err := sC.GetLocalQueryContext(ctx, query, embedding, c.graphId)
 		if err != nil {
+			logger.Error("Failed to get local query context", "err", err)
+			noDataResp, _ := c.generateNoDataResponse(ctx, query)
+			out <- ai.StreamEvent{Type: "content", Content: noDataResp}
 			return
 		}
 
-		// If no relevant context found, generate a "no data" response instead of hallucinating
 		if context == "" {
-			noDataResp, err := c.generateNoDataResponse(ctx, query)
-			if err != nil {
-				return
-			}
+			noDataResp, _ := c.generateNoDataResponse(ctx, query)
 			out <- ai.StreamEvent{Type: "content", Content: noDataResp}
 			return
 		}
@@ -119,6 +125,8 @@ func (c *BaseQueryClient) QueryStreamLocal(
 
 		resp, err := aiC.GenerateChatStream(ctx, msgs, generateOpts...)
 		if err != nil {
+			noDataResp, _ := c.generateNoDataResponse(ctx, query)
+			out <- ai.StreamEvent{Type: "content", Content: noDataResp}
 			return
 		}
 
