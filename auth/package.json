@@ -9,18 +9,18 @@
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
-    "better-auth": "^1.4.17",
+    "better-auth": "^1.4.18",
     "better-auth-credentials-plugin": "0.4.0",
     "elysia": "latest",
     "ldap-authentication": "3.3.6",
-    "pg": "^8.17.2",
+    "pg": "^8.18.0",
     "zod": "4.3.6"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.6",
+    "@types/bun": "^1.3.8",
     "@types/pg": "^8.16.0",
     "bun-types": "latest",
-    "oxlint": "^1.41.0"
+    "oxlint": "^1.42.0"
   },
   "module": "src/index.js"
 }
