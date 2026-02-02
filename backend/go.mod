@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1
-	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/labstack/echo/v4 v4.15.0
 	github.com/pgvector/pgvector-go v0.3.0
@@ -72,12 +72,12 @@ require (
 	github.com/MicahParks/keyfunc/v3 v3.7.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.7
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.95.1
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0
 	github.com/go-playground/validator v9.31.0+incompatible
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/gommon v0.4.2 // indirect
-	github.com/lib/pq v1.10.9
+	github.com/lib/pq v1.11.1
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/rabbitmq/amqp091-go v1.10.0
@@ -98,6 +98,6 @@ require (
 	github.com/kaptinlin/jsonrepair v0.2.7
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/ollama/ollama v0.13.5
-	github.com/openai/openai-go/v3 v3.16.0
+	github.com/openai/openai-go/v3 v3.17.0
 	github.com/pkoukk/tiktoken-go v0.1.8
 )
