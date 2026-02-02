@@ -111,6 +111,31 @@ make migrate          # Run database migrations
 | rustfs   | 9000, 9001  | S3-compatible storage |
 | ollama   | 11434       | Local LLM inference   |
 
+### Worker Modes
+
+The background worker (`backend/cmd/worker`) can be started in different modes to control which RabbitMQ queues it consumes.
+
+- `full` (default): consumes `preprocess_queue`, `graph_queue`, `delete_queue`, `description_queue`
+- `preprocess`: consumes only `preprocess_queue`
+- `graph`: consumes `graph_queue`, `delete_queue`, `description_queue`
+
+Note: All worker modes still declare/create all queues on startup (the worker also publishes messages to other queues).
+
+```bash
+# From ./backend
+
+# Full worker (default)
+go run ./cmd/worker
+
+# Preprocess-only worker
+go run ./cmd/worker --worker=preprocess
+go run ./cmd/worker --preprocess
+
+# Graph worker (graph + delete + description)
+go run ./cmd/worker --worker=graph
+go run ./cmd/worker --graph
+```
+
 ---
 
 ## Production
