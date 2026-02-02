@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,6 +30,26 @@ import (
 func main() {
 	util.LoadEnv()
 
+	workerModeFlag := flag.String("worker", "full", "Worker mode: full|preprocess|graph")
+	preprocessOnlyFlag := flag.Bool("preprocess", false, "Alias for --worker=preprocess")
+	graphWorkerFlag := flag.Bool("graph", false, "Alias for --worker=graph")
+	flag.Parse()
+
+	mode := strings.TrimSpace(strings.ToLower(*workerModeFlag))
+	if *preprocessOnlyFlag && *graphWorkerFlag {
+		fmt.Fprintln(os.Stderr, "only one of --preprocess or --graph can be set")
+		os.Exit(2)
+	}
+	if *preprocessOnlyFlag {
+		mode = "preprocess"
+	}
+	if *graphWorkerFlag {
+		mode = "graph"
+	}
+	if mode == "" {
+		mode = "full"
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -36,6 +58,19 @@ func main() {
 		Debug: debug,
 	})
 	logger.Init(consoleLogger)
+
+	var consumeQueues []string
+	switch mode {
+	case "full":
+		consumeQueues = []string{"graph_queue", "delete_queue", "preprocess_queue", "description_queue"}
+	case "preprocess":
+		consumeQueues = []string{"preprocess_queue"}
+	case "graph":
+		consumeQueues = []string{"graph_queue", "delete_queue", "description_queue"}
+	default:
+		logger.Fatal("Invalid worker mode", "mode", mode, "allowed", "full|preprocess|graph")
+	}
+	logger.Info("Starting worker", "mode", mode, "consume_queues", consumeQueues)
 
 	client := storage.NewS3Client(ctx)
 
@@ -100,8 +135,10 @@ func main() {
 	}
 	defer ch.Close()
 
-	queues := []string{"graph_queue", "delete_queue", "preprocess_queue", "description_queue"}
-	err = queue.SetupQueues(ch, queues)
+	allQueues := []string{"graph_queue", "delete_queue", "preprocess_queue", "description_queue"}
+	if err := queue.SetupQueues(ch, allQueues); err != nil {
+		logger.Fatal("Failed to setup queues", "err", err)
+	}
 
 	logger.Info("Checking for stale batches to recover...")
 	if err := queue.RecoverStaleBatches(ctx, ch, pgConn); err != nil {
@@ -129,7 +166,7 @@ func main() {
 
 	messageChan := make(chan queuedMessage)
 
-	for _, queueName := range queues {
+	for _, queueName := range consumeQueues {
 		go func(qName string) {
 			consumerTag := fmt.Sprintf("%s_consumer", qName)
 			msgs, err := consumerCh.Consume(
