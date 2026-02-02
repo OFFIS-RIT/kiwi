@@ -63,7 +63,7 @@ func main() {
 	switch mode {
 	case "full":
 		consumeQueues = []string{"graph_queue", "delete_queue", "preprocess_queue", "description_queue"}
-	case "preprocess", "preprocess-only", "preprocess_only":
+	case "preprocess":
 		consumeQueues = []string{"preprocess_queue"}
 	case "graph":
 		consumeQueues = []string{"graph_queue", "delete_queue", "description_queue"}
