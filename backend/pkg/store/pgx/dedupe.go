@@ -53,6 +53,7 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 	ctx context.Context,
 	graphID string,
 	aiClient ai.GraphAIClient,
+	seedEntityIDs []int64,
 ) error {
 	projectID, err := strconv.ParseInt(graphID, 10, 64)
 	if err != nil {
@@ -62,9 +63,12 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 	qtx := pgdb.New(s.conn)
 
 	batchSize := ai.GetDedupeBatchSize()
+	seedEntityIDs = slices.Clone(seedEntityIDs)
+	slices.Sort(seedEntityIDs)
+	seedEntityIDs = slices.Compact(seedEntityIDs)
 
 	for iteration := 1; iteration <= maxDedupeIterations; iteration++ {
-		pairs, err := s.findSimilarEntityPairs(ctx, qtx, projectID)
+		pairs, err := s.findSimilarEntityPairs(ctx, qtx, projectID, seedEntityIDs)
 		if err != nil {
 			return fmt.Errorf("failed to find similar entities: %w", err)
 		}
@@ -126,14 +130,44 @@ func (s *GraphDBStorage) findSimilarEntityPairs(
 	ctx context.Context,
 	qtx *pgdb.Queries,
 	projectID int64,
+	seedEntityIDs []int64,
 ) ([]entityPair, error) {
-	rows, err := qtx.FindEntitiesWithSimilarNames(ctx, projectID)
+	var (
+		raws       []pgdb.FindEntitiesWithSimilarNamesRow
+		rawsSeeded []pgdb.FindEntitiesWithSimilarNamesForEntityIDsRow
+		err        error
+	)
+	if len(seedEntityIDs) == 0 {
+		raws, err = qtx.FindEntitiesWithSimilarNames(ctx, projectID)
+	} else {
+		rawsSeeded, err = qtx.FindEntitiesWithSimilarNamesForEntityIDs(ctx, pgdb.FindEntitiesWithSimilarNamesForEntityIDsParams{
+			ProjectID: projectID,
+			EntityIds: seedEntityIDs,
+		})
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	pairs := make([]entityPair, len(rows))
-	for i, row := range rows {
+	if len(seedEntityIDs) == 0 {
+		pairs := make([]entityPair, len(raws))
+		for i, row := range raws {
+			pairs[i] = entityPair{
+				ID1:       row.Id1,
+				PublicID1: row.PublicId1,
+				Name1:     row.Name1,
+				Type1:     row.Type1,
+				ID2:       row.Id2,
+				PublicID2: row.PublicId2,
+				Name2:     row.Name2,
+				Type2:     row.Type2,
+			}
+		}
+		return pairs, nil
+	}
+
+	pairs := make([]entityPair, len(rawsSeeded))
+	for i, row := range rawsSeeded {
 		pairs[i] = entityPair{
 			ID1:       row.Id1,
 			PublicID1: row.PublicId1,

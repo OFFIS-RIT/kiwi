@@ -90,6 +90,77 @@ func (q *Queries) FindEntitiesWithSimilarNames(ctx context.Context, projectID in
 	return items, nil
 }
 
+const findEntitiesWithSimilarNamesForEntityIDs = `-- name: FindEntitiesWithSimilarNamesForEntityIDs :many
+WITH seed AS (
+    SELECT e.id, e.public_id, e.name, e.type
+    FROM entities e
+    WHERE e.project_id = $1
+      AND e.id = ANY($2::bigint[])
+      AND e.type NOT IN ('FACT', 'FILE')
+)
+SELECT e1.id as id1, e1.public_id as public_id1, e1.name as name1, e1.type as type1,
+       e2.id as id2, e2.public_id as public_id2, e2.name as name2, e2.type as type2
+FROM seed e1
+JOIN entities e2 ON similarity(e1.name, e2.name) > 0.5
+    AND e1.type = e2.type
+    AND e2.project_id = $1
+WHERE e1.id < e2.id
+UNION ALL
+SELECT e1.id as id1, e1.public_id as public_id1, e1.name as name1, e1.type as type1,
+       e2.id as id2, e2.public_id as public_id2, e2.name as name2, e2.type as type2
+FROM entities e1
+JOIN seed e2 ON similarity(e1.name, e2.name) > 0.5
+    AND e1.type = e2.type
+    AND e1.project_id = $1
+WHERE e1.id < e2.id
+  AND e1.id <> ALL($2::bigint[])
+`
+
+type FindEntitiesWithSimilarNamesForEntityIDsParams struct {
+	ProjectID int64   `json:"project_id"`
+	EntityIds []int64 `json:"entity_ids"`
+}
+
+type FindEntitiesWithSimilarNamesForEntityIDsRow struct {
+	Id1       int64  `json:"id1"`
+	PublicId1 string `json:"public_id1"`
+	Name1     string `json:"name1"`
+	Type1     string `json:"type1"`
+	Id2       int64  `json:"id2"`
+	PublicId2 string `json:"public_id2"`
+	Name2     string `json:"name2"`
+	Type2     string `json:"type2"`
+}
+
+func (q *Queries) FindEntitiesWithSimilarNamesForEntityIDs(ctx context.Context, arg FindEntitiesWithSimilarNamesForEntityIDsParams) ([]FindEntitiesWithSimilarNamesForEntityIDsRow, error) {
+	rows, err := q.db.Query(ctx, findEntitiesWithSimilarNamesForEntityIDs, arg.ProjectID, arg.EntityIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindEntitiesWithSimilarNamesForEntityIDsRow{}
+	for rows.Next() {
+		var i FindEntitiesWithSimilarNamesForEntityIDsRow
+		if err := rows.Scan(
+			&i.Id1,
+			&i.PublicId1,
+			&i.Name1,
+			&i.Type1,
+			&i.Id2,
+			&i.PublicId2,
+			&i.Name2,
+			&i.Type2,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getEntitiesWithSourcesFromFiles = `-- name: GetEntitiesWithSourcesFromFiles :many
 SELECT DISTINCT e.id, e.public_id, e.name, e.type, e.description
 FROM entities e
