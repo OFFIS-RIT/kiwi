@@ -33,6 +33,7 @@ type Querier interface {
 	DeleteUserFromGroup(ctx context.Context, arg DeleteUserFromGroupParams) error
 	FindDuplicateRelationships(ctx context.Context, projectID int64) ([]FindDuplicateRelationshipsRow, error)
 	FindEntitiesWithSimilarNames(ctx context.Context, projectID int64) ([]FindEntitiesWithSimilarNamesRow, error)
+	FindEntitiesWithSimilarNamesForEntityIDs(ctx context.Context, arg FindEntitiesWithSimilarNamesForEntityIDsParams) ([]FindEntitiesWithSimilarNamesForEntityIDsRow, error)
 	FindRelevantEntitySources(ctx context.Context, arg FindRelevantEntitySourcesParams) ([]FindRelevantEntitySourcesRow, error)
 	FindRelevantRelationSources(ctx context.Context, arg FindRelevantRelationSourcesParams) ([]FindRelevantRelationSourcesRow, error)
 	FindRelevantSourcesForEntities(ctx context.Context, arg FindRelevantSourcesForEntitiesParams) ([]FindRelevantSourcesForEntitiesRow, error)

@@ -240,7 +240,7 @@ func (g *GraphClient) MergeFromStaging(
 		return fmt.Errorf("failed to save units: %w", err)
 	}
 
-	_, err = storeClient.SaveEntities(ctx, entities, graphID)
+	seedEntityIDs, err := storeClient.SaveEntities(ctx, entities, graphID)
 	if err != nil {
 		rollbackFiles(ctx, files, graphID, storeClient)
 		return fmt.Errorf("failed to save entities: %w", err)
@@ -253,14 +253,16 @@ func (g *GraphClient) MergeFromStaging(
 	}
 
 	logger.Info("[Graph] Data saved and merged, starting cross-document deduplication")
-
-	err = storeClient.DedupeAndMergeEntities(ctx, graphID, aiClient)
-	if err != nil {
-		rollbackFiles(ctx, files, graphID, storeClient)
-		return fmt.Errorf("failed to dedupe entities in DB: %w", err)
+	if len(seedEntityIDs) > 0 {
+		err = storeClient.DedupeAndMergeEntities(ctx, graphID, aiClient, seedEntityIDs)
+		if err != nil {
+			rollbackFiles(ctx, files, graphID, storeClient)
+			return fmt.Errorf("failed to dedupe entities in DB: %w", err)
+		}
+		logger.Info("[Graph] Cross-document deduplication completed")
+	} else {
+		logger.Debug("[Graph] No new entities saved; skipping cross-document deduplication", "batch_id", batchID)
 	}
-
-	logger.Info("[Graph] Cross-document deduplication completed")
 	logger.Info("[Graph] Merge from staging completed", "batch_id", batchID)
 
 	return nil
@@ -275,7 +277,12 @@ func (g *GraphClient) processFilesAndBuildGraph(
 ) error {
 	eg, gCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(g.parallelFiles)
-	mutex := sync.Mutex{}
+
+	type filePayload struct {
+		units     []*common.Unit
+		entities  []common.Entity
+		relations []common.Relationship
+	}
 
 	totalFiles := len(files)
 
@@ -289,9 +296,41 @@ func (g *GraphClient) processFilesAndBuildGraph(
 		}
 	}
 
+	payloadCh := make(chan filePayload, g.parallelFiles)
+
+	seedEntityIDs := make([]int64, 0, totalFiles)
+	eg.Go(func() error {
+		for payload := range payloadCh {
+			_, err := storeClient.SaveUnits(gCtx, payload.units)
+			if err != nil {
+				return fmt.Errorf("failed to save units: %w", err)
+			}
+
+			ids, err := storeClient.SaveEntities(gCtx, payload.entities, graphID)
+			if err != nil {
+				return fmt.Errorf("failed to save entities: %w", err)
+			}
+			seedEntityIDs = append(seedEntityIDs, ids...)
+
+			_, err = storeClient.SaveRelationships(gCtx, payload.relations, graphID)
+			if err != nil {
+				return fmt.Errorf("failed to save relationships: %w", err)
+			}
+		}
+		return nil
+	})
+
+	var wg sync.WaitGroup
+	wg.Add(totalFiles)
+	go func() {
+		wg.Wait()
+		close(payloadCh)
+	}()
+
 	for _, file := range files {
 		f := file
 		eg.Go(func() error {
+			defer wg.Done()
 			select {
 			case <-gCtx.Done():
 				return nil
@@ -306,25 +345,13 @@ func (g *GraphClient) processFilesAndBuildGraph(
 					return fmt.Errorf("failed to dedupe document entities: %w", err)
 				}
 
-				mutex.Lock()
-				defer mutex.Unlock()
-
-				_, err = storeClient.SaveUnits(gCtx, result.units)
-				if err != nil {
-					return fmt.Errorf("failed to save units: %w", err)
+				payload := filePayload{units: result.units, entities: dedupedEntities, relations: dedupedRelations}
+				select {
+				case payloadCh <- payload:
+					return nil
+				case <-gCtx.Done():
+					return nil
 				}
-
-				_, err = storeClient.SaveEntities(gCtx, dedupedEntities, graphID)
-				if err != nil {
-					return fmt.Errorf("failed to save entities: %w", err)
-				}
-
-				_, err = storeClient.SaveRelationships(gCtx, dedupedRelations, graphID)
-				if err != nil {
-					return fmt.Errorf("failed to save relationships: %w", err)
-				}
-
-				return nil
 			}
 		})
 	}
@@ -337,12 +364,15 @@ func (g *GraphClient) processFilesAndBuildGraph(
 	logger.Info("[Graph] Files processed")
 	logger.Info("[Graph] Starting cross-document deduplication")
 
-	if err := storeClient.DedupeAndMergeEntities(ctx, graphID, aiClient); err != nil {
-		rollbackFiles(ctx, files, graphID, storeClient)
-		return fmt.Errorf("failed to dedupe entities in DB: %w", err)
+	if len(seedEntityIDs) > 0 {
+		if err := storeClient.DedupeAndMergeEntities(ctx, graphID, aiClient, seedEntityIDs); err != nil {
+			rollbackFiles(ctx, files, graphID, storeClient)
+			return fmt.Errorf("failed to dedupe entities in DB: %w", err)
+		}
+		logger.Info("[Graph] Cross-document deduplication completed")
+	} else {
+		logger.Debug("[Graph] No new entities saved; skipping cross-document deduplication")
 	}
-
-	logger.Info("[Graph] Cross-document deduplication completed")
 	logger.Info("[Graph] Starting description generation")
 	fileIDs := fileIDsFromGraphFiles(files)
 	if err := storeClient.UpdateEntityDescriptions(ctx, fileIDs); err != nil {

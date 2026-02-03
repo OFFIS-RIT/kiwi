@@ -19,7 +19,13 @@ type GraphStorage interface {
 	SaveEntities(ctx context.Context, entities []common.Entity, graphId string) ([]int64, error)
 	SaveRelationships(ctx context.Context, relations []common.Relationship, graphId string) ([]int64, error)
 
-	DedupeAndMergeEntities(ctx context.Context, graphID string, aiClient ai.GraphAIClient) error
+	// DedupeAndMergeEntities finds and merges duplicate entities in the graph.
+	//
+	// The deduplication scope is anchored to the provided seedEntityIDs: only
+	// similarity pairs involving at least one of these entity IDs are considered.
+	// This is used in the processing pipeline to dedupe only entities extracted
+	// in the current run/batch.
+	DedupeAndMergeEntities(ctx context.Context, graphID string, aiClient ai.GraphAIClient, seedEntityIDs []int64) error
 
 	GenerateEntityDescriptions(ctx context.Context, entityIDs []int64) error
 	GenerateRelationshipDescriptions(ctx context.Context, relationshipIDs []int64) error

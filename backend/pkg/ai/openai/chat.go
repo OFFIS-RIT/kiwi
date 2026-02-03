@@ -512,18 +512,28 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 			body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 		}
 
-		err := c.chatLock.Acquire(rCtx, 1)
-		if err != nil {
-			return "", err
-		}
-		defer c.chatLock.Release(1)
+		var (
+			response *openai.ChatCompletion
+			duration int64
+		)
+		err := func() error {
+			if err := c.chatLock.Acquire(rCtx, 1); err != nil {
+				return err
+			}
+			defer c.chatLock.Release(1)
 
-		start := time.Now()
-		response, err := client.Chat.Completions.New(rCtx, body)
+			start := time.Now()
+			r, err := client.Chat.Completions.New(rCtx, body)
+			if err != nil {
+				return err
+			}
+			response = r
+			duration = time.Since(start).Milliseconds()
+			return nil
+		}()
 		if err != nil {
 			return "", err
 		}
-		duration := time.Since(start).Milliseconds()
 
 		metrics := ai.ModelMetrics{
 			InputTokens:  int(response.Usage.PromptTokens),
@@ -551,12 +561,16 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 			}
 
 			if handler == nil {
-				return "", fmt.Errorf("no handler found for tool: %s", ftc.Function.Name)
+				logger.Error("[Tool] No handler found", "tool", ftc.Function.Name, "args", ftc.Function.Arguments)
+				messages = append(messages, openai.ToolMessage("No handler for this tool, dont call again", ftc.ID))
+				continue
 			}
 
 			result, err := handler(rCtx, ftc.Function.Arguments)
 			if err != nil {
-				return "", fmt.Errorf("tool %s failed: %w", ftc.Function.Name, err)
+				logger.Error("[Tool] handler error", "tool", ftc.Function.Name, "err", err)
+				messages = append(messages, openai.ToolMessage(fmt.Sprintf("Tool error: %v", err), ftc.ID))
+				continue
 			}
 
 			messages = append(messages, openai.ToolMessage(result, ftc.ID))
@@ -629,18 +643,28 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 			body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
 		}
 
-		err := c.chatLock.Acquire(rCtx, 1)
-		if err != nil {
-			return "", err
-		}
-		defer c.chatLock.Release(1)
+		var (
+			response *openai.ChatCompletion
+			duration int64
+		)
+		err := func() error {
+			if err := c.chatLock.Acquire(rCtx, 1); err != nil {
+				return err
+			}
+			defer c.chatLock.Release(1)
 
-		start := time.Now()
-		response, err := client.Chat.Completions.New(rCtx, body)
+			start := time.Now()
+			r, err := client.Chat.Completions.New(rCtx, body)
+			if err != nil {
+				return err
+			}
+			response = r
+			duration = time.Since(start).Milliseconds()
+			return nil
+		}()
 		if err != nil {
 			return "", err
 		}
-		duration := time.Since(start).Milliseconds()
 
 		metrics := ai.ModelMetrics{
 			InputTokens:  int(response.Usage.PromptTokens),
@@ -668,12 +692,16 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 			}
 
 			if handler == nil {
-				return "", fmt.Errorf("no handler found for tool: %s", ftc.Function.Name)
+				logger.Error("[Tool] no handler found", "tool", ftc.Function.Name, "args", ftc.Function.Arguments)
+				msgs = append(msgs, openai.ToolMessage("No handler for this tool, dont call again", ftc.ID))
+				continue
 			}
 
 			result, err := handler(rCtx, ftc.Function.Arguments)
 			if err != nil {
-				return "", fmt.Errorf("tool %s failed: %w", ftc.Function.Name, err)
+				logger.Error("[Tool] handler error", "tool", ftc.Function.Name, "err", err)
+				msgs = append(msgs, openai.ToolMessage(fmt.Sprintf("Tool error: %v", err), ftc.ID))
+				continue
 			}
 
 			msgs = append(msgs, openai.ToolMessage(result, ftc.ID))
@@ -845,7 +873,14 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 
 					if handler == nil {
 						logger.Error("[Tool] no handler found", "tool", functionName)
-						return
+						toolResults = append(toolResults, struct {
+							ID     string
+							Result string
+						}{
+							ID:     tc.ID,
+							Result: fmt.Sprintf("No handler for tool %q; do not call again.", functionName),
+						})
+						continue
 					}
 
 					select {
@@ -857,7 +892,14 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 					result, err := handler(rCtx, functionArgs)
 					if err != nil {
 						logger.Error("[Tool] failed", "tool", functionName, "err", err)
-						return
+						toolResults = append(toolResults, struct {
+							ID     string
+							Result string
+						}{
+							ID:     tc.ID,
+							Result: fmt.Sprintf("Tool error in %q: %v", functionName, err),
+						})
+						continue
 					}
 
 					toolResults = append(toolResults, struct {
@@ -866,8 +908,9 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 					}{tc.ID, result})
 				}
 
+				// Keep tool call / tool result ordering: assistant tool-call message first,
+				// then one tool message per tool_call_id (success or failure).
 				msgs = append(msgs, acc.Choices[0].Message.ToParam())
-
 				for _, tr := range toolResults {
 					msgs = append(msgs, openai.ToolMessage(tr.Result, tr.ID))
 				}
