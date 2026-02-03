@@ -310,20 +310,22 @@ func (g *GraphClient) processFilesAndBuildGraph(
 				}
 
 				mutex.Lock()
-				defer mutex.Unlock()
 
 				_, err = storeClient.SaveUnits(gCtx, result.units)
 				if err != nil {
+					mutex.Unlock()
 					return fmt.Errorf("failed to save units: %w", err)
 				}
 
 				ids, err := storeClient.SaveEntities(gCtx, dedupedEntities, graphID)
 				if err != nil {
+					mutex.Unlock()
 					return fmt.Errorf("failed to save entities: %w", err)
 				}
 				seedEntityIDs = append(seedEntityIDs, ids...)
 
 				_, err = storeClient.SaveRelationships(gCtx, dedupedRelations, graphID)
+				mutex.Unlock()
 				if err != nil {
 					return fmt.Errorf("failed to save relationships: %w", err)
 				}
