@@ -38,6 +38,7 @@ func NewGraphDBStorageWithConnection(
 	return &GraphDBStorage{
 		conn:     conn,
 		aiClient: aiClient,
+		msgs:     msgs,
 		dbLock:   sync.Mutex{},
 	}, nil
 }

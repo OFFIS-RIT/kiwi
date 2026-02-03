@@ -19,6 +19,9 @@ func (c *BaseQueryClient) QueryAgentic(
 	aiC := c.aiClient
 
 	systemPrompts := []string{ai.ToolQueryPrompt}
+	if c.options.EnableClarification {
+		systemPrompts = append(systemPrompts, ai.ToolQueryClarificationPrompt)
+	}
 	if len(systemPrompts) > 0 {
 		systemPrompts = append(systemPrompts, c.options.SystemPrompts...)
 	}
@@ -57,6 +60,9 @@ func (c *BaseQueryClient) QueryStreamAgentic(
 		defer close(out)
 
 		systemPrompts := []string{ai.ToolQueryPrompt}
+		if c.options.EnableClarification {
+			systemPrompts = append(systemPrompts, ai.ToolQueryClarificationPrompt)
+		}
 		if len(systemPrompts) > 0 {
 			systemPrompts = append(systemPrompts, c.options.SystemPrompts...)
 		}
