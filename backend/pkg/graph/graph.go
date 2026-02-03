@@ -277,7 +277,12 @@ func (g *GraphClient) processFilesAndBuildGraph(
 ) error {
 	eg, gCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(g.parallelFiles)
-	mutex := sync.Mutex{}
+
+	type filePayload struct {
+		units     []*common.Unit
+		entities  []common.Entity
+		relations []common.Relationship
+	}
 
 	totalFiles := len(files)
 
@@ -291,10 +296,41 @@ func (g *GraphClient) processFilesAndBuildGraph(
 		}
 	}
 
-	seedEntityIDs := make([]int64, 0)
+	payloadCh := make(chan filePayload, g.parallelFiles)
+
+	seedEntityIDs := make([]int64, 0, totalFiles)
+	eg.Go(func() error {
+		for payload := range payloadCh {
+			_, err := storeClient.SaveUnits(gCtx, payload.units)
+			if err != nil {
+				return fmt.Errorf("failed to save units: %w", err)
+			}
+
+			ids, err := storeClient.SaveEntities(gCtx, payload.entities, graphID)
+			if err != nil {
+				return fmt.Errorf("failed to save entities: %w", err)
+			}
+			seedEntityIDs = append(seedEntityIDs, ids...)
+
+			_, err = storeClient.SaveRelationships(gCtx, payload.relations, graphID)
+			if err != nil {
+				return fmt.Errorf("failed to save relationships: %w", err)
+			}
+		}
+		return nil
+	})
+
+	var wg sync.WaitGroup
+	wg.Add(totalFiles)
+	go func() {
+		wg.Wait()
+		close(payloadCh)
+	}()
+
 	for _, file := range files {
 		f := file
 		eg.Go(func() error {
+			defer wg.Done()
 			select {
 			case <-gCtx.Done():
 				return nil
@@ -309,28 +345,13 @@ func (g *GraphClient) processFilesAndBuildGraph(
 					return fmt.Errorf("failed to dedupe document entities: %w", err)
 				}
 
-				mutex.Lock()
-
-				_, err = storeClient.SaveUnits(gCtx, result.units)
-				if err != nil {
-					mutex.Unlock()
-					return fmt.Errorf("failed to save units: %w", err)
+				payload := filePayload{units: result.units, entities: dedupedEntities, relations: dedupedRelations}
+				select {
+				case payloadCh <- payload:
+					return nil
+				case <-gCtx.Done():
+					return nil
 				}
-
-				ids, err := storeClient.SaveEntities(gCtx, dedupedEntities, graphID)
-				if err != nil {
-					mutex.Unlock()
-					return fmt.Errorf("failed to save entities: %w", err)
-				}
-				seedEntityIDs = append(seedEntityIDs, ids...)
-
-				_, err = storeClient.SaveRelationships(gCtx, dedupedRelations, graphID)
-				mutex.Unlock()
-				if err != nil {
-					return fmt.Errorf("failed to save relationships: %w", err)
-				}
-
-				return nil
 			}
 		})
 	}
