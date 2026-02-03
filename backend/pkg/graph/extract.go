@@ -172,6 +172,7 @@ func extractFromUnit(
 	var res extractResponse
 	opts := []ai.GenerateOption{
 		ai.WithSystemPrompts(systemPrompt),
+		ai.WithThinking("low"),
 	}
 	err = client.GenerateCompletionWithFormat(
 		ctx,
