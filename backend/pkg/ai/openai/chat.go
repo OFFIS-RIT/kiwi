@@ -553,12 +553,14 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 			if handler == nil {
 				logger.Error("[Tool] No handler found", "tool", ftc.Function.Name, "args", ftc.Function.Arguments)
 				messages = append(messages, openai.ToolMessage("No handler for this tool, dont call again", ftc.ID))
+				continue
 			}
 
 			result, err := handler(rCtx, ftc.Function.Arguments)
 			if err != nil {
 				logger.Error("[Tool] handler error", "tool", ftc.Function.Name, "err", err)
 				messages = append(messages, openai.ToolMessage(fmt.Sprintf("Tool error: %v", err), ftc.ID))
+				continue
 			}
 
 			messages = append(messages, openai.ToolMessage(result, ftc.ID))
@@ -672,12 +674,14 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 			if handler == nil {
 				logger.Error("[Tool] no handler found", "tool", ftc.Function.Name, "args", ftc.Function.Arguments)
 				msgs = append(msgs, openai.ToolMessage("No handler for this tool, dont call again", ftc.ID))
+				continue
 			}
 
 			result, err := handler(rCtx, ftc.Function.Arguments)
 			if err != nil {
 				logger.Error("[Tool] handler error", "tool", ftc.Function.Name, "err", err)
 				msgs = append(msgs, openai.ToolMessage(fmt.Sprintf("Tool error: %v", err), ftc.ID))
+				continue
 			}
 
 			msgs = append(msgs, openai.ToolMessage(result, ftc.ID))
