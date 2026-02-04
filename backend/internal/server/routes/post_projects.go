@@ -20,6 +20,7 @@ import (
 
 	"slices"
 
+	graphquery "github.com/OFFIS-RIT/kiwi/backend/pkg/query"
 	bqc "github.com/OFFIS-RIT/kiwi/backend/pkg/query/pgx"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
@@ -367,7 +368,6 @@ func AddFilesToProjectHandler(c echo.Context) error {
 		keys[key] = file.Filename
 	}
 
-
 	projectFiles := make([]*pgdb.ProjectFile, 0)
 	for key, name := range keys {
 		projectFile, err := q.AddFileToProject(ctx, pgdb.AddFileToProjectParams{
@@ -475,9 +475,11 @@ func QueryProjectHandler(c echo.Context) error {
 	}
 
 	type queryProjectResponse struct {
-		Message string           `json:"message"`
-		Data    []responseData   `json:"data,omitempty"`
-		Metrics *ai.ModelMetrics `json:"metrics,omitempty"`
+		Message             string           `json:"message"`
+		Data                []responseData   `json:"data,omitempty"`
+		Metrics             *ai.ModelMetrics `json:"metrics,omitempty"`
+		ConsideredFileCount int              `json:"considered_file_count"`
+		UsedFileCount       int              `json:"used_file_count"`
 	}
 
 	data := new(queryProjectRequest)
@@ -500,6 +502,7 @@ func QueryProjectHandler(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+	trace := graphquery.NewQueryTrace()
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
@@ -533,7 +536,7 @@ func QueryProjectHandler(c echo.Context) error {
 	msgs[0] = data.Messages[len(data.Messages)-1].Message
 
 	aiClient := c.(*middleware.AppContext).App.AiClient
-	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, conn, aiClient, msgs)
+	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, conn, aiClient, msgs, graphstorage.WithTracer(trace))
 
 	prompts, err := q.GetProjectSystemPrompts(ctx, data.ProjectID)
 	if err != nil {
@@ -564,7 +567,7 @@ func QueryProjectHandler(c echo.Context) error {
 	case "normal":
 		answer, err = queryClient.QueryLocal(ctx, data.Messages)
 	case "agentic":
-		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID)
+		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, trace)
 		answer, err = queryClient.QueryAgentic(ctx, data.Messages, toolList)
 	default:
 		answer, err = queryClient.QueryLocal(ctx, data.Messages)
@@ -602,11 +605,39 @@ func QueryProjectHandler(c echo.Context) error {
 		})
 	}
 
+	usedFileKeySet := make(map[string]struct{})
+	for _, f := range fileData {
+		if f.Key == "" {
+			continue
+		}
+		usedFileKeySet[f.Key] = struct{}{}
+	}
+	usedFileCount := len(usedFileKeySet)
+
+	consideredFileCount := 0
+	if snap := trace.Snapshot(); len(snap.ConsideredSourceIDs) > 0 {
+		consideredFiles, err := q.GetFilesFromTextUnitIDs(ctx, snap.ConsideredSourceIDs)
+		if err != nil {
+			logger.Error("Failed to resolve considered files", "err", err)
+		} else {
+			consideredFileKeySet := make(map[string]struct{})
+			for _, f := range consideredFiles {
+				if f.FileKey == "" {
+					continue
+				}
+				consideredFileKeySet[f.FileKey] = struct{}{}
+			}
+			consideredFileCount = len(consideredFileKeySet)
+		}
+	}
+
 	metrics := aiClient.GetMetrics()
 	return c.JSON(http.StatusOK, queryProjectResponse{
-		Message: answer,
-		Data:    fileData,
-		Metrics: &metrics,
+		Message:             answer,
+		Data:                fileData,
+		Metrics:             &metrics,
+		ConsideredFileCount: consideredFileCount,
+		UsedFileCount:       usedFileCount,
 	})
 }
 
@@ -628,11 +659,13 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 
 	type streamResponse struct {
-		Step      string           `json:"step,omitempty"`
-		Message   string           `json:"message"`
-		Reasoning string           `json:"reasoning,omitempty"`
-		Data      []responseData   `json:"data"`
-		Metrics   *ai.ModelMetrics `json:"metrics,omitempty"`
+		Step                string           `json:"step,omitempty"`
+		Message             string           `json:"message"`
+		Reasoning           string           `json:"reasoning,omitempty"`
+		Data                []responseData   `json:"data"`
+		Metrics             *ai.ModelMetrics `json:"metrics,omitempty"`
+		ConsideredFileCount *int             `json:"considered_file_count,omitempty"`
+		UsedFileCount       *int             `json:"used_file_count,omitempty"`
 	}
 
 	data := new(queryProjectRequest)
@@ -658,6 +691,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+	trace := graphquery.NewQueryTrace()
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
@@ -694,7 +728,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	msgs[0] = data.Messages[len(data.Messages)-1].Message
 
 	aiClient := c.(*middleware.AppContext).App.AiClient
-	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, conn, aiClient, msgs)
+	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, conn, aiClient, msgs, graphstorage.WithTracer(trace))
 
 	prompts, err := q.GetProjectSystemPrompts(ctx, data.ProjectID)
 	if err != nil {
@@ -728,7 +762,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	case "normal":
 		contentChan, err = queryClient.QueryStreamLocal(ctx, data.Messages)
 	case "agentic":
-		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID)
+		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, trace)
 		contentChan, err = queryClient.QueryStreamAgentic(ctx, data.Messages, toolList)
 	default:
 		contentChan, err = queryClient.QueryStreamLocal(ctx, data.Messages)
@@ -815,10 +849,39 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 
 	metrics := aiClient.GetMetrics()
+
+	usedFileKeySet := make(map[string]struct{})
+	for _, f := range allFoundData {
+		if f.Key == "" {
+			continue
+		}
+		usedFileKeySet[f.Key] = struct{}{}
+	}
+	usedFileCount := len(usedFileKeySet)
+
+	consideredFileCount := 0
+	if snap := trace.Snapshot(); len(snap.ConsideredSourceIDs) > 0 {
+		consideredFiles, err := q.GetFilesFromTextUnitIDs(ctx, snap.ConsideredSourceIDs)
+		if err != nil {
+			logger.Error("Failed to resolve considered files", "err", err)
+		} else {
+			consideredFileKeySet := make(map[string]struct{})
+			for _, f := range consideredFiles {
+				if f.FileKey == "" {
+					continue
+				}
+				consideredFileKeySet[f.FileKey] = struct{}{}
+			}
+			consideredFileCount = len(consideredFileKeySet)
+		}
+	}
+
 	finalResp := streamResponse{
-		Message: messageBuffer.String(),
-		Data:    allFoundData,
-		Metrics: &metrics,
+		Message:             messageBuffer.String(),
+		Data:                allFoundData,
+		Metrics:             &metrics,
+		ConsideredFileCount: &consideredFileCount,
+		UsedFileCount:       &usedFileCount,
 	}
 	if reasoningBuffer.Len() > 0 {
 		finalResp.Reasoning = reasoningBuffer.String()

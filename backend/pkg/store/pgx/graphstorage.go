@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	graphquery "github.com/OFFIS-RIT/kiwi/backend/pkg/query"
 	pgxv5 "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -23,7 +24,16 @@ type GraphDBStorage struct {
 	conn     pgxIConn
 	aiClient ai.GraphAIClient
 	msgs     []string
+	trace    graphquery.Tracer
 	dbLock   sync.Mutex
+}
+
+type GraphDBStorageOption func(*GraphDBStorage)
+
+func WithTracer(trace graphquery.Tracer) GraphDBStorageOption {
+	return func(s *GraphDBStorage) {
+		s.trace = trace
+	}
 }
 
 // NewGraphDBStorageWithConnection creates a new GraphDBStorage using an existing
@@ -34,10 +44,19 @@ func NewGraphDBStorageWithConnection(
 	conn pgxIConn,
 	aiClient ai.GraphAIClient,
 	msgs []string,
+	opts ...GraphDBStorageOption,
 ) (*GraphDBStorage, error) {
-	return &GraphDBStorage{
+	s := &GraphDBStorage{
 		conn:     conn,
 		aiClient: aiClient,
+		msgs:     msgs,
 		dbLock:   sync.Mutex{},
-	}, nil
+	}
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		opt(s)
+	}
+	return s, nil
 }
