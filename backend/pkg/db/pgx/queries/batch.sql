@@ -69,6 +69,16 @@ WHERE correlation_id = $1 AND batch_id = $2 AND status = 'indexing';
 SELECT * FROM project_files
 WHERE id = ANY($1::bigint[]);
 
+-- name: GetLatestBatchStatusForFiles :many
+SELECT DISTINCT ON (f.file_id)
+    f.file_id::bigint AS file_id,
+    pbs.status
+FROM project_batch_status AS pbs
+JOIN LATERAL unnest(pbs.file_ids) AS f(file_id) ON true
+WHERE pbs.project_id = sqlc.arg(project_id)
+  AND f.file_id = ANY(sqlc.arg(file_ids)::bigint[])
+ORDER BY f.file_id, pbs.created_at DESC, pbs.id DESC;
+
 -- name: GetLatestCorrelationForProject :one
 SELECT correlation_id FROM project_batch_status
 WHERE project_id = $1

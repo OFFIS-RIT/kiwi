@@ -367,7 +367,6 @@ func AddFilesToProjectHandler(c echo.Context) error {
 		keys[key] = file.Filename
 	}
 
-
 	projectFiles := make([]*pgdb.ProjectFile, 0)
 	for key, name := range keys {
 		projectFile, err := q.AddFileToProject(ctx, pgdb.AddFileToProjectParams{

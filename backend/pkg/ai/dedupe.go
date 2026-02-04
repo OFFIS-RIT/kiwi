@@ -69,7 +69,7 @@ func CallDedupeAI(
 	var res DuplicatesResponse
 	err := gUtil.RetryErrWithContext(ctx, maxRetries, func(ctx context.Context) error {
 		return aiClient.GenerateCompletionWithFormat(
-			ctx, "dedupe_entities", "Deduplicate similar entities.", prompt, &res, opts...
+			ctx, "dedupe_entities", "Deduplicate similar entities.", prompt, &res, opts...,
 		)
 	})
 	if err != nil {

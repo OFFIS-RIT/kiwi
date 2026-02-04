@@ -58,6 +58,7 @@ type Querier interface {
 	GetGroupByProjectId(ctx context.Context, id int64) (Group, error)
 	GetGroupUsers(ctx context.Context, groupID int64) ([]GroupUser, error)
 	GetGroupsForUser(ctx context.Context, userID int64) ([]GetGroupsForUserRow, error)
+	GetLatestBatchStatusForFiles(ctx context.Context, arg GetLatestBatchStatusForFilesParams) ([]GetLatestBatchStatusForFilesRow, error)
 	GetLatestCorrelationForProject(ctx context.Context, projectID int64) (string, error)
 	GetPendingBatchesForProject(ctx context.Context, projectID int64) ([]ProjectBatchStatus, error)
 	GetProjectEntities(ctx context.Context, projectID int64) ([]GetProjectEntitiesRow, error)

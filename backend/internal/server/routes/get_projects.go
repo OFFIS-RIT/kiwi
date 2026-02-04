@@ -180,7 +180,55 @@ func GetProjectFilesHandler(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
 	}
 
-	return c.JSON(http.StatusOK, projectFiles)
+	fileIDs := make([]int64, 0, len(projectFiles))
+	for _, f := range projectFiles {
+		fileIDs = append(fileIDs, f.ID)
+	}
+
+	batchStatusByFileID := make(map[int64]string, len(fileIDs))
+	if len(fileIDs) > 0 {
+		rows, err := q.GetLatestBatchStatusForFiles(ctx, pgdb.GetLatestBatchStatusForFilesParams{
+			ProjectID: params.ProjectID,
+			FileIds:   fileIDs,
+		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
+		}
+		for _, r := range rows {
+			batchStatusByFileID[r.FileID] = r.Status
+		}
+	}
+
+	type projectFileResponse struct {
+		pgdb.ProjectFile
+		Status string `json:"status"`
+	}
+
+	resp := make([]projectFileResponse, 0, len(projectFiles))
+	for _, f := range projectFiles {
+		batchStatus, ok := batchStatusByFileID[f.ID]
+		resp = append(resp, projectFileResponse{
+			ProjectFile: f,
+			Status:      fileProcessingStatusFromBatchStatus(batchStatus, ok),
+		})
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func fileProcessingStatusFromBatchStatus(batchStatus string, hasBatchStatus bool) string {
+	if !hasBatchStatus {
+		return "processed"
+	}
+
+	switch batchStatus {
+	case "completed":
+		return "processed"
+	case "failed":
+		return "failed"
+	default:
+		return "processing"
+	}
 }
 
 func GetTextUnitHandler(c echo.Context) error {
