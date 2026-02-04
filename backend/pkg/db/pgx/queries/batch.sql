@@ -76,6 +76,7 @@ SELECT DISTINCT ON (f.file_id)
 FROM project_batch_status AS pbs
 JOIN LATERAL unnest(pbs.file_ids) AS f(file_id) ON true
 WHERE pbs.project_id = sqlc.arg(project_id)
+  AND pbs.file_ids && sqlc.arg(file_ids)::bigint[]
   AND f.file_id = ANY(sqlc.arg(file_ids)::bigint[])
 ORDER BY f.file_id, pbs.created_at DESC, pbs.id DESC;
 

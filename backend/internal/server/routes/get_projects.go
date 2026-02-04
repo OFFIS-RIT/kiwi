@@ -218,7 +218,7 @@ func GetProjectFilesHandler(c echo.Context) error {
 
 func fileProcessingStatusFromBatchStatus(batchStatus string, hasBatchStatus bool) string {
 	if !hasBatchStatus {
-		return "processed"
+		return "no_status"
 	}
 
 	switch batchStatus {

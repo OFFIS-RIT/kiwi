@@ -12,10 +12,10 @@ func Test_fileProcessingStatusFromBatchStatus(t *testing.T) {
 		want           string
 	}{
 		{
-			name:           "no_batch_status_defaults_to_processed",
+			name:           "no_batch_status_returns_no_status",
 			batchStatus:    "",
 			hasBatchStatus: false,
-			want:           "processed",
+			want:           "no_status",
 		},
 		{
 			name:           "completed_maps_to_processed",
