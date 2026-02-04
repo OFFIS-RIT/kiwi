@@ -4,30 +4,25 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-
-	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
-	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/pgx"
-
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
+
+	_ "github.com/go-playground/validator"
+	"github.com/labstack/echo/v4"
+	gonanoid "github.com/matoous/go-nanoid/v2"
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
-
-	"slices"
-
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	graphquery "github.com/OFFIS-RIT/kiwi/backend/pkg/query"
 	bqc "github.com/OFFIS-RIT/kiwi/backend/pkg/query/pgx"
-
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
-
-	_ "github.com/go-playground/validator"
-	"github.com/labstack/echo/v4"
-	gonanoid "github.com/matoous/go-nanoid/v2"
+	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/pgx"
 )
 
 // CreateProjectHandler creates a new project from multipart/form-data
