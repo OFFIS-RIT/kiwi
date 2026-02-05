@@ -35,7 +35,7 @@ function parseCount(value?: string): number {
  * "Completed" is never shown. If only completed files remain, falls back to "saving".
  */
 function determineProcessStep(
-  progress?: ApiBatchStepProgress,
+  progress?: ApiBatchStepProgress
 ): ProcessStep | undefined {
   if (!progress) return undefined;
 
@@ -128,8 +128,8 @@ export function useGroupsWithProjects() {
             (project) =>
               project.processPercentage !== undefined &&
               project.processPercentage >= 0 &&
-              project.processPercentage < 100,
-          ),
+              project.processPercentage < 100
+          )
         ) ?? false;
 
       return hasActiveProcessing ? 30000 : false;
@@ -143,7 +143,7 @@ export function useGroupsWithProjects() {
 
       const transformedGroups: Group[] = apiGroups.map((apiGroup) => {
         const groupWithProjects = apiGroupsWithProjects.find(
-          (g) => g.group_id === apiGroup.group_id,
+          (g) => g.group_id === apiGroup.group_id
         );
 
         const projects =
@@ -188,8 +188,8 @@ export function useGroupsWithProjectsSuspense() {
             (project) =>
               project.processPercentage !== undefined &&
               project.processPercentage >= 0 &&
-              project.processPercentage < 100,
-          ),
+              project.processPercentage < 100
+          )
         ) ?? false;
 
       return hasActiveProcessing ? 30000 : false;
@@ -203,7 +203,7 @@ export function useGroupsWithProjectsSuspense() {
 
       const transformedGroups: Group[] = apiGroups.map((apiGroup) => {
         const groupWithProjects = apiGroupsWithProjects.find(
-          (g) => g.group_id === apiGroup.group_id,
+          (g) => g.group_id === apiGroup.group_id
         );
 
         const projects =
@@ -279,15 +279,15 @@ export function useUpdateGroup() {
       });
 
       const previousGroups = queryClient.getQueryData<Group[]>(
-        queryKeys.groupsWithProjects,
+        queryKeys.groupsWithProjects
       );
 
       queryClient.setQueryData<Group[]>(
         queryKeys.groupsWithProjects,
         (old) =>
           old?.map((group) =>
-            group.id === groupId ? { ...group, name } : group,
-          ) || [],
+            group.id === groupId ? { ...group, name } : group
+          ) || []
       );
 
       return { previousGroups };
@@ -296,7 +296,7 @@ export function useUpdateGroup() {
       if (context?.previousGroups) {
         queryClient.setQueryData(
           queryKeys.groupsWithProjects,
-          context.previousGroups,
+          context.previousGroups
         );
       }
     },
@@ -327,12 +327,12 @@ export function useDeleteGroup() {
       });
 
       const previousGroups = queryClient.getQueryData<Group[]>(
-        queryKeys.groupsWithProjects,
+        queryKeys.groupsWithProjects
       );
 
       queryClient.setQueryData<Group[]>(
         queryKeys.groupsWithProjects,
-        (old) => old?.filter((group) => group.id !== groupId) || [],
+        (old) => old?.filter((group) => group.id !== groupId) || []
       );
 
       return { previousGroups };
@@ -341,7 +341,7 @@ export function useDeleteGroup() {
       if (context?.previousGroups) {
         queryClient.setQueryData(
           queryKeys.groupsWithProjects,
-          context.previousGroups,
+          context.previousGroups
         );
       }
     },
@@ -405,7 +405,7 @@ export function useUpdateProject() {
       });
 
       const previousGroups = queryClient.getQueryData<Group[]>(
-        queryKeys.groupsWithProjects,
+        queryKeys.groupsWithProjects
       );
 
       queryClient.setQueryData<Group[]>(
@@ -414,9 +414,9 @@ export function useUpdateProject() {
           old?.map((group) => ({
             ...group,
             projects: group.projects.map((project) =>
-              project.id === projectId ? { ...project, name } : project,
+              project.id === projectId ? { ...project, name } : project
             ),
-          })) || [],
+          })) || []
       );
 
       return { previousGroups };
@@ -425,7 +425,7 @@ export function useUpdateProject() {
       if (context?.previousGroups) {
         queryClient.setQueryData(
           queryKeys.groupsWithProjects,
-          context.previousGroups,
+          context.previousGroups
         );
       }
     },
@@ -455,7 +455,7 @@ export function useDeleteProject() {
       });
 
       const previousGroups = queryClient.getQueryData<Group[]>(
-        queryKeys.groupsWithProjects,
+        queryKeys.groupsWithProjects
       );
 
       queryClient.setQueryData<Group[]>(
@@ -464,9 +464,9 @@ export function useDeleteProject() {
           old?.map((group) => ({
             ...group,
             projects: group.projects.filter(
-              (project) => project.id !== projectId,
+              (project) => project.id !== projectId
             ),
-          })) || [],
+          })) || []
       );
 
       return { previousGroups };
@@ -475,7 +475,7 @@ export function useDeleteProject() {
       if (context?.previousGroups) {
         queryClient.setQueryData(
           queryKeys.groupsWithProjects,
-          context.previousGroups,
+          context.previousGroups
         );
       }
     },
@@ -560,12 +560,12 @@ export function useDeleteProjectFiles() {
       });
 
       const previousFiles = queryClient.getQueryData<ApiProjectFile[]>(
-        queryKeys.projectFiles(projectId),
+        queryKeys.projectFiles(projectId)
       );
 
       queryClient.setQueryData<ApiProjectFile[]>(
         queryKeys.projectFiles(projectId),
-        (old) => old?.filter((file) => !fileKeys.includes(file.file_key)) || [],
+        (old) => old?.filter((file) => !fileKeys.includes(file.file_key)) || []
       );
 
       return { previousFiles, projectId };
@@ -574,7 +574,7 @@ export function useDeleteProjectFiles() {
       if (context?.previousFiles && context.projectId) {
         queryClient.setQueryData(
           queryKeys.projectFiles(context.projectId),
-          context.previousFiles,
+          context.previousFiles
         );
       }
     },

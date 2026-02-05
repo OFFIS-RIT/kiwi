@@ -8,6 +8,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCountdown } from "@/hooks/use-countdown";
+import { formatDuration } from "@/lib/utils";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { Project } from "@/types";
 import { BookOpen, Calendar, Loader2 } from "lucide-react";
@@ -19,22 +21,6 @@ type ProjectCardProps = {
   onEdit: () => void;
 };
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return "< 1s";
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  if (minutes < 60) {
-    return remainingSeconds > 0
-      ? `${minutes}m ${remainingSeconds}s`
-      : `${minutes}m`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
-}
-
 export function ProjectCard({
   project,
   groupName,
@@ -45,6 +31,7 @@ export function ProjectCard({
   const lastUpdated = project.lastUpdated;
   const sourcesCount = project.sourcesCount ?? 0;
   const isProcessing = project.processPercentage !== undefined;
+  const timeRemaining = useCountdown(project.processTimeRemaining);
 
   return (
     <CardTemplate
@@ -107,14 +94,13 @@ export function ProjectCard({
             </span>
           </div>
           <Progress value={project.processPercentage} className="h-2" />
-          {project.processTimeRemaining !== undefined &&
-            project.processTimeRemaining > 0 && (
-              <div className="text-xs text-muted-foreground text-right">
-                {t("process.remaining", {
-                  time: formatDuration(project.processTimeRemaining),
-                })}
-              </div>
-            )}
+          {timeRemaining !== undefined && timeRemaining > 0 && (
+            <div className="text-xs text-muted-foreground text-right">
+              {t("process.remaining", {
+                time: formatDuration(timeRemaining),
+              })}
+            </div>
+          )}
         </div>
       ) : (
         <>
