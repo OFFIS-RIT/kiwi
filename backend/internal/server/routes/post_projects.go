@@ -554,7 +554,7 @@ func QueryProjectHandler(c echo.Context) error {
 		opts = append(opts, bqc.WithModel(data.Model))
 	}
 	if data.Think {
-		opts = append(opts, bqc.WithThinking("high"))
+		opts = append(opts, bqc.WithThinking("medium"))
 	}
 
 	if util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false) {
@@ -763,7 +763,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		opts = append(opts, bqc.WithModel(data.Model))
 	}
 	if data.Think {
-		opts = append(opts, bqc.WithThinking("high"))
+		opts = append(opts, bqc.WithThinking("medium"))
 	}
 
 	if util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false) {
