@@ -41,9 +41,7 @@ export function FileStatusIcon({ status, className }: FileStatusIconProps) {
     },
     processed: {
       icon: (
-        <CheckCircle2
-          className={cn("h-3.5 w-3.5 text-green-500", className)}
-        />
+        <CheckCircle2 className={cn("h-3.5 w-3.5 text-green-500", className)} />
       ),
       tooltipKey: "file.status.processed",
     },

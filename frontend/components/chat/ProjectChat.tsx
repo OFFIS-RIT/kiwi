@@ -685,7 +685,7 @@ export function ProjectChat({
                   }`}
                 >
                   <div
-                    className={`flex max-w-[80%] items-start gap-3 ${
+                    className={`flex max-w-[80%] items-start gap-3 group ${
                       message.role === "user" ? "flex-row-reverse" : ""
                     }`}
                   >
@@ -736,69 +736,64 @@ export function ProjectChat({
                             </span>
                           </>
                         )}
-                        {message.role === "assistant" && (
+                        <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          •
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() =>
+                            handleCopyMessage(message.id, message.content)
+                          }
+                          aria-label={
+                            copiedMessageId === message.id
+                              ? t("copied.message")
+                              : t("copy.message")
+                          }
+                        >
+                          {copiedMessageId === message.id ? (
+                            <>
+                              <Check className="mr-1 h-3 w-3" />
+                              {t("copied.message")}
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="mr-1 h-3 w-3" />
+                              {t("copy.message")}
+                            </>
+                          )}
+                        </Button>
+                        {ttsSupported && (
                           <>
-                            <span>•</span>
+                            <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+                              •
+                            </span>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                              className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                               onClick={() =>
-                                handleCopyMessage(message.id, message.content)
+                                handlePlayMessage(message.id, message.content)
                               }
-                              disabled={isAssistantTyping}
                               aria-label={
-                                copiedMessageId === message.id
-                                  ? t("copied.message")
-                                  : t("copy.message")
+                                speakingMessageId === message.id
+                                  ? t("stop.speaking")
+                                  : t("play.message")
                               }
                             >
-                              {copiedMessageId === message.id ? (
+                              {speakingMessageId === message.id ? (
                                 <>
-                                  <Check className="mr-1 h-3 w-3" />
-                                  {t("copied.message")}
+                                  <VolumeX className="mr-1 h-3 w-3" />
+                                  {t("stop.speaking")}
                                 </>
                               ) : (
                                 <>
-                                  <Copy className="mr-1 h-3 w-3" />
-                                  {t("copy.message")}
+                                  <Volume2 className="mr-1 h-3 w-3" />
+                                  {t("play.message")}
                                 </>
                               )}
                             </Button>
-                            {ttsSupported && (
-                              <>
-                                <span>•</span>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground"
-                                  onClick={() =>
-                                    handlePlayMessage(
-                                      message.id,
-                                      message.content
-                                    )
-                                  }
-                                  disabled={isAssistantTyping}
-                                  aria-label={
-                                    speakingMessageId === message.id
-                                      ? t("stop.speaking")
-                                      : t("play.message")
-                                  }
-                                >
-                                  {speakingMessageId === message.id ? (
-                                    <>
-                                      <VolumeX className="mr-1 h-3 w-3" />
-                                      {t("stop.speaking")}
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Volume2 className="mr-1 h-3 w-3" />
-                                      {t("play.message")}
-                                    </>
-                                  )}
-                                </Button>
-                              </>
-                            )}
                           </>
                         )}
                       </div>
