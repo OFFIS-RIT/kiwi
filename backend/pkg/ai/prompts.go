@@ -787,6 +787,8 @@ this full process is complete and you are sure you explored all possibilities.
 const ToolQueryClarificationPrompt = `
 # Clarifying Questions (Enabled)
 Clarifying questions are enabled for this conversation.
+This is a special case, in which we skip "the answer that you have no information" and gather clarifying questions first,
+but only when the user's request is ambiguous or underspecified.
 
 Before calling ANY tool, decide whether the user's request is ambiguous or
 underspecified in a way that would force you to guess (e.g., missing entity,
