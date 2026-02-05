@@ -89,11 +89,11 @@ const translations = {
     "add.user": "Add User",
     "delete.project.confirm": "Delete Project?",
     "delete.project.description":
-      "Are you sure you want to delete the project \"{projectName}\"? This action cannot be undone.",
+      'Are you sure you want to delete the project "{projectName}"? This action cannot be undone.',
     "delete.project.error": "An error occurred while deleting the project.",
     "delete.group.confirm": "Delete Group?",
     "delete.group.description":
-      "Are you sure you want to delete the group \"{groupName}\"? This will also delete all projects within the group. This action cannot be undone.",
+      'Are you sure you want to delete the group "{groupName}"? This will also delete all projects within the group. This action cannot be undone.',
     "delete.group.error": "An error occurred while deleting the group.",
     "reset.chat": "Reset Chat",
     "reset.chat.confirm": "Reset Chat History?",
@@ -185,6 +185,13 @@ const translations = {
     "files.marked.deletion.warning":
       "Files marked for deletion will be removed upon saving.",
 
+    // Edit Project Errors
+    "error.load.project.files.unknown": "Unknown error while loading files",
+    "error.delete.files": "Error deleting files",
+    "error.update.project.name": "Error updating the project name",
+    "error.add.files": "Error adding files",
+    "error.unexpected": "An unexpected error occurred.",
+
     // Edit Group
     "edit.group": "Edit Group",
     "edit.group.description": "View group information and manage users",
@@ -195,6 +202,12 @@ const translations = {
     "user.id.placeholder": "User ID...",
     "error.invalid.userid": "Please enter a valid user ID.",
     "error.duplicate.userid": "This user ID already exists in the group.",
+
+    // File Status
+    "file.status.processing": "Processing...",
+    "file.status.processed": "Processed successfully",
+    "file.status.failed": "Processing failed",
+    "file.status.no_status": "Status unknown",
   },
   de: {
     // Navigation
@@ -268,12 +281,12 @@ const translations = {
     "add.user": "Benutzer hinzufügen",
     "delete.project.confirm": "Projekt löschen?",
     "delete.project.description":
-      "Möchtest du das Projekt \"{projectName}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+      'Möchtest du das Projekt "{projectName}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
     "delete.project.error":
       "Beim Löschen des Projekts ist ein Fehler aufgetreten.",
     "delete.group.confirm": "Gruppe löschen?",
     "delete.group.description":
-      "Möchtest du die Gruppe \"{groupName}\" wirklich löschen? Dadurch werden auch alle Projekte in der Gruppe gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
+      'Möchtest du die Gruppe "{groupName}" wirklich löschen? Dadurch werden auch alle Projekte in der Gruppe gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.',
     "delete.group.error": "Beim Löschen der Gruppe ist ein Fehler aufgetreten.",
     "reset.chat": "Chat zurücksetzen",
     "reset.chat.confirm": "Chat-Verlauf zurücksetzen?",
@@ -367,6 +380,14 @@ const translations = {
     "files.marked.deletion.warning":
       "Zum Löschen markierte Dateien werden beim Speichern entfernt.",
 
+    // Edit Project Errors
+    "error.load.project.files.unknown":
+      "Unbekannter Fehler beim Laden der Dateien",
+    "error.delete.files": "Fehler beim Löschen von Dateien",
+    "error.update.project.name": "Fehler beim Aktualisieren des Namens",
+    "error.add.files": "Fehler beim Hinzufügen der Dateien",
+    "error.unexpected": "Ein unerwarteter Fehler ist aufgetreten.",
+
     // Edit Group
     "edit.group": "Gruppe bearbeiten",
     "edit.group.description":
@@ -379,11 +400,17 @@ const translations = {
     "error.invalid.userid": "Bitte eine gültige Benutzer-ID eingeben.",
     "error.duplicate.userid":
       "Diese Benutzer-ID existiert bereits in der Gruppe.",
+
+    // File Status
+    "file.status.processing": "Wird verarbeitet...",
+    "file.status.processed": "Erfolgreich verarbeitet",
+    "file.status.failed": "Verarbeitung fehlgeschlagen",
+    "file.status.no_status": "Status unbekannt",
   },
 };
 
 const LanguageContext = createContext<LanguageContextType | undefined>(
-  undefined
+  undefined,
 );
 
 /**

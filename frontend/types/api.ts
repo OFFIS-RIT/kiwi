@@ -64,6 +64,11 @@ export type ApiGroupWithProjects = {
 };
 
 /**
+ * Processing status for individual files in a project.
+ */
+export type FileStatus = "processing" | "processed" | "failed" | "no_status";
+
+/**
  * File metadata for files uploaded to a project.
  */
 export type ApiProjectFile = {
@@ -71,6 +76,7 @@ export type ApiProjectFile = {
   project_id: number;
   name: string;
   file_key: string;
+  status?: FileStatus;
   created_at: {
     Time: string;
     Valid: boolean;
