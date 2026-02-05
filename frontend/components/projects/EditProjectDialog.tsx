@@ -68,7 +68,7 @@ export function EditProjectDialog({
       const files = await fetchProjectFiles(project.id);
       setProjectFiles(files);
     } catch (err) {
-      console.error("Fehler beim Laden der Projektdateien:", err);
+      console.error("Error loading project files:", err);
       setError(
         err instanceof Error
           ? err.message
@@ -129,7 +129,7 @@ export function EditProjectDialog({
           setFilesToDelete([]);
         } catch (err) {
           overallSuccess = false;
-          console.error("Fehler beim Löschen der Dateien:", err);
+          console.error("Error deleting files:", err);
           setError(
             (prevError) =>
               (prevError ? `${prevError}\n` : "") +
@@ -143,7 +143,7 @@ export function EditProjectDialog({
           await updateProject(project.id, editedName);
         } catch (err) {
           overallSuccess = false;
-          console.error("Fehler beim Aktualisieren des Projektnamens:", err);
+          console.error("Error updating project name:", err);
           setError(
             (prevError) =>
               (prevError ? `${prevError}\n` : "") +
@@ -183,7 +183,7 @@ export function EditProjectDialog({
           setNewFiles([]);
         } catch (err) {
           overallSuccess = false;
-          console.error("Fehler beim Hinzufügen der Dateien:", err);
+          console.error("Error adding files:", err);
           setError(
             (prevError) =>
               (prevError ? `${prevError}\n` : "") +
@@ -204,7 +204,7 @@ export function EditProjectDialog({
         onOpenChange(false);
       }
     } catch (err) {
-      console.error("Unerwarteter Fehler im Submit-Prozess:", err);
+      console.error("Unexpected error in submit process:", err);
       if (!error) {
         setError(err instanceof Error ? err.message : t("error.unexpected"));
       }

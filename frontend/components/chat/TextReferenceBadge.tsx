@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { fetchProjectFiles, fetchTextUnit } from "@/lib/api/projects";
+import { useLanguage } from "@/providers/LanguageProvider";
 import type { ApiTextUnit } from "@/types";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
 import React, { useState } from "react";
@@ -27,6 +28,7 @@ export function TextReferenceBadge({
   index,
   projectId,
 }: TextReferenceBadgeProps) {
+  const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [textReference, setTextReference] = useState<ApiTextUnit | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export function TextReferenceBadge({
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unbekannter Fehler");
+      setError(err instanceof Error ? err.message : t("error.unknown"));
     } finally {
       setIsLoading(false);
     }
@@ -80,7 +82,7 @@ export function TextReferenceBadge({
         <Badge
           variant="outline"
           className="mx-0.5 inline-flex cursor-pointer items-center border-2 text-xs transition-colors hover:border-primary/40 hover:bg-primary/10"
-          title={`Referenz ${index + 1}: ${referenceId}`}
+          title={`${t("text.reference")} ${index + 1}: ${referenceId}`}
         >
           {index + 1}
         </Badge>
@@ -90,9 +92,11 @@ export function TextReferenceBadge({
           <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <ExternalLink className="h-4 w-4" />
-              Text-Referenz #{index + 1}
+              {t("text.reference")} #{index + 1}
             </DialogTitle>
-            <DialogDescription>Referenz-ID: {referenceId}</DialogDescription>
+            <DialogDescription>
+              {t("reference.id")}: {referenceId}
+            </DialogDescription>
           </DialogHeader>
 
           <ScrollArea className="flex-1 pr-1">
@@ -100,14 +104,14 @@ export function TextReferenceBadge({
               {isLoading && (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin" />
-                  <span className="ml-2">Lade Textinhalt...</span>
+                  <span className="ml-2">{t("loading.text.content")}</span>
                 </div>
               )}
 
               {error && (
                 <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
                   <p className="font-medium text-destructive">
-                    Fehler beim Laden:
+                    {t("error.loading")}
                   </p>
                   <p className="text-sm text-destructive/80">{error}</p>
                 </div>
@@ -116,7 +120,7 @@ export function TextReferenceBadge({
               {textReference && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h4 className="font-medium">Textinhalt:</h4>
+                    <h4 className="font-medium">{t("text.content")}</h4>
                     <Button
                       variant="outline"
                       size="sm"
@@ -124,7 +128,7 @@ export function TextReferenceBadge({
                       className="flex items-center gap-2"
                     >
                       <Copy className="h-3 w-3" />
-                      Kopieren
+                      {t("copy")}
                     </Button>
                   </div>
 
@@ -136,13 +140,13 @@ export function TextReferenceBadge({
 
                   <div className="space-y-1 text-xs text-muted-foreground">
                     <p>
-                      Erstellt:{" "}
+                      {t("created")}{" "}
                       {new Date(textReference.created_at).toLocaleString()}
                     </p>
                     <p>
                       {fileName
-                        ? `Datei: ${fileName}`
-                        : `Datei-ID: ${textReference.project_file_id}`}
+                        ? `${t("file")}: ${fileName}`
+                        : `${t("file.id")}: ${textReference.project_file_id}`}
                     </p>
                   </div>
                 </div>

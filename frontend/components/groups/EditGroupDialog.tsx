@@ -67,15 +67,11 @@ export function EditGroupDialog({
         users.map((u) => ({ user_id: u.user_id, role: u.role }))
       );
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unbekannter Fehler beim Laden der Benutzer"
-      );
+      setError(err instanceof Error ? err.message : t("error.loading.users"));
     } finally {
       setIsLoading(false);
     }
-  }, [group]);
+  }, [group, t]);
 
   useEffect(() => {
     if (group && open) {
@@ -128,9 +124,7 @@ export function EditGroupDialog({
       await refreshData();
       onOpenChange(false);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unbekannter Fehler beim Speichern"
-      );
+      setError(err instanceof Error ? err.message : t("error.saving"));
     } finally {
       setIsSubmitting(false);
     }

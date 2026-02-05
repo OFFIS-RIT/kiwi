@@ -41,7 +41,7 @@ export function CreateGroupDialog({
       setIsSubmitting(false);
       onOpenChange(false);
     } catch (error) {
-      console.error("Fehler beim Erstellen der Gruppe:", error);
+      console.error("Error creating group:", error);
       setIsSubmitting(false);
     }
   };

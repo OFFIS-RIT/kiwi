@@ -98,7 +98,7 @@ export function MessageContent({
       const downloadUrl = await downloadProjectFile(projectId, fileKey);
       window.open(downloadUrl, "_blank");
     } catch (error) {
-      console.error("Fehler beim Öffnen der Datei:", error);
+      console.error("Error opening file:", error);
     }
   };
 
