@@ -66,7 +66,7 @@ db-dump:
 		docker run --rm \
 			-v $(ROOT_DIR).backup:/backups \
 			--network kiwi_internal \
-			postgres:17 \
+			postgres:18 \
 			pg_dump "$${DATABASE_URL}" -Fc -f "/backups/$$DUMP_FILE"; \
 		echo "Backup complete: backups/$$DUMP_FILE"
 
@@ -92,7 +92,7 @@ db-restore:
 		docker run --rm \
 			-v $(ROOT_DIR).backup:/backups \
 			--network kiwi_internal \
-			postgres:17 \
+			postgres:18 \
 			pg_restore --clean --if-exists -d "$${DATABASE_URL}" "/backups/$$(basename $$DUMP_PATH)"; \
 		echo "Restore complete"
 

@@ -1,4 +1,4 @@
-ARG PG_MAJOR=17
+ARG PG_MAJOR=18
 
 FROM postgres:${PG_MAJOR}-bookworm AS builder
 ARG PG_MAJOR
@@ -22,7 +22,7 @@ RUN set -eux; \
         postgresql-server-dev-${PG_MAJOR}; \
     # Install pgvector
     if ! apt-get install -y --no-install-recommends postgresql-${PG_MAJOR}-pgvector; then \
-        git clone --depth 1 https://github.com/pgvector/pgvector.git /tmp/pgvector; \
+        git clone --depth 1 --branch v0.8.1 https://github.com/pgvector/pgvector.git /tmp/pgvector; \
         make -C /tmp/pgvector; \
         make -C /tmp/pgvector install; \
         rm -rf /tmp/pgvector; \

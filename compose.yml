@@ -147,7 +147,7 @@ services:
       POSTGRES_PASSWORD: kiwi
       POSTGRES_DB: kiwi
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kiwi -d kiwi"]
       interval: 30s
