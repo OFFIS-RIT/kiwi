@@ -117,6 +117,8 @@ const translations = {
     "step.get_entity_details": "Loading entity details...",
     "step.get_entity_types": "Getting entity types...",
     "step.search_entities_by_type": "Searching entities by type...",
+    "files.considered": "Files considered: {count}",
+    "files.used": "Files used: {count}",
 
     // Thinking Dropdown
     "thinking.collapsed": "Thought for {seconds} seconds",
@@ -334,6 +336,8 @@ const translations = {
     "step.get_entity_details": "Lade Entitätsdetails...",
     "step.get_entity_types": "Lade Entitätstypen...",
     "step.search_entities_by_type": "Suche Entitäten nach Typ...",
+    "files.considered": "Dateien betrachtet: {count}",
+    "files.used": "Dateien verwendet: {count}",
 
     // Thinking Dropdown
     "thinking.collapsed": "Gedacht für {seconds} Sekunden",

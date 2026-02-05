@@ -151,6 +151,8 @@ export type ApiQueryResponse = {
     duration_ms: number;
     tokens_per_second: number;
   };
+  considered_file_count?: number;
+  used_file_count?: number;
 };
 
 /**
