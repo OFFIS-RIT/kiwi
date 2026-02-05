@@ -169,7 +169,9 @@ export async function queryProjectStream(
     data: SourceFile[],
     metrics?: StreamMetrics,
     step?: QueryStep,
-    reasoning?: string
+    reasoning?: string,
+    consideredFileCount?: number,
+    usedFileCount?: number
   ) => void,
   mode?: QueryMode,
   model?: string,
@@ -195,7 +197,9 @@ export async function queryProjectStream(
           response.data,
           response.metrics,
           response.step,
-          response.reasoning
+          response.reasoning,
+          response.considered_file_count,
+          response.used_file_count
         );
       } catch (parseError) {
         console.error("Failed to parse stream response:", line, parseError);

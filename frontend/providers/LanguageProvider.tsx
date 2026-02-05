@@ -89,11 +89,11 @@ const translations = {
     "add.user": "Add User",
     "delete.project.confirm": "Delete Project?",
     "delete.project.description":
-      "Are you sure you want to delete the project \"{projectName}\"? This action cannot be undone.",
+      'Are you sure you want to delete the project "{projectName}"? This action cannot be undone.',
     "delete.project.error": "An error occurred while deleting the project.",
     "delete.group.confirm": "Delete Group?",
     "delete.group.description":
-      "Are you sure you want to delete the group \"{groupName}\"? This will also delete all projects within the group. This action cannot be undone.",
+      'Are you sure you want to delete the group "{groupName}"? This will also delete all projects within the group. This action cannot be undone.',
     "delete.group.error": "An error occurred while deleting the group.",
     "reset.chat": "Reset Chat",
     "reset.chat.confirm": "Reset Chat History?",
@@ -117,6 +117,8 @@ const translations = {
     "step.get_entity_details": "Loading entity details...",
     "step.get_entity_types": "Getting entity types...",
     "step.search_entities_by_type": "Searching entities by type...",
+    "files.considered": "Files considered: {count}",
+    "files.used": "Files used: {count}",
 
     // Thinking Dropdown
     "thinking.collapsed": "Thought for {seconds} seconds",
@@ -268,12 +270,12 @@ const translations = {
     "add.user": "Benutzer hinzufügen",
     "delete.project.confirm": "Projekt löschen?",
     "delete.project.description":
-      "Möchtest du das Projekt \"{projectName}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+      'Möchtest du das Projekt "{projectName}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
     "delete.project.error":
       "Beim Löschen des Projekts ist ein Fehler aufgetreten.",
     "delete.group.confirm": "Gruppe löschen?",
     "delete.group.description":
-      "Möchtest du die Gruppe \"{groupName}\" wirklich löschen? Dadurch werden auch alle Projekte in der Gruppe gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
+      'Möchtest du die Gruppe "{groupName}" wirklich löschen? Dadurch werden auch alle Projekte in der Gruppe gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.',
     "delete.group.error": "Beim Löschen der Gruppe ist ein Fehler aufgetreten.",
     "reset.chat": "Chat zurücksetzen",
     "reset.chat.confirm": "Chat-Verlauf zurücksetzen?",
@@ -297,6 +299,8 @@ const translations = {
     "step.get_entity_details": "Lade Entitätsdetails...",
     "step.get_entity_types": "Lade Entitätstypen...",
     "step.search_entities_by_type": "Suche Entitäten nach Typ...",
+    "files.considered": "Dateien betrachtet: {count}",
+    "files.used": "Dateien verwendet: {count}",
 
     // Thinking Dropdown
     "thinking.collapsed": "Gedacht für {seconds} Sekunden",

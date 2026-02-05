@@ -71,6 +71,8 @@ type Message = {
     duration_ms: number;
     tokens_per_second: number;
   };
+  consideredFileCount?: number;
+  usedFileCount?: number;
 };
 
 interface StoredMessage extends Omit<Message, "timestamp"> {
@@ -333,7 +335,9 @@ export function ProjectChat({
           data: { id: string; name: string; key: string }[],
           metrics,
           step,
-          reasoning
+          reasoning,
+          consideredFileCount,
+          usedFileCount
         ) => {
           if (step) {
             setCurrentStep(step);
@@ -363,6 +367,8 @@ export function ProjectChat({
               reasoning: accumulatedReasoning || undefined,
               role: "assistant",
               timestamp: new Date(),
+              consideredFileCount,
+              usedFileCount,
             };
             setMessages((prev) => [...prev, initialAssistantMessage]);
             setIsAssistantTyping(false);
@@ -379,6 +385,10 @@ export function ProjectChat({
                       content: streamedMessage,
                       reasoning: accumulatedReasoning || msg.reasoning,
                       ...(metrics && { metrics }),
+                      ...(consideredFileCount !== undefined && {
+                        consideredFileCount,
+                      }),
+                      ...(usedFileCount !== undefined && { usedFileCount }),
                     }
                   : msg
               )
@@ -736,6 +746,33 @@ export function ProjectChat({
                             </span>
                           </>
                         )}
+                        {message.role === "assistant" &&
+                          (message.consideredFileCount !== undefined ||
+                            message.usedFileCount !== undefined) && (
+                            <>
+                              {message.consideredFileCount !== undefined && (
+                                <>
+                                  <span>•</span>
+                                  <span>
+                                    {t("files.considered", {
+                                      count:
+                                        message.consideredFileCount.toString(),
+                                    })}
+                                  </span>
+                                </>
+                              )}
+                              {message.usedFileCount !== undefined && (
+                                <>
+                                  <span>•</span>
+                                  <span>
+                                    {t("files.used", {
+                                      count: message.usedFileCount.toString(),
+                                    })}
+                                  </span>
+                                </>
+                              )}
+                            </>
+                          )}
                         {message.role === "assistant" && (
                           <>
                             <span>•</span>
