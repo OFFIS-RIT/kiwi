@@ -26,8 +26,10 @@ export function useCountdown(
   }, [serverTimeRemaining]);
 
   // Decrement countdown every second
+  // Depend on serverTimeRemaining (stable between server updates) instead of countdown
+  // to avoid recreating the interval on every tick
   useEffect(() => {
-    if (countdown === undefined || countdown <= 0) {
+    if (serverTimeRemaining === undefined) {
       return;
     }
 
@@ -41,7 +43,7 @@ export function useCountdown(
     }, 1000);
 
     return () => clearInterval(intervalId);
-  }, [countdown]);
+  }, [serverTimeRemaining]);
 
   return countdown;
 }
