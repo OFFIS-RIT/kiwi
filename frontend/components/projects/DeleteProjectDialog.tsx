@@ -65,7 +65,7 @@ export function DeleteProjectDialog({
   const error = deleteProjectMutation.error
     ? deleteProjectMutation.error instanceof Error
       ? deleteProjectMutation.error.message
-      : t("delete.project.error") || "Fehler beim Löschen des Projekts."
+      : t("delete.project.error")
     : null;
 
   return (
