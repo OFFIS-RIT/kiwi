@@ -26,8 +26,9 @@ import { cn, formatBytes } from "@/lib/utils";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { ApiProjectFile } from "@/types";
-import { Calendar, FileText, Loader2, XIcon } from "lucide-react";
+import { Calendar, Loader2, XIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { FileStatusIcon } from "./FileStatusIcon";
 import { FileUploader } from "./FileUploader";
 
 type EditProjectDialogProps = {
@@ -71,12 +72,12 @@ export function EditProjectDialog({
       setError(
         err instanceof Error
           ? err.message
-          : "Unbekannter Fehler beim Laden der Dateien"
+          : t("error.load.project.files.unknown"),
       );
     } finally {
       setIsLoading(false);
     }
-  }, [project]);
+  }, [project, t]);
 
   useEffect(() => {
     if (project && open) {
@@ -100,7 +101,7 @@ export function EditProjectDialog({
     setFilesToDelete((prev) =>
       prev.includes(fileKey)
         ? prev.filter((key) => key !== fileKey)
-        : [...prev, fileKey]
+        : [...prev, fileKey],
     );
   };
 
@@ -132,9 +133,7 @@ export function EditProjectDialog({
           setError(
             (prevError) =>
               (prevError ? `${prevError}\n` : "") +
-              (err instanceof Error
-                ? err.message
-                : "Fehler beim Löschen von Dateien")
+              (err instanceof Error ? err.message : t("error.delete.files")),
           );
         }
       }
@@ -150,7 +149,7 @@ export function EditProjectDialog({
               (prevError ? `${prevError}\n` : "") +
               (err instanceof Error
                 ? err.message
-                : "Fehler beim Aktualisieren des Namens")
+                : t("error.update.project.name")),
           );
         }
       }
@@ -179,7 +178,7 @@ export function EditProjectDialog({
                 lastTime = currentTime;
                 lastLoaded = loaded;
               }
-            }
+            },
           );
           setNewFiles([]);
         } catch (err) {
@@ -188,9 +187,7 @@ export function EditProjectDialog({
           setError(
             (prevError) =>
               (prevError ? `${prevError}\n` : "") +
-              (err instanceof Error
-                ? err.message
-                : "Fehler beim Hinzufügen der Dateien")
+              (err instanceof Error ? err.message : t("error.add.files")),
           );
         }
       }
@@ -209,11 +206,7 @@ export function EditProjectDialog({
     } catch (err) {
       console.error("Unerwarteter Fehler im Submit-Prozess:", err);
       if (!error) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Ein unerwarteter Fehler ist aufgetreten."
-        );
+        setError(err instanceof Error ? err.message : t("error.unexpected"));
       }
       overallSuccess = false;
     } finally {
@@ -222,7 +215,7 @@ export function EditProjectDialog({
   };
 
   const parseApiTimestamp = (
-    value: { Time?: string; Valid?: boolean } | string | null | undefined
+    value: { Time?: string; Valid?: boolean } | string | null | undefined,
   ): Date | null => {
     if (!value) return null;
     if (typeof value === "string") {
@@ -239,7 +232,7 @@ export function EditProjectDialog({
   };
 
   const formatDate = (
-    input: { Time?: string; Valid?: boolean } | string | null | undefined
+    input: { Time?: string; Valid?: boolean } | string | null | undefined,
   ) => {
     const d = parseApiTimestamp(input);
     if (!d) return "-";
@@ -317,7 +310,7 @@ export function EditProjectDialog({
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
                     {projectFiles.map((file) => {
                       const isMarkedForDeletion = filesToDelete.includes(
-                        file.file_key
+                        file.file_key,
                       );
                       return (
                         <div
@@ -325,16 +318,19 @@ export function EditProjectDialog({
                           className={cn(
                             "relative rounded-md border p-2 text-xs",
                             isMarkedForDeletion &&
-                              "opacity-50 ring-2 ring-destructive"
+                              "opacity-50 ring-2 ring-destructive",
                           )}
                         >
                           <div className="flex items-start gap-2">
-                            <FileText className="mt-0.5 h-3 w-3 text-muted-foreground" />
+                            <FileStatusIcon
+                              status={file.status}
+                              className="mt-0.5"
+                            />
                             <div className="min-w-0 flex-1">
                               <p
                                 className={cn(
                                   "truncate text-xs font-medium leading-tight",
-                                  isMarkedForDeletion && "line-through"
+                                  isMarkedForDeletion && "line-through",
                                 )}
                               >
                                 {file.name}
@@ -353,7 +349,7 @@ export function EditProjectDialog({
                               "absolute right-1 top-1 h-6 w-6",
                               isMarkedForDeletion
                                 ? "text-destructive hover:text-destructive"
-                                : "text-muted-foreground hover:text-destructive"
+                                : "text-muted-foreground hover:text-destructive",
                             )}
                             onClick={() =>
                               handleToggleFileForDeletion(file.file_key)
