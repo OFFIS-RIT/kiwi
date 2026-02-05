@@ -45,7 +45,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       await createGroupMutation.mutateAsync(name);
       // TanStack Query will automatically refetch the data via invalidation
     } catch (err) {
-      console.error("Fehler beim Erstellen der Gruppe:", err);
+      console.error("Error creating group:", err);
       throw err;
     }
   };
