@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { FileStatus } from "@/types";
+import { cn } from "@/lib/utils";
 import { AlertCircle, CheckCircle2, HelpCircle, Loader2 } from "lucide-react";
 
 type FileStatusIconProps = {
@@ -33,7 +34,7 @@ export function FileStatusIcon({ status, className }: FileStatusIconProps) {
     processing: {
       icon: (
         <Loader2
-          className={`h-3.5 w-3.5 animate-spin text-blue-500 ${className ?? ""}`}
+          className={cn("h-3.5 w-3.5 animate-spin text-blue-500", className)}
         />
       ),
       tooltipKey: "file.status.processing",
@@ -41,7 +42,7 @@ export function FileStatusIcon({ status, className }: FileStatusIconProps) {
     processed: {
       icon: (
         <CheckCircle2
-          className={`h-3.5 w-3.5 text-green-500 ${className ?? ""}`}
+          className={cn("h-3.5 w-3.5 text-green-500", className)}
         />
       ),
       tooltipKey: "file.status.processed",
@@ -49,7 +50,7 @@ export function FileStatusIcon({ status, className }: FileStatusIconProps) {
     failed: {
       icon: (
         <AlertCircle
-          className={`h-3.5 w-3.5 text-destructive ${className ?? ""}`}
+          className={cn("h-3.5 w-3.5 text-destructive", className)}
         />
       ),
       tooltipKey: "file.status.failed",
@@ -57,7 +58,7 @@ export function FileStatusIcon({ status, className }: FileStatusIconProps) {
     no_status: {
       icon: (
         <HelpCircle
-          className={`h-3.5 w-3.5 text-muted-foreground ${className ?? ""}`}
+          className={cn("h-3.5 w-3.5 text-muted-foreground", className)}
         />
       ),
       tooltipKey: "file.status.no_status",

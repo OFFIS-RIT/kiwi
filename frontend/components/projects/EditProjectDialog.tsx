@@ -70,12 +70,14 @@ export function EditProjectDialog({
     } catch (err) {
       console.error("Fehler beim Laden der Projektdateien:", err);
       setError(
-        err instanceof Error ? err.message : t("error.load.project.files.unknown"),
+        err instanceof Error
+          ? err.message
+          : t("error.load.project.files.unknown"),
       );
     } finally {
       setIsLoading(false);
     }
-  }, [project]);
+  }, [project, t]);
 
   useEffect(() => {
     if (project && open) {
@@ -131,9 +133,7 @@ export function EditProjectDialog({
           setError(
             (prevError) =>
               (prevError ? `${prevError}\n` : "") +
-              (err instanceof Error
-                ? err.message
-                : t("error.delete.files")),
+              (err instanceof Error ? err.message : t("error.delete.files")),
           );
         }
       }
@@ -187,9 +187,7 @@ export function EditProjectDialog({
           setError(
             (prevError) =>
               (prevError ? `${prevError}\n` : "") +
-              (err instanceof Error
-                ? err.message
-                : t("error.add.files")),
+              (err instanceof Error ? err.message : t("error.add.files")),
           );
         }
       }
@@ -208,9 +206,7 @@ export function EditProjectDialog({
     } catch (err) {
       console.error("Unerwarteter Fehler im Submit-Prozess:", err);
       if (!error) {
-        setError(
-          err instanceof Error ? err.message : t("error.unexpected"),
-        );
+        setError(err instanceof Error ? err.message : t("error.unexpected"));
       }
       overallSuccess = false;
     } finally {
