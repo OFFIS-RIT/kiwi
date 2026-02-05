@@ -9,6 +9,7 @@ import (
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	graphquery "github.com/OFFIS-RIT/kiwi/backend/pkg/query"
 
 	_ "github.com/invopop/jsonschema"
 	"github.com/pgvector/pgvector-go"
@@ -56,6 +57,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 	for _, rel := range relevantEntities {
 		relevantEntityIds = append(relevantEntityIds, rel.ID)
 	}
+	graphquery.RecordQueriedEntityIDs(s.trace, relevantEntityIds...)
 
 	additionalEntityIds := make([]int64, 0)
 	dbAdditionalEntityIds, err := s.getSimilarEntityIdsByEmebedding(ctx, qtx, projectId, embedding, 4)
@@ -68,6 +70,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		}
 		additionalEntityIds = append(additionalEntityIds, id)
 	}
+	graphquery.RecordQueriedEntityIDs(s.trace, additionalEntityIds...)
 
 	checkedPairs := make([]string, 0)
 
@@ -164,6 +167,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 	for id := range foundPaths {
 		relationshipIds = append(relationshipIds, id)
 	}
+	graphquery.RecordQueriedRelationshipIDs(s.trace, relationshipIds...)
 
 	relationshipSources, err := qtx.FindRelevantRelationSources(ctx, pgdb.FindRelevantRelationSourcesParams{
 		Column1:   relationshipIds,
@@ -185,6 +189,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		}
 		pathEntityIdsList = append(pathEntityIdsList, id)
 	}
+	graphquery.RecordQueriedEntityIDs(s.trace, pathEntityIdsList...)
 
 	pathSources, err := qtx.FindRelevantEntitySources(ctx, pgdb.FindRelevantEntitySourcesParams{
 		Column1:   pathEntityIdsList,
@@ -198,6 +203,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 
 	var result strings.Builder
 	var sections []string
+	usedSourcePublicIds := make([]string, 0)
 
 	err = tx.Commit(ctx)
 	if err != nil {
@@ -209,6 +215,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		entitySection.WriteString("Relevant Entities:\n")
 		for _, source := range entitySources {
 			if source.Description != "" {
+				usedSourcePublicIds = append(usedSourcePublicIds, source.PublicID_2)
 				fmt.Fprintf(&entitySection, "%s,%s: %s\n", source.Name, source.PublicID_2, source.Description)
 			}
 		}
@@ -220,6 +227,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		relationshipSection.WriteString("Connecting Relationships:\n")
 		for _, source := range relationshipSources {
 			if source.Description != "" {
+				usedSourcePublicIds = append(usedSourcePublicIds, source.PublicID_2)
 				fmt.Fprintf(&relationshipSection, "%s<->%s,%s: %s\n", source.Name, source.Name_2, source.PublicID_2, source.Description)
 			}
 		}
@@ -231,6 +239,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		pathSection.WriteString("Connecting Entities:\n")
 		for _, source := range pathSources {
 			if source.Description != "" {
+				usedSourcePublicIds = append(usedSourcePublicIds, source.PublicID_2)
 				fmt.Fprintf(&pathSection, "%s,%s: %s\n", source.Name, source.PublicID_2, source.Description)
 			}
 		}
@@ -242,6 +251,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		additionalSection.WriteString("Additional Sources:\n")
 		for _, source := range additionalSources {
 			if source.Description != "" {
+				usedSourcePublicIds = append(usedSourcePublicIds, source.PublicID_2)
 				fmt.Fprintf(&additionalSection, "%s,%s: %s\n", source.Name, source.PublicID_2, source.Description)
 			}
 		}
@@ -278,6 +288,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 				seenFiles[f.FileKey] = true
 				if f.Metadata.Valid && f.Metadata.String != "" {
 					hasMetadata = true
+					usedSourcePublicIds = append(usedSourcePublicIds, f.PublicID)
 					fmt.Fprintf(&metadataSection, "%s: %s\n", f.Name, f.Metadata.String)
 				}
 			}
@@ -286,6 +297,8 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 			}
 		}
 	}
+	graphquery.RecordConsideredSourceIDs(s.trace, allSourcePublicIds...)
+	graphquery.RecordUsedSourceIDs(s.trace, usedSourcePublicIds...)
 
 	if len(sections) > 0 {
 		result.WriteString(strings.Join(sections, "\n"))

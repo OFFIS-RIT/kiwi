@@ -10,6 +10,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	graphquery "github.com/OFFIS-RIT/kiwi/backend/pkg/query"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
@@ -24,7 +25,7 @@ func truncateDescription(desc string, maxLen int) string {
 	return desc[:maxLen] + "..."
 }
 
-func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64) ai.Tool {
+func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "search_entities",
 		Description: "Search for entities in the knowledge graph by semantic similarity. Returns a list of entities matching the query. Use this as the entry point to explore the graph.",
@@ -75,6 +76,13 @@ func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to search entities: %w", err)
 			}
+			if len(entities) > 0 {
+				ids := make([]int64, 0, len(entities))
+				for _, e := range entities {
+					ids = append(ids, e.ID)
+				}
+				graphquery.RecordQueriedEntityIDs(trace, ids...)
+			}
 
 			var result strings.Builder
 			result.WriteString("## Entities\n")
@@ -92,7 +100,7 @@ func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId
 	}
 }
 
-func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.Tool {
+func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_entity_neighbours",
 		Description: "Get entities directly connected to a given entity through relationships. Results are ranked by semantic similarity to the query. Use this to explore the graph structure around an entity.",
@@ -126,6 +134,7 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.T
 				return "", fmt.Errorf("entity_id is required and must be an integer")
 			}
 			entityId := int64(entityIdRaw)
+			graphquery.RecordQueriedEntityIDs(trace, entityId)
 
 			query, ok := params["query"].(string)
 			if !ok || query == "" {
@@ -153,6 +162,16 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.T
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to get neighbours: %w", err)
 			}
+			if len(neighbours) > 0 {
+				neighbourIDs := make([]int64, 0, len(neighbours))
+				relIDs := make([]int64, 0, len(neighbours))
+				for _, n := range neighbours {
+					neighbourIDs = append(neighbourIDs, n.NeighbourID)
+					relIDs = append(relIDs, n.RelationshipID)
+				}
+				graphquery.RecordQueriedEntityIDs(trace, neighbourIDs...)
+				graphquery.RecordQueriedRelationshipIDs(trace, relIDs...)
+			}
 
 			var result strings.Builder
 			fmt.Fprintf(&result, "## Neighbours of Entity ID: %d\n", entityId)
@@ -172,7 +191,7 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.T
 	}
 }
 
-func toolPathBetweenEntities(conn *pgxpool.Pool, projectId int64) ai.Tool {
+func toolPathBetweenEntities(conn *pgxpool.Pool, projectId int64, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "path_between_entities",
 		Description: "Find the shortest path between two entities in the knowledge graph. Returns the sequence of entities and relationships connecting them.",
@@ -212,6 +231,7 @@ func toolPathBetweenEntities(conn *pgxpool.Pool, projectId int64) ai.Tool {
 				return "", fmt.Errorf("end_id is required and must be an integer")
 			}
 			endId := int64(endIdRaw)
+			graphquery.RecordQueriedEntityIDs(trace, startId, endId)
 
 			logger.Debug("[Tool] path_between_entities", "start_id", startId, "end_id", endId)
 
@@ -270,6 +290,20 @@ func toolPathBetweenEntities(conn *pgxpool.Pool, projectId int64) ai.Tool {
 				entityIds[rel.SourceId] = true
 				entityIds[rel.TargetId] = true
 			}
+			if len(relations) > 0 {
+				relIDs := make([]int64, 0, len(relations))
+				for _, r := range relations {
+					relIDs = append(relIDs, r.ID)
+				}
+				graphquery.RecordQueriedRelationshipIDs(trace, relIDs...)
+			}
+			if len(entityIds) > 0 {
+				entityIDs := make([]int64, 0, len(entityIds))
+				for id := range entityIds {
+					entityIDs = append(entityIDs, id)
+				}
+				graphquery.RecordQueriedEntityIDs(trace, entityIDs...)
+			}
 
 			if len(relations) == 0 {
 				return fmt.Sprintf("## Path\nNo path found between entity %d and entity %d.\n", startId, endId), nil
@@ -317,7 +351,7 @@ func toolPathBetweenEntities(conn *pgxpool.Pool, projectId int64) ai.Tool {
 	}
 }
 
-func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.Tool {
+func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_entity_sources",
 		Description: "Retrieve source text chunks that describe specific entities, ranked by relevance to the query. Use this to get detailed information about entities.",
@@ -357,6 +391,7 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.Tool
 					entityIds = append(entityIds, int64(idFloat))
 				}
 			}
+			graphquery.RecordQueriedEntityIDs(trace, entityIds...)
 
 			query, ok := params["query"].(string)
 			if !ok || query == "" {
@@ -384,6 +419,14 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.Tool
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to get sources: %w", err)
 			}
+			if len(sources) > 0 {
+				sourceIDs := make([]string, 0, len(sources))
+				for _, s := range sources {
+					sourceIDs = append(sourceIDs, s.PublicID)
+				}
+				graphquery.RecordConsideredSourceIDs(trace, sourceIDs...)
+				graphquery.RecordUsedSourceIDs(trace, sourceIDs...)
+			}
 
 			var result strings.Builder
 			result.WriteString("## Entity Sources\n")
@@ -402,7 +445,7 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.Tool
 	}
 }
 
-func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient) ai.Tool {
+func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_relationship_sources",
 		Description: "Retrieve source text chunks that describe specific relationships, ranked by relevance to the query. Use this to get detailed information about how entities are connected.",
@@ -442,6 +485,7 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient) a
 					relationshipIds = append(relationshipIds, int64(idFloat))
 				}
 			}
+			graphquery.RecordQueriedRelationshipIDs(trace, relationshipIds...)
 
 			query, ok := params["query"].(string)
 			if !ok || query == "" {
@@ -469,6 +513,17 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient) a
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to get sources: %w", err)
 			}
+			if len(sources) > 0 {
+				sourceIDs := make([]string, 0, len(sources))
+				entityIDs := make([]int64, 0, len(sources)*2)
+				for _, s := range sources {
+					sourceIDs = append(sourceIDs, s.PublicID)
+					entityIDs = append(entityIDs, s.SourceID, s.TargetID)
+				}
+				graphquery.RecordConsideredSourceIDs(trace, sourceIDs...)
+				graphquery.RecordUsedSourceIDs(trace, sourceIDs...)
+				graphquery.RecordQueriedEntityIDs(trace, entityIDs...)
+			}
 
 			var result strings.Builder
 			result.WriteString("## Relationship Sources\n")
@@ -487,7 +542,7 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient) a
 	}
 }
 
-func toolGetEntityDetails(conn *pgxpool.Pool) ai.Tool {
+func toolGetEntityDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_entity_details",
 		Description: "Get full details of specific entities by their IDs. Returns complete entity information including full descriptions. Use this when you need more detail than the truncated descriptions from search results.",
@@ -522,6 +577,7 @@ func toolGetEntityDetails(conn *pgxpool.Pool) ai.Tool {
 					entityIds = append(entityIds, int64(idFloat))
 				}
 			}
+			graphquery.RecordQueriedEntityIDs(trace, entityIds...)
 
 			logger.Debug("[Tool] get_entity_details", "entity_ids", entityIds)
 
@@ -581,7 +637,7 @@ func toolGetEntityTypes(conn *pgxpool.Pool, projectId int64) ai.Tool {
 	}
 }
 
-func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64) ai.Tool {
+func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "search_entities_by_type",
 		Description: "Search for entities of a specific type by semantic similarity. Use this when you want to find entities of a particular type (e.g., all Person entities related to a topic).",
@@ -619,6 +675,7 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 			if !ok || entityType == "" {
 				return "", fmt.Errorf("type is required and must be a string")
 			}
+			graphquery.RecordQueriedEntityTypes(trace, entityType)
 
 			var limit int32 = 10
 			if limitRaw, ok := params["limit"].(float64); ok && limitRaw > 0 {
@@ -642,6 +699,13 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to search entities: %w", err)
 			}
+			if len(entities) > 0 {
+				ids := make([]int64, 0, len(entities))
+				for _, e := range entities {
+					ids = append(ids, e.ID)
+				}
+				graphquery.RecordQueriedEntityIDs(trace, ids...)
+			}
 
 			var result strings.Builder
 			fmt.Fprintf(&result, "## Entities of type \"%s\"\n", entityType)
@@ -659,7 +723,7 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 	}
 }
 
-func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64) ai.Tool {
+func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "search_relationships",
 		Description: "Search for relationships in the knowledge graph by semantic similarity. Returns relationships describing how entities are connected, including their strength score. Use this to find specific connections or interactions between entities.",
@@ -710,6 +774,16 @@ func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, proj
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to search relationships: %w", err)
 			}
+			if len(relationships) > 0 {
+				relIDs := make([]int64, 0, len(relationships))
+				entityIDs := make([]int64, 0, len(relationships)*2)
+				for _, r := range relationships {
+					relIDs = append(relIDs, r.ID)
+					entityIDs = append(entityIDs, r.SourceID, r.TargetID)
+				}
+				graphquery.RecordQueriedRelationshipIDs(trace, relIDs...)
+				graphquery.RecordQueriedEntityIDs(trace, entityIDs...)
+			}
 
 			var result strings.Builder
 			result.WriteString("## Relationships\n")
@@ -728,7 +802,7 @@ func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, proj
 	}
 }
 
-func toolGetRelationshipDetails(conn *pgxpool.Pool) ai.Tool {
+func toolGetRelationshipDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_relationship_details",
 		Description: "Get full details of specific relationships by their IDs. Returns complete relationship information including full descriptions and strength scores. Use this when you need more detail than the truncated descriptions from search results.",
@@ -763,6 +837,7 @@ func toolGetRelationshipDetails(conn *pgxpool.Pool) ai.Tool {
 					relationshipIds = append(relationshipIds, int64(idFloat))
 				}
 			}
+			graphquery.RecordQueriedRelationshipIDs(trace, relationshipIds...)
 
 			logger.Debug("[Tool] get_relationship_details", "relationship_ids", relationshipIds)
 
@@ -770,6 +845,13 @@ func toolGetRelationshipDetails(conn *pgxpool.Pool) ai.Tool {
 			relationships, err := q.GetRelationshipsByIDs(ctx, relationshipIds)
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to get relationship details: %w", err)
+			}
+			if len(relationships) > 0 {
+				entityIDs := make([]int64, 0, len(relationships)*2)
+				for _, r := range relationships {
+					entityIDs = append(entityIDs, r.SourceID, r.TargetID)
+				}
+				graphquery.RecordQueriedEntityIDs(trace, entityIDs...)
 			}
 
 			var result strings.Builder
@@ -790,7 +872,7 @@ func toolGetRelationshipDetails(conn *pgxpool.Pool) ai.Tool {
 	}
 }
 
-func toolGetSourceDocumentMetadata(conn *pgxpool.Pool) ai.Tool {
+func toolGetSourceDocumentMetadata(conn *pgxpool.Pool, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_source_document_metadata",
 		Description: "Get metadata (document type, date, summary) for the source documents associated with given source IDs. Use this to understand the context and nature of the source documents before citing them.",
@@ -821,6 +903,8 @@ func toolGetSourceDocumentMetadata(conn *pgxpool.Pool) ai.Tool {
 					sourceIds = append(sourceIds, idStr)
 				}
 			}
+			graphquery.RecordConsideredSourceIDs(trace, sourceIds...)
+			graphquery.RecordUsedSourceIDs(trace, sourceIds...)
 
 			logger.Debug("[Tool] get_source_document_metadata", "source_ids", sourceIds)
 
@@ -861,18 +945,18 @@ func toolGetSourceDocumentMetadata(conn *pgxpool.Pool) ai.Tool {
 // path finding, source retrieval, and document metadata access. These tools
 // enable agentic workflows where the AI can navigate the graph structure
 // autonomously.
-func GetToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64) []ai.Tool {
+func GetToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) []ai.Tool {
 	return []ai.Tool{
-		toolSearchEntities(conn, aiClient, projectId),
-		toolSearchRelationships(conn, aiClient, projectId),
-		toolGetEntityNeighbours(conn, aiClient),
-		toolPathBetweenEntities(conn, projectId),
-		toolGetEntitySources(conn, aiClient),
-		toolGetRelationshipSources(conn, aiClient),
-		toolGetEntityDetails(conn),
-		toolGetRelationshipDetails(conn),
+		toolSearchEntities(conn, aiClient, projectId, trace),
+		toolSearchRelationships(conn, aiClient, projectId, trace),
+		toolGetEntityNeighbours(conn, aiClient, trace),
+		toolPathBetweenEntities(conn, projectId, trace),
+		toolGetEntitySources(conn, aiClient, trace),
+		toolGetRelationshipSources(conn, aiClient, trace),
+		toolGetEntityDetails(conn, trace),
+		toolGetRelationshipDetails(conn, trace),
 		toolGetEntityTypes(conn, projectId),
-		toolSearchEntitiesByType(conn, aiClient, projectId),
-		toolGetSourceDocumentMetadata(conn),
+		toolSearchEntitiesByType(conn, aiClient, projectId, trace),
+		toolGetSourceDocumentMetadata(conn, trace),
 	}
 }
