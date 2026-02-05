@@ -145,8 +145,8 @@ export function TextReferenceBadge({
                     </p>
                     <p>
                       {fileName
-                        ? `${t("file")} ${fileName}`
-                        : `${t("file.id")} ${textReference.project_file_id}`}
+                        ? `${t("file")}: ${fileName}`
+                        : `${t("file.id")}: ${textReference.project_file_id}`}
                     </p>
                   </div>
                 </div>
