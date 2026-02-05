@@ -580,8 +580,8 @@ func QueryProjectHandler(c echo.Context) error {
 		})
 	}
 
-	if strings.HasPrefix(answer, clarificationMarker) {
-		answer = strings.TrimLeft(strings.TrimPrefix(answer, clarificationMarker), " \t\r\n")
+	if after, ok :=strings.CutPrefix(answer, clarificationMarker); ok  {
+		answer = strings.TrimLeft(after, " \t\r\n")
 		metrics := aiClient.GetMetrics()
 		return c.JSON(http.StatusOK, queryProjectResponse{
 			Message: answer,
