@@ -211,6 +211,48 @@ func (q *Queries) GetDescriptionJobsByCorrelation(ctx context.Context, correlati
 	return items, nil
 }
 
+const getLatestBatchStatusForFiles = `-- name: GetLatestBatchStatusForFiles :many
+SELECT DISTINCT ON (f.file_id)
+    f.file_id::bigint AS file_id,
+    pbs.status
+FROM project_batch_status AS pbs
+JOIN LATERAL unnest(pbs.file_ids) AS f(file_id) ON true
+WHERE pbs.project_id = $1
+  AND pbs.file_ids && $2::bigint[]
+  AND f.file_id = ANY($2::bigint[])
+ORDER BY f.file_id, pbs.created_at DESC, pbs.id DESC
+`
+
+type GetLatestBatchStatusForFilesParams struct {
+	ProjectID int64   `json:"project_id"`
+	FileIds   []int64 `json:"file_ids"`
+}
+
+type GetLatestBatchStatusForFilesRow struct {
+	FileID int64  `json:"file_id"`
+	Status string `json:"status"`
+}
+
+func (q *Queries) GetLatestBatchStatusForFiles(ctx context.Context, arg GetLatestBatchStatusForFilesParams) ([]GetLatestBatchStatusForFilesRow, error) {
+	rows, err := q.db.Query(ctx, getLatestBatchStatusForFiles, arg.ProjectID, arg.FileIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetLatestBatchStatusForFilesRow{}
+	for rows.Next() {
+		var i GetLatestBatchStatusForFilesRow
+		if err := rows.Scan(&i.FileID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getLatestCorrelationForProject = `-- name: GetLatestCorrelationForProject :one
 SELECT correlation_id FROM project_batch_status
 WHERE project_id = $1
