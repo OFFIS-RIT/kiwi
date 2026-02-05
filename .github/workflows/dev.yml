@@ -42,7 +42,7 @@ jobs:
           - name: server
             image: server
             context: ./backend
-            file: ./backend/Dockerfile.server.dev
+            file: ./backend/Dockerfile.server
             cache: server
             target: ""
             build_args: ""
@@ -50,16 +50,8 @@ jobs:
           - name: worker
             image: worker
             context: ./backend
-            file: ./backend/Dockerfile.worker.dev
+            file: ./backend/Dockerfile.worker
             cache: worker
-            target: ""
-            build_args: ""
-            tag_suffix: ""
-          - name: frontend
-            image: frontend
-            context: ./frontend
-            file: ./frontend/Dockerfile.dev
-            cache: frontend
             target: ""
             build_args: ""
             tag_suffix: ""
@@ -74,7 +66,7 @@ jobs:
           - name: auth
             image: auth
             context: ./auth
-            file: ./auth/Dockerfile.dev
+            file: ./auth/Dockerfile
             cache: auth
             target: ""
             build_args: ""
