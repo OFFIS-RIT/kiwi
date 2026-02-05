@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useCountdown } from "@/hooks/use-countdown";
 import { formatDuration } from "@/lib/utils";
+import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { Project } from "@/types";
 import { PolarAngleAxis, RadialBar, RadialBarChart } from "recharts";
@@ -24,9 +25,10 @@ type ProjectProgressChartProps = {
 
 export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
   const { t } = useLanguage();
+  const { dataUpdatedAt } = useData();
   const percentage = project.processPercentage ?? 0;
   const step = project.processStep ?? "";
-  const timeRemaining = useCountdown(project.processTimeRemaining);
+  const timeRemaining = useCountdown(project.processTimeRemaining, dataUpdatedAt);
 
   const chartData = [
     { name: "progress", value: percentage, fill: "var(--foreground)" },

@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useCountdown } from "@/hooks/use-countdown";
 import { formatDuration } from "@/lib/utils";
+import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { Project } from "@/types";
 import { BookOpen, Calendar, Loader2 } from "lucide-react";
@@ -28,10 +29,11 @@ export function ProjectCard({
   onEdit,
 }: ProjectCardProps) {
   const { t } = useLanguage();
+  const { dataUpdatedAt } = useData();
   const lastUpdated = project.lastUpdated;
   const sourcesCount = project.sourcesCount ?? 0;
   const isProcessing = project.processPercentage !== undefined;
-  const timeRemaining = useCountdown(project.processTimeRemaining);
+  const timeRemaining = useCountdown(project.processTimeRemaining, dataUpdatedAt);
 
   return (
     <CardTemplate
