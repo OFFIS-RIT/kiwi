@@ -735,14 +735,8 @@ export function ProjectChat({
                         {message.role === "assistant" && message.metrics && (
                           <>
                             <span>•</span>
-                            <span>{message.metrics.total_tokens} tokens</span>
-                            <span>•</span>
                             <span>
                               {(message.metrics.duration_ms / 1000).toFixed(1)}s
-                            </span>
-                            <span>•</span>
-                            <span>
-                              {message.metrics.tokens_per_second.toFixed(1)} t/s
                             </span>
                           </>
                         )}
@@ -773,6 +767,16 @@ export function ProjectChat({
                               )}
                             </>
                           )}
+                        {message.role === "assistant" && message.metrics && (
+                          <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                            <span>•</span>
+                            <span>{message.metrics.total_tokens} tokens</span>
+                            <span>•</span>
+                            <span>
+                              {message.metrics.tokens_per_second.toFixed(1)} t/s
+                            </span>
+                          </span>
+                        )}
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity">
                           •
                         </span>
