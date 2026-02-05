@@ -779,6 +779,40 @@ this full process is complete and you are sure you explored all possibilities.
 - **Strict Prohibition:** You must NOT output a list of entities or IDs at the end of your response. This is a hard constraint.
 `
 
+// ToolQueryClarificationPrompt enables a clarification-first flow for agentic
+// queries. This prompt must only be added when the feature flag is enabled.
+//
+// IMPORTANT: Keep this output plain text (no JSON, no brackets) because the
+// server applies ID-normalization that can mutate bracketed content.
+const ToolQueryClarificationPrompt = `
+# Clarifying Questions (Enabled)
+Clarifying questions are enabled for this conversation.
+
+Before calling ANY tool, decide whether the user's request is ambiguous or
+underspecified in a way that would force you to guess (e.g., missing entity,
+time range, metric, document subset, or target comparison).
+
+If clarification is required:
+- DO NOT call any tools.
+- Ask 1-3 concise, specific, actionable questions.
+- Return ONLY plain text in exactly this format (no extra text):
+
+KIWI_CLARIFICATION_REQUIRED
+1) <question>
+2) <question>
+
+Rules:
+- Write the questions in the same language as the user's latest message.
+- Do not include citations or IDs.
+
+If clarification is not required:
+- Proceed with the normal tool-based retrieval workflow.
+
+If the user answers a previous clarification request:
+- Treat the answer as additional constraints and proceed; do not ask again
+  unless something is still genuinely ambiguous.
+`
+
 const NoDataPrompt = `
 # Task Context
 You are a helpful assistant. The user asked a question, but no relevant information was found in the knowledge base.

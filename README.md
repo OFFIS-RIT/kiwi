@@ -318,6 +318,14 @@ Copy `.env.sample` to `.env` and configure:
 | `RABBITMQ_HOST`          | RabbitMQ host                      |
 | `RABBITMQ_PORT`          | RabbitMQ port                      |
 
+### Optional: Clarifying Questions (Agentic Queries)
+
+Agentic queries can optionally ask clarifying questions when a user request is
+ambiguous or underspecified.
+
+- `AI_ENABLE_QUERY_CLARIFICATION` (default: `false`): when enabled, the server
+  may return a clarification response instead of attempting a best-guess answer.
+
 Note: When all LDAP variables are set, LDAP sign-in is enabled and email/password auth is disabled.
 
 </details>

@@ -454,6 +454,8 @@ func AddFilesToProjectHandler(c echo.Context) error {
 
 // QueryProjectHandler handles project queries
 func QueryProjectHandler(c echo.Context) error {
+	const clarificationMarker = "KIWI_CLARIFICATION_REQUIRED"
+
 	type queryProjectRequest struct {
 		ProjectID int64            `param:"id" validate:"required,numeric"`
 		Messages  []ai.ChatMessage `json:"messages" validate:"required"`
@@ -555,6 +557,10 @@ func QueryProjectHandler(c echo.Context) error {
 		opts = append(opts, bqc.WithThinking("high"))
 	}
 
+	if util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false) {
+		opts = append(opts, bqc.WithClarification(true))
+	}
+
 	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, fmt.Sprintf("%d", data.ProjectID), opts)
 
 	var answer string
@@ -571,6 +577,16 @@ func QueryProjectHandler(c echo.Context) error {
 		logger.Error("[Query] graph error", "err", err)
 		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 			Message: "Es ist ein interner Fehler aufgetreten.",
+		})
+	}
+
+	if strings.HasPrefix(answer, clarificationMarker) {
+		answer = strings.TrimLeft(strings.TrimPrefix(answer, clarificationMarker), " \t\r\n")
+		metrics := aiClient.GetMetrics()
+		return c.JSON(http.StatusOK, queryProjectResponse{
+			Message: answer,
+			Data:    []responseData{},
+			Metrics: &metrics,
 		})
 	}
 
@@ -638,6 +654,9 @@ func QueryProjectHandler(c echo.Context) error {
 
 // QueryProjectStreamHandler handles streaming project queries
 func QueryProjectStreamHandler(c echo.Context) error {
+	const clarificationMarker = "KIWI_CLARIFICATION_REQUIRED"
+	const clarificationMarkerLen = len(clarificationMarker)
+
 	type queryProjectRequest struct {
 		ProjectID int64            `param:"id" validate:"required,numeric"`
 		Messages  []ai.ChatMessage `json:"messages" validate:"required"`
@@ -747,6 +766,10 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		opts = append(opts, bqc.WithThinking("high"))
 	}
 
+	if util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false) {
+		opts = append(opts, bqc.WithClarification(true))
+	}
+
 	c.Response().Header().Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	c.Response().WriteHeader(http.StatusOK)
 
@@ -778,6 +801,8 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	var messageBuffer strings.Builder
 	var reasoningBuffer strings.Builder
 	var allFoundData []responseData
+	clarificationModeKnown := false
+	clarificationMode := false
 
 	for event := range contentChan {
 		if event.Type == "step" {
@@ -801,6 +826,36 @@ func QueryProjectStreamHandler(c echo.Context) error {
 
 		messageBuffer.WriteString(event.Content)
 		currentMessage := messageBuffer.String()
+
+		if !clarificationModeKnown {
+			if len(currentMessage) < clarificationMarkerLen {
+				// Withhold output until we can decide if this is a clarification response.
+				continue
+			}
+			clarificationModeKnown = true
+			clarificationMode = strings.HasPrefix(currentMessage, clarificationMarker)
+			if clarificationMode {
+				stripped := strings.TrimLeft(strings.TrimPrefix(currentMessage, clarificationMarker), " \t\r\n")
+				messageBuffer.Reset()
+				messageBuffer.WriteString(stripped)
+				currentMessage = stripped
+			}
+		}
+
+		if clarificationMode {
+			resp := streamResponse{
+				Message: currentMessage,
+				Data:    []responseData{},
+			}
+			if reasoningBuffer.Len() > 0 {
+				resp.Reasoning = reasoningBuffer.String()
+			}
+			if err := enc.Encode(resp); err != nil {
+				return err
+			}
+			c.Response().Flush()
+			continue
+		}
 
 		// Check for new data references in the current buffer
 		currentMessage = util.NormalizeIDs(currentMessage)
