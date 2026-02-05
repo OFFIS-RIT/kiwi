@@ -3,6 +3,7 @@
 import type React from "react";
 
 import { useCreateGroup, useGroupsWithProjects } from "@/hooks/use-data";
+import { useLanguage } from "@/providers/LanguageProvider";
 import type { Group } from "@/types";
 import { createContext, useContext } from "react";
 
@@ -24,6 +25,7 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
  * Wraps TanStack Query hooks to expose a simpler API for components.
  */
 export function DataProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useLanguage();
   // Use TanStack Query hook for fetching groups with projects
   const {
     data: groups = [],
@@ -36,16 +38,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const createGroupMutation = useCreateGroup();
 
   // Convert query error to string
-  const error = queryError
-    ? "Fehler beim Laden der Daten. Bitte versuchen Sie es später erneut."
-    : null;
+  const error = queryError ? t("error.loading.data") : null;
 
   const addGroup = async (name: string) => {
     try {
       await createGroupMutation.mutateAsync(name);
       // TanStack Query will automatically refetch the data via invalidation
     } catch (err) {
-      console.error("Fehler beim Erstellen der Gruppe:", err);
+      console.error("Error creating group:", err);
       throw err;
     }
   };

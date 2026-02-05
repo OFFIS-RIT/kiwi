@@ -208,6 +208,30 @@ const translations = {
     "file.status.processed": "Processed successfully",
     "file.status.failed": "Processing failed",
     "file.status.no_status": "Status unknown",
+
+    // Error messages (additional)
+    "error.loading.data": "Error loading data. Please try again later.",
+    "error.loading.users": "Unknown error loading users",
+    "error.saving": "Unknown error saving",
+
+    // Text Reference Badge
+    "text.reference": "Text Reference",
+    "reference.id": "Reference ID",
+    "loading.text.content": "Loading text content...",
+    "error.loading": "Error loading:",
+    "text.content": "Text content:",
+    copy: "Copy",
+    created: "Created:",
+    file: "File:",
+    "file.id": "File ID:",
+
+    // Query Error Boundary
+    "error.something.went.wrong": "Something went wrong",
+    "error.unexpected.try.again":
+      "An unexpected error occurred. Please try again.",
+    "try.again": "Try again",
+    "reload.page": "Reload page",
+    "technical.details": "Technical details (development only)",
   },
   de: {
     // Navigation
@@ -406,11 +430,36 @@ const translations = {
     "file.status.processed": "Erfolgreich verarbeitet",
     "file.status.failed": "Verarbeitung fehlgeschlagen",
     "file.status.no_status": "Status unbekannt",
+
+    // Error messages (additional)
+    "error.loading.data":
+      "Fehler beim Laden der Daten. Bitte versuchen Sie es später erneut.",
+    "error.loading.users": "Unbekannter Fehler beim Laden der Benutzer",
+    "error.saving": "Unbekannter Fehler beim Speichern",
+
+    // Text Reference Badge
+    "text.reference": "Text-Referenz",
+    "reference.id": "Referenz-ID",
+    "loading.text.content": "Lade Textinhalt...",
+    "error.loading": "Fehler beim Laden:",
+    "text.content": "Textinhalt:",
+    copy: "Kopieren",
+    created: "Erstellt:",
+    file: "Datei:",
+    "file.id": "Datei-ID:",
+
+    // Query Error Boundary
+    "error.something.went.wrong": "Etwas ist schiefgelaufen",
+    "error.unexpected.try.again":
+      "Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.",
+    "try.again": "Erneut versuchen",
+    "reload.page": "Seite neu laden",
+    "technical.details": "Technische Details (nur in Entwicklung)",
   },
 };
 
 const LanguageContext = createContext<LanguageContextType | undefined>(
-  undefined,
+  undefined
 );
 
 /**

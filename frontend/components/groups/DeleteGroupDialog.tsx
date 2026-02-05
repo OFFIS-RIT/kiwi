@@ -68,7 +68,7 @@ export function DeleteGroupDialog({
   const error = deleteGroupMutation.error
     ? deleteGroupMutation.error instanceof Error
       ? deleteGroupMutation.error.message
-      : t("delete.group.error") || "Fehler beim Löschen der Gruppe."
+      : t("delete.group.error")
     : null;
 
   return (

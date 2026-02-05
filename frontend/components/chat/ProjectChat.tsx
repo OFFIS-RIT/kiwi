@@ -389,7 +389,7 @@ export function ProjectChat({
         selectedModel.replace(" (Thinking)", ""),
         useThink,
         (error) => {
-          console.error("Fehler beim Chat-Streaming:", error);
+          console.error("Error during chat streaming:", error);
           const errorMessage: Message = {
             id: assistantMessageId,
             content: t("error.chat.api"),
@@ -433,7 +433,7 @@ export function ProjectChat({
         }
       );
     } catch (error) {
-      console.error("Fehler bei der Chat-API:", error);
+      console.error("Error in chat API:", error);
       const errorMessage: Message = {
         id: assistantMessageId,
         content: t("error.chat.api"),
