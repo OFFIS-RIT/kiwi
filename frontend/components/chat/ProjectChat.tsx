@@ -96,7 +96,7 @@ export function ProjectChat({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [isAssistantTyping, setIsAssistantTyping] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<QueryMode>("normal");
+  const [selectedMode, setSelectedMode] = useState<QueryMode>("agentic");
   const [selectedModel, setSelectedModel] = useState("gpt-oss (Thinking)");
   const [useThink, setUseThink] = useState(true);
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
