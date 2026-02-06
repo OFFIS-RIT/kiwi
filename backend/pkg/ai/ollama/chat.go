@@ -210,17 +210,7 @@ func (c *GraphOllamaClient) GenerateChat(
 		o(&options)
 	}
 
-	msgs := make([]api.Message, 0, len(options.SystemPrompts)+len(messages))
-	for _, sys := range options.SystemPrompts {
-		msgs = append(msgs, api.Message{Role: "system", Content: sys})
-	}
-	for _, m := range messages {
-		role := m.Role
-		if role == "" {
-			role = "user"
-		}
-		msgs = append(msgs, api.Message{Role: role, Content: m.Message})
-	}
+	msgs := buildOllamaChatMessages(options.SystemPrompts, messages)
 
 	stream := false
 	req := &api.ChatRequest{
@@ -300,17 +290,7 @@ func (c *GraphOllamaClient) GenerateChatStream(
 		o(&options)
 	}
 
-	msgs := make([]api.Message, 0, len(options.SystemPrompts)+len(messages))
-	for _, sys := range options.SystemPrompts {
-		msgs = append(msgs, api.Message{Role: "system", Content: sys})
-	}
-	for _, m := range messages {
-		role := m.Role
-		if role == "" {
-			role = "user"
-		}
-		msgs = append(msgs, api.Message{Role: role, Content: m.Message})
-	}
+	msgs := buildOllamaChatMessages(options.SystemPrompts, messages)
 
 	stream := true
 	req := &api.ChatRequest{
@@ -357,6 +337,13 @@ func (c *GraphOllamaClient) GenerateChatStream(
 		defer close(out)
 
 		_ = c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
+			if thinking := cr.Message.Thinking; thinking != "" {
+				select {
+				case out <- ai.StreamEvent{Type: "reasoning", Content: thinking, Reasoning: thinking}:
+				case <-rCtx.Done():
+					return rCtx.Err()
+				}
+			}
 			if s := cr.Message.Content; s != "" {
 				select {
 				case out <- ai.StreamEvent{Type: "content", Content: s}:
@@ -634,17 +621,7 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 	}
 
 	maxRounds := 40
-	msgs := make([]api.Message, 0, len(options.SystemPrompts)+len(messages))
-	for _, sys := range options.SystemPrompts {
-		msgs = append(msgs, api.Message{Role: "system", Content: sys})
-	}
-	for _, m := range messages {
-		role := m.Role
-		if role == "" {
-			role = "user"
-		}
-		msgs = append(msgs, api.Message{Role: role, Content: m.Message})
-	}
+	msgs := buildOllamaChatMessages(options.SystemPrompts, messages)
 
 	ollamaTools := make(api.Tools, len(tools))
 	for i, tool := range tools {
@@ -815,17 +792,7 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 		o(&options)
 	}
 
-	msgs := make([]api.Message, 0, len(options.SystemPrompts)+len(messages))
-	for _, sys := range options.SystemPrompts {
-		msgs = append(msgs, api.Message{Role: "system", Content: sys})
-	}
-	for _, m := range messages {
-		role := m.Role
-		if role == "" {
-			role = "user"
-		}
-		msgs = append(msgs, api.Message{Role: role, Content: m.Message})
-	}
+	msgs := buildOllamaChatMessages(options.SystemPrompts, messages)
 
 	ollamaTools := make(api.Tools, len(tools))
 	for i, tool := range tools {
@@ -876,6 +843,7 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 	}
 
 	maxRounds := 40
+	preStreamEvents := make([]ai.StreamEvent, 0)
 	for range maxRounds {
 		stream := false
 		req := &api.ChatRequest{
@@ -947,6 +915,19 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 		msgs = append(msgs, final.Message)
 
 		for _, tc := range final.Message.ToolCalls {
+			argsBytes, err := json.Marshal(tc.Function.Arguments)
+			if err != nil {
+				argsBytes = []byte("{}")
+			}
+			arguments := string(argsBytes)
+
+			preStreamEvents = append(preStreamEvents, ai.StreamEvent{
+				Type:          "tool_call",
+				ToolCallID:    tc.ID,
+				ToolName:      tc.Function.Name,
+				ToolArguments: arguments,
+			})
+
 			var handler ai.ToolHandler
 			for _, tool := range tools {
 				if tool.Name == tc.Function.Name {
@@ -956,25 +937,53 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 			}
 
 			if handler == nil {
-				cancel()
-				return nil, fmt.Errorf("no handler found for tool: %s", tc.Function.Name)
+				result := fmt.Sprintf("No handler for tool %q; do not call again.", tc.Function.Name)
+				preStreamEvents = append(preStreamEvents, ai.StreamEvent{
+					Type:       "tool_result",
+					ToolCallID: tc.ID,
+					ToolName:   tc.Function.Name,
+					ToolResult: result,
+				})
+				msgs = append(msgs, api.Message{
+					Role:       "tool",
+					Content:    result,
+					ToolName:   tc.Function.Name,
+					ToolCallID: tc.ID,
+				})
+				continue
 			}
 
-			argsBytes, err := json.Marshal(tc.Function.Arguments)
+			result, err := handler(rCtx, arguments)
 			if err != nil {
-				cancel()
-				return nil, fmt.Errorf("failed to marshal tool arguments: %w", err)
+				result = fmt.Sprintf("Tool error in %q: %v", tc.Function.Name, err)
+				preStreamEvents = append(preStreamEvents, ai.StreamEvent{
+					Type:       "tool_result",
+					ToolCallID: tc.ID,
+					ToolName:   tc.Function.Name,
+					ToolResult: result,
+					Error:      err.Error(),
+				})
+				msgs = append(msgs, api.Message{
+					Role:       "tool",
+					Content:    result,
+					ToolName:   tc.Function.Name,
+					ToolCallID: tc.ID,
+				})
+				continue
 			}
 
-			result, err := handler(rCtx, string(argsBytes))
-			if err != nil {
-				cancel()
-				return nil, fmt.Errorf("tool %s failed: %w", tc.Function.Name, err)
-			}
+			preStreamEvents = append(preStreamEvents, ai.StreamEvent{
+				Type:       "tool_result",
+				ToolCallID: tc.ID,
+				ToolName:   tc.Function.Name,
+				ToolResult: result,
+			})
 
 			msgs = append(msgs, api.Message{
-				Role:    "tool",
-				Content: result,
+				Role:       "tool",
+				Content:    result,
+				ToolName:   tc.Function.Name,
+				ToolCallID: tc.ID,
 			})
 		}
 	}
@@ -990,6 +999,14 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 		defer cancel()
 		defer c.reqLock.Release(1)
 		defer close(out)
+
+		for _, event := range preStreamEvents {
+			select {
+			case out <- event:
+			case <-rCtx.Done():
+				return
+			}
+		}
 
 		stream := true
 		req := &api.ChatRequest{
@@ -1023,6 +1040,13 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 		}
 
 		_ = c.Client.Chat(rCtx, req, func(cr api.ChatResponse) error {
+			if thinking := cr.Message.Thinking; thinking != "" {
+				select {
+				case out <- ai.StreamEvent{Type: "reasoning", Content: thinking, Reasoning: thinking}:
+				case <-rCtx.Done():
+					return rCtx.Err()
+				}
+			}
 			if s := cr.Message.Content; s != "" {
 				select {
 				case out <- ai.StreamEvent{Type: "content", Content: s}:
@@ -1045,4 +1069,77 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 	}()
 
 	return out, nil
+}
+
+func buildOllamaChatMessages(systemPrompts []string, messages []ai.ChatMessage) []api.Message {
+	msgs := make([]api.Message, 0, len(systemPrompts)+len(messages))
+
+	for _, prompt := range systemPrompts {
+		msgs = append(msgs, api.Message{Role: "system", Content: prompt})
+	}
+
+	for _, message := range messages {
+		role := message.Role
+		if role == "" {
+			role = "user"
+		}
+
+		switch role {
+		case "system":
+			msgs = append(msgs, api.Message{Role: "system", Content: message.Message})
+		case "assistant_tool_call":
+			toolCallID := strings.TrimSpace(message.ToolCallID)
+			toolName := strings.TrimSpace(message.ToolName)
+			if toolCallID == "" || toolName == "" {
+				msgs = append(msgs, api.Message{Role: "assistant", Content: message.Message})
+				continue
+			}
+
+			msgs = append(msgs, api.Message{
+				Role:    "assistant",
+				Content: message.Message,
+				ToolCalls: []api.ToolCall{
+					{
+						ID: toolCallID,
+						Function: api.ToolCallFunction{
+							Name:      toolName,
+							Arguments: parseOllamaToolArguments(message.ToolArguments),
+						},
+					},
+				},
+			})
+		case "tool":
+			msgs = append(msgs, api.Message{
+				Role:       "tool",
+				Content:    message.Message,
+				ToolName:   strings.TrimSpace(message.ToolName),
+				ToolCallID: strings.TrimSpace(message.ToolCallID),
+			})
+		case "assistant":
+			msgs = append(msgs, api.Message{Role: "assistant", Content: message.Message})
+		default:
+			msgs = append(msgs, api.Message{Role: "user", Content: message.Message})
+		}
+	}
+
+	return msgs
+}
+
+func parseOllamaToolArguments(raw string) api.ToolCallFunctionArguments {
+	args := api.ToolCallFunctionArguments{}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return args
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return args
+	}
+
+	for key, value := range parsed {
+		args[key] = value
+	}
+
+	return args
 }

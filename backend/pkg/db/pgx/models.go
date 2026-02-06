@@ -26,12 +26,15 @@ type Account struct {
 }
 
 type ChatMessage struct {
-	ID        int64              `json:"id"`
-	ChatID    pgtype.Int8        `json:"chat_id"`
-	Role      string             `json:"role"`
-	Content   string             `json:"content"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID            int64              `json:"id"`
+	ChatID        int64              `json:"chat_id"`
+	Role          string             `json:"role"`
+	Content       string             `json:"content"`
+	ToolCallID    string             `json:"tool_call_id"`
+	ToolName      string             `json:"tool_name"`
+	ToolArguments string             `json:"tool_arguments"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Entity struct {
@@ -231,6 +234,7 @@ type UserChat struct {
 	ID        int64              `json:"id"`
 	PublicID  string             `json:"public_id"`
 	UserID    int64              `json:"user_id"`
+	ProjectID pgtype.Int8        `json:"project_id"`
 	Title     string             `json:"title"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`

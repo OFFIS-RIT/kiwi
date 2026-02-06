@@ -9,6 +9,7 @@ import (
 )
 
 type Querier interface {
+	AddChatMessage(ctx context.Context, arg AddChatMessageParams) error
 	AddFileToProject(ctx context.Context, arg AddFileToProjectParams) (ProjectFile, error)
 	AddProcessTime(ctx context.Context, arg AddProcessTimeParams) error
 	AddProjectUpdate(ctx context.Context, arg AddProjectUpdateParams) error
@@ -21,6 +22,7 @@ type Querier interface {
 	CreateDescriptionJobStatus(ctx context.Context, arg CreateDescriptionJobStatusParams) (ProjectDescriptionJobStatus, error)
 	CreateGroup(ctx context.Context, name string) (Group, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
+	CreateUserChat(ctx context.Context, arg CreateUserChatParams) (UserChat, error)
 	DeleteEntitiesWithoutSources(ctx context.Context, projectID int64) error
 	DeleteGroup(ctx context.Context, id int64) error
 	DeleteProject(ctx context.Context, id int64) error
@@ -43,6 +45,7 @@ type Querier interface {
 	GetAllGroups(ctx context.Context) ([]GetAllGroupsRow, error)
 	GetAllProjectsWithGroups(ctx context.Context) ([]GetAllProjectsWithGroupsRow, error)
 	GetBatchesByCorrelation(ctx context.Context, correlationID string) ([]ProjectBatchStatus, error)
+	GetChatMessagesByChatID(ctx context.Context, chatID int64) ([]ChatMessage, error)
 	GetDeletedProjectFiles(ctx context.Context, projectID int64) ([]ProjectFile, error)
 	GetDescriptionJobsByCorrelation(ctx context.Context, correlationID string) ([]ProjectDescriptionJobStatus, error)
 	GetEntitiesWithSourcesFromFiles(ctx context.Context, arg GetEntitiesWithSourcesFromFilesParams) ([]GetEntitiesWithSourcesFromFilesRow, error)
@@ -89,6 +92,7 @@ type Querier interface {
 	GetTextUnitIDsByPublicIDs(ctx context.Context, publicIds []string) ([]GetTextUnitIDsByPublicIDsRow, error)
 	GetTextUnitIdsForFiles(ctx context.Context, dollar_1 []int64) ([]GetTextUnitIdsForFilesRow, error)
 	GetTokenCountOfFile(ctx context.Context, id int64) (int32, error)
+	GetUserChatByPublicIDAndProject(ctx context.Context, arg GetUserChatByPublicIDAndProjectParams) (UserChat, error)
 	InsertStagedData(ctx context.Context, arg InsertStagedDataParams) error
 	IsUserInGroup(ctx context.Context, arg IsUserInGroupParams) (int64, error)
 	IsUserInProject(ctx context.Context, arg IsUserInProjectParams) (int64, error)
@@ -103,6 +107,7 @@ type Querier interface {
 	SearchEntitiesByEmbedding(ctx context.Context, arg SearchEntitiesByEmbeddingParams) ([]SearchEntitiesByEmbeddingRow, error)
 	SearchEntitiesByType(ctx context.Context, arg SearchEntitiesByTypeParams) ([]SearchEntitiesByTypeRow, error)
 	SearchRelationshipsByEmbedding(ctx context.Context, arg SearchRelationshipsByEmbeddingParams) ([]SearchRelationshipsByEmbeddingRow, error)
+	TouchUserChat(ctx context.Context, chatID int64) error
 	TransferEntitySources(ctx context.Context, arg TransferEntitySourcesParams) error
 	TransferRelationshipSources(ctx context.Context, arg TransferRelationshipSourcesParams) error
 	TryStartDescriptionJob(ctx context.Context, arg TryStartDescriptionJobParams) (bool, error)

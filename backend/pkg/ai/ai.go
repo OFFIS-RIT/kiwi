@@ -31,9 +31,14 @@ type ToolCall struct {
 // Role must be one of:
 //   - "user"      → a user-provided message
 //   - "assistant" → a message from the AI assistant
+//   - "assistant_tool_call" → assistant requested a tool invocation
+//   - "tool"      → tool result message linked to a tool call
 type ChatMessage struct {
-	Message string `json:"message"`
-	Role    string `json:"role"`
+	Message       string `json:"message"`
+	Role          string `json:"role"`
+	ToolCallID    string `json:"tool_call_id,omitempty"`
+	ToolName      string `json:"tool_name,omitempty"`
+	ToolArguments string `json:"tool_arguments,omitempty"`
 }
 
 // GenerateOptions holds configuration for AI generation requests.
@@ -56,10 +61,15 @@ type ModelMetrics struct {
 
 // StreamEvent represents an event in a streaming response
 type StreamEvent struct {
-	Type      string // "step" | "content"
-	Step      string // step name (when Type="step")
-	Content   string // text content (when Type="content")
-	Reasoning string // reasoning content (when Step="thinking")
+	Type          string // "step" | "reasoning" | "content" | "tool_call" | "tool_result"
+	Step          string // step name (when Type="step")
+	Content       string // text content (when Type="content" or "reasoning")
+	Reasoning     string // deprecated alias for reasoning content
+	ToolCallID    string // tool call id (for tool events)
+	ToolName      string // tool name (for tool events)
+	ToolArguments string // json arguments (for tool_call events)
+	ToolResult    string // tool result content (for tool_result events)
+	Error         string // optional tool/stream error details
 }
 
 // GenerateOption is a functional option for configuring AI generation requests.
