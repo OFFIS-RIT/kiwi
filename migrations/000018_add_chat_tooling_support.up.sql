@@ -13,7 +13,12 @@ ALTER TABLE chat_messages
 ALTER TABLE chat_messages
     ADD COLUMN IF NOT EXISTS tool_arguments TEXT NOT NULL DEFAULT '';
 
-DELETE FROM chat_messages WHERE chat_id IS NULL;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM chat_messages WHERE chat_id IS NULL) THEN
+        RAISE EXCEPTION 'chat_messages.chat_id contains NULL values; aborting migration to avoid data loss';
+    END IF;
+END $$;
 
 ALTER TABLE chat_messages
     ALTER COLUMN chat_id SET NOT NULL;

@@ -731,6 +731,9 @@ func QueryProjectHandler(c echo.Context) error {
 			answer = strings.TrimLeft(after, " \t\r\n")
 		}
 	}
+	if !clarificationMode {
+		answer = util.NormalizeIDs(answer)
+	}
 
 	assistantMessage := ai.ChatMessage{Role: "assistant", Message: answer}
 	if err := appendChatMessage(ctx, q, conversation.ID, assistantMessage); err != nil {
@@ -740,7 +743,6 @@ func QueryProjectHandler(c echo.Context) error {
 
 	fileData := make([]responseData, 0)
 	if !clarificationMode {
-		answer = util.NormalizeIDs(answer)
 		re := regexp.MustCompile(`\[\[([^][]+)\]\]`)
 		matches := re.FindAllStringSubmatch(answer, -1)
 		findings := make([]string, 0)
@@ -903,6 +905,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 			logger.Error("Failed to load conversation", "err", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 		}
+		isNewConversation = false
 	}
 
 	historyRows, err := q.GetChatMessagesByChatID(ctx, conversation.ID)
@@ -998,7 +1001,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	foundIds := make(map[string]bool)
 	var messageBuffer strings.Builder
 	var reasoningBuffer strings.Builder
-	contentBytesSent := 0
+	contentRunesSent := 0
 	var allFoundData []responseData
 	clarificationModeKnown := false
 	clarificationMode := false
@@ -1106,7 +1109,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 					messageBuffer.Reset()
 					messageBuffer.WriteString(stripped)
 					currentMessage = stripped
-					contentBytesSent = 0
+					contentRunesSent = 0
 				}
 			}
 
@@ -1139,9 +1142,10 @@ func QueryProjectStreamHandler(c echo.Context) error {
 				}
 			}
 
-			if len(currentMessage) > contentBytesSent {
-				delta := currentMessage[contentBytesSent:]
-				contentBytesSent = len(currentMessage)
+			currentMessageRunes := []rune(currentMessage)
+			if len(currentMessageRunes) > contentRunesSent {
+				delta := string(currentMessageRunes[contentRunesSent:])
+				contentRunesSent = len(currentMessageRunes)
 				if delta != "" {
 					if err := writeSSEEvent(c, "content", map[string]string{"content": delta}); err != nil {
 						return nil
@@ -1152,6 +1156,9 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 
 	finalMessage := messageBuffer.String()
+	if !clarificationMode {
+		finalMessage = util.NormalizeIDs(finalMessage)
+	}
 	assistantMessage := ai.ChatMessage{Role: "assistant", Message: finalMessage}
 	if err := appendChatMessage(ctx, q, conversation.ID, assistantMessage); err != nil {
 		logger.Error("Failed to persist final assistant message", "err", err)
