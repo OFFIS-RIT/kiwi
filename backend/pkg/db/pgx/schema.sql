@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS user_chats (
     id BIGSERIAL PRIMARY KEY,
     public_id TEXT UNIQUE NOT NULL,
     user_id BIGINT NOT NULL,
+    project_id BIGINT REFERENCES projects(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -196,12 +197,21 @@ CREATE TABLE IF NOT EXISTS user_chats (
 -- Chat Messages Table
 CREATE TABLE IF NOT EXISTS chat_messages (
     id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT REFERENCES user_chats(id) ON DELETE CASCADE,
+    chat_id BIGINT NOT NULL REFERENCES user_chats(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
+    tool_call_id TEXT NOT NULL DEFAULT '',
+    tool_name TEXT NOT NULL DEFAULT '',
+    tool_arguments TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_user_chats_user_project_updated_at
+    ON user_chats(user_id, project_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id_id
+    ON chat_messages(chat_id, id);
 
 -- Stats Table
 CREATE TABLE IF NOT EXISTS stats (

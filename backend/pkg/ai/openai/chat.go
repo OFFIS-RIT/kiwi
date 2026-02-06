@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
@@ -230,18 +231,7 @@ func (c *GraphOpenAIClient) GenerateChat(
 		o(&options)
 	}
 
-	msgs := make([]openai.ChatCompletionMessageParamUnion, 0)
-	for _, message := range options.SystemPrompts {
-		msgs = append(msgs, openai.SystemMessage(message))
-	}
-	for _, message := range messages {
-		switch message.Role {
-		case "user":
-			msgs = append(msgs, openai.UserMessage(message.Message))
-		case "assistant":
-			msgs = append(msgs, openai.AssistantMessage(message.Message))
-		}
-	}
+	msgs := buildOpenAIChatMessages(options.SystemPrompts, messages)
 
 	body := openai.ChatCompletionNewParams{
 		Model:       openai.ChatModel(options.Model),
@@ -318,18 +308,7 @@ func (c *GraphOpenAIClient) GenerateChatStream(
 		o(&options)
 	}
 
-	msgs := make([]openai.ChatCompletionMessageParamUnion, 0)
-	for _, message := range options.SystemPrompts {
-		msgs = append(msgs, openai.SystemMessage(message))
-	}
-	for _, message := range messages {
-		switch message.Role {
-		case "user":
-			msgs = append(msgs, openai.UserMessage(message.Message))
-		case "assistant":
-			msgs = append(msgs, openai.AssistantMessage(message.Message))
-		}
-	}
+	msgs := buildOpenAIChatMessages(options.SystemPrompts, messages)
 
 	body := openai.ChatCompletionNewParams{
 		Model:       openai.ChatModel(options.Model),
@@ -365,40 +344,35 @@ func (c *GraphOpenAIClient) GenerateChatStream(
 		defer stream.Close()
 
 		acc := openai.ChatCompletionAccumulator{}
-		contentStarted := false
 
 		for stream.Next() {
 			chunk := stream.Current()
 			acc.AddChunk(chunk)
 
 			if len(chunk.Choices) > 0 {
-				if !contentStarted {
-					var reasoningContent string
-					if reasoningField, ok := chunk.Choices[0].Delta.JSON.ExtraFields["reasoning"]; ok && reasoningField.Raw() != "" {
-						var decoded string
-						if err := json.Unmarshal([]byte(reasoningField.Raw()), &decoded); err == nil && decoded != "" {
-							reasoningContent = decoded
-						}
-					} else if reasoningField, ok := chunk.Choices[0].Delta.JSON.ExtraFields["reasoning_content"]; ok && reasoningField.Raw() != "" {
-						var decoded string
-						if err := json.Unmarshal([]byte(reasoningField.Raw()), &decoded); err == nil && decoded != "" {
-							reasoningContent = decoded
-						}
+				var reasoningContent string
+				if reasoningField, ok := chunk.Choices[0].Delta.JSON.ExtraFields["reasoning"]; ok && reasoningField.Raw() != "" {
+					var decoded string
+					if err := json.Unmarshal([]byte(reasoningField.Raw()), &decoded); err == nil && decoded != "" {
+						reasoningContent = decoded
 					}
-
-					if reasoningContent != "" {
-						select {
-						case contentChan <- ai.StreamEvent{Type: "step", Step: "thinking", Reasoning: reasoningContent}:
-						case <-rCtx.Done():
-							stream.Close()
-							return
-						}
+				} else if reasoningField, ok := chunk.Choices[0].Delta.JSON.ExtraFields["reasoning_content"]; ok && reasoningField.Raw() != "" {
+					var decoded string
+					if err := json.Unmarshal([]byte(reasoningField.Raw()), &decoded); err == nil && decoded != "" {
+						reasoningContent = decoded
 					}
 				}
 
-				// Regular content
+				if reasoningContent != "" {
+					select {
+					case contentChan <- ai.StreamEvent{Type: "reasoning", Content: reasoningContent, Reasoning: reasoningContent}:
+					case <-rCtx.Done():
+						stream.Close()
+						return
+					}
+				}
+
 				if chunk.Choices[0].Delta.Content != "" {
-					contentStarted = true
 					select {
 					case contentChan <- ai.StreamEvent{Type: "content", Content: chunk.Choices[0].Delta.Content}:
 					case <-rCtx.Done():
@@ -605,18 +579,7 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 	}
 
 	maxRounds := 40
-	msgs := make([]openai.ChatCompletionMessageParamUnion, 0)
-	for _, message := range options.SystemPrompts {
-		msgs = append(msgs, openai.SystemMessage(message))
-	}
-	for _, message := range messages {
-		switch message.Role {
-		case "user":
-			msgs = append(msgs, openai.UserMessage(message.Message))
-		case "assistant":
-			msgs = append(msgs, openai.AssistantMessage(message.Message))
-		}
-	}
+	msgs := buildOpenAIChatMessages(options.SystemPrompts, messages)
 
 	openaiTools := make([]openai.ChatCompletionToolUnionParam, len(tools))
 	for i, tool := range tools {
@@ -734,18 +697,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 		o(&options)
 	}
 
-	msgs := make([]openai.ChatCompletionMessageParamUnion, 0)
-	for _, message := range options.SystemPrompts {
-		msgs = append(msgs, openai.SystemMessage(message))
-	}
-	for _, message := range messages {
-		switch message.Role {
-		case "user":
-			msgs = append(msgs, openai.UserMessage(message.Message))
-		case "assistant":
-			msgs = append(msgs, openai.AssistantMessage(message.Message))
-		}
-	}
+	msgs := buildOpenAIChatMessages(options.SystemPrompts, messages)
 
 	openaiTools := make([]openai.ChatCompletionToolUnionParam, len(tools))
 	for i, tool := range tools {
@@ -768,6 +720,15 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 		defer cancel()
 		defer c.chatLock.Release(1)
 		defer close(contentChan)
+
+		sendEvent := func(event ai.StreamEvent) bool {
+			select {
+			case contentChan <- event:
+				return true
+			case <-rCtx.Done():
+				return false
+			}
+		}
 
 		body := openai.ChatCompletionNewParams{
 			Model:       openai.ChatModel(options.Model),
@@ -816,9 +777,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 					}
 
 					if reasoningContent != "" {
-						select {
-						case contentChan <- ai.StreamEvent{Type: "step", Step: "thinking", Reasoning: reasoningContent}:
-						case <-rCtx.Done():
+						if !sendEvent(ai.StreamEvent{Type: "reasoning", Content: reasoningContent, Reasoning: reasoningContent}) {
 							stop = true
 							stream.Close()
 							return
@@ -827,9 +786,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 
 					if chunk.Choices[0].Delta.Content != "" {
 						hasContent = true
-						select {
-						case contentChan <- ai.StreamEvent{Type: "content", Content: chunk.Choices[0].Delta.Content}:
-						case <-rCtx.Done():
+						if !sendEvent(ai.StreamEvent{Type: "content", Content: chunk.Choices[0].Delta.Content}) {
 							stop = true
 							stream.Close()
 							return
@@ -855,13 +812,23 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 
 			if len(acc.Choices) > 0 && len(acc.Choices[0].Message.ToolCalls) > 0 {
 				var toolResults []struct {
-					ID     string
-					Result string
+					ID           string
+					FunctionName string
+					Result       string
 				}
 
 				for _, tc := range acc.Choices[0].Message.ToolCalls {
 					functionName := tc.Function.Name
 					functionArgs := tc.Function.Arguments
+
+					if !sendEvent(ai.StreamEvent{
+						Type:          "tool_call",
+						ToolCallID:    tc.ID,
+						ToolName:      functionName,
+						ToolArguments: functionArgs,
+					}) {
+						return
+					}
 
 					var handler ai.ToolHandler
 					for _, t := range tools {
@@ -873,39 +840,49 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 
 					if handler == nil {
 						logger.Error("[Tool] no handler found", "tool", functionName)
+						result := fmt.Sprintf("No handler for tool %q; do not call again.", functionName)
 						toolResults = append(toolResults, struct {
-							ID     string
-							Result string
+							ID           string
+							FunctionName string
+							Result       string
 						}{
-							ID:     tc.ID,
-							Result: fmt.Sprintf("No handler for tool %q; do not call again.", functionName),
+							ID:           tc.ID,
+							FunctionName: functionName,
+							Result:       result,
 						})
+						if !sendEvent(ai.StreamEvent{Type: "tool_result", ToolCallID: tc.ID, ToolName: functionName, ToolResult: result}) {
+							return
+						}
 						continue
-					}
-
-					select {
-					case contentChan <- ai.StreamEvent{Type: "step", Step: functionName}:
-					case <-rCtx.Done():
-						return
 					}
 
 					result, err := handler(rCtx, functionArgs)
 					if err != nil {
 						logger.Error("[Tool] failed", "tool", functionName, "err", err)
+						result := fmt.Sprintf("Tool error in %q: %v", functionName, err)
 						toolResults = append(toolResults, struct {
-							ID     string
-							Result string
+							ID           string
+							FunctionName string
+							Result       string
 						}{
-							ID:     tc.ID,
-							Result: fmt.Sprintf("Tool error in %q: %v", functionName, err),
+							ID:           tc.ID,
+							FunctionName: functionName,
+							Result:       result,
 						})
+						if !sendEvent(ai.StreamEvent{Type: "tool_result", ToolCallID: tc.ID, ToolName: functionName, ToolResult: result, Error: err.Error()}) {
+							return
+						}
 						continue
 					}
 
 					toolResults = append(toolResults, struct {
-						ID     string
-						Result string
-					}{tc.ID, result})
+						ID           string
+						FunctionName string
+						Result       string
+					}{tc.ID, functionName, result})
+					if !sendEvent(ai.StreamEvent{Type: "tool_result", ToolCallID: tc.ID, ToolName: functionName, ToolResult: result}) {
+						return
+					}
 				}
 
 				// Keep tool call / tool result ordering: assistant tool-call message first,
@@ -927,4 +904,61 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 	}()
 
 	return contentChan, nil
+}
+
+func buildOpenAIChatMessages(systemPrompts []string, messages []ai.ChatMessage) []openai.ChatCompletionMessageParamUnion {
+	msgs := make([]openai.ChatCompletionMessageParamUnion, 0, len(systemPrompts)+len(messages))
+
+	for _, prompt := range systemPrompts {
+		msgs = append(msgs, openai.SystemMessage(prompt))
+	}
+
+	for _, message := range messages {
+		switch message.Role {
+		case "system":
+			msgs = append(msgs, openai.SystemMessage(message.Message))
+		case "assistant_tool_call":
+			toolCallID := strings.TrimSpace(message.ToolCallID)
+			toolName := strings.TrimSpace(message.ToolName)
+			if toolCallID == "" || toolName == "" {
+				if message.Message != "" {
+					msgs = append(msgs, openai.AssistantMessage(message.Message))
+				}
+				continue
+			}
+
+			toolArguments := strings.TrimSpace(message.ToolArguments)
+			if toolArguments == "" {
+				toolArguments = "{}"
+			}
+
+			assistantMessage := openai.ChatCompletionAssistantMessageParam{
+				ToolCalls: []openai.ChatCompletionMessageToolCallUnionParam{
+					{
+						OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
+							ID: toolCallID,
+							Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+								Name:      toolName,
+								Arguments: toolArguments,
+							},
+						},
+					},
+				},
+			}
+
+			msgs = append(msgs, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistantMessage})
+		case "tool":
+			toolCallID := strings.TrimSpace(message.ToolCallID)
+			if toolCallID == "" {
+				continue
+			}
+			msgs = append(msgs, openai.ToolMessage(message.Message, toolCallID))
+		case "assistant":
+			msgs = append(msgs, openai.AssistantMessage(message.Message))
+		default:
+			msgs = append(msgs, openai.UserMessage(message.Message))
+		}
+	}
+
+	return msgs
 }
