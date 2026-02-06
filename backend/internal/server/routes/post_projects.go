@@ -1319,6 +1319,9 @@ func appendPendingToolResult(
 	result := defaultPendingToolResult
 	usedPromptAsToolResult := false
 	if strings.TrimSpace(toolID) != "" {
+		if toolID != pending.ToolCallID {
+			return false, fmt.Errorf("tool_id mismatch: expected %s, got %s", pending.ToolCallID, toolID)
+		}
 		result = prompt
 		usedPromptAsToolResult = true
 	}
