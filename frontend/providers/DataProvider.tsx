@@ -14,6 +14,7 @@ type DataContextType = {
   groups: Group[];
   isLoading: boolean;
   error: string | null;
+  dataUpdatedAt: number;
   addGroup: (name: string) => Promise<void>;
   refreshData: () => Promise<void>;
 };
@@ -32,6 +33,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     isLoading,
     error: queryError,
     refetch,
+    dataUpdatedAt,
   } = useGroupsWithProjects();
 
   // Use mutation hook for creating groups
@@ -56,7 +58,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <DataContext.Provider
-      value={{ groups, isLoading, error, addGroup, refreshData }}
+      value={{ groups, isLoading, error, dataUpdatedAt, addGroup, refreshData }}
     >
       {children}
     </DataContext.Provider>

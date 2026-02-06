@@ -6,6 +6,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCountdown } from "@/hooks/use-countdown";
+import { formatDuration } from "@/lib/utils";
+import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { Project } from "@/types";
 import { PolarAngleAxis, RadialBar, RadialBarChart } from "recharts";
@@ -16,31 +19,16 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return "< 1s";
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  if (minutes < 60) {
-    return remainingSeconds > 0
-      ? `${minutes}m ${remainingSeconds}s`
-      : `${minutes}m`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
-}
-
 type ProjectProgressChartProps = {
   project: Project;
 };
 
 export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
   const { t } = useLanguage();
+  const { dataUpdatedAt } = useData();
   const percentage = project.processPercentage ?? 0;
   const step = project.processStep ?? "";
-  const timeRemaining = project.processTimeRemaining;
+  const timeRemaining = useCountdown(project.processTimeRemaining, dataUpdatedAt);
 
   const chartData = [
     { name: "progress", value: percentage, fill: "var(--foreground)" },
