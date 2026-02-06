@@ -96,6 +96,30 @@ func TestSplitIntoSentences(t *testing.T) {
 				"Done!",
 			},
 		},
+		{
+			name: "date should not split into multiple sentences",
+			text: "Beratungsfolge am 19. 10. 2017 bleibt bestehen. Der Beschluss folgt.",
+			want: []string{
+				"Beratungsfolge am 19. 10. 2017 bleibt bestehen.",
+				"Der Beschluss folgt.",
+			},
+		},
+		{
+			name: "single-letter abbreviation should stay intact",
+			text: "Dies gilt z. B. fuer den Test. Danach folgt mehr.",
+			want: []string{
+				"Dies gilt z. B. fuer den Test.",
+				"Danach folgt mehr.",
+			},
+		},
+		{
+			name: "uppercase single-letter chain before lowercase should split",
+			text: "A. B. folgt ein beispiel.",
+			want: []string{
+				"A. B.",
+				"folgt ein beispiel.",
+			},
+		},
 	}
 
 	for _, tt := range tests {

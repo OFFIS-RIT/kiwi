@@ -77,6 +77,29 @@ func (singleUnitBuilder) buildUnits(req unitRequest) ([]processUnit, error) {
 
 var defaultUnitBuilder unitBuilder = textUnitBuilder{}
 
+var markdownTableDelimiterPattern = regexp.MustCompile(`^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$`)
+
+var commonSentenceAbbreviations = map[string]struct{}{
+	"bsp.":  {},
+	"bzw.":  {},
+	"ca.":   {},
+	"dipl.": {},
+	"dr.":   {},
+	"etc.":  {},
+	"evtl.": {},
+	"geb.":  {},
+	"ing.":  {},
+	"mr.":   {},
+	"mrs.":  {},
+	"ms.":   {},
+	"nr.":   {},
+	"prof.": {},
+	"str.":  {},
+	"tel.":  {},
+	"usw.":  {},
+	"vgl.":  {},
+}
+
 var unitBuildersByType = map[loader.GraphFileType]unitBuilder{
 	loader.GraphFileTypeCSV:   csvUnitBuilder{},
 	loader.GraphFileTypeImage: singleUnitBuilder{},
@@ -402,8 +425,6 @@ func splitIntoSegments(text string) []unitSegment {
 		currentSentence.Reset()
 	}
 
-	tableDelimRe := regexp.MustCompile(`^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$`)
-
 	isTableRow := func(line string) bool {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
@@ -421,7 +442,7 @@ func splitIntoSegments(text string) []unitSegment {
 		line := strings.TrimRight(lines[i], "\r")
 		trimmed := strings.TrimSpace(line)
 
-		if !inTable && isTableRow(line) && i+1 < len(lines) && tableDelimRe.MatchString(strings.TrimSpace(lines[i+1])) {
+		if !inTable && isTableRow(line) && i+1 < len(lines) && markdownTableDelimiterPattern.MatchString(strings.TrimSpace(lines[i+1])) {
 			appendSentence()
 			inTable = true
 			tableID++
@@ -453,9 +474,7 @@ func splitIntoSegments(text string) []unitSegment {
 					}
 					currentSentence.WriteString(sentence)
 
-					if strings.HasSuffix(strings.TrimSpace(sentence), ".") ||
-						strings.HasSuffix(strings.TrimSpace(sentence), "!") ||
-						strings.HasSuffix(strings.TrimSpace(sentence), "?") {
+					if endsWithSentenceTerminator(sentence) {
 						appendSentence()
 					}
 				}
@@ -495,9 +514,7 @@ func splitIntoSegments(text string) []unitSegment {
 			}
 			currentSentence.WriteString(sentence)
 
-			if strings.HasSuffix(strings.TrimSpace(sentence), ".") ||
-				strings.HasSuffix(strings.TrimSpace(sentence), "!") ||
-				strings.HasSuffix(strings.TrimSpace(sentence), "?") {
+			if endsWithSentenceTerminator(sentence) {
 				appendSentence()
 			}
 		}
@@ -527,8 +544,6 @@ func splitIntoSentences(text string) []string {
 	var sentences []string
 	var currentSentence strings.Builder
 
-	tableDelimRe := regexp.MustCompile(`^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$`)
-
 	isTableRow := func(line string) bool {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
@@ -542,7 +557,7 @@ func splitIntoSentences(text string) []string {
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		if !inTable && isTableRow(line) && i+1 < len(lines) && tableDelimRe.MatchString(strings.TrimSpace(lines[i+1])) {
+		if !inTable && isTableRow(line) && i+1 < len(lines) && markdownTableDelimiterPattern.MatchString(strings.TrimSpace(lines[i+1])) {
 			if currentSentence.Len() > 0 {
 				sentences = append(sentences, strings.TrimSpace(currentSentence.String()))
 				currentSentence.Reset()
@@ -577,9 +592,7 @@ func splitIntoSentences(text string) []string {
 						}
 						currentSentence.WriteString(sentence)
 
-						if strings.HasSuffix(strings.TrimSpace(sentence), ".") ||
-							strings.HasSuffix(strings.TrimSpace(sentence), "!") ||
-							strings.HasSuffix(strings.TrimSpace(sentence), "?") {
+						if endsWithSentenceTerminator(sentence) {
 							sentences = append(sentences, strings.TrimSpace(currentSentence.String()))
 							currentSentence.Reset()
 						}
@@ -605,9 +618,7 @@ func splitIntoSentences(text string) []string {
 				}
 				currentSentence.WriteString(sentence)
 
-				if strings.HasSuffix(strings.TrimSpace(sentence), ".") ||
-					strings.HasSuffix(strings.TrimSpace(sentence), "!") ||
-					strings.HasSuffix(strings.TrimSpace(sentence), "?") {
+				if endsWithSentenceTerminator(sentence) {
 					sentences = append(sentences, strings.TrimSpace(currentSentence.String()))
 					currentSentence.Reset()
 				}
@@ -630,49 +641,233 @@ func splitIntoSentences(text string) []string {
 }
 
 func splitLineIntoSentences(line string) []string {
-	var sentences []string
-	var current strings.Builder
+	runes := []rune(line)
+	if len(runes) == 0 {
+		return nil
+	}
 
-	for i := 0; i < len(line); i++ {
-		current.WriteByte(line[i])
+	sentences := make([]string, 0)
+	start := 0
 
-		if line[i] == '.' || line[i] == '!' || line[i] == '?' {
-			isNumericListing := false
+	flush := func(end int) {
+		if end <= start {
+			return
+		}
+		sentence := strings.TrimSpace(string(runes[start:end]))
+		if sentence != "" {
+			sentences = append(sentences, sentence)
+		}
+		start = end
+	}
 
-			if i > 0 && unicode.IsDigit(rune(line[i-1])) {
-				if i+1 < len(line) && line[i+1] == ' ' {
-					isNumericListing = true
-				}
-			}
+	for i := 0; i < len(runes); i++ {
+		if !isSentenceBoundaryAtRune(runes, i) {
+			continue
+		}
 
-			if isNumericListing {
-				continue
-			}
-			j := i + 1
-			for j < len(line) && (line[j] == '.' || line[j] == '!' || line[j] == '?') {
-				current.WriteByte(line[j])
-				j++
-			}
+		end := i + 1
+		for end < len(runes) && (runes[end] == '.' || runes[end] == '!' || runes[end] == '?') {
+			end++
+		}
+		for end < len(runes) && isSentenceClosingRune(runes[end]) {
+			end++
+		}
 
-			for j < len(line) && (line[j] == '"' || line[j] == '\'' || line[j] == ')' ||
-				line[j] == ']' || line[j] == '}') {
-				current.WriteByte(line[j])
-				j++
-			}
+		flush(end)
+		i = end - 1
+	}
 
-			sentence := strings.TrimSpace(current.String())
-			if sentence != "" {
-				sentences = append(sentences, sentence)
-			}
-			current.Reset()
-			i = j - 1
+	flush(len(runes))
+
+	return sentences
+}
+
+func endsWithSentenceTerminator(sentence string) bool {
+	trimmed := strings.TrimSpace(sentence)
+	if trimmed == "" {
+		return false
+	}
+
+	runes := []rune(trimmed)
+	idx := len(runes) - 1
+	for idx >= 0 && isSentenceClosingRune(runes[idx]) {
+		idx--
+	}
+	if idx < 0 {
+		return false
+	}
+
+	return runes[idx] == '.' || runes[idx] == '!' || runes[idx] == '?'
+}
+
+func isSentenceBoundaryAtRune(runes []rune, idx int) bool {
+	if idx < 0 || idx >= len(runes) {
+		return false
+	}
+
+	switch runes[idx] {
+	case '!', '?':
+		return true
+	case '.':
+		if isDateOrDecimalDot(runes, idx) {
+			return false
+		}
+		if isNumericListingDot(runes, idx) {
+			return false
+		}
+		if isAbbreviationDot(runes, idx) {
+			return false
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func isDateOrDecimalDot(runes []rune, dotIndex int) bool {
+	prev := previousNonSpaceRuneIndex(runes, dotIndex-1)
+	next := nextNonSpaceRuneIndex(runes, dotIndex+1)
+
+	if prev >= 0 && next >= 0 && unicode.IsDigit(runes[prev]) && unicode.IsDigit(runes[next]) {
+		return true
+	}
+
+	if prev < 0 || !unicode.IsDigit(runes[prev]) {
+		return false
+	}
+
+	numberStart := prev
+	for numberStart >= 0 && unicode.IsDigit(runes[numberStart]) {
+		numberStart--
+	}
+
+	prevDot := previousNonSpaceRuneIndex(runes, numberStart)
+	prevDigit := previousNonSpaceRuneIndex(runes, prevDot-1)
+	if prevDot >= 0 && runes[prevDot] == '.' && prevDigit >= 0 && unicode.IsDigit(runes[prevDigit]) {
+		return true
+	}
+
+	return false
+}
+
+func isNumericListingDot(runes []rune, dotIndex int) bool {
+	prev := previousNonSpaceRuneIndex(runes, dotIndex-1)
+	next := nextNonSpaceRuneIndex(runes, dotIndex+1)
+	if prev < 0 || next < 0 {
+		return false
+	}
+	if !unicode.IsDigit(runes[prev]) || !unicode.IsLetter(runes[next]) {
+		return false
+	}
+
+	if dotIndex+1 < len(runes) && unicode.IsSpace(runes[dotIndex+1]) && unicode.IsUpper(runes[next]) {
+		return true
+	}
+
+	numberStart := prev
+	for numberStart >= 0 && unicode.IsDigit(runes[numberStart]) {
+		numberStart--
+	}
+
+	beforeNumber := previousNonSpaceRuneIndex(runes, numberStart)
+	if beforeNumber < 0 {
+		return true
+	}
+
+	switch runes[beforeNumber] {
+	case '.', ':', ';', '(', '[', '{':
+		return true
+	default:
+		return false
+	}
+}
+
+func isAbbreviationDot(runes []rune, dotIndex int) bool {
+	prev := previousNonSpaceRuneIndex(runes, dotIndex-1)
+	if prev < 0 || !unicode.IsLetter(runes[prev]) {
+		return false
+	}
+
+	wordStart := prev
+	for wordStart >= 0 && (unicode.IsLetter(runes[wordStart]) || runes[wordStart] == '-') {
+		wordStart--
+	}
+
+	word := strings.ToLower(strings.TrimSpace(string(runes[wordStart+1 : prev+1])))
+	if word == "" {
+		return false
+	}
+
+	if _, ok := commonSentenceAbbreviations[word+"."]; ok {
+		return true
+	}
+
+	wordRunes := []rune(word)
+	if len(wordRunes) != 1 {
+		return false
+	}
+
+	next := nextNonSpaceRuneIndex(runes, dotIndex+1)
+	if next >= 0 && unicode.IsLetter(runes[next]) {
+		nextDot := nextNonSpaceRuneIndex(runes, next+1)
+		if nextDot >= 0 && runes[nextDot] == '.' {
+			return true
 		}
 	}
 
-	remaining := strings.TrimSpace(current.String())
-	if remaining != "" {
-		sentences = append(sentences, remaining)
+	prevDot := previousNonSpaceRuneIndex(runes, wordStart)
+	if prevDot < 0 || runes[prevDot] != '.' {
+		return false
 	}
 
-	return sentences
+	prevLetter := previousNonSpaceRuneIndex(runes, prevDot-1)
+	if prevLetter < 0 || !unicode.IsLetter(runes[prevLetter]) {
+		return false
+	}
+
+	prevWordStart := prevLetter
+	for prevWordStart >= 0 && unicode.IsLetter(runes[prevWordStart]) {
+		prevWordStart--
+	}
+
+	if prevLetter-prevWordStart != 1 {
+		return false
+	}
+
+	nextAfterDot := nextNonSpaceRuneIndex(runes, dotIndex+1)
+	if nextAfterDot >= 0 &&
+		unicode.IsLower(runes[nextAfterDot]) &&
+		unicode.IsUpper(runes[prev]) &&
+		unicode.IsUpper(runes[prevLetter]) {
+		return false
+	}
+
+	return true
+}
+
+func previousNonSpaceRuneIndex(runes []rune, start int) int {
+	for i := start; i >= 0; i-- {
+		if !unicode.IsSpace(runes[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+func nextNonSpaceRuneIndex(runes []rune, start int) int {
+	for i := start; i < len(runes); i++ {
+		if !unicode.IsSpace(runes[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+func isSentenceClosingRune(r rune) bool {
+	switch r {
+	case '"', '\'', ')', ']', '}', '»', '“', '”':
+		return true
+	default:
+		return false
+	}
 }
