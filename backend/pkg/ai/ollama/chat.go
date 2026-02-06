@@ -456,6 +456,7 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 	}
 
 	ollamaTools := make(api.Tools, len(tools))
+	toolByName := make(map[string]ai.Tool, len(tools))
 	for i, tool := range tools {
 		params := api.ToolFunctionParameters{
 			Type:       "object",
@@ -501,6 +502,7 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 				Parameters:  params,
 			},
 		}
+		toolByName[tool.Name] = tool
 	}
 
 	for range maxRounds {
@@ -563,15 +565,19 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 			return final.Message.Content, nil
 		}
 
+		for _, tc := range final.Message.ToolCalls {
+			if toolDef, ok := toolByName[tc.Function.Name]; ok && toolDef.NormalizedToolExecution() == ai.ToolExecutionClient {
+				return "", fmt.Errorf("client tool call requested: %s (%s)", tc.Function.Name, tc.ID)
+			}
+		}
+
 		messages = append(messages, final.Message)
 
 		for _, tc := range final.Message.ToolCalls {
+			toolDef, exists := toolByName[tc.Function.Name]
 			var handler ai.ToolHandler
-			for _, tool := range tools {
-				if tool.Name == tc.Function.Name {
-					handler = tool.Handler
-					break
-				}
+			if exists {
+				handler = toolDef.Handler
 			}
 
 			if handler == nil {
@@ -624,6 +630,7 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 	msgs := buildOllamaChatMessages(options.SystemPrompts, messages)
 
 	ollamaTools := make(api.Tools, len(tools))
+	toolByName := make(map[string]ai.Tool, len(tools))
 	for i, tool := range tools {
 		params := api.ToolFunctionParameters{
 			Type:       "object",
@@ -669,6 +676,7 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 				Parameters:  params,
 			},
 		}
+		toolByName[tool.Name] = tool
 	}
 
 	for range maxRounds {
@@ -736,15 +744,19 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 			return final.Message.Content, nil
 		}
 
+		for _, tc := range final.Message.ToolCalls {
+			if toolDef, ok := toolByName[tc.Function.Name]; ok && toolDef.NormalizedToolExecution() == ai.ToolExecutionClient {
+				return "", fmt.Errorf("client tool call requested: %s (%s)", tc.Function.Name, tc.ID)
+			}
+		}
+
 		msgs = append(msgs, final.Message)
 
 		for _, tc := range final.Message.ToolCalls {
+			toolDef, exists := toolByName[tc.Function.Name]
 			var handler ai.ToolHandler
-			for _, tool := range tools {
-				if tool.Name == tc.Function.Name {
-					handler = tool.Handler
-					break
-				}
+			if exists {
+				handler = toolDef.Handler
 			}
 
 			if handler == nil {
@@ -795,6 +807,7 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 	msgs := buildOllamaChatMessages(options.SystemPrompts, messages)
 
 	ollamaTools := make(api.Tools, len(tools))
+	toolByName := make(map[string]ai.Tool, len(tools))
 	for i, tool := range tools {
 		params := api.ToolFunctionParameters{
 			Type:       "object",
@@ -840,10 +853,12 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 				Parameters:  params,
 			},
 		}
+		toolByName[tool.Name] = tool
 	}
 
 	maxRounds := 40
 	preStreamEvents := make([]ai.StreamEvent, 0)
+	clientToolCallPending := false
 	for range maxRounds {
 		stream := false
 		req := &api.ChatRequest{
@@ -912,6 +927,27 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 			break
 		}
 
+		for _, tc := range final.Message.ToolCalls {
+			if toolDef, ok := toolByName[tc.Function.Name]; ok && toolDef.NormalizedToolExecution() == ai.ToolExecutionClient {
+				argsBytes, err := json.Marshal(tc.Function.Arguments)
+				if err != nil {
+					argsBytes = []byte("{}")
+				}
+				preStreamEvents = append(preStreamEvents, ai.StreamEvent{
+					Type:          "tool_call",
+					ToolCallID:    tc.ID,
+					ToolName:      tc.Function.Name,
+					ToolExecution: ai.ToolExecutionClient,
+					ToolArguments: string(argsBytes),
+				})
+				clientToolCallPending = true
+				break
+			}
+		}
+		if clientToolCallPending {
+			break
+		}
+
 		msgs = append(msgs, final.Message)
 
 		for _, tc := range final.Message.ToolCalls {
@@ -925,24 +961,26 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 				Type:          "tool_call",
 				ToolCallID:    tc.ID,
 				ToolName:      tc.Function.Name,
+				ToolExecution: ai.ToolExecutionServer,
 				ToolArguments: arguments,
 			})
 
+			toolDef, exists := toolByName[tc.Function.Name]
+			toolExecution := ai.ToolExecutionServer
 			var handler ai.ToolHandler
-			for _, tool := range tools {
-				if tool.Name == tc.Function.Name {
-					handler = tool.Handler
-					break
-				}
+			if exists {
+				toolExecution = toolDef.NormalizedToolExecution()
+				handler = toolDef.Handler
 			}
 
 			if handler == nil {
 				result := fmt.Sprintf("No handler for tool %q; do not call again.", tc.Function.Name)
 				preStreamEvents = append(preStreamEvents, ai.StreamEvent{
-					Type:       "tool_result",
-					ToolCallID: tc.ID,
-					ToolName:   tc.Function.Name,
-					ToolResult: result,
+					Type:          "tool_result",
+					ToolCallID:    tc.ID,
+					ToolName:      tc.Function.Name,
+					ToolExecution: toolExecution,
+					ToolResult:    result,
 				})
 				msgs = append(msgs, api.Message{
 					Role:       "tool",
@@ -957,11 +995,12 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 			if err != nil {
 				result = fmt.Sprintf("Tool error in %q: %v", tc.Function.Name, err)
 				preStreamEvents = append(preStreamEvents, ai.StreamEvent{
-					Type:       "tool_result",
-					ToolCallID: tc.ID,
-					ToolName:   tc.Function.Name,
-					ToolResult: result,
-					Error:      err.Error(),
+					Type:          "tool_result",
+					ToolCallID:    tc.ID,
+					ToolName:      tc.Function.Name,
+					ToolExecution: toolExecution,
+					ToolResult:    result,
+					Error:         err.Error(),
 				})
 				msgs = append(msgs, api.Message{
 					Role:       "tool",
@@ -973,10 +1012,11 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 			}
 
 			preStreamEvents = append(preStreamEvents, ai.StreamEvent{
-				Type:       "tool_result",
-				ToolCallID: tc.ID,
-				ToolName:   tc.Function.Name,
-				ToolResult: result,
+				Type:          "tool_result",
+				ToolCallID:    tc.ID,
+				ToolName:      tc.Function.Name,
+				ToolExecution: toolExecution,
+				ToolResult:    result,
 			})
 
 			msgs = append(msgs, api.Message{
@@ -986,6 +1026,22 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 				ToolCallID: tc.ID,
 			})
 		}
+	}
+
+	if clientToolCallPending {
+		out := make(chan ai.StreamEvent, len(preStreamEvents)+1)
+		go func() {
+			defer cancel()
+			defer close(out)
+			for _, event := range preStreamEvents {
+				select {
+				case out <- event:
+				case <-rCtx.Done():
+					return
+				}
+			}
+		}()
+		return out, nil
 	}
 
 	if err := c.reqLock.Acquire(rCtx, 1); err != nil {

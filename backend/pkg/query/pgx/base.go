@@ -10,10 +10,9 @@ import (
 )
 
 type queryOptions struct {
-	SystemPrompts       []string
-	Model               string
-	Thinking            string
-	EnableClarification bool
+	SystemPrompts []string
+	Model         string
+	Thinking      string
 }
 
 // QueryOption is a functional option for configuring query behavior.
@@ -40,14 +39,6 @@ func WithModel(model string) QueryOption {
 func WithThinking(thinking string) QueryOption {
 	return func(o *queryOptions) {
 		o.Thinking = thinking
-	}
-}
-
-// WithClarification enables clarification questions in agentic mode.
-// When disabled, query behavior remains unchanged.
-func WithClarification(enabled bool) QueryOption {
-	return func(o *queryOptions) {
-		o.EnableClarification = enabled
 	}
 }
 

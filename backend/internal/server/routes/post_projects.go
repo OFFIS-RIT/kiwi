@@ -26,6 +26,14 @@ import (
 	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/pgx"
 )
 
+const defaultPendingToolResult = "No answer"
+
+type clientToolCallResponse struct {
+	ToolCallID    string `json:"tool_call_id"`
+	ToolName      string `json:"tool_name"`
+	ToolArguments string `json:"tool_arguments"`
+}
+
 // CreateProjectHandler creates a new project from multipart/form-data
 func CreateProjectHandler(c echo.Context) error {
 	type createProjectBody struct {
@@ -455,9 +463,6 @@ func AddFilesToProjectHandler(c echo.Context) error {
 
 // QueryProjectHandler handles project queries
 func QueryProjectHandler(c echo.Context) error {
-	const clarificationMarker = "KIWI_CLARIFICATION_REQUIRED"
-	const clarificationMarkerLen = len(clarificationMarker)
-
 	type queryProjectRequest struct {
 		ProjectID      int64  `param:"id" validate:"required,numeric"`
 		Prompt         string `json:"prompt" validate:"required"`
@@ -465,6 +470,7 @@ func QueryProjectHandler(c echo.Context) error {
 		Mode           string `json:"mode"`
 		Model          string `json:"model"`
 		Think          bool   `json:"think"`
+		ToolID         string `json:"tool_id,omitempty"`
 	}
 
 	type responseData struct {
@@ -475,12 +481,13 @@ func QueryProjectHandler(c echo.Context) error {
 	}
 
 	type queryProjectResponse struct {
-		ConversationID      string         `json:"conversation_id"`
-		Message             string         `json:"message"`
-		Data                []responseData `json:"data"`
-		Reasoning           string         `json:"reasoning,omitempty"`
-		ConsideredFileCount int            `json:"considered_file_count"`
-		UsedFileCount       int            `json:"used_file_count"`
+		ConversationID      string                  `json:"conversation_id"`
+		Message             string                  `json:"message"`
+		Data                []responseData          `json:"data"`
+		ClientToolCall      *clientToolCallResponse `json:"client_tool_call,omitempty"`
+		Reasoning           string                  `json:"reasoning,omitempty"`
+		ConsideredFileCount int                     `json:"considered_file_count"`
+		UsedFileCount       int                     `json:"used_file_count"`
 	}
 
 	data := new(queryProjectRequest)
@@ -493,6 +500,15 @@ func QueryProjectHandler(c echo.Context) error {
 	if err := c.Validate(data); err != nil {
 		return c.JSON(http.StatusBadRequest, queryProjectResponse{
 			Message: "Invalid request body",
+			Data:    []responseData{},
+		})
+	}
+
+	data.Prompt = strings.TrimSpace(data.Prompt)
+	data.ToolID = strings.TrimSpace(data.ToolID)
+	if data.Prompt == "" {
+		return c.JSON(http.StatusBadRequest, queryProjectResponse{
+			Message: "prompt is required",
 			Data:    []responseData{},
 		})
 	}
@@ -590,11 +606,23 @@ func QueryProjectHandler(c echo.Context) error {
 		})
 	}
 
-	userMessage := ai.ChatMessage{Role: "user", Message: data.Prompt}
-	chatHistory = append(chatHistory, userMessage)
-	if err := appendChatMessage(ctx, q, conversation.ID, userMessage); err != nil {
-		logger.Error("Failed to persist user prompt", "err", err)
-		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+	pendingToolCall := getPendingToolCall(historyRows)
+	promptHandledAsToolResult := false
+	if pendingToolCall != nil {
+		promptHandledAsToolResult, err = appendPendingToolResult(ctx, q, conversation.ID, &chatHistory, pendingToolCall, data.ToolID, data.Prompt)
+		if err != nil {
+			logger.Error("Failed to persist pending tool result", "err", err)
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+		}
+	}
+
+	if !promptHandledAsToolResult {
+		userMessage := ai.ChatMessage{Role: "user", Message: data.Prompt}
+		chatHistory = append(chatHistory, userMessage)
+		if err := appendChatMessage(ctx, q, conversation.ID, userMessage); err != nil {
+			logger.Error("Failed to persist user prompt", "err", err)
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+		}
 	}
 
 	msgs := []string{data.Prompt}
@@ -629,18 +657,22 @@ func QueryProjectHandler(c echo.Context) error {
 		opts = append(opts, bqc.WithThinking("medium"))
 	}
 
-	if util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false) {
-		opts = append(opts, bqc.WithClarification(true))
+	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, fmt.Sprintf("%d", data.ProjectID), opts)
+	clarificationEnabled := util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false)
+	queryMode := data.Mode
+	if pendingToolCall != nil {
+		queryMode = "agentic"
 	}
 
-	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, fmt.Sprintf("%d", data.ProjectID), opts)
-
 	var contentChan <-chan ai.StreamEvent
-	switch data.Mode {
+	switch queryMode {
 	case "normal":
 		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
 	case "agentic":
 		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, trace)
+		if clarificationEnabled {
+			toolList = append(toolList, graphstorage.GetClarificationTool())
+		}
 		contentChan, err = queryClient.QueryStreamAgentic(ctx, chatHistory, toolList)
 	default:
 		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
@@ -655,6 +687,7 @@ func QueryProjectHandler(c echo.Context) error {
 
 	var messageBuffer strings.Builder
 	var reasoningBuffer strings.Builder
+	var pendingClientToolCall *clientToolCallResponse
 
 	for event := range contentChan {
 		switch event.Type {
@@ -703,6 +736,13 @@ func QueryProjectHandler(c echo.Context) error {
 				logger.Error("Failed to persist tool call", "err", err)
 				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
 			}
+			if event.ToolExecution == ai.ToolExecutionClient {
+				pendingClientToolCall = &clientToolCallResponse{
+					ToolCallID:    event.ToolCallID,
+					ToolName:      event.ToolName,
+					ToolArguments: event.ToolArguments,
+				}
+			}
 		case "tool_result":
 			result := event.ToolResult
 			if result == "" {
@@ -723,17 +763,22 @@ func QueryProjectHandler(c echo.Context) error {
 		}
 	}
 
-	answer := messageBuffer.String()
-	clarificationMode := false
-	if len(answer) >= clarificationMarkerLen {
-		if after, ok := strings.CutPrefix(answer, clarificationMarker); ok {
-			clarificationMode = true
-			answer = strings.TrimLeft(after, " \t\r\n")
+	if pendingClientToolCall != nil {
+		resp := queryProjectResponse{
+			ConversationID:      conversation.PublicID,
+			Message:             "",
+			Data:                []responseData{},
+			ClientToolCall:      pendingClientToolCall,
+			ConsideredFileCount: 0,
+			UsedFileCount:       0,
 		}
+		if reasoningBuffer.Len() > 0 {
+			resp.Reasoning = reasoningBuffer.String()
+		}
+		return c.JSON(http.StatusOK, resp)
 	}
-	if !clarificationMode {
-		answer = util.NormalizeIDs(answer)
-	}
+
+	answer := util.NormalizeIDs(messageBuffer.String())
 
 	assistantMessage := ai.ChatMessage{Role: "assistant", Message: answer}
 	if err := appendChatMessage(ctx, q, conversation.ID, assistantMessage); err != nil {
@@ -742,31 +787,29 @@ func QueryProjectHandler(c echo.Context) error {
 	}
 
 	fileData := make([]responseData, 0)
-	if !clarificationMode {
-		re := regexp.MustCompile(`\[\[([^][]+)\]\]`)
-		matches := re.FindAllStringSubmatch(answer, -1)
-		findings := make([]string, 0)
-		for _, match := range matches {
-			id := match[1]
-			found := slices.Contains(findings, id)
-			if !found {
-				findings = append(findings, id)
-			}
+	re := regexp.MustCompile(`\[\[([^][]+)\]\]`)
+	matches := re.FindAllStringSubmatch(answer, -1)
+	findings := make([]string, 0)
+	for _, match := range matches {
+		id := match[1]
+		found := slices.Contains(findings, id)
+		if !found {
+			findings = append(findings, id)
 		}
-		files, err := q.GetFilesFromTextUnitIDs(ctx, findings)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, queryProjectResponse{
-				Message: "Internal server error",
-				Data:    []responseData{},
-			})
-		}
-		for _, file := range files {
-			fileData = append(fileData, responseData{
-				ID:   file.PublicID,
-				Key:  file.FileKey,
-				Name: file.Name,
-			})
-		}
+	}
+	files, err := q.GetFilesFromTextUnitIDs(ctx, findings)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
+			Message: "Internal server error",
+			Data:    []responseData{},
+		})
+	}
+	for _, file := range files {
+		fileData = append(fileData, responseData{
+			ID:   file.PublicID,
+			Key:  file.FileKey,
+			Name: file.Name,
+		})
 	}
 
 	usedFileKeySet := make(map[string]struct{})
@@ -811,9 +854,6 @@ func QueryProjectHandler(c echo.Context) error {
 
 // QueryProjectStreamHandler handles streaming project queries
 func QueryProjectStreamHandler(c echo.Context) error {
-	const clarificationMarker = "KIWI_CLARIFICATION_REQUIRED"
-	const clarificationMarkerLen = len(clarificationMarker)
-
 	type queryProjectRequest struct {
 		ProjectID      int64  `param:"id" validate:"required,numeric"`
 		Prompt         string `json:"prompt" validate:"required"`
@@ -821,6 +861,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		Mode           string `json:"mode"`
 		Model          string `json:"model"`
 		Think          bool   `json:"think"`
+		ToolID         string `json:"tool_id,omitempty"`
 	}
 
 	type responseData struct {
@@ -836,6 +877,12 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 	if err := c.Validate(data); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "Invalid request body"})
+	}
+
+	data.Prompt = strings.TrimSpace(data.Prompt)
+	data.ToolID = strings.TrimSpace(data.ToolID)
+	if data.Prompt == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "prompt is required"})
 	}
 
 	user := c.(*middleware.AppContext).User
@@ -925,12 +972,24 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		})
 	}
 
-	userMessage := ai.ChatMessage{Role: "user", Message: data.Prompt}
-	chatHistory = append(chatHistory, userMessage)
+	pendingToolCall := getPendingToolCall(historyRows)
+	promptHandledAsToolResult := false
+	if pendingToolCall != nil {
+		promptHandledAsToolResult, err = appendPendingToolResult(ctx, q, conversation.ID, &chatHistory, pendingToolCall, data.ToolID, data.Prompt)
+		if err != nil {
+			logger.Error("Failed to persist pending tool result", "err", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
+		}
+	}
 
-	if err := appendChatMessage(ctx, q, conversation.ID, userMessage); err != nil {
-		logger.Error("Failed to persist user prompt", "err", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
+	if !promptHandledAsToolResult {
+		userMessage := ai.ChatMessage{Role: "user", Message: data.Prompt}
+		chatHistory = append(chatHistory, userMessage)
+
+		if err := appendChatMessage(ctx, q, conversation.ID, userMessage); err != nil {
+			logger.Error("Failed to persist user prompt", "err", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
+		}
 	}
 
 	msgs := []string{data.Prompt}
@@ -961,10 +1020,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	if data.Think {
 		opts = append(opts, bqc.WithThinking("medium"))
 	}
-
-	if util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false) {
-		opts = append(opts, bqc.WithClarification(true))
-	}
+	clarificationEnabled := util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false)
 
 	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
 	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
@@ -980,13 +1036,20 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 
 	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, fmt.Sprintf("%d", data.ProjectID), opts)
+	queryMode := data.Mode
+	if pendingToolCall != nil {
+		queryMode = "agentic"
+	}
 
 	var contentChan <-chan ai.StreamEvent
-	switch data.Mode {
+	switch queryMode {
 	case "normal":
 		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
 	case "agentic":
 		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, trace)
+		if clarificationEnabled {
+			toolList = append(toolList, graphstorage.GetClarificationTool())
+		}
 		contentChan, err = queryClient.QueryStreamAgentic(ctx, chatHistory, toolList)
 	default:
 		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
@@ -1003,8 +1066,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	var reasoningBuffer strings.Builder
 	contentRunesSent := 0
 	var allFoundData []responseData
-	clarificationModeKnown := false
-	clarificationMode := false
+	var pendingClientToolCall *clientToolCallResponse
 
 	for event := range contentChan {
 		switch event.Type {
@@ -1075,6 +1137,18 @@ func QueryProjectStreamHandler(c echo.Context) error {
 				return nil
 			}
 
+			if event.ToolExecution == ai.ToolExecutionClient {
+				pendingClientToolCall = &clientToolCallResponse{
+					ToolCallID:    event.ToolCallID,
+					ToolName:      event.ToolName,
+					ToolArguments: event.ToolArguments,
+				}
+				if err := writeSSEEvent(c, "client_tool_call", pendingClientToolCall); err != nil {
+					return nil
+				}
+				continue
+			}
+
 			if err := writeSSEEvent(c, "tool", map[string]string{"name": event.ToolName}); err != nil {
 				return nil
 			}
@@ -1098,46 +1172,29 @@ func QueryProjectStreamHandler(c echo.Context) error {
 			messageBuffer.WriteString(event.Content)
 			currentMessage := messageBuffer.String()
 
-			if !clarificationModeKnown {
-				if len(currentMessage) < clarificationMarkerLen {
-					continue
-				}
-				clarificationModeKnown = true
-				clarificationMode = strings.HasPrefix(currentMessage, clarificationMarker)
-				if clarificationMode {
-					stripped := strings.TrimLeft(strings.TrimPrefix(currentMessage, clarificationMarker), " \t\r\n")
-					messageBuffer.Reset()
-					messageBuffer.WriteString(stripped)
-					currentMessage = stripped
-					contentRunesSent = 0
+			normalizedMessage := util.NormalizeIDs(currentMessage)
+			matches := re.FindAllStringSubmatch(normalizedMessage, -1)
+			newIDs := make([]string, 0)
+
+			for _, match := range matches {
+				id := match[1]
+				if !foundIds[id] {
+					foundIds[id] = true
+					newIDs = append(newIDs, id)
 				}
 			}
 
-			if !clarificationMode {
-				normalizedMessage := util.NormalizeIDs(currentMessage)
-				matches := re.FindAllStringSubmatch(normalizedMessage, -1)
-				newIDs := make([]string, 0)
-
-				for _, match := range matches {
-					id := match[1]
-					if !foundIds[id] {
-						foundIds[id] = true
-						newIDs = append(newIDs, id)
-					}
-				}
-
-				if len(newIDs) > 0 {
-					files, err := q.GetFilesFromTextUnitIDs(ctx, newIDs)
-					if err != nil {
-						logger.Error("Error getting files for stream response", "err", err)
-					} else {
-						for _, file := range files {
-							allFoundData = append(allFoundData, responseData{
-								ID:   file.PublicID,
-								Key:  file.FileKey,
-								Name: file.Name,
-							})
-						}
+			if len(newIDs) > 0 {
+				files, err := q.GetFilesFromTextUnitIDs(ctx, newIDs)
+				if err != nil {
+					logger.Error("Error getting files for stream response", "err", err)
+				} else {
+					for _, file := range files {
+						allFoundData = append(allFoundData, responseData{
+							ID:   file.PublicID,
+							Key:  file.FileKey,
+							Name: file.Name,
+						})
 					}
 				}
 			}
@@ -1155,10 +1212,27 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		}
 	}
 
-	finalMessage := messageBuffer.String()
-	if !clarificationMode {
-		finalMessage = util.NormalizeIDs(finalMessage)
+	if pendingClientToolCall != nil {
+		metrics := aiClient.GetMetrics()
+		if err := writeSSEEvent(c, "metrics", metrics); err != nil {
+			return nil
+		}
+
+		doneData := map[string]any{
+			"conversation_id":  conversation.PublicID,
+			"message":          "",
+			"data":             []responseData{},
+			"client_tool_call": pendingClientToolCall,
+		}
+		if reasoningBuffer.Len() > 0 {
+			doneData["reasoning"] = reasoningBuffer.String()
+		}
+
+		_ = writeSSEEvent(c, "done", doneData)
+		return nil
 	}
+
+	finalMessage := util.NormalizeIDs(messageBuffer.String())
 	assistantMessage := ai.ChatMessage{Role: "assistant", Message: finalMessage}
 	if err := appendChatMessage(ctx, q, conversation.ID, assistantMessage); err != nil {
 		logger.Error("Failed to persist final assistant message", "err", err)
@@ -1210,6 +1284,58 @@ func QueryProjectStreamHandler(c echo.Context) error {
 
 	_ = writeSSEEvent(c, "done", doneData)
 	return nil
+}
+
+func getPendingToolCall(historyRows []pgdb.ChatMessage) *pgdb.ChatMessage {
+	if len(historyRows) == 0 {
+		return nil
+	}
+
+	last := historyRows[len(historyRows)-1]
+	if last.Role != "assistant_tool_call" {
+		return nil
+	}
+	if strings.TrimSpace(last.ToolCallID) == "" {
+		return nil
+	}
+
+	pending := last
+	return &pending
+}
+
+func appendPendingToolResult(
+	ctx context.Context,
+	q *pgdb.Queries,
+	chatID int64,
+	chatHistory *[]ai.ChatMessage,
+	pending *pgdb.ChatMessage,
+	toolID string,
+	prompt string,
+) (bool, error) {
+	if pending == nil {
+		return false, nil
+	}
+
+	result := defaultPendingToolResult
+	usedPromptAsToolResult := false
+	if strings.TrimSpace(toolID) != "" {
+		result = prompt
+		usedPromptAsToolResult = true
+	}
+
+	toolResult := ai.ChatMessage{
+		Role:       "tool",
+		Message:    result,
+		ToolCallID: pending.ToolCallID,
+		ToolName:   pending.ToolName,
+	}
+	*chatHistory = append(*chatHistory, toolResult)
+
+	if err := appendChatMessage(ctx, q, chatID, toolResult); err != nil {
+		return false, err
+	}
+
+	return usedPromptAsToolResult, nil
 }
 
 func appendChatMessage(ctx context.Context, q *pgdb.Queries, chatID int64, message ai.ChatMessage) error {

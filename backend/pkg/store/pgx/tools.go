@@ -940,6 +940,35 @@ func toolGetSourceDocumentMetadata(conn *pgxpool.Pool, trace graphquery.Tracer) 
 	}
 }
 
+// GetClarificationTool returns a client-executed tool that requests
+// clarification questions from the user when the prompt is ambiguous.
+func GetClarificationTool() ai.Tool {
+	return ai.Tool{
+		Name:        "ask_clarifying_questions",
+		Description: "Use this only when the user request is ambiguous or underspecified and you would otherwise need to guess. Ask 1-3 concise clarification questions in the user's language before calling retrieval tools. The tool result will contain the user's clarification answer as plain text.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"questions": map[string]any{
+					"type":        "array",
+					"description": "List of 1-3 concise, actionable clarification questions.",
+					"items": map[string]any{
+						"type": "string",
+					},
+					"minItems": 1,
+					"maxItems": 3,
+				},
+				"reason": map[string]any{
+					"type":        "string",
+					"description": "Short explanation of what information is missing.",
+				},
+			},
+			"required": []string{"questions"},
+		},
+		Execution: ai.ToolExecutionClient,
+	}
+}
+
 // GetToolList returns a set of AI tools for exploring and querying a knowledge
 // graph. Tools include entity search, relationship search, neighbour exploration,
 // path finding, source retrieval, and document metadata access. These tools

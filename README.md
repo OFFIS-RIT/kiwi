@@ -323,8 +323,10 @@ Copy `.env.sample` to `.env` and configure:
 Agentic queries can optionally ask clarifying questions when a user request is
 ambiguous or underspecified.
 
-- `AI_ENABLE_QUERY_CLARIFICATION` (default: `false`): when enabled, the server
-  may return a clarification response instead of attempting a best-guess answer.
+- `AI_ENABLE_QUERY_CLARIFICATION` (default: `false`): when enabled, agentic mode
+  exposes a client tool (`ask_clarifying_questions`). If called, the backend
+  returns the tool call metadata and waits for a follow-up request. In that
+  follow-up request, set `tool_id` and send the tool answer in `prompt`.
 
 Note: When all LDAP variables are set, LDAP sign-in is enabled and email/password auth is disabled.
 
