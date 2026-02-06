@@ -13,6 +13,7 @@ import { useState } from "react";
  * - gcTime: 5 minutes
  * - retry: 1 attempt for both queries and mutations
  * - refetchOnWindowFocus: enabled
+ * - refetchOnReconnect: enabled
  * - refetchOnMount: disabled (uses stale data)
  */
 export function QueryProvider({ children }: { children: React.ReactNode }) {
@@ -25,6 +26,7 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             gcTime: 5 * 60 * 1000,
             retry: 1,
             refetchOnWindowFocus: true,
+            refetchOnReconnect: true,
             refetchOnMount: false,
           },
           mutations: {
