@@ -15,7 +15,8 @@ type Tool struct {
 	Name        string         // Unique identifier for the tool
 	Description string         // Human-readable description of what the tool does
 	Parameters  map[string]any // JSON Schema defining the tool's input parameters
-	Handler     ToolHandler    // Function to execute when the tool is called
+	Execution   ToolExecution  // Execution target: server (default) or client
+	Handler     ToolHandler    // Function to execute for server tools (nil for client tools)
 }
 
 // ToolCall represents a request from the AI model to invoke a specific tool.
@@ -67,6 +68,7 @@ type StreamEvent struct {
 	Reasoning     string // deprecated alias for reasoning content
 	ToolCallID    string // tool call id (for tool events)
 	ToolName      string // tool name (for tool events)
+	ToolExecution ToolExecution
 	ToolArguments string // json arguments (for tool_call events)
 	ToolResult    string // tool result content (for tool_result events)
 	Error         string // optional tool/stream error details

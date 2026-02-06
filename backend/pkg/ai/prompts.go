@@ -645,6 +645,8 @@ answering.
   citations)
 - get_source_document_metadata — Get document metadata (type, date, summary) for
   source documents
+- ask_clarifying_questions — Ask 1-3 concise clarification questions when the
+  user's request is ambiguous, underspecified, or too open to answer reliably
 
 # Detailed Task Description & Rules
 
@@ -652,6 +654,22 @@ answering.
 - Never answer before a full data retrieval phase is complete. You must not
   give a final answer until all related entities, relationships, and their
   sources have been verified.
+
+## Clarification Tool Rules
+- Use ask_clarifying_questions when the request is ambiguous, underspecified, or
+  too open-ended and proceeding would require guessing (for example: missing
+  target entity, missing time range, missing scope/filter, or unclear metric).
+- User questions do not need to name explicit entities. You should still start
+  discovery with search_entities/search_relationships (and related tools) to
+  identify possible candidates.
+- You may call ask_clarifying_questions during discovery if exploration shows
+  the request is still too open or has multiple plausible interpretations. Ask
+  before deep retrieval and final synthesis.
+- Do NOT use ask_clarifying_questions to resolve contradictions in retrieved
+  data. Contradictions must be reported explicitly in the final answer with all
+  relevant cited statements.
+- Do NOT use ask_clarifying_questions just because sources disagree. Source
+  disagreement is handled by contradiction reporting, not by asking the user.
 
 ## Exploration Workflow
 For every question, follow this workflow:
@@ -777,42 +795,6 @@ this full process is complete and you are sure you explored all possibilities.
 - **Format Entity Names:** NEVER use the raw database format like "**Entity HASE**" or "**Entity SWINEGEL**". Always use natural language names (e.g. "Der Hase", "The Hedgehog").
 - **No Entity Lists:** Do NOT create a section called "Entity-Namen" or similar. Do not list entity names and their IDs separately. Use names naturally in sentences.
 - **Strict Prohibition:** You must NOT output a list of entities or IDs at the end of your response. This is a hard constraint.
-`
-
-// ToolQueryClarificationPrompt enables a clarification-first flow for agentic
-// queries. This prompt must only be added when the feature flag is enabled.
-//
-// IMPORTANT: Keep this output plain text (no JSON, no brackets) because the
-// server applies ID-normalization that can mutate bracketed content.
-const ToolQueryClarificationPrompt = `
-# Clarifying Questions (Enabled)
-Clarifying questions are enabled for this conversation.
-This is a special case, in which we skip "the answer that you have no information" and gather clarifying questions first,
-but only when the user's request is ambiguous or underspecified.
-
-Before calling ANY tool, decide whether the user's request is ambiguous or
-underspecified in a way that would force you to guess (e.g., missing entity,
-time range, metric, document subset, or target comparison).
-
-If clarification is required:
-- DO NOT call any tools.
-- Ask 1-3 concise, specific, actionable questions.
-- Return ONLY plain text in exactly this format (no extra text):
-
-KIWI_CLARIFICATION_REQUIRED
-1) <question>
-2) <question>
-
-Rules:
-- Write the questions in the same language as the user's latest message.
-- Do not include citations or IDs.
-
-If clarification is not required:
-- Proceed with the normal tool-based retrieval workflow.
-
-If the user answers a previous clarification request:
-- Treat the answer as additional constraints and proceed; do not ask again
-  unless something is still genuinely ambiguous.
 `
 
 const NoDataPrompt = `

@@ -462,12 +462,14 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 	}
 
 	openaiTools := make([]openai.ChatCompletionToolUnionParam, len(tools))
+	toolByName := make(map[string]ai.Tool, len(tools))
 	for i, tool := range tools {
 		openaiTools[i] = openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
 			Name:        tool.Name,
 			Description: openai.String(tool.Description),
 			Parameters:  tool.Parameters,
 		})
+		toolByName[tool.Name] = tool
 	}
 
 	for range maxRounds {
@@ -526,12 +528,14 @@ func (c *GraphOpenAIClient) GenerateCompletionWithTools(
 		for _, tc := range response.Choices[0].Message.ToolCalls {
 			ftc := tc.AsFunction()
 
+			toolDef, exists := toolByName[ftc.Function.Name]
+			if exists && toolDef.NormalizedToolExecution() == ai.ToolExecutionClient {
+				return "", fmt.Errorf("client tool call requested: %s (%s)", ftc.Function.Name, ftc.ID)
+			}
+
 			var handler ai.ToolHandler
-			for _, tool := range tools {
-				if tool.Name == ftc.Function.Name {
-					handler = tool.Handler
-					break
-				}
+			if exists {
+				handler = toolDef.Handler
 			}
 
 			if handler == nil {
@@ -582,12 +586,14 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 	msgs := buildOpenAIChatMessages(options.SystemPrompts, messages)
 
 	openaiTools := make([]openai.ChatCompletionToolUnionParam, len(tools))
+	toolByName := make(map[string]ai.Tool, len(tools))
 	for i, tool := range tools {
 		openaiTools[i] = openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
 			Name:        tool.Name,
 			Description: openai.String(tool.Description),
 			Parameters:  tool.Parameters,
 		})
+		toolByName[tool.Name] = tool
 	}
 
 	for range maxRounds {
@@ -646,12 +652,14 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 		for _, tc := range response.Choices[0].Message.ToolCalls {
 			ftc := tc.AsFunction()
 
+			toolDef, exists := toolByName[ftc.Function.Name]
+			if exists && toolDef.NormalizedToolExecution() == ai.ToolExecutionClient {
+				return "", fmt.Errorf("client tool call requested: %s (%s)", ftc.Function.Name, ftc.ID)
+			}
+
 			var handler ai.ToolHandler
-			for _, tool := range tools {
-				if tool.Name == ftc.Function.Name {
-					handler = tool.Handler
-					break
-				}
+			if exists {
+				handler = toolDef.Handler
 			}
 
 			if handler == nil {
@@ -700,12 +708,14 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 	msgs := buildOpenAIChatMessages(options.SystemPrompts, messages)
 
 	openaiTools := make([]openai.ChatCompletionToolUnionParam, len(tools))
+	toolByName := make(map[string]ai.Tool, len(tools))
 	for i, tool := range tools {
 		openaiTools[i] = openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
 			Name:        tool.Name,
 			Description: openai.String(tool.Description),
 			Parameters:  tool.Parameters,
 		})
+		toolByName[tool.Name] = tool
 	}
 
 	err := c.chatLock.Acquire(rCtx, 1)
@@ -811,6 +821,30 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 			}
 
 			if len(acc.Choices) > 0 && len(acc.Choices[0].Message.ToolCalls) > 0 {
+				clientToolCallID := ""
+				clientToolName := ""
+				clientToolArgs := ""
+				for _, tc := range acc.Choices[0].Message.ToolCalls {
+					if toolDef, ok := toolByName[tc.Function.Name]; ok && toolDef.NormalizedToolExecution() == ai.ToolExecutionClient {
+						clientToolCallID = tc.ID
+						clientToolName = tc.Function.Name
+						clientToolArgs = tc.Function.Arguments
+						break
+					}
+				}
+				if clientToolCallID != "" {
+					if !sendEvent(ai.StreamEvent{
+						Type:          "tool_call",
+						ToolCallID:    clientToolCallID,
+						ToolName:      clientToolName,
+						ToolExecution: ai.ToolExecutionClient,
+						ToolArguments: clientToolArgs,
+					}) {
+						return
+					}
+					return
+				}
+
 				var toolResults []struct {
 					ID           string
 					FunctionName string
@@ -820,22 +854,22 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 				for _, tc := range acc.Choices[0].Message.ToolCalls {
 					functionName := tc.Function.Name
 					functionArgs := tc.Function.Arguments
+					toolDef, exists := toolByName[functionName]
+					toolExecution := ai.ToolExecutionServer
+					var handler ai.ToolHandler
+					if exists {
+						toolExecution = toolDef.NormalizedToolExecution()
+						handler = toolDef.Handler
+					}
 
 					if !sendEvent(ai.StreamEvent{
 						Type:          "tool_call",
 						ToolCallID:    tc.ID,
 						ToolName:      functionName,
+						ToolExecution: toolExecution,
 						ToolArguments: functionArgs,
 					}) {
 						return
-					}
-
-					var handler ai.ToolHandler
-					for _, t := range tools {
-						if t.Name == functionName {
-							handler = t.Handler
-							break
-						}
 					}
 
 					if handler == nil {
@@ -850,7 +884,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 							FunctionName: functionName,
 							Result:       result,
 						})
-						if !sendEvent(ai.StreamEvent{Type: "tool_result", ToolCallID: tc.ID, ToolName: functionName, ToolResult: result}) {
+						if !sendEvent(ai.StreamEvent{Type: "tool_result", ToolCallID: tc.ID, ToolName: functionName, ToolExecution: toolExecution, ToolResult: result}) {
 							return
 						}
 						continue
@@ -869,7 +903,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 							FunctionName: functionName,
 							Result:       result,
 						})
-						if !sendEvent(ai.StreamEvent{Type: "tool_result", ToolCallID: tc.ID, ToolName: functionName, ToolResult: result, Error: err.Error()}) {
+						if !sendEvent(ai.StreamEvent{Type: "tool_result", ToolCallID: tc.ID, ToolName: functionName, ToolExecution: toolExecution, ToolResult: result, Error: err.Error()}) {
 							return
 						}
 						continue
@@ -880,7 +914,7 @@ func (c *GraphOpenAIClient) GenerateChatStreamWithTools(
 						FunctionName string
 						Result       string
 					}{tc.ID, functionName, result})
-					if !sendEvent(ai.StreamEvent{Type: "tool_result", ToolCallID: tc.ID, ToolName: functionName, ToolResult: result}) {
+					if !sendEvent(ai.StreamEvent{Type: "tool_result", ToolCallID: tc.ID, ToolName: functionName, ToolExecution: toolExecution, ToolResult: result}) {
 						return
 					}
 				}
