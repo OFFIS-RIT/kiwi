@@ -456,13 +456,15 @@ func AddFilesToProjectHandler(c echo.Context) error {
 // QueryProjectHandler handles project queries
 func QueryProjectHandler(c echo.Context) error {
 	const clarificationMarker = "KIWI_CLARIFICATION_REQUIRED"
+	const clarificationMarkerLen = len(clarificationMarker)
 
 	type queryProjectRequest struct {
-		ProjectID int64            `param:"id" validate:"required,numeric"`
-		Messages  []ai.ChatMessage `json:"messages" validate:"required"`
-		Mode      string           `json:"mode"`
-		Model     string           `json:"model"`
-		Think     bool             `json:"think"`
+		ProjectID      int64  `param:"id" validate:"required,numeric"`
+		Prompt         string `json:"prompt" validate:"required"`
+		ConversationID string `json:"conversation_id"`
+		Mode           string `json:"mode"`
+		Model          string `json:"model"`
+		Think          bool   `json:"think"`
 	}
 
 	type responseData struct {
@@ -473,22 +475,25 @@ func QueryProjectHandler(c echo.Context) error {
 	}
 
 	type queryProjectResponse struct {
-		Message             string           `json:"message"`
-		Data                []responseData   `json:"data,omitempty"`
-		Metrics             *ai.ModelMetrics `json:"metrics,omitempty"`
-		ConsideredFileCount int              `json:"considered_file_count"`
-		UsedFileCount       int              `json:"used_file_count"`
+		ConversationID      string         `json:"conversation_id"`
+		Message             string         `json:"message"`
+		Data                []responseData `json:"data"`
+		Reasoning           string         `json:"reasoning,omitempty"`
+		ConsideredFileCount int            `json:"considered_file_count"`
+		UsedFileCount       int            `json:"used_file_count"`
 	}
 
 	data := new(queryProjectRequest)
 	if err := c.Bind(data); err != nil {
 		return c.JSON(http.StatusBadRequest, queryProjectResponse{
 			Message: "Invalid request body",
+			Data:    []responseData{},
 		})
 	}
 	if err := c.Validate(data); err != nil {
 		return c.JSON(http.StatusBadRequest, queryProjectResponse{
 			Message: "Invalid request body",
+			Data:    []responseData{},
 		})
 	}
 
@@ -496,6 +501,7 @@ func QueryProjectHandler(c echo.Context) error {
 	if user == nil {
 		return c.JSON(http.StatusUnauthorized, queryProjectResponse{
 			Message: "Unauthorized",
+			Data:    []responseData{},
 		})
 	}
 
@@ -512,6 +518,7 @@ func QueryProjectHandler(c echo.Context) error {
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, queryProjectResponse{
 				Message: "Unauthorized",
+				Data:    []responseData{},
 			})
 		}
 	}
@@ -521,25 +528,89 @@ func QueryProjectHandler(c echo.Context) error {
 		if err == sql.ErrNoRows {
 			return c.JSON(http.StatusNotFound, queryProjectResponse{
 				Message: "Project or Group not found",
+				Data:    []responseData{},
 			})
 		} else {
 			logger.Error("Failed to get group", "err", err)
 			return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 				Message: "Internal server error",
+				Data:    []responseData{},
 			})
 		}
 	}
 
-	msgs := make([]string, 1)
-	msgs[0] = data.Messages[len(data.Messages)-1].Message
+	conversationID := strings.TrimSpace(data.ConversationID)
+
+	var conversation pgdb.UserChat
+	if conversationID == "" {
+		publicID, err := gonanoid.New()
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+		}
+
+		conversation, err = q.CreateUserChat(ctx, pgdb.CreateUserChatParams{
+			PublicID:  publicID,
+			UserID:    user.UserID,
+			ProjectID: data.ProjectID,
+			Title:     buildConversationTitle(data.Prompt),
+		})
+		if err != nil {
+			logger.Error("Failed to create conversation", "err", err)
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+		}
+	} else {
+		conversation, err = q.GetUserChatByPublicIDAndProject(ctx, pgdb.GetUserChatByPublicIDAndProjectParams{
+			PublicID:  conversationID,
+			UserID:    user.UserID,
+			ProjectID: data.ProjectID,
+		})
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return c.JSON(http.StatusNotFound, queryProjectResponse{Message: "Conversation not found", Data: []responseData{}})
+			}
+			logger.Error("Failed to load conversation", "err", err)
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+		}
+	}
+
+	historyRows, err := q.GetChatMessagesByChatID(ctx, conversation.ID)
+	if err != nil {
+		logger.Error("Failed to load conversation history", "err", err)
+		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+	}
+
+	chatHistory := make([]ai.ChatMessage, 0, len(historyRows)+1)
+	for _, message := range historyRows {
+		chatHistory = append(chatHistory, ai.ChatMessage{
+			Role:          message.Role,
+			Message:       message.Content,
+			ToolCallID:    message.ToolCallID,
+			ToolName:      message.ToolName,
+			ToolArguments: message.ToolArguments,
+		})
+	}
+
+	userMessage := ai.ChatMessage{Role: "user", Message: data.Prompt}
+	chatHistory = append(chatHistory, userMessage)
+	if err := appendChatMessage(ctx, q, conversation.ID, userMessage); err != nil {
+		logger.Error("Failed to persist user prompt", "err", err)
+		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+	}
+
+	msgs := []string{data.Prompt}
 
 	aiClient := c.(*middleware.AppContext).App.AiClient
 	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, conn, aiClient, msgs, graphstorage.WithTracer(trace))
+	if err != nil {
+		logger.Error("Failed to create graph storage client", "err", err)
+		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+	}
 
 	prompts, err := q.GetProjectSystemPrompts(ctx, data.ProjectID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 			Message: "Internal server error",
+			Data:    []responseData{},
 		})
 	}
 	systemPrompts := make([]string, 0, len(prompts))
@@ -564,57 +635,136 @@ func QueryProjectHandler(c echo.Context) error {
 
 	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, fmt.Sprintf("%d", data.ProjectID), opts)
 
-	var answer string
+	var contentChan <-chan ai.StreamEvent
 	switch data.Mode {
 	case "normal":
-		answer, err = queryClient.QueryLocal(ctx, data.Messages)
+		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
 	case "agentic":
 		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, trace)
-		answer, err = queryClient.QueryAgentic(ctx, data.Messages, toolList)
+		contentChan, err = queryClient.QueryStreamAgentic(ctx, chatHistory, toolList)
 	default:
-		answer, err = queryClient.QueryLocal(ctx, data.Messages)
+		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
 	}
-	if err != nil || answer == "" {
+	if err != nil {
 		logger.Error("[Query] graph error", "err", err)
 		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 			Message: "Es ist ein interner Fehler aufgetreten.",
-		})
-	}
-
-	if after, ok := strings.CutPrefix(answer, clarificationMarker); ok {
-		answer = strings.TrimLeft(after, " \t\r\n")
-		metrics := aiClient.GetMetrics()
-		return c.JSON(http.StatusOK, queryProjectResponse{
-			Message: answer,
 			Data:    []responseData{},
-			Metrics: &metrics,
 		})
 	}
 
-	answer = util.NormalizeIDs(answer)
-	re := regexp.MustCompile(`\[\[([^][]+)\]\]`)
-	matches := re.FindAllStringSubmatch(answer, -1)
-	findings := make([]string, 0)
-	for _, match := range matches {
-		id := match[1]
-		found := slices.Contains(findings, id)
-		if !found {
-			findings = append(findings, id)
+	var messageBuffer strings.Builder
+	var reasoningBuffer strings.Builder
+
+	for event := range contentChan {
+		switch event.Type {
+		case "reasoning":
+			reasoningContent := event.Content
+			if reasoningContent == "" {
+				reasoningContent = event.Reasoning
+			}
+			if reasoningContent != "" {
+				reasoningBuffer.WriteString(reasoningContent)
+			}
+		case "step":
+			if event.Step == "thinking" {
+				reasoningContent := event.Content
+				if reasoningContent == "" {
+					reasoningContent = event.Reasoning
+				}
+				if reasoningContent != "" {
+					reasoningBuffer.WriteString(reasoningContent)
+				}
+				continue
+			}
+
+			if event.Step == "" || event.Step == "db_query" {
+				continue
+			}
+
+			toolCall := ai.ChatMessage{
+				Role:          "assistant_tool_call",
+				ToolName:      event.Step,
+				ToolCallID:    event.ToolCallID,
+				ToolArguments: event.ToolArguments,
+			}
+			if err := appendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
+				logger.Error("Failed to persist legacy tool call", "err", err)
+				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+			}
+		case "tool_call":
+			toolCall := ai.ChatMessage{
+				Role:          "assistant_tool_call",
+				ToolCallID:    event.ToolCallID,
+				ToolName:      event.ToolName,
+				ToolArguments: event.ToolArguments,
+			}
+			if err := appendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
+				logger.Error("Failed to persist tool call", "err", err)
+				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+			}
+		case "tool_result":
+			result := event.ToolResult
+			if result == "" {
+				result = event.Content
+			}
+			toolResult := ai.ChatMessage{
+				Role:       "tool",
+				Message:    result,
+				ToolCallID: event.ToolCallID,
+				ToolName:   event.ToolName,
+			}
+			if err := appendChatMessage(ctx, q, conversation.ID, toolResult); err != nil {
+				logger.Error("Failed to persist tool result", "err", err)
+				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+			}
+		case "content":
+			messageBuffer.WriteString(event.Content)
 		}
 	}
-	files, err := q.GetFilesFromTextUnitIDs(ctx, findings)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
-			Message: "Internal server error",
-		})
+
+	answer := messageBuffer.String()
+	clarificationMode := false
+	if len(answer) >= clarificationMarkerLen {
+		if after, ok := strings.CutPrefix(answer, clarificationMarker); ok {
+			clarificationMode = true
+			answer = strings.TrimLeft(after, " \t\r\n")
+		}
 	}
+
+	assistantMessage := ai.ChatMessage{Role: "assistant", Message: answer}
+	if err := appendChatMessage(ctx, q, conversation.ID, assistantMessage); err != nil {
+		logger.Error("Failed to persist final assistant message", "err", err)
+		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+	}
+
 	fileData := make([]responseData, 0)
-	for _, file := range files {
-		fileData = append(fileData, responseData{
-			ID:   file.PublicID,
-			Key:  file.FileKey,
-			Name: file.Name,
-		})
+	if !clarificationMode {
+		answer = util.NormalizeIDs(answer)
+		re := regexp.MustCompile(`\[\[([^][]+)\]\]`)
+		matches := re.FindAllStringSubmatch(answer, -1)
+		findings := make([]string, 0)
+		for _, match := range matches {
+			id := match[1]
+			found := slices.Contains(findings, id)
+			if !found {
+				findings = append(findings, id)
+			}
+		}
+		files, err := q.GetFilesFromTextUnitIDs(ctx, findings)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{
+				Message: "Internal server error",
+				Data:    []responseData{},
+			})
+		}
+		for _, file := range files {
+			fileData = append(fileData, responseData{
+				ID:   file.PublicID,
+				Key:  file.FileKey,
+				Name: file.Name,
+			})
+		}
 	}
 
 	usedFileKeySet := make(map[string]struct{})
@@ -643,14 +793,18 @@ func QueryProjectHandler(c echo.Context) error {
 		}
 	}
 
-	metrics := aiClient.GetMetrics()
-	return c.JSON(http.StatusOK, queryProjectResponse{
+	resp := queryProjectResponse{
+		ConversationID:      conversation.PublicID,
 		Message:             answer,
 		Data:                fileData,
-		Metrics:             &metrics,
 		ConsideredFileCount: consideredFileCount,
 		UsedFileCount:       usedFileCount,
-	})
+	}
+	if reasoningBuffer.Len() > 0 {
+		resp.Reasoning = reasoningBuffer.String()
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // QueryProjectStreamHandler handles streaming project queries
@@ -659,13 +813,12 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	const clarificationMarkerLen = len(clarificationMarker)
 
 	type queryProjectRequest struct {
-		ProjectID            int64  `param:"id" validate:"required,numeric"`
-		Prompt               string `json:"prompt" validate:"required"`
-		ConversationID       string `json:"conversationId"`
-		ConversationIDLegacy string `json:"conversation_id"`
-		Mode                 string `json:"mode"`
-		Model                string `json:"model"`
-		Think                bool   `json:"think"`
+		ProjectID      int64  `param:"id" validate:"required,numeric"`
+		Prompt         string `json:"prompt" validate:"required"`
+		ConversationID string `json:"conversation_id"`
+		Mode           string `json:"mode"`
+		Model          string `json:"model"`
+		Think          bool   `json:"think"`
 	}
 
 	type responseData struct {
@@ -714,9 +867,6 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 
 	conversationID := strings.TrimSpace(data.ConversationID)
-	if conversationID == "" {
-		conversationID = strings.TrimSpace(data.ConversationIDLegacy)
-	}
 
 	var (
 		conversation      pgdb.UserChat
