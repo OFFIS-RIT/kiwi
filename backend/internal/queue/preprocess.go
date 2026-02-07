@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pkoukk/tiktoken-go"
@@ -42,14 +44,29 @@ func ProcessPreprocess(
 	ch *amqp091.Channel,
 	conn *pgxpool.Pool,
 	msg string,
-) error {
+) (err error) {
 	var data QueueProjectFileMsg
-	err := json.Unmarshal([]byte(msg), &data)
-	if err != nil {
+	if err = json.Unmarshal([]byte(msg), &data); err != nil {
 		return err
 	}
 
 	q := pgdb.New(conn)
+	preprocessBatchClaimed := false
+	defer func() {
+		if err == nil || data.CorrelationID == "" || !preprocessBatchClaimed {
+			return
+		}
+		updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if updateErr := q.UpdateBatchStatus(updateCtx, pgdb.UpdateBatchStatusParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+			Column3:       "failed",
+			ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+		}); updateErr != nil {
+			logger.Warn("[Queue] Failed to mark preprocess batch as failed", "project_id", data.ProjectID, "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", updateErr)
+		}
+	}()
 
 	projectState := "create"
 	if data.Operation == "update" {
@@ -57,14 +74,6 @@ func ProcessPreprocess(
 	}
 	if _, err := q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{ID: data.ProjectID, State: projectState}); err != nil {
 		logger.Warn("[Queue] Failed to update project state at preprocess start", "project_id", data.ProjectID, "state", projectState, "err", err)
-	}
-
-	if data.CorrelationID != "" {
-		_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
-			CorrelationID: data.CorrelationID,
-			BatchID:       int32(data.BatchID),
-			Column3:       "preprocessing",
-		})
 	}
 
 	files := make([]loader.GraphFile, 0)
@@ -343,6 +352,21 @@ func ProcessPreprocess(
 	}
 	tokenCounts := make([]fileTokenCount, 0)
 
+	if data.CorrelationID != "" {
+		_, err = q.TryStartPreprocessBatch(ctx, pgdb.TryStartPreprocessBatchParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				logger.Info("[Queue] Skipping preprocess batch: already claimed or not runnable", "project_id", data.ProjectID, "correlation_id", data.CorrelationID, "batch_id", data.BatchID)
+				return nil
+			}
+			return err
+		}
+		preprocessBatchClaimed = true
+	}
+
 	start := time.Now()
 	for _, f := range files {
 		txt, err := f.GetText(ctx)
@@ -436,7 +460,23 @@ func ProcessPreprocess(
 	defer tx.Rollback(ctx)
 	qtx := q.WithTx(tx)
 
+	aggregatedTokenCounts := make(map[int64]fileTokenCount, len(tokenCounts))
 	for _, tc := range tokenCounts {
+		existing, ok := aggregatedTokenCounts[tc.fileID]
+		if !ok {
+			aggregatedTokenCounts[tc.fileID] = tc
+			continue
+		}
+
+		existing.tokenCount += tc.tokenCount
+		if tc.metadata != "" {
+			existing.metadata = tc.metadata
+		}
+		existing.isGeneric = existing.isGeneric && tc.isGeneric
+		aggregatedTokenCounts[tc.fileID] = existing
+	}
+
+	for _, tc := range aggregatedTokenCounts {
 		err = qtx.AddTokenCountToFile(ctx, pgdb.AddTokenCountToFileParams{
 			ID:         tc.fileID,
 			TokenCount: tc.tokenCount,
@@ -474,11 +514,14 @@ func ProcessPreprocess(
 	}
 
 	if data.CorrelationID != "" {
-		_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
+		err = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 			Column3:       "preprocessed",
 		})
+		if err != nil {
+			return err
+		}
 	}
 
 	err = PublishFIFO(ch, "graph_queue", []byte(msg))

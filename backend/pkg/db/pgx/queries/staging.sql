@@ -1,6 +1,12 @@
--- name: InsertStagedData :exec
+-- name: InsertStagedDataBatch :exec
 INSERT INTO extraction_staging (correlation_id, batch_id, project_id, data_type, data)
-VALUES ($1, $2, $3, $4, $5);
+SELECT
+    sqlc.arg(correlation_id)::text,
+    sqlc.arg(batch_id)::int,
+    sqlc.arg(project_id)::bigint,
+    sqlc.arg(data_type)::text,
+    d::jsonb
+FROM unnest(sqlc.arg(datas)::text[]) AS d;
 
 -- name: GetStagedUnits :many
 SELECT data

@@ -583,6 +583,54 @@ func (q *Queries) TryStartDescriptionJob(ctx context.Context, arg TryStartDescri
 	return column_1, err
 }
 
+const tryStartGraphBatch = `-- name: TryStartGraphBatch :one
+UPDATE project_batch_status
+SET status = 'extracting',
+    started_at = NOW(),
+    completed_at = NULL,
+    error_message = NULL
+WHERE correlation_id = $1
+  AND batch_id = $2
+  AND status IN ('preprocessed', 'failed')
+RETURNING true
+`
+
+type TryStartGraphBatchParams struct {
+	CorrelationID string `json:"correlation_id"`
+	BatchID       int32  `json:"batch_id"`
+}
+
+func (q *Queries) TryStartGraphBatch(ctx context.Context, arg TryStartGraphBatchParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tryStartGraphBatch, arg.CorrelationID, arg.BatchID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const tryStartPreprocessBatch = `-- name: TryStartPreprocessBatch :one
+UPDATE project_batch_status
+SET status = 'preprocessing',
+    started_at = NOW(),
+    completed_at = NULL,
+    error_message = NULL
+WHERE correlation_id = $1
+  AND batch_id = $2
+  AND status IN ('pending', 'failed')
+RETURNING true
+`
+
+type TryStartPreprocessBatchParams struct {
+	CorrelationID string `json:"correlation_id"`
+	BatchID       int32  `json:"batch_id"`
+}
+
+func (q *Queries) TryStartPreprocessBatch(ctx context.Context, arg TryStartPreprocessBatchParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tryStartPreprocessBatch, arg.CorrelationID, arg.BatchID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const updateBatchEstimatedDuration = `-- name: UpdateBatchEstimatedDuration :exec
 UPDATE project_batch_status
 SET estimated_duration = $3

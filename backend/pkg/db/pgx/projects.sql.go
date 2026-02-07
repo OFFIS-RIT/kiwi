@@ -369,15 +369,35 @@ func (q *Queries) GetProjectsForUser(ctx context.Context, userID int64) ([]GetPr
 	return items, nil
 }
 
-const getTokenCountOfFile = `-- name: GetTokenCountOfFile :one
-SELECT token_count FROM project_files WHERE id = $1
+const getTokenCountsOfFiles = `-- name: GetTokenCountsOfFiles :many
+SELECT id, token_count
+FROM project_files
+WHERE id = ANY($1::bigint[])
 `
 
-func (q *Queries) GetTokenCountOfFile(ctx context.Context, id int64) (int32, error) {
-	row := q.db.QueryRow(ctx, getTokenCountOfFile, id)
-	var token_count int32
-	err := row.Scan(&token_count)
-	return token_count, err
+type GetTokenCountsOfFilesRow struct {
+	ID         int64 `json:"id"`
+	TokenCount int32 `json:"token_count"`
+}
+
+func (q *Queries) GetTokenCountsOfFiles(ctx context.Context, dollar_1 []int64) ([]GetTokenCountsOfFilesRow, error) {
+	rows, err := q.db.Query(ctx, getTokenCountsOfFiles, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetTokenCountsOfFilesRow{}
+	for rows.Next() {
+		var i GetTokenCountsOfFilesRow
+		if err := rows.Scan(&i.ID, &i.TokenCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const isUserInProject = `-- name: IsUserInProject :one

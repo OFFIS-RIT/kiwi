@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/pgx"
 
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rabbitmq/amqp091-go"
@@ -34,23 +36,30 @@ func ProcessGraphMessage(
 	ch *amqp091.Channel,
 	conn *pgxpool.Pool,
 	msg string,
-) error {
+) (err error) {
 	data := new(QueueProjectFileMsg)
-	err := json.Unmarshal([]byte(msg), &data)
-	if err != nil {
+	if err = json.Unmarshal([]byte(msg), &data); err != nil {
 		return err
 	}
 	projectId := data.ProjectID
 
 	q := pgdb.New(conn)
-
-	if data.CorrelationID != "" {
-		_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
+	graphBatchClaimed := false
+	defer func() {
+		if err == nil || data.CorrelationID == "" || !graphBatchClaimed {
+			return
+		}
+		updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if updateErr := q.UpdateBatchStatus(updateCtx, pgdb.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
-			Column3:       "extracting",
-		})
-	}
+			Column3:       "failed",
+			ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+		}); updateErr != nil {
+			logger.Warn("[Queue] Failed to mark graph batch as failed", "project_id", data.ProjectID, "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", updateErr)
+		}
+	}()
 
 	isUpdate := data.Operation == "update"
 	statType := "graph_creation"
@@ -196,22 +205,46 @@ func ProcessGraphMessage(
 		}
 	}
 
-	tokenCount := 0
+	tokenFileIDSet := make(map[int64]struct{}, len(files))
 	for _, f := range files {
 		fileID := f.ID
 		if idx := strings.Index(fileID, "-sheet-"); idx != -1 {
 			fileID = fileID[:idx]
 		}
+
 		id, err := strconv.ParseInt(fileID, 10, 64)
 		if err != nil {
 			return err
 		}
+		tokenFileIDSet[id] = struct{}{}
+	}
 
-		tokens, err := q.GetTokenCountOfFile(ctx, id)
+	tokenFileIDs := make([]int64, 0, len(tokenFileIDSet))
+	for id := range tokenFileIDSet {
+		tokenFileIDs = append(tokenFileIDs, id)
+	}
+
+	tokenCount := 0
+	if len(tokenFileIDs) > 0 {
+		tokenRows, err := q.GetTokenCountsOfFiles(ctx, tokenFileIDs)
 		if err != nil {
 			return err
 		}
-		tokenCount += int(tokens)
+
+		tokensByFileID := make(map[int64]int32, len(tokenRows))
+		for _, row := range tokenRows {
+			tokensByFileID[row.ID] = row.TokenCount
+		}
+
+		for _, id := range tokenFileIDs {
+			if _, ok := tokensByFileID[id]; !ok {
+				return fmt.Errorf("token count not found for file %d", id)
+			}
+		}
+
+		for _, id := range tokenFileIDs {
+			tokenCount += int(tokensByFileID[id])
+		}
 	}
 
 	prediction, err := q.PredictProjectProcessTime(ctx, pgdb.PredictProjectProcessTimeParams{
@@ -248,7 +281,31 @@ func ProcessGraphMessage(
 		}
 		return storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
 	}
+
+	if data.CorrelationID != "" {
+		_, err = q.TryStartGraphBatch(ctx, pgdb.TryStartGraphBatchParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				logger.Info("[Queue] Skipping graph batch: already claimed or not runnable", "project_id", data.ProjectID, "correlation_id", data.CorrelationID, "batch_id", data.BatchID)
+				return nil
+			}
+			return err
+		}
+		graphBatchClaimed = true
+	}
+
 	if err := deleteStagedData(); err != nil {
+		if data.CorrelationID != "" {
+			_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
+				CorrelationID: data.CorrelationID,
+				BatchID:       int32(data.BatchID),
+				Column3:       "failed",
+				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+			})
+		}
 		return fmt.Errorf("failed to cleanup staged data before extraction: %w", err)
 	}
 
@@ -273,11 +330,14 @@ func ProcessGraphMessage(
 	}
 
 	if data.CorrelationID != "" {
-		_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
+		err = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 			Column3:       "indexing",
 		})
+		if err != nil {
+			return err
+		}
 	}
 
 	_, err = q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{
@@ -305,8 +365,20 @@ func ProcessGraphMessage(
 		}
 		return err
 	}
+	releaseLease := func() error {
+		if lease == nil {
+			return nil
+		}
+		if err := lease.Release(context.Background()); err != nil {
+			return err
+		}
+		lease = nil
+		return nil
+	}
 	defer func() {
-		_ = lease.Release(context.Background())
+		if err := releaseLease(); err != nil {
+			logger.Warn("[Queue] Failed to release project mutex", "project_id", projectId, "err", err)
+		}
 	}()
 
 	err = graphClient.MergeFromStaging(lease.Context, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
@@ -338,11 +410,14 @@ func ProcessGraphMessage(
 	})
 
 	if data.CorrelationID != "" {
-		_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
+		err = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 			Column3:       "completed",
 		})
+		if err != nil {
+			return err
+		}
 
 		allDone, checkErr := q.AreAllBatchesCompleted(ctx, data.CorrelationID)
 		if checkErr == nil && allDone {
@@ -379,10 +454,14 @@ func ProcessGraphMessage(
 			}
 			fileIDs = append(fileIDs, id)
 		}
-		if err := storageClient.UpdateEntityDescriptions(lease.Context, fileIDs); err != nil {
+		if err := releaseLease(); err != nil {
+			logger.Error("[Queue] Failed to release project mutex before description updates", "project_id", projectId, "err", err)
+			return err
+		}
+		if err := storageClient.UpdateEntityDescriptions(ctx, fileIDs); err != nil {
 			logger.Error("[Queue] Failed to update entity descriptions", "project_id", projectId, "err", err)
 		}
-		if err := storageClient.UpdateRelationshipDescriptions(lease.Context, fileIDs); err != nil {
+		if err := storageClient.UpdateRelationshipDescriptions(ctx, fileIDs); err != nil {
 			logger.Error("[Queue] Failed to update relationship descriptions", "project_id", projectId, "err", err)
 		}
 		if _, err := q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{ID: projectId, State: "ready"}); err != nil {

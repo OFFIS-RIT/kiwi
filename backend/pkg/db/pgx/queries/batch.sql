@@ -12,6 +12,28 @@ SET status = $3::text,
     error_message = $4
 WHERE correlation_id = $1 AND batch_id = $2;
 
+-- name: TryStartPreprocessBatch :one
+UPDATE project_batch_status
+SET status = 'preprocessing',
+    started_at = NOW(),
+    completed_at = NULL,
+    error_message = NULL
+WHERE correlation_id = $1
+  AND batch_id = $2
+  AND status IN ('pending', 'failed')
+RETURNING true;
+
+-- name: TryStartGraphBatch :one
+UPDATE project_batch_status
+SET status = 'extracting',
+    started_at = NOW(),
+    completed_at = NULL,
+    error_message = NULL
+WHERE correlation_id = $1
+  AND batch_id = $2
+  AND status IN ('preprocessed', 'failed')
+RETURNING true;
+
 -- name: GetBatchesByCorrelation :many
 SELECT * FROM project_batch_status
 WHERE correlation_id = $1

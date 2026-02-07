@@ -120,26 +120,32 @@ func (q *Queries) GetStagedUnits(ctx context.Context, arg GetStagedUnitsParams) 
 	return items, nil
 }
 
-const insertStagedData = `-- name: InsertStagedData :exec
+const insertStagedDataBatch = `-- name: InsertStagedDataBatch :exec
 INSERT INTO extraction_staging (correlation_id, batch_id, project_id, data_type, data)
-VALUES ($1, $2, $3, $4, $5)
+SELECT
+    $1::text,
+    $2::int,
+    $3::bigint,
+    $4::text,
+    d::jsonb
+FROM unnest($5::text[]) AS d
 `
 
-type InsertStagedDataParams struct {
-	CorrelationID string `json:"correlation_id"`
-	BatchID       int32  `json:"batch_id"`
-	ProjectID     int64  `json:"project_id"`
-	DataType      string `json:"data_type"`
-	Data          []byte `json:"data"`
+type InsertStagedDataBatchParams struct {
+	CorrelationID string   `json:"correlation_id"`
+	BatchID       int32    `json:"batch_id"`
+	ProjectID     int64    `json:"project_id"`
+	DataType      string   `json:"data_type"`
+	Datas         []string `json:"datas"`
 }
 
-func (q *Queries) InsertStagedData(ctx context.Context, arg InsertStagedDataParams) error {
-	_, err := q.db.Exec(ctx, insertStagedData,
+func (q *Queries) InsertStagedDataBatch(ctx context.Context, arg InsertStagedDataBatchParams) error {
+	_, err := q.db.Exec(ctx, insertStagedDataBatch,
 		arg.CorrelationID,
 		arg.BatchID,
 		arg.ProjectID,
 		arg.DataType,
-		arg.Data,
+		arg.Datas,
 	)
 	return err
 }
