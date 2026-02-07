@@ -11,21 +11,21 @@ FROM unnest(sqlc.arg(datas)::text[]) AS d;
 -- name: GetStagedUnits :many
 SELECT data
 FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2 AND data_type = 'unit'
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3 AND data_type = 'unit'
 ORDER BY id;
 
 -- name: GetStagedEntities :many
 SELECT data
 FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2 AND data_type = 'entity'
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3 AND data_type = 'entity'
 ORDER BY id;
 
 -- name: GetStagedRelationships :many
 SELECT data
 FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2 AND data_type = 'relationship'
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3 AND data_type = 'relationship'
 ORDER BY id;
 
 -- name: DeleteStagedData :exec
 DELETE FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2;
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3;

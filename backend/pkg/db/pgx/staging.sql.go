@@ -11,33 +11,35 @@ import (
 
 const deleteStagedData = `-- name: DeleteStagedData :exec
 DELETE FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3
 `
 
 type DeleteStagedDataParams struct {
 	CorrelationID string `json:"correlation_id"`
 	BatchID       int32  `json:"batch_id"`
+	ProjectID     int64  `json:"project_id"`
 }
 
 func (q *Queries) DeleteStagedData(ctx context.Context, arg DeleteStagedDataParams) error {
-	_, err := q.db.Exec(ctx, deleteStagedData, arg.CorrelationID, arg.BatchID)
+	_, err := q.db.Exec(ctx, deleteStagedData, arg.CorrelationID, arg.BatchID, arg.ProjectID)
 	return err
 }
 
 const getStagedEntities = `-- name: GetStagedEntities :many
 SELECT data
 FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2 AND data_type = 'entity'
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3 AND data_type = 'entity'
 ORDER BY id
 `
 
 type GetStagedEntitiesParams struct {
 	CorrelationID string `json:"correlation_id"`
 	BatchID       int32  `json:"batch_id"`
+	ProjectID     int64  `json:"project_id"`
 }
 
 func (q *Queries) GetStagedEntities(ctx context.Context, arg GetStagedEntitiesParams) ([][]byte, error) {
-	rows, err := q.db.Query(ctx, getStagedEntities, arg.CorrelationID, arg.BatchID)
+	rows, err := q.db.Query(ctx, getStagedEntities, arg.CorrelationID, arg.BatchID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -59,17 +61,18 @@ func (q *Queries) GetStagedEntities(ctx context.Context, arg GetStagedEntitiesPa
 const getStagedRelationships = `-- name: GetStagedRelationships :many
 SELECT data
 FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2 AND data_type = 'relationship'
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3 AND data_type = 'relationship'
 ORDER BY id
 `
 
 type GetStagedRelationshipsParams struct {
 	CorrelationID string `json:"correlation_id"`
 	BatchID       int32  `json:"batch_id"`
+	ProjectID     int64  `json:"project_id"`
 }
 
 func (q *Queries) GetStagedRelationships(ctx context.Context, arg GetStagedRelationshipsParams) ([][]byte, error) {
-	rows, err := q.db.Query(ctx, getStagedRelationships, arg.CorrelationID, arg.BatchID)
+	rows, err := q.db.Query(ctx, getStagedRelationships, arg.CorrelationID, arg.BatchID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -91,17 +94,18 @@ func (q *Queries) GetStagedRelationships(ctx context.Context, arg GetStagedRelat
 const getStagedUnits = `-- name: GetStagedUnits :many
 SELECT data
 FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2 AND data_type = 'unit'
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3 AND data_type = 'unit'
 ORDER BY id
 `
 
 type GetStagedUnitsParams struct {
 	CorrelationID string `json:"correlation_id"`
 	BatchID       int32  `json:"batch_id"`
+	ProjectID     int64  `json:"project_id"`
 }
 
 func (q *Queries) GetStagedUnits(ctx context.Context, arg GetStagedUnitsParams) ([][]byte, error) {
-	rows, err := q.db.Query(ctx, getStagedUnits, arg.CorrelationID, arg.BatchID)
+	rows, err := q.db.Query(ctx, getStagedUnits, arg.CorrelationID, arg.BatchID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}

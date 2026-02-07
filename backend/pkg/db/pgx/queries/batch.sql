@@ -118,7 +118,8 @@ INSERT INTO project_description_job_status (
     project_id, correlation_id, job_id, total_jobs, entity_ids, relationship_ids
 ) VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (correlation_id, job_id) DO UPDATE
-SET total_jobs = EXCLUDED.total_jobs,
+SET project_id = EXCLUDED.project_id,
+    total_jobs = EXCLUDED.total_jobs,
     entity_ids = EXCLUDED.entity_ids,
     relationship_ids = EXCLUDED.relationship_ids
 RETURNING *;

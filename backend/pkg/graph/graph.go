@@ -211,17 +211,22 @@ func (g *GraphClient) MergeFromStaging(
 ) error {
 	logger.Info("[Graph] Merging from staging", "graph_id", graphID, "batch_id", batchID)
 
-	units, err := storeClient.GetStagedUnits(ctx, correlationID, batchID)
+	projectID, err := strconv.ParseInt(graphID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid graph ID: %w", err)
+	}
+
+	units, err := storeClient.GetStagedUnits(ctx, correlationID, batchID, projectID)
 	if err != nil {
 		return fmt.Errorf("failed to get staged units: %w", err)
 	}
 
-	entities, err := storeClient.GetStagedEntities(ctx, correlationID, batchID)
+	entities, err := storeClient.GetStagedEntities(ctx, correlationID, batchID, projectID)
 	if err != nil {
 		return fmt.Errorf("failed to get staged entities: %w", err)
 	}
 
-	relations, err := storeClient.GetStagedRelationships(ctx, correlationID, batchID)
+	relations, err := storeClient.GetStagedRelationships(ctx, correlationID, batchID, projectID)
 	if err != nil {
 		return fmt.Errorf("failed to get staged relationships: %w", err)
 	}

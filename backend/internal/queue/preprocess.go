@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +30,6 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/audio"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/csv"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/doc"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/excel"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/image"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/ocr"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/pdf"
@@ -72,12 +72,37 @@ func ProcessPreprocess(
 	if data.Operation == "update" {
 		projectState = "update"
 	}
+
+	if data.CorrelationID != "" {
+		_, err = q.TryStartPreprocessBatch(ctx, pgdb.TryStartPreprocessBatchParams{
+			CorrelationID: data.CorrelationID,
+			BatchID:       int32(data.BatchID),
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				logger.Info("[Queue] Skipping preprocess batch: already claimed or not runnable", "project_id", data.ProjectID, "correlation_id", data.CorrelationID, "batch_id", data.BatchID)
+				return nil
+			}
+			return err
+		}
+		preprocessBatchClaimed = true
+	}
+
 	if _, err := q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{ID: data.ProjectID, State: projectState}); err != nil {
 		logger.Warn("[Queue] Failed to update project state at preprocess start", "project_id", data.ProjectID, "state", projectState, "err", err)
 	}
 
 	files := make([]loader.GraphFile, 0)
 	noProcessingFiles := make([]loader.GraphFile, 0)
+	type preparedExcelSheet struct {
+		fileID   int64
+		fileName string
+		path     string
+		name     string
+		key      string
+		content  string
+	}
+	excelSheets := make([]preparedExcelSheet, 0)
 	pageCount := 0
 	s3Bucket := util.GetEnvString("AWS_BUCKET", "kiwi")
 	for _, upload := range *data.ProjectFiles {
@@ -236,8 +261,6 @@ func ProcessPreprocess(
 				pageCount += 1
 			}
 		case "xlsx", "xls":
-			excelL := excel.NewExcelGraphLoader(s3L)
-
 			tempFile := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
 				ID:        fmt.Sprintf("%d", upload.ID),
 				FilePath:  upload.FileKey,
@@ -255,8 +278,16 @@ func ProcessPreprocess(
 				return err
 			}
 
-			sheetIndex := 0
-			for sheetName, csvContent := range csvSheets {
+			sheetNames := make([]string, 0, len(csvSheets))
+			for sheetName := range csvSheets {
+				sheetNames = append(sheetNames, sheetName)
+			}
+			sort.Strings(sheetNames)
+
+			baseName := strings.TrimSuffix(filepath.Base(upload.FileKey), filepath.Ext(upload.FileKey))
+			path := filepath.Dir(upload.FileKey)
+			for _, sheetName := range sheetNames {
+				csvContent := csvSheets[sheetName]
 				parsed, parseErr := csv.ParseCSV(csvContent)
 				if parseErr != nil {
 					continue
@@ -265,23 +296,15 @@ func ProcessPreprocess(
 					continue
 				}
 
-				sheetID := fmt.Sprintf("%d-sheet-%d", upload.ID, sheetIndex)
-				baseName := strings.TrimSuffix(filepath.Base(upload.FileKey), filepath.Ext(upload.FileKey))
-				sheetFilePath := fmt.Sprintf("%s/%s_%s%s",
-					filepath.Dir(upload.FileKey),
-					baseName,
-					sheetName,
-					filepath.Ext(upload.FileKey))
-
-				f := loader.NewGraphCSVFile(loader.NewGraphFileParams{
-					ID:        sheetID,
-					FilePath:  sheetFilePath,
-					MaxTokens: 500,
-					Loader:    excelL,
-					Metadata:  metadataText,
+				sheetKey := fmt.Sprintf("%s_%s", baseName, sheetName)
+				excelSheets = append(excelSheets, preparedExcelSheet{
+					fileID:   upload.ID,
+					fileName: upload.Name,
+					path:     path,
+					name:     sheetKey + ".txt",
+					key:      sheetKey,
+					content:  string(parsed),
 				})
-				files = append(files, f)
-				sheetIndex++
 
 				sizeKB := len(parsed) / 1024
 				pages := max(sizeKB/2, 1)
@@ -352,21 +375,6 @@ func ProcessPreprocess(
 	}
 	tokenCounts := make([]fileTokenCount, 0)
 
-	if data.CorrelationID != "" {
-		_, err = q.TryStartPreprocessBatch(ctx, pgdb.TryStartPreprocessBatchParams{
-			CorrelationID: data.CorrelationID,
-			BatchID:       int32(data.BatchID),
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				logger.Info("[Queue] Skipping preprocess batch: already claimed or not runnable", "project_id", data.ProjectID, "correlation_id", data.CorrelationID, "batch_id", data.BatchID)
-				return nil
-			}
-			return err
-		}
-		preprocessBatchClaimed = true
-	}
-
 	start := time.Now()
 	for _, f := range files {
 		txt, err := f.GetText(ctx)
@@ -415,6 +423,23 @@ func ProcessPreprocess(
 		_, err = storage.PutFile(ctx, s3Client, path, name, nameWithoutExt, content)
 		if err != nil {
 			return fmt.Errorf("put file %s: %w", f.ID, err)
+		}
+	}
+
+	for _, sheet := range excelSheets {
+		metadata, err := ai.ExtractDocumentMetadata(ctx, aiClient, sheet.fileName, sheet.content)
+		if err != nil {
+			return fmt.Errorf("extract metadata for excel sheet file %d: %w", sheet.fileID, err)
+		}
+
+		cleanText := ai.StripMetadataTags(sheet.content)
+		tokens := enc.Encode(cleanText, nil, nil)
+		tokenCounts = append(tokenCounts, fileTokenCount{fileID: sheet.fileID, tokenCount: int32(len(tokens)), metadata: metadata, isGeneric: false})
+
+		content := bytes.NewReader([]byte(cleanText))
+		_, err = storage.PutFile(ctx, s3Client, sheet.path, sheet.name, sheet.key, content)
+		if err != nil {
+			return fmt.Errorf("put excel sheet file %d: %w", sheet.fileID, err)
 		}
 	}
 	duration := time.Since(start)
@@ -469,7 +494,7 @@ func ProcessPreprocess(
 		}
 
 		existing.tokenCount += tc.tokenCount
-		if tc.metadata != "" {
+		if existing.metadata == "" && tc.metadata != "" {
 			existing.metadata = tc.metadata
 		}
 		existing.isGeneric = existing.isGeneric && tc.isGeneric

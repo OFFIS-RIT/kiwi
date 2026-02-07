@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -68,16 +69,11 @@ func ProcessGraphMessage(
 		statType = "graph_update"
 		projectState = "update"
 	}
-	if _, err := q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{
-		ID:    projectId,
-		State: projectState,
-	}); err != nil {
-		logger.Warn("[Queue] Failed to update project state at graph start", "project_id", projectId, "state", projectState, "err", err)
-	}
 
 	s3Bucket := util.GetEnvString("AWS_BUCKET", "kiwi")
 	s3L := s3.NewS3GraphFileLoaderWithClient(s3Bucket, s3Client)
 	files := make([]loader.GraphFile, 0)
+	excelSheetFileCounts := make(map[int64]int, len(*data.ProjectFiles))
 
 	for _, file := range *data.ProjectFiles {
 		metadataText := ""
@@ -99,6 +95,7 @@ func ProcessGraphMessage(
 			if err != nil {
 				return err
 			}
+			sort.Strings(sheetFiles)
 
 			sheetIndex := 0
 			for _, sheetFile := range sheetFiles {
@@ -114,6 +111,7 @@ func ProcessGraphMessage(
 				})
 
 				files = append(files, f)
+				excelSheetFileCounts[file.ID]++
 				sheetIndex++
 			}
 		case "csv":
@@ -205,25 +203,20 @@ func ProcessGraphMessage(
 		}
 	}
 
-	tokenFileIDSet := make(map[int64]struct{}, len(files))
-	for _, f := range files {
-		fileID := f.ID
-		if idx := strings.Index(fileID, "-sheet-"); idx != -1 {
-			fileID = fileID[:idx]
+	// token_count is persisted per original project file ID in preprocess.
+	// Excel sheet token counts are already aggregated into their parent file ID.
+	// Keep deterministic order by following project file order and deduplicating.
+	tokenFileIDs := make([]int64, 0, len(*data.ProjectFiles))
+	tokenFileIDSeen := make(map[int64]struct{}, len(*data.ProjectFiles))
+	for _, file := range *data.ProjectFiles {
+		if _, ok := tokenFileIDSeen[file.ID]; ok {
+			continue
 		}
-
-		id, err := strconv.ParseInt(fileID, 10, 64)
-		if err != nil {
-			return err
-		}
-		tokenFileIDSet[id] = struct{}{}
+		tokenFileIDSeen[file.ID] = struct{}{}
+		tokenFileIDs = append(tokenFileIDs, file.ID)
 	}
 
-	tokenFileIDs := make([]int64, 0, len(tokenFileIDSet))
-	for id := range tokenFileIDSet {
-		tokenFileIDs = append(tokenFileIDs, id)
-	}
-
+	tokensByFileID := make(map[int64]int32, len(tokenFileIDs))
 	tokenCount := 0
 	if len(tokenFileIDs) > 0 {
 		tokenRows, err := q.GetTokenCountsOfFiles(ctx, tokenFileIDs)
@@ -231,7 +224,6 @@ func ProcessGraphMessage(
 			return err
 		}
 
-		tokensByFileID := make(map[int64]int32, len(tokenRows))
 		for _, row := range tokenRows {
 			tokensByFileID[row.ID] = row.TokenCount
 		}
@@ -279,7 +271,31 @@ func ProcessGraphMessage(
 		if data.CorrelationID == "" {
 			return nil
 		}
-		return storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID)
+		return storageClient.DeleteStagedData(ctx, data.CorrelationID, data.BatchID, projectId)
+	}
+
+	for _, file := range *data.ProjectFiles {
+		ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(file.FileKey)), ".")
+		if ext != "xlsx" && ext != "xls" {
+			continue
+		}
+
+		// Empty workbooks are valid: only enforce sheet artifacts for non-empty Excel files.
+		tokens := tokensByFileID[file.ID]
+		if tokens > 0 && excelSheetFileCounts[file.ID] == 0 {
+			return fmt.Errorf("missing preprocessed Excel sheet text files for file %d", file.ID)
+		}
+	}
+
+	if err := deleteStagedData(); err != nil {
+		return fmt.Errorf("failed to cleanup staged data before extraction: %w", err)
+	}
+
+	if _, err := q.UpdateProjectState(ctx, pgdb.UpdateProjectStateParams{
+		ID:    projectId,
+		State: projectState,
+	}); err != nil {
+		logger.Warn("[Queue] Failed to update project state at graph start", "project_id", projectId, "state", projectState, "err", err)
 	}
 
 	if data.CorrelationID != "" {
@@ -297,32 +313,12 @@ func ProcessGraphMessage(
 		graphBatchClaimed = true
 	}
 
-	if err := deleteStagedData(); err != nil {
-		if data.CorrelationID != "" {
-			_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
-				CorrelationID: data.CorrelationID,
-				BatchID:       int32(data.BatchID),
-				Column3:       "failed",
-				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
-			})
-		}
-		return fmt.Errorf("failed to cleanup staged data before extraction: %w", err)
-	}
-
 	graphID := fmt.Sprintf("%d", projectId)
 	start := time.Now()
 
 	logger.Debug("[Queue] Starting extraction phase", "project_id", projectId, "batch_id", data.BatchID)
 	err = graphClient.ExtractAndStage(ctx, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
 	if err != nil {
-		if data.CorrelationID != "" {
-			_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
-				CorrelationID: data.CorrelationID,
-				BatchID:       int32(data.BatchID),
-				Column3:       "failed",
-				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
-			})
-		}
 		if cleanupErr := deleteStagedData(); cleanupErr != nil {
 			logger.Warn("[Queue] Failed to delete staged data", "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", cleanupErr)
 		}
@@ -383,14 +379,6 @@ func ProcessGraphMessage(
 
 	err = graphClient.MergeFromStaging(lease.Context, files, graphID, aiClient, storageClient, data.CorrelationID, data.BatchID)
 	if err != nil {
-		if data.CorrelationID != "" {
-			_ = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{
-				CorrelationID: data.CorrelationID,
-				BatchID:       int32(data.BatchID),
-				Column3:       "failed",
-				ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
-			})
-		}
 		if cleanupErr := deleteStagedData(); cleanupErr != nil {
 			logger.Warn("[Queue] Failed to delete staged data", "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", cleanupErr)
 		}
@@ -402,12 +390,14 @@ func ProcessGraphMessage(
 	}
 
 	duration := time.Since(start)
-	q.AddProcessTime(ctx, pgdb.AddProcessTimeParams{
+	if err := q.AddProcessTime(ctx, pgdb.AddProcessTimeParams{
 		ProjectID: projectId,
 		Amount:    int32(tokenCount),
 		Duration:  duration.Milliseconds(),
 		StatType:  statType,
-	})
+	}); err != nil {
+		return err
+	}
 
 	if data.CorrelationID != "" {
 		err = q.UpdateBatchStatus(ctx, pgdb.UpdateBatchStatusParams{

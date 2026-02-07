@@ -109,12 +109,14 @@ func (s *GraphDBStorage) GetStagedUnits(
 	ctx context.Context,
 	correlationID string,
 	batchID int,
+	projectID int64,
 ) ([]*common.Unit, error) {
 	q := pgdb.New(s.conn)
 
 	rows, err := q.GetStagedUnits(ctx, pgdb.GetStagedUnitsParams{
 		CorrelationID: correlationID,
 		BatchID:       int32(batchID),
+		ProjectID:     projectID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get staged units: %w", err)
@@ -137,12 +139,14 @@ func (s *GraphDBStorage) GetStagedEntities(
 	ctx context.Context,
 	correlationID string,
 	batchID int,
+	projectID int64,
 ) ([]common.Entity, error) {
 	q := pgdb.New(s.conn)
 
 	rows, err := q.GetStagedEntities(ctx, pgdb.GetStagedEntitiesParams{
 		CorrelationID: correlationID,
 		BatchID:       int32(batchID),
+		ProjectID:     projectID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get staged entities: %w", err)
@@ -165,12 +169,14 @@ func (s *GraphDBStorage) GetStagedRelationships(
 	ctx context.Context,
 	correlationID string,
 	batchID int,
+	projectID int64,
 ) ([]common.Relationship, error) {
 	q := pgdb.New(s.conn)
 
 	rows, err := q.GetStagedRelationships(ctx, pgdb.GetStagedRelationshipsParams{
 		CorrelationID: correlationID,
 		BatchID:       int32(batchID),
+		ProjectID:     projectID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get staged relationships: %w", err)
@@ -193,12 +199,14 @@ func (s *GraphDBStorage) DeleteStagedData(
 	ctx context.Context,
 	correlationID string,
 	batchID int,
+	projectID int64,
 ) error {
 	q := pgdb.New(s.conn)
 
 	err := q.DeleteStagedData(ctx, pgdb.DeleteStagedDataParams{
 		CorrelationID: correlationID,
 		BatchID:       int32(batchID),
+		ProjectID:     projectID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete staged data: %w", err)
