@@ -1061,12 +1061,38 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 
 	re := regexp.MustCompile(`\[\[([^][]+)\]\]`)
-	foundIds := make(map[string]bool)
+	resolvedCitationIDs := make(map[string]bool)
+	citationCache := make(map[string]*responseData)
 	var messageBuffer strings.Builder
 	var reasoningBuffer strings.Builder
-	contentRunesSent := 0
 	var allFoundData []responseData
 	var pendingClientToolCall *clientToolCallResponse
+	citationParser := streamCitationParser{}
+
+	resolveCitationData := func(id string) *responseData {
+		if cached, ok := citationCache[id]; ok {
+			return cached
+		}
+
+		files, err := q.GetFilesFromTextUnitIDs(ctx, []string{id})
+		if err != nil {
+			logger.Error("Error getting files for citation", "id", id, "err", err)
+			citationCache[id] = nil
+			return nil
+		}
+		if len(files) == 0 {
+			citationCache[id] = nil
+			return nil
+		}
+
+		resolved := &responseData{
+			ID:   files[0].PublicID,
+			Key:  files[0].FileKey,
+			Name: files[0].Name,
+		}
+		citationCache[id] = resolved
+		return resolved
+	}
 
 	for event := range contentChan {
 		switch event.Type {
@@ -1170,46 +1196,46 @@ func QueryProjectStreamHandler(c echo.Context) error {
 			}
 		case "content":
 			messageBuffer.WriteString(event.Content)
-			currentMessage := messageBuffer.String()
 
-			normalizedMessage := util.NormalizeIDs(currentMessage)
-			matches := re.FindAllStringSubmatch(normalizedMessage, -1)
-			newIDs := make([]string, 0)
-
-			for _, match := range matches {
-				id := match[1]
-				if !foundIds[id] {
-					foundIds[id] = true
-					newIDs = append(newIDs, id)
-				}
-			}
-
-			if len(newIDs) > 0 {
-				files, err := q.GetFilesFromTextUnitIDs(ctx, newIDs)
-				if err != nil {
-					logger.Error("Error getting files for stream response", "err", err)
-				} else {
-					for _, file := range files {
-						allFoundData = append(allFoundData, responseData{
-							ID:   file.PublicID,
-							Key:  file.FileKey,
-							Name: file.Name,
-						})
-					}
-				}
-			}
-
-			currentMessageRunes := []rune(currentMessage)
-			if len(currentMessageRunes) > contentRunesSent {
-				delta := string(currentMessageRunes[contentRunesSent:])
-				contentRunesSent = len(currentMessageRunes)
-				if delta != "" {
-					if err := writeSSEEvent(c, "content", map[string]string{"content": delta}); err != nil {
+			if err := citationParser.Consume(
+				event.Content,
+				func(content string) error {
+					if content == "" {
 						return nil
 					}
-				}
+					return writeSSEEvent(c, "content", map[string]string{"content": content})
+				},
+				func(citationID string) error {
+					citationData := resolveCitationData(citationID)
+					if citationData != nil && !resolvedCitationIDs[citationID] {
+						resolvedCitationIDs[citationID] = true
+						allFoundData = append(allFoundData, *citationData)
+					}
+
+					payload := map[string]any{"id": citationID}
+					if citationData != nil {
+						payload["name"] = citationData.Name
+						payload["key"] = citationData.Key
+						if citationData.Text != nil {
+							payload["text"] = citationData.Text
+						}
+					}
+
+					return writeSSEEvent(c, "citation", payload)
+				},
+			); err != nil {
+				return nil
 			}
 		}
+	}
+
+	if err := citationParser.Flush(func(content string) error {
+		if content == "" {
+			return nil
+		}
+		return writeSSEEvent(c, "content", map[string]string{"content": content})
+	}); err != nil {
+		return nil
 	}
 
 	if pendingClientToolCall != nil {
@@ -1238,6 +1264,22 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		logger.Error("Failed to persist final assistant message", "err", err)
 		_ = writeSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
 		return nil
+	}
+
+	matches := re.FindAllStringSubmatch(finalMessage, -1)
+	for _, match := range matches {
+		citationID := match[1]
+		if resolvedCitationIDs[citationID] {
+			continue
+		}
+
+		citationData := resolveCitationData(citationID)
+		if citationData == nil {
+			continue
+		}
+
+		resolvedCitationIDs[citationID] = true
+		allFoundData = append(allFoundData, *citationData)
 	}
 
 	metrics := aiClient.GetMetrics()
@@ -1284,6 +1326,103 @@ func QueryProjectStreamHandler(c echo.Context) error {
 
 	_ = writeSSEEvent(c, "done", doneData)
 	return nil
+}
+
+type streamCitationParser struct {
+	buffer string
+}
+
+func (p *streamCitationParser) Consume(
+	chunk string,
+	onContent func(string) error,
+	onCitation func(string) error,
+) error {
+	p.buffer += chunk
+
+	emitContent := func(content string) error {
+		if content == "" {
+			return nil
+		}
+		return onContent(content)
+	}
+
+	for {
+		start := strings.Index(p.buffer, "[[")
+		if start == -1 {
+			if strings.HasSuffix(p.buffer, "[") {
+				if err := emitContent(p.buffer[:len(p.buffer)-1]); err != nil {
+					return err
+				}
+				p.buffer = "["
+				return nil
+			}
+
+			if err := emitContent(p.buffer); err != nil {
+				return err
+			}
+			p.buffer = ""
+			return nil
+		}
+
+		if start > 0 {
+			if err := emitContent(p.buffer[:start]); err != nil {
+				return err
+			}
+			p.buffer = p.buffer[start:]
+		}
+
+		end := strings.Index(p.buffer[2:], "]]")
+		if end == -1 {
+			return nil
+		}
+		end += 2
+
+		citationID := p.buffer[2:end]
+		if isCitationID(citationID) {
+			if err := onCitation(citationID); err != nil {
+				return err
+			}
+			p.buffer = p.buffer[end+2:]
+			continue
+		}
+
+		if err := emitContent(p.buffer[:1]); err != nil {
+			return err
+		}
+		p.buffer = p.buffer[1:]
+	}
+}
+
+func (p *streamCitationParser) Flush(onContent func(string) error) error {
+	if p.buffer == "" {
+		return nil
+	}
+
+	if err := onContent(p.buffer); err != nil {
+		return err
+	}
+
+	p.buffer = ""
+	return nil
+}
+
+func isCitationID(id string) bool {
+	if id == "" {
+		return false
+	}
+
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '_':
+		default:
+			return false
+		}
+	}
+
+	return true
 }
 
 func getPendingToolCall(historyRows []pgdb.ChatMessage) *pgdb.ChatMessage {
