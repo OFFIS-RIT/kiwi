@@ -1,4 +1,4 @@
-package routes
+package util
 
 import (
 	"reflect"
@@ -80,7 +80,7 @@ func TestIsCitationID(t *testing.T) {
 func collectParsedStream(t *testing.T, chunks []string) (string, []string) {
 	t.Helper()
 
-	parser := streamCitationParser{}
+	parser := StreamCitationParser{}
 	contentParts := make([]string, 0)
 	citations := make([]string, 0)
 

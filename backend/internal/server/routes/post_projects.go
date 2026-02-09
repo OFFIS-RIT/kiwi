@@ -1,13 +1,11 @@
 package routes
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
-	"slices"
 	"strings"
 
 	_ "github.com/go-playground/validator"
@@ -16,6 +14,7 @@ import (
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	serverutil "github.com/OFFIS-RIT/kiwi/backend/internal/server/util"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
@@ -25,8 +24,6 @@ import (
 	bqc "github.com/OFFIS-RIT/kiwi/backend/pkg/query/pgx"
 	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/pgx"
 )
-
-const defaultPendingToolResult = "No answer"
 
 type clientToolCallResponse struct {
 	ToolCallID    string `json:"tool_call_id"`
@@ -568,7 +565,7 @@ func QueryProjectHandler(c echo.Context) error {
 			PublicID:  publicID,
 			UserID:    user.UserID,
 			ProjectID: data.ProjectID,
-			Title:     buildConversationTitle(data.Prompt),
+			Title:     serverutil.BuildConversationTitle(data.Prompt),
 		})
 		if err != nil {
 			logger.Error("Failed to create conversation", "err", err)
@@ -606,10 +603,10 @@ func QueryProjectHandler(c echo.Context) error {
 		})
 	}
 
-	pendingToolCall := getPendingToolCall(historyRows)
+	pendingToolCall := serverutil.GetPendingToolCall(historyRows)
 	promptHandledAsToolResult := false
 	if pendingToolCall != nil {
-		promptHandledAsToolResult, err = appendPendingToolResult(ctx, q, conversation.ID, &chatHistory, pendingToolCall, data.ToolID, data.Prompt)
+		promptHandledAsToolResult, err = serverutil.AppendPendingToolResult(ctx, q, conversation.ID, &chatHistory, pendingToolCall, data.ToolID, data.Prompt)
 		if err != nil {
 			logger.Error("Failed to persist pending tool result", "err", err)
 			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
@@ -619,7 +616,7 @@ func QueryProjectHandler(c echo.Context) error {
 	if !promptHandledAsToolResult {
 		userMessage := ai.ChatMessage{Role: "user", Message: data.Prompt}
 		chatHistory = append(chatHistory, userMessage)
-		if err := appendChatMessage(ctx, q, conversation.ID, userMessage); err != nil {
+		if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, userMessage); err != nil {
 			logger.Error("Failed to persist user prompt", "err", err)
 			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
 		}
@@ -721,7 +718,7 @@ func QueryProjectHandler(c echo.Context) error {
 				ToolCallID:    event.ToolCallID,
 				ToolArguments: event.ToolArguments,
 			}
-			if err := appendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
+			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist legacy tool call", "err", err)
 				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
 			}
@@ -732,7 +729,7 @@ func QueryProjectHandler(c echo.Context) error {
 				ToolName:      event.ToolName,
 				ToolArguments: event.ToolArguments,
 			}
-			if err := appendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
+			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist tool call", "err", err)
 				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
 			}
@@ -754,7 +751,7 @@ func QueryProjectHandler(c echo.Context) error {
 				ToolCallID: event.ToolCallID,
 				ToolName:   event.ToolName,
 			}
-			if err := appendChatMessage(ctx, q, conversation.ID, toolResult); err != nil {
+			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolResult); err != nil {
 				logger.Error("Failed to persist tool result", "err", err)
 				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
 			}
@@ -779,9 +776,10 @@ func QueryProjectHandler(c echo.Context) error {
 	}
 
 	answer := util.NormalizeIDs(messageBuffer.String())
+	reasoning := reasoningBuffer.String()
+	metrics := aiClient.GetMetrics()
 
-	assistantMessage := ai.ChatMessage{Role: "assistant", Message: answer}
-	if err := appendChatMessage(ctx, q, conversation.ID, assistantMessage); err != nil {
+	if err := serverutil.AppendAssistantChatMessage(ctx, q, conversation.ID, answer, reasoning, &metrics); err != nil {
 		logger.Error("Failed to persist final assistant message", "err", err)
 		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
 	}
@@ -790,12 +788,17 @@ func QueryProjectHandler(c echo.Context) error {
 	re := regexp.MustCompile(`\[\[([^][]+)\]\]`)
 	matches := re.FindAllStringSubmatch(answer, -1)
 	findings := make([]string, 0)
+	findingsSet := make(map[string]struct{})
 	for _, match := range matches {
 		id := match[1]
-		found := slices.Contains(findings, id)
-		if !found {
-			findings = append(findings, id)
+		if id == "" {
+			continue
 		}
+		if _, exists := findingsSet[id]; exists {
+			continue
+		}
+		findingsSet[id] = struct{}{}
+		findings = append(findings, id)
 	}
 	files, err := q.GetFilesFromTextUnitIDs(ctx, findings)
 	if err != nil {
@@ -845,8 +848,8 @@ func QueryProjectHandler(c echo.Context) error {
 		ConsideredFileCount: consideredFileCount,
 		UsedFileCount:       usedFileCount,
 	}
-	if reasoningBuffer.Len() > 0 {
-		resp.Reasoning = reasoningBuffer.String()
+	if reasoning != "" {
+		resp.Reasoning = reasoning
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -932,7 +935,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 			PublicID:  publicID,
 			UserID:    user.UserID,
 			ProjectID: data.ProjectID,
-			Title:     buildConversationTitle(data.Prompt),
+			Title:     serverutil.BuildConversationTitle(data.Prompt),
 		})
 		if err != nil {
 			logger.Error("Failed to create conversation", "err", err)
@@ -972,10 +975,10 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		})
 	}
 
-	pendingToolCall := getPendingToolCall(historyRows)
+	pendingToolCall := serverutil.GetPendingToolCall(historyRows)
 	promptHandledAsToolResult := false
 	if pendingToolCall != nil {
-		promptHandledAsToolResult, err = appendPendingToolResult(ctx, q, conversation.ID, &chatHistory, pendingToolCall, data.ToolID, data.Prompt)
+		promptHandledAsToolResult, err = serverutil.AppendPendingToolResult(ctx, q, conversation.ID, &chatHistory, pendingToolCall, data.ToolID, data.Prompt)
 		if err != nil {
 			logger.Error("Failed to persist pending tool result", "err", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
@@ -986,7 +989,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		userMessage := ai.ChatMessage{Role: "user", Message: data.Prompt}
 		chatHistory = append(chatHistory, userMessage)
 
-		if err := appendChatMessage(ctx, q, conversation.ID, userMessage); err != nil {
+		if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, userMessage); err != nil {
 			logger.Error("Failed to persist user prompt", "err", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 		}
@@ -1028,7 +1031,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
 
-	if err := writeSSEEvent(c, "conversation", map[string]any{
+	if err := serverutil.WriteSSEEvent(c, "conversation", map[string]any{
 		"conversation_id": conversation.PublicID,
 		"is_new":          isNewConversation,
 	}); err != nil {
@@ -1055,8 +1058,8 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
 	}
 	if err != nil {
-		_ = writeSSEEvent(c, "error", map[string]string{"message": "Es ist ein interner Fehler aufgetreten."})
-		_ = writeSSEEvent(c, "done", map[string]any{"conversation_id": conversation.PublicID})
+		_ = serverutil.WriteSSEEvent(c, "error", map[string]string{"message": "Es ist ein interner Fehler aufgetreten."})
+		_ = serverutil.WriteSSEEvent(c, "done", map[string]any{"conversation_id": conversation.PublicID})
 		return nil
 	}
 
@@ -1067,7 +1070,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	var reasoningBuffer strings.Builder
 	var allFoundData []responseData
 	var pendingClientToolCall *clientToolCallResponse
-	citationParser := streamCitationParser{}
+	citationParser := serverutil.StreamCitationParser{}
 
 	resolveCitationData := func(id string) *responseData {
 		if cached, ok := citationCache[id]; ok {
@@ -1105,7 +1108,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 				continue
 			}
 			reasoningBuffer.WriteString(reasoningContent)
-			if err := writeSSEEvent(c, "reasoning", map[string]string{"content": reasoningContent}); err != nil {
+			if err := serverutil.WriteSSEEvent(c, "reasoning", map[string]string{"content": reasoningContent}); err != nil {
 				return nil
 			}
 		case "step":
@@ -1118,7 +1121,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 					continue
 				}
 				reasoningBuffer.WriteString(reasoningContent)
-				if err := writeSSEEvent(c, "reasoning", map[string]string{"content": reasoningContent}); err != nil {
+				if err := serverutil.WriteSSEEvent(c, "reasoning", map[string]string{"content": reasoningContent}); err != nil {
 					return nil
 				}
 				continue
@@ -1129,7 +1132,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 			}
 
 			if event.Step == "db_query" {
-				if err := writeSSEEvent(c, "step", map[string]string{"name": event.Step}); err != nil {
+				if err := serverutil.WriteSSEEvent(c, "step", map[string]string{"name": event.Step}); err != nil {
 					return nil
 				}
 				continue
@@ -1141,13 +1144,13 @@ func QueryProjectStreamHandler(c echo.Context) error {
 				ToolCallID:    event.ToolCallID,
 				ToolArguments: event.ToolArguments,
 			}
-			if err := appendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
+			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist legacy tool call", "err", err)
-				_ = writeSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
+				_ = serverutil.WriteSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
 				return nil
 			}
 
-			if err := writeSSEEvent(c, "tool", map[string]string{"name": event.Step}); err != nil {
+			if err := serverutil.WriteSSEEvent(c, "tool", map[string]string{"name": event.Step}); err != nil {
 				return nil
 			}
 		case "tool_call":
@@ -1157,9 +1160,9 @@ func QueryProjectStreamHandler(c echo.Context) error {
 				ToolName:      event.ToolName,
 				ToolArguments: event.ToolArguments,
 			}
-			if err := appendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
+			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist tool call", "err", err)
-				_ = writeSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
+				_ = serverutil.WriteSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
 				return nil
 			}
 
@@ -1169,13 +1172,13 @@ func QueryProjectStreamHandler(c echo.Context) error {
 					ToolName:      event.ToolName,
 					ToolArguments: event.ToolArguments,
 				}
-				if err := writeSSEEvent(c, "client_tool_call", pendingClientToolCall); err != nil {
+				if err := serverutil.WriteSSEEvent(c, "client_tool_call", pendingClientToolCall); err != nil {
 					return nil
 				}
 				continue
 			}
 
-			if err := writeSSEEvent(c, "tool", map[string]string{"name": event.ToolName}); err != nil {
+			if err := serverutil.WriteSSEEvent(c, "tool", map[string]string{"name": event.ToolName}); err != nil {
 				return nil
 			}
 		case "tool_result":
@@ -1189,9 +1192,9 @@ func QueryProjectStreamHandler(c echo.Context) error {
 				ToolCallID: event.ToolCallID,
 				ToolName:   event.ToolName,
 			}
-			if err := appendChatMessage(ctx, q, conversation.ID, toolResult); err != nil {
+			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolResult); err != nil {
 				logger.Error("Failed to persist tool result", "err", err)
-				_ = writeSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
+				_ = serverutil.WriteSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
 				return nil
 			}
 		case "content":
@@ -1203,7 +1206,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 					if content == "" {
 						return nil
 					}
-					return writeSSEEvent(c, "content", map[string]string{"content": content})
+					return serverutil.WriteSSEEvent(c, "content", map[string]string{"content": content})
 				},
 				func(citationID string) error {
 					citationData := resolveCitationData(citationID)
@@ -1221,7 +1224,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 						}
 					}
 
-					return writeSSEEvent(c, "citation", payload)
+					return serverutil.WriteSSEEvent(c, "citation", payload)
 				},
 			); err != nil {
 				return nil
@@ -1233,14 +1236,14 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		if content == "" {
 			return nil
 		}
-		return writeSSEEvent(c, "content", map[string]string{"content": content})
+		return serverutil.WriteSSEEvent(c, "content", map[string]string{"content": content})
 	}); err != nil {
 		return nil
 	}
 
 	if pendingClientToolCall != nil {
 		metrics := aiClient.GetMetrics()
-		if err := writeSSEEvent(c, "metrics", metrics); err != nil {
+		if err := serverutil.WriteSSEEvent(c, "metrics", metrics); err != nil {
 			return nil
 		}
 
@@ -1254,15 +1257,16 @@ func QueryProjectStreamHandler(c echo.Context) error {
 			doneData["reasoning"] = reasoningBuffer.String()
 		}
 
-		_ = writeSSEEvent(c, "done", doneData)
+		_ = serverutil.WriteSSEEvent(c, "done", doneData)
 		return nil
 	}
 
 	finalMessage := util.NormalizeIDs(messageBuffer.String())
-	assistantMessage := ai.ChatMessage{Role: "assistant", Message: finalMessage}
-	if err := appendChatMessage(ctx, q, conversation.ID, assistantMessage); err != nil {
+	reasoning := reasoningBuffer.String()
+	metrics := aiClient.GetMetrics()
+	if err := serverutil.AppendAssistantChatMessage(ctx, q, conversation.ID, finalMessage, reasoning, &metrics); err != nil {
 		logger.Error("Failed to persist final assistant message", "err", err)
-		_ = writeSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
+		_ = serverutil.WriteSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
 		return nil
 	}
 
@@ -1282,8 +1286,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		allFoundData = append(allFoundData, *citationData)
 	}
 
-	metrics := aiClient.GetMetrics()
-	if err := writeSSEEvent(c, "metrics", metrics); err != nil {
+	if err := serverutil.WriteSSEEvent(c, "metrics", metrics); err != nil {
 		return nil
 	}
 
@@ -1324,204 +1327,6 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		doneData["reasoning"] = reasoningBuffer.String()
 	}
 
-	_ = writeSSEEvent(c, "done", doneData)
-	return nil
-}
-
-type streamCitationParser struct {
-	buffer string
-}
-
-func (p *streamCitationParser) Consume(
-	chunk string,
-	onContent func(string) error,
-	onCitation func(string) error,
-) error {
-	p.buffer += chunk
-
-	emitContent := func(content string) error {
-		if content == "" {
-			return nil
-		}
-		return onContent(content)
-	}
-
-	for {
-		start := strings.Index(p.buffer, "[[")
-		if start == -1 {
-			if strings.HasSuffix(p.buffer, "[") {
-				if err := emitContent(p.buffer[:len(p.buffer)-1]); err != nil {
-					return err
-				}
-				p.buffer = "["
-				return nil
-			}
-
-			if err := emitContent(p.buffer); err != nil {
-				return err
-			}
-			p.buffer = ""
-			return nil
-		}
-
-		if start > 0 {
-			if err := emitContent(p.buffer[:start]); err != nil {
-				return err
-			}
-			p.buffer = p.buffer[start:]
-		}
-
-		end := strings.Index(p.buffer[2:], "]]")
-		if end == -1 {
-			return nil
-		}
-		end += 2
-
-		citationID := p.buffer[2:end]
-		if isCitationID(citationID) {
-			if err := onCitation(citationID); err != nil {
-				return err
-			}
-			p.buffer = p.buffer[end+2:]
-			continue
-		}
-
-		if err := emitContent(p.buffer[:1]); err != nil {
-			return err
-		}
-		p.buffer = p.buffer[1:]
-	}
-}
-
-func (p *streamCitationParser) Flush(onContent func(string) error) error {
-	if p.buffer == "" {
-		return nil
-	}
-
-	if err := onContent(p.buffer); err != nil {
-		return err
-	}
-
-	p.buffer = ""
-	return nil
-}
-
-func isCitationID(id string) bool {
-	if id == "" {
-		return false
-	}
-
-	for _, r := range id {
-		switch {
-		case r >= 'a' && r <= 'z':
-		case r >= 'A' && r <= 'Z':
-		case r >= '0' && r <= '9':
-		case r == '-' || r == '_':
-		default:
-			return false
-		}
-	}
-
-	return true
-}
-
-func getPendingToolCall(historyRows []pgdb.ChatMessage) *pgdb.ChatMessage {
-	if len(historyRows) == 0 {
-		return nil
-	}
-
-	last := historyRows[len(historyRows)-1]
-	if last.Role != "assistant_tool_call" {
-		return nil
-	}
-	if strings.TrimSpace(last.ToolCallID) == "" {
-		return nil
-	}
-
-	pending := last
-	return &pending
-}
-
-func appendPendingToolResult(
-	ctx context.Context,
-	q *pgdb.Queries,
-	chatID int64,
-	chatHistory *[]ai.ChatMessage,
-	pending *pgdb.ChatMessage,
-	toolID string,
-	prompt string,
-) (bool, error) {
-	if pending == nil {
-		return false, nil
-	}
-
-	result := defaultPendingToolResult
-	usedPromptAsToolResult := false
-	if strings.TrimSpace(toolID) != "" {
-		if toolID != pending.ToolCallID {
-			return false, fmt.Errorf("tool_id mismatch: expected %s, got %s", pending.ToolCallID, toolID)
-		}
-		result = prompt
-		usedPromptAsToolResult = true
-	}
-
-	toolResult := ai.ChatMessage{
-		Role:       "tool",
-		Message:    result,
-		ToolCallID: pending.ToolCallID,
-		ToolName:   pending.ToolName,
-	}
-	*chatHistory = append(*chatHistory, toolResult)
-
-	if err := appendChatMessage(ctx, q, chatID, toolResult); err != nil {
-		return false, err
-	}
-
-	return usedPromptAsToolResult, nil
-}
-
-func appendChatMessage(ctx context.Context, q *pgdb.Queries, chatID int64, message ai.ChatMessage) error {
-	if err := q.AddChatMessage(ctx, pgdb.AddChatMessageParams{
-		ChatID:        chatID,
-		Role:          message.Role,
-		Content:       message.Message,
-		ToolCallID:    message.ToolCallID,
-		ToolName:      message.ToolName,
-		ToolArguments: message.ToolArguments,
-	}); err != nil {
-		return err
-	}
-
-	return q.TouchUserChat(ctx, chatID)
-}
-
-func buildConversationTitle(prompt string) string {
-	trimmed := strings.TrimSpace(prompt)
-	if trimmed == "" {
-		return "New conversation"
-	}
-
-	const maxTitleLength = 120
-	if len(trimmed) <= maxTitleLength {
-		return trimmed
-	}
-
-	return trimmed[:maxTitleLength]
-}
-
-func writeSSEEvent(c echo.Context, event string, payload any) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	if _, err := fmt.Fprintf(c.Response(), "event: %s\n", event); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(c.Response(), "data: %s\n\n", data); err != nil {
-		return err
-	}
-
-	c.Response().Flush()
+	_ = serverutil.WriteSSEEvent(c, "done", doneData)
 	return nil
 }

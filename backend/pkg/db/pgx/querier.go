@@ -32,6 +32,7 @@ type Querier interface {
 	DeleteRelationshipsWithoutSources(ctx context.Context, projectID int64) error
 	DeleteStagedData(ctx context.Context, arg DeleteStagedDataParams) error
 	DeleteTextUnitsByFileIDs(ctx context.Context, dollar_1 []int64) error
+	DeleteUserChatByPublicIDAndProject(ctx context.Context, arg DeleteUserChatByPublicIDAndProjectParams) (int64, error)
 	DeleteUserFromGroup(ctx context.Context, arg DeleteUserFromGroupParams) error
 	FindDuplicateRelationships(ctx context.Context, projectID int64) ([]FindDuplicateRelationshipsRow, error)
 	FindEntitiesWithSimilarNames(ctx context.Context, projectID int64) ([]FindEntitiesWithSimilarNamesRow, error)
@@ -46,6 +47,7 @@ type Querier interface {
 	GetAllProjectsWithGroups(ctx context.Context) ([]GetAllProjectsWithGroupsRow, error)
 	GetBatchesByCorrelation(ctx context.Context, correlationID string) ([]ProjectBatchStatus, error)
 	GetChatMessagesByChatID(ctx context.Context, chatID int64) ([]ChatMessage, error)
+	GetChatMessagesByChatIDWithoutToolCalls(ctx context.Context, chatID int64) ([]ChatMessage, error)
 	GetDeletedProjectFiles(ctx context.Context, projectID int64) ([]ProjectFile, error)
 	GetDescriptionJobsByCorrelation(ctx context.Context, correlationID string) ([]ProjectDescriptionJobStatus, error)
 	GetEntitiesWithSourcesFromFiles(ctx context.Context, arg GetEntitiesWithSourcesFromFilesParams) ([]GetEntitiesWithSourcesFromFilesRow, error)
@@ -93,6 +95,7 @@ type Querier interface {
 	GetTextUnitIdsForFiles(ctx context.Context, dollar_1 []int64) ([]GetTextUnitIdsForFilesRow, error)
 	GetTokenCountsOfFiles(ctx context.Context, dollar_1 []int64) ([]GetTokenCountsOfFilesRow, error)
 	GetUserChatByPublicIDAndProject(ctx context.Context, arg GetUserChatByPublicIDAndProjectParams) (UserChat, error)
+	GetUserChatsByProject(ctx context.Context, arg GetUserChatsByProjectParams) ([]GetUserChatsByProjectRow, error)
 	InsertStagedDataBatch(ctx context.Context, arg InsertStagedDataBatchParams) error
 	IsUserInGroup(ctx context.Context, arg IsUserInGroupParams) (int64, error)
 	IsUserInProject(ctx context.Context, arg IsUserInProjectParams) (int64, error)

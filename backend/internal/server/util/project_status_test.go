@@ -1,8 +1,8 @@
-package routes
+package util
 
 import "testing"
 
-func Test_fileProcessingStatusFromBatchStatus(t *testing.T) {
+func TestFileProcessingStatusFromBatchStatus(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -52,7 +52,7 @@ func Test_fileProcessingStatusFromBatchStatus(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			got := fileProcessingStatusFromBatchStatus(tc.batchStatus, tc.hasBatchStatus)
+			got := FileProcessingStatusFromBatchStatus(tc.batchStatus, tc.hasBatchStatus)
 			if got != tc.want {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}

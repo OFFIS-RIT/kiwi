@@ -203,6 +203,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     tool_call_id TEXT NOT NULL DEFAULT '',
     tool_name TEXT NOT NULL DEFAULT '',
     tool_arguments TEXT NOT NULL DEFAULT '',
+    reasoning TEXT,
+    metrics JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
