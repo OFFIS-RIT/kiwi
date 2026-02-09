@@ -20,10 +20,10 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
 
-var ocrMarkupTagPattern = regexp.MustCompile(`(?i)<\s*/?\s*(table|thead|tbody|tr|th|td|div|p|br|h[1-6]|ul|ol|li|img|doc-header|doc-footer|doc-signature|image)\b`)
+var ocrMarkupTagPattern = regexp.MustCompile(`(?i)<\s*/?\s*(table|thead|tbody|tr|th|td|div|p|br|h[1-6]|ul|ol|li|img|doc-header|doc-footer|doc-signature|doc-toc|image)\b`)
 var ocrWhitespacePattern = regexp.MustCompile(`[ \t]+`)
 var ocrExtraNewlinePattern = regexp.MustCompile(`\n{3,}`)
-var ocrMetadataTagPattern = regexp.MustCompile(`(?i)<\s*(/?)\s*(doc-header|doc-footer|doc-signature|image)(?:\s+[^>]*)?\s*>`)
+var ocrMetadataTagPattern = regexp.MustCompile(`(?i)<\s*(/?)\s*(doc-header|doc-footer|doc-signature|doc-toc|image)(?:\s+[^>]*)?\s*>`)
 
 type ocrTableRow struct {
 	cells     []string
@@ -229,7 +229,7 @@ func renderOCRNode(node *html.Node, inBox bool) []string {
 				level = 2
 			}
 			return []string{strings.Repeat("#", level) + " " + text}
-		case "doc-header", "doc-footer", "doc-signature", "image":
+		case "doc-header", "doc-footer", "doc-signature", "doc-toc", "image":
 			content := strings.Join(renderOCRChildren(node, true), "\n")
 			content = strings.TrimSpace(content)
 			if content == "" {
@@ -686,7 +686,7 @@ func formatOCRTableLine(cells []string) string {
 
 func isOCRStructuralTag(tag string) bool {
 	switch tag {
-	case "div", "p", "table", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "doc-header", "doc-footer", "doc-signature", "image":
+	case "div", "p", "table", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "doc-header", "doc-footer", "doc-signature", "doc-toc", "image":
 		return true
 	default:
 		return false

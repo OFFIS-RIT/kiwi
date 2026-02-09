@@ -56,6 +56,15 @@ func TestNormalizeOCRMarkup(t *testing.T) {
 			notContains: []string{"<span"},
 		},
 		{
+			name:  "preserves table of contents metadata tag",
+			input: `<doc-toc><div>1 Intro ........ 2</div><div>2 Results ........ 4</div></doc-toc><p>Body Text</p>`,
+			contains: []string{
+				"<doc-toc>1 Intro ........ 2\n2 Results ........ 4</doc-toc>",
+				"Body Text",
+			},
+			notContains: []string{"<div"},
+		},
+		{
 			name:  "preserves metadata tags with whitespace inside tag brackets",
 			input: `< doc-header ><span>Header Text</span></ doc-header >< doc-footer>Footer Text</ doc-footer>`,
 			contains: []string{
@@ -130,6 +139,14 @@ Outro paragraph.`,
 				"<doc-header>Header Text</doc-header>",
 			},
 			notContains: []string{"< doc-header", "data-id="},
+		},
+		{
+			name:  "normalizes table of contents metadata tags with attributes and whitespace",
+			input: `< DOC-TOC class="toc" >Section A</ DOC-TOC >`,
+			contains: []string{
+				"<doc-toc>Section A</doc-toc>",
+			},
+			notContains: []string{"DOC-TOC", "class=\"toc\""},
 		},
 		{
 			name: "converts mixed html structures",

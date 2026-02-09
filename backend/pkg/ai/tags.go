@@ -11,6 +11,7 @@ var metadataTagPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?s)<doc-header>.*?</doc-header>`),
 	regexp.MustCompile(`(?s)<doc-footer>.*?</doc-footer>`),
 	regexp.MustCompile(`(?s)<doc-signature>.*?</doc-signature>`),
+	regexp.MustCompile(`(?s)<doc-toc>.*?</doc-toc>`),
 }
 
 // extractFirstTagPatterns - compiled patterns to find the FIRST occurrence of each tag
@@ -31,7 +32,7 @@ type DocumentSections struct {
 	Signature string
 }
 
-// StripMetadataTags removes <doc-header>, <doc-footer>, and <doc-signature> tags
+// StripMetadataTags removes metadata tags (header, footer, signature, toc)
 // and their contents from the document text.
 func StripMetadataTags(content string) string {
 	result := content
