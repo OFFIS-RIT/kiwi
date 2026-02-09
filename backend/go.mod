@@ -84,7 +84,7 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/net v0.48.0
 	golang.org/x/sync v0.19.0
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
@@ -92,12 +92,12 @@ require (
 )
 
 require (
-	codeberg.org/readeck/go-readability/v2 v2.1.0
+	codeberg.org/readeck/go-readability/v2 v2.1.1
 	github.com/charmbracelet/log v0.4.2
 	github.com/invopop/jsonschema v0.13.0
-	github.com/kaptinlin/jsonrepair v0.2.7
+	github.com/kaptinlin/jsonrepair v0.2.8
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/ollama/ollama v0.13.5
-	github.com/openai/openai-go/v3 v3.17.0
+	github.com/openai/openai-go/v3 v3.18.0
 	github.com/pkoukk/tiktoken-go v0.1.8
 )
