@@ -33,6 +33,9 @@ func RegisterRoutes(e *echo.Echo) {
 	// Project query routes
 	apiRoutes.POST("/projects/:id/query", routes.QueryProjectHandler)
 	apiRoutes.POST("/projects/:id/stream", routes.QueryProjectStreamHandler)
+	apiRoutes.GET("/projects/:id/chats", routes.GetUserChatsHandler)
+	apiRoutes.GET("/projects/:id/chats/:conversation_id", routes.GetChatHandler)
+	apiRoutes.DELETE("/projects/:id/chats/:conversation_id", routes.DeleteChatHandler)
 
 	// Group Routes
 	apiRoutes.GET("/groups", routes.GetGroupsHandler, middleware.RequireAnyPermission("group.view", "group.view:all"))

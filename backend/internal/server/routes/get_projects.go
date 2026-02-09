@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	serverutil "github.com/OFFIS-RIT/kiwi/backend/internal/server/util"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
@@ -209,26 +210,11 @@ func GetProjectFilesHandler(c echo.Context) error {
 		batchStatus, ok := batchStatusByFileID[f.ID]
 		resp = append(resp, projectFileResponse{
 			ProjectFile: f,
-			Status:      fileProcessingStatusFromBatchStatus(batchStatus, ok),
+			Status:      serverutil.FileProcessingStatusFromBatchStatus(batchStatus, ok),
 		})
 	}
 
 	return c.JSON(http.StatusOK, resp)
-}
-
-func fileProcessingStatusFromBatchStatus(batchStatus string, hasBatchStatus bool) string {
-	if !hasBatchStatus {
-		return "no_status"
-	}
-
-	switch batchStatus {
-	case "completed":
-		return "processed"
-	case "failed":
-		return "failed"
-	default:
-		return "processing"
-	}
 }
 
 func GetTextUnitHandler(c echo.Context) error {

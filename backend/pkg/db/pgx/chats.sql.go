@@ -7,27 +7,33 @@ package pgdb
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const addChatMessage = `-- name: AddChatMessage :exec
-INSERT INTO chat_messages (chat_id, role, content, tool_call_id, tool_name, tool_arguments)
+INSERT INTO chat_messages (chat_id, role, content, tool_call_id, tool_name, tool_arguments, reasoning, metrics)
 VALUES (
     $1::bigint,
     $2,
     $3,
     $4,
     $5,
-    $6
+    $6,
+    $7,
+    $8
 )
 `
 
 type AddChatMessageParams struct {
-	ChatID        int64  `json:"chat_id"`
-	Role          string `json:"role"`
-	Content       string `json:"content"`
-	ToolCallID    string `json:"tool_call_id"`
-	ToolName      string `json:"tool_name"`
-	ToolArguments string `json:"tool_arguments"`
+	ChatID        int64       `json:"chat_id"`
+	Role          string      `json:"role"`
+	Content       string      `json:"content"`
+	ToolCallID    string      `json:"tool_call_id"`
+	ToolName      string      `json:"tool_name"`
+	ToolArguments string      `json:"tool_arguments"`
+	Reasoning     pgtype.Text `json:"reasoning"`
+	Metrics       []byte      `json:"metrics"`
 }
 
 func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) error {
@@ -38,6 +44,8 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		arg.ToolCallID,
 		arg.ToolName,
 		arg.ToolArguments,
+		arg.Reasoning,
+		arg.Metrics,
 	)
 	return err
 }
@@ -80,8 +88,29 @@ func (q *Queries) CreateUserChat(ctx context.Context, arg CreateUserChatParams) 
 	return i, err
 }
 
+const deleteUserChatByPublicIDAndProject = `-- name: DeleteUserChatByPublicIDAndProject :execrows
+DELETE FROM user_chats
+WHERE public_id = $1
+  AND user_id = $2
+  AND project_id = $3::bigint
+`
+
+type DeleteUserChatByPublicIDAndProjectParams struct {
+	PublicID  string `json:"public_id"`
+	UserID    int64  `json:"user_id"`
+	ProjectID int64  `json:"project_id"`
+}
+
+func (q *Queries) DeleteUserChatByPublicIDAndProject(ctx context.Context, arg DeleteUserChatByPublicIDAndProjectParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserChatByPublicIDAndProject, arg.PublicID, arg.UserID, arg.ProjectID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getChatMessagesByChatID = `-- name: GetChatMessagesByChatID :many
-SELECT id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, created_at, updated_at FROM chat_messages
+SELECT id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, reasoning, metrics, created_at, updated_at FROM chat_messages
 WHERE chat_id = $1::bigint
 ORDER BY id ASC
 `
@@ -103,6 +132,47 @@ func (q *Queries) GetChatMessagesByChatID(ctx context.Context, chatID int64) ([]
 			&i.ToolCallID,
 			&i.ToolName,
 			&i.ToolArguments,
+			&i.Reasoning,
+			&i.Metrics,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getChatMessagesByChatIDWithoutToolCalls = `-- name: GetChatMessagesByChatIDWithoutToolCalls :many
+SELECT id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, reasoning, metrics, created_at, updated_at FROM chat_messages
+WHERE chat_id = $1::bigint
+  AND role IN ('user', 'assistant')
+ORDER BY id ASC
+`
+
+func (q *Queries) GetChatMessagesByChatIDWithoutToolCalls(ctx context.Context, chatID int64) ([]ChatMessage, error) {
+	rows, err := q.db.Query(ctx, getChatMessagesByChatIDWithoutToolCalls, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ChatMessage{}
+	for rows.Next() {
+		var i ChatMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChatID,
+			&i.Role,
+			&i.Content,
+			&i.ToolCallID,
+			&i.ToolName,
+			&i.ToolArguments,
+			&i.Reasoning,
+			&i.Metrics,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -142,6 +212,43 @@ func (q *Queries) GetUserChatByPublicIDAndProject(ctx context.Context, arg GetUs
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getUserChatsByProject = `-- name: GetUserChatsByProject :many
+SELECT public_id, title FROM user_chats
+WHERE user_id = $1
+  AND project_id = $2::bigint
+ORDER BY updated_at DESC, id DESC
+`
+
+type GetUserChatsByProjectParams struct {
+	UserID    int64 `json:"user_id"`
+	ProjectID int64 `json:"project_id"`
+}
+
+type GetUserChatsByProjectRow struct {
+	PublicID string `json:"public_id"`
+	Title    string `json:"title"`
+}
+
+func (q *Queries) GetUserChatsByProject(ctx context.Context, arg GetUserChatsByProjectParams) ([]GetUserChatsByProjectRow, error) {
+	rows, err := q.db.Query(ctx, getUserChatsByProject, arg.UserID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetUserChatsByProjectRow{}
+	for rows.Next() {
+		var i GetUserChatsByProjectRow
+		if err := rows.Scan(&i.PublicID, &i.Title); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const touchUserChat = `-- name: TouchUserChat :exec
