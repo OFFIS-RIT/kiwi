@@ -195,9 +195,9 @@ func GetChatHandler(c echo.Context) error {
 			metrics := ai.ModelMetrics{}
 			if err := json.Unmarshal(message.Metrics, &metrics); err != nil {
 				logger.Error("Failed to decode assistant metrics", "conversation_id", conversation.PublicID, "message_id", message.ID, "err", err)
-			} else {
-				item.Metrics = &metrics
+				return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 			}
+			item.Metrics = &metrics
 		}
 
 		if citationData, ok := resolvedCitationDataByMessageID[message.ID]; ok {
