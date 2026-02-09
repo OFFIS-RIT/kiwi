@@ -85,8 +85,10 @@ SELECT * FROM project_system_prompts WHERE project_id = $1;
 -- name: AddTokenCountToFile :exec
 UPDATE project_files SET token_count = $2 WHERE id = $1;
 
--- name: GetTokenCountOfFile :one
-SELECT token_count FROM project_files WHERE id = $1;
+-- name: GetTokenCountsOfFiles :many
+SELECT id, token_count
+FROM project_files
+WHERE id = ANY($1::bigint[]);
 
 -- name: UpdateProjectFileMetadata :exec
 UPDATE project_files SET metadata = $2, updated_at = NOW() WHERE id = $1;

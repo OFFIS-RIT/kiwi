@@ -89,7 +89,8 @@ INSERT INTO project_description_job_status (
     project_id, correlation_id, job_id, total_jobs, entity_ids, relationship_ids
 ) VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (correlation_id, job_id) DO UPDATE
-SET total_jobs = EXCLUDED.total_jobs,
+SET project_id = EXCLUDED.project_id,
+    total_jobs = EXCLUDED.total_jobs,
     entity_ids = EXCLUDED.entity_ids,
     relationship_ids = EXCLUDED.relationship_ids
 RETURNING id, project_id, correlation_id, job_id, total_jobs, entity_ids, relationship_ids, status, created_at, started_at, completed_at, error_message
@@ -578,6 +579,54 @@ type TryStartDescriptionJobParams struct {
 
 func (q *Queries) TryStartDescriptionJob(ctx context.Context, arg TryStartDescriptionJobParams) (bool, error) {
 	row := q.db.QueryRow(ctx, tryStartDescriptionJob, arg.CorrelationID, arg.JobID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const tryStartGraphBatch = `-- name: TryStartGraphBatch :one
+UPDATE project_batch_status
+SET status = 'extracting',
+    started_at = NOW(),
+    completed_at = NULL,
+    error_message = NULL
+WHERE correlation_id = $1
+  AND batch_id = $2
+  AND status IN ('preprocessed', 'failed')
+RETURNING true
+`
+
+type TryStartGraphBatchParams struct {
+	CorrelationID string `json:"correlation_id"`
+	BatchID       int32  `json:"batch_id"`
+}
+
+func (q *Queries) TryStartGraphBatch(ctx context.Context, arg TryStartGraphBatchParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tryStartGraphBatch, arg.CorrelationID, arg.BatchID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const tryStartPreprocessBatch = `-- name: TryStartPreprocessBatch :one
+UPDATE project_batch_status
+SET status = 'preprocessing',
+    started_at = NOW(),
+    completed_at = NULL,
+    error_message = NULL
+WHERE correlation_id = $1
+  AND batch_id = $2
+  AND status IN ('pending', 'failed')
+RETURNING true
+`
+
+type TryStartPreprocessBatchParams struct {
+	CorrelationID string `json:"correlation_id"`
+	BatchID       int32  `json:"batch_id"`
+}
+
+func (q *Queries) TryStartPreprocessBatch(ctx context.Context, arg TryStartPreprocessBatchParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tryStartPreprocessBatch, arg.CorrelationID, arg.BatchID)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err

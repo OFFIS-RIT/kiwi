@@ -7,7 +7,38 @@ import (
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/store"
 )
+
+const stagedInsertChunkSize = 1000
+
+func (s *GraphDBStorage) insertStagedDataBatch(
+	ctx context.Context,
+	correlationID string,
+	batchID int,
+	projectID int64,
+	dataType string,
+	datas []string,
+) error {
+	if len(datas) == 0 {
+		return nil
+	}
+
+	q := pgdb.New(s.conn)
+	return store.ChunkRange(len(datas), stagedInsertChunkSize, func(start, end int) error {
+		if err := q.InsertStagedDataBatch(ctx, pgdb.InsertStagedDataBatchParams{
+			CorrelationID: correlationID,
+			BatchID:       int32(batchID),
+			ProjectID:     projectID,
+			DataType:      dataType,
+			Datas:         datas[start:end],
+		}); err != nil {
+			return fmt.Errorf("failed to insert staged %s batch: %w", dataType, err)
+		}
+
+		return nil
+	})
+}
 
 // StageUnits saves units to the staging table for later merging.
 // This allows workers to extract in parallel without holding the project lock.
@@ -18,27 +49,17 @@ func (s *GraphDBStorage) StageUnits(
 	projectID int64,
 	units []*common.Unit,
 ) error {
-	q := pgdb.New(s.conn)
+	datas := make([]string, 0, len(units))
 
 	for _, unit := range units {
 		data, err := json.Marshal(unit)
 		if err != nil {
 			return fmt.Errorf("failed to marshal unit: %w", err)
 		}
-
-		err = q.InsertStagedData(ctx, pgdb.InsertStagedDataParams{
-			CorrelationID: correlationID,
-			BatchID:       int32(batchID),
-			ProjectID:     projectID,
-			DataType:      "unit",
-			Data:          data,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to insert staged unit: %w", err)
-		}
+		datas = append(datas, string(data))
 	}
 
-	return nil
+	return s.insertStagedDataBatch(ctx, correlationID, batchID, projectID, "unit", datas)
 }
 
 // StageEntities saves entities to the staging table for later merging.
@@ -49,27 +70,17 @@ func (s *GraphDBStorage) StageEntities(
 	projectID int64,
 	entities []common.Entity,
 ) error {
-	q := pgdb.New(s.conn)
+	datas := make([]string, 0, len(entities))
 
 	for _, entity := range entities {
 		data, err := json.Marshal(entity)
 		if err != nil {
 			return fmt.Errorf("failed to marshal entity: %w", err)
 		}
-
-		err = q.InsertStagedData(ctx, pgdb.InsertStagedDataParams{
-			CorrelationID: correlationID,
-			BatchID:       int32(batchID),
-			ProjectID:     projectID,
-			DataType:      "entity",
-			Data:          data,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to insert staged entity: %w", err)
-		}
+		datas = append(datas, string(data))
 	}
 
-	return nil
+	return s.insertStagedDataBatch(ctx, correlationID, batchID, projectID, "entity", datas)
 }
 
 // StageRelationships saves relationships to the staging table for later merging.
@@ -80,27 +91,17 @@ func (s *GraphDBStorage) StageRelationships(
 	projectID int64,
 	relations []common.Relationship,
 ) error {
-	q := pgdb.New(s.conn)
+	datas := make([]string, 0, len(relations))
 
 	for _, rel := range relations {
 		data, err := json.Marshal(rel)
 		if err != nil {
 			return fmt.Errorf("failed to marshal relationship: %w", err)
 		}
-
-		err = q.InsertStagedData(ctx, pgdb.InsertStagedDataParams{
-			CorrelationID: correlationID,
-			BatchID:       int32(batchID),
-			ProjectID:     projectID,
-			DataType:      "relationship",
-			Data:          data,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to insert staged relationship: %w", err)
-		}
+		datas = append(datas, string(data))
 	}
 
-	return nil
+	return s.insertStagedDataBatch(ctx, correlationID, batchID, projectID, "relationship", datas)
 }
 
 // GetStagedUnits retrieves units from the staging table.
@@ -108,12 +109,14 @@ func (s *GraphDBStorage) GetStagedUnits(
 	ctx context.Context,
 	correlationID string,
 	batchID int,
+	projectID int64,
 ) ([]*common.Unit, error) {
 	q := pgdb.New(s.conn)
 
 	rows, err := q.GetStagedUnits(ctx, pgdb.GetStagedUnitsParams{
 		CorrelationID: correlationID,
 		BatchID:       int32(batchID),
+		ProjectID:     projectID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get staged units: %w", err)
@@ -136,12 +139,14 @@ func (s *GraphDBStorage) GetStagedEntities(
 	ctx context.Context,
 	correlationID string,
 	batchID int,
+	projectID int64,
 ) ([]common.Entity, error) {
 	q := pgdb.New(s.conn)
 
 	rows, err := q.GetStagedEntities(ctx, pgdb.GetStagedEntitiesParams{
 		CorrelationID: correlationID,
 		BatchID:       int32(batchID),
+		ProjectID:     projectID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get staged entities: %w", err)
@@ -164,12 +169,14 @@ func (s *GraphDBStorage) GetStagedRelationships(
 	ctx context.Context,
 	correlationID string,
 	batchID int,
+	projectID int64,
 ) ([]common.Relationship, error) {
 	q := pgdb.New(s.conn)
 
 	rows, err := q.GetStagedRelationships(ctx, pgdb.GetStagedRelationshipsParams{
 		CorrelationID: correlationID,
 		BatchID:       int32(batchID),
+		ProjectID:     projectID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get staged relationships: %w", err)
@@ -192,12 +199,14 @@ func (s *GraphDBStorage) DeleteStagedData(
 	ctx context.Context,
 	correlationID string,
 	batchID int,
+	projectID int64,
 ) error {
 	q := pgdb.New(s.conn)
 
 	err := q.DeleteStagedData(ctx, pgdb.DeleteStagedDataParams{
 		CorrelationID: correlationID,
 		BatchID:       int32(batchID),
+		ProjectID:     projectID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete staged data: %w", err)

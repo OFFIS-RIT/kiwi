@@ -91,9 +91,9 @@ type Querier interface {
 	GetTextUnitByPublicId(ctx context.Context, publicID string) (TextUnit, error)
 	GetTextUnitIDsByPublicIDs(ctx context.Context, publicIds []string) ([]GetTextUnitIDsByPublicIDsRow, error)
 	GetTextUnitIdsForFiles(ctx context.Context, dollar_1 []int64) ([]GetTextUnitIdsForFilesRow, error)
-	GetTokenCountOfFile(ctx context.Context, id int64) (int32, error)
+	GetTokenCountsOfFiles(ctx context.Context, dollar_1 []int64) ([]GetTokenCountsOfFilesRow, error)
 	GetUserChatByPublicIDAndProject(ctx context.Context, arg GetUserChatByPublicIDAndProjectParams) (UserChat, error)
-	InsertStagedData(ctx context.Context, arg InsertStagedDataParams) error
+	InsertStagedDataBatch(ctx context.Context, arg InsertStagedDataBatchParams) error
 	IsUserInGroup(ctx context.Context, arg IsUserInGroupParams) (int64, error)
 	IsUserInProject(ctx context.Context, arg IsUserInProjectParams) (int64, error)
 	MarkProjectFileAsDeleted(ctx context.Context, arg MarkProjectFileAsDeletedParams) error
@@ -111,6 +111,8 @@ type Querier interface {
 	TransferEntitySources(ctx context.Context, arg TransferEntitySourcesParams) error
 	TransferRelationshipSources(ctx context.Context, arg TransferRelationshipSourcesParams) error
 	TryStartDescriptionJob(ctx context.Context, arg TryStartDescriptionJobParams) (bool, error)
+	TryStartGraphBatch(ctx context.Context, arg TryStartGraphBatchParams) (bool, error)
+	TryStartPreprocessBatch(ctx context.Context, arg TryStartPreprocessBatchParams) (bool, error)
 	UpdateBatchEstimatedDuration(ctx context.Context, arg UpdateBatchEstimatedDurationParams) error
 	UpdateBatchStatus(ctx context.Context, arg UpdateBatchStatusParams) error
 	UpdateDescriptionJobStatus(ctx context.Context, arg UpdateDescriptionJobStatusParams) error

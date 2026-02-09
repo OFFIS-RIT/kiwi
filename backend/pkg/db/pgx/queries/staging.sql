@@ -1,25 +1,31 @@
--- name: InsertStagedData :exec
+-- name: InsertStagedDataBatch :exec
 INSERT INTO extraction_staging (correlation_id, batch_id, project_id, data_type, data)
-VALUES ($1, $2, $3, $4, $5);
+SELECT
+    sqlc.arg(correlation_id)::text,
+    sqlc.arg(batch_id)::int,
+    sqlc.arg(project_id)::bigint,
+    sqlc.arg(data_type)::text,
+    d::jsonb
+FROM unnest(sqlc.arg(datas)::text[]) AS d;
 
 -- name: GetStagedUnits :many
 SELECT data
 FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2 AND data_type = 'unit'
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3 AND data_type = 'unit'
 ORDER BY id;
 
 -- name: GetStagedEntities :many
 SELECT data
 FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2 AND data_type = 'entity'
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3 AND data_type = 'entity'
 ORDER BY id;
 
 -- name: GetStagedRelationships :many
 SELECT data
 FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2 AND data_type = 'relationship'
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3 AND data_type = 'relationship'
 ORDER BY id;
 
 -- name: DeleteStagedData :exec
 DELETE FROM extraction_staging
-WHERE correlation_id = $1 AND batch_id = $2;
+WHERE correlation_id = $1 AND batch_id = $2 AND project_id = $3;

@@ -12,6 +12,28 @@ SET status = $3::text,
     error_message = $4
 WHERE correlation_id = $1 AND batch_id = $2;
 
+-- name: TryStartPreprocessBatch :one
+UPDATE project_batch_status
+SET status = 'preprocessing',
+    started_at = NOW(),
+    completed_at = NULL,
+    error_message = NULL
+WHERE correlation_id = $1
+  AND batch_id = $2
+  AND status IN ('pending', 'failed')
+RETURNING true;
+
+-- name: TryStartGraphBatch :one
+UPDATE project_batch_status
+SET status = 'extracting',
+    started_at = NOW(),
+    completed_at = NULL,
+    error_message = NULL
+WHERE correlation_id = $1
+  AND batch_id = $2
+  AND status IN ('preprocessed', 'failed')
+RETURNING true;
+
 -- name: GetBatchesByCorrelation :many
 SELECT * FROM project_batch_status
 WHERE correlation_id = $1
@@ -96,7 +118,8 @@ INSERT INTO project_description_job_status (
     project_id, correlation_id, job_id, total_jobs, entity_ids, relationship_ids
 ) VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (correlation_id, job_id) DO UPDATE
-SET total_jobs = EXCLUDED.total_jobs,
+SET project_id = EXCLUDED.project_id,
+    total_jobs = EXCLUDED.total_jobs,
     entity_ids = EXCLUDED.entity_ids,
     relationship_ids = EXCLUDED.relationship_ids
 RETURNING *;

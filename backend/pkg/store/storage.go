@@ -42,8 +42,8 @@ type GraphStorage interface {
 	StageUnits(ctx context.Context, correlationID string, batchID int, projectID int64, units []*common.Unit) error
 	StageEntities(ctx context.Context, correlationID string, batchID int, projectID int64, entities []common.Entity) error
 	StageRelationships(ctx context.Context, correlationID string, batchID int, projectID int64, relations []common.Relationship) error
-	GetStagedUnits(ctx context.Context, correlationID string, batchID int) ([]*common.Unit, error)
-	GetStagedEntities(ctx context.Context, correlationID string, batchID int) ([]common.Entity, error)
-	GetStagedRelationships(ctx context.Context, correlationID string, batchID int) ([]common.Relationship, error)
-	DeleteStagedData(ctx context.Context, correlationID string, batchID int) error
+	GetStagedUnits(ctx context.Context, correlationID string, batchID int, projectID int64) ([]*common.Unit, error)
+	GetStagedEntities(ctx context.Context, correlationID string, batchID int, projectID int64) ([]common.Entity, error)
+	GetStagedRelationships(ctx context.Context, correlationID string, batchID int, projectID int64) ([]common.Relationship, error)
+	DeleteStagedData(ctx context.Context, correlationID string, batchID int, projectID int64) error
 }
