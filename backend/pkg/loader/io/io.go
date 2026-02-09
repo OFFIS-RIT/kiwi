@@ -75,8 +75,8 @@ func (l *IOGraphFileLoader) GetFileText(ctx context.Context, file loader.GraphFi
 	return result.([]byte), err
 }
 
-// GetBas64 reads the file and returns it encoded as base64 with appropriate MIME type.
-func (l *IOGraphFileLoader) GetBas64(ctx context.Context, file loader.GraphFile) (loader.GraphBase64, error) {
+// GetBase64 reads the file and returns it encoded as base64 with appropriate MIME type.
+func (l *IOGraphFileLoader) GetBase64(ctx context.Context, file loader.GraphFile) (loader.GraphBase64, error) {
 	f, err := l.GetFileText(ctx, file)
 	if err != nil {
 		return loader.GraphBase64{}, err
