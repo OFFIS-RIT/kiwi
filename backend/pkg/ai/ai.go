@@ -35,11 +35,12 @@ type ToolCall struct {
 //   - "assistant_tool_call" → assistant requested a tool invocation
 //   - "tool"      → tool result message linked to a tool call
 type ChatMessage struct {
-	Message       string `json:"message"`
-	Role          string `json:"role"`
-	ToolCallID    string `json:"tool_call_id,omitempty"`
-	ToolName      string `json:"tool_name,omitempty"`
-	ToolArguments string `json:"tool_arguments,omitempty"`
+	Message       string        `json:"message"`
+	Role          string        `json:"role"`
+	ToolCallID    string        `json:"tool_call_id,omitempty"`
+	ToolName      string        `json:"tool_name,omitempty"`
+	ToolArguments string        `json:"tool_arguments,omitempty"`
+	ToolExecution ToolExecution `json:"tool_execution,omitempty"`
 }
 
 // GenerateOptions holds configuration for AI generation requests.

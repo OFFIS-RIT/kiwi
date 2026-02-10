@@ -20,7 +20,7 @@ SET updated_at = NOW()
 WHERE id = sqlc.arg(chat_id)::bigint;
 
 -- name: AddChatMessage :exec
-INSERT INTO chat_messages (chat_id, role, content, tool_call_id, tool_name, tool_arguments, reasoning, metrics)
+INSERT INTO chat_messages (chat_id, role, content, tool_call_id, tool_name, tool_arguments, tool_execution, reasoning, metrics)
 VALUES (
     sqlc.arg(chat_id)::bigint,
     sqlc.arg(role),
@@ -28,6 +28,7 @@ VALUES (
     sqlc.arg(tool_call_id),
     sqlc.arg(tool_name),
     sqlc.arg(tool_arguments),
+    sqlc.arg(tool_execution),
     sqlc.arg(reasoning),
     sqlc.arg(metrics)
 );
@@ -37,10 +38,13 @@ SELECT * FROM chat_messages
 WHERE chat_id = sqlc.arg(chat_id)::bigint
 ORDER BY id ASC;
 
--- name: GetChatMessagesByChatIDWithoutToolCalls :many
+-- name: GetChatMessagesByChatIDWithoutServerToolCalls :many
 SELECT * FROM chat_messages
 WHERE chat_id = sqlc.arg(chat_id)::bigint
-  AND role IN ('user', 'assistant')
+  AND (
+      role IN ('user', 'assistant')
+      OR (role IN ('assistant_tool_call', 'tool') AND tool_execution = 'client')
+  )
 ORDER BY id ASC;
 
 -- name: GetUserChatsByProject :many

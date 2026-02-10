@@ -47,7 +47,7 @@ type Querier interface {
 	GetAllProjectsWithGroups(ctx context.Context) ([]GetAllProjectsWithGroupsRow, error)
 	GetBatchesByCorrelation(ctx context.Context, correlationID string) ([]ProjectBatchStatus, error)
 	GetChatMessagesByChatID(ctx context.Context, chatID int64) ([]ChatMessage, error)
-	GetChatMessagesByChatIDWithoutToolCalls(ctx context.Context, chatID int64) ([]ChatMessage, error)
+	GetChatMessagesByChatIDWithoutServerToolCalls(ctx context.Context, chatID int64) ([]ChatMessage, error)
 	GetDeletedProjectFiles(ctx context.Context, projectID int64) ([]ProjectFile, error)
 	GetDescriptionJobsByCorrelation(ctx context.Context, correlationID string) ([]ProjectDescriptionJobStatus, error)
 	GetEntitiesWithSourcesFromFiles(ctx context.Context, arg GetEntitiesWithSourcesFromFilesParams) ([]GetEntitiesWithSourcesFromFilesRow, error)

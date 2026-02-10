@@ -56,10 +56,11 @@ func AppendPendingToolResult(
 	}
 
 	toolResult := ai.ChatMessage{
-		Role:       "tool",
-		Message:    result,
-		ToolCallID: pending.ToolCallID,
-		ToolName:   pending.ToolName,
+		Role:          "tool",
+		Message:       result,
+		ToolCallID:    pending.ToolCallID,
+		ToolName:      pending.ToolName,
+		ToolExecution: ai.ToolExecution(pending.ToolExecution),
 	}
 	*chatHistory = append(*chatHistory, toolResult)
 
@@ -71,13 +72,19 @@ func AppendPendingToolResult(
 }
 
 func AppendChatMessage(ctx context.Context, q *pgdb.Queries, chatID int64, message ai.ChatMessage) error {
+	content := sanitizePostgresText(message.Message)
+	toolCallID := sanitizePostgresText(message.ToolCallID)
+	toolName := sanitizePostgresText(message.ToolName)
+	toolArguments := sanitizePostgresText(message.ToolArguments)
+
 	if err := q.AddChatMessage(ctx, pgdb.AddChatMessageParams{
 		ChatID:        chatID,
 		Role:          message.Role,
-		Content:       message.Message,
-		ToolCallID:    message.ToolCallID,
-		ToolName:      message.ToolName,
-		ToolArguments: message.ToolArguments,
+		Content:       content,
+		ToolCallID:    toolCallID,
+		ToolName:      toolName,
+		ToolArguments: toolArguments,
+		ToolExecution: normalizeToolExecution(message.Role, message.ToolExecution),
 	}); err != nil {
 		return err
 	}
@@ -93,9 +100,12 @@ func AppendAssistantChatMessage(
 	reasoning string,
 	metrics *ai.ModelMetrics,
 ) error {
+	cleanContent := sanitizePostgresText(content)
+	cleanReasoning := sanitizePostgresText(reasoning)
+
 	reasoningValue := pgtype.Text{}
-	if strings.TrimSpace(reasoning) != "" {
-		reasoningValue = pgtype.Text{String: reasoning, Valid: true}
+	if strings.TrimSpace(cleanReasoning) != "" {
+		reasoningValue = pgtype.Text{String: cleanReasoning, Valid: true}
 	}
 
 	var encodedMetrics []byte
@@ -108,16 +118,38 @@ func AppendAssistantChatMessage(
 	}
 
 	if err := q.AddChatMessage(ctx, pgdb.AddChatMessageParams{
-		ChatID:    chatID,
-		Role:      "assistant",
-		Content:   content,
-		Reasoning: reasoningValue,
-		Metrics:   encodedMetrics,
+		ChatID:        chatID,
+		Role:          "assistant",
+		Content:       cleanContent,
+		ToolExecution: "",
+		Reasoning:     reasoningValue,
+		Metrics:       encodedMetrics,
 	}); err != nil {
 		return err
 	}
 
 	return q.TouchUserChat(ctx, chatID)
+}
+
+func normalizeToolExecution(role string, execution ai.ToolExecution) string {
+	if role != "assistant_tool_call" && role != "tool" {
+		return ""
+	}
+
+	if execution == ai.ToolExecutionClient {
+		return string(ai.ToolExecutionClient)
+	}
+
+	return string(ai.ToolExecutionServer)
+}
+
+func sanitizePostgresText(value string) string {
+	if value == "" {
+		return value
+	}
+
+	sanitized := strings.ToValidUTF8(value, "")
+	return strings.ReplaceAll(sanitized, "\x00", "")
 }
 
 func BuildConversationTitle(prompt string) string {
