@@ -225,8 +225,8 @@ export type SSEDoneEvent = {
   data: ApiResponseData[];
   reasoning?: string;
   client_tool_call?: ApiClientToolCall;
-  used_file_count?: number;
-  considered_file_count?: number;
+  used_file_count: number;
+  considered_file_count: number;
 };
 
 export type SSEErrorEvent = {
