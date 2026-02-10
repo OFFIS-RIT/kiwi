@@ -12,7 +12,7 @@ import (
 )
 
 const addChatMessage = `-- name: AddChatMessage :exec
-INSERT INTO chat_messages (chat_id, role, content, tool_call_id, tool_name, tool_arguments, reasoning, metrics)
+INSERT INTO chat_messages (chat_id, role, content, tool_call_id, tool_name, tool_arguments, tool_execution, reasoning, metrics)
 VALUES (
     $1::bigint,
     $2,
@@ -21,7 +21,8 @@ VALUES (
     $5,
     $6,
     $7,
-    $8
+    $8,
+    $9
 )
 `
 
@@ -32,6 +33,7 @@ type AddChatMessageParams struct {
 	ToolCallID    string      `json:"tool_call_id"`
 	ToolName      string      `json:"tool_name"`
 	ToolArguments string      `json:"tool_arguments"`
+	ToolExecution string      `json:"tool_execution"`
 	Reasoning     pgtype.Text `json:"reasoning"`
 	Metrics       []byte      `json:"metrics"`
 }
@@ -44,6 +46,7 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		arg.ToolCallID,
 		arg.ToolName,
 		arg.ToolArguments,
+		arg.ToolExecution,
 		arg.Reasoning,
 		arg.Metrics,
 	)
@@ -110,7 +113,7 @@ func (q *Queries) DeleteUserChatByPublicIDAndProject(ctx context.Context, arg De
 }
 
 const getChatMessagesByChatID = `-- name: GetChatMessagesByChatID :many
-SELECT id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, reasoning, metrics, created_at, updated_at FROM chat_messages
+SELECT id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, tool_execution, reasoning, metrics, created_at, updated_at FROM chat_messages
 WHERE chat_id = $1::bigint
 ORDER BY id ASC
 `
@@ -132,6 +135,7 @@ func (q *Queries) GetChatMessagesByChatID(ctx context.Context, chatID int64) ([]
 			&i.ToolCallID,
 			&i.ToolName,
 			&i.ToolArguments,
+			&i.ToolExecution,
 			&i.Reasoning,
 			&i.Metrics,
 			&i.CreatedAt,
@@ -147,15 +151,18 @@ func (q *Queries) GetChatMessagesByChatID(ctx context.Context, chatID int64) ([]
 	return items, nil
 }
 
-const getChatMessagesByChatIDWithoutToolCalls = `-- name: GetChatMessagesByChatIDWithoutToolCalls :many
-SELECT id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, reasoning, metrics, created_at, updated_at FROM chat_messages
+const getChatMessagesByChatIDWithoutServerToolCalls = `-- name: GetChatMessagesByChatIDWithoutServerToolCalls :many
+SELECT id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, tool_execution, reasoning, metrics, created_at, updated_at FROM chat_messages
 WHERE chat_id = $1::bigint
-  AND role IN ('user', 'assistant')
+  AND (
+      role IN ('user', 'assistant')
+      OR (role IN ('assistant_tool_call', 'tool') AND tool_execution = 'client')
+  )
 ORDER BY id ASC
 `
 
-func (q *Queries) GetChatMessagesByChatIDWithoutToolCalls(ctx context.Context, chatID int64) ([]ChatMessage, error) {
-	rows, err := q.db.Query(ctx, getChatMessagesByChatIDWithoutToolCalls, chatID)
+func (q *Queries) GetChatMessagesByChatIDWithoutServerToolCalls(ctx context.Context, chatID int64) ([]ChatMessage, error) {
+	rows, err := q.db.Query(ctx, getChatMessagesByChatIDWithoutServerToolCalls, chatID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,6 +178,7 @@ func (q *Queries) GetChatMessagesByChatIDWithoutToolCalls(ctx context.Context, c
 			&i.ToolCallID,
 			&i.ToolName,
 			&i.ToolArguments,
+			&i.ToolExecution,
 			&i.Reasoning,
 			&i.Metrics,
 			&i.CreatedAt,

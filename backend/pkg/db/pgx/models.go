@@ -33,6 +33,7 @@ type ChatMessage struct {
 	ToolCallID    string             `json:"tool_call_id"`
 	ToolName      string             `json:"tool_name"`
 	ToolArguments string             `json:"tool_arguments"`
+	ToolExecution string             `json:"tool_execution"`
 	Reasoning     pgtype.Text        `json:"reasoning"`
 	Metrics       []byte             `json:"metrics"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`

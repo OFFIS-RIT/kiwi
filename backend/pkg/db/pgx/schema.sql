@@ -203,6 +203,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     tool_call_id TEXT NOT NULL DEFAULT '',
     tool_name TEXT NOT NULL DEFAULT '',
     tool_arguments TEXT NOT NULL DEFAULT '',
+    tool_execution TEXT NOT NULL DEFAULT '' CHECK (tool_execution IN ('', 'server', 'client')),
     reasoning TEXT,
     metrics JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -214,6 +215,9 @@ CREATE INDEX IF NOT EXISTS idx_user_chats_user_project_updated_at
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id_id
     ON chat_messages(chat_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_role_execution_id
+    ON chat_messages(chat_id, role, tool_execution, id);
 
 -- Stats Table
 CREATE TABLE IF NOT EXISTS stats (

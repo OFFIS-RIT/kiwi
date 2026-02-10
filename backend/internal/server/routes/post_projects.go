@@ -600,6 +600,7 @@ func QueryProjectHandler(c echo.Context) error {
 			ToolCallID:    message.ToolCallID,
 			ToolName:      message.ToolName,
 			ToolArguments: message.ToolArguments,
+			ToolExecution: ai.ToolExecution(message.ToolExecution),
 		})
 	}
 
@@ -717,6 +718,7 @@ func QueryProjectHandler(c echo.Context) error {
 				ToolName:      event.Step,
 				ToolCallID:    event.ToolCallID,
 				ToolArguments: event.ToolArguments,
+				ToolExecution: ai.ToolExecutionServer,
 			}
 			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist legacy tool call", "err", err)
@@ -728,6 +730,7 @@ func QueryProjectHandler(c echo.Context) error {
 				ToolCallID:    event.ToolCallID,
 				ToolName:      event.ToolName,
 				ToolArguments: event.ToolArguments,
+				ToolExecution: event.ToolExecution,
 			}
 			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist tool call", "err", err)
@@ -746,10 +749,11 @@ func QueryProjectHandler(c echo.Context) error {
 				result = event.Content
 			}
 			toolResult := ai.ChatMessage{
-				Role:       "tool",
-				Message:    result,
-				ToolCallID: event.ToolCallID,
-				ToolName:   event.ToolName,
+				Role:          "tool",
+				Message:       result,
+				ToolCallID:    event.ToolCallID,
+				ToolName:      event.ToolName,
+				ToolExecution: event.ToolExecution,
 			}
 			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolResult); err != nil {
 				logger.Error("Failed to persist tool result", "err", err)
@@ -972,6 +976,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 			ToolCallID:    message.ToolCallID,
 			ToolName:      message.ToolName,
 			ToolArguments: message.ToolArguments,
+			ToolExecution: ai.ToolExecution(message.ToolExecution),
 		})
 	}
 
@@ -1143,6 +1148,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 				ToolName:      event.Step,
 				ToolCallID:    event.ToolCallID,
 				ToolArguments: event.ToolArguments,
+				ToolExecution: ai.ToolExecutionServer,
 			}
 			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist legacy tool call", "err", err)
@@ -1159,6 +1165,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 				ToolCallID:    event.ToolCallID,
 				ToolName:      event.ToolName,
 				ToolArguments: event.ToolArguments,
+				ToolExecution: event.ToolExecution,
 			}
 			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist tool call", "err", err)
@@ -1187,10 +1194,11 @@ func QueryProjectStreamHandler(c echo.Context) error {
 				result = event.Content
 			}
 			toolResult := ai.ChatMessage{
-				Role:       "tool",
-				Message:    result,
-				ToolCallID: event.ToolCallID,
-				ToolName:   event.ToolName,
+				Role:          "tool",
+				Message:       result,
+				ToolCallID:    event.ToolCallID,
+				ToolName:      event.ToolName,
+				ToolExecution: event.ToolExecution,
 			}
 			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolResult); err != nil {
 				logger.Error("Failed to persist tool result", "err", err)

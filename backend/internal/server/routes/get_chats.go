@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	_ "github.com/go-playground/validator"
 	"github.com/labstack/echo/v4"
@@ -89,12 +90,24 @@ func GetChatHandler(c echo.Context) error {
 		ConversationID string `param:"conversation_id" validate:"required"`
 	}
 
+	type chatToolResult struct {
+		Message   string  `json:"message"`
+		CreatedAt *string `json:"created_at,omitempty"`
+		UpdatedAt *string `json:"updated_at,omitempty"`
+	}
+
 	type chatMessage struct {
-		Role      string                    `json:"role"`
-		Message   string                    `json:"message"`
-		Reasoning *string                   `json:"reasoning,omitempty"`
-		Metrics   *ai.ModelMetrics          `json:"metrics,omitempty"`
-		Data      []serverutil.CitationData `json:"data,omitempty"`
+		Role          string                    `json:"role"`
+		Message       string                    `json:"message"`
+		ToolCallID    string                    `json:"tool_call_id,omitempty"`
+		ToolName      string                    `json:"tool_name,omitempty"`
+		ToolArguments string                    `json:"tool_arguments,omitempty"`
+		ToolResult    *chatToolResult           `json:"tool_result,omitempty"`
+		Reasoning     *string                   `json:"reasoning,omitempty"`
+		Metrics       *ai.ModelMetrics          `json:"metrics,omitempty"`
+		Data          []serverutil.CitationData `json:"data,omitempty"`
+		CreatedAt     *string                   `json:"created_at,omitempty"`
+		UpdatedAt     *string                   `json:"updated_at,omitempty"`
 	}
 
 	type getChatResponse struct {
@@ -159,7 +172,7 @@ func GetChatHandler(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 	}
 
-	historyRows, err := q.GetChatMessagesByChatIDWithoutToolCalls(ctx, conversation.ID)
+	historyRows, err := q.GetChatMessagesByChatIDWithoutServerToolCalls(ctx, conversation.ID)
 	if err != nil {
 		logger.Error("Failed to load conversation history", "err", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
@@ -180,10 +193,73 @@ func GetChatHandler(c echo.Context) error {
 	}
 
 	messages := make([]chatMessage, 0, len(historyRows))
+	toolCallIndexByID := make(map[string]int, len(historyRows))
+
 	for _, message := range historyRows {
+		if message.Role == "tool" {
+			toolResult := chatToolResult{Message: message.Content}
+
+			if message.CreatedAt.Valid {
+				createdAt := message.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
+				toolResult.CreatedAt = &createdAt
+			}
+
+			if message.UpdatedAt.Valid {
+				updatedAt := message.UpdatedAt.Time.UTC().Format(time.RFC3339Nano)
+				toolResult.UpdatedAt = &updatedAt
+			}
+
+			toolCallID := strings.TrimSpace(message.ToolCallID)
+			if toolCallID != "" {
+				if toolCallIndex, ok := toolCallIndexByID[toolCallID]; ok {
+					resolvedToolResult := toolResult
+					messages[toolCallIndex].ToolResult = &resolvedToolResult
+					continue
+				}
+			}
+
+			item := chatMessage{
+				Role:    message.Role,
+				Message: message.Content,
+			}
+
+			if toolCallID != "" {
+				item.ToolCallID = toolCallID
+			}
+
+			if message.ToolName != "" {
+				item.ToolName = message.ToolName
+			}
+
+			if message.CreatedAt.Valid {
+				createdAt := message.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
+				item.CreatedAt = &createdAt
+			}
+
+			if message.UpdatedAt.Valid {
+				updatedAt := message.UpdatedAt.Time.UTC().Format(time.RFC3339Nano)
+				item.UpdatedAt = &updatedAt
+			}
+
+			messages = append(messages, item)
+			continue
+		}
+
 		item := chatMessage{
 			Role:    message.Role,
 			Message: message.Content,
+		}
+
+		if message.ToolCallID != "" {
+			item.ToolCallID = message.ToolCallID
+		}
+
+		if message.ToolName != "" {
+			item.ToolName = message.ToolName
+		}
+
+		if message.ToolArguments != "" {
+			item.ToolArguments = message.ToolArguments
 		}
 
 		if message.Reasoning.Valid {
@@ -204,7 +280,26 @@ func GetChatHandler(c echo.Context) error {
 			item.Data = citationData
 		}
 
+		if message.CreatedAt.Valid {
+			createdAt := message.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
+			item.CreatedAt = &createdAt
+		}
+
+		if message.UpdatedAt.Valid {
+			updatedAt := message.UpdatedAt.Time.UTC().Format(time.RFC3339Nano)
+			item.UpdatedAt = &updatedAt
+		}
+
 		messages = append(messages, item)
+
+		if message.Role == "assistant_tool_call" {
+			toolCallID := strings.TrimSpace(message.ToolCallID)
+			if toolCallID == "" {
+				continue
+			}
+
+			toolCallIndexByID[toolCallID] = len(messages) - 1
+		}
 	}
 
 	return c.JSON(http.StatusOK, getChatResponse{
