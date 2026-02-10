@@ -44,6 +44,7 @@ export function MessageContent({
   }, [content, referencePattern]);
 
   const injectBadges = (children: React.ReactNode): React.ReactNode => {
+    let matchCounter = 0;
     const processNode = (node: React.ReactNode): React.ReactNode => {
       if (typeof node === "string") {
         const parts: React.ReactNode[] = [];
@@ -56,9 +57,10 @@ export function MessageContent({
           }
           const id = match[1];
           const idx = createReferenceMapping.get(id) ?? 0;
+          const uniqueKey = `ref-${id}-${matchCounter++}`;
           parts.push(
             <TextReferenceBadge
-              key={`ref-${id}-${idx}`}
+              key={uniqueKey}
               referenceId={id}
               index={idx}
               projectId={projectId}

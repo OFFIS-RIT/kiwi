@@ -10,7 +10,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useDeleteProject } from "@/hooks/use-data";
-import { getChatStorageKey } from "@/lib/utils";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { useNavigation } from "@/providers/NavigationProvider";
 import { Loader2 } from "lucide-react";
@@ -49,8 +48,6 @@ export function DeleteProjectDialog({
 
     try {
       await deleteProjectMutation.mutateAsync(project.id);
-
-      localStorage.removeItem(getChatStorageKey(project.id));
 
       onOpenChange(false);
 

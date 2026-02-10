@@ -33,7 +33,10 @@ export function ProjectCard({
   const lastUpdated = project.lastUpdated;
   const sourcesCount = project.sourcesCount ?? 0;
   const isProcessing = project.processPercentage !== undefined;
-  const timeRemaining = useCountdown(project.processTimeRemaining, dataUpdatedAt);
+  const timeRemaining = useCountdown(
+    project.processTimeRemaining,
+    dataUpdatedAt
+  );
 
   return (
     <CardTemplate

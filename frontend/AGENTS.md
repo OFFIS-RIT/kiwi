@@ -1,6 +1,8 @@
 # Kiwi Frontend - Agent Guidelines
 
-Next.js 16 App Router SPA for knowledge management. Uses TanStack Query for server state, React Context for client state, Radix UI + Tailwind CSS for components.
+Next.js 16 App Router SPA for knowledge management. Uses TanStack Query for
+server state, React Context for client state, Radix UI + Tailwind CSS for
+components.
 
 ## Build Commands
 
@@ -128,7 +130,7 @@ Query keys defined in `queryKeys` object for cache invalidation.
 ### Client (`lib/api/client.ts`)
 
 ```typescript
-import { apiClient, streamRequest, ApiError } from "@/lib/api";
+import { apiClient, streamSSERequest, ApiError } from "@/lib/api";
 
 // Standard requests
 const data = await apiClient.get<ResponseType>("/endpoint");
@@ -140,7 +142,7 @@ await apiClient.delete("/endpoint");
 await apiClient.postFormData("/endpoint", formData);
 
 // Streaming (SSE for chat)
-await streamRequest("/chat", body, onChunk, onError, onComplete);
+await streamSSERequest("/projects/1/stream", body, onEvent, onError);
 ```
 
 ### Error Handling

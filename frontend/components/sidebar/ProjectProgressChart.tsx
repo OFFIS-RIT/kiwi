@@ -28,7 +28,10 @@ export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
   const { dataUpdatedAt } = useData();
   const percentage = project.processPercentage ?? 0;
   const step = project.processStep ?? "";
-  const timeRemaining = useCountdown(project.processTimeRemaining, dataUpdatedAt);
+  const timeRemaining = useCountdown(
+    project.processTimeRemaining,
+    dataUpdatedAt
+  );
 
   const chartData = [
     { name: "progress", value: percentage, fill: "var(--foreground)" },

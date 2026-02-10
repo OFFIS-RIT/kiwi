@@ -4,23 +4,25 @@
  */
 
 import type {
-  ApiChatMessage,
+  ApiChatHistoryResponse,
+  ApiClientToolCall,
+  ApiConversationSummary,
   ApiProjectFile,
-  ApiQueryResponse,
+  ApiProjectQueryRequest,
+  ApiProjectQueryResponse,
   ApiTextUnit,
   ApiTextUnitResponse,
-  QueryMode,
-  QueryStep,
+  SSECitationEvent,
+  SSEContentEvent,
+  SSEConversationEvent,
+  SSEDoneEvent,
+  SSEErrorEvent,
+  SSEMetricsEvent,
+  SSEReasoningEvent,
+  SSEStepEvent,
+  SSEToolEvent,
 } from "@/types/api";
-import { apiClient, streamRequest } from "./client";
-
-/**
- * Maps frontend query modes to backend API modes.
- */
-const MODE_MAPPING: Record<QueryMode, string> = {
-  agentic: "agentic",
-  normal: "normal",
-};
+import { apiClient, type SSEFrame, streamSSERequest } from "./client";
 
 type CreateProjectResponse = {
   project?: {
@@ -118,96 +120,126 @@ export async function deleteProjectFiles(
 
 /**
  * Sends a query to the project's knowledge base (non-streaming).
- * @param projectId - Project to query
- * @param messages - Chat message history
+ * Uses the new contract: prompt + conversation_id.
  */
 export async function queryProject(
   projectId: string,
-  messages: ApiChatMessage[]
-): Promise<ApiQueryResponse> {
-  return apiClient.post<ApiQueryResponse>(`/projects/${projectId}/query`, {
-    messages,
-  });
+  request: ApiProjectQueryRequest
+): Promise<ApiProjectQueryResponse> {
+  return apiClient.post<ApiProjectQueryResponse>(
+    `/projects/${projectId}/query`,
+    request
+  );
 }
 
 /**
- * Response metrics from streaming queries.
+ * Handlers for individual SSE events during a streaming query.
  */
-type StreamMetrics = {
-  input_tokens: number;
-  output_tokens: number;
-  total_tokens: number;
-  duration_ms: number;
-  tokens_per_second: number;
+export type StreamEventHandlers = {
+  onConversation?: (data: SSEConversationEvent) => void;
+  onReasoning?: (data: SSEReasoningEvent) => void;
+  onContent?: (data: SSEContentEvent) => void;
+  onCitation?: (data: SSECitationEvent) => void;
+  onStep?: (data: SSEStepEvent) => void;
+  onTool?: (data: SSEToolEvent) => void;
+  onClientToolCall?: (data: ApiClientToolCall) => void;
+  onMetrics?: (data: SSEMetricsEvent) => void;
+  onDone?: (data: SSEDoneEvent) => void;
+  onError?: (data: SSEErrorEvent) => void;
 };
 
 /**
- * Source file reference returned in query responses.
- */
-type SourceFile = {
-  id: string;
-  name: string;
-  key: string;
-};
-
-/**
- * Streams a query to the project's knowledge base with real-time responses.
+ * Streams a query to the project's knowledge base using real SSE frames.
+ *
  * @param projectId - Project to query
- * @param messages - Chat message history
- * @param onMessage - Callback for each streamed response chunk
- * @param mode - Query mode: "normal" or "agentic"
- * @param model - Optional model override
- * @param think - Enable thinking mode
- * @param onError - Error callback
- * @param onComplete - Completion callback
+ * @param request - Query request body (prompt, conversation_id, mode, model, think, tool_id)
+ * @param handlers - Callbacks for each SSE event type
+ * @param onStreamError - Error callback for network/parse errors
  */
 export async function queryProjectStream(
   projectId: string,
-  messages: ApiChatMessage[],
-  onMessage: (
-    message: string,
-    data: SourceFile[],
-    metrics?: StreamMetrics,
-    step?: QueryStep,
-    reasoning?: string,
-    consideredFileCount?: number,
-    usedFileCount?: number
-  ) => void,
-  mode?: QueryMode,
-  model?: string,
-  think?: boolean,
-  onError?: (error: Error) => void,
-  onComplete?: () => void
+  request: ApiProjectQueryRequest,
+  handlers: StreamEventHandlers,
+  onStreamError?: (error: Error) => void
 ): Promise<void> {
-  const body = {
-    messages,
-    ...(mode && { mode: MODE_MAPPING[mode] }),
-    ...(model && { model }),
-    ...(think !== undefined && { think }),
-  };
-
-  return streamRequest(
+  return streamSSERequest(
     `/projects/${projectId}/stream`,
-    body,
-    (line) => {
-      try {
-        const response = JSON.parse(line) as ApiQueryResponse;
-        onMessage(
-          response.message,
-          response.data,
-          response.metrics,
-          response.step,
-          response.reasoning,
-          response.considered_file_count,
-          response.used_file_count
-        );
-      } catch (parseError) {
-        console.error("Failed to parse stream response:", line, parseError);
+    request,
+    (frame: SSEFrame) => {
+      switch (frame.event) {
+        case "conversation":
+          handlers.onConversation?.(frame.data as SSEConversationEvent);
+          break;
+        case "reasoning":
+          handlers.onReasoning?.(frame.data as SSEReasoningEvent);
+          break;
+        case "content":
+          handlers.onContent?.(frame.data as SSEContentEvent);
+          break;
+        case "citation":
+          handlers.onCitation?.(frame.data as SSECitationEvent);
+          break;
+        case "step":
+          handlers.onStep?.(frame.data as SSEStepEvent);
+          break;
+        case "tool":
+          handlers.onTool?.(frame.data as SSEToolEvent);
+          break;
+        case "client_tool_call":
+          handlers.onClientToolCall?.(frame.data as ApiClientToolCall);
+          break;
+        case "metrics":
+          handlers.onMetrics?.(frame.data as SSEMetricsEvent);
+          break;
+        case "done":
+          handlers.onDone?.(frame.data as SSEDoneEvent);
+          break;
+        case "error":
+          handlers.onError?.(frame.data as SSEErrorEvent);
+          break;
+        default:
+          console.warn("Unknown SSE event:", frame.event, frame.data);
       }
     },
-    onError,
-    onComplete
+    onStreamError
   );
+}
+
+// ---------------------------------------------------------------------------
+// Chat history API
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches the list of conversations for a project.
+ */
+export async function fetchProjectChats(
+  projectId: string
+): Promise<ApiConversationSummary[]> {
+  return apiClient.get<ApiConversationSummary[]>(
+    `/projects/${projectId}/chats`
+  );
+}
+
+/**
+ * Fetches the full chat transcript for a specific conversation.
+ */
+export async function fetchProjectChat(
+  projectId: string,
+  conversationId: string
+): Promise<ApiChatHistoryResponse> {
+  return apiClient.get<ApiChatHistoryResponse>(
+    `/projects/${projectId}/chats/${conversationId}`
+  );
+}
+
+/**
+ * Deletes a conversation.
+ */
+export async function deleteProjectChat(
+  projectId: string,
+  conversationId: string
+): Promise<void> {
+  await apiClient.delete(`/projects/${projectId}/chats/${conversationId}`);
 }
 
 /**

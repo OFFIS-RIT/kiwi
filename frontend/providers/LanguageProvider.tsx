@@ -227,6 +227,10 @@ const translations = {
     file: "File:",
     "file.id": "File ID:",
 
+    // Clarification
+    "clarification.placeholder": "Your answer...",
+    "clarification.submitted": "Answers submitted",
+
     // Query Error Boundary
     "error.something.went.wrong": "Something went wrong",
     "error.unexpected.try.again":
@@ -451,6 +455,10 @@ const translations = {
     created: "Erstellt:",
     file: "Datei:",
     "file.id": "Datei-ID:",
+
+    // Clarification
+    "clarification.placeholder": "Ihre Antwort...",
+    "clarification.submitted": "Antworten gesendet",
 
     // Query Error Boundary
     "error.something.went.wrong": "Etwas ist schiefgelaufen",

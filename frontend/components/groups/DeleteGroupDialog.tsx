@@ -10,10 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useDeleteGroup } from "@/hooks/use-data";
-import { getChatStorageKey } from "@/lib/utils";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { useNavigation } from "@/providers/NavigationProvider";
-import { useData } from "@/providers/DataProvider";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 
@@ -33,7 +31,6 @@ export function DeleteGroupDialog({
 }: DeleteGroupDialogProps) {
   const { t } = useLanguage();
   const { showGroups, selectedGroup } = useNavigation();
-  const { groups } = useData();
   const deleteGroupMutation = useDeleteGroup();
 
   useEffect(() => {
@@ -45,15 +42,8 @@ export function DeleteGroupDialog({
   const handleDelete = async () => {
     if (!group) return;
 
-    const groupWithProjects = groups.find((g) => g.id === group.id);
-    const projectIds = groupWithProjects?.projects.map((p) => p.id) ?? [];
-
     try {
       await deleteGroupMutation.mutateAsync(group.id);
-
-      for (const projectId of projectIds) {
-        localStorage.removeItem(getChatStorageKey(projectId));
-      }
 
       onOpenChange(false);
 
