@@ -67,8 +67,14 @@ export function ClarificationBlock({
       )}
       {questions.map((question, i) => (
         <div key={`clarification-q-${i}`} className="space-y-1">
-          <label className="text-sm font-medium">{question}</label>
+          <label
+            className="text-sm font-medium"
+            htmlFor={`clarification-textarea-${i}`}
+          >
+            {question}
+          </label>
           <textarea
+            id={`clarification-textarea-${i}`}
             ref={(el) => {
               inputRefs.current[i] = el;
             }}
