@@ -1,0 +1,9 @@
+# Keep root build context minimal for postgres migration image.
+*
+
+!migrations/
+!migrations/**
+
+!postgres/
+!postgres/Dockerfile.migration
+!postgres/run-migrations.sh

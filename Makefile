@@ -2,6 +2,7 @@ build:
 	@cd backend && make generate
 	@cd ../
 	@docker build -f postgres/Dockerfile -t ghcr.io/offis-rit/kiwi/postgres:latest ./postgres/
+	@docker build -f postgres/Dockerfile.migration -t ghcr.io/offis-rit/kiwi/postgres-migration:latest .
 	@docker build -f backend/Dockerfile.server -t ghcr.io/offis-rit/kiwi/server:latest ./backend/
 	@docker build -f backend/Dockerfile.worker -t ghcr.io/offis-rit/kiwi/worker:latest ./backend/
 	@docker build -f frontend/Dockerfile -t ghcr.io/offis-rit/kiwi/frontend:latest ./frontend
@@ -11,6 +12,7 @@ build-dev:
 	@cd backend && make generate
 	@cd ../
 	@docker build -f postgres/Dockerfile -t ghcr.io/offis-rit/kiwi/postgres:dev ./postgres/
+	@docker build -f postgres/Dockerfile.migration -t ghcr.io/offis-rit/kiwi/postgres-migration:dev .
 	@docker build -f backend/Dockerfile.server.dev -t ghcr.io/offis-rit/kiwi/server:dev ./backend/
 	@docker build -f backend/Dockerfile.worker.dev -t ghcr.io/offis-rit/kiwi/worker:dev ./backend/
 	@docker build -f frontend/Dockerfile.dev -t ghcr.io/offis-rit/kiwi/frontend:dev ./frontend/

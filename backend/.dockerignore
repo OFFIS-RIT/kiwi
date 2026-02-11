@@ -1,0 +1,27 @@
+# VCS and editor metadata
+.git
+.jj
+.vscode
+.cursor
+.opencode
+
+# Local env files
+.env
+.env.*
+
+# Build outputs and temporary data
+tmp/
+dist/
+bin/
+graphs/
+coverage/
+
+# Local binaries
+server
+worker
+*.exe
+
+# Logs and local runtime files
+*.log
+*.pid
+*.sock

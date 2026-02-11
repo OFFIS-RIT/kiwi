@@ -78,6 +78,10 @@ The application will be available at:
 - **Frontend**: http://localhost:3000
 - **API**: http://localhost:8080
 
+Database migrations are now applied automatically on startup by the
+`db-migration` container (it runs after `db` is healthy and before backend/auth
+services start).
+
 ### First Time Setup
 
 The `rustfs-setup` container automatically creates the S3 bucket on first start.
@@ -96,7 +100,7 @@ docker exec -it ollama ollama pull <model-name>
 make dev              # Start all services (with logs)
 make dev-backend      # Start without frontend
 make dev-stop         # Stop environment
-make migrate          # Run database migrations
+make migrate          # Run database migrations manually
 ```
 
 ### Services
@@ -145,6 +149,9 @@ make build    # Build Docker images
 make start    # Start production
 make stop     # Stop production
 ```
+
+`make start` also runs the `db-migration` startup container automatically,
+which applies pending migrations before app services connect to the database.
 
 ### SSL/TLS
 

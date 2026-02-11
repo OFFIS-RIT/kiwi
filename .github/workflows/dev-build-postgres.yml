@@ -7,6 +7,11 @@ on:
       - dev
     paths:
       - 'postgres/**'
+      - 'migrations/**'
+
+concurrency:
+  group: dev-pipeline
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -15,11 +20,25 @@ env:
 
 jobs:
   build-images:
-    name: Build and push postgres dev
+    name: Build and push ${{ matrix.name }} dev
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: postgres
+            image: postgres
+            context: ./postgres
+            file: ./postgres/Dockerfile
+            cache: postgres
+          - name: postgres migration
+            image: postgres-migration
+            context: .
+            file: ./postgres/Dockerfile.migration
+            cache: postgres-migration
 
     steps:
       - name: Checkout code
@@ -40,10 +59,10 @@ jobs:
       - name: Cache Docker layers
         uses: actions/cache@v5
         with:
-          path: ${{ runner.temp }}/.buildx-cache-postgres
-          key: docker-${{ runner.os }}-postgres-${{ github.sha }}
+          path: ${{ runner.temp }}/.buildx-cache-${{ matrix.cache }}
+          key: docker-${{ runner.os }}-${{ matrix.cache }}-${{ github.sha }}
           restore-keys: |
-            docker-${{ runner.os }}-postgres-
+            docker-${{ runner.os }}-${{ matrix.cache }}-
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -55,15 +74,15 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
-          context: ./postgres
-          file: ./postgres/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.IMAGE_PREFIX }}/postgres:${{ env.IMAGE_TAG }}
-          cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-postgres
-          cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-postgres-new,mode=max
+          tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ env.IMAGE_TAG }}
+          cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-${{ matrix.cache }}
+          cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-${{ matrix.cache }}-new,mode=max
 
       - name: Move cache
         run: |
-          rm -rf ${{ runner.temp }}/.buildx-cache-postgres
-          mv ${{ runner.temp }}/.buildx-cache-postgres-new ${{ runner.temp }}/.buildx-cache-postgres
+          rm -rf ${{ runner.temp }}/.buildx-cache-${{ matrix.cache }}
+          mv ${{ runner.temp }}/.buildx-cache-${{ matrix.cache }}-new ${{ runner.temp }}/.buildx-cache-${{ matrix.cache }}

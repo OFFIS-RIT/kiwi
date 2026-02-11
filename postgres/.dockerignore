@@ -1,0 +1,6 @@
+# Keep postgres image context focused on runtime init files.
+*
+
+!Dockerfile
+!db-init/
+!db-init/**
