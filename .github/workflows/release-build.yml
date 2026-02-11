@@ -1,24 +1,17 @@
-name: Dev Build
+name: Release Build & Deploy
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - dev
-    paths:
-      - 'backend/**'
-      - 'postgres/**'
-      - 'auth/**'
-      - 'frontend/**'
+    tags:
+      - "v*"
 
 concurrency:
-  group: dev-pipeline
-  cancel-in-progress: true
+  group: release-pipeline
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/kiwi
-  IMAGE_TAG: dev
 
 jobs:
   build-images:
@@ -39,6 +32,7 @@ jobs:
             target: ""
             build_args: ""
             tag_suffix: ""
+            latest_suffix: ""
           - name: server
             image: server
             context: ./backend
@@ -46,7 +40,6 @@ jobs:
             cache: server
             target: ""
             build_args: ""
-            tag_suffix: ""
           - name: worker
             image: worker
             context: ./backend
@@ -54,7 +47,6 @@ jobs:
             cache: worker
             target: ""
             build_args: ""
-            tag_suffix: ""
           - name: frontend-builder
             image: frontend
             context: ./frontend
@@ -62,7 +54,6 @@ jobs:
             cache: frontend-builder
             target: builder
             build_args: NEXT_PUBLIC_API_URL=/api
-            tag_suffix: -builder
           - name: auth
             image: auth
             context: ./auth
@@ -70,7 +61,6 @@ jobs:
             cache: auth
             target: ""
             build_args: ""
-            tag_suffix: ""
 
     steps:
       - name: Checkout code
@@ -103,6 +93,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set image tag
+        id: meta
+        run: |
+          # Extract version from tag (e.g., v1.0.0 -> 1.0.0)
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
@@ -110,7 +107,9 @@ jobs:
           file: ${{ matrix.file }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ env.IMAGE_TAG }}${{ matrix.tag_suffix }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:latest
           target: ${{ matrix.target }}
           build-args: ${{ matrix.build_args }}
           cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-${{ matrix.cache }}

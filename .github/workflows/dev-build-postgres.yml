@@ -1,0 +1,69 @@
+name: Dev Database Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+    paths:
+      - 'postgres/**'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/kiwi
+  IMAGE_TAG: dev
+
+jobs:
+  build-images:
+    name: Build and push postgres dev
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Lowercase Image Prefix
+        run: |
+          echo "IMAGE_PREFIX=${IMAGE_PREFIX,,}" >> ${GITHUB_ENV}
+        env:
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/.buildx-cache-postgres
+          key: docker-${{ runner.os }}-postgres-${{ github.sha }}
+          restore-keys: |
+            docker-${{ runner.os }}-postgres-
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./postgres
+          file: ./postgres/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/postgres:${{ env.IMAGE_TAG }}
+          cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-postgres
+          cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-postgres-new,mode=max
+
+      - name: Move cache
+        run: |
+          rm -rf ${{ runner.temp }}/.buildx-cache-postgres
+          mv ${{ runner.temp }}/.buildx-cache-postgres-new ${{ runner.temp }}/.buildx-cache-postgres
