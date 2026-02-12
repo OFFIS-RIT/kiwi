@@ -156,7 +156,8 @@ SELECT id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, tool
 WHERE chat_id = $1::bigint
   AND (
       role IN ('user', 'assistant')
-      OR (role IN ('assistant_tool_call', 'tool') AND tool_execution = 'client')
+      OR role = 'assistant_tool_call'
+      OR (role = 'tool' AND tool_execution = 'client')
   )
 ORDER BY id ASC
 `

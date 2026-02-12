@@ -258,7 +258,7 @@ func GetChatHandler(c echo.Context) error {
 			item.ToolName = message.ToolName
 		}
 
-		if message.ToolArguments != "" {
+		if message.ToolArguments != "" && message.ToolExecution == string(ai.ToolExecutionClient) {
 			item.ToolArguments = message.ToolArguments
 		}
 

@@ -41,6 +41,7 @@ type ChatMessage struct {
 	ToolName      string        `json:"tool_name,omitempty"`
 	ToolArguments string        `json:"tool_arguments,omitempty"`
 	ToolExecution ToolExecution `json:"tool_execution,omitempty"`
+	Reasoning     string        `json:"reasoning,omitempty"`
 }
 
 // GenerateOptions holds configuration for AI generation requests.

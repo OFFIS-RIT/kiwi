@@ -43,7 +43,8 @@ SELECT * FROM chat_messages
 WHERE chat_id = sqlc.arg(chat_id)::bigint
   AND (
       role IN ('user', 'assistant')
-      OR (role IN ('assistant_tool_call', 'tool') AND tool_execution = 'client')
+      OR role = 'assistant_tool_call'
+      OR (role = 'tool' AND tool_execution = 'client')
   )
 ORDER BY id ASC;
 
