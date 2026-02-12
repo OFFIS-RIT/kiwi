@@ -264,11 +264,21 @@ export type ApiConversationSummary = {
  * Single message in a chat transcript.
  */
 export type ApiChatHistoryMessage = {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "assistant_tool_call";
   message: string;
   reasoning?: string;
   metrics?: ApiQueryMetrics;
   data?: ApiResponseData[];
+  tool_call_id?: string;
+  tool_name?: string;
+  tool_arguments?: string;
+  tool_result?: {
+    message?: string;
+    created_at?: string;
+    updated_at?: string;
+  };
+  created_at?: string;
+  updated_at?: string;
 };
 
 /**

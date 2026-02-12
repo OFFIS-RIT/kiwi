@@ -25,6 +25,7 @@ import {
 } from "@/lib/api/projects";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type {
+  ApiChatHistoryMessage,
   ApiClientToolCall,
   ApiQueryMetrics,
   ApiResponseData,
@@ -88,6 +89,192 @@ type ProjectChatProps = {
   projectId: string;
 };
 
+function parseToolArguments(toolArguments: string): {
+  questions: string[];
+  reason?: string;
+} {
+  const trimmedToolArguments = toolArguments.trim();
+  if (!trimmedToolArguments) {
+    return {
+      questions: [],
+      reason: undefined,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmedToolArguments) as {
+      questions?: unknown;
+      reason?: unknown;
+    };
+    const questions = Array.isArray(parsed.questions)
+      ? parsed.questions
+          .filter(
+            (question): question is string => typeof question === "string"
+          )
+          .map((question) => question.trim())
+          .filter(Boolean)
+      : [];
+
+    const reason =
+      typeof parsed.reason === "string" && parsed.reason.trim().length > 0
+        ? parsed.reason.trim()
+        : undefined;
+
+    return {
+      questions,
+      reason,
+    };
+  } catch {
+    if (
+      (trimmedToolArguments.startsWith("{") &&
+        trimmedToolArguments.endsWith("}")) ||
+      (trimmedToolArguments.startsWith("[") &&
+        trimmedToolArguments.endsWith("]"))
+    ) {
+      return {
+        questions: [],
+        reason: undefined,
+      };
+    }
+
+    return {
+      questions: [trimmedToolArguments],
+      reason: undefined,
+    };
+  }
+}
+
+type ClarificationToolCall = {
+  toolCall: ApiClientToolCall;
+  questions: string[];
+  reason?: string;
+};
+
+function getClarificationToolCall(
+  toolCall?: ApiClientToolCall | null
+): ClarificationToolCall | null {
+  if (!toolCall) {
+    return null;
+  }
+
+  if (toolCall.tool_name !== "ask_clarifying_questions") {
+    return null;
+  }
+
+  const { questions, reason } = parseToolArguments(toolCall.tool_arguments);
+  if (questions.length === 0) {
+    return null;
+  }
+
+  return {
+    toolCall,
+    questions,
+    reason,
+  };
+}
+
+function parseSubmittedAnswers(
+  submittedMessage: string | undefined,
+  questions: string[]
+): string[] | undefined {
+  if (!submittedMessage?.trim()) {
+    return undefined;
+  }
+
+  const lines = submittedMessage
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return undefined;
+  }
+
+  if (questions.length === 0) {
+    return lines.map((line) => {
+      const separatorIdx = line.indexOf(": ");
+      return separatorIdx >= 0 ? line.slice(separatorIdx + 2) : line;
+    });
+  }
+
+  const orderedAnswers = questions.map((question, index) => {
+    const prefixed = `${question}: `;
+    const matchingLine = lines.find((line) => line.startsWith(prefixed));
+    if (matchingLine) {
+      return matchingLine.slice(prefixed.length);
+    }
+
+    const fallbackLine = lines[index] ?? "";
+    const separatorIdx = fallbackLine.indexOf(": ");
+    return separatorIdx >= 0
+      ? fallbackLine.slice(separatorIdx + 2)
+      : fallbackLine;
+  });
+
+  return orderedAnswers.some((answer) => answer.trim().length > 0)
+    ? orderedAnswers
+    : undefined;
+}
+
+function buildToolReasoningChunk(msg: ApiChatHistoryMessage): string | null {
+  if (msg.role !== "assistant_tool_call") {
+    return null;
+  }
+
+  const reasoning = msg.reasoning?.trim();
+  if (!reasoning) {
+    return null;
+  }
+
+  const toolName = msg.tool_name?.trim() || "unknown_tool";
+  return `Tool: ${toolName}\n\n${reasoning}`;
+}
+
+function hydrateMessage(
+  msg: ApiChatHistoryMessage,
+  latestConvId: string,
+  idx: number
+): Message | null {
+  const timestamp = msg.created_at ? new Date(msg.created_at) : new Date();
+
+  if (msg.role === "assistant_tool_call") {
+    const toolCall: ApiClientToolCall = {
+      tool_call_id: msg.tool_call_id ?? `hydrated-${latestConvId}-tool-${idx}`,
+      tool_name: msg.tool_name ?? "",
+      tool_arguments: msg.tool_arguments ?? "",
+    };
+
+    const clarification = getClarificationToolCall(toolCall);
+    const submittedAnswers = clarification
+      ? parseSubmittedAnswers(msg.tool_result?.message, clarification.questions)
+      : undefined;
+
+    if (!clarification && !msg.message.trim()) {
+      return null;
+    }
+
+    return {
+      id: `hydrated-${latestConvId}-${idx}`,
+      content: msg.message,
+      reasoning: msg.reasoning ?? undefined,
+      role: "assistant",
+      timestamp,
+      pendingToolCall: clarification?.toolCall,
+      submittedAnswers,
+    };
+  }
+
+  return {
+    id: `hydrated-${latestConvId}-${idx}`,
+    content: msg.message,
+    reasoning: msg.reasoning ?? undefined,
+    role: msg.role,
+    timestamp,
+    metrics: msg.metrics ?? undefined,
+    sourceFiles: msg.data ?? undefined,
+  };
+}
+
 export function ProjectChat({
   projectName,
   groupName,
@@ -121,7 +308,7 @@ export function ProjectChat({
   const conversationIdRef = useRef<string | null>(null);
   const [isHydrating, setIsHydrating] = useState(false);
 
-  // Client tool-call state (Task C)
+  // Client tool-call state
   const [pendingToolCall, setPendingToolCall] =
     useState<ApiClientToolCall | null>(null);
 
@@ -143,9 +330,6 @@ export function ProjectChat({
     [t, projectName]
   );
 
-  // -------------------------------------------------------------------------
-  // Task D: Hydrate chat from backend on project open
-  // -------------------------------------------------------------------------
   useEffect(() => {
     stopSpeaking();
     setPendingToolCall(null);
@@ -170,29 +354,75 @@ export function ProjectChat({
           conversationIdRef.current = latestConvId;
 
           if (chatData.messages.length > 0) {
-            const hydratedMessages: Message[] = chatData.messages.map(
-              (msg, idx) => ({
-                id: `hydrated-${latestConvId}-${idx}`,
-                content: msg.message,
-                reasoning: msg.reasoning ?? undefined,
-                role: msg.role,
-                timestamp: new Date(),
-                metrics: msg.metrics ?? undefined,
-                sourceFiles: msg.data ?? undefined,
-              })
-            );
+            let lastUnsubmittedToolCall: ApiClientToolCall | null = null;
+            const hydratedMessages: Message[] = [];
+            let pendingToolReasoningChunks: string[] = [];
+
+            chatData.messages.forEach((msg, idx) => {
+              if (msg.role === "assistant_tool_call") {
+                const toolCall: ApiClientToolCall = {
+                  tool_call_id:
+                    msg.tool_call_id ?? `hydrated-${latestConvId}-tool-${idx}`,
+                  tool_name: msg.tool_name ?? "",
+                  tool_arguments: msg.tool_arguments ?? "",
+                };
+                const clarification = getClarificationToolCall(toolCall);
+
+                if (!clarification) {
+                  const toolReasoningChunk = buildToolReasoningChunk(msg);
+                  if (toolReasoningChunk) {
+                    pendingToolReasoningChunks = [
+                      ...pendingToolReasoningChunks,
+                      toolReasoningChunk,
+                    ];
+                  }
+                  return;
+                }
+              }
+
+              const hydratedMessage = hydrateMessage(msg, latestConvId, idx);
+              if (!hydratedMessage) {
+                return;
+              }
+
+              if (
+                hydratedMessage.role === "assistant" &&
+                pendingToolReasoningChunks.length > 0
+              ) {
+                const prefixedReasoning =
+                  pendingToolReasoningChunks.join("\n\n");
+                hydratedMessage.reasoning = hydratedMessage.reasoning
+                  ? `${prefixedReasoning}\n\n${hydratedMessage.reasoning}`
+                  : prefixedReasoning;
+                pendingToolReasoningChunks = [];
+              }
+
+              if (
+                hydratedMessage.pendingToolCall &&
+                !hydratedMessage.submittedAnswers
+              ) {
+                lastUnsubmittedToolCall = hydratedMessage.pendingToolCall;
+              }
+
+              hydratedMessages.push(hydratedMessage);
+            });
+
             setMessages(hydratedMessages);
+            setPendingToolCall(lastUnsubmittedToolCall);
           } else {
             setMessages([createWelcomeMessage()]);
+            setPendingToolCall(null);
           }
         } else {
           // No conversations yet — show welcome message
           setMessages([createWelcomeMessage()]);
+          setPendingToolCall(null);
         }
       } catch (err) {
         console.error("Failed to hydrate chat:", err);
         if (!cancelled) {
           setMessages([createWelcomeMessage()]);
+          setPendingToolCall(null);
         }
       } finally {
         if (!cancelled) {
@@ -416,13 +646,19 @@ export function ProjectChat({
               createOrUpdateAssistantMessage({ metrics: data });
             },
             onClientToolCall: (data) => {
-              receivedToolCall = data;
+              const clarification = getClarificationToolCall(data);
+              if (clarification) {
+                receivedToolCall = clarification.toolCall;
+              }
             },
             onDone: (data) => {
               receivedDone = true;
               // Prefer done.reasoning as authoritative
               const finalReasoning =
                 data.reasoning || reasoningBuffer || undefined;
+              const resolvedToolCall = getClarificationToolCall(
+                data.client_tool_call ?? receivedToolCall
+              )?.toolCall;
 
               createOrUpdateAssistantMessage({
                 content: data.message || contentBuffer,
@@ -431,13 +667,12 @@ export function ProjectChat({
                 metrics: metricsResult,
                 consideredFileCount: data.considered_file_count,
                 usedFileCount: data.used_file_count,
-                pendingToolCall: data.client_tool_call ?? receivedToolCall,
+                pendingToolCall: resolvedToolCall,
               });
 
               // If there's a pending tool call, set it in state
-              const toolCall = data.client_tool_call ?? receivedToolCall;
-              if (toolCall) {
-                setPendingToolCall(toolCall);
+              if (resolvedToolCall) {
+                setPendingToolCall(resolvedToolCall);
               }
 
               setIsAssistantTyping(false);
@@ -495,9 +730,6 @@ export function ProjectChat({
     [projectId, selectedMode, selectedModel, useThink, t]
   );
 
-  // -------------------------------------------------------------------------
-  // Normal message send
-  // -------------------------------------------------------------------------
   const handleSendMessage = useCallback(async () => {
     if (!inputValue.trim() || isRecording) return;
 
@@ -515,9 +747,6 @@ export function ProjectChat({
     await sendStreamingQuery(userMessageContent);
   }, [inputValue, isRecording, sendStreamingQuery]);
 
-  // -------------------------------------------------------------------------
-  // Task C: Handle clarification follow-up
-  // -------------------------------------------------------------------------
   const handleClarificationSubmit = useCallback(
     async (answer: string) => {
       if (!pendingToolCall) return;
@@ -547,9 +776,6 @@ export function ProjectChat({
     [pendingToolCall, sendStreamingQuery]
   );
 
-  // -------------------------------------------------------------------------
-  // Task D: Reset chat via DELETE + fresh state
-  // -------------------------------------------------------------------------
   const handleResetChat = useCallback(async () => {
     // Delete conversation on backend if we have one
     if (conversationIdRef.current) {
@@ -1064,24 +1290,13 @@ function ClarificationBlockWrapper({
   submitted?: boolean;
   submittedAnswers?: string[];
 }) {
-  let questions: string[] = [];
-  let reason: string | undefined;
-
-  try {
-    const parsed = JSON.parse(toolCall.tool_arguments);
-    questions = Array.isArray(parsed.questions) ? parsed.questions : [];
-    reason = parsed.reason;
-  } catch {
-    console.error("Failed to parse tool_arguments:", toolCall.tool_arguments);
-    questions = [toolCall.tool_arguments];
-  }
-
-  if (questions.length === 0) return null;
+  const clarification = getClarificationToolCall(toolCall);
+  if (!clarification) return null;
 
   return (
     <ClarificationBlock
-      questions={questions}
-      reason={reason}
+      questions={clarification.questions}
+      reason={clarification.reason}
       onSubmit={onSubmit}
       disabled={disabled}
       submitted={submitted}
