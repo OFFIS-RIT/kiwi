@@ -76,6 +76,12 @@ func AppendChatMessage(ctx context.Context, q *pgdb.Queries, chatID int64, messa
 	toolCallID := sanitizePostgresText(message.ToolCallID)
 	toolName := sanitizePostgresText(message.ToolName)
 	toolArguments := sanitizePostgresText(message.ToolArguments)
+	cleanReasoning := sanitizePostgresText(message.Reasoning)
+
+	reasoningValue := pgtype.Text{}
+	if strings.TrimSpace(cleanReasoning) != "" {
+		reasoningValue = pgtype.Text{String: cleanReasoning, Valid: true}
+	}
 
 	if err := q.AddChatMessage(ctx, pgdb.AddChatMessageParams{
 		ChatID:        chatID,
@@ -85,6 +91,7 @@ func AppendChatMessage(ctx context.Context, q *pgdb.Queries, chatID int64, messa
 		ToolName:      toolName,
 		ToolArguments: toolArguments,
 		ToolExecution: normalizeToolExecution(message.Role, message.ToolExecution),
+		Reasoning:     reasoningValue,
 	}); err != nil {
 		return err
 	}

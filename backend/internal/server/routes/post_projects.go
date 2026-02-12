@@ -686,6 +686,7 @@ func QueryProjectHandler(c echo.Context) error {
 	var messageBuffer strings.Builder
 	var reasoningBuffer strings.Builder
 	var pendingClientToolCall *clientToolCallResponse
+	var pendingClientToolCallReasoning string
 
 	for event := range contentChan {
 		switch event.Type {
@@ -719,29 +720,35 @@ func QueryProjectHandler(c echo.Context) error {
 				ToolCallID:    event.ToolCallID,
 				ToolArguments: event.ToolArguments,
 				ToolExecution: ai.ToolExecutionServer,
+				Reasoning:     reasoningBuffer.String(),
 			}
 			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist legacy tool call", "err", err)
 				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
 			}
+			reasoningBuffer.Reset()
 		case "tool_call":
+			reasoningForToolCall := reasoningBuffer.String()
 			toolCall := ai.ChatMessage{
 				Role:          "assistant_tool_call",
 				ToolCallID:    event.ToolCallID,
 				ToolName:      event.ToolName,
 				ToolArguments: event.ToolArguments,
 				ToolExecution: event.ToolExecution,
+				Reasoning:     reasoningForToolCall,
 			}
 			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist tool call", "err", err)
 				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
 			}
+			reasoningBuffer.Reset()
 			if event.ToolExecution == ai.ToolExecutionClient {
 				pendingClientToolCall = &clientToolCallResponse{
 					ToolCallID:    event.ToolCallID,
 					ToolName:      event.ToolName,
 					ToolArguments: event.ToolArguments,
 				}
+				pendingClientToolCallReasoning = reasoningForToolCall
 			}
 		case "tool_result":
 			result := event.ToolResult
@@ -773,7 +780,9 @@ func QueryProjectHandler(c echo.Context) error {
 			ConsideredFileCount: 0,
 			UsedFileCount:       0,
 		}
-		if reasoningBuffer.Len() > 0 {
+		if pendingClientToolCallReasoning != "" {
+			resp.Reasoning = pendingClientToolCallReasoning
+		} else if reasoningBuffer.Len() > 0 {
 			resp.Reasoning = reasoningBuffer.String()
 		}
 		return c.JSON(http.StatusOK, resp)
@@ -1075,6 +1084,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	var reasoningBuffer strings.Builder
 	var allFoundData []responseData
 	var pendingClientToolCall *clientToolCallResponse
+	var pendingClientToolCallReasoning string
 	citationParser := serverutil.StreamCitationParser{}
 
 	resolveCitationData := func(id string) *responseData {
@@ -1149,29 +1159,34 @@ func QueryProjectStreamHandler(c echo.Context) error {
 				ToolCallID:    event.ToolCallID,
 				ToolArguments: event.ToolArguments,
 				ToolExecution: ai.ToolExecutionServer,
+				Reasoning:     reasoningBuffer.String(),
 			}
 			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist legacy tool call", "err", err)
 				_ = serverutil.WriteSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
 				return nil
 			}
+			reasoningBuffer.Reset()
 
 			if err := serverutil.WriteSSEEvent(c, "tool", map[string]string{"name": event.Step}); err != nil {
 				return nil
 			}
 		case "tool_call":
+			reasoningForToolCall := reasoningBuffer.String()
 			toolCall := ai.ChatMessage{
 				Role:          "assistant_tool_call",
 				ToolCallID:    event.ToolCallID,
 				ToolName:      event.ToolName,
 				ToolArguments: event.ToolArguments,
 				ToolExecution: event.ToolExecution,
+				Reasoning:     reasoningForToolCall,
 			}
 			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
 				logger.Error("Failed to persist tool call", "err", err)
 				_ = serverutil.WriteSSEEvent(c, "error", map[string]string{"message": "Internal server error"})
 				return nil
 			}
+			reasoningBuffer.Reset()
 
 			if event.ToolExecution == ai.ToolExecutionClient {
 				pendingClientToolCall = &clientToolCallResponse{
@@ -1179,6 +1194,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 					ToolName:      event.ToolName,
 					ToolArguments: event.ToolArguments,
 				}
+				pendingClientToolCallReasoning = reasoningForToolCall
 				if err := serverutil.WriteSSEEvent(c, "client_tool_call", pendingClientToolCall); err != nil {
 					return nil
 				}
@@ -1261,7 +1277,9 @@ func QueryProjectStreamHandler(c echo.Context) error {
 			"data":             []responseData{},
 			"client_tool_call": pendingClientToolCall,
 		}
-		if reasoningBuffer.Len() > 0 {
+		if pendingClientToolCallReasoning != "" {
+			doneData["reasoning"] = pendingClientToolCallReasoning
+		} else if reasoningBuffer.Len() > 0 {
 			doneData["reasoning"] = reasoningBuffer.String()
 		}
 
