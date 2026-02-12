@@ -2,8 +2,9 @@
 
 import type React from "react";
 
-import { ChatTemplateSidebar } from "@/components/chat/ChatTemplateSidebar";
 import { chatTemplates } from "@/components/chat/chat-templates";
+import { ChatTemplateSidebar } from "@/components/chat/ChatTemplateSidebar";
+import { ClarificationBlock } from "@/components/chat/ClarificationBlock";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,10 +17,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
-import { queryProjectStream } from "@/lib/api/projects";
-import { getChatStorageKey } from "@/lib/utils";
+import {
+  deleteProjectChat,
+  fetchProjectChat,
+  fetchProjectChats,
+  queryProjectStream,
+} from "@/lib/api/projects";
 import { useLanguage } from "@/providers/LanguageProvider";
-import type { ApiChatMessage, QueryMode, QueryStep } from "@/types";
+import type {
+  ApiClientToolCall,
+  ApiQueryMetrics,
+  ApiResponseData,
+  QueryMode,
+  QueryStep,
+} from "@/types";
 import {
   Check,
   Copy,
@@ -37,7 +48,6 @@ import {
   lazy,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -53,7 +63,6 @@ const ResetChatDialog = lazy(() =>
   }))
 );
 
-const MAX_STORED_MESSAGES = 20;
 const SILENCE_TIMEOUT_MS = 5000;
 
 type Message = {
@@ -63,21 +72,15 @@ type Message = {
   role: "user" | "assistant";
   timestamp: Date;
   isLoading?: boolean;
-  sourceFiles?: { id: string; name: string; key: string }[];
-  metrics?: {
-    input_tokens: number;
-    output_tokens: number;
-    total_tokens: number;
-    duration_ms: number;
-    tokens_per_second: number;
-  };
+  sourceFiles?: ApiResponseData[];
+  metrics?: ApiQueryMetrics;
   consideredFileCount?: number;
   usedFileCount?: number;
+  /** Pending client tool call on this assistant message. */
+  pendingToolCall?: ApiClientToolCall;
+  /** Answers the user submitted for clarification questions (per-question). */
+  submittedAnswers?: string[];
 };
-
-interface StoredMessage extends Omit<Message, "timestamp"> {
-  timestamp: string;
-}
 
 type ProjectChatProps = {
   projectName: string;
@@ -114,6 +117,14 @@ export function ProjectChat({
   const [streamingReasoning, setStreamingReasoning] = useState("");
   const thinkingStartedRef = useRef(false);
 
+  // Conversation state (backend-managed) — use ref to avoid stale closures in callbacks
+  const conversationIdRef = useRef<string | null>(null);
+  const [isHydrating, setIsHydrating] = useState(false);
+
+  // Client tool-call state (Task C)
+  const [pendingToolCall, setPendingToolCall] =
+    useState<ApiClientToolCall | null>(null);
+
   // Text-to-speech for message playback
   const {
     isSupported: ttsSupported,
@@ -121,11 +132,6 @@ export function ProjectChat({
     speak: speakText,
     stop: stopSpeaking,
   } = useSpeechSynthesis(language);
-
-  const CHAT_STORAGE_KEY = useMemo(
-    () => getChatStorageKey(projectId),
-    [projectId]
-  );
 
   const createWelcomeMessage = useCallback(
     (): Message => ({
@@ -137,41 +143,70 @@ export function ProjectChat({
     [t, projectName]
   );
 
+  // -------------------------------------------------------------------------
+  // Task D: Hydrate chat from backend on project open
+  // -------------------------------------------------------------------------
   useEffect(() => {
-    // Stop TTS when switching projects
     stopSpeaking();
-
-    const savedMessages = localStorage.getItem(CHAT_STORAGE_KEY);
-
-    if (savedMessages) {
-      try {
-        const parsed = JSON.parse(savedMessages);
-        const messagesWithDates = parsed.map((msg: StoredMessage) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp),
-        }));
-        setMessages(messagesWithDates);
-      } catch (e) {
-        console.error("Error loading chat history:", e);
-        setMessages([createWelcomeMessage()]);
-      }
-    } else {
-      setMessages([createWelcomeMessage()]);
-    }
-    setInputValue("");
+    setPendingToolCall(null);
     setIsAssistantTyping(false);
-  }, [projectId, CHAT_STORAGE_KEY, createWelcomeMessage, stopSpeaking]);
+    setInputValue("");
+    conversationIdRef.current = null;
 
-  useEffect(() => {
-    if (messages.length > 0) {
+    let cancelled = false;
+
+    async function hydrate() {
+      setIsHydrating(true);
       try {
-        const messagesToSave = messages.slice(-MAX_STORED_MESSAGES);
-        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messagesToSave));
-      } catch (e) {
-        console.error("Error saving chat history:", e);
+        const chats = await fetchProjectChats(projectId);
+        if (cancelled) return;
+
+        if (chats.length > 0) {
+          // Pick the most recent conversation (first in list)
+          const latestConvId = chats[0].conversation_id;
+          const chatData = await fetchProjectChat(projectId, latestConvId);
+          if (cancelled) return;
+
+          conversationIdRef.current = latestConvId;
+
+          if (chatData.messages.length > 0) {
+            const hydratedMessages: Message[] = chatData.messages.map(
+              (msg, idx) => ({
+                id: `hydrated-${latestConvId}-${idx}`,
+                content: msg.message,
+                reasoning: msg.reasoning ?? undefined,
+                role: msg.role,
+                timestamp: new Date(),
+                metrics: msg.metrics ?? undefined,
+                sourceFiles: msg.data ?? undefined,
+              })
+            );
+            setMessages(hydratedMessages);
+          } else {
+            setMessages([createWelcomeMessage()]);
+          }
+        } else {
+          // No conversations yet — show welcome message
+          setMessages([createWelcomeMessage()]);
+        }
+      } catch (err) {
+        console.error("Failed to hydrate chat:", err);
+        if (!cancelled) {
+          setMessages([createWelcomeMessage()]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsHydrating(false);
+        }
       }
     }
-  }, [messages, CHAT_STORAGE_KEY]);
+
+    hydrate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, createWelcomeMessage, stopSpeaking]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -289,197 +324,246 @@ export function ProjectChat({
     }
   }, [isRecording, clearSilenceTimeout, resetSilenceTimeout]);
 
+  // -------------------------------------------------------------------------
+  // Shared send logic for normal prompts and tool-call follow-ups
+  // -------------------------------------------------------------------------
+  const sendStreamingQuery = useCallback(
+    async (prompt: string, toolId?: string) => {
+      const assistantMessageId = uuidv4();
+      let assistantMessageCreated = false;
+      let contentBuffer = "";
+      let reasoningBuffer = "";
+      let metricsResult: ApiQueryMetrics | undefined;
+      let receivedToolCall: ApiClientToolCall | undefined;
+      let receivedDone = false;
+
+      setIsAssistantTyping(true);
+      setThinkingStartTime(null);
+      setStreamingReasoning("");
+      setCurrentStep(null);
+      thinkingStartedRef.current = false;
+      setPendingToolCall(null);
+
+      const createOrUpdateAssistantMessage = (updates: Partial<Message>) => {
+        if (!assistantMessageCreated) {
+          const initialMessage: Message = {
+            id: assistantMessageId,
+            content: contentBuffer,
+            role: "assistant",
+            timestamp: new Date(),
+            ...updates,
+          };
+          setMessages((prev) => [...prev, initialMessage]);
+          assistantMessageCreated = true;
+        } else {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId ? { ...msg, ...updates } : msg
+            )
+          );
+        }
+      };
+
+      try {
+        await queryProjectStream(
+          projectId,
+          {
+            prompt,
+            conversation_id: conversationIdRef.current ?? undefined,
+            mode: selectedMode,
+            model: selectedModel.replace(" (Thinking)", ""),
+            think: useThink,
+            tool_id: toolId,
+          },
+          {
+            onConversation: (data) => {
+              conversationIdRef.current = data.conversation_id;
+            },
+            onStep: (data) => {
+              setCurrentStep(data.name as QueryStep);
+            },
+            onReasoning: (data) => {
+              if (!thinkingStartedRef.current) {
+                thinkingStartedRef.current = true;
+                setThinkingStartTime(Date.now());
+              }
+              reasoningBuffer += data.content;
+              setStreamingReasoning(reasoningBuffer);
+            },
+            onContent: (data) => {
+              contentBuffer += data.content;
+              createOrUpdateAssistantMessage({
+                content: contentBuffer,
+                reasoning: reasoningBuffer || undefined,
+              });
+              setIsAssistantTyping(false);
+              setCurrentStep(null);
+              setThinkingStartTime(null);
+              setStreamingReasoning("");
+            },
+            onCitation: (data) => {
+              // Append [[id]] marker into the content buffer
+              contentBuffer += `[[${data.id}]]`;
+              if (assistantMessageCreated) {
+                createOrUpdateAssistantMessage({ content: contentBuffer });
+              }
+            },
+            onTool: (data) => {
+              setCurrentStep(data.name as QueryStep);
+            },
+            onMetrics: (data) => {
+              metricsResult = data;
+              createOrUpdateAssistantMessage({ metrics: data });
+            },
+            onClientToolCall: (data) => {
+              receivedToolCall = data;
+            },
+            onDone: (data) => {
+              receivedDone = true;
+              // Prefer done.reasoning as authoritative
+              const finalReasoning =
+                data.reasoning || reasoningBuffer || undefined;
+
+              createOrUpdateAssistantMessage({
+                content: data.message || contentBuffer,
+                reasoning: finalReasoning,
+                sourceFiles: data.data.length > 0 ? data.data : undefined,
+                metrics: metricsResult,
+                consideredFileCount: data.considered_file_count,
+                usedFileCount: data.used_file_count,
+                pendingToolCall: data.client_tool_call ?? receivedToolCall,
+              });
+
+              // If there's a pending tool call, set it in state
+              const toolCall = data.client_tool_call ?? receivedToolCall;
+              if (toolCall) {
+                setPendingToolCall(toolCall);
+              }
+
+              setIsAssistantTyping(false);
+              setCurrentStep(null);
+              setThinkingStartTime(null);
+              setStreamingReasoning("");
+            },
+            onError: (data) => {
+              console.error("SSE error event:", data.message);
+              createOrUpdateAssistantMessage({
+                content: data.message || t("error.chat.api"),
+              });
+              setIsAssistantTyping(false);
+              setCurrentStep(null);
+              setThinkingStartTime(null);
+              setStreamingReasoning("");
+            },
+          },
+          (error) => {
+            console.error("Stream network error:", error);
+            if (!receivedDone) {
+              createOrUpdateAssistantMessage({
+                content: contentBuffer || t("error.chat.api"),
+              });
+            }
+            setIsAssistantTyping(false);
+            setCurrentStep(null);
+            setThinkingStartTime(null);
+            setStreamingReasoning("");
+          }
+        );
+
+        // Handle abrupt EOF without done
+        if (!receivedDone && !assistantMessageCreated) {
+          createOrUpdateAssistantMessage({
+            content: contentBuffer || t("error.chat.api"),
+          });
+        }
+
+        setIsAssistantTyping(false);
+        setCurrentStep(null);
+        setThinkingStartTime(null);
+        setStreamingReasoning("");
+      } catch (error) {
+        console.error("Error in chat API:", error);
+        createOrUpdateAssistantMessage({
+          content: contentBuffer || t("error.chat.api"),
+        });
+        setIsAssistantTyping(false);
+        setCurrentStep(null);
+        setThinkingStartTime(null);
+        setStreamingReasoning("");
+      }
+    },
+    [projectId, selectedMode, selectedModel, useThink, t]
+  );
+
+  // -------------------------------------------------------------------------
+  // Normal message send
+  // -------------------------------------------------------------------------
   const handleSendMessage = useCallback(async () => {
     if (!inputValue.trim() || isRecording) return;
 
     const userMessageContent = inputValue;
-    const userMessageForState: Message = {
+    const userMessage: Message = {
       id: uuidv4(),
       content: userMessageContent,
       role: "user",
       timestamp: new Date(),
     };
 
-    const apiMessages: ApiChatMessage[] = [
-      ...messages.map((msg) => ({ role: msg.role, message: msg.content })),
-      { role: "user", message: userMessageContent },
-    ];
-
-    if (
-      apiMessages.length === 2 &&
-      apiMessages[0].role === "assistant" &&
-      apiMessages[0].message === t("welcome.message", { projectName })
-    ) {
-      apiMessages.shift();
-    }
-
-    setMessages((prev) => [...prev, userMessageForState]);
+    setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
-    setIsAssistantTyping(true);
-    setThinkingStartTime(null);
-    setStreamingReasoning("");
-    thinkingStartedRef.current = false;
 
-    const assistantMessageId = uuidv4();
-    let assistantMessageCreated = false;
-    let accumulatedSourceFiles: { id: string; name: string; key: string }[] =
-      [];
-    let accumulatedReasoning = "";
+    await sendStreamingQuery(userMessageContent);
+  }, [inputValue, isRecording, sendStreamingQuery]);
 
-    try {
-      await queryProjectStream(
-        projectId,
-        apiMessages,
-        (
-          streamedMessage: string,
-          data: { id: string; name: string; key: string }[],
-          metrics,
-          step,
-          reasoning,
-          consideredFileCount,
-          usedFileCount
-        ) => {
-          if (step) {
-            setCurrentStep(step);
-          }
+  // -------------------------------------------------------------------------
+  // Task C: Handle clarification follow-up
+  // -------------------------------------------------------------------------
+  const handleClarificationSubmit = useCallback(
+    async (answer: string) => {
+      if (!pendingToolCall) return;
 
-          if (
-            (step === "thinking" || reasoning) &&
-            !thinkingStartedRef.current
-          ) {
-            thinkingStartedRef.current = true;
-            setThinkingStartTime(Date.now());
-          }
+      const toolId = pendingToolCall.tool_call_id;
 
-          if (data && data.length > 0) {
-            accumulatedSourceFiles = [...accumulatedSourceFiles, ...data];
-          }
+      // Parse individual answers from the combined string so we can show them
+      // read-only in the ClarificationBlock after submission.
+      const perQuestion = answer.split("\n").map((line) => {
+        const colonIdx = line.indexOf(": ");
+        return colonIdx >= 0 ? line.slice(colonIdx + 2) : line;
+      });
 
-          if (reasoning) {
-            accumulatedReasoning = reasoning;
-            setStreamingReasoning(reasoning);
-          }
-
-          if (streamedMessage && !assistantMessageCreated) {
-            const initialAssistantMessage: Message = {
-              id: assistantMessageId,
-              content: streamedMessage,
-              reasoning: accumulatedReasoning || undefined,
-              role: "assistant",
-              timestamp: new Date(),
-              consideredFileCount,
-              usedFileCount,
-            };
-            setMessages((prev) => [...prev, initialAssistantMessage]);
-            setIsAssistantTyping(false);
-            setCurrentStep(null);
-            setThinkingStartTime(null);
-            setStreamingReasoning("");
-            assistantMessageCreated = true;
-          } else if (assistantMessageCreated) {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMessageId
-                  ? {
-                      ...msg,
-                      content: streamedMessage,
-                      reasoning: accumulatedReasoning || msg.reasoning,
-                      ...(metrics && { metrics }),
-                      ...(consideredFileCount !== undefined && {
-                        consideredFileCount,
-                      }),
-                      ...(usedFileCount !== undefined && { usedFileCount }),
-                    }
-                  : msg
-              )
-            );
-          }
-        },
-        selectedMode,
-        selectedModel.replace(" (Thinking)", ""),
-        useThink,
-        (error) => {
-          console.error("Error during chat streaming:", error);
-          const errorMessage: Message = {
-            id: assistantMessageId,
-            content: t("error.chat.api"),
-            role: "assistant",
-            timestamp: new Date(),
-          };
-          if (assistantMessageCreated) {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMessageId ? errorMessage : msg
-              )
-            );
-          } else {
-            setMessages((prev) => [...prev, errorMessage]);
-          }
-          setIsAssistantTyping(false);
-          setCurrentStep(null);
-          setThinkingStartTime(null);
-          setStreamingReasoning("");
-        },
-        () => {
-          if (assistantMessageCreated) {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMessageId
-                  ? {
-                      ...msg,
-                      sourceFiles:
-                        accumulatedSourceFiles.length > 0
-                          ? accumulatedSourceFiles
-                          : undefined,
-                    }
-                  : msg
-              )
-            );
-          }
-          setIsAssistantTyping(false);
-          setCurrentStep(null);
-          setThinkingStartTime(null);
-          setStreamingReasoning("");
-        }
+      // Keep the pendingToolCall on the message so the UI stays visible,
+      // but mark it as submitted with the user's answers.
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.pendingToolCall?.tool_call_id === toolId
+            ? { ...msg, submittedAnswers: perQuestion }
+            : msg
+        )
       );
-    } catch (error) {
-      console.error("Error in chat API:", error);
-      const errorMessage: Message = {
-        id: assistantMessageId,
-        content: t("error.chat.api"),
-        role: "assistant",
-        timestamp: new Date(),
-      };
-      if (assistantMessageCreated) {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId ? errorMessage : msg
-          )
-        );
-      } else {
-        setMessages((prev) => [...prev, errorMessage]);
-      }
-      setIsAssistantTyping(false);
-      setCurrentStep(null);
-      setThinkingStartTime(null);
-      setStreamingReasoning("");
-    }
-  }, [
-    inputValue,
-    isRecording,
-    messages,
-    projectId,
-    selectedMode,
-    selectedModel,
-    useThink,
-    t,
-    projectName,
-  ]);
+      setPendingToolCall(null);
 
-  const handleResetChat = useCallback(() => {
+      await sendStreamingQuery(answer, toolId);
+    },
+    [pendingToolCall, sendStreamingQuery]
+  );
+
+  // -------------------------------------------------------------------------
+  // Task D: Reset chat via DELETE + fresh state
+  // -------------------------------------------------------------------------
+  const handleResetChat = useCallback(async () => {
+    // Delete conversation on backend if we have one
+    if (conversationIdRef.current) {
+      try {
+        await deleteProjectChat(projectId, conversationIdRef.current);
+      } catch (err) {
+        console.error("Failed to delete conversation:", err);
+      }
+    }
+
+    conversationIdRef.current = null;
+    setPendingToolCall(null);
     setMessages([createWelcomeMessage()]);
-    localStorage.removeItem(CHAT_STORAGE_KEY);
-  }, [createWelcomeMessage, CHAT_STORAGE_KEY]);
+  }, [createWelcomeMessage, projectId]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -505,10 +589,10 @@ export function ProjectChat({
     cleaned = cleaned.replace(/`([^`]+)`/g, "$1");
 
     // Remove images: ![alt](url)
-    cleaned = cleaned.replace(/!\[([^\]]*)\]\([^\)]+\)/g, "");
+    cleaned = cleaned.replace(/!\[([^\]]*)\]\([^)]+\)/g, "");
 
     // Remove links but keep text: [text](url) -> text
-    cleaned = cleaned.replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1");
+    cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
 
     // Remove headers (# ## ### etc.)
     cleaned = cleaned.replace(/^#{1,6}\s+(.+)$/gm, "$1");
@@ -687,161 +771,185 @@ export function ProjectChat({
             style={{ scrollbarWidth: "thin" }}
           >
             <div className="space-y-4 p-4">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${
-                    message.role === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
+              {isHydrating && (
+                <div className="flex justify-center py-8">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>{t("loading")}</span>
+                  </div>
+                </div>
+              )}
+              {!isHydrating &&
+                messages.map((message) => (
                   <div
-                    className={`flex max-w-[80%] items-start gap-3 group ${
-                      message.role === "user" ? "flex-row-reverse" : ""
+                    key={message.id}
+                    className={`flex ${
+                      message.role === "user" ? "justify-end" : "justify-start"
                     }`}
                   >
-                    <Avatar className="h-8 w-8">
-                      {message.role === "assistant" ? (
-                        <AvatarFallback>AI</AvatarFallback>
-                      ) : (
-                        <AvatarFallback>JD</AvatarFallback>
-                      )}
-                    </Avatar>
-                    <div>
-                      <div
-                        className={`rounded-lg p-3 ${
-                          message.role === "user"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
-                        }`}
-                      >
+                    <div
+                      className={`flex max-w-[80%] items-start gap-3 group ${
+                        message.role === "user" ? "flex-row-reverse" : ""
+                      }`}
+                    >
+                      <Avatar className="h-8 w-8">
                         {message.role === "assistant" ? (
-                          <MessageContent
-                            content={message.content}
-                            reasoning={message.reasoning}
-                            projectId={projectId}
-                            sourceFiles={message.sourceFiles}
-                          />
+                          <AvatarFallback>AI</AvatarFallback>
                         ) : (
-                          <p>{message.content}</p>
+                          <AvatarFallback>JD</AvatarFallback>
                         )}
-                      </div>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>
-                          {message.timestamp.toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                        {message.role === "assistant" && message.metrics && (
-                          <>
-                            <span>•</span>
-                            <span>
-                              {(message.metrics.duration_ms / 1000).toFixed(1)}s
-                            </span>
-                          </>
-                        )}
-                        {message.role === "assistant" &&
-                          (message.consideredFileCount !== undefined ||
-                            message.usedFileCount !== undefined) && (
-                            <>
-                              {message.consideredFileCount !== undefined && (
-                                <>
-                                  <span>•</span>
-                                  <span>
-                                    {t("files.considered", {
-                                      count:
-                                        message.consideredFileCount.toString(),
-                                    })}
-                                  </span>
-                                </>
-                              )}
-                              {message.usedFileCount !== undefined && (
-                                <>
-                                  <span>•</span>
-                                  <span>
-                                    {t("files.used", {
-                                      count: message.usedFileCount.toString(),
-                                    })}
-                                  </span>
-                                </>
-                              )}
-                            </>
-                          )}
-                        {message.role === "assistant" && message.metrics && (
-                          <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
-                            <span>•</span>
-                            <span>{message.metrics.total_tokens} tokens</span>
-                            <span>•</span>
-                            <span>
-                              {message.metrics.tokens_per_second.toFixed(1)} t/s
-                            </span>
-                          </span>
-                        )}
-                        <span className="opacity-0 group-hover:opacity-100 transition-opacity">
-                          •
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() =>
-                            handleCopyMessage(message.id, message.content)
-                          }
-                          aria-label={
-                            copiedMessageId === message.id
-                              ? t("copied.message")
-                              : t("copy.message")
-                          }
+                      </Avatar>
+                      <div>
+                        <div
+                          className={`rounded-lg p-3 ${
+                            message.role === "user"
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted"
+                          }`}
                         >
-                          {copiedMessageId === message.id ? (
+                          {message.role === "assistant" ? (
                             <>
-                              <Check className="mr-1 h-3 w-3" />
-                              {t("copied.message")}
+                              <MessageContent
+                                content={message.content}
+                                reasoning={message.reasoning}
+                                projectId={projectId}
+                                sourceFiles={message.sourceFiles}
+                              />
+                              {message.pendingToolCall && (
+                                <ClarificationBlockWrapper
+                                  toolCall={message.pendingToolCall}
+                                  onSubmit={handleClarificationSubmit}
+                                  disabled={isAssistantTyping}
+                                  submitted={!!message.submittedAnswers}
+                                  submittedAnswers={message.submittedAnswers}
+                                />
+                              )}
                             </>
                           ) : (
+                            <p>{message.content}</p>
+                          )}
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>
+                            {message.timestamp.toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                          {message.role === "assistant" && message.metrics && (
                             <>
-                              <Copy className="mr-1 h-3 w-3" />
-                              {t("copy.message")}
+                              <span>•</span>
+                              <span>
+                                {(message.metrics.duration_ms / 1000).toFixed(
+                                  1
+                                )}
+                                s
+                              </span>
                             </>
                           )}
-                        </Button>
-                        {ttsSupported && (
-                          <>
-                            <span className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              •
+                          {message.role === "assistant" &&
+                            (message.consideredFileCount !== undefined ||
+                              message.usedFileCount !== undefined) && (
+                              <>
+                                {message.consideredFileCount !== undefined && (
+                                  <>
+                                    <span>•</span>
+                                    <span>
+                                      {t("files.considered", {
+                                        count:
+                                          message.consideredFileCount.toString(),
+                                      })}
+                                    </span>
+                                  </>
+                                )}
+                                {message.usedFileCount !== undefined && (
+                                  <>
+                                    <span>•</span>
+                                    <span>
+                                      {t("files.used", {
+                                        count: message.usedFileCount.toString(),
+                                      })}
+                                    </span>
+                                  </>
+                                )}
+                              </>
+                            )}
+                          {message.role === "assistant" && message.metrics && (
+                            <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                              <span>•</span>
+                              <span>{message.metrics.total_tokens} tokens</span>
+                              <span>•</span>
+                              <span>
+                                {message.metrics.tokens_per_second.toFixed(1)}{" "}
+                                t/s
+                              </span>
                             </span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={() =>
-                                handlePlayMessage(message.id, message.content)
-                              }
-                              aria-label={
-                                speakingMessageId === message.id
-                                  ? t("stop.speaking")
-                                  : t("play.message")
-                              }
-                            >
-                              {speakingMessageId === message.id ? (
-                                <>
-                                  <VolumeX className="mr-1 h-3 w-3" />
-                                  {t("stop.speaking")}
-                                </>
-                              ) : (
-                                <>
-                                  <Volume2 className="mr-1 h-3 w-3" />
-                                  {t("play.message")}
-                                </>
-                              )}
-                            </Button>
-                          </>
-                        )}
+                          )}
+                          <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            •
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() =>
+                              handleCopyMessage(message.id, message.content)
+                            }
+                            aria-label={
+                              copiedMessageId === message.id
+                                ? t("copied.message")
+                                : t("copy.message")
+                            }
+                          >
+                            {copiedMessageId === message.id ? (
+                              <>
+                                <Check className="mr-1 h-3 w-3" />
+                                {t("copied.message")}
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="mr-1 h-3 w-3" />
+                                {t("copy.message")}
+                              </>
+                            )}
+                          </Button>
+                          {ttsSupported && (
+                            <>
+                              <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                •
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() =>
+                                  handlePlayMessage(message.id, message.content)
+                                }
+                                aria-label={
+                                  speakingMessageId === message.id
+                                    ? t("stop.speaking")
+                                    : t("play.message")
+                                }
+                              >
+                                {speakingMessageId === message.id ? (
+                                  <>
+                                    <VolumeX className="mr-1 h-3 w-3" />
+                                    {t("stop.speaking")}
+                                  </>
+                                ) : (
+                                  <>
+                                    <Volume2 className="mr-1 h-3 w-3" />
+                                    {t("play.message")}
+                                  </>
+                                )}
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
               {isAssistantTyping && (
                 <div className="flex justify-start">
                   <div className="flex max-w-[80%] items-start gap-3">
@@ -882,7 +990,7 @@ export function ProjectChat({
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 className={`flex-1 resize-none overflow-hidden border-input min-h-[2.5rem] w-full min-w-0 rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm ${isRecording && interimTranscript ? "text-muted-foreground" : ""}`}
-                disabled={isRecording}
+                disabled={isRecording || !!pendingToolCall}
                 rows={1}
               />
               {speechSupported && (
@@ -893,6 +1001,7 @@ export function ProjectChat({
                   aria-label={
                     isRecording ? t("stop.recording") : t("start.recording")
                   }
+                  disabled={!!pendingToolCall}
                 >
                   {isRecording ? (
                     <MicOff className="h-4 w-4" />
@@ -905,7 +1014,10 @@ export function ProjectChat({
                 size="icon"
                 onClick={handleSendMessage}
                 disabled={
-                  !inputValue.trim() || isAssistantTyping || isRecording
+                  !inputValue.trim() ||
+                  isAssistantTyping ||
+                  isRecording ||
+                  !!pendingToolCall
                 }
               >
                 <SendIcon className="h-4 w-4" />
@@ -932,5 +1044,48 @@ export function ProjectChat({
         />
       </Suspense>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helper component to parse tool_arguments and render ClarificationBlock
+// ---------------------------------------------------------------------------
+
+function ClarificationBlockWrapper({
+  toolCall,
+  onSubmit,
+  disabled,
+  submitted,
+  submittedAnswers,
+}: {
+  toolCall: ApiClientToolCall;
+  onSubmit: (answer: string) => void;
+  disabled?: boolean;
+  submitted?: boolean;
+  submittedAnswers?: string[];
+}) {
+  let questions: string[] = [];
+  let reason: string | undefined;
+
+  try {
+    const parsed = JSON.parse(toolCall.tool_arguments);
+    questions = Array.isArray(parsed.questions) ? parsed.questions : [];
+    reason = parsed.reason;
+  } catch {
+    console.error("Failed to parse tool_arguments:", toolCall.tool_arguments);
+    questions = [toolCall.tool_arguments];
+  }
+
+  if (questions.length === 0) return null;
+
+  return (
+    <ClarificationBlock
+      questions={questions}
+      reason={reason}
+      onSubmit={onSubmit}
+      disabled={disabled}
+      submitted={submitted}
+      submittedAnswers={submittedAnswers}
+    />
   );
 }

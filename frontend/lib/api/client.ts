@@ -154,22 +154,29 @@ export const apiClient = {
 };
 
 /**
- * Handles streaming responses (SSE-like) for real-time data processing.
- * Reads response body as a stream and invokes callback for each complete line.
+ * A parsed SSE frame with event type and JSON data.
+ */
+export type SSEFrame = {
+  event: string;
+  data: unknown;
+};
+
+/**
+ * Real SSE parser that reads `event:` + `data:` frames from a streaming response.
+ * Supports multi-line `data:` fields. Dispatches on blank line (per SSE spec).
+ * Handles EOF gracefully even without a `done` event.
  *
  * @param endpoint - API endpoint path
  * @param body - Request body to send as JSON
- * @param onChunk - Callback invoked for each received line
+ * @param onEvent - Callback invoked for each parsed SSE frame
  * @param onError - Optional error callback
- * @param onComplete - Optional completion callback
- * @throws {ApiError} When the request fails
+ * @returns Promise that resolves when the stream ends
  */
-export async function streamRequest(
+export async function streamSSERequest(
   endpoint: string,
   body: unknown,
-  onChunk: (data: string) => void,
-  onError?: (error: Error) => void,
-  onComplete?: () => void
+  onEvent: (frame: SSEFrame) => void,
+  onError?: (error: Error) => void
 ): Promise<void> {
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -183,9 +190,9 @@ export async function streamRequest(
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
-      console.error(`Stream Error [${endpoint}]:`, errorBody);
+      console.error(`SSE Error [${endpoint}]:`, errorBody);
       throw new ApiError(
-        `Stream request failed: ${response.statusText}`,
+        `SSE request failed: ${response.statusText}`,
         response.status,
         response.statusText,
         errorBody
@@ -199,6 +206,29 @@ export async function streamRequest(
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let currentEvent = "";
+    let currentDataLines: string[] = [];
+
+    const dispatchEvent = () => {
+      if (currentDataLines.length === 0 && !currentEvent) return;
+
+      const rawData = currentDataLines.join("\n");
+      const eventType = currentEvent || "message";
+
+      let parsedData: unknown;
+      try {
+        parsedData = rawData ? JSON.parse(rawData) : {};
+      } catch {
+        // If data isn't valid JSON, pass it as a string
+        parsedData = rawData;
+      }
+
+      onEvent({ event: eventType, data: parsedData });
+
+      // Reset for next frame
+      currentEvent = "";
+      currentDataLines = [];
+    };
 
     try {
       while (true) {
@@ -210,16 +240,26 @@ export async function streamRequest(
         buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (line.trim()) {
-            onChunk(line);
+          if (line === "") {
+            // Blank line = end of SSE frame, dispatch
+            dispatchEvent();
+          } else if (line.startsWith("event:")) {
+            currentEvent = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            currentDataLines.push(line.slice(5).trimStart());
+          } else if (line.startsWith(":")) {
+            // SSE comment, ignore
           }
         }
+      }
+
+      // Handle any remaining buffered event at EOF
+      if (currentDataLines.length > 0 || currentEvent) {
+        dispatchEvent();
       }
     } finally {
       reader.releaseLock();
     }
-
-    onComplete?.();
   } catch (error) {
     const err = error instanceof Error ? error : new Error("Unknown error");
     onError?.(err);

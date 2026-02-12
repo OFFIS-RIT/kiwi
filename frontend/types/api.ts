@@ -105,14 +105,6 @@ export type ApiGroupUser = {
 };
 
 /**
- * Chat message format for the query API.
- */
-export type ApiChatMessage = {
-  role: "user" | "assistant";
-  message: string;
-};
-
-/**
  * Query speed/depth modes.
  */
 export type QueryMode = "agentic" | "normal";
@@ -132,27 +124,160 @@ export type QueryStep =
   | "get_entity_types"
   | "search_entities_by_type";
 
+// ---------------------------------------------------------------------------
+// Query contract
+// ---------------------------------------------------------------------------
+
 /**
- * Response structure from the /projects/:id/query and /projects/:id/stream endpoints.
+ * Request body for POST /projects/:id/query and POST /projects/:id/stream.
  */
-export type ApiQueryResponse = {
-  step?: QueryStep;
+export type ApiProjectQueryRequest = {
+  prompt: string;
+  conversation_id?: string;
+  mode?: QueryMode;
+  model?: string;
+  think?: boolean;
+  tool_id?: string;
+};
+
+/**
+ * Client-side tool call emitted by the backend when clarification is needed.
+ */
+export type ApiClientToolCall = {
+  tool_call_id: string;
+  tool_name: string;
+  /** JSON-encoded arguments, typically `{ questions: string[], reason?: string }` */
+  tool_arguments: string;
+};
+
+/**
+ * Source file / citation reference returned in query responses.
+ */
+export type ApiResponseData = {
+  id: string;
+  name: string;
+  key: string;
+  text?: string;
+};
+
+/**
+ * Response metrics from query endpoints.
+ */
+export type ApiQueryMetrics = {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  duration_ms: number;
+  wall_clock_ms?: number;
+  tokens_per_second: number;
+};
+
+/**
+ * Non-streaming response from POST /projects/:id/query.
+ */
+export type ApiProjectQueryResponse = {
+  conversation_id: string;
+  message: string;
+  data: ApiResponseData[];
+  client_tool_call?: ApiClientToolCall;
+  reasoning?: string;
+  considered_file_count: number;
+  used_file_count: number;
+};
+
+// ---------------------------------------------------------------------------
+// SSE event payloads for POST /projects/:id/stream
+// ---------------------------------------------------------------------------
+
+export type SSEConversationEvent = {
+  conversation_id: string;
+  is_new: boolean;
+};
+
+export type SSEReasoningEvent = {
+  content: string;
+};
+
+export type SSEContentEvent = {
+  content: string;
+};
+
+export type SSECitationEvent = {
+  id: string;
+  name?: string;
+  key?: string;
+  text?: string;
+};
+
+export type SSEStepEvent = {
+  name: string;
+};
+
+export type SSEToolEvent = {
+  name: string;
+};
+
+export type SSEMetricsEvent = ApiQueryMetrics;
+
+export type SSEDoneEvent = {
+  conversation_id: string;
+  message: string;
+  data: ApiResponseData[];
+  reasoning?: string;
+  client_tool_call?: ApiClientToolCall;
+  used_file_count: number;
+  considered_file_count: number;
+};
+
+export type SSEErrorEvent = {
+  message: string;
+};
+
+/**
+ * Discriminated union of all SSE events the frontend handles.
+ */
+export type SSEEvent =
+  | { event: "conversation"; data: SSEConversationEvent }
+  | { event: "reasoning"; data: SSEReasoningEvent }
+  | { event: "content"; data: SSEContentEvent }
+  | { event: "citation"; data: SSECitationEvent }
+  | { event: "step"; data: SSEStepEvent }
+  | { event: "tool"; data: SSEToolEvent }
+  | { event: "client_tool_call"; data: ApiClientToolCall }
+  | { event: "metrics"; data: SSEMetricsEvent }
+  | { event: "done"; data: SSEDoneEvent }
+  | { event: "error"; data: SSEErrorEvent };
+
+// ---------------------------------------------------------------------------
+// Chat history API types
+// ---------------------------------------------------------------------------
+
+/**
+ * Conversation summary from GET /projects/:id/chats.
+ */
+export type ApiConversationSummary = {
+  conversation_id: string;
+  title: string;
+};
+
+/**
+ * Single message in a chat transcript.
+ */
+export type ApiChatHistoryMessage = {
+  role: "user" | "assistant";
   message: string;
   reasoning?: string;
-  data: {
-    id: string;
-    name: string;
-    key: string;
-  }[];
-  metrics?: {
-    input_tokens: number;
-    output_tokens: number;
-    total_tokens: number;
-    duration_ms: number;
-    tokens_per_second: number;
-  };
-  considered_file_count?: number;
-  used_file_count?: number;
+  metrics?: ApiQueryMetrics;
+  data?: ApiResponseData[];
+};
+
+/**
+ * Full chat transcript from GET /projects/:id/chats/:conversation_id.
+ */
+export type ApiChatHistoryResponse = {
+  conversation_id: string;
+  title: string;
+  messages: ApiChatHistoryMessage[];
 };
 
 /**

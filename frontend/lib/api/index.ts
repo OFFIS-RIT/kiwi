@@ -3,7 +3,8 @@
  */
 
 // Re-export client utilities
-export { apiClient, ApiError, AUTH_TOKEN, streamRequest } from "./client";
+export { apiClient, ApiError, AUTH_TOKEN, streamSSERequest } from "./client";
+export type { SSEFrame } from "./client";
 
 // Re-export groups API
 export {
@@ -20,24 +21,34 @@ export {
   addFilesToProject,
   createProject,
   deleteProject,
+  deleteProjectChat,
   deleteProjectFiles,
   downloadProjectFile,
+  fetchProjectChat,
+  fetchProjectChats,
   fetchProjectFiles,
   fetchTextUnit,
   queryProject,
   queryProjectStream,
   updateProject,
 } from "./projects";
+export type { StreamEventHandlers } from "./projects";
 
 // Re-export types for convenience
 export type {
-  ApiChatMessage,
+  ApiChatHistoryMessage,
+  ApiChatHistoryResponse,
+  ApiClientToolCall,
+  ApiConversationSummary,
   ApiGroup,
   ApiGroupUser,
   ApiGroupWithProjects,
   ApiProject,
   ApiProjectFile,
-  ApiQueryResponse,
+  ApiProjectQueryRequest,
+  ApiProjectQueryResponse,
+  ApiQueryMetrics,
+  ApiResponseData,
   ApiTextUnit,
   ApiTextUnitResponse,
   QueryMode,

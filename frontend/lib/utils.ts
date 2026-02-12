@@ -5,10 +5,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function getChatStorageKey(projectId: string): string {
-  return `chat-history-${projectId}`;
-}
-
 export function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B";
   const k = 1024;
