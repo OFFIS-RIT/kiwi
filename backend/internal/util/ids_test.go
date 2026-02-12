@@ -133,6 +133,11 @@ func TestNormalizeIDs(t *testing.T) {
 			want: "Comma: [[" + id1 + "]],",
 		},
 		{
+			name: "SingleOpenDoubleClosePreservesID",
+			in:   "Edge: [-OR3Nml4uxaYqc6QCovk6]].",
+			want: "Edge: [[-OR3Nml4uxaYqc6QCovk6]].",
+		},
+		{
 			name: "RunOfDuplicatesWithWhitespace",
 			in:   "Run: [[" + id1 + "]]  \t [[" + id1 + "]]   [[" + id1 + "]] end",
 			want: "Run: [[" + id1 + "]] end",

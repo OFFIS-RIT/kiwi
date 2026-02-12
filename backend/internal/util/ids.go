@@ -115,6 +115,10 @@ func upgradeSingleBracketsSkippingLinks(s string) string {
 		b.WriteString("[[")
 		b.WriteString(s[i+1 : j])
 		b.WriteString("]]")
+		if j+1 < len(s) && s[j+1] == ']' {
+			i = j + 2
+			continue
+		}
 		i = j + 1
 	}
 	return b.String()
