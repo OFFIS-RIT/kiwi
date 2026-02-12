@@ -33,6 +33,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
   server:
     container_name: server
     build:
@@ -86,6 +88,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
       rustfs:
@@ -133,6 +137,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
       rustfs:
@@ -156,6 +162,19 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+  db-migration:
+    container_name: db-migration
+    image: ghcr.io/offis-rit/kiwi/postgres-migration:latest
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile.migration
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      AI_EMBED_DIM: ${AI_EMBED_DIM:-4096}
+    depends_on:
+      db:
+        condition: service_healthy
   rabbitmq:
     container_name: rabbitmq
     image: rabbitmq:3-management

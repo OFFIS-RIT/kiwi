@@ -60,6 +60,11 @@ services:
     image: ghcr.io/offis-rit/kiwi/postgres:dev
     ports:
       - "5432:5432"
+  db-migration:
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile.migration
+    image: ghcr.io/offis-rit/kiwi/postgres-migration:dev
   rabbitmq:
     ports:
       - "5672:5672"

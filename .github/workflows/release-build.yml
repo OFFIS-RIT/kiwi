@@ -33,6 +33,13 @@ jobs:
             build_args: ""
             tag_suffix: ""
             latest_suffix: ""
+          - name: postgres-migration
+            image: postgres-migration
+            context: .
+            file: ./postgres/Dockerfile.migration
+            cache: postgres-migration
+            target: ""
+            build_args: ""
           - name: server
             image: server
             context: ./backend
