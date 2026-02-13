@@ -67,4 +67,4 @@ jobs:
             - name: Move cache
               run: |
                   rm -rf ${{ runner.temp }}/.buildx-cache-frontend
-                  mv ${{ runner.temp }}/.buildx-cache-frontend-builder-new ${{ runner.temp }}/.buildx-cache-frontend-builder
+                  mv ${{ runner.temp }}/.buildx-cache-frontend-new ${{ runner.temp }}/.buildx-cache-frontend
