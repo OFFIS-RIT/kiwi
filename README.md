@@ -28,6 +28,7 @@
 ## Features
 
 - **Document Processing** – Upload PDFs, images, audio, CSV, and Excel files
+- **Adaptive PDF OCR Rendering** – Automatically switches to high-resolution tiled rendering with optional panel splitting for large technical drawings (A1/A0)
 - **Knowledge Graph Extraction** – AI-powered entity and relationship extraction
 - **Graph Storage** – Entities and relations stored as queryable knowledge graph
 - **Vector Search** – Semantic search using pgvector embeddings
@@ -317,6 +318,17 @@ Copy `.env.sample` to `.env` and configure:
 | `AI_IMAGE_KEY`           | Image API key                      |
 | `AI_IMAGE_URL`           | Image/OCR endpoint                 |
 | `AI_IMAGE_MODEL`         | Image model name                   |
+| `PDF_RENDER_MODE`        | PDF render mode: `auto`, `full`, `tile` |
+| `PDF_DPI_DEFAULT`        | DPI for normal PDF pages           |
+| `PDF_DPI_LARGE_PAGE`     | DPI for large/tiled PDF pages      |
+| `PDF_PREVIEW_DPI`        | Low-res DPI used for layout detection |
+| `PDF_TILE_MAX_EDGE_PX`   | Maximum tile width/height in pixels |
+| `PDF_TILE_OVERLAP_PX`    | Tile overlap in pixels             |
+| `PDF_LARGE_PAGE_EDGE_THRESHOLD_PX` | Edge threshold to classify a page as large |
+| `PDF_LARGE_PAGE_AREA_THRESHOLD_PX` | Area threshold to classify a page as large |
+| `PDF_ENABLE_PANEL_SPLIT` | Enable region-aware panel splitting before tiling |
+| `PDF_PANEL_SEPARATOR_MIN_COVERAGE` | Separator detection sensitivity for panel split |
+| `PDF_MAX_TILES_PER_PAGE` | Safety cap for tiles generated per page |
 | `AI_EMBED_KEY`           | Embedding API key                  |
 | `AI_EMBED_URL`           | Embedding endpoint                 |
 | `AI_EMBED_MODEL`         | Embedding model name               |
@@ -334,6 +346,17 @@ ambiguous or underspecified.
   exposes a client tool (`ask_clarifying_questions`). If called, the backend
   returns the tool call metadata and waits for a follow-up request. In that
   follow-up request, set `tool_id` and send the tool answer in `prompt`.
+
+### Optional: Large PDF OCR Rendering
+
+For large-format documents (for example A1/A0 technical drawings), the backend
+can switch from full-page rendering to adaptive tiled rendering.
+
+- `PDF_RENDER_MODE=auto` enables adaptive behavior per page.
+- `PDF_ENABLE_PANEL_SPLIT=true` enables region-aware splitting (left/right text
+  strips, bottom legend blocks) before tile generation.
+- Increase `PDF_DPI_LARGE_PAGE` to improve tiny text extraction, and reduce
+  `PDF_TILE_MAX_EDGE_PX` if your vision model downscales large images heavily.
 
 Note: When all LDAP variables are set, LDAP sign-in is enabled and email/password auth is disabled.
 

@@ -74,7 +74,7 @@ func (l *DocGraphLoader) GetFileText(ctx context.Context, file loader.GraphFile)
 
 		ext := filepath.Ext(file.FilePath)
 		ext = strings.ReplaceAll(ext, ".", "")
-		images, err := loader.TransformDocToImages(content, ext)
+		images, err := loader.TransformDocToImages(ctx, content, ext)
 		if err != nil {
 			return nil, err
 		}

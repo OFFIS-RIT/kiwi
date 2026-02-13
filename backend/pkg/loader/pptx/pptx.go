@@ -54,7 +54,7 @@ func (l *PPTXGraphLoader) GetFileText(ctx context.Context, file loader.GraphFile
 		}
 
 		// Transform PPTX to images
-		images, err := loader.TransformDocToImages(content, "pptx")
+		images, err := loader.TransformDocToImages(ctx, content, "pptx")
 		if err != nil {
 			return nil, err
 		}
