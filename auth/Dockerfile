@@ -1,4 +1,4 @@
-FROM oven/bun:1-alpine AS build
+FROM oven/bun AS build
 
 WORKDIR /app
 
@@ -17,11 +17,14 @@ RUN bun build \
     --outfile server \
     src/index.ts
 
+FROM busybox:1.36.1-uclibc AS busybox
+
 FROM gcr.io/distroless/base
 
 WORKDIR /app
 
 COPY --from=build /app/server server
+COPY --from=busybox /bin/busybox /busybox
 
 ENV NODE_ENV=production
 

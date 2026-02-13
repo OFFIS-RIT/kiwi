@@ -25,7 +25,7 @@ services:
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_URL: ${AUTH_URL}
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:4321/auth/health || exit 1"]
+      test: ["CMD", "/busybox", "wget", "-qO-", "http://localhost:4321/auth/health"]
       interval: 10s
       timeout: 5s
       retries: 5

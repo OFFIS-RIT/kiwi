@@ -1,75 +1,75 @@
 name: Backend CI
 
 on:
-  pull_request:
-    branches:
-      - dev
-      - main
-    paths:
-      - "backend/**"
-  push:
-    branches:
-      - dev
-    paths:
-      - "backend/**"
+    pull_request:
+        branches:
+            - dev
+            - main
+        paths:
+            - "backend/**"
+    push:
+        branches:
+            - dev
+        paths:
+            - "backend/**"
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+    test:
+        runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: backend
+        defaults:
+            run:
+                working-directory: backend
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: "1.25"
-          cache: false
+            - name: Set up Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: "1.25"
+                  cache: false
 
-      - name: Cache Go modules
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('backend/go.sum') }}
-          restore-keys: |
-            go-${{ runner.os }}-
+            - name: Cache Go modules
+              uses: actions/cache@v5
+              with:
+                  path: |
+                      ~/go/pkg/mod
+                      ~/.cache/go-build
+                  key: go-${{ runner.os }}-${{ hashFiles('backend/go.sum') }}
+                  restore-keys: |
+                      go-${{ runner.os }}-
 
-      - name: Run tests
-        run: go test ./...
+            - name: Run tests
+              run: go test ./...
 
-  build:
-    runs-on: ubuntu-latest
+    build:
+        runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: backend
+        defaults:
+            run:
+                working-directory: backend
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: "1.25"
-          cache: false
+            - name: Set up Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: "1.25"
+                  cache: false
 
-      - name: Cache Go modules
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('backend/go.sum') }}
-          restore-keys: |
-            go-${{ runner.os }}-
+            - name: Cache Go modules
+              uses: actions/cache@v5
+              with:
+                  path: |
+                      ~/go/pkg/mod
+                      ~/.cache/go-build
+                  key: go-${{ runner.os }}-${{ hashFiles('backend/go.sum') }}
+                  restore-keys: |
+                      go-${{ runner.os }}-
 
-      - name: Build
-        run: go build ./...
+            - name: Build
+              run: go build ./...

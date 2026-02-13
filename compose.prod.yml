@@ -1,10 +1,4 @@
 services:
-  # Disable the standalone frontend service in production
-  # nginx serves the static files instead
-  frontend:
-    deploy:
-      replicas: 0
-
   nginx:
     container_name: nginx
     image: nginx:alpine
@@ -15,7 +9,6 @@ services:
     volumes:
       - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
       - ./certs:/etc/nginx/certs:ro
-      - frontend-static:/usr/share/nginx/html:ro
     command: >
       /bin/sh -c "
         export S3_PUBLIC_HOST=$$(echo $$AWS_PUBLIC_ENDPOINT | sed -E 's|^https?://([^/:]+).*|\1|');
@@ -23,35 +16,30 @@ services:
         nginx -g 'daemon off;'
       "
     depends_on:
-      frontend-builder:
-        condition: service_completed_successfully
+      frontend:
+        condition: service_started 
       server:
         condition: service_healthy
       auth:
         condition: service_healthy
 
-  # Build container that copies static files to a volume
-  frontend-builder:
-    container_name: frontend-builder
+  frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: builder
       args:
         NEXT_PUBLIC_API_URL: "/api"
-    image: kiwi/frontend:builder
-    volumes:
-      - frontend-static:/export
-    command: sh -c "mkdir -p /export && cp -r /app/out/* /export/"
 
   auth:
     build:
       context: ./auth
       dockerfile: Dockerfile
-    image: kiwi/auth:latest
-
-volumes:
-  frontend-static:
+    healthcheck:
+      test: ["CMD", "/busybox", "wget", "-qO-", "http://localhost:4321/auth/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 networks:
   default:

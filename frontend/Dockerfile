@@ -17,6 +17,8 @@ WORKDIR /app
 
 # Set production environment
 ENV NODE_ENV=production
+ENV BUN_INSTALL=/usr/local
+ENV PATH="${BUN_INSTALL}/bin:${PATH}"
 
 # Install serve globally
 RUN bun install -g serve@14.2.5

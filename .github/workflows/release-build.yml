@@ -54,12 +54,11 @@ jobs:
             cache: worker
             target: ""
             build_args: ""
-          - name: frontend-builder
+          - name: frontend
             image: frontend
             context: ./frontend
             file: ./frontend/Dockerfile
-            cache: frontend-builder
-            target: builder
+            cache: frontend
             build_args: NEXT_PUBLIC_API_URL=/api
           - name: auth
             image: auth
