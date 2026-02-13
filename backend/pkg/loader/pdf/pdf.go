@@ -67,7 +67,7 @@ func (l *PDFGraphLoader) GetFileText(ctx context.Context, file loader.GraphFile)
 			return parsePDF(content)
 		}
 
-		images, err := loader.TransformPdfToImages(content)
+		images, err := loader.TransformPdfToImages(ctx, content)
 		if err != nil {
 			return nil, err
 		}
