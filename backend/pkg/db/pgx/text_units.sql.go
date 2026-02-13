@@ -21,11 +21,58 @@ func (q *Queries) DeleteTextUnitsByFileIDs(ctx context.Context, dollar_1 []int64
 }
 
 const getFilesFromTextUnitIDs = `-- name: GetFilesFromTextUnitIDs :many
-SELECT f.name, f.file_key, tu.public_id FROM project_files f
-JOIN text_units tu
-    ON tu.project_file_id = f.id
-JOIN unnest($1::text[]) AS u(pid)
-    ON tu.public_id = u.pid
+WITH input_ids AS (
+    SELECT DISTINCT trim(u.pid) AS pid
+    FROM unnest($1::text[]) AS u(pid)
+    WHERE trim(u.pid) <> ''
+),
+numeric_ids AS (
+    SELECT pid, pid::bigint AS id
+    FROM input_ids
+    WHERE pid ~ '^[0-9]+$'
+),
+resolved_text_units AS (
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM input_ids i
+    JOIN text_units tu ON tu.public_id = i.pid
+
+    UNION
+
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM input_ids i
+    JOIN entity_sources es ON es.public_id = i.pid
+    JOIN text_units tu ON tu.id = es.text_unit_id
+
+    UNION
+
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM input_ids i
+    JOIN relationship_sources rs ON rs.public_id = i.pid
+    JOIN text_units tu ON tu.id = rs.text_unit_id
+
+    UNION
+
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM numeric_ids n
+    JOIN text_units tu ON tu.id = n.id
+
+    UNION
+
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM numeric_ids n
+    JOIN entity_sources es ON es.id = n.id
+    JOIN text_units tu ON tu.id = es.text_unit_id
+
+    UNION
+
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM numeric_ids n
+    JOIN relationship_sources rs ON rs.id = n.id
+    JOIN text_units tu ON tu.id = rs.text_unit_id
+)
+SELECT DISTINCT f.name, f.file_key, rtu.public_id
+FROM resolved_text_units rtu
+JOIN project_files f ON f.id = rtu.project_file_id
 `
 
 type GetFilesFromTextUnitIDsRow struct {
@@ -55,10 +102,58 @@ func (q *Queries) GetFilesFromTextUnitIDs(ctx context.Context, dollar_1 []string
 }
 
 const getFilesWithMetadataFromTextUnitIDs = `-- name: GetFilesWithMetadataFromTextUnitIDs :many
-SELECT f.name, f.file_key, f.metadata, tu.public_id 
-FROM project_files f
-JOIN text_units tu ON tu.project_file_id = f.id
-JOIN unnest($1::text[]) AS u(pid) ON tu.public_id = u.pid
+WITH input_ids AS (
+    SELECT DISTINCT trim(u.pid) AS pid
+    FROM unnest($1::text[]) AS u(pid)
+    WHERE trim(u.pid) <> ''
+),
+numeric_ids AS (
+    SELECT pid, pid::bigint AS id
+    FROM input_ids
+    WHERE pid ~ '^[0-9]+$'
+),
+resolved_text_units AS (
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM input_ids i
+    JOIN text_units tu ON tu.public_id = i.pid
+
+    UNION
+
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM input_ids i
+    JOIN entity_sources es ON es.public_id = i.pid
+    JOIN text_units tu ON tu.id = es.text_unit_id
+
+    UNION
+
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM input_ids i
+    JOIN relationship_sources rs ON rs.public_id = i.pid
+    JOIN text_units tu ON tu.id = rs.text_unit_id
+
+    UNION
+
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM numeric_ids n
+    JOIN text_units tu ON tu.id = n.id
+
+    UNION
+
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM numeric_ids n
+    JOIN entity_sources es ON es.id = n.id
+    JOIN text_units tu ON tu.id = es.text_unit_id
+
+    UNION
+
+    SELECT tu.id, tu.public_id, tu.project_file_id
+    FROM numeric_ids n
+    JOIN relationship_sources rs ON rs.id = n.id
+    JOIN text_units tu ON tu.id = rs.text_unit_id
+)
+SELECT DISTINCT f.name, f.file_key, f.metadata, rtu.public_id
+FROM resolved_text_units rtu
+JOIN project_files f ON f.id = rtu.project_file_id
 `
 
 type GetFilesWithMetadataFromTextUnitIDsRow struct {
