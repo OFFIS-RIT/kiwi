@@ -3,13 +3,13 @@ package pdf
 import (
 	"context"
 	"encoding/base64"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/ocr"
 	"sync"
 
 	pdfextract "github.com/m43i/go-doc-extract/pdf"
-
 	"golang.org/x/sync/singleflight"
+
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/ocr"
 )
 
 // PDFGraphLoader loads PDF files and extracts their text content.

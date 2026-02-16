@@ -8,12 +8,11 @@ import (
 	"strings"
 	"sync"
 
+	docextract "github.com/m43i/go-doc-extract/doc"
+	"golang.org/x/sync/singleflight"
+
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/ocr"
-
-	docextract "github.com/m43i/go-doc-extract/doc"
-
-	"golang.org/x/sync/singleflight"
 )
 
 // DocGraphLoader loads Word documents (.docx, .doc) and extracts their text content.
