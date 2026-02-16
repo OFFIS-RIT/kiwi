@@ -11,10 +11,10 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/ocr"
 
+	docextract "github.com/m43i/go-doc-extract/doc"
+
 	"golang.org/x/sync/singleflight"
 )
-
-const docXMLMax = 50 << 20
 
 // DocGraphLoader loads Word documents (.docx, .doc) and extracts their text content.
 // It supports optional OCR processing for scanned documents.
@@ -69,7 +69,20 @@ func (l *DocGraphLoader) GetFileText(ctx context.Context, file loader.GraphFile)
 		}
 
 		if l.ocr == nil {
-			return parseDocx(content)
+			opts := []docextract.Option{
+				docextract.WithTables(),
+			}
+
+			res, err := docextract.Extract(ctx, content, opts...)
+			if err != nil {
+				return nil, err
+			}
+
+			l.cacheMu.Lock()
+			l.cache[key] = []byte(res.Text)
+			l.cacheMu.Unlock()
+
+			return []byte(res.Text), nil
 		}
 
 		ext := filepath.Ext(file.FilePath)
@@ -105,7 +118,16 @@ func GetFileTextFromIO(ctx context.Context, input io.Reader) ([]byte, error) {
 		return nil, err
 	}
 
-	return parseDocx(content)
+	opts := []docextract.Option{
+		docextract.WithTables(),
+	}
+
+	res, err := docextract.Extract(ctx, content, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return []byte(res.Text), nil
 }
 
 // GetBase64 returns the raw document encoded as base64.

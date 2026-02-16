@@ -162,21 +162,6 @@ func normalizeOCRMetadataTags(content string) string {
 	})
 }
 
-func findOCRFirstElement(node *html.Node, tag string) *html.Node {
-	if node == nil {
-		return nil
-	}
-	if node.Type == html.ElementNode && strings.EqualFold(node.Data, tag) {
-		return node
-	}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if found := findOCRFirstElement(child, tag); found != nil {
-			return found
-		}
-	}
-	return nil
-}
-
 func renderOCRNode(node *html.Node, inBox bool) []string {
 	if node == nil {
 		return nil

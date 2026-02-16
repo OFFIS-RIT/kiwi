@@ -461,7 +461,7 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 		params := api.ToolFunctionParameters{
 			Type:       "object",
 			Required:   []string{},
-			Properties: map[string]api.ToolProperty{},
+			Properties: api.NewToolPropertiesMap(),
 		}
 
 		if tool.Parameters != nil {
@@ -478,7 +478,7 @@ func (c *GraphOllamaClient) GenerateCompletionWithTools(
 						if enum, ok := propMap["enum"].([]any); ok {
 							tp.Enum = enum
 						}
-						params.Properties[name] = tp
+						params.Properties.Set(name, tp)
 					}
 				}
 			}
@@ -635,7 +635,7 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 		params := api.ToolFunctionParameters{
 			Type:       "object",
 			Required:   []string{},
-			Properties: map[string]api.ToolProperty{},
+			Properties: api.NewToolPropertiesMap(),
 		}
 
 		if tool.Parameters != nil {
@@ -652,7 +652,7 @@ func (c *GraphOllamaClient) GenerateChatWithTools(
 						if enum, ok := propMap["enum"].([]any); ok {
 							tp.Enum = enum
 						}
-						params.Properties[name] = tp
+						params.Properties.Set(name, tp)
 					}
 				}
 			}
@@ -812,7 +812,7 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 		params := api.ToolFunctionParameters{
 			Type:       "object",
 			Required:   []string{},
-			Properties: map[string]api.ToolProperty{},
+			Properties: api.NewToolPropertiesMap(),
 		}
 
 		if tool.Parameters != nil {
@@ -829,7 +829,7 @@ func (c *GraphOllamaClient) GenerateChatStreamWithTools(
 						if enum, ok := propMap["enum"].([]any); ok {
 							tp.Enum = enum
 						}
-						params.Properties[name] = tp
+						params.Properties.Set(name, tp)
 					}
 				}
 			}
@@ -1182,7 +1182,7 @@ func buildOllamaChatMessages(systemPrompts []string, messages []ai.ChatMessage) 
 }
 
 func parseOllamaToolArguments(raw string) api.ToolCallFunctionArguments {
-	args := api.ToolCallFunctionArguments{}
+	args := api.NewToolCallFunctionArguments()
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return args
@@ -1194,7 +1194,7 @@ func parseOllamaToolArguments(raw string) api.ToolCallFunctionArguments {
 	}
 
 	for key, value := range parsed {
-		args[key] = value
+		args.Set(key, value)
 	}
 
 	return args
