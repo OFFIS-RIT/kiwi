@@ -182,7 +182,7 @@ func ProcessDescriptionMessage(
 			CorrelationID: data.CorrelationID,
 			JobID:         int32(data.JobID),
 			Column3:       "completed",
-			ErrorMessage:  pgtype.Text{String: "skipped: superseded correlation", Valid: true},
+			ErrorMessage:  pgtype.Text{String: util.SanitizePostgresText("skipped: superseded correlation"), Valid: true},
 		})
 		return nil
 	}
@@ -204,7 +204,7 @@ func ProcessDescriptionMessage(
 			CorrelationID: data.CorrelationID,
 			JobID:         int32(data.JobID),
 			Column3:       "failed",
-			ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+			ErrorMessage:  pgtype.Text{String: util.SanitizePostgresText(err.Error()), Valid: true},
 		})
 		return err
 	}
@@ -230,7 +230,7 @@ func ProcessDescriptionMessage(
 			CorrelationID: data.CorrelationID,
 			JobID:         int32(data.JobID),
 			Column3:       "failed",
-			ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+			ErrorMessage:  pgtype.Text{String: util.SanitizePostgresText(err.Error()), Valid: true},
 		})
 		return err
 	}
@@ -239,7 +239,7 @@ func ProcessDescriptionMessage(
 			CorrelationID: data.CorrelationID,
 			JobID:         int32(data.JobID),
 			Column3:       "failed",
-			ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+			ErrorMessage:  pgtype.Text{String: util.SanitizePostgresText(err.Error()), Valid: true},
 		})
 		return err
 	}

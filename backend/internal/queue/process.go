@@ -56,7 +56,7 @@ func ProcessGraphMessage(
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 			Column3:       "failed",
-			ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+			ErrorMessage:  pgtype.Text{String: util.SanitizePostgresText(err.Error()), Valid: true},
 		}); updateErr != nil {
 			logger.Warn("[Queue] Failed to mark graph batch as failed", "project_id", data.ProjectID, "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", updateErr)
 		}

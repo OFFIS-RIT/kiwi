@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	internalutil "github.com/OFFIS-RIT/kiwi/backend/internal/util"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/labstack/echo/v4"
 
@@ -72,11 +74,11 @@ func AppendPendingToolResult(
 }
 
 func AppendChatMessage(ctx context.Context, q *pgdb.Queries, chatID int64, message ai.ChatMessage) error {
-	content := sanitizePostgresText(message.Message)
-	toolCallID := sanitizePostgresText(message.ToolCallID)
-	toolName := sanitizePostgresText(message.ToolName)
-	toolArguments := sanitizePostgresText(message.ToolArguments)
-	cleanReasoning := sanitizePostgresText(message.Reasoning)
+	content := internalutil.SanitizePostgresText(message.Message)
+	toolCallID := internalutil.SanitizePostgresText(message.ToolCallID)
+	toolName := internalutil.SanitizePostgresText(message.ToolName)
+	toolArguments := internalutil.SanitizePostgresText(message.ToolArguments)
+	cleanReasoning := internalutil.SanitizePostgresText(message.Reasoning)
 
 	reasoningValue := pgtype.Text{}
 	if strings.TrimSpace(cleanReasoning) != "" {
@@ -107,8 +109,8 @@ func AppendAssistantChatMessage(
 	reasoning string,
 	metrics *ai.ModelMetrics,
 ) error {
-	cleanContent := sanitizePostgresText(content)
-	cleanReasoning := sanitizePostgresText(reasoning)
+	cleanContent := internalutil.SanitizePostgresText(content)
+	cleanReasoning := internalutil.SanitizePostgresText(reasoning)
 
 	reasoningValue := pgtype.Text{}
 	if strings.TrimSpace(cleanReasoning) != "" {
@@ -149,16 +151,6 @@ func normalizeToolExecution(role string, execution ai.ToolExecution) string {
 
 	return string(ai.ToolExecutionServer)
 }
-
-func sanitizePostgresText(value string) string {
-	if value == "" {
-		return value
-	}
-
-	sanitized := strings.ToValidUTF8(value, "")
-	return strings.ReplaceAll(sanitized, "\x00", "")
-}
-
 func BuildConversationTitle(prompt string) string {
 	trimmed := strings.TrimSpace(prompt)
 	if trimmed == "" {

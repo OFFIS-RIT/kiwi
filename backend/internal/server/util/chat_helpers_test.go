@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	internalutil "github.com/OFFIS-RIT/kiwi/backend/internal/util"
 )
 
 func TestSanitizePostgresText(t *testing.T) {
@@ -31,7 +33,7 @@ func TestSanitizePostgresText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := sanitizePostgresText(tt.input)
+			got := internalutil.SanitizePostgresText(tt.input)
 
 			if got != tt.want {
 				t.Fatalf("unexpected sanitized value: got %q, want %q", got, tt.want)

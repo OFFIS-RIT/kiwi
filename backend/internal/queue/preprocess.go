@@ -62,7 +62,7 @@ func ProcessPreprocess(
 			CorrelationID: data.CorrelationID,
 			BatchID:       int32(data.BatchID),
 			Column3:       "failed",
-			ErrorMessage:  pgtype.Text{String: err.Error(), Valid: true},
+			ErrorMessage:  pgtype.Text{String: util.SanitizePostgresText(err.Error()), Valid: true},
 		}); updateErr != nil {
 			logger.Warn("[Queue] Failed to mark preprocess batch as failed", "project_id", data.ProjectID, "correlation_id", data.CorrelationID, "batch_id", data.BatchID, "err", updateErr)
 		}
@@ -405,6 +405,7 @@ func ProcessPreprocess(
 		if err != nil {
 			return fmt.Errorf("extract metadata for file %s: %w", f.ID, err)
 		}
+		metadata = util.SanitizePostgresText(metadata)
 
 		cleanText := ai.StripMetadataTags(textContent)
 
@@ -431,6 +432,7 @@ func ProcessPreprocess(
 		if err != nil {
 			return fmt.Errorf("extract metadata for excel sheet file %d: %w", sheet.fileID, err)
 		}
+		metadata = util.SanitizePostgresText(metadata)
 
 		cleanText := ai.StripMetadataTags(sheet.content)
 		tokens := enc.Encode(cleanText, nil, nil)
@@ -516,7 +518,7 @@ func ProcessPreprocess(
 
 		err = qtx.UpdateProjectFileMetadata(ctx, pgdb.UpdateProjectFileMetadataParams{
 			ID:       tc.fileID,
-			Metadata: pgtype.Text{String: tc.metadata, Valid: true},
+			Metadata: pgtype.Text{String: util.SanitizePostgresText(tc.metadata), Valid: true},
 		})
 		if err != nil {
 			return fmt.Errorf("update metadata for file %d: %w", tc.fileID, err)
