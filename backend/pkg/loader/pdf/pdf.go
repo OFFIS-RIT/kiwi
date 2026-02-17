@@ -3,11 +3,13 @@ package pdf
 import (
 	"context"
 	"encoding/base64"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/ocr"
 	"sync"
 
+	pdfextract "github.com/m43i/go-doc-extract/pdf"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/ocr"
 )
 
 // PDFGraphLoader loads PDF files and extracts their text content.
@@ -64,7 +66,19 @@ func (l *PDFGraphLoader) GetFileText(ctx context.Context, file loader.GraphFile)
 		}
 
 		if l.ocr == nil {
-			return parsePDF(content)
+			opts := []pdfextract.Option{
+				pdfextract.WithTables(),
+			}
+			res, err := pdfextract.Extract(ctx, content, opts...)
+			if err != nil {
+				return nil, err
+			}
+
+			l.cacheMu.Lock()
+			l.cache[key] = []byte(res.Text)
+			l.cacheMu.Unlock()
+
+			return []byte(res.Text), nil
 		}
 
 		images, err := loader.TransformPdfToImages(ctx, content)
