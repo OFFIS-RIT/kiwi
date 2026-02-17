@@ -680,6 +680,10 @@ answering.
   relevant cited statements.
 - Do NOT use ask_clarifying_questions just because sources disagree. Source
   disagreement is handled by contradiction reporting, not by asking the user.
+- Try to solve it by your own reasearch fist, only ask questions if you find
+  no reliable way to resolve ambiguity with the data you have access to. You should
+  use ask_clarifying_questions as a last resort when you have exhausted all other options 
+  for resolving ambiguity through data retrieval and analysis.
 
 ## Exploration Workflow
 For every question, follow this workflow:
