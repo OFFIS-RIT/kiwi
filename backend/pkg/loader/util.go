@@ -26,9 +26,10 @@ import (
 type pdfRenderMode string
 
 const (
-	pdfRenderModeAuto pdfRenderMode = "auto"
-	pdfRenderModeFull pdfRenderMode = "full"
-	pdfRenderModeTile pdfRenderMode = "tile"
+	pdfRenderModeAuto       pdfRenderMode = "auto"
+	pdfRenderModeFull       pdfRenderMode = "full"
+	pdfRenderModeTile       pdfRenderMode = "tile"
+	pdfRenderCommandTimeout               = 600 * time.Second
 )
 
 type PDFRenderOptions struct {
@@ -193,9 +194,6 @@ func TransformPdfToImagesWithOptions(ctx context.Context, input []byte, options 
 	if _, err := exec.LookPath("pdftoppm"); err != nil {
 		return nil, fmt.Errorf("pdftoppm not found in PATH: %w", err)
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, 600*time.Second)
-	defer cancel()
 
 	if options.Mode == pdfRenderModeFull {
 		return renderAllPDFPages(ctx, tmpDir, pdfPath, options.DefaultDPI, "page")
@@ -430,11 +428,14 @@ func renderAllPDFPagePaths(
 	dpi int,
 	prefix string,
 ) ([]string, error) {
+	cmdCtx, cancel := context.WithTimeout(ctx, pdfRenderCommandTimeout)
+	defer cancel()
+
 	filePrefix := filepath.Join(tmpDir, prefix)
-	cmd := exec.CommandContext(ctx, "pdftoppm", "-png", "-r", strconv.Itoa(dpi), "-q", pdfPath, filePrefix)
+	cmd := exec.CommandContext(cmdCtx, "pdftoppm", "-png", "-r", strconv.Itoa(dpi), "-q", pdfPath, filePrefix)
 	cmd.Env = append(os.Environ(), "LANG=C.UTF-8", "LC_ALL=C.UTF-8")
 	out, err := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
+	if cmdCtx.Err() == context.DeadlineExceeded {
 		return nil, fmt.Errorf("pdftoppm timed out")
 	}
 	if err != nil {
@@ -487,10 +488,13 @@ func renderPDFPage(
 
 	args = append(args, pdfPath, prefix)
 
-	cmd := exec.CommandContext(ctx, "pdftoppm", args...)
+	cmdCtx, cancel := context.WithTimeout(ctx, pdfRenderCommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, "pdftoppm", args...)
 	cmd.Env = append(os.Environ(), "LANG=C.UTF-8", "LC_ALL=C.UTF-8")
 	out, err := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
+	if cmdCtx.Err() == context.DeadlineExceeded {
 		return nil, fmt.Errorf("pdftoppm timed out on page %d", pageNum)
 	}
 	if err != nil {
