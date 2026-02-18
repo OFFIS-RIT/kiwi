@@ -2,6 +2,7 @@ package routes
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
@@ -19,6 +20,8 @@ func GetProjectsHandler(c echo.Context) error {
 		ProjectID                int64                   `json:"project_id"`
 		ProjectName              string                  `json:"project_name"`
 		ProjectState             string                  `json:"project_state"`
+		Hidden                   bool                    `json:"hidden"`
+		Type                     *string                 `json:"type,omitempty"`
 		ProcessStep              *util.BatchStepProgress `json:"process_step,omitempty"`
 		ProcessPercentage        *int32                  `json:"process_percentage,omitempty"`
 		ProcessEstimatedDuration *int64                  `json:"process_estimated_duration,omitempty"`
@@ -38,6 +41,8 @@ func GetProjectsHandler(c echo.Context) error {
 		ProjectID    int64
 		ProjectName  string
 		ProjectState string
+		Hidden       bool
+		ProjectType  string
 		Role         string
 	}
 
@@ -64,6 +69,8 @@ func GetProjectsHandler(c echo.Context) error {
 				ProjectID:    r.ProjectID,
 				ProjectName:  r.ProjectName,
 				ProjectState: r.ProjectState,
+				Hidden:       r.Hidden,
+				ProjectType:  r.ProjectType,
 				Role:         r.Role,
 			})
 		}
@@ -79,6 +86,8 @@ func GetProjectsHandler(c echo.Context) error {
 				ProjectID:    r.ProjectID,
 				ProjectName:  r.ProjectName,
 				ProjectState: r.ProjectState,
+				Hidden:       r.Hidden,
+				ProjectType:  r.ProjectType,
 				Role:         r.Role,
 			})
 		}
@@ -99,6 +108,12 @@ func GetProjectsHandler(c echo.Context) error {
 			ProjectID:    r.ProjectID,
 			ProjectName:  r.ProjectName,
 			ProjectState: r.ProjectState,
+			Hidden:       r.Hidden,
+		}
+
+		if r.ProjectType != "" {
+			projectType := r.ProjectType
+			p.Type = &projectType
 		}
 
 		if r.ProjectState != "ready" {
@@ -166,7 +181,19 @@ func GetProjectFilesHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
-	if !middleware.IsAdmin(user) {
+	project, err := q.GetProjectByID(ctx, params.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "Project not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
+	}
+
+	if project.UserID.Valid {
+		if project.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "Unauthorized"})
+		}
+	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
 			UserID: user.UserID,
@@ -257,15 +284,22 @@ func GetTextUnitHandler(c echo.Context) error {
 		})
 	}
 
-	if !middleware.IsAdmin(user) {
+	project, err := qtx.GetProjectByID(ctx, projectID)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, getTextUnitResponse{Message: "Text unit not found"})
+	}
+
+	if project.UserID.Valid {
+		if project.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, getTextUnitResponse{Message: "Unauthorized"})
+		}
+	} else if !middleware.IsAdmin(user) {
 		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			UserID: user.UserID,
 			ID:     projectID,
 		})
 		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, getTextUnitResponse{
-				Message: "Unauthorized",
-			})
+			return c.JSON(http.StatusForbidden, getTextUnitResponse{Message: "Unauthorized"})
 		}
 	}
 
@@ -315,16 +349,35 @@ func GetProjectFile(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	qtx := pgdb.New(conn)
 
+	_, err := qtx.GetProjectByID(ctx, params.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, getProjectFileResponse{Message: "Project not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, getProjectFileResponse{
+			Message: "Internal server error",
+		})
+	}
+
 	if !middleware.IsAdmin(user) {
 		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			UserID: user.UserID,
 			ID:     params.ProjectID,
 		})
 		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, getProjectFileResponse{
-				Message: "Unauthorized",
-			})
+			return c.JSON(http.StatusForbidden, getProjectFileResponse{Message: "Unauthorized"})
 		}
+	}
+
+	_, err = qtx.GetProjectFileByKey(ctx, pgdb.GetProjectFileByKeyParams{
+		ProjectID: params.ProjectID,
+		FileKey:   params.FileKey,
+	})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, getProjectFileResponse{Message: "File does not exist"})
+		}
+		return c.JSON(http.StatusInternalServerError, getProjectFileResponse{Message: "Internal server error"})
 	}
 
 	s3Client := c.(*middleware.AppContext).App.S3

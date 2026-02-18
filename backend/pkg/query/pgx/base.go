@@ -10,9 +10,11 @@ import (
 )
 
 type queryOptions struct {
-	SystemPrompts []string
-	Model         string
-	Thinking      string
+	SystemPrompts      []string
+	Model              string
+	Thinking           string
+	ExpertGraphCatalog string
+	AgenticPrompt      string
 }
 
 // QueryOption is a functional option for configuring query behavior.
@@ -39,6 +41,22 @@ func WithModel(model string) QueryOption {
 func WithThinking(thinking string) QueryOption {
 	return func(o *queryOptions) {
 		o.Thinking = thinking
+	}
+}
+
+// WithExpertGraphCatalog returns a QueryOption that injects a preformatted
+// expert graph catalog into the agentic system prompt.
+func WithExpertGraphCatalog(catalog string) QueryOption {
+	return func(o *queryOptions) {
+		o.ExpertGraphCatalog = catalog
+	}
+}
+
+// WithAgenticPrompt returns a QueryOption that overrides the base agentic
+// system prompt.
+func WithAgenticPrompt(prompt string) QueryOption {
+	return func(o *queryOptions) {
+		o.AgenticPrompt = prompt
 	}
 }
 

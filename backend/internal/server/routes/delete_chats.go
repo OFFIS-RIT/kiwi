@@ -45,7 +45,21 @@ func DeleteChatHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
-	if !middleware.IsAdmin(user) {
+	project, err := q.GetProjectByID(ctx, params.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, deleteChatResponse{Message: "Project not found"})
+		}
+
+		logger.Error("Failed to get project", "err", err)
+		return c.JSON(http.StatusInternalServerError, deleteChatResponse{Message: "Internal server error"})
+	}
+
+	if project.UserID.Valid {
+		if project.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, deleteChatResponse{Message: "Unauthorized"})
+		}
+	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
 			UserID: user.UserID,
@@ -53,16 +67,6 @@ func DeleteChatHandler(c echo.Context) error {
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, deleteChatResponse{Message: "Unauthorized"})
 		}
-	}
-
-	_, err := q.GetGroupByProjectId(ctx, params.ProjectID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return c.JSON(http.StatusNotFound, deleteChatResponse{Message: "Project or Group not found"})
-		}
-
-		logger.Error("Failed to get group", "err", err)
-		return c.JSON(http.StatusInternalServerError, deleteChatResponse{Message: "Internal server error"})
 	}
 
 	rowsAffected, err := q.DeleteUserChatByPublicIDAndProject(ctx, pgdb.DeleteUserChatByPublicIDAndProjectParams{

@@ -1,11 +1,13 @@
 package routes
 
 import (
-	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
-	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"database/sql"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 )
 
 func EditProjectHandler(c echo.Context) error {
@@ -15,8 +17,8 @@ func EditProjectHandler(c echo.Context) error {
 	}
 
 	type editProjectResponse struct {
-		Message string        `json:"message"`
-		Project *pgdb.Project `json:"project,omitempty"`
+		Message string      `json:"message"`
+		Project *pgdb.Graph `json:"project,omitempty"`
 	}
 
 	data := new(editProjectData)
@@ -40,15 +42,25 @@ func EditProjectHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
-	if !middleware.IsAdmin(user) {
+	projectMeta, err := q.GetProjectByID(ctx, data.ID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, editProjectResponse{Message: "Project not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, editProjectResponse{Message: "Internal server error"})
+	}
+
+	if projectMeta.UserID.Valid {
+		if projectMeta.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, editProjectResponse{Message: "You are not allowed to modify this project"})
+		}
+	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     data.ID,
 			UserID: user.UserID,
 		})
 		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, editProjectResponse{
-				Message: "You are not a member of this project",
-			})
+			return c.JSON(http.StatusForbidden, editProjectResponse{Message: "You are not allowed to modify this project"})
 		}
 	}
 

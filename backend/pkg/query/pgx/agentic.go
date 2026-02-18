@@ -2,10 +2,32 @@ package pgx
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
+
+func resolveAgenticSystemPrompt(options queryOptions) string {
+	if strings.TrimSpace(options.AgenticPrompt) != "" {
+		if strings.Contains(options.AgenticPrompt, "%s") {
+			catalog := strings.TrimSpace(options.ExpertGraphCatalog)
+			if catalog == "" {
+				catalog = "None available."
+			}
+			return fmt.Sprintf(options.AgenticPrompt, catalog)
+		}
+		return options.AgenticPrompt
+	}
+
+	expertCatalog := strings.TrimSpace(options.ExpertGraphCatalog)
+	if expertCatalog == "" {
+		expertCatalog = "None available."
+	}
+
+	return fmt.Sprintf(ai.ToolQueryPrompt, expertCatalog)
+}
 
 // QueryAgentic performs a query with access to external tools. The AI can invoke
 // the provided tools to gather additional information or perform actions before
@@ -18,10 +40,8 @@ func (c *BaseQueryClient) QueryAgentic(
 ) (string, error) {
 	aiC := c.aiClient
 
-	systemPrompts := []string{ai.ToolQueryPrompt}
-	if len(systemPrompts) > 0 {
-		systemPrompts = append(systemPrompts, c.options.SystemPrompts...)
-	}
+	systemPrompts := []string{resolveAgenticSystemPrompt(c.options)}
+	systemPrompts = append(systemPrompts, c.options.SystemPrompts...)
 
 	generateOpts := []ai.GenerateOption{
 		ai.WithSystemPrompts(systemPrompts...),
@@ -56,10 +76,8 @@ func (c *BaseQueryClient) QueryStreamAgentic(
 	go func() {
 		defer close(out)
 
-		systemPrompts := []string{ai.ToolQueryPrompt}
-		if len(systemPrompts) > 0 {
-			systemPrompts = append(systemPrompts, c.options.SystemPrompts...)
-		}
+		systemPrompts := []string{resolveAgenticSystemPrompt(c.options)}
+		systemPrompts = append(systemPrompts, c.options.SystemPrompts...)
 
 		generateOpts := []ai.GenerateOption{
 			ai.WithSystemPrompts(systemPrompts...),

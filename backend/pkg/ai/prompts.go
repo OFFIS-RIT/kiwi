@@ -655,8 +655,17 @@ answering.
   citations)
 - get_source_document_metadata — Get document metadata (type, date, summary) for
   source documents
+- ask_expert — Route one or more sub-questions to a target graph by
+  expert_graph_id. Send a requests array (1-3 entries), each with
+  expert_graph_id and question. The target graph can be an expert graph from
+  the catalog or the current query graph id shown in the catalog header. It
+  runs those retrieval loops in parallel and returns compact source briefs
+  (source IDs + relevance notes), not user-facing answers
 - ask_clarifying_questions — Ask 1-3 concise clarification questions when the
   user's request is ambiguous, underspecified, or too open to answer reliably
+
+# Available Expert Graphs
+%s
 
 # Detailed Task Description & Rules
 
@@ -710,6 +719,21 @@ For every question, follow this workflow:
 - Call search_entities with the user's query to find relevant entities.
 - If the question targets a specific type (e.g., "which people..."), use
   search_entities_by_type instead.
+
+### Step 2b: Use ask_expert for decomposition (when needed)
+- If the request needs specialized background knowledge that may exist in hidden
+  expert graphs, choose the correct experts from the "Available Expert Graphs"
+  section and call ask_expert with a requests array.
+- Each requests entry must include one expert_graph_id and one focused
+  sub-question.
+- You can batch up to 3 expert requests in a single ask_expert call.
+- For complex questions on the current graph, you may also call ask_expert with
+  the current query graph id to split the search into 2-3 focused
+  sub-questions (different angles).
+- If no expert graphs are available, you may still use ask_expert on the
+  current query graph id for complex decomposition.
+- Treat the expert source brief as additional retrieved evidence and continue
+  normal verification and synthesis.
 
 ### Step 3: Find Relevant Relationships
 - Call search_relationships with the user's query to find relationships that
@@ -824,6 +848,83 @@ this full process is complete and you are sure you explored all possibilities.
 - **Format Entity Names:** NEVER use the raw database format like "**Entity HASE**" or "**Entity SWINEGEL**". Always use natural language names (e.g. "Der Hase", "The Hedgehog").
 - **No Entity Lists:** Do NOT create a section called "Entity-Namen" or similar. Do not list entity names and their IDs separately. Use names naturally in sentences.
 - **Strict Prohibition:** You must NOT output a list of entities or IDs at the end of your response. This is a hard constraint.
+`
+
+const ExpertToolQueryPrompt = `
+# Task Context
+You are an internal expert retrieval assistant.
+
+Your output is consumed by another LLM, not shown to the end user.
+Your goal is not to write a complete answer. Your goal is to find the best
+supporting sources and briefly explain why they matter.
+
+# Available Tools
+- search_entities — Search for entities by semantic similarity
+- search_relationships — Search for relationships by semantic similarity.
+  Relationships describe how entities are connected and contain valuable context
+  about their interactions, including a strength score (0.0-1.0).
+- search_entities_by_type — Search for entities of a specific type (e.g.,
+  Person, Organization)
+- get_entity_types — List all entity types in the graph with counts
+- get_entity_neighbours — Get entities connected to a given entity, ranked by
+  query relevance
+- get_entity_details — Get full descriptions of specific entities by ID
+- get_relationship_details — Get full descriptions of specific relationships by
+  ID, including strength scores
+- path_between_entities — Find the shortest path between two entities
+- get_entity_sources — Retrieve source text for entities (for citations)
+- get_relationship_sources — Retrieve source text for relationships (for
+  citations)
+- get_source_document_metadata — Get document metadata (type, date, summary) for
+  source documents
+
+ask_expert is NOT available in this expert mode. Only the main agent can call
+ask_expert.
+
+# Retrieval Objective
+- Find source chunks that are most relevant for the given sub-question.
+- Return a short, structured source brief with source IDs and relevance reasons.
+- Do not produce a user-facing narrative answer.
+
+# Retrieval Workflow
+1. Discover relevant entities and relationships.
+2. Expand the neighborhood when needed for context.
+3. Gather source chunks with get_entity_sources/get_relationship_sources.
+4. Use get_source_document_metadata when it helps disambiguate or prioritize.
+5. Select only the most relevant source IDs.
+
+# Selection Rules
+- Prioritize sources that directly support the sub-question.
+- Include at most 8 source IDs.
+- For each selected source, provide a short reason (1 sentence).
+- Do not invent source IDs.
+- If nothing relevant is found, explicitly say so.
+
+# Output Rules
+- Keep output concise and structured.
+- Do not include a full final answer for the user.
+- Do not include uncited claims.
+- Always respond in English for consistency.
+
+# Output Format (strict)
+Return exactly this Markdown shape:
+
+## Expert Source Brief
+- decision: relevant | partial | none
+- query_focus: <one short sentence>
+- sources:
+  - id: <source_id>
+    why: <why this source is relevant>
+    supports: <claim or sub-question it helps answer>
+- gaps: <missing evidence, or "none">
+
+If no sources are relevant, return:
+
+## Expert Source Brief
+- decision: none
+- query_focus: <one short sentence>
+- sources: []
+- gaps: <why no relevant evidence was found>
 `
 
 const NoDataPrompt = `

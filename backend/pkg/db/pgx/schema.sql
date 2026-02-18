@@ -80,20 +80,37 @@ CREATE TABLE group_users (
     PRIMARY KEY (group_id, user_id)
 );
 
--- Projects Table
-CREATE TABLE projects (
+-- Graphs Table
+CREATE TABLE graphs (
     id BIGSERIAL PRIMARY KEY,
-    group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    group_id BIGINT REFERENCES groups(id) ON DELETE CASCADE,
+    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    graph_id BIGINT REFERENCES graphs(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    description TEXT,
     state TEXT NOT NULL DEFAULT 'ready',
+    type TEXT,
+    hidden BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT graphs_single_owner_check CHECK (
+        ((group_id IS NOT NULL)::INT + (user_id IS NOT NULL)::INT + (graph_id IS NOT NULL)::INT) <= 1
+    )
 );
+
+CREATE INDEX IF NOT EXISTS graphs_group_type_idx
+    ON graphs (group_id, type);
+
+CREATE INDEX IF NOT EXISTS graphs_user_type_idx
+    ON graphs (user_id, type);
+
+CREATE INDEX IF NOT EXISTS graphs_graph_type_idx
+    ON graphs (graph_id, type);
 
 -- Project Prompts
 CREATE TABLE project_system_prompts (
     id BIGSERIAL PRIMARY KEY,
-    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES graphs(id) ON DELETE CASCADE,
     prompt TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -102,7 +119,7 @@ CREATE TABLE project_system_prompts (
 -- Project updates Table
 CREATE TABLE project_updates (
     id BIGSERIAL PRIMARY KEY,
-    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES graphs(id) ON DELETE CASCADE,
     update_type TEXT NOT NULL,
     update_message JSON NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -112,7 +129,7 @@ CREATE TABLE project_updates (
 -- Project Files Table
 CREATE TABLE project_files (
     id BIGSERIAL PRIMARY KEY,
-    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES graphs(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     file_key TEXT NOT NULL,
     deleted boolean DEFAULT false,
@@ -136,7 +153,7 @@ CREATE TABLE text_units (
 CREATE TABLE entities (
     id BIGSERIAL PRIMARY KEY,
     public_id TEXT NOT NULL,
-    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES graphs(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     type TEXT NOT NULL,
@@ -163,7 +180,7 @@ CREATE TABLE relationships (
     public_id TEXT NOT NULL,
     source_id BIGINT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     target_id BIGINT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES graphs(id) ON DELETE CASCADE,
     rank FLOAT NOT NULL DEFAULT 0,
     description TEXT NOT NULL,
     embedding vector(4096) NOT NULL,
@@ -188,7 +205,7 @@ CREATE TABLE IF NOT EXISTS user_chats (
     id BIGSERIAL PRIMARY KEY,
     public_id TEXT UNIQUE NOT NULL,
     user_id BIGINT NOT NULL,
-    project_id BIGINT REFERENCES projects(id) ON DELETE CASCADE,
+    project_id BIGINT REFERENCES graphs(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -222,7 +239,7 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_role_execution_id
 -- Stats Table
 CREATE TABLE IF NOT EXISTS stats (
     id BIGSERIAL PRIMARY KEY,
-    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES graphs(id) ON DELETE CASCADE,
     amount INT NOT NULL DEFAULT 0,
     duration BIGINT NOT NULL DEFAULT 0,
     stat_type TEXT NOT NULL,
@@ -233,7 +250,7 @@ CREATE TABLE IF NOT EXISTS stats (
 -- Batch tracking table for parallel worker processing
 CREATE TABLE project_batch_status (
     id BIGSERIAL PRIMARY KEY,
-    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES graphs(id) ON DELETE CASCADE,
     correlation_id VARCHAR(21) NOT NULL,
     batch_id INT NOT NULL,
     total_batches INT NOT NULL,
@@ -252,7 +269,7 @@ CREATE TABLE project_batch_status (
 -- Track parallel description generation jobs per correlation.
 CREATE TABLE project_description_job_status (
     id BIGSERIAL PRIMARY KEY,
-    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES graphs(id) ON DELETE CASCADE,
     correlation_id VARCHAR(21) NOT NULL,
     job_id INT NOT NULL,
     total_jobs INT NOT NULL,
@@ -271,7 +288,7 @@ CREATE UNLOGGED TABLE extraction_staging (
     id BIGSERIAL PRIMARY KEY,
     correlation_id VARCHAR(21) NOT NULL,
     batch_id INT NOT NULL,
-    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id BIGINT NOT NULL REFERENCES graphs(id) ON DELETE CASCADE,
     data_type VARCHAR(20) NOT NULL,
     data JSONB NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
