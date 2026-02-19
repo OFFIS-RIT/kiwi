@@ -31,6 +31,31 @@ type clientToolCallResponse struct {
 	ToolArguments string `json:"tool_arguments"`
 }
 
+func buildExpertGraphCatalog(currentProjectID int64, expertProjects []pgdb.GetAvailableExpertProjectsRow) string {
+	var catalogBuilder strings.Builder
+	fmt.Fprintf(&catalogBuilder, "Current query graph id (you may use this with ask_expert for complex query decomposition): %d\n", currentProjectID)
+
+	if len(expertProjects) == 0 {
+		catalogBuilder.WriteString("Available expert graphs (state=ready only): none.")
+		return strings.TrimSpace(catalogBuilder.String())
+	}
+
+	catalogBuilder.WriteString("Available expert graphs (state=ready only; use these exact expert_graph_id values with ask_expert):\n")
+	for _, expertProject := range expertProjects {
+		description := "No description provided."
+		if expertProject.Description.Valid {
+			trimmedDescription := strings.TrimSpace(expertProject.Description.String)
+			if trimmedDescription != "" {
+				description = trimmedDescription
+			}
+		}
+
+		fmt.Fprintf(&catalogBuilder, "- expert_graph_id=%d | expert_graph_name=%q | description=%q\n", expertProject.ProjectID, expertProject.Name, description)
+	}
+
+	return strings.TrimSpace(catalogBuilder.String())
+}
+
 // CreateProjectHandler creates a new project from multipart/form-data
 func CreateProjectHandler(c echo.Context) error {
 	type createProjectBody struct {
@@ -40,7 +65,7 @@ func CreateProjectHandler(c echo.Context) error {
 
 	type createProjectResponse struct {
 		Message      string              `json:"message"`
-		Project      *pgdb.Project       `json:"project,omitempty"`
+		Project      *pgdb.Graph         `json:"project,omitempty"`
 		ProjectFiles *[]pgdb.ProjectFile `json:"project_files,omitempty"`
 	}
 
@@ -56,13 +81,12 @@ func CreateProjectHandler(c echo.Context) error {
 		})
 	}
 
-	form, err := c.MultipartForm()
-	if err != nil {
+	data.Name = strings.TrimSpace(data.Name)
+	if data.Name == "" {
 		return c.JSON(http.StatusBadRequest, createProjectResponse{
 			Message: "Invalid request body",
 		})
 	}
-	uploads := form.File["files"]
 
 	user := c.(*middleware.AppContext).User
 	if user == nil {
@@ -70,6 +94,20 @@ func CreateProjectHandler(c echo.Context) error {
 			Message: "Unauthorized",
 		})
 	}
+
+	if data.GroupID <= 0 {
+		return c.JSON(http.StatusBadRequest, createProjectResponse{
+			Message: "group_id is required",
+		})
+	}
+
+	form, err := c.MultipartForm()
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, createProjectResponse{
+			Message: "Invalid request body",
+		})
+	}
+	uploads := form.File["files"]
 
 	ctx := c.Request().Context()
 	conn := c.(*middleware.AppContext).App.DBConn
@@ -111,7 +149,7 @@ func CreateProjectHandler(c echo.Context) error {
 	}
 
 	project, err := qtx.CreateProject(ctx, pgdb.CreateProjectParams{
-		GroupID: data.GroupID,
+		GroupID: sql.NullInt64{Int64: data.GroupID, Valid: true},
 		Name:    data.Name,
 		State:   "create",
 	})
@@ -121,6 +159,7 @@ func CreateProjectHandler(c echo.Context) error {
 			Message: "Internal server error",
 		})
 	}
+
 	err = qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 		ProjectID:     project.ID,
 		UpdateType:    "create",
@@ -308,29 +347,31 @@ func AddFilesToProjectHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
-	if !middleware.IsAdmin(user) {
+	project, err := q.GetProjectByID(ctx, params.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, addFilesResponse{
+				Message: "Project not found",
+			})
+		} else {
+			logger.Error("Failed to get project", "err", err)
+			return c.JSON(http.StatusInternalServerError, addFilesResponse{
+				Message: "Internal server error",
+			})
+		}
+	}
+
+	if project.UserID.Valid {
+		if project.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, addFilesResponse{Message: "You are not allowed to modify this project"})
+		}
+	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
 			UserID: user.UserID,
 		})
 		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, addFilesResponse{
-				Message: "You are not a member of this project",
-			})
-		}
-	}
-
-	_, err = q.GetGroupByProjectId(ctx, params.ProjectID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return c.JSON(http.StatusNotFound, addFilesResponse{
-				Message: "Project or Group not found",
-			})
-		} else {
-			logger.Error("Failed to get group", "err", err)
-			return c.JSON(http.StatusInternalServerError, addFilesResponse{
-				Message: "Internal server error",
-			})
+			return c.JSON(http.StatusForbidden, addFilesResponse{Message: "You are not allowed to modify this project"})
 		}
 	}
 
@@ -523,33 +564,41 @@ func QueryProjectHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
-	if !middleware.IsAdmin(user) {
-		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
-			UserID: user.UserID,
-			ID:     data.ProjectID,
-		})
-		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, queryProjectResponse{
-				Message: "Unauthorized",
-				Data:    []responseData{},
-			})
-		}
-	}
-
-	_, err := q.GetGroupByProjectId(ctx, data.ProjectID)
+	project, err := q.GetProjectByID(ctx, data.ProjectID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return c.JSON(http.StatusNotFound, queryProjectResponse{
-				Message: "Project or Group not found",
+				Message: "Project not found",
 				Data:    []responseData{},
 			})
 		} else {
-			logger.Error("Failed to get group", "err", err)
+			logger.Error("Failed to get project", "err", err)
 			return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 				Message: "Internal server error",
 				Data:    []responseData{},
 			})
 		}
+	}
+
+	if project.UserID.Valid {
+		if project.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, queryProjectResponse{Message: "Unauthorized", Data: []responseData{}})
+		}
+	} else if !middleware.IsAdmin(user) {
+		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
+			UserID: user.UserID,
+			ID:     data.ProjectID,
+		})
+		if err != nil || count == 0 {
+			return c.JSON(http.StatusForbidden, queryProjectResponse{Message: "Unauthorized", Data: []responseData{}})
+		}
+	}
+
+	if project.Type.Valid {
+		return c.JSON(http.StatusForbidden, queryProjectResponse{
+			Message: "This graph is not accessible for direct access",
+			Data:    []responseData{},
+		})
 	}
 
 	conversationID := strings.TrimSpace(data.ConversationID)
@@ -655,6 +704,20 @@ func QueryProjectHandler(c echo.Context) error {
 		opts = append(opts, bqc.WithThinking("medium"))
 	}
 
+	expertProjects, err := q.GetAvailableExpertProjects(ctx, pgdb.GetAvailableExpertProjectsParams{
+		CurrentProjectID: data.ProjectID,
+		UserID:           user.UserID,
+	})
+	if err != nil {
+		logger.Error("Failed to load expert graph catalog", "err", err)
+		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
+			Message: "Internal server error",
+			Data:    []responseData{},
+		})
+	}
+	expertGraphCatalog := buildExpertGraphCatalog(data.ProjectID, expertProjects)
+	opts = append(opts, bqc.WithExpertGraphCatalog(expertGraphCatalog))
+
 	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, fmt.Sprintf("%d", data.ProjectID), opts)
 	clarificationEnabled := util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false)
 	queryMode := data.Mode
@@ -667,7 +730,7 @@ func QueryProjectHandler(c echo.Context) error {
 	case "normal":
 		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
 	case "agentic":
-		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, trace)
+		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, user.UserID, trace)
 		if clarificationEnabled {
 			toolList = append(toolList, graphstorage.GetClarificationTool())
 		}
@@ -911,7 +974,21 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
-	if !middleware.IsAdmin(user) {
+	project, err := q.GetProjectByID(ctx, data.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{"message": "Project not found"})
+		} else {
+			logger.Error("Failed to get project", "err", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
+		}
+	}
+
+	if project.UserID.Valid {
+		if project.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, map[string]string{"message": "Unauthorized"})
+		}
+	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			UserID: user.UserID,
 			ID:     data.ProjectID,
@@ -921,14 +998,8 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		}
 	}
 
-	_, err := q.GetGroupByProjectId(ctx, data.ProjectID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": "Project or Group not found"})
-		} else {
-			logger.Error("Failed to get group", "err", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
-		}
+	if project.Type.Valid {
+		return c.JSON(http.StatusForbidden, map[string]string{"message": "This graph is not accessible for direct access"})
 	}
 
 	conversationID := strings.TrimSpace(data.ConversationID)
@@ -1037,6 +1108,17 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	if data.Think {
 		opts = append(opts, bqc.WithThinking("medium"))
 	}
+
+	expertProjects, err := q.GetAvailableExpertProjects(ctx, pgdb.GetAvailableExpertProjectsParams{
+		CurrentProjectID: data.ProjectID,
+		UserID:           user.UserID,
+	})
+	if err != nil {
+		logger.Error("Failed to load expert graph catalog", "err", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
+	}
+	expertGraphCatalog := buildExpertGraphCatalog(data.ProjectID, expertProjects)
+	opts = append(opts, bqc.WithExpertGraphCatalog(expertGraphCatalog))
 	clarificationEnabled := util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false)
 
 	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
@@ -1063,7 +1145,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	case "normal":
 		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
 	case "agentic":
-		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, trace)
+		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, user.UserID, trace)
 		if clarificationEnabled {
 			toolList = append(toolList, graphstorage.GetClarificationTool())
 		}

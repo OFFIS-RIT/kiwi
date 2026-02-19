@@ -13,3 +13,9 @@ sql:
         emit_exact_table_names: false
         emit_empty_slices: true
         json_tags_case_style: "snake"
+        overrides:
+          - db_type: "pg_catalog.int8"
+            nullable: true
+            go_type:
+              import: "database/sql"
+              type: "NullInt64"

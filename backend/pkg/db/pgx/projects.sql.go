@@ -7,6 +7,7 @@ package pgdb
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -70,24 +71,74 @@ func (q *Queries) AddTokenCountToFile(ctx context.Context, arg AddTokenCountToFi
 }
 
 const createProject = `-- name: CreateProject :one
-INSERT INTO projects (group_id, name, state)
-VALUES ($1, $2, $3) RETURNING id, group_id, name, state, created_at, updated_at
+INSERT INTO graphs (group_id, name, state)
+VALUES ($1, $2, $3) RETURNING id, group_id, user_id, graph_id, name, description, state, type, hidden, created_at, updated_at
 `
 
 type CreateProjectParams struct {
-	GroupID int64  `json:"group_id"`
-	Name    string `json:"name"`
-	State   string `json:"state"`
+	GroupID sql.NullInt64 `json:"group_id"`
+	Name    string        `json:"name"`
+	State   string        `json:"state"`
 }
 
-func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error) {
+func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Graph, error) {
 	row := q.db.QueryRow(ctx, createProject, arg.GroupID, arg.Name, arg.State)
-	var i Project
+	var i Graph
 	err := row.Scan(
 		&i.ID,
 		&i.GroupID,
+		&i.UserID,
+		&i.GraphID,
 		&i.Name,
+		&i.Description,
 		&i.State,
+		&i.Type,
+		&i.Hidden,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createProjectWithOwner = `-- name: CreateProjectWithOwner :one
+INSERT INTO graphs (group_id, user_id, graph_id, name, description, state, type, hidden)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, group_id, user_id, graph_id, name, description, state, type, hidden, created_at, updated_at
+`
+
+type CreateProjectWithOwnerParams struct {
+	GroupID     sql.NullInt64 `json:"group_id"`
+	UserID      sql.NullInt64 `json:"user_id"`
+	GraphID     sql.NullInt64 `json:"graph_id"`
+	Name        string        `json:"name"`
+	Description pgtype.Text   `json:"description"`
+	State       string        `json:"state"`
+	Type        pgtype.Text   `json:"type"`
+	Hidden      bool          `json:"hidden"`
+}
+
+func (q *Queries) CreateProjectWithOwner(ctx context.Context, arg CreateProjectWithOwnerParams) (Graph, error) {
+	row := q.db.QueryRow(ctx, createProjectWithOwner,
+		arg.GroupID,
+		arg.UserID,
+		arg.GraphID,
+		arg.Name,
+		arg.Description,
+		arg.State,
+		arg.Type,
+		arg.Hidden,
+	)
+	var i Graph
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.UserID,
+		&i.GraphID,
+		&i.Name,
+		&i.Description,
+		&i.State,
+		&i.Type,
+		&i.Hidden,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -95,7 +146,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 }
 
 const deleteProject = `-- name: DeleteProject :exec
-DELETE FROM projects WHERE id = $1
+DELETE FROM graphs WHERE id = $1
 `
 
 func (q *Queries) DeleteProject(ctx context.Context, id int64) error {
@@ -114,15 +165,17 @@ func (q *Queries) DeleteProjectFile(ctx context.Context, id int64) error {
 
 const getAllProjectsWithGroups = `-- name: GetAllProjectsWithGroups :many
 SELECT
-    g.id   AS group_id,
-    g.name AS group_name,
-    p.id   AS project_id,
-    p.name AS project_name,
-    p.state AS project_state,
+    grp.id AS group_id,
+    grp.name AS group_name,
+    g.id AS project_id,
+    g.name AS project_name,
+    g.state AS project_state,
+    g.hidden,
+    COALESCE(g.type, '') AS project_type,
     'admin'::TEXT AS role
-FROM groups AS g
-JOIN projects AS p ON p.group_id = g.id
-ORDER BY g.id, p.id
+FROM groups AS grp
+JOIN graphs AS g ON g.group_id = grp.id
+ORDER BY grp.id, g.id
 `
 
 type GetAllProjectsWithGroupsRow struct {
@@ -131,6 +184,8 @@ type GetAllProjectsWithGroupsRow struct {
 	ProjectID    int64  `json:"project_id"`
 	ProjectName  string `json:"project_name"`
 	ProjectState string `json:"project_state"`
+	Hidden       bool   `json:"hidden"`
+	ProjectType  string `json:"project_type"`
 	Role         string `json:"role"`
 }
 
@@ -149,6 +204,8 @@ func (q *Queries) GetAllProjectsWithGroups(ctx context.Context) ([]GetAllProject
 			&i.ProjectID,
 			&i.ProjectName,
 			&i.ProjectState,
+			&i.Hidden,
+			&i.ProjectType,
 			&i.Role,
 		); err != nil {
 			return nil, err
@@ -193,6 +250,59 @@ func (q *Queries) GetDeletedProjectFiles(ctx context.Context, projectID int64) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const getProjectByID = `-- name: GetProjectByID :one
+SELECT id, group_id, user_id, graph_id, name, description, state, type, hidden, created_at, updated_at FROM graphs WHERE id = $1
+`
+
+func (q *Queries) GetProjectByID(ctx context.Context, id int64) (Graph, error) {
+	row := q.db.QueryRow(ctx, getProjectByID, id)
+	var i Graph
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.UserID,
+		&i.GraphID,
+		&i.Name,
+		&i.Description,
+		&i.State,
+		&i.Type,
+		&i.Hidden,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getProjectFileByKey = `-- name: GetProjectFileByKey :one
+SELECT id, project_id, name, file_key, deleted, token_count, metadata, created_at, updated_at
+FROM project_files
+WHERE project_id = $1
+  AND file_key = $2
+  AND deleted = FALSE
+`
+
+type GetProjectFileByKeyParams struct {
+	ProjectID int64  `json:"project_id"`
+	FileKey   string `json:"file_key"`
+}
+
+func (q *Queries) GetProjectFileByKey(ctx context.Context, arg GetProjectFileByKeyParams) (ProjectFile, error) {
+	row := q.db.QueryRow(ctx, getProjectFileByKey, arg.ProjectID, arg.FileKey)
+	var i ProjectFile
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Name,
+		&i.FileKey,
+		&i.Deleted,
+		&i.TokenCount,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getProjectFiles = `-- name: GetProjectFiles :many
@@ -286,23 +396,32 @@ func (q *Queries) GetProjectSystemPrompts(ctx context.Context, projectID int64) 
 }
 
 const getProjectsByGroup = `-- name: GetProjectsByGroup :many
-SELECT id, group_id, name, state, created_at, updated_at FROM projects WHERE group_id = $1
+SELECT DISTINCT g.id, g.group_id, g.user_id, g.graph_id, g.name, g.description, g.state, g.type, g.hidden, g.created_at, g.updated_at
+FROM graphs AS g
+LEFT JOIN graphs AS parent ON g.graph_id = parent.id
+WHERE g.group_id = $1
+   OR parent.group_id = $1
 `
 
-func (q *Queries) GetProjectsByGroup(ctx context.Context, groupID int64) ([]Project, error) {
+func (q *Queries) GetProjectsByGroup(ctx context.Context, groupID sql.NullInt64) ([]Graph, error) {
 	rows, err := q.db.Query(ctx, getProjectsByGroup, groupID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Project{}
+	items := []Graph{}
 	for rows.Next() {
-		var i Project
+		var i Graph
 		if err := rows.Scan(
 			&i.ID,
 			&i.GroupID,
+			&i.UserID,
+			&i.GraphID,
 			&i.Name,
+			&i.Description,
 			&i.State,
+			&i.Type,
+			&i.Hidden,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -318,19 +437,23 @@ func (q *Queries) GetProjectsByGroup(ctx context.Context, groupID int64) ([]Proj
 
 const getProjectsForUser = `-- name: GetProjectsForUser :many
 SELECT
-    g.id   AS group_id,
-    g.name AS group_name,
-    p.id   AS project_id,
-    p.name AS project_name,
-    p.state AS project_state,
+    grp.id AS group_id,
+    grp.name AS group_name,
+    g.id AS project_id,
+    g.name AS project_name,
+    g.state AS project_state,
+    g.hidden,
+    COALESCE(g.type, '') AS project_type,
     gu.role as role
-FROM groups AS g
-JOIN projects AS p
-    ON p.group_id = g.id
+FROM groups AS grp
+JOIN graphs AS g
+    ON g.group_id = grp.id
 JOIN group_users AS gu
-    ON gu.group_id = g.id
+    ON gu.group_id = grp.id
 WHERE gu.user_id = $1
-ORDER BY g.id, p.id
+  AND COALESCE(g.type, '') <> 'expert'
+  AND g.hidden = FALSE
+ORDER BY grp.id, g.id
 `
 
 type GetProjectsForUserRow struct {
@@ -339,6 +462,8 @@ type GetProjectsForUserRow struct {
 	ProjectID    int64  `json:"project_id"`
 	ProjectName  string `json:"project_name"`
 	ProjectState string `json:"project_state"`
+	Hidden       bool   `json:"hidden"`
+	ProjectType  string `json:"project_type"`
 	Role         string `json:"role"`
 }
 
@@ -357,6 +482,8 @@ func (q *Queries) GetProjectsForUser(ctx context.Context, userID int64) ([]GetPr
 			&i.ProjectID,
 			&i.ProjectName,
 			&i.ProjectState,
+			&i.Hidden,
+			&i.ProjectType,
 			&i.Role,
 		); err != nil {
 			return nil, err
@@ -400,24 +527,99 @@ func (q *Queries) GetTokenCountsOfFiles(ctx context.Context, dollar_1 []int64) (
 	return items, nil
 }
 
+const getUserProjects = `-- name: GetUserProjects :many
+SELECT
+    g.id AS project_id,
+    g.name AS project_name,
+    g.state AS project_state,
+    g.hidden,
+    COALESCE(g.type, '') AS project_type
+FROM graphs AS g
+WHERE g.user_id = $1
+ORDER BY g.id
+`
+
+type GetUserProjectsRow struct {
+	ProjectID    int64  `json:"project_id"`
+	ProjectName  string `json:"project_name"`
+	ProjectState string `json:"project_state"`
+	Hidden       bool   `json:"hidden"`
+	ProjectType  string `json:"project_type"`
+}
+
+func (q *Queries) GetUserProjects(ctx context.Context, userID sql.NullInt64) ([]GetUserProjectsRow, error) {
+	rows, err := q.db.Query(ctx, getUserProjects, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetUserProjectsRow{}
+	for rows.Next() {
+		var i GetUserProjectsRow
+		if err := rows.Scan(
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.ProjectState,
+			&i.Hidden,
+			&i.ProjectType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const isUserInProject = `-- name: IsUserInProject :one
 SELECT
     COUNT(*) AS count
-FROM projects AS p
-JOIN groups AS g
-    ON g.id = p.group_id
-JOIN group_users AS gu
-    ON gu.group_id = g.id
-WHERE gu.user_id = $1 AND p.id = $2
+FROM graphs AS g
+WHERE g.id = $1::bigint
+  AND (
+    g.user_id = $2::bigint
+    OR (
+      g.group_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM group_users AS gu
+        WHERE gu.group_id = g.group_id
+          AND gu.user_id = $2::bigint
+      )
+    )
+    OR (
+      g.graph_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM graphs AS parent
+        WHERE parent.id = g.graph_id
+          AND (
+            parent.user_id = $2::bigint
+            OR (
+              parent.group_id IS NOT NULL
+              AND EXISTS (
+                SELECT 1
+                FROM group_users AS parent_gu
+                WHERE parent_gu.group_id = parent.group_id
+                  AND parent_gu.user_id = $2::bigint
+              )
+            )
+          )
+      )
+    )
+    OR (g.user_id IS NULL AND g.group_id IS NULL AND g.graph_id IS NULL)
+  )
 `
 
 type IsUserInProjectParams struct {
-	UserID int64 `json:"user_id"`
 	ID     int64 `json:"id"`
+	UserID int64 `json:"user_id"`
 }
 
 func (q *Queries) IsUserInProject(ctx context.Context, arg IsUserInProjectParams) (int64, error) {
-	row := q.db.QueryRow(ctx, isUserInProject, arg.UserID, arg.ID)
+	row := q.db.QueryRow(ctx, isUserInProject, arg.ID, arg.UserID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -440,7 +642,7 @@ func (q *Queries) MarkProjectFileAsDeleted(ctx context.Context, arg MarkProjectF
 }
 
 const updateProject = `-- name: UpdateProject :one
-UPDATE projects SET name = $2 WHERE id = $1 RETURNING id, group_id, name, state, created_at, updated_at
+UPDATE graphs SET name = $2 WHERE id = $1 RETURNING id, group_id, user_id, graph_id, name, description, state, type, hidden, created_at, updated_at
 `
 
 type UpdateProjectParams struct {
@@ -448,14 +650,19 @@ type UpdateProjectParams struct {
 	Name string `json:"name"`
 }
 
-func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error) {
+func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (Graph, error) {
 	row := q.db.QueryRow(ctx, updateProject, arg.ID, arg.Name)
-	var i Project
+	var i Graph
 	err := row.Scan(
 		&i.ID,
 		&i.GroupID,
+		&i.UserID,
+		&i.GraphID,
 		&i.Name,
+		&i.Description,
 		&i.State,
+		&i.Type,
+		&i.Hidden,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -477,7 +684,7 @@ func (q *Queries) UpdateProjectFileMetadata(ctx context.Context, arg UpdateProje
 }
 
 const updateProjectState = `-- name: UpdateProjectState :one
-UPDATE projects SET state = $2 WHERE id = $1 RETURNING id, group_id, name, state, created_at, updated_at
+UPDATE graphs SET state = $2 WHERE id = $1 RETURNING id, group_id, user_id, graph_id, name, description, state, type, hidden, created_at, updated_at
 `
 
 type UpdateProjectStateParams struct {
@@ -485,14 +692,19 @@ type UpdateProjectStateParams struct {
 	State string `json:"state"`
 }
 
-func (q *Queries) UpdateProjectState(ctx context.Context, arg UpdateProjectStateParams) (Project, error) {
+func (q *Queries) UpdateProjectState(ctx context.Context, arg UpdateProjectStateParams) (Graph, error) {
 	row := q.db.QueryRow(ctx, updateProjectState, arg.ID, arg.State)
-	var i Project
+	var i Graph
 	err := row.Scan(
 		&i.ID,
 		&i.GroupID,
+		&i.UserID,
+		&i.GraphID,
 		&i.Name,
+		&i.Description,
 		&i.State,
+		&i.Type,
+		&i.Hidden,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

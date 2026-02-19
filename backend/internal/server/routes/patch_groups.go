@@ -1,11 +1,12 @@
 package routes
 
 import (
-	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
-	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 )
 
 // EditGroupHandler updates a group

@@ -22,11 +22,6 @@ SELECT COUNT(*) AS count FROM group_users WHERE group_id = $1 AND user_id = $2;
 -- name: GetGroup :one
 SELECT * FROM groups WHERE id = $1;
 
--- name: GetGroupByProjectId :one
-SELECT g.* FROM groups g
-JOIN projects p ON p.group_id = g.id
-WHERE p.id = $1;
-
 -- name: GetGroupUsers :many
 SELECT * FROM group_users WHERE group_id = $1;
 

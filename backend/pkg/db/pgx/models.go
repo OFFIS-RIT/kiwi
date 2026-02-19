@@ -5,6 +5,8 @@
 package pgdb
 
 import (
+	"database/sql"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
 )
@@ -73,6 +75,20 @@ type ExtractionStaging struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
+type Graph struct {
+	ID          int64              `json:"id"`
+	GroupID     sql.NullInt64      `json:"group_id"`
+	UserID      sql.NullInt64      `json:"user_id"`
+	GraphID     sql.NullInt64      `json:"graph_id"`
+	Name        string             `json:"name"`
+	Description pgtype.Text        `json:"description"`
+	State       string             `json:"state"`
+	Type        pgtype.Text        `json:"type"`
+	Hidden      bool               `json:"hidden"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Group struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
@@ -92,15 +108,6 @@ type Jwk struct {
 	PrivateKey string             `json:"private_key"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
-}
-
-type Project struct {
-	ID        int64              `json:"id"`
-	GroupID   int64              `json:"group_id"`
-	Name      string             `json:"name"`
-	State     string             `json:"state"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ProjectBatchStatus struct {
@@ -197,7 +204,7 @@ type Session struct {
 	UserAgent      pgtype.Text        `json:"user_agent"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	ImpersonatedBy pgtype.Int8        `json:"impersonated_by"`
+	ImpersonatedBy sql.NullInt64      `json:"impersonated_by"`
 }
 
 type Stat struct {
@@ -237,7 +244,7 @@ type UserChat struct {
 	ID        int64              `json:"id"`
 	PublicID  string             `json:"public_id"`
 	UserID    int64              `json:"user_id"`
-	ProjectID pgtype.Int8        `json:"project_id"`
+	ProjectID sql.NullInt64      `json:"project_id"`
 	Title     string             `json:"title"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`

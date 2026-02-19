@@ -189,7 +189,7 @@ func (q *Queries) GetFilesWithMetadataFromTextUnitIDs(ctx context.Context, dolla
 }
 
 const getProjectIDFromTextUnit = `-- name: GetProjectIDFromTextUnit :one
-SELECT p.id FROM projects p
+SELECT p.id FROM graphs p
 JOIN project_files f ON f.project_id = p.id
 JOIN text_units tu ON tu.project_file_id = f.id
 WHERE tu.public_id = $1

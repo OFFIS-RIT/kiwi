@@ -1,12 +1,13 @@
 package routes
 
 import (
-	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
-	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"net/http"
 
 	_ "github.com/go-playground/validator"
 	"github.com/labstack/echo/v4"
+
+	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
+	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 )
 
 // CreateGroupHandler creates a new group

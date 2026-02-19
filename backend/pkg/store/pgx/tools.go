@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	graphquery "github.com/OFFIS-RIT/kiwi/backend/pkg/query"
+	querypgx "github.com/OFFIS-RIT/kiwi/backend/pkg/query/pgx"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
@@ -940,6 +942,216 @@ func toolGetSourceDocumentMetadata(conn *pgxpool.Pool, trace graphquery.Tracer) 
 	}
 }
 
+func recordTraceSnapshot(trace graphquery.Tracer, snapshot graphquery.QueryTraceSnapshot) {
+	graphquery.RecordConsideredSourceIDs(trace, snapshot.ConsideredSourceIDs...)
+	graphquery.RecordUsedSourceIDs(trace, snapshot.UsedSourceIDs...)
+	graphquery.RecordQueriedEntityIDs(trace, snapshot.QueriedEntityIDs...)
+	graphquery.RecordQueriedRelationshipIDs(trace, snapshot.QueriedRelationshipIDs...)
+	graphquery.RecordQueriedEntityTypes(trace, snapshot.QueriedEntityTypes...)
+}
+
+func buildExpertSourceBriefNone(queryFocus string, gaps string) string {
+	queryFocus = strings.TrimSpace(queryFocus)
+	if queryFocus == "" {
+		queryFocus = "source retrieval"
+	}
+
+	gaps = strings.TrimSpace(gaps)
+	if gaps == "" {
+		gaps = "No relevant evidence was found."
+	}
+
+	return fmt.Sprintf("## Expert Source Brief\n- decision: none\n- query_focus: %s\n- sources: []\n- gaps: %s", queryFocus, gaps)
+}
+
+func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentProjectID int64, currentUserID int64, trace graphquery.Tracer) ai.Tool {
+	return ai.Tool{
+		Name:        "ask_expert",
+		Description: "Ask up to 3 expert graphs in one call. Provide a requests array with expert_graph_id and question. The tool runs internal agentic retrieval loops in parallel and returns structured source briefs (IDs + relevance), not user-facing answers.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"requests": map[string]any{
+					"type":        "array",
+					"description": "Batch of expert requests (1-3). Each entry contains expert_graph_id and question.",
+					"minItems":    1,
+					"maxItems":    3,
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"expert_graph_id": map[string]any{
+								"type":        "integer",
+								"description": "Graph ID to query.",
+							},
+							"question": map[string]any{
+								"type":        "string",
+								"description": "Focused sub-question for this graph.",
+							},
+						},
+						"required": []string{"expert_graph_id", "question"},
+					},
+				},
+			},
+			"required": []string{"requests"},
+		},
+		Handler: func(ctx context.Context, args string) (string, error) {
+			type expertRequest struct {
+				ExpertGraphID int64  `json:"expert_graph_id"`
+				Question      string `json:"question"`
+			}
+
+			type askExpertPayload struct {
+				Requests []expertRequest `json:"requests"`
+			}
+
+			type expertResult struct {
+				GraphID     int64
+				GraphName   string
+				SourceBrief string
+				Err         error
+			}
+
+			var payload askExpertPayload
+			if err := json.Unmarshal([]byte(args), &payload); err != nil {
+				return "", fmt.Errorf("failed to parse arguments: %w", err)
+			}
+
+			if len(payload.Requests) == 0 {
+				return "", fmt.Errorf("requests is required and must contain at least one entry")
+			}
+			if len(payload.Requests) > 3 {
+				return "", fmt.Errorf("requests supports a maximum of 3 entries")
+			}
+
+			for i := range payload.Requests {
+				payload.Requests[i].Question = strings.TrimSpace(payload.Requests[i].Question)
+				if payload.Requests[i].ExpertGraphID <= 0 {
+					return "", fmt.Errorf("requests[%d].expert_graph_id must be a positive integer", i)
+				}
+				if payload.Requests[i].Question == "" {
+					return "", fmt.Errorf("requests[%d].question is required and must be a non-empty string", i)
+				}
+			}
+
+			logger.Debug("[Tool] ask_expert", "request_count", len(payload.Requests), "current_project_id", currentProjectID)
+
+			results := make([]expertResult, len(payload.Requests))
+			var wg sync.WaitGroup
+
+			for i, request := range payload.Requests {
+				wg.Add(1)
+				go func(index int, req expertRequest) {
+					defer wg.Done()
+
+					res := expertResult{GraphID: req.ExpertGraphID}
+					q := pgdb.New(conn)
+
+					graph, err := q.GetProjectByID(ctx, req.ExpertGraphID)
+					if err != nil {
+						if err == sql.ErrNoRows {
+							res.SourceBrief = buildExpertSourceBriefNone("graph lookup", fmt.Sprintf("Graph with ID %d does not exist.", req.ExpertGraphID))
+							results[index] = res
+							return
+						}
+
+						res.Err = fmt.Errorf("failed to load graph %d: %w", req.ExpertGraphID, err)
+						results[index] = res
+						return
+					}
+
+					res.GraphName = graph.Name
+					if graph.State != "ready" {
+						res.SourceBrief = buildExpertSourceBriefNone("graph readiness", fmt.Sprintf("Graph with ID %d is not ready yet (current state: %s).", req.ExpertGraphID, graph.State))
+						results[index] = res
+						return
+					}
+
+					innerTrace := graphquery.NewQueryTrace()
+					defer func() {
+						recordTraceSnapshot(trace, innerTrace.Snapshot())
+					}()
+
+					innerStorage, err := NewGraphDBStorageWithConnection(ctx, conn, aiClient, []string{req.Question}, WithTracer(innerTrace))
+					if err != nil {
+						res.Err = fmt.Errorf("failed to create expert graph storage for graph %d: %w", req.ExpertGraphID, err)
+						results[index] = res
+						return
+					}
+
+					projectPrompts, err := q.GetProjectSystemPrompts(ctx, req.ExpertGraphID)
+					if err != nil && err != sql.ErrNoRows {
+						res.Err = fmt.Errorf("failed to load system prompts for graph %d: %w", req.ExpertGraphID, err)
+						results[index] = res
+						return
+					}
+
+					innerOpts := []querypgx.QueryOption{
+						querypgx.WithAgenticPrompt(ai.ExpertToolQueryPrompt),
+					}
+					if len(projectPrompts) > 0 {
+						systemPrompts := make([]string, 0, len(projectPrompts))
+						for _, p := range projectPrompts {
+							systemPrompts = append(systemPrompts, p.Prompt)
+						}
+						innerOpts = append(innerOpts, querypgx.WithSystemPrompts(systemPrompts...))
+					}
+
+					innerQueryClient := querypgx.NewGraphQueryClient(aiClient, innerStorage, fmt.Sprintf("%d", req.ExpertGraphID), innerOpts)
+					innerTools := getToolList(conn, aiClient, req.ExpertGraphID, currentUserID, innerTrace, false)
+					innerAnswer, err := innerQueryClient.QueryAgentic(ctx, []ai.ChatMessage{{Role: "user", Message: req.Question}}, innerTools)
+					if err != nil {
+						res.Err = fmt.Errorf("failed to query graph %d: %w", req.ExpertGraphID, err)
+						results[index] = res
+						return
+					}
+
+					innerAnswer = strings.TrimSpace(innerAnswer)
+					if innerAnswer == "" {
+						innerAnswer = buildExpertSourceBriefNone("source retrieval", "The expert retrieval returned no structured source output.")
+					}
+
+					res.SourceBrief = innerAnswer
+					results[index] = res
+				}(i, request)
+			}
+
+			wg.Wait()
+
+			var result strings.Builder
+			result.WriteString("## Expert Source Relay\n")
+			fmt.Fprintf(&result, "- requested_experts: %d\n", len(payload.Requests))
+
+			for i, res := range results {
+				result.WriteString("\n")
+				fmt.Fprintf(&result, "### Expert Request %d\n", i+1)
+				fmt.Fprintf(&result, "- expert_graph_id: %d\n", res.GraphID)
+				if strings.TrimSpace(res.GraphName) != "" {
+					fmt.Fprintf(&result, "- expert_graph_name: %s\n", res.GraphName)
+				}
+
+				if res.Err != nil {
+					result.WriteString("- status: error\n")
+					errMessage := strings.ReplaceAll(strings.TrimSpace(res.Err.Error()), "\n", " ")
+					fmt.Fprintf(&result, "- error: %s\n\n", errMessage)
+					result.WriteString(buildExpertSourceBriefNone("expert execution", "Internal expert retrieval failed for this request."))
+					result.WriteString("\n")
+					continue
+				}
+
+				result.WriteString("- status: ok\n\n")
+				sourceBrief := strings.TrimSpace(res.SourceBrief)
+				if sourceBrief == "" {
+					sourceBrief = buildExpertSourceBriefNone("source retrieval", "The expert retrieval returned no structured source output.")
+				}
+				result.WriteString(sourceBrief)
+				result.WriteString("\n")
+			}
+
+			return strings.TrimSpace(result.String()), nil
+		},
+	}
+}
+
 // GetClarificationTool returns a client-executed tool that requests
 // clarification questions from the user when the prompt is ambiguous.
 func GetClarificationTool() ai.Tool {
@@ -974,8 +1186,8 @@ func GetClarificationTool() ai.Tool {
 // path finding, source retrieval, and document metadata access. These tools
 // enable agentic workflows where the AI can navigate the graph structure
 // autonomously.
-func GetToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) []ai.Tool {
-	return []ai.Tool{
+func getToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, currentUserID int64, trace graphquery.Tracer, includeAskExpert bool) []ai.Tool {
+	tools := []ai.Tool{
 		toolSearchEntities(conn, aiClient, projectId, trace),
 		toolSearchRelationships(conn, aiClient, projectId, trace),
 		toolGetEntityNeighbours(conn, aiClient, trace),
@@ -988,4 +1200,14 @@ func GetToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64,
 		toolSearchEntitiesByType(conn, aiClient, projectId, trace),
 		toolGetSourceDocumentMetadata(conn, trace),
 	}
+
+	if includeAskExpert {
+		tools = append(tools, toolAskExpert(conn, aiClient, projectId, currentUserID, trace))
+	}
+
+	return tools
+}
+
+func GetToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, currentUserID int64, trace graphquery.Tracer) []ai.Tool {
+	return getToolList(conn, aiClient, projectId, currentUserID, trace, true)
 }

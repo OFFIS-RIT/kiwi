@@ -20,6 +20,12 @@ func RegisterRoutes(e *echo.Echo) {
 	apiRoutes.POST("/projects", routes.CreateProjectHandler, middleware.RequirePermission("project.create"))
 	apiRoutes.PATCH("/projects/:id", routes.EditProjectHandler, middleware.RequirePermission("project.update"))
 	apiRoutes.DELETE("/projects/:id", routes.DeleteProjectHandler, middleware.RequirePermission("project.delete"))
+	apiRoutes.GET("/user-projects", routes.GetUserProjectsHandler)
+	apiRoutes.POST("/user-projects", routes.CreateUserProjectHandler)
+	apiRoutes.DELETE("/user-projects/:id", routes.DeleteUserProjectHandler)
+	apiRoutes.GET("/expert-projects", routes.GetExpertProjectsHandler, middleware.RequirePermission("project.view:all"))
+	apiRoutes.POST("/expert-projects", routes.CreateExpertProjectHandler, middleware.RequirePermission("project.create"))
+	apiRoutes.DELETE("/expert-projects/:id", routes.DeleteExpertProjectHandler, middleware.RequirePermission("project.delete"))
 
 	// Text unit routes
 	apiRoutes.GET("/projects/units/:unit_id", routes.GetTextUnitHandler)

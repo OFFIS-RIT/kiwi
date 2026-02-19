@@ -1,15 +1,17 @@
 package routes
 
 import (
+	"database/sql"
 	"fmt"
+	"net/http"
+
+	"github.com/labstack/echo/v4"
+
 	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
-	"net/http"
-
-	"github.com/labstack/echo/v4"
 )
 
 // DeleteFileFromProjectHandler marks files for deletion in a project
@@ -53,15 +55,25 @@ func DeleteFileFromProjectHandler(c echo.Context) error {
 	q := pgdb.New(conn)
 	qtx := q.WithTx(tx)
 
-	if !middleware.IsAdmin(user) {
+	project, err := qtx.GetProjectByID(ctx, data.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, deleteProjectResponse{Message: "Project not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, deleteProjectResponse{Message: "Internal server error"})
+	}
+
+	if project.UserID.Valid {
+		if project.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, deleteProjectResponse{Message: "You are not allowed to modify this project"})
+		}
+	} else if !middleware.IsAdmin(user) {
 		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     data.ProjectID,
 			UserID: user.UserID,
 		})
 		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, deleteProjectResponse{
-				Message: "You are not a member of this project",
-			})
+			return c.JSON(http.StatusForbidden, deleteProjectResponse{Message: "You are not allowed to modify this project"})
 		}
 	}
 
@@ -92,6 +104,9 @@ func DeleteFileFromProjectHandler(c echo.Context) error {
 	err = queue.PublishFIFO(ch, "delete_queue", []byte(util.ConvertStructToJson(deleteStruct{
 		ProjectID: data.ProjectID,
 	})))
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, deleteProjectResponse{Message: "Internal server error"})
+	}
 
 	err = tx.Commit(ctx)
 	if err != nil {
@@ -145,15 +160,25 @@ func DeleteProjectHandler(c echo.Context) error {
 	q := pgdb.New(conn)
 	qtx := q.WithTx(tx)
 
-	if !middleware.IsAdmin(user) {
+	project, err := qtx.GetProjectByID(ctx, params.ID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, deleteProjectResponse{Message: "Project not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, deleteProjectResponse{Message: "Internal server error"})
+	}
+
+	if project.UserID.Valid {
+		if project.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, deleteProjectResponse{Message: "You are not allowed to modify this project"})
+		}
+	} else if !middleware.IsAdmin(user) {
 		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ID,
 			UserID: user.UserID,
 		})
 		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, deleteProjectResponse{
-				Message: "You are not a member of this project",
-			})
+			return c.JSON(http.StatusForbidden, deleteProjectResponse{Message: "You are not allowed to modify this project"})
 		}
 	}
 

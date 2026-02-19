@@ -44,7 +44,21 @@ func GetUserChatsHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
-	if !middleware.IsAdmin(user) {
+	project, err := q.GetProjectByID(ctx, params.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{"message": "Project not found"})
+		}
+
+		logger.Error("Failed to get project", "err", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
+	}
+
+	if project.UserID.Valid {
+		if project.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, map[string]string{"message": "Unauthorized"})
+		}
+	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
 			UserID: user.UserID,
@@ -52,16 +66,6 @@ func GetUserChatsHandler(c echo.Context) error {
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, map[string]string{"message": "Unauthorized"})
 		}
-	}
-
-	_, err := q.GetGroupByProjectId(ctx, params.ProjectID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": "Project or Group not found"})
-		}
-
-		logger.Error("Failed to get group", "err", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 	}
 
 	chats, err := q.GetUserChatsByProject(ctx, pgdb.GetUserChatsByProjectParams{
@@ -138,7 +142,21 @@ func GetChatHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
-	if !middleware.IsAdmin(user) {
+	project, err := q.GetProjectByID(ctx, params.ProjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{"message": "Project not found"})
+		}
+
+		logger.Error("Failed to get project", "err", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
+	}
+
+	if project.UserID.Valid {
+		if project.UserID.Int64 != user.UserID {
+			return c.JSON(http.StatusForbidden, map[string]string{"message": "Unauthorized"})
+		}
+	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
 			UserID: user.UserID,
@@ -146,16 +164,6 @@ func GetChatHandler(c echo.Context) error {
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, map[string]string{"message": "Unauthorized"})
 		}
-	}
-
-	_, err := q.GetGroupByProjectId(ctx, params.ProjectID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": "Project or Group not found"})
-		}
-
-		logger.Error("Failed to get group", "err", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 	}
 
 	conversation, err := q.GetUserChatByPublicIDAndProject(ctx, pgdb.GetUserChatByPublicIDAndProjectParams{
