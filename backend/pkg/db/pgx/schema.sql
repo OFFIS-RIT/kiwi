@@ -158,6 +158,10 @@ CREATE TABLE entities (
     description TEXT NOT NULL,
     type TEXT NOT NULL,
     embedding vector(4096) NOT NULL,
+    search_tsv tsvector GENERATED ALWAYS AS (
+        setweight(to_tsvector('simple', coalesce(name, '')), 'A') ||
+        setweight(to_tsvector('simple', coalesce(description, '')), 'B')
+    ) STORED,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -184,6 +188,9 @@ CREATE TABLE relationships (
     rank FLOAT NOT NULL DEFAULT 0,
     description TEXT NOT NULL,
     embedding vector(4096) NOT NULL,
+    search_tsv tsvector GENERATED ALWAYS AS (
+        setweight(to_tsvector('simple', coalesce(description, '')), 'A')
+    ) STORED,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

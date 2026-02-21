@@ -52,6 +52,7 @@ RUN set -eux; \
     echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
+        postgresql-contrib \
         postgresql-${PG_MAJOR}-postgis-3 \
         postgresql-${PG_MAJOR}-postgis-3-scripts \
         postgresql-${PG_MAJOR}-pgrouting \

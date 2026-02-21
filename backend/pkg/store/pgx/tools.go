@@ -30,13 +30,20 @@ func truncateDescription(desc string, maxLen int) string {
 func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "search_entities",
-		Description: "Search for entities in the knowledge graph by semantic similarity. Returns a list of entities matching the query. Use this as the entry point to explore the graph.",
+		Description: "Search for entities in the knowledge graph by semantic similarity with optional keyword boosts. Returns a list of entities matching the query. Use this as the entry point to explore the graph.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{
 					"type":        "string",
 					"description": "The search query to find relevant entities using semantic similarity.",
+				},
+				"keywords": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "string",
+					},
+					"description": "Optional exact terms (technical/legal/domain words in original language) that should boost matching results.",
 				},
 				"limit": map[string]any{
 					"type":        "integer",
@@ -57,12 +64,18 @@ func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId
 				return "", fmt.Errorf("query is required and must be a string")
 			}
 
+			keywords, err := parseKeywordsParam(params)
+			if err != nil {
+				return "", err
+			}
+
 			var limit int32 = 10
 			if limitRaw, ok := params["limit"].(float64); ok && limitRaw > 0 {
 				limit = int32(limitRaw)
 			}
+			queryLimit := candidateLimit(limit)
 
-			logger.Debug("[Tool] search_entities", "query", query, "limit", limit)
+			logger.Debug("[Tool] search_entities", "query", query, "keywords", keywords, "limit", limit, "candidate_limit", queryLimit)
 
 			embedding, err := aiClient.GenerateEmbedding(ctx, []byte(query))
 			if err != nil {
@@ -70,14 +83,16 @@ func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId
 			}
 
 			q := pgdb.New(conn)
-			entities, err := q.SearchEntitiesByEmbedding(ctx, pgdb.SearchEntitiesByEmbeddingParams{
-				ProjectID: projectId,
-				Embedding: pgvector.NewVector(embedding),
-				Limit:     limit,
+			entities, err := q.SearchEntitiesByEmbeddingWithKeywords(ctx, pgdb.SearchEntitiesByEmbeddingWithKeywordsParams{
+				ProjectID:      projectId,
+				Embedding:      pgvector.NewVector(embedding),
+				Keywords:       keywords,
+				CandidateLimit: queryLimit,
 			})
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to search entities: %w", err)
 			}
+			entities = rerankEntityResults(entities, limit)
 			if len(entities) > 0 {
 				ids := make([]int64, 0, len(entities))
 				for _, e := range entities {
@@ -105,7 +120,7 @@ func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId
 func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_entity_neighbours",
-		Description: "Get entities directly connected to a given entity through relationships. Results are ranked by semantic similarity to the query. Use this to explore the graph structure around an entity.",
+		Description: "Get entities directly connected to a given entity through relationships. Results are ranked by semantic similarity with optional keyword boosts. Use this to explore the graph structure around an entity.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -116,6 +131,13 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 				"query": map[string]any{
 					"type":        "string",
 					"description": "The search query to rank neighbours by relevance.",
+				},
+				"keywords": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "string",
+					},
+					"description": "Optional exact terms (technical/legal/domain words in original language) that should boost matching results.",
 				},
 				"limit": map[string]any{
 					"type":        "integer",
@@ -143,12 +165,18 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 				return "", fmt.Errorf("query is required and must be a string")
 			}
 
+			keywords, err := parseKeywordsParam(params)
+			if err != nil {
+				return "", err
+			}
+
 			var limit int32 = 10
 			if limitRaw, ok := params["limit"].(float64); ok && limitRaw > 0 {
 				limit = int32(limitRaw)
 			}
+			queryLimit := candidateLimit(limit)
 
-			logger.Debug("[Tool] get_entity_neighbours", "entity_id", entityId, "query", query, "limit", limit)
+			logger.Debug("[Tool] get_entity_neighbours", "entity_id", entityId, "query", query, "keywords", keywords, "limit", limit, "candidate_limit", queryLimit)
 
 			embedding, err := aiClient.GenerateEmbedding(ctx, []byte(query))
 			if err != nil {
@@ -156,14 +184,16 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 			}
 
 			q := pgdb.New(conn)
-			neighbours, err := q.GetEntityNeighboursRanked(ctx, pgdb.GetEntityNeighboursRankedParams{
-				SourceID:  entityId,
-				Embedding: pgvector.NewVector(embedding),
-				Limit:     limit,
+			neighbours, err := q.GetEntityNeighboursRankedWithKeywords(ctx, pgdb.GetEntityNeighboursRankedWithKeywordsParams{
+				SourceID:       entityId,
+				Embedding:      pgvector.NewVector(embedding),
+				Keywords:       keywords,
+				CandidateLimit: queryLimit,
 			})
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to get neighbours: %w", err)
 			}
+			neighbours = rerankNeighbourResults(neighbours, limit)
 			if len(neighbours) > 0 {
 				neighbourIDs := make([]int64, 0, len(neighbours))
 				relIDs := make([]int64, 0, len(neighbours))
@@ -642,7 +672,7 @@ func toolGetEntityTypes(conn *pgxpool.Pool, projectId int64) ai.Tool {
 func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "search_entities_by_type",
-		Description: "Search for entities of a specific type by semantic similarity. Use this when you want to find entities of a particular type (e.g., all Person entities related to a topic).",
+		Description: "Search for entities of a specific type by semantic similarity with optional keyword boosts. Use this when you want to find entities of a particular type (e.g., all Person entities related to a topic).",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -653,6 +683,13 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 				"type": map[string]any{
 					"type":        "string",
 					"description": "The entity type to filter by (e.g., Person, Organization, Location).",
+				},
+				"keywords": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "string",
+					},
+					"description": "Optional exact terms (technical/legal/domain words in original language) that should boost matching results.",
 				},
 				"limit": map[string]any{
 					"type":        "integer",
@@ -679,12 +716,18 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 			}
 			graphquery.RecordQueriedEntityTypes(trace, entityType)
 
+			keywords, err := parseKeywordsParam(params)
+			if err != nil {
+				return "", err
+			}
+
 			var limit int32 = 10
 			if limitRaw, ok := params["limit"].(float64); ok && limitRaw > 0 {
 				limit = int32(limitRaw)
 			}
+			queryLimit := candidateLimit(limit)
 
-			logger.Debug("[Tool] search_entities_by_type", "query", query, "type", entityType, "limit", limit)
+			logger.Debug("[Tool] search_entities_by_type", "query", query, "type", entityType, "keywords", keywords, "limit", limit, "candidate_limit", queryLimit)
 
 			embedding, err := aiClient.GenerateEmbedding(ctx, []byte(query))
 			if err != nil {
@@ -692,15 +735,17 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 			}
 
 			q := pgdb.New(conn)
-			entities, err := q.SearchEntitiesByType(ctx, pgdb.SearchEntitiesByTypeParams{
-				ProjectID: projectId,
-				Type:      entityType,
-				Embedding: pgvector.NewVector(embedding),
-				Limit:     limit,
+			entities, err := q.SearchEntitiesByTypeWithKeywords(ctx, pgdb.SearchEntitiesByTypeWithKeywordsParams{
+				ProjectID:      projectId,
+				Type:           entityType,
+				Embedding:      pgvector.NewVector(embedding),
+				Keywords:       keywords,
+				CandidateLimit: queryLimit,
 			})
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to search entities: %w", err)
 			}
+			entities = rerankEntityTypeResults(entities, limit)
 			if len(entities) > 0 {
 				ids := make([]int64, 0, len(entities))
 				for _, e := range entities {
@@ -728,13 +773,20 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "search_relationships",
-		Description: "Search for relationships in the knowledge graph by semantic similarity. Returns relationships describing how entities are connected, including their strength score. Use this to find specific connections or interactions between entities.",
+		Description: "Search for relationships in the knowledge graph by semantic similarity with optional keyword boosts. Returns relationships describing how entities are connected, including their strength score. Use this to find specific connections or interactions between entities.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{
 					"type":        "string",
 					"description": "The search query to find relevant relationships using semantic similarity.",
+				},
+				"keywords": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "string",
+					},
+					"description": "Optional exact terms (technical/legal/domain words in original language) that should boost matching results.",
 				},
 				"limit": map[string]any{
 					"type":        "integer",
@@ -755,12 +807,18 @@ func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, proj
 				return "", fmt.Errorf("query is required and must be a string")
 			}
 
+			keywords, err := parseKeywordsParam(params)
+			if err != nil {
+				return "", err
+			}
+
 			var limit int32 = 10
 			if limitRaw, ok := params["limit"].(float64); ok && limitRaw > 0 {
 				limit = int32(limitRaw)
 			}
+			queryLimit := candidateLimit(limit)
 
-			logger.Debug("[Tool] search_relationships", "query", query, "limit", limit)
+			logger.Debug("[Tool] search_relationships", "query", query, "keywords", keywords, "limit", limit, "candidate_limit", queryLimit)
 
 			embedding, err := aiClient.GenerateEmbedding(ctx, []byte(query))
 			if err != nil {
@@ -768,14 +826,16 @@ func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, proj
 			}
 
 			q := pgdb.New(conn)
-			relationships, err := q.SearchRelationshipsByEmbedding(ctx, pgdb.SearchRelationshipsByEmbeddingParams{
-				ProjectID: projectId,
-				Embedding: pgvector.NewVector(embedding),
-				Limit:     limit,
+			relationships, err := q.SearchRelationshipsByEmbeddingWithKeywords(ctx, pgdb.SearchRelationshipsByEmbeddingWithKeywordsParams{
+				ProjectID:      projectId,
+				Embedding:      pgvector.NewVector(embedding),
+				Keywords:       keywords,
+				CandidateLimit: queryLimit,
 			})
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to search relationships: %w", err)
 			}
+			relationships = rerankRelationshipResults(relationships, limit)
 			if len(relationships) > 0 {
 				relIDs := make([]int64, 0, len(relationships))
 				entityIDs := make([]int64, 0, len(relationships)*2)

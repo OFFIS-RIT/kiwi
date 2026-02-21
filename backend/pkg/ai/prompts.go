@@ -104,6 +104,7 @@ The document name may contain hints about the primary entity (e.g., *“House Da
 - If the text includes relevant information that cannot be confidently assigned to a specific entity, extract it as a FACT entity with a name in the format "FACT: <SHORT TITLE>" (all-caps) and describe the full information in the description.
 - If the text primarily consists of **factual, tabular, or key–value data** (e.g., “Size: 120m2”, “Bathrooms: 3”) and does not explicitly name multiple entities or relationships, you must still extract the information by **inferring a single implicit entity**.
 - This implicit entity should represent the main subject of the text (e.g., “HOUSE”, “CAR”, “PRODUCT”, “PROJECT”) based on context, document type, or the document name.
+- For non-English technical, legal, or domain-specific terms, keep the original term and add a short English explanation in parentheses (e.g., "Hundesteuer (dog license fee)"). Do not translate every non-English word; apply this only to specialized terms.
 
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
@@ -237,6 +238,7 @@ The output must follow the exact JSON schema described below.
 - If multiple entities are appropriate, extract one entity per row (or per unique identifier) and summarize each row's attributes.
 - If the dataset contains relevant information that does not map cleanly to an entity, extract it as a FACT entity with a name in the format "FACT: <SHORT TITLE>" (all-caps) and put the full details in the description.
 - Infer relationships only when the table clearly expresses them (e.g., key/foreign key columns, explicit references).
+- For non-English technical, legal, or domain-specific terms, keep the original term and add a short English explanation in parentheses (e.g., "Hundesteuer (dog license fee)"). Do not translate every non-English word; apply this only to specialized terms.
 
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
@@ -293,6 +295,7 @@ The output must follow the exact JSON schema described below.
 - Ignore filler words and disfluencies unless they contain explicit factual information.
 - If the transcript is a single narrator without speaker labels, infer one implicit entity that represents the primary speaker or subject.
 - If the audio is a structured session (meeting, interview, hearing, lecture), infer an implicit EVENT entity only if that entity type exists in the provided list; otherwise use a FACT entity with a name in the format "FACT: <SHORT TITLE>" (all-caps).
+- For non-English technical, legal, or domain-specific terms, keep the original term and add a short English explanation in parentheses (e.g., "Hundesteuer (dog license fee)"). Do not translate every non-English word; apply this only to specialized terms.
 
 ## Entity Extraction
 1. Identify all entities of the specified types [%s].
@@ -347,6 +350,7 @@ The output must follow the exact JSON schema described below.
 - Determine whether the text describes a chart/diagram/flow or a general image.
 - If it is a chart/diagram/flow, follow the chart/diagram rules below.
 - If it is a general image, treat the text as a free-form image description and extract a single implicit entity representing the image itself.
+- For non-English technical, legal, or domain-specific terms, keep the original term and add a short English explanation in parentheses (e.g., "Hundesteuer (dog license fee)"). Do not translate every non-English word; apply this only to specialized terms.
 
 # Instructions for Charts/Diagrams
 - Treat axes, legends, labels, series names, titles, and annotations as key sources of entity and relationship signals.
@@ -422,6 +426,7 @@ entity_descriptions:
 - Use third person at all times and explicitly include entity names to preserve full context.
 - The description must be short and compact: at most 100 words, preferably one to four clear sentences.
 - Only use the information given in the segments. Do not infer, assume, or add external knowledge.
+- For non-English technical, legal, or domain-specific terms, keep the original term and add a short English explanation in parentheses (e.g., "Hundesteuer (dog license fee)"). Do not translate every non-English word; apply this only to specialized terms.
 
 # Output Formatting
 - Return plain text only. Do not use markdown, lists, bullet points, or meta-comments.
@@ -507,6 +512,7 @@ new_entity_descriptions:
 - Use third person at all times and explicitly include entity names to preserve full context.
 - The description must be short and compact: at most 100 words, preferably one to four clear sentences.
 - Only use the information given. Do not infer, assume, or add external knowledge.
+- For non-English technical, legal, or domain-specific terms, keep the original term and add a short English explanation in parentheses (e.g., "Hundesteuer (dog license fee)"). Do not translate every non-English word; apply this only to specialized terms.
 
 # Output Formatting
 - Return plain text only. Do not use markdown, lists, bullet points, or meta-comments.
@@ -637,15 +643,15 @@ chat history. You can call tools to gather detailed information before
 answering.
 
 # Available Tools
-- search_entities — Search for entities by semantic similarity
-- search_relationships — Search for relationships by semantic similarity.
+- search_entities — Search for entities by semantic similarity, with optional keywords for exact technical/legal/domain terms
+- search_relationships — Search for relationships by semantic similarity, with optional keywords for exact technical/legal/domain terms.
   Relationships describe how entities are connected and contain valuable context
   about their interactions, including a strength score (0.0-1.0).
 - search_entities_by_type — Search for entities of a specific type (e.g.,
   Person, Organization)
 - get_entity_types — List all entity types in the graph with counts
 - get_entity_neighbours — Get entities connected to a given entity, ranked by
-  query relevance
+  query relevance, with optional keyword boosts
 - get_entity_details — Get full descriptions of specific entities by ID
 - get_relationship_details — Get full descriptions of specific relationships by
   ID, including strength scores
@@ -673,6 +679,12 @@ answering.
 - Never answer before a full data retrieval phase is complete. You must not
   give a final answer until all related entities, relationships, and their
   sources have been verified.
+- For discovery tools (search_entities, search_relationships,
+  search_entities_by_type, get_entity_neighbours), provide keywords when the
+  user question includes important technical/legal/domain terms or terms in a
+  non-English source language that should be matched lexically.
+- Keep query as the semantic intent phrase. Use keywords as a short list of
+  distinct lexical anchors (original spellings), not full sentences.
 
 ## Clarification Tool Rules
 - Use ask_clarifying_questions when the request is ambiguous, underspecified, or
@@ -859,15 +871,15 @@ Your goal is not to write a complete answer. Your goal is to find the best
 supporting sources and briefly explain why they matter.
 
 # Available Tools
-- search_entities — Search for entities by semantic similarity
-- search_relationships — Search for relationships by semantic similarity.
+- search_entities — Search for entities by semantic similarity, with optional keywords for exact technical/legal/domain terms
+- search_relationships — Search for relationships by semantic similarity, with optional keywords for exact technical/legal/domain terms.
   Relationships describe how entities are connected and contain valuable context
   about their interactions, including a strength score (0.0-1.0).
 - search_entities_by_type — Search for entities of a specific type (e.g.,
   Person, Organization)
 - get_entity_types — List all entity types in the graph with counts
 - get_entity_neighbours — Get entities connected to a given entity, ranked by
-  query relevance
+  query relevance, with optional keyword boosts
 - get_entity_details — Get full descriptions of specific entities by ID
 - get_relationship_details — Get full descriptions of specific relationships by
   ID, including strength scores
@@ -892,6 +904,13 @@ ask_expert.
 3. Gather source chunks with get_entity_sources/get_relationship_sources.
 4. Use get_source_document_metadata when it helps disambiguate or prioritize.
 5. Select only the most relevant source IDs.
+
+# Keyword Guidance
+- For discovery calls, include keywords when the question includes technical,
+  legal, domain-specific, or language-specific terms that should be matched
+  exactly.
+- Keep keywords short, distinct, and in original spelling; avoid generic words
+  and full-sentence keywords.
 
 # Selection Rules
 - Prioritize sources that directly support the sub-question.

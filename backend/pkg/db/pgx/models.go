@@ -50,6 +50,7 @@ type Entity struct {
 	Description string             `json:"description"`
 	Type        string             `json:"type"`
 	Embedding   pgvector.Vector    `json:"embedding"`
+	SearchTsv   interface{}        `json:"search_tsv"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
@@ -180,6 +181,7 @@ type Relationship struct {
 	Rank        float64            `json:"rank"`
 	Description string             `json:"description"`
 	Embedding   pgvector.Vector    `json:"embedding"`
+	SearchTsv   interface{}        `json:"search_tsv"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }

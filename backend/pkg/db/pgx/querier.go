@@ -57,6 +57,7 @@ type Querier interface {
 	GetEntitiesWithSourcesFromUnits(ctx context.Context, arg GetEntitiesWithSourcesFromUnitsParams) ([]GetEntitiesWithSourcesFromUnitsRow, error)
 	GetEntityIDsByPublicIDs(ctx context.Context, arg GetEntityIDsByPublicIDsParams) ([]GetEntityIDsByPublicIDsRow, error)
 	GetEntityNeighboursRanked(ctx context.Context, arg GetEntityNeighboursRankedParams) ([]GetEntityNeighboursRankedRow, error)
+	GetEntityNeighboursRankedWithKeywords(ctx context.Context, arg GetEntityNeighboursRankedWithKeywordsParams) ([]GetEntityNeighboursRankedWithKeywordsRow, error)
 	GetEntitySourceDescriptionsBatch(ctx context.Context, arg GetEntitySourceDescriptionsBatchParams) ([]GetEntitySourceDescriptionsBatchRow, error)
 	GetEntitySourceDescriptionsForFilesBatch(ctx context.Context, arg GetEntitySourceDescriptionsForFilesBatchParams) ([]GetEntitySourceDescriptionsForFilesBatchRow, error)
 	GetEntityTypes(ctx context.Context, projectID int64) ([]GetEntityTypesRow, error)
@@ -115,8 +116,11 @@ type Querier interface {
 	ResetStaleBatchToPending(ctx context.Context, id int64) error
 	ResetStaleBatchToPreprocessed(ctx context.Context, id int64) error
 	SearchEntitiesByEmbedding(ctx context.Context, arg SearchEntitiesByEmbeddingParams) ([]SearchEntitiesByEmbeddingRow, error)
+	SearchEntitiesByEmbeddingWithKeywords(ctx context.Context, arg SearchEntitiesByEmbeddingWithKeywordsParams) ([]SearchEntitiesByEmbeddingWithKeywordsRow, error)
 	SearchEntitiesByType(ctx context.Context, arg SearchEntitiesByTypeParams) ([]SearchEntitiesByTypeRow, error)
+	SearchEntitiesByTypeWithKeywords(ctx context.Context, arg SearchEntitiesByTypeWithKeywordsParams) ([]SearchEntitiesByTypeWithKeywordsRow, error)
 	SearchRelationshipsByEmbedding(ctx context.Context, arg SearchRelationshipsByEmbeddingParams) ([]SearchRelationshipsByEmbeddingRow, error)
+	SearchRelationshipsByEmbeddingWithKeywords(ctx context.Context, arg SearchRelationshipsByEmbeddingWithKeywordsParams) ([]SearchRelationshipsByEmbeddingWithKeywordsRow, error)
 	TouchUserChat(ctx context.Context, chatID int64) error
 	TransferEntitySources(ctx context.Context, arg TransferEntitySourcesParams) error
 	TransferRelationshipSources(ctx context.Context, arg TransferRelationshipSourcesParams) error
