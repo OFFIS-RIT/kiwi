@@ -62,6 +62,7 @@ type EntitySource struct {
 	TextUnitID  int64              `json:"text_unit_id"`
 	Description string             `json:"description"`
 	Embedding   pgvector.Vector    `json:"embedding"`
+	SearchTsv   interface{}        `json:"search_tsv"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
@@ -193,6 +194,7 @@ type RelationshipSource struct {
 	TextUnitID     int64              `json:"text_unit_id"`
 	Description    string             `json:"description"`
 	Embedding      pgvector.Vector    `json:"embedding"`
+	SearchTsv      interface{}        `json:"search_tsv"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }

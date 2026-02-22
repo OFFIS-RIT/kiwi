@@ -32,6 +32,108 @@ WHERE s.relationship_id = ANY($1::bigint[])
 ORDER BY s.embedding <=> $2
 LIMIT $3;
 
+-- name: FindRelevantSourcesForEntitiesWithKeywords :many
+WITH semantic_candidates AS (
+    SELECT s.id
+    FROM entity_sources s
+    WHERE s.entity_id = ANY(sqlc.arg(entity_ids)::bigint[])
+    ORDER BY s.embedding <=> sqlc.arg(embedding)
+    LIMIT sqlc.arg(candidate_limit)
+),
+keyword_candidates AS (
+    SELECT s.id
+    FROM entity_sources s
+    WHERE s.entity_id = ANY(sqlc.arg(entity_ids)::bigint[])
+      AND COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0) > 0
+      AND s.search_tsv @@ plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' '))
+    ORDER BY ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' '))) DESC,
+             s.id
+    LIMIT sqlc.arg(candidate_limit)
+),
+candidates AS (
+    SELECT id FROM semantic_candidates
+    UNION
+    SELECT id FROM keyword_candidates
+)
+SELECT
+    s.id,
+    u.public_id,
+    s.entity_id,
+    s.description,
+    (s.embedding <=> sqlc.arg(embedding))::double precision AS semantic_distance,
+    CASE
+        WHEN COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0) > 0 THEN
+            ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' ')))
+        ELSE 0
+    END::double precision AS keyword_rank,
+    CASE
+        WHEN COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0) > 0 THEN (
+            SELECT COUNT(*)::int
+            FROM unnest(sqlc.arg(keywords)::text[]) AS kw
+            WHERE kw <> ''
+              AND position(lower(kw) in lower(s.description)) > 0
+        )
+        ELSE 0
+    END::int AS keyword_matches,
+    COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0)::int AS keyword_total
+FROM candidates c
+JOIN entity_sources s ON s.id = c.id
+JOIN text_units u ON u.id = s.text_unit_id
+ORDER BY semantic_distance ASC, s.id
+LIMIT sqlc.arg(candidate_limit);
+
+-- name: FindRelevantSourcesForRelationsWithKeywords :many
+WITH semantic_candidates AS (
+    SELECT s.id
+    FROM relationship_sources s
+    WHERE s.relationship_id = ANY(sqlc.arg(relationship_ids)::bigint[])
+    ORDER BY s.embedding <=> sqlc.arg(embedding)
+    LIMIT sqlc.arg(candidate_limit)
+),
+keyword_candidates AS (
+    SELECT s.id
+    FROM relationship_sources s
+    WHERE s.relationship_id = ANY(sqlc.arg(relationship_ids)::bigint[])
+      AND COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0) > 0
+      AND s.search_tsv @@ plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' '))
+    ORDER BY ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' '))) DESC,
+             s.id
+    LIMIT sqlc.arg(candidate_limit)
+),
+candidates AS (
+    SELECT id FROM semantic_candidates
+    UNION
+    SELECT id FROM keyword_candidates
+)
+SELECT
+    s.id,
+    u.public_id,
+    s.description,
+    r.source_id,
+    r.target_id,
+    (s.embedding <=> sqlc.arg(embedding))::double precision AS semantic_distance,
+    CASE
+        WHEN COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0) > 0 THEN
+            ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' ')))
+        ELSE 0
+    END::double precision AS keyword_rank,
+    CASE
+        WHEN COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0) > 0 THEN (
+            SELECT COUNT(*)::int
+            FROM unnest(sqlc.arg(keywords)::text[]) AS kw
+            WHERE kw <> ''
+              AND position(lower(kw) in lower(s.description)) > 0
+        )
+        ELSE 0
+    END::int AS keyword_matches,
+    COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0)::int AS keyword_total
+FROM candidates c
+JOIN relationship_sources s ON s.id = c.id
+JOIN text_units u ON u.id = s.text_unit_id
+JOIN relationships r ON r.id = s.relationship_id
+ORDER BY semantic_distance ASC, s.id
+LIMIT sqlc.arg(candidate_limit);
+
 -- name: FindSimilarEntitySources :many
 SELECT s.id, s.public_id, s.description, u.public_id, e.name FROM entity_sources s
 JOIN text_units u ON u.id = s.text_unit_id

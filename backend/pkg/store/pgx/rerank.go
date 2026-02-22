@@ -293,3 +293,47 @@ func rerankNeighbourResults(rows []pgdb.GetEntityNeighboursRankedWithKeywordsRow
 
 	return ranked
 }
+
+func rerankEntitySourceResults(rows []pgdb.FindRelevantSourcesForEntitiesWithKeywordsRow, limit int32) []pgdb.FindRelevantSourcesForEntitiesWithKeywordsRow {
+	candidates := make([]hybridDiscoveryCandidate, len(rows))
+	for i, row := range rows {
+		candidates[i] = hybridDiscoveryCandidate{
+			Index:            i,
+			ID:               row.ID,
+			SemanticDistance: row.SemanticDistance,
+			KeywordRank:      row.KeywordRank,
+			KeywordMatches:   row.KeywordMatches,
+			KeywordTotal:     row.KeywordTotal,
+		}
+	}
+
+	indexes := selectRerankedCandidateIndexes(candidates, limit)
+	ranked := make([]pgdb.FindRelevantSourcesForEntitiesWithKeywordsRow, 0, len(indexes))
+	for _, index := range indexes {
+		ranked = append(ranked, rows[index])
+	}
+
+	return ranked
+}
+
+func rerankRelationshipSourceResults(rows []pgdb.FindRelevantSourcesForRelationsWithKeywordsRow, limit int32) []pgdb.FindRelevantSourcesForRelationsWithKeywordsRow {
+	candidates := make([]hybridDiscoveryCandidate, len(rows))
+	for i, row := range rows {
+		candidates[i] = hybridDiscoveryCandidate{
+			Index:            i,
+			ID:               row.ID,
+			SemanticDistance: row.SemanticDistance,
+			KeywordRank:      row.KeywordRank,
+			KeywordMatches:   row.KeywordMatches,
+			KeywordTotal:     row.KeywordTotal,
+		}
+	}
+
+	indexes := selectRerankedCandidateIndexes(candidates, limit)
+	ranked := make([]pgdb.FindRelevantSourcesForRelationsWithKeywordsRow, 0, len(indexes))
+	for _, index := range indexes {
+		ranked = append(ranked, rows[index])
+	}
+
+	return ranked
+}

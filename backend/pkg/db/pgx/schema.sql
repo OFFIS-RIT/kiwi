@@ -174,6 +174,9 @@ CREATE TABLE entity_sources (
     text_unit_id BIGINT NOT NULL REFERENCES text_units(id) ON DELETE CASCADE,
     description TEXT NOT NULL,
     embedding vector(4096) NOT NULL,
+    search_tsv tsvector GENERATED ALWAYS AS (
+        setweight(to_tsvector('simple', coalesce(description, '')), 'A')
+    ) STORED,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -203,6 +206,9 @@ CREATE TABLE relationship_sources (
     text_unit_id BIGINT NOT NULL REFERENCES text_units(id) ON DELETE CASCADE,
     description TEXT NOT NULL,
     embedding vector(4096) NOT NULL,
+    search_tsv tsvector GENERATED ALWAYS AS (
+        setweight(to_tsvector('simple', coalesce(description, '')), 'A')
+    ) STORED,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

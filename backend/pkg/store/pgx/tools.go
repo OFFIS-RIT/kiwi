@@ -386,7 +386,7 @@ func toolPathBetweenEntities(conn *pgxpool.Pool, projectId int64, trace graphque
 func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_entity_sources",
-		Description: "Retrieve source text chunks that describe specific entities, ranked by relevance to the query. Use this to get detailed information about entities.",
+		Description: "Retrieve source text chunks that describe specific entities, ranked by relevance to the query with optional keyword boosts. Use this to get detailed information about entities.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -398,6 +398,13 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace g
 				"query": map[string]any{
 					"type":        "string",
 					"description": "The search query to rank sources by relevance.",
+				},
+				"keywords": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "string",
+					},
+					"description": "Optional exact terms (technical/legal/domain words in original language) that should boost matching sources.",
 				},
 				"limit": map[string]any{
 					"type":        "integer",
@@ -430,12 +437,18 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace g
 				return "", fmt.Errorf("query is required and must be a string")
 			}
 
+			keywords, err := parseKeywordsParam(params)
+			if err != nil {
+				return "", err
+			}
+
 			var limit int32 = 10
 			if limitRaw, ok := params["limit"].(float64); ok && limitRaw > 0 {
 				limit = int32(limitRaw)
 			}
+			queryLimit := candidateLimit(limit)
 
-			logger.Debug("[Tool] get_entity_sources", "entity_ids", entityIds, "query", query, "limit", limit)
+			logger.Debug("[Tool] get_entity_sources", "entity_ids", entityIds, "query", query, "keywords", keywords, "limit", limit, "candidate_limit", queryLimit)
 
 			embedding, err := aiClient.GenerateEmbedding(ctx, []byte(query))
 			if err != nil {
@@ -443,14 +456,16 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace g
 			}
 
 			q := pgdb.New(conn)
-			sources, err := q.FindRelevantSourcesForEntities(ctx, pgdb.FindRelevantSourcesForEntitiesParams{
-				Column1:   entityIds,
-				Embedding: pgvector.NewVector(embedding),
-				Limit:     limit,
+			sources, err := q.FindRelevantSourcesForEntitiesWithKeywords(ctx, pgdb.FindRelevantSourcesForEntitiesWithKeywordsParams{
+				EntityIds:      entityIds,
+				Embedding:      pgvector.NewVector(embedding),
+				Keywords:       keywords,
+				CandidateLimit: queryLimit,
 			})
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to get sources: %w", err)
 			}
+			sources = rerankEntitySourceResults(sources, limit)
 			if len(sources) > 0 {
 				sourceIDs := make([]string, 0, len(sources))
 				for _, s := range sources {
@@ -480,7 +495,7 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace g
 func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_relationship_sources",
-		Description: "Retrieve source text chunks that describe specific relationships, ranked by relevance to the query. Use this to get detailed information about how entities are connected.",
+		Description: "Retrieve source text chunks that describe specific relationships, ranked by relevance to the query with optional keyword boosts. Use this to get detailed information about how entities are connected.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -492,6 +507,13 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, t
 				"query": map[string]any{
 					"type":        "string",
 					"description": "The search query to rank sources by relevance.",
+				},
+				"keywords": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "string",
+					},
+					"description": "Optional exact terms (technical/legal/domain words in original language) that should boost matching sources.",
 				},
 				"limit": map[string]any{
 					"type":        "integer",
@@ -524,12 +546,18 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, t
 				return "", fmt.Errorf("query is required and must be a string")
 			}
 
+			keywords, err := parseKeywordsParam(params)
+			if err != nil {
+				return "", err
+			}
+
 			var limit int32 = 10
 			if limitRaw, ok := params["limit"].(float64); ok && limitRaw > 0 {
 				limit = int32(limitRaw)
 			}
+			queryLimit := candidateLimit(limit)
 
-			logger.Debug("[Tool] get_relationship_sources", "relationship_ids", relationshipIds, "query", query, "limit", limit)
+			logger.Debug("[Tool] get_relationship_sources", "relationship_ids", relationshipIds, "query", query, "keywords", keywords, "limit", limit, "candidate_limit", queryLimit)
 
 			embedding, err := aiClient.GenerateEmbedding(ctx, []byte(query))
 			if err != nil {
@@ -537,14 +565,16 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, t
 			}
 
 			q := pgdb.New(conn)
-			sources, err := q.FindRelevantSourcesForRelations(ctx, pgdb.FindRelevantSourcesForRelationsParams{
-				Column1:   relationshipIds,
-				Embedding: pgvector.NewVector(embedding),
-				Limit:     limit,
+			sources, err := q.FindRelevantSourcesForRelationsWithKeywords(ctx, pgdb.FindRelevantSourcesForRelationsWithKeywordsParams{
+				RelationshipIds: relationshipIds,
+				Embedding:       pgvector.NewVector(embedding),
+				Keywords:        keywords,
+				CandidateLimit:  queryLimit,
 			})
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to get sources: %w", err)
 			}
+			sources = rerankRelationshipSourceResults(sources, limit)
 			if len(sources) > 0 {
 				sourceIDs := make([]string, 0, len(sources))
 				entityIDs := make([]int64, 0, len(sources)*2)

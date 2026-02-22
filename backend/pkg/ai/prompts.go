@@ -679,10 +679,11 @@ answering.
 - Never answer before a full data retrieval phase is complete. You must not
   give a final answer until all related entities, relationships, and their
   sources have been verified.
-- For discovery tools (search_entities, search_relationships,
-  search_entities_by_type, get_entity_neighbours), provide keywords when the
-  user question includes important technical/legal/domain terms or terms in a
-  non-English source language that should be matched lexically.
+- For retrieval tools (search_entities, search_relationships,
+  search_entities_by_type, get_entity_neighbours, get_entity_sources,
+  get_relationship_sources), provide keywords when the user question includes
+  important technical/legal/domain terms or terms in a non-English source
+  language that should be matched lexically.
 - Keep query as the semantic intent phrase. Use keywords as a short list of
   distinct lexical anchors (original spellings), not full sentences.
 
@@ -906,7 +907,7 @@ ask_expert.
 5. Select only the most relevant source IDs.
 
 # Keyword Guidance
-- For discovery calls, include keywords when the question includes technical,
+- For retrieval calls, include keywords when the question includes technical,
   legal, domain-specific, or language-specific terms that should be matched
   exactly.
 - Keep keywords short, distinct, and in original spelling; avoid generic words
