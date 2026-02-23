@@ -180,6 +180,109 @@ func (q *Queries) FindRelevantSourcesForEntities(ctx context.Context, arg FindRe
 	return items, nil
 }
 
+const findRelevantSourcesForEntitiesWithKeywords = `-- name: FindRelevantSourcesForEntitiesWithKeywords :many
+WITH semantic_candidates AS (
+    SELECT s.id
+    FROM entity_sources s
+    WHERE s.entity_id = ANY($4::bigint[])
+    ORDER BY s.embedding <=> $1
+    LIMIT $3
+),
+keyword_candidates AS (
+    SELECT s.id
+    FROM entity_sources s
+    WHERE s.entity_id = ANY($4::bigint[])
+      AND COALESCE(array_length($2::text[], 1), 0) > 0
+      AND s.search_tsv @@ plainto_tsquery('simple', array_to_string($2::text[], ' '))
+    ORDER BY ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' '))) DESC,
+             s.id
+    LIMIT $3
+),
+candidates AS (
+    SELECT id FROM semantic_candidates
+    UNION
+    SELECT id FROM keyword_candidates
+)
+SELECT
+    s.id,
+    u.public_id,
+    s.entity_id,
+    s.description,
+    (s.embedding <=> $1)::double precision AS semantic_distance,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN
+            ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' ')))
+        ELSE 0
+    END::double precision AS keyword_rank,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN (
+            SELECT COUNT(*)::int
+            FROM unnest($2::text[]) AS kw
+            WHERE kw <> ''
+              AND position(lower(kw) in lower(s.description)) > 0
+        )
+        ELSE 0
+    END::int AS keyword_matches,
+    COALESCE(array_length($2::text[], 1), 0)::int AS keyword_total
+FROM candidates c
+JOIN entity_sources s ON s.id = c.id
+JOIN text_units u ON u.id = s.text_unit_id
+ORDER BY semantic_distance ASC, s.id
+LIMIT $3
+`
+
+type FindRelevantSourcesForEntitiesWithKeywordsParams struct {
+	Embedding      pgvector.Vector `json:"embedding"`
+	Keywords       []string        `json:"keywords"`
+	CandidateLimit int32           `json:"candidate_limit"`
+	EntityIds      []int64         `json:"entity_ids"`
+}
+
+type FindRelevantSourcesForEntitiesWithKeywordsRow struct {
+	ID               int64   `json:"id"`
+	PublicID         string  `json:"public_id"`
+	EntityID         int64   `json:"entity_id"`
+	Description      string  `json:"description"`
+	SemanticDistance float64 `json:"semantic_distance"`
+	KeywordRank      float64 `json:"keyword_rank"`
+	KeywordMatches   int32   `json:"keyword_matches"`
+	KeywordTotal     int32   `json:"keyword_total"`
+}
+
+func (q *Queries) FindRelevantSourcesForEntitiesWithKeywords(ctx context.Context, arg FindRelevantSourcesForEntitiesWithKeywordsParams) ([]FindRelevantSourcesForEntitiesWithKeywordsRow, error) {
+	rows, err := q.db.Query(ctx, findRelevantSourcesForEntitiesWithKeywords,
+		arg.Embedding,
+		arg.Keywords,
+		arg.CandidateLimit,
+		arg.EntityIds,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindRelevantSourcesForEntitiesWithKeywordsRow{}
+	for rows.Next() {
+		var i FindRelevantSourcesForEntitiesWithKeywordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.EntityID,
+			&i.Description,
+			&i.SemanticDistance,
+			&i.KeywordRank,
+			&i.KeywordMatches,
+			&i.KeywordTotal,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findRelevantSourcesForRelations = `-- name: FindRelevantSourcesForRelations :many
 SELECT
     s.id,
@@ -224,6 +327,113 @@ func (q *Queries) FindRelevantSourcesForRelations(ctx context.Context, arg FindR
 			&i.Description,
 			&i.SourceID,
 			&i.TargetID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findRelevantSourcesForRelationsWithKeywords = `-- name: FindRelevantSourcesForRelationsWithKeywords :many
+WITH semantic_candidates AS (
+    SELECT s.id
+    FROM relationship_sources s
+    WHERE s.relationship_id = ANY($4::bigint[])
+    ORDER BY s.embedding <=> $1
+    LIMIT $3
+),
+keyword_candidates AS (
+    SELECT s.id
+    FROM relationship_sources s
+    WHERE s.relationship_id = ANY($4::bigint[])
+      AND COALESCE(array_length($2::text[], 1), 0) > 0
+      AND s.search_tsv @@ plainto_tsquery('simple', array_to_string($2::text[], ' '))
+    ORDER BY ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' '))) DESC,
+             s.id
+    LIMIT $3
+),
+candidates AS (
+    SELECT id FROM semantic_candidates
+    UNION
+    SELECT id FROM keyword_candidates
+)
+SELECT
+    s.id,
+    u.public_id,
+    s.description,
+    r.source_id,
+    r.target_id,
+    (s.embedding <=> $1)::double precision AS semantic_distance,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN
+            ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' ')))
+        ELSE 0
+    END::double precision AS keyword_rank,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN (
+            SELECT COUNT(*)::int
+            FROM unnest($2::text[]) AS kw
+            WHERE kw <> ''
+              AND position(lower(kw) in lower(s.description)) > 0
+        )
+        ELSE 0
+    END::int AS keyword_matches,
+    COALESCE(array_length($2::text[], 1), 0)::int AS keyword_total
+FROM candidates c
+JOIN relationship_sources s ON s.id = c.id
+JOIN text_units u ON u.id = s.text_unit_id
+JOIN relationships r ON r.id = s.relationship_id
+ORDER BY semantic_distance ASC, s.id
+LIMIT $3
+`
+
+type FindRelevantSourcesForRelationsWithKeywordsParams struct {
+	Embedding       pgvector.Vector `json:"embedding"`
+	Keywords        []string        `json:"keywords"`
+	CandidateLimit  int32           `json:"candidate_limit"`
+	RelationshipIds []int64         `json:"relationship_ids"`
+}
+
+type FindRelevantSourcesForRelationsWithKeywordsRow struct {
+	ID               int64   `json:"id"`
+	PublicID         string  `json:"public_id"`
+	Description      string  `json:"description"`
+	SourceID         int64   `json:"source_id"`
+	TargetID         int64   `json:"target_id"`
+	SemanticDistance float64 `json:"semantic_distance"`
+	KeywordRank      float64 `json:"keyword_rank"`
+	KeywordMatches   int32   `json:"keyword_matches"`
+	KeywordTotal     int32   `json:"keyword_total"`
+}
+
+func (q *Queries) FindRelevantSourcesForRelationsWithKeywords(ctx context.Context, arg FindRelevantSourcesForRelationsWithKeywordsParams) ([]FindRelevantSourcesForRelationsWithKeywordsRow, error) {
+	rows, err := q.db.Query(ctx, findRelevantSourcesForRelationsWithKeywords,
+		arg.Embedding,
+		arg.Keywords,
+		arg.CandidateLimit,
+		arg.RelationshipIds,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindRelevantSourcesForRelationsWithKeywordsRow{}
+	for rows.Next() {
+		var i FindRelevantSourcesForRelationsWithKeywordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.Description,
+			&i.SourceID,
+			&i.TargetID,
+			&i.SemanticDistance,
+			&i.KeywordRank,
+			&i.KeywordMatches,
+			&i.KeywordTotal,
 		); err != nil {
 			return nil, err
 		}
@@ -402,6 +612,133 @@ func (q *Queries) GetEntityNeighboursRanked(ctx context.Context, arg GetEntityNe
 	return items, nil
 }
 
+const getEntityNeighboursRankedWithKeywords = `-- name: GetEntityNeighboursRankedWithKeywords :many
+WITH semantic_candidates AS (
+    SELECT r.id
+    FROM relationships r
+    WHERE $3 IN (r.source_id, r.target_id)
+    ORDER BY r.embedding <=> $1
+    LIMIT $4
+),
+keyword_candidates AS (
+    SELECT r.id
+    FROM relationships r
+    JOIN entities e ON e.id = CASE
+        WHEN r.source_id = $3 THEN r.target_id
+        ELSE r.source_id
+    END
+    WHERE $3 IN (r.source_id, r.target_id)
+      AND COALESCE(array_length($2::text[], 1), 0) > 0
+      AND (e.search_tsv || r.search_tsv) @@ plainto_tsquery('simple', array_to_string($2::text[], ' '))
+    ORDER BY ts_rank_cd((e.search_tsv || r.search_tsv), plainto_tsquery('simple', array_to_string($2::text[], ' '))) DESC,
+             r.id
+    LIMIT $4
+),
+candidates AS (
+    SELECT id FROM semantic_candidates
+    UNION
+    SELECT id FROM keyword_candidates
+)
+SELECT
+    r.id as relationship_id,
+    r.description as relationship_description,
+    r.rank,
+    r.source_id,
+    r.target_id,
+    e.id as neighbour_id,
+    e.name as neighbour_name,
+    e.type as neighbour_type,
+    e.description as neighbour_description,
+    (r.embedding <=> $1)::double precision AS semantic_distance,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN
+            ts_rank_cd((e.search_tsv || r.search_tsv), plainto_tsquery('simple', array_to_string($2::text[], ' ')))
+        ELSE 0
+    END::double precision AS keyword_rank,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN (
+            SELECT COUNT(*)::int
+            FROM unnest($2::text[]) AS kw
+            WHERE kw <> ''
+              AND position(lower(kw) in lower(e.name || ' ' || e.description || ' ' || r.description)) > 0
+        )
+        ELSE 0
+    END::int AS keyword_matches,
+    COALESCE(array_length($2::text[], 1), 0)::int AS keyword_total
+FROM candidates c
+JOIN relationships r ON r.id = c.id
+JOIN entities e
+    ON e.id = CASE
+        WHEN r.source_id = $3 THEN r.target_id
+        ELSE r.source_id
+    END
+WHERE $3 IN (r.source_id, r.target_id)
+ORDER BY semantic_distance ASC, r.id
+LIMIT $4
+`
+
+type GetEntityNeighboursRankedWithKeywordsParams struct {
+	Embedding      pgvector.Vector `json:"embedding"`
+	Keywords       []string        `json:"keywords"`
+	SourceID       int64           `json:"source_id"`
+	CandidateLimit int32           `json:"candidate_limit"`
+}
+
+type GetEntityNeighboursRankedWithKeywordsRow struct {
+	RelationshipID          int64   `json:"relationship_id"`
+	RelationshipDescription string  `json:"relationship_description"`
+	Rank                    float64 `json:"rank"`
+	SourceID                int64   `json:"source_id"`
+	TargetID                int64   `json:"target_id"`
+	NeighbourID             int64   `json:"neighbour_id"`
+	NeighbourName           string  `json:"neighbour_name"`
+	NeighbourType           string  `json:"neighbour_type"`
+	NeighbourDescription    string  `json:"neighbour_description"`
+	SemanticDistance        float64 `json:"semantic_distance"`
+	KeywordRank             float64 `json:"keyword_rank"`
+	KeywordMatches          int32   `json:"keyword_matches"`
+	KeywordTotal            int32   `json:"keyword_total"`
+}
+
+func (q *Queries) GetEntityNeighboursRankedWithKeywords(ctx context.Context, arg GetEntityNeighboursRankedWithKeywordsParams) ([]GetEntityNeighboursRankedWithKeywordsRow, error) {
+	rows, err := q.db.Query(ctx, getEntityNeighboursRankedWithKeywords,
+		arg.Embedding,
+		arg.Keywords,
+		arg.SourceID,
+		arg.CandidateLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetEntityNeighboursRankedWithKeywordsRow{}
+	for rows.Next() {
+		var i GetEntityNeighboursRankedWithKeywordsRow
+		if err := rows.Scan(
+			&i.RelationshipID,
+			&i.RelationshipDescription,
+			&i.Rank,
+			&i.SourceID,
+			&i.TargetID,
+			&i.NeighbourID,
+			&i.NeighbourName,
+			&i.NeighbourType,
+			&i.NeighbourDescription,
+			&i.SemanticDistance,
+			&i.KeywordRank,
+			&i.KeywordMatches,
+			&i.KeywordTotal,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRelationshipsByIDs = `-- name: GetRelationshipsByIDs :many
 SELECT 
     r.id,
@@ -507,6 +844,214 @@ func (q *Queries) SearchEntitiesByEmbedding(ctx context.Context, arg SearchEntit
 	return items, nil
 }
 
+const searchEntitiesByEmbeddingWithKeywords = `-- name: SearchEntitiesByEmbeddingWithKeywords :many
+WITH semantic_candidates AS (
+    SELECT e.id
+    FROM entities e
+    WHERE e.project_id = $4
+    ORDER BY e.embedding <=> $1
+    LIMIT $3
+),
+keyword_candidates AS (
+    SELECT e.id
+    FROM entities e
+    WHERE e.project_id = $4
+      AND COALESCE(array_length($2::text[], 1), 0) > 0
+      AND e.search_tsv @@ plainto_tsquery('simple', array_to_string($2::text[], ' '))
+    ORDER BY ts_rank_cd(e.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' '))) DESC,
+             e.id
+    LIMIT $3
+),
+candidates AS (
+    SELECT id FROM semantic_candidates
+    UNION
+    SELECT id FROM keyword_candidates
+)
+SELECT
+    e.id,
+    e.name,
+    e.type,
+    e.description,
+    (e.embedding <=> $1)::double precision AS semantic_distance,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN
+            ts_rank_cd(e.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' ')))
+        ELSE 0
+    END::double precision AS keyword_rank,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN (
+            SELECT COUNT(*)::int
+            FROM unnest($2::text[]) AS kw
+            WHERE kw <> ''
+              AND position(lower(kw) in lower(e.name || ' ' || e.description)) > 0
+        )
+        ELSE 0
+    END::int AS keyword_matches,
+    COALESCE(array_length($2::text[], 1), 0)::int AS keyword_total
+FROM candidates c
+JOIN entities e ON e.id = c.id
+ORDER BY semantic_distance ASC, e.id
+LIMIT $3
+`
+
+type SearchEntitiesByEmbeddingWithKeywordsParams struct {
+	Embedding      pgvector.Vector `json:"embedding"`
+	Keywords       []string        `json:"keywords"`
+	CandidateLimit int32           `json:"candidate_limit"`
+	ProjectID      int64           `json:"project_id"`
+}
+
+type SearchEntitiesByEmbeddingWithKeywordsRow struct {
+	ID               int64   `json:"id"`
+	Name             string  `json:"name"`
+	Type             string  `json:"type"`
+	Description      string  `json:"description"`
+	SemanticDistance float64 `json:"semantic_distance"`
+	KeywordRank      float64 `json:"keyword_rank"`
+	KeywordMatches   int32   `json:"keyword_matches"`
+	KeywordTotal     int32   `json:"keyword_total"`
+}
+
+func (q *Queries) SearchEntitiesByEmbeddingWithKeywords(ctx context.Context, arg SearchEntitiesByEmbeddingWithKeywordsParams) ([]SearchEntitiesByEmbeddingWithKeywordsRow, error) {
+	rows, err := q.db.Query(ctx, searchEntitiesByEmbeddingWithKeywords,
+		arg.Embedding,
+		arg.Keywords,
+		arg.CandidateLimit,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchEntitiesByEmbeddingWithKeywordsRow{}
+	for rows.Next() {
+		var i SearchEntitiesByEmbeddingWithKeywordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Type,
+			&i.Description,
+			&i.SemanticDistance,
+			&i.KeywordRank,
+			&i.KeywordMatches,
+			&i.KeywordTotal,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchEntitiesByTypeWithKeywords = `-- name: SearchEntitiesByTypeWithKeywords :many
+WITH semantic_candidates AS (
+    SELECT e.id
+    FROM entities e
+    WHERE e.project_id = $4
+      AND e.type = $5
+    ORDER BY e.embedding <=> $1
+    LIMIT $3
+),
+keyword_candidates AS (
+    SELECT e.id
+    FROM entities e
+    WHERE e.project_id = $4
+      AND e.type = $5
+      AND COALESCE(array_length($2::text[], 1), 0) > 0
+      AND e.search_tsv @@ plainto_tsquery('simple', array_to_string($2::text[], ' '))
+    ORDER BY ts_rank_cd(e.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' '))) DESC,
+             e.id
+    LIMIT $3
+),
+candidates AS (
+    SELECT id FROM semantic_candidates
+    UNION
+    SELECT id FROM keyword_candidates
+)
+SELECT
+    e.id,
+    e.name,
+    e.type,
+    e.description,
+    (e.embedding <=> $1)::double precision AS semantic_distance,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN
+            ts_rank_cd(e.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' ')))
+        ELSE 0
+    END::double precision AS keyword_rank,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN (
+            SELECT COUNT(*)::int
+            FROM unnest($2::text[]) AS kw
+            WHERE kw <> ''
+              AND position(lower(kw) in lower(e.name || ' ' || e.description)) > 0
+        )
+        ELSE 0
+    END::int AS keyword_matches,
+    COALESCE(array_length($2::text[], 1), 0)::int AS keyword_total
+FROM candidates c
+JOIN entities e ON e.id = c.id
+ORDER BY semantic_distance ASC, e.id
+LIMIT $3
+`
+
+type SearchEntitiesByTypeWithKeywordsParams struct {
+	Embedding      pgvector.Vector `json:"embedding"`
+	Keywords       []string        `json:"keywords"`
+	CandidateLimit int32           `json:"candidate_limit"`
+	ProjectID      int64           `json:"project_id"`
+	Type           string          `json:"type"`
+}
+
+type SearchEntitiesByTypeWithKeywordsRow struct {
+	ID               int64   `json:"id"`
+	Name             string  `json:"name"`
+	Type             string  `json:"type"`
+	Description      string  `json:"description"`
+	SemanticDistance float64 `json:"semantic_distance"`
+	KeywordRank      float64 `json:"keyword_rank"`
+	KeywordMatches   int32   `json:"keyword_matches"`
+	KeywordTotal     int32   `json:"keyword_total"`
+}
+
+func (q *Queries) SearchEntitiesByTypeWithKeywords(ctx context.Context, arg SearchEntitiesByTypeWithKeywordsParams) ([]SearchEntitiesByTypeWithKeywordsRow, error) {
+	rows, err := q.db.Query(ctx, searchEntitiesByTypeWithKeywords,
+		arg.Embedding,
+		arg.Keywords,
+		arg.CandidateLimit,
+		arg.ProjectID,
+		arg.Type,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchEntitiesByTypeWithKeywordsRow{}
+	for rows.Next() {
+		var i SearchEntitiesByTypeWithKeywordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Type,
+			&i.Description,
+			&i.SemanticDistance,
+			&i.KeywordRank,
+			&i.KeywordMatches,
+			&i.KeywordTotal,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchRelationshipsByEmbedding = `-- name: SearchRelationshipsByEmbedding :many
 SELECT 
     r.id,
@@ -563,6 +1108,125 @@ func (q *Queries) SearchRelationshipsByEmbedding(ctx context.Context, arg Search
 			&i.SourceType,
 			&i.TargetName,
 			&i.TargetType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchRelationshipsByEmbeddingWithKeywords = `-- name: SearchRelationshipsByEmbeddingWithKeywords :many
+WITH semantic_candidates AS (
+    SELECT r.id
+    FROM relationships r
+    WHERE r.project_id = $4
+    ORDER BY r.embedding <=> $1
+    LIMIT $3
+),
+keyword_candidates AS (
+    SELECT r.id
+    FROM relationships r
+    WHERE r.project_id = $4
+      AND COALESCE(array_length($2::text[], 1), 0) > 0
+      AND r.search_tsv @@ plainto_tsquery('simple', array_to_string($2::text[], ' '))
+    ORDER BY ts_rank_cd(r.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' '))) DESC,
+             r.id
+    LIMIT $3
+),
+candidates AS (
+    SELECT id FROM semantic_candidates
+    UNION
+    SELECT id FROM keyword_candidates
+)
+SELECT
+    r.id,
+    r.description,
+    r.rank,
+    r.source_id,
+    r.target_id,
+    se.name as source_name,
+    se.type as source_type,
+    te.name as target_name,
+    te.type as target_type,
+    (r.embedding <=> $1)::double precision AS semantic_distance,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN
+            ts_rank_cd(r.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' ')))
+        ELSE 0
+    END::double precision AS keyword_rank,
+    CASE
+        WHEN COALESCE(array_length($2::text[], 1), 0) > 0 THEN (
+            SELECT COUNT(*)::int
+            FROM unnest($2::text[]) AS kw
+            WHERE kw <> ''
+              AND position(lower(kw) in lower(se.name || ' ' || te.name || ' ' || r.description)) > 0
+        )
+        ELSE 0
+    END::int AS keyword_matches,
+    COALESCE(array_length($2::text[], 1), 0)::int AS keyword_total
+FROM candidates c
+JOIN relationships r ON r.id = c.id
+JOIN entities se ON r.source_id = se.id
+JOIN entities te ON r.target_id = te.id
+ORDER BY semantic_distance ASC, r.id
+LIMIT $3
+`
+
+type SearchRelationshipsByEmbeddingWithKeywordsParams struct {
+	Embedding      pgvector.Vector `json:"embedding"`
+	Keywords       []string        `json:"keywords"`
+	CandidateLimit int32           `json:"candidate_limit"`
+	ProjectID      int64           `json:"project_id"`
+}
+
+type SearchRelationshipsByEmbeddingWithKeywordsRow struct {
+	ID               int64   `json:"id"`
+	Description      string  `json:"description"`
+	Rank             float64 `json:"rank"`
+	SourceID         int64   `json:"source_id"`
+	TargetID         int64   `json:"target_id"`
+	SourceName       string  `json:"source_name"`
+	SourceType       string  `json:"source_type"`
+	TargetName       string  `json:"target_name"`
+	TargetType       string  `json:"target_type"`
+	SemanticDistance float64 `json:"semantic_distance"`
+	KeywordRank      float64 `json:"keyword_rank"`
+	KeywordMatches   int32   `json:"keyword_matches"`
+	KeywordTotal     int32   `json:"keyword_total"`
+}
+
+func (q *Queries) SearchRelationshipsByEmbeddingWithKeywords(ctx context.Context, arg SearchRelationshipsByEmbeddingWithKeywordsParams) ([]SearchRelationshipsByEmbeddingWithKeywordsRow, error) {
+	rows, err := q.db.Query(ctx, searchRelationshipsByEmbeddingWithKeywords,
+		arg.Embedding,
+		arg.Keywords,
+		arg.CandidateLimit,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchRelationshipsByEmbeddingWithKeywordsRow{}
+	for rows.Next() {
+		var i SearchRelationshipsByEmbeddingWithKeywordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Description,
+			&i.Rank,
+			&i.SourceID,
+			&i.TargetID,
+			&i.SourceName,
+			&i.SourceType,
+			&i.TargetName,
+			&i.TargetType,
+			&i.SemanticDistance,
+			&i.KeywordRank,
+			&i.KeywordMatches,
+			&i.KeywordTotal,
 		); err != nil {
 			return nil, err
 		}

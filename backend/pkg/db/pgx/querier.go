@@ -42,7 +42,9 @@ type Querier interface {
 	FindRelevantEntitySources(ctx context.Context, arg FindRelevantEntitySourcesParams) ([]FindRelevantEntitySourcesRow, error)
 	FindRelevantRelationSources(ctx context.Context, arg FindRelevantRelationSourcesParams) ([]FindRelevantRelationSourcesRow, error)
 	FindRelevantSourcesForEntities(ctx context.Context, arg FindRelevantSourcesForEntitiesParams) ([]FindRelevantSourcesForEntitiesRow, error)
+	FindRelevantSourcesForEntitiesWithKeywords(ctx context.Context, arg FindRelevantSourcesForEntitiesWithKeywordsParams) ([]FindRelevantSourcesForEntitiesWithKeywordsRow, error)
 	FindRelevantSourcesForRelations(ctx context.Context, arg FindRelevantSourcesForRelationsParams) ([]FindRelevantSourcesForRelationsRow, error)
+	FindRelevantSourcesForRelationsWithKeywords(ctx context.Context, arg FindRelevantSourcesForRelationsWithKeywordsParams) ([]FindRelevantSourcesForRelationsWithKeywordsRow, error)
 	FindSimilarEntities(ctx context.Context, arg FindSimilarEntitiesParams) ([]int64, error)
 	FindSimilarEntitySources(ctx context.Context, arg FindSimilarEntitySourcesParams) ([]FindSimilarEntitySourcesRow, error)
 	GetAllGroups(ctx context.Context) ([]GetAllGroupsRow, error)
@@ -57,6 +59,7 @@ type Querier interface {
 	GetEntitiesWithSourcesFromUnits(ctx context.Context, arg GetEntitiesWithSourcesFromUnitsParams) ([]GetEntitiesWithSourcesFromUnitsRow, error)
 	GetEntityIDsByPublicIDs(ctx context.Context, arg GetEntityIDsByPublicIDsParams) ([]GetEntityIDsByPublicIDsRow, error)
 	GetEntityNeighboursRanked(ctx context.Context, arg GetEntityNeighboursRankedParams) ([]GetEntityNeighboursRankedRow, error)
+	GetEntityNeighboursRankedWithKeywords(ctx context.Context, arg GetEntityNeighboursRankedWithKeywordsParams) ([]GetEntityNeighboursRankedWithKeywordsRow, error)
 	GetEntitySourceDescriptionsBatch(ctx context.Context, arg GetEntitySourceDescriptionsBatchParams) ([]GetEntitySourceDescriptionsBatchRow, error)
 	GetEntitySourceDescriptionsForFilesBatch(ctx context.Context, arg GetEntitySourceDescriptionsForFilesBatchParams) ([]GetEntitySourceDescriptionsForFilesBatchRow, error)
 	GetEntityTypes(ctx context.Context, projectID int64) ([]GetEntityTypesRow, error)
@@ -115,8 +118,11 @@ type Querier interface {
 	ResetStaleBatchToPending(ctx context.Context, id int64) error
 	ResetStaleBatchToPreprocessed(ctx context.Context, id int64) error
 	SearchEntitiesByEmbedding(ctx context.Context, arg SearchEntitiesByEmbeddingParams) ([]SearchEntitiesByEmbeddingRow, error)
+	SearchEntitiesByEmbeddingWithKeywords(ctx context.Context, arg SearchEntitiesByEmbeddingWithKeywordsParams) ([]SearchEntitiesByEmbeddingWithKeywordsRow, error)
 	SearchEntitiesByType(ctx context.Context, arg SearchEntitiesByTypeParams) ([]SearchEntitiesByTypeRow, error)
+	SearchEntitiesByTypeWithKeywords(ctx context.Context, arg SearchEntitiesByTypeWithKeywordsParams) ([]SearchEntitiesByTypeWithKeywordsRow, error)
 	SearchRelationshipsByEmbedding(ctx context.Context, arg SearchRelationshipsByEmbeddingParams) ([]SearchRelationshipsByEmbeddingRow, error)
+	SearchRelationshipsByEmbeddingWithKeywords(ctx context.Context, arg SearchRelationshipsByEmbeddingWithKeywordsParams) ([]SearchRelationshipsByEmbeddingWithKeywordsRow, error)
 	TouchUserChat(ctx context.Context, chatID int64) error
 	TransferEntitySources(ctx context.Context, arg TransferEntitySourcesParams) error
 	TransferRelationshipSources(ctx context.Context, arg TransferRelationshipSourcesParams) error
