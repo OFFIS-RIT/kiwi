@@ -34,66 +34,95 @@ JOIN text_units tu ON tu.project_file_id = f.id
 WHERE tu.public_id = $1;
 
 -- name: GetFilesFromTextUnitIDs :many
-WITH input_ids AS (
-    SELECT DISTINCT trim(u.pid) AS pid
-    FROM unnest($1::text[]) AS u(pid)
-    WHERE trim(u.pid) <> ''
+WITH project_scope AS (
+  SELECT sqlc.arg(project_id)::bigint AS project_id
+),
+input_ids AS (
+  SELECT DISTINCT trim(u.pid) AS pid
+  FROM unnest(sqlc.arg(source_ids)::text[]) AS u(pid)
+  WHERE trim(u.pid) <> ''
 ),
 numeric_ids AS (
-    SELECT pid, pid::bigint AS id
-    FROM input_ids
-    WHERE pid ~ '^[0-9]+$'
+  SELECT pid, pid::bigint AS id
+  FROM input_ids
+  WHERE pid ~ '^[0-9]+$'
+),
+project_files_scope AS (
+  SELECT pf.id
+  FROM project_files pf
+  JOIN project_scope ps ON ps.project_id = pf.project_id
 ),
 resolved_text_units AS (
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM input_ids i
-    JOIN text_units tu ON tu.public_id = i.pid
+  -- text_unit by public_id (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM input_ids i
+  JOIN text_units tu ON tu.public_id = i.pid
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
-    UNION
+  UNION
 
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM input_ids i
-    JOIN entity_sources es ON es.public_id = i.pid
-    JOIN text_units tu ON tu.id = es.text_unit_id
+  -- entity_source by public_id -> text_unit (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM input_ids i
+  JOIN entity_sources es ON es.public_id = i.pid
+  JOIN text_units tu ON tu.id = es.text_unit_id
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
-    UNION
+  UNION
 
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM input_ids i
-    JOIN relationship_sources rs ON rs.public_id = i.pid
-    JOIN text_units tu ON tu.id = rs.text_unit_id
+  -- relationship_source by public_id -> text_unit (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM input_ids i
+  JOIN relationship_sources rs ON rs.public_id = i.pid
+  JOIN text_units tu ON tu.id = rs.text_unit_id
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
-    UNION
+  UNION
 
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM numeric_ids n
-    JOIN text_units tu ON tu.id = n.id
+  -- numeric text_unit id (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM numeric_ids n
+  JOIN text_units tu ON tu.id = n.id
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
-    UNION
+  UNION
 
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM numeric_ids n
-    JOIN entity_sources es ON es.id = n.id
-    JOIN text_units tu ON tu.id = es.text_unit_id
+  -- numeric entity_source id -> text_unit (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM numeric_ids n
+  JOIN entity_sources es ON es.id = n.id
+  JOIN text_units tu ON tu.id = es.text_unit_id
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
-    UNION
+  UNION
 
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM numeric_ids n
-    JOIN relationship_sources rs ON rs.id = n.id
-    JOIN text_units tu ON tu.id = rs.text_unit_id
+  -- numeric relationship_source id -> text_unit (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM numeric_ids n
+  JOIN relationship_sources rs ON rs.id = n.id
+  JOIN text_units tu ON tu.id = rs.text_unit_id
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 )
 SELECT DISTINCT f.name, f.file_key, rtu.public_id
 FROM resolved_text_units rtu
-JOIN project_files f ON f.id = rtu.project_file_id;
+JOIN project_files f ON f.id = rtu.project_file_id
+JOIN project_scope ps ON ps.project_id = f.project_id;
 
 -- name: DeleteTextUnitsByFileIDs :exec
 DELETE FROM text_units WHERE project_file_id = ANY($1::bigint[]);
 
 -- name: GetFilesWithMetadataFromTextUnitIDs :many
-WITH input_ids AS (
+WITH project_scope AS (
+    SELECT sqlc.arg(project_id)::bigint AS project_id
+),
+project_files_scope AS (
+    SELECT pf.id
+    FROM project_files pf
+    JOIN project_scope ps ON ps.project_id = pf.project_id
+),
+input_ids AS (
     SELECT DISTINCT trim(u.pid) AS pid
-    FROM unnest($1::text[]) AS u(pid)
+    FROM unnest(sqlc.arg(source_ids)::text[]) AS u(pid)
     WHERE trim(u.pid) <> ''
 ),
 numeric_ids AS (
@@ -105,6 +134,7 @@ resolved_text_units AS (
     SELECT tu.id, tu.public_id, tu.project_file_id
     FROM input_ids i
     JOIN text_units tu ON tu.public_id = i.pid
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
     UNION
 
@@ -112,6 +142,7 @@ resolved_text_units AS (
     FROM input_ids i
     JOIN entity_sources es ON es.public_id = i.pid
     JOIN text_units tu ON tu.id = es.text_unit_id
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
     UNION
 
@@ -119,12 +150,14 @@ resolved_text_units AS (
     FROM input_ids i
     JOIN relationship_sources rs ON rs.public_id = i.pid
     JOIN text_units tu ON tu.id = rs.text_unit_id
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
     UNION
 
     SELECT tu.id, tu.public_id, tu.project_file_id
     FROM numeric_ids n
     JOIN text_units tu ON tu.id = n.id
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
     UNION
 
@@ -132,6 +165,7 @@ resolved_text_units AS (
     FROM numeric_ids n
     JOIN entity_sources es ON es.id = n.id
     JOIN text_units tu ON tu.id = es.text_unit_id
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
     UNION
 
@@ -139,7 +173,9 @@ resolved_text_units AS (
     FROM numeric_ids n
     JOIN relationship_sources rs ON rs.id = n.id
     JOIN text_units tu ON tu.id = rs.text_unit_id
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 )
 SELECT DISTINCT f.name, f.file_key, f.metadata, rtu.public_id
 FROM resolved_text_units rtu
-JOIN project_files f ON f.id = rtu.project_file_id;
+JOIN project_files f ON f.id = rtu.project_file_id
+JOIN project_scope ps ON ps.project_id = f.project_id;

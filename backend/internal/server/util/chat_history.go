@@ -39,7 +39,7 @@ func ExtractCitationIDs(text string) []string {
 	return ids
 }
 
-func ResolveCitationDataByMessage(ctx context.Context, q *pgdb.Queries, messages []pgdb.ChatMessage) (map[int64][]CitationData, error) {
+func ResolveCitationDataByMessage(ctx context.Context, q *pgdb.Queries, projectID int64, messages []pgdb.ChatMessage) (map[int64][]CitationData, error) {
 	messageCitationIDs := make(map[int64][]string)
 	allCitationIDs := make([]string, 0)
 	allCitationIDSet := make(map[string]struct{})
@@ -64,7 +64,10 @@ func ResolveCitationDataByMessage(ctx context.Context, q *pgdb.Queries, messages
 		return map[int64][]CitationData{}, nil
 	}
 
-	files, err := q.GetFilesFromTextUnitIDs(ctx, allCitationIDs)
+	files, err := q.GetFilesFromTextUnitIDs(ctx, pgdb.GetFilesFromTextUnitIDsParams{
+		SourceIds: allCitationIDs,
+		ProjectID: projectID,
+	})
 	if err != nil {
 		return nil, err
 	}
