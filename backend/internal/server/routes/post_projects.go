@@ -389,11 +389,6 @@ func AddFilesToProjectHandler(c echo.Context) error {
 
 	s3Client := c.(*middleware.AppContext).App.S3
 
-	if len(uploads) == 0 {
-		return c.JSON(http.StatusBadRequest, addFilesResponse{
-			Message: "No files provided",
-		})
-	}
 
 	keys := make(map[string]string, 0)
 	for _, file := range uploads {
