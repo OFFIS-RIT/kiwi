@@ -148,10 +148,15 @@ func CreateProjectHandler(c echo.Context) error {
 		}
 	}
 
+	state := "create"
+	if len(uploads) == 0 {
+		state = "ready"
+	}
+
 	project, err := qtx.CreateProject(ctx, pgdb.CreateProjectParams{
 		GroupID: sql.NullInt64{Int64: data.GroupID, Valid: true},
 		Name:    data.Name,
-		State:   "create",
+		State:   state,
 	})
 	if err != nil {
 		logger.Error("Failed to create project", "err", err)
@@ -245,6 +250,13 @@ func CreateProjectHandler(c echo.Context) error {
 		Message:      "Project created successfully",
 		Project:      &project,
 		ProjectFiles: &projectFiles,
+	}
+
+	if len(projectFiles) == 0 {
+		return c.JSON(
+			http.StatusOK,
+			resp,
+		)
 	}
 
 	batchSize := int(util.GetEnvNumeric("WORKER_BATCH_SIZE", 10))
@@ -376,6 +388,12 @@ func AddFilesToProjectHandler(c echo.Context) error {
 	}
 
 	s3Client := c.(*middleware.AppContext).App.S3
+
+	if len(uploads) == 0 {
+		return c.JSON(http.StatusBadRequest, addFilesResponse{
+			Message: "No files provided",
+		})
+	}
 
 	keys := make(map[string]string, 0)
 	for _, file := range uploads {
