@@ -2,16 +2,17 @@ package graph
 
 import (
 	"context"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
-
 	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/pkoukk/tiktoken-go"
+
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 )
 
 type processUnit struct {
@@ -78,6 +79,8 @@ func (singleUnitBuilder) buildUnits(req unitRequest) ([]processUnit, error) {
 var defaultUnitBuilder unitBuilder = textUnitBuilder{}
 
 var markdownTableDelimiterPattern = regexp.MustCompile(`^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$`)
+
+var markdownHeadingPattern = regexp.MustCompile(`^\s{0,3}#{1,6}\s*\S+`)
 
 var commonSentenceAbbreviations = map[string]struct{}{
 	"bsp.":  {},
@@ -278,37 +281,200 @@ func transformIntoUnits(
 		return nil, err
 	}
 
-	segments := splitIntoSegments(text)
-	if len(segments) == 0 {
+	text = strings.TrimSpace(text)
+	if text == "" {
 		return nil, nil
 	}
 
-	var chunks []processUnit
+	counter := newTokenCounter(enc)
+	chunkTexts := chunkTextRecursively(text, counter, maxTokens, semanticSplitDoubleEmpty)
+	chunkTexts = mergeTinyChunks(chunkTexts, counter, maxTokens)
+
+	units := make([]processUnit, 0, len(chunkTexts))
+	for _, chunkText := range chunkTexts {
+		chunkText = strings.TrimSpace(chunkText)
+		if chunkText == "" {
+			continue
+		}
+
+		uID, err := gonanoid.New()
+		if err != nil {
+			return nil, err
+		}
+
+		start := len(units)
+		units = append(units, processUnit{
+			id:     uID,
+			fileID: fileId,
+			start:  start,
+			end:    start + 1,
+			text:   chunkText,
+		})
+	}
+
+	return units, nil
+}
+
+type semanticSplitLevel int
+
+const (
+	semanticSplitDoubleEmpty semanticSplitLevel = iota
+	semanticSplitMarkdownHeading
+	semanticSplitSentence
+)
+
+type tokenCounter struct {
+	enc   *tiktoken.Tiktoken
+	cache map[string]int
+}
+
+func newTokenCounter(enc *tiktoken.Tiktoken) *tokenCounter {
+	return &tokenCounter{
+		enc:   enc,
+		cache: make(map[string]int),
+	}
+}
+
+func (c *tokenCounter) count(text string) int {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 0
+	}
+
+	if tokens, ok := c.cache[text]; ok {
+		return tokens
+	}
+
+	tokens := len(c.enc.Encode(text, nil, nil))
+	c.cache[text] = tokens
+	return tokens
+}
+
+func chunkTextRecursively(
+	text string,
+	counter *tokenCounter,
+	maxTokens int,
+	level semanticSplitLevel,
+) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+
+	if maxTokens <= 0 {
+		return chunkBySentenceOrTable(text, counter, maxTokens)
+	}
+
+	if counter.count(text) <= maxTokens {
+		return []string{text}
+	}
+
+	if level >= semanticSplitSentence {
+		return chunkBySentenceOrTable(text, counter, maxTokens)
+	}
+
+	parts := splitBySemanticLevel(text, level)
+	if len(parts) <= 1 {
+		return chunkTextRecursively(text, counter, maxTokens, level+1)
+	}
+
+	result := make([]string, 0, len(parts))
+	current := ""
+
+	flushCurrent := func() {
+		current = strings.TrimSpace(current)
+		if current != "" {
+			result = append(result, current)
+		}
+		current = ""
+	}
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		var subChunks []string
+		if counter.count(part) > maxTokens {
+			subChunks = chunkTextRecursively(part, counter, maxTokens, level+1)
+		} else {
+			subChunks = []string{part}
+		}
+
+		for _, subChunk := range subChunks {
+			subChunk = strings.TrimSpace(subChunk)
+			if subChunk == "" {
+				continue
+			}
+
+			if current == "" {
+				current = subChunk
+				continue
+			}
+
+			candidate := joinChunkParts(current, subChunk)
+			if counter.count(candidate) <= maxTokens {
+				current = candidate
+				continue
+			}
+
+			flushCurrent()
+			current = subChunk
+		}
+	}
+
+	flushCurrent()
+
+	if len(result) == 0 {
+		return chunkTextRecursively(text, counter, maxTokens, level+1)
+	}
+
+	return result
+}
+
+func splitBySemanticLevel(text string, level semanticSplitLevel) []string {
+	switch level {
+	case semanticSplitDoubleEmpty:
+		return splitByDoubleEmptyLines(text)
+	case semanticSplitMarkdownHeading:
+		return splitByMarkdownHeadings(text)
+	default:
+		return []string{text}
+	}
+}
+
+func chunkBySentenceOrTable(text string, counter *tokenCounter, maxTokens int) []string {
+	segments := splitIntoSegments(text)
+	if len(segments) == 0 {
+		return nil
+	}
+
+	if maxTokens <= 0 {
+		chunks := make([]string, 0, len(segments))
+		for i := range segments {
+			chunkText := strings.TrimSpace(buildChunkText(segments, i, i+1))
+			if chunkText != "" {
+				chunks = append(chunks, chunkText)
+			}
+		}
+		return chunks
+	}
+
+	var chunks []string
 	chunkStart := -1
 	chunkEnd := -1
 
-	flushChunk := func() error {
+	flushChunk := func() {
 		if chunkStart < 0 || chunkEnd <= chunkStart {
-			return nil
+			return
 		}
-		uID, err := gonanoid.New()
-		if err != nil {
-			return err
+		chunkText := strings.TrimSpace(buildChunkText(segments, chunkStart, chunkEnd))
+		if chunkText != "" {
+			chunks = append(chunks, chunkText)
 		}
-
-		chunkText := buildChunkText(segments, chunkStart, chunkEnd)
-
-		unit := processUnit{
-			id:     uID,
-			fileID: fileId,
-			start:  chunkStart,
-			end:    chunkEnd,
-			text:   strings.TrimSpace(chunkText),
-		}
-		chunks = append(chunks, unit)
 		chunkStart = -1
 		chunkEnd = -1
-		return nil
 	}
 
 	for i := range segments {
@@ -319,94 +485,162 @@ func transformIntoUnits(
 		}
 
 		testText := buildChunkText(segments, chunkStart, i+1)
-		testTokens := len(enc.Encode(testText, nil, nil))
-
-		if testTokens <= maxTokens {
+		if counter.count(testText) <= maxTokens {
 			chunkEnd = i + 1
-		} else {
-			if err := flushChunk(); err != nil {
-				return nil, err
-			}
-			chunkStart = i
-			chunkEnd = i + 1
-		}
-	}
-
-	if err := flushChunk(); err != nil {
-		return nil, err
-	}
-
-	return chunks, nil
-}
-
-func buildChunkText(segments []unitSegment, start, end int) string {
-	var chunkText strings.Builder
-	currentTableID := -1
-	lastKind := segmentText
-	hasContent := false
-
-	for i := start; i < end; i++ {
-		segment := segments[i]
-
-		if segment.kind == segmentTableRow && segment.tableHeader != "" && segment.tableID != currentTableID {
-			if hasContent {
-				chunkText.WriteString("\n")
-			}
-			chunkText.WriteString(segment.tableHeader)
-			chunkText.WriteString("\n")
-			chunkText.WriteString(segment.text)
-			hasContent = true
-			currentTableID = segment.tableID
-			lastKind = segmentTableRow
 			continue
 		}
 
-		if hasContent {
-			if segment.kind == segmentTableRow {
-				chunkText.WriteString("\n")
-			} else if lastKind == segmentTableRow {
-				chunkText.WriteString("\n")
-			} else {
-				chunkText.WriteString(" ")
-			}
-		}
-
-		chunkText.WriteString(segment.text)
-		hasContent = true
-
-		if segment.kind == segmentTableRow {
-			currentTableID = segment.tableID
-			lastKind = segmentTableRow
-		} else {
-			currentTableID = -1
-			lastKind = segmentText
-		}
+		flushChunk()
+		chunkStart = i
+		chunkEnd = i + 1
 	}
 
-	return chunkText.String()
+	flushChunk()
+
+	return chunks
 }
 
-func getUnitsFromText(
-	ctx context.Context,
-	file loader.GraphFile,
-	encoder string,
-) ([]processUnit, error) {
-	textBytes, err := file.GetText(ctx)
-	if err != nil {
-		return nil, err
-	}
-	text := string(textBytes)
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil, nil
+func mergeTinyChunks(chunks []string, counter *tokenCounter, maxTokens int) []string {
+	if len(chunks) <= 1 || maxTokens <= 0 {
+		return chunks
 	}
 
-	req := unitRequest{
-		text:    text,
-		file:    file,
-		encoder: encoder,
+	minTokens := max(int(math.Ceil(float64(maxTokens)*0.05)), 1)
+
+	for i := 0; i < len(chunks); {
+		chunks[i] = strings.TrimSpace(chunks[i])
+		if chunks[i] == "" {
+			chunks = append(chunks[:i], chunks[i+1:]...)
+			continue
+		}
+
+		if counter.count(chunks[i]) > minTokens || len(chunks) == 1 {
+			i++
+			continue
+		}
+
+		if i == 0 {
+			chunks[1] = joinChunkParts(chunks[0], chunks[1])
+			chunks = append(chunks[:0], chunks[1:]...)
+			continue
+		}
+
+		chunks[i-1] = joinChunkParts(chunks[i-1], chunks[i])
+		chunks = append(chunks[:i], chunks[i+1:]...)
+		i--
+		if i < 0 {
+			i = 0
+		}
 	}
-	return unitBuilderForFileType(file.FileType).buildUnits(req)
+
+	return chunks
+}
+
+func joinChunkParts(left, right string) string {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+
+	if left == "" {
+		return right
+	}
+	if right == "" {
+		return left
+	}
+
+	return left + "\n\n" + right
+}
+
+func splitByDoubleEmptyLines(text string) []string {
+	lines := strings.Split(text, "\n")
+	parts := make([]string, 0)
+	current := make([]string, 0)
+	emptyRun := 0
+
+	flushCurrent := func() {
+		if len(current) == 0 {
+			return
+		}
+		part := strings.TrimSpace(strings.Join(current, "\n"))
+		if part != "" {
+			parts = append(parts, part)
+		}
+		current = current[:0]
+	}
+
+	for _, rawLine := range lines {
+		line := strings.TrimRight(rawLine, "\r")
+		if isEmptyLine(line) {
+			emptyRun++
+			if emptyRun >= 2 {
+				flushCurrent()
+			}
+			continue
+		}
+
+		if emptyRun == 1 {
+			current = append(current, "")
+		}
+
+		emptyRun = 0
+		current = append(current, line)
+	}
+
+	flushCurrent()
+
+	if len(parts) == 0 {
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "" {
+			return nil
+		}
+		return []string{trimmed}
+	}
+
+	return parts
+}
+
+func splitByMarkdownHeadings(text string) []string {
+	lines := strings.Split(text, "\n")
+	parts := make([]string, 0)
+	current := make([]string, 0)
+	hasHeading := false
+
+	flushCurrent := func() {
+		if len(current) == 0 {
+			return
+		}
+		part := strings.TrimSpace(strings.Join(current, "\n"))
+		if part != "" {
+			parts = append(parts, part)
+		}
+		current = current[:0]
+	}
+
+	for _, rawLine := range lines {
+		line := strings.TrimRight(rawLine, "\r")
+		if markdownHeadingPattern.MatchString(line) {
+			hasHeading = true
+			flushCurrent()
+			current = append(current, line)
+			continue
+		}
+		current = append(current, line)
+	}
+
+	flushCurrent()
+
+	if !hasHeading {
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "" {
+			return nil
+		}
+		return []string{trimmed}
+	}
+
+	return parts
+}
+
+func isEmptyLine(line string) bool {
+	return strings.TrimSpace(line) == ""
 }
 
 func splitIntoSegments(text string) []unitSegment {
@@ -537,6 +771,76 @@ func splitIntoSegments(text string) []unitSegment {
 	}
 
 	return result
+}
+
+func buildChunkText(segments []unitSegment, start, end int) string {
+	var chunkText strings.Builder
+	currentTableID := -1
+	lastKind := segmentText
+	hasContent := false
+
+	for i := start; i < end; i++ {
+		segment := segments[i]
+
+		if segment.kind == segmentTableRow && segment.tableHeader != "" && segment.tableID != currentTableID {
+			if hasContent {
+				chunkText.WriteString("\n")
+			}
+			chunkText.WriteString(segment.tableHeader)
+			chunkText.WriteString("\n")
+			chunkText.WriteString(segment.text)
+			hasContent = true
+			currentTableID = segment.tableID
+			lastKind = segmentTableRow
+			continue
+		}
+
+		if hasContent {
+			if segment.kind == segmentTableRow {
+				chunkText.WriteString("\n")
+			} else if lastKind == segmentTableRow {
+				chunkText.WriteString("\n")
+			} else {
+				chunkText.WriteString(" ")
+			}
+		}
+
+		chunkText.WriteString(segment.text)
+		hasContent = true
+
+		if segment.kind == segmentTableRow {
+			currentTableID = segment.tableID
+			lastKind = segmentTableRow
+		} else {
+			currentTableID = -1
+			lastKind = segmentText
+		}
+	}
+
+	return chunkText.String()
+}
+
+func getUnitsFromText(
+	ctx context.Context,
+	file loader.GraphFile,
+	encoder string,
+) ([]processUnit, error) {
+	textBytes, err := file.GetText(ctx)
+	if err != nil {
+		return nil, err
+	}
+	text := string(textBytes)
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, nil
+	}
+
+	req := unitRequest{
+		text:    text,
+		file:    file,
+		encoder: encoder,
+	}
+	return unitBuilderForFileType(file.FileType).buildUnits(req)
 }
 
 func splitIntoSentences(text string) []string {

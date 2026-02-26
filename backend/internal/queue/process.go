@@ -102,7 +102,7 @@ func ProcessGraphMessage(
 				if !strings.HasSuffix(sheetFile, ".txt") {
 					continue
 				}
-				f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
+				f := loader.NewGraphCSVFile(loader.NewGraphFileParams{
 					ID:        fmt.Sprintf("%d-sheet-%d", file.ID, sheetIndex),
 					FilePath:  sheetFile,
 					MaxTokens: 500,
@@ -154,7 +154,7 @@ func ProcessGraphMessage(
 			f := loader.NewGraphAudioFile(loader.NewGraphFileParams{
 				ID:        fmt.Sprintf("%d", file.ID),
 				FilePath:  key,
-				MaxTokens: 500,
+				MaxTokens: 2000,
 				Loader:    s3L,
 				Metadata:  metadataText,
 			})
@@ -169,7 +169,7 @@ func ProcessGraphMessage(
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
 				ID:        fmt.Sprintf("%d", file.ID),
 				FilePath:  key,
-				MaxTokens: 500,
+				MaxTokens: 2000,
 				Loader:    s3L,
 				Metadata:  metadataText,
 			})
@@ -178,7 +178,7 @@ func ProcessGraphMessage(
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
 				ID:        fmt.Sprintf("%d", file.ID),
 				FilePath:  file.FileKey,
-				MaxTokens: 500,
+				MaxTokens: 2000,
 				Loader:    s3L,
 				Metadata:  metadataText,
 			})

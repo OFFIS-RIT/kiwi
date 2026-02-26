@@ -160,7 +160,7 @@ func TestGetUnitsFromText(t *testing.T) {
 				{
 					fileID: "test.txt",
 					start:  0,
-					end:    2,
+					end:    1,
 					text:   "First sentence. Second sentence.",
 				},
 			},
@@ -254,80 +254,121 @@ func TestGetUnitsFromText(t *testing.T) {
 	}
 }
 
-func TestTransformIntoUnitsMarkdownTableChunking(t *testing.T) {
-	enc, err := tiktoken.GetEncoding("cl100k_base")
-	if err != nil {
-		t.Fatalf("GetEncoding error = %v", err)
-	}
-
-	t.Run("split table rows with header repetition", func(t *testing.T) {
-		header := "| Col1 | Col2 |"
-		delimiter := "|------|------|"
-		rows := []string{"| A | B |", "| C | D |", "| E | F |"}
-
-		tableOnly := strings.Join([]string{header, delimiter, rows[0], rows[1], rows[2]}, "\n")
-		rowChunk := strings.Join([]string{header, delimiter, rows[0]}, "\n")
-		maxTokens := len(enc.Encode(rowChunk, nil, nil))
-		if len(enc.Encode(strings.Join([]string{header, delimiter, rows[0], rows[1]}, "\n"), nil, nil)) <= maxTokens {
-			maxTokens = maxTokens - 1
-			if maxTokens < 1 {
-				maxTokens = 1
-			}
+func TestTransformIntoUnitsSemanticFallbacks(t *testing.T) {
+	t.Run("finish sentence over token limit", func(t *testing.T) {
+		words := make([]string, 0, 1300)
+		for i := 0; i < 1300; i++ {
+			words = append(words, "word")
 		}
+		text := strings.Join(words, " ")
 
-		units, err := transformIntoUnits(tableOnly, "test.txt", "cl100k_base", maxTokens)
+		units, err := transformIntoUnits(text, "test.txt", "cl100k_base", 1)
 		if err != nil {
 			t.Fatalf("transformIntoUnits error = %v", err)
 		}
+
+		if len(units) != 1 {
+			t.Fatalf("transformIntoUnits returned %d units, want 1", len(units))
+		}
+
+		if strings.TrimSpace(units[0].text) != strings.TrimSpace(text) {
+			t.Fatalf("unit text mismatch for over-limit sentence")
+		}
+	})
+
+	t.Run("split table rows with repeated header", func(t *testing.T) {
+		enc, err := tiktoken.GetEncoding("cl100k_base")
+		if err != nil {
+			t.Fatalf("GetEncoding error = %v", err)
+		}
+
+		header := "| Col1 | Col2 |"
+		delimiter := "|------|------|"
+		rows := []string{"| A | B |", "| C | D |"}
+		text := strings.Join([]string{header, delimiter, rows[0], rows[1]}, "\n")
+
+		maxTokens := len(enc.Encode(strings.Join([]string{header, delimiter, rows[0]}, "\n"), nil, nil))
+		if len(enc.Encode(text, nil, nil)) <= maxTokens {
+			t.Fatalf("test setup invalid: table should split across rows")
+		}
+
+		units, err := transformIntoUnits(text, "test.txt", "cl100k_base", maxTokens)
+		if err != nil {
+			t.Fatalf("transformIntoUnits error = %v", err)
+		}
+
 		if len(units) != len(rows) {
 			t.Fatalf("transformIntoUnits returned %d units, want %d", len(units), len(rows))
 		}
 
 		for i, row := range rows {
-			wantText := strings.Join([]string{header, delimiter, row}, "\n")
-			gotText := strings.TrimSpace(units[i].text)
-			if gotText != wantText {
-				t.Errorf("unit[%d].text = %q, want %q", i, gotText, wantText)
+			want := strings.Join([]string{header, delimiter, row}, "\n")
+			if strings.TrimSpace(units[i].text) != want {
+				t.Fatalf("unit[%d].text = %q, want %q", i, strings.TrimSpace(units[i].text), want)
 			}
 		}
 	})
 
-	t.Run("table chunking with surrounding text", func(t *testing.T) {
-		intro := "Intro sentence with extra context for chunking."
-		outro := "Outro."
-		header := "| Name | Value |"
-		delimiter := "|------|-------|"
-		row1 := "| VeryLongValue | 1234567890 |"
-		row2 := "| Short | 1 |"
-
-		fullText := strings.Join([]string{intro, header, delimiter, row1, row2, outro}, "\n")
-		chunk1 := strings.Join([]string{intro, header, delimiter, row1}, "\n")
-		chunk1WithRow2 := strings.Join([]string{intro, header, delimiter, row1, row2}, "\n")
-		chunk2 := strings.Join([]string{header, delimiter, row2, outro}, "\n")
-
-		chunk1Tokens := len(enc.Encode(chunk1, nil, nil))
-		chunk2Tokens := len(enc.Encode(chunk2, nil, nil))
-		maxTokens := chunk1Tokens
-		if chunk2Tokens > maxTokens {
-			maxTokens = chunk2Tokens
-		}
-		if len(enc.Encode(chunk1WithRow2, nil, nil)) <= maxTokens {
-			t.Fatalf("test setup invalid: table should split before second row")
+	t.Run("merge tiny trailing chunk", func(t *testing.T) {
+		enc, err := tiktoken.GetEncoding("cl100k_base")
+		if err != nil {
+			t.Fatalf("GetEncoding error = %v", err)
 		}
 
-		units, err := transformIntoUnits(fullText, "test.txt", "cl100k_base", maxTokens)
+		left := strings.Repeat("Left sentence. ", 35)
+		right := strings.Repeat("Right sentence. ", 35)
+		tiny := "Tail."
+		text := strings.Join([]string{left, right, tiny}, "\n\n")
+
+		maxTokens := len(enc.Encode(left, nil, nil))
+		rightTokens := len(enc.Encode(right, nil, nil))
+		if rightTokens > maxTokens {
+			maxTokens = rightTokens
+		}
+
+		units, err := transformIntoUnits(text, "test.txt", "cl100k_base", maxTokens)
 		if err != nil {
 			t.Fatalf("transformIntoUnits error = %v", err)
 		}
+
 		if len(units) != 2 {
 			t.Fatalf("transformIntoUnits returned %d units, want 2", len(units))
 		}
 
-		if strings.TrimSpace(units[0].text) != chunk1 {
-			t.Errorf("unit[0].text = %q, want %q", strings.TrimSpace(units[0].text), chunk1)
+		if !strings.Contains(units[1].text, tiny) {
+			t.Fatalf("expected trailing tiny chunk to merge into previous chunk")
 		}
-		if strings.TrimSpace(units[1].text) != chunk2 {
-			t.Errorf("unit[1].text = %q, want %q", strings.TrimSpace(units[1].text), chunk2)
+	})
+
+	t.Run("split on markdown headings", func(t *testing.T) {
+		enc, err := tiktoken.GetEncoding("cl100k_base")
+		if err != nil {
+			t.Fatalf("GetEncoding error = %v", err)
+		}
+
+		first := "# Heading 1\n" + strings.Repeat("Alpha sentence. ", 30)
+		second := "## Heading 2\n" + strings.Repeat("Beta sentence. ", 30)
+		text := first + "\n" + second
+
+		maxTokens := len(enc.Encode(first, nil, nil))
+		if len(enc.Encode(text, nil, nil)) <= maxTokens {
+			t.Fatalf("test setup invalid: heading sections should exceed max when combined")
+		}
+
+		units, err := transformIntoUnits(text, "test.txt", "cl100k_base", maxTokens)
+		if err != nil {
+			t.Fatalf("transformIntoUnits error = %v", err)
+		}
+
+		if len(units) < 2 {
+			t.Fatalf("transformIntoUnits returned %d units, want at least 2", len(units))
+		}
+
+		if !strings.Contains(units[0].text, "# Heading 1") {
+			t.Fatalf("first chunk should include first heading")
+		}
+		if !strings.Contains(units[1].text, "## Heading 2") {
+			t.Fatalf("second chunk should include second heading")
 		}
 	})
 }
