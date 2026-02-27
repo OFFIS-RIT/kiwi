@@ -194,7 +194,7 @@ func GetChatHandler(c echo.Context) error {
 		assistantMessages = append(assistantMessages, message)
 	}
 
-	resolvedCitationDataByMessageID, err := serverutil.ResolveCitationDataByMessage(ctx, q, assistantMessages)
+	resolvedCitationDataByMessageID, err := serverutil.ResolveCitationDataByMessage(ctx, q, params.ProjectID, assistantMessages)
 	if err != nil {
 		logger.Error("Failed to resolve citation data", "err", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})

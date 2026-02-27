@@ -964,7 +964,7 @@ func toolGetRelationshipDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.
 	}
 }
 
-func toolGetSourceDocumentMetadata(conn *pgxpool.Pool, trace graphquery.Tracer) ai.Tool {
+func toolGetSourceDocumentMetadata(conn *pgxpool.Pool, projectId int64, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_source_document_metadata",
 		Description: "Get metadata (document type, date, summary) for the source documents associated with given source IDs. Use this to understand the context and nature of the source documents before citing them.",
@@ -1001,7 +1001,10 @@ func toolGetSourceDocumentMetadata(conn *pgxpool.Pool, trace graphquery.Tracer) 
 			logger.Debug("[Tool] get_source_document_metadata", "source_ids", sourceIds)
 
 			q := pgdb.New(conn)
-			files, err := q.GetFilesWithMetadataFromTextUnitIDs(ctx, sourceIds)
+			files, err := q.GetFilesWithMetadataFromTextUnitIDs(ctx, pgdb.GetFilesWithMetadataFromTextUnitIDsParams{
+				ProjectID: projectId,
+				SourceIds: sourceIds,
+			})
 			if err != nil && err != sql.ErrNoRows {
 				return "", fmt.Errorf("failed to get file metadata: %w", err)
 			}
@@ -1288,7 +1291,7 @@ func getToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64,
 		toolGetRelationshipDetails(conn, trace),
 		toolGetEntityTypes(conn, projectId),
 		toolSearchEntitiesByType(conn, aiClient, projectId, trace),
-		toolGetSourceDocumentMetadata(conn, trace),
+		toolGetSourceDocumentMetadata(conn, projectId, trace),
 	}
 
 	if includeAskExpert {

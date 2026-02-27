@@ -889,7 +889,10 @@ func QueryProjectHandler(c echo.Context) error {
 		findingsSet[id] = struct{}{}
 		findings = append(findings, id)
 	}
-	files, err := q.GetFilesFromTextUnitIDs(ctx, findings)
+	files, err := q.GetFilesFromTextUnitIDs(ctx, pgdb.GetFilesFromTextUnitIDsParams{
+		SourceIds: findings,
+		ProjectID: data.ProjectID,
+	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 			Message: "Internal server error",
@@ -915,7 +918,10 @@ func QueryProjectHandler(c echo.Context) error {
 
 	consideredFileCount := 0
 	if snap := trace.Snapshot(); len(snap.ConsideredSourceIDs) > 0 {
-		consideredFiles, err := q.GetFilesFromTextUnitIDs(ctx, snap.ConsideredSourceIDs)
+		consideredFiles, err := q.GetFilesFromTextUnitIDs(ctx, pgdb.GetFilesFromTextUnitIDsParams{
+			SourceIds: snap.ConsideredSourceIDs,
+			ProjectID: data.ProjectID,
+		})
 		if err != nil {
 			logger.Error("Failed to resolve considered files", "err", err)
 		} else {
@@ -1187,7 +1193,10 @@ func QueryProjectStreamHandler(c echo.Context) error {
 			return cached
 		}
 
-		files, err := q.GetFilesFromTextUnitIDs(ctx, []string{id})
+		files, err := q.GetFilesFromTextUnitIDs(ctx, pgdb.GetFilesFromTextUnitIDsParams{
+			SourceIds: []string{id},
+			ProjectID: data.ProjectID,
+		})
 		if err != nil {
 			logger.Error("Error getting files for citation", "id", id, "err", err)
 			citationCache[id] = nil
@@ -1422,7 +1431,10 @@ func QueryProjectStreamHandler(c echo.Context) error {
 
 	consideredFileCount := 0
 	if snap := trace.Snapshot(); len(snap.ConsideredSourceIDs) > 0 {
-		consideredFiles, err := q.GetFilesFromTextUnitIDs(ctx, snap.ConsideredSourceIDs)
+		consideredFiles, err := q.GetFilesFromTextUnitIDs(ctx, pgdb.GetFilesFromTextUnitIDsParams{
+			SourceIds: snap.ConsideredSourceIDs,
+			ProjectID: data.ProjectID,
+		})
 		if err != nil {
 			logger.Error("Failed to resolve considered files", "err", err)
 		} else {

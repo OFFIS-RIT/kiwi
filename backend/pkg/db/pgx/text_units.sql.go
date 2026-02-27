@@ -21,59 +21,85 @@ func (q *Queries) DeleteTextUnitsByFileIDs(ctx context.Context, dollar_1 []int64
 }
 
 const getFilesFromTextUnitIDs = `-- name: GetFilesFromTextUnitIDs :many
-WITH input_ids AS (
-    SELECT DISTINCT trim(u.pid) AS pid
-    FROM unnest($1::text[]) AS u(pid)
-    WHERE trim(u.pid) <> ''
+WITH project_scope AS (
+  SELECT $1::bigint AS project_id
+),
+input_ids AS (
+  SELECT DISTINCT trim(u.pid) AS pid
+  FROM unnest($2::text[]) AS u(pid)
+  WHERE trim(u.pid) <> ''
 ),
 numeric_ids AS (
-    SELECT pid, pid::bigint AS id
-    FROM input_ids
-    WHERE pid ~ '^[0-9]+$'
+  SELECT pid, pid::bigint AS id
+  FROM input_ids
+  WHERE pid ~ '^[0-9]+$'
+),
+project_files_scope AS (
+  SELECT pf.id
+  FROM project_files pf
+  JOIN project_scope ps ON ps.project_id = pf.project_id
 ),
 resolved_text_units AS (
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM input_ids i
-    JOIN text_units tu ON tu.public_id = i.pid
+  -- text_unit by public_id (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM input_ids i
+  JOIN text_units tu ON tu.public_id = i.pid
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
-    UNION
+  UNION
 
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM input_ids i
-    JOIN entity_sources es ON es.public_id = i.pid
-    JOIN text_units tu ON tu.id = es.text_unit_id
+  -- entity_source by public_id -> text_unit (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM input_ids i
+  JOIN entity_sources es ON es.public_id = i.pid
+  JOIN text_units tu ON tu.id = es.text_unit_id
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
-    UNION
+  UNION
 
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM input_ids i
-    JOIN relationship_sources rs ON rs.public_id = i.pid
-    JOIN text_units tu ON tu.id = rs.text_unit_id
+  -- relationship_source by public_id -> text_unit (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM input_ids i
+  JOIN relationship_sources rs ON rs.public_id = i.pid
+  JOIN text_units tu ON tu.id = rs.text_unit_id
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
-    UNION
+  UNION
 
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM numeric_ids n
-    JOIN text_units tu ON tu.id = n.id
+  -- numeric text_unit id (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM numeric_ids n
+  JOIN text_units tu ON tu.id = n.id
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
-    UNION
+  UNION
 
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM numeric_ids n
-    JOIN entity_sources es ON es.id = n.id
-    JOIN text_units tu ON tu.id = es.text_unit_id
+  -- numeric entity_source id -> text_unit (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM numeric_ids n
+  JOIN entity_sources es ON es.id = n.id
+  JOIN text_units tu ON tu.id = es.text_unit_id
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
-    UNION
+  UNION
 
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM numeric_ids n
-    JOIN relationship_sources rs ON rs.id = n.id
-    JOIN text_units tu ON tu.id = rs.text_unit_id
+  -- numeric relationship_source id -> text_unit (scoped)
+  SELECT tu.id, tu.public_id, tu.project_file_id
+  FROM numeric_ids n
+  JOIN relationship_sources rs ON rs.id = n.id
+  JOIN text_units tu ON tu.id = rs.text_unit_id
+  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 )
 SELECT DISTINCT f.name, f.file_key, rtu.public_id
 FROM resolved_text_units rtu
 JOIN project_files f ON f.id = rtu.project_file_id
+JOIN project_scope ps ON ps.project_id = f.project_id
 `
+
+type GetFilesFromTextUnitIDsParams struct {
+	ProjectID int64    `json:"project_id"`
+	SourceIds []string `json:"source_ids"`
+}
 
 type GetFilesFromTextUnitIDsRow struct {
 	Name     string `json:"name"`
@@ -81,8 +107,8 @@ type GetFilesFromTextUnitIDsRow struct {
 	PublicID string `json:"public_id"`
 }
 
-func (q *Queries) GetFilesFromTextUnitIDs(ctx context.Context, dollar_1 []string) ([]GetFilesFromTextUnitIDsRow, error) {
-	rows, err := q.db.Query(ctx, getFilesFromTextUnitIDs, dollar_1)
+func (q *Queries) GetFilesFromTextUnitIDs(ctx context.Context, arg GetFilesFromTextUnitIDsParams) ([]GetFilesFromTextUnitIDsRow, error) {
+	rows, err := q.db.Query(ctx, getFilesFromTextUnitIDs, arg.ProjectID, arg.SourceIds)
 	if err != nil {
 		return nil, err
 	}
@@ -102,9 +128,17 @@ func (q *Queries) GetFilesFromTextUnitIDs(ctx context.Context, dollar_1 []string
 }
 
 const getFilesWithMetadataFromTextUnitIDs = `-- name: GetFilesWithMetadataFromTextUnitIDs :many
-WITH input_ids AS (
+WITH project_scope AS (
+    SELECT $1::bigint AS project_id
+),
+project_files_scope AS (
+    SELECT pf.id
+    FROM project_files pf
+    JOIN project_scope ps ON ps.project_id = pf.project_id
+),
+input_ids AS (
     SELECT DISTINCT trim(u.pid) AS pid
-    FROM unnest($1::text[]) AS u(pid)
+    FROM unnest($2::text[]) AS u(pid)
     WHERE trim(u.pid) <> ''
 ),
 numeric_ids AS (
@@ -116,6 +150,7 @@ resolved_text_units AS (
     SELECT tu.id, tu.public_id, tu.project_file_id
     FROM input_ids i
     JOIN text_units tu ON tu.public_id = i.pid
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
     UNION
 
@@ -123,6 +158,7 @@ resolved_text_units AS (
     FROM input_ids i
     JOIN entity_sources es ON es.public_id = i.pid
     JOIN text_units tu ON tu.id = es.text_unit_id
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
     UNION
 
@@ -130,12 +166,14 @@ resolved_text_units AS (
     FROM input_ids i
     JOIN relationship_sources rs ON rs.public_id = i.pid
     JOIN text_units tu ON tu.id = rs.text_unit_id
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
     UNION
 
     SELECT tu.id, tu.public_id, tu.project_file_id
     FROM numeric_ids n
     JOIN text_units tu ON tu.id = n.id
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
     UNION
 
@@ -143,6 +181,7 @@ resolved_text_units AS (
     FROM numeric_ids n
     JOIN entity_sources es ON es.id = n.id
     JOIN text_units tu ON tu.id = es.text_unit_id
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 
     UNION
 
@@ -150,11 +189,18 @@ resolved_text_units AS (
     FROM numeric_ids n
     JOIN relationship_sources rs ON rs.id = n.id
     JOIN text_units tu ON tu.id = rs.text_unit_id
+    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 )
 SELECT DISTINCT f.name, f.file_key, f.metadata, rtu.public_id
 FROM resolved_text_units rtu
 JOIN project_files f ON f.id = rtu.project_file_id
+JOIN project_scope ps ON ps.project_id = f.project_id
 `
+
+type GetFilesWithMetadataFromTextUnitIDsParams struct {
+	ProjectID int64    `json:"project_id"`
+	SourceIds []string `json:"source_ids"`
+}
 
 type GetFilesWithMetadataFromTextUnitIDsRow struct {
 	Name     string      `json:"name"`
@@ -163,8 +209,8 @@ type GetFilesWithMetadataFromTextUnitIDsRow struct {
 	PublicID string      `json:"public_id"`
 }
 
-func (q *Queries) GetFilesWithMetadataFromTextUnitIDs(ctx context.Context, dollar_1 []string) ([]GetFilesWithMetadataFromTextUnitIDsRow, error) {
-	rows, err := q.db.Query(ctx, getFilesWithMetadataFromTextUnitIDs, dollar_1)
+func (q *Queries) GetFilesWithMetadataFromTextUnitIDs(ctx context.Context, arg GetFilesWithMetadataFromTextUnitIDsParams) ([]GetFilesWithMetadataFromTextUnitIDsRow, error) {
+	rows, err := q.db.Query(ctx, getFilesWithMetadataFromTextUnitIDs, arg.ProjectID, arg.SourceIds)
 	if err != nil {
 		return nil, err
 	}

@@ -275,7 +275,10 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 
 	// Get file metadata for document context
 	if len(allSourcePublicIds) > 0 {
-		filesWithMetadata, err := q.GetFilesWithMetadataFromTextUnitIDs(ctx, allSourcePublicIds)
+		filesWithMetadata, err := q.GetFilesWithMetadataFromTextUnitIDs(ctx, pgdb.GetFilesWithMetadataFromTextUnitIDsParams{
+			ProjectID: projectId,
+			SourceIds: allSourcePublicIds,
+		})
 		if err == nil && len(filesWithMetadata) > 0 {
 			seenFiles := make(map[string]bool)
 			var metadataSection strings.Builder
