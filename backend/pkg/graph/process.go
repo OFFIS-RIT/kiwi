@@ -22,11 +22,10 @@ type processFileResult struct {
 func processFile(
 	ctx context.Context,
 	file loader.GraphFile,
-	encoder string,
 	client ai.GraphAIClient,
 	maxRetries int,
 ) (*processFileResult, error) {
-	units, err := getUnitsFromText(ctx, file, encoder)
+	units, err := getUnitsFromText(ctx, file)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to extract units from input text:\n%w", err)
 	}

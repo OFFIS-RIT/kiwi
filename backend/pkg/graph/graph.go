@@ -134,7 +134,7 @@ func (g *GraphClient) ExtractAndStage(
 			case <-gCtx.Done():
 				return nil
 			default:
-				result, err := processFile(gCtx, f, g.tokenEncoder, aiClient, g.maxRetries)
+				result, err := processFile(gCtx, f, aiClient, g.maxRetries)
 				if err != nil {
 					return fmt.Errorf("failed to process file %s: %w", f.ID, err)
 				}
@@ -295,7 +295,7 @@ func (g *GraphClient) processFilesAndBuildGraph(
 
 	totalUnits := 0
 	for _, file := range files {
-		units, err := getUnitsFromText(ctx, file, g.tokenEncoder)
+		units, err := getUnitsFromText(ctx, file)
 		if err == nil {
 			totalUnits += len(units)
 		}
@@ -340,7 +340,7 @@ func (g *GraphClient) processFilesAndBuildGraph(
 			case <-gCtx.Done():
 				return nil
 			default:
-				result, err := processFile(gCtx, f, g.tokenEncoder, aiClient, g.maxRetries)
+				result, err := processFile(gCtx, f, aiClient, g.maxRetries)
 				if err != nil {
 					return err
 				}
