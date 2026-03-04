@@ -27,6 +27,17 @@ func truncateDescription(desc string, maxLen int) string {
 	return desc[:maxLen] + "..."
 }
 
+func appendOptionalNextStepHint(result *strings.Builder, hint string) {
+	hint = strings.TrimSpace(hint)
+	if hint == "" {
+		return
+	}
+	if !strings.HasSuffix(hint, ".") {
+		hint += "."
+	}
+	fmt.Fprintf(result, "\nHint: Optional next step: %s\n", hint)
+}
+
 func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "search_entities",
@@ -105,11 +116,13 @@ func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId
 			result.WriteString("## Entities\n")
 			if len(entities) == 0 {
 				result.WriteString("No entities found matching the query.\n")
+				appendOptionalNextStepHint(&result, "try search_relationships, or call get_entity_types and then search_entities_by_type")
 			} else {
 				for i, e := range entities {
 					desc := truncateDescription(e.Description, 150)
 					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s): %s\n", i+1, e.ID, e.Name, e.Type, desc)
 				}
+				appendOptionalNextStepHint(&result, "use get_entity_neighbours on the top entity IDs to expand context, then get_entity_sources for citations")
 			}
 
 			return result.String(), nil
@@ -209,6 +222,7 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 			fmt.Fprintf(&result, "## Neighbours of Entity ID: %d\n", entityId)
 			if len(neighbours) == 0 {
 				result.WriteString("No neighbours found for this entity.\n")
+				appendOptionalNextStepHint(&result, "try search_relationships for broader connections or path_between_entities if you have another target entity")
 			} else {
 				for i, n := range neighbours {
 					desc := truncateDescription(n.NeighbourDescription, 150)
@@ -216,6 +230,7 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 					fmt.Fprintf(&result, "%d. [Rel ID: %d] \"%s\" (ID: %d, %s) - \"%s\" (rank: %.2f)\n   %s\n",
 						i+1, n.RelationshipID, n.NeighbourName, n.NeighbourID, n.NeighbourType, relDesc, n.Rank, desc)
 				}
+				appendOptionalNextStepHint(&result, "use get_entity_details for neighbour IDs or get_relationship_details for relationship IDs, then retrieve sources")
 			}
 
 			return result.String(), nil
@@ -338,7 +353,11 @@ func toolPathBetweenEntities(conn *pgxpool.Pool, projectId int64, trace graphque
 			}
 
 			if len(relations) == 0 {
-				return fmt.Sprintf("## Path\nNo path found between entity %d and entity %d.\n", startId, endId), nil
+				var result strings.Builder
+				result.WriteString("## Path\n")
+				fmt.Fprintf(&result, "No path found between entity %d and entity %d.\n", startId, endId)
+				appendOptionalNextStepHint(&result, "broaden discovery with search_entities/search_relationships around both endpoint entities")
+				return result.String(), nil
 			}
 
 			// Fetch entity names
@@ -377,6 +396,7 @@ func toolPathBetweenEntities(conn *pgxpool.Pool, projectId int64, trace graphque
 				currentEntity = nextEntity
 			}
 			result.WriteString("\n")
+			appendOptionalNextStepHint(&result, "call get_relationship_sources for relationship IDs in the path to gather citation-ready text")
 
 			return result.String(), nil
 		},
@@ -479,12 +499,14 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace g
 			result.WriteString("## Entity Sources\n")
 			if len(sources) == 0 {
 				result.WriteString("No sources found for the specified entities.\n")
+				appendOptionalNextStepHint(&result, "broaden with get_entity_neighbours or search_relationships, then retry source retrieval")
 			} else {
 				for i, s := range sources {
 					desc := strings.ReplaceAll(s.Description, "\n", " ")
 					desc = strings.ReplaceAll(desc, "\r", " ")
 					fmt.Fprintf(&result, "%d. [Entity ID: %d] (Source: %s): %s\n", i+1, s.EntityID, s.PublicID, desc)
 				}
+				appendOptionalNextStepHint(&result, "call get_source_document_metadata with returned source IDs to validate context before final answer")
 			}
 
 			return result.String(), nil
@@ -591,12 +613,14 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, t
 			result.WriteString("## Relationship Sources\n")
 			if len(sources) == 0 {
 				result.WriteString("No sources found for the specified relationships.\n")
+				appendOptionalNextStepHint(&result, "inspect related entities via get_entity_neighbours or get_relationship_details, then retry source retrieval")
 			} else {
 				for i, s := range sources {
 					desc := strings.ReplaceAll(s.Description, "\n", " ")
 					desc = strings.ReplaceAll(desc, "\r", " ")
 					fmt.Fprintf(&result, "%d. [%d <-> %d] (Source: %s): %s\n", i+1, s.SourceID, s.TargetID, s.PublicID, desc)
 				}
+				appendOptionalNextStepHint(&result, "call get_source_document_metadata with returned source IDs to validate context before final answer")
 			}
 
 			return result.String(), nil
@@ -660,6 +684,7 @@ func toolGetEntityDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.Tool {
 					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s)\n   %s\n\n", i+1, e.ID, e.Name, e.Type, desc)
 				}
 			}
+			appendOptionalNextStepHint(&result, "call get_entity_sources with these entity IDs to collect citable evidence")
 
 			return result.String(), nil
 		},
@@ -693,6 +718,7 @@ func toolGetEntityTypes(conn *pgxpool.Pool, projectId int64) ai.Tool {
 					fmt.Fprintf(&result, "%d. %s: %d entities\n", i+1, t.Type, t.Count)
 				}
 			}
+			appendOptionalNextStepHint(&result, "use search_entities_by_type with a relevant type and your query intent")
 
 			return result.String(), nil
 		},
@@ -788,11 +814,13 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 			fmt.Fprintf(&result, "## Entities of type \"%s\"\n", entityType)
 			if len(entities) == 0 {
 				fmt.Fprintf(&result, "No entities of type \"%s\" found matching the query.\n", entityType)
+				appendOptionalNextStepHint(&result, "try search_relationships, or call get_entity_types and then search_entities_by_type")
 			} else {
 				for i, e := range entities {
 					desc := truncateDescription(e.Description, 150)
 					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s): %s\n", i+1, e.ID, e.Name, e.Type, desc)
 				}
+				appendOptionalNextStepHint(&result, "use get_entity_neighbours on the top entity IDs to expand context, then get_entity_sources for citations")
 			}
 
 			return result.String(), nil
@@ -881,12 +909,14 @@ func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, proj
 			result.WriteString("## Relationships\n")
 			if len(relationships) == 0 {
 				result.WriteString("No relationships found matching the query.\n")
+				appendOptionalNextStepHint(&result, "try search_entities and explore with get_entity_neighbours")
 			} else {
 				for i, r := range relationships {
 					desc := truncateDescription(r.Description, 150)
 					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s) <-> %s (%s) (strength: %.2f)\n   %s\n",
 						i+1, r.ID, r.SourceName, r.SourceType, r.TargetName, r.TargetType, r.Rank, desc)
 				}
+				appendOptionalNextStepHint(&result, "use get_relationship_details for top relationship IDs, then get_relationship_sources for citations")
 			}
 
 			return result.String(), nil
@@ -958,6 +988,7 @@ func toolGetRelationshipDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.
 						i+1, r.ID, r.SourceName, r.SourceType, r.TargetName, r.TargetType, r.Rank, desc)
 				}
 			}
+			appendOptionalNextStepHint(&result, "call get_relationship_sources with these relationship IDs to collect citable evidence")
 
 			return result.String(), nil
 		},
@@ -1029,6 +1060,7 @@ func toolGetSourceDocumentMetadata(conn *pgxpool.Pool, projectId int64, trace gr
 					fmt.Fprintf(&result, "**%s**:\n%s\n\n", f.Name, metadata)
 				}
 			}
+			appendOptionalNextStepHint(&result, "if evidence is sufficient, synthesize the final cited answer; otherwise fetch additional sources using expanded entity/relationship search")
 
 			return result.String(), nil
 		},
