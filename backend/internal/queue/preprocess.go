@@ -124,11 +124,10 @@ func ProcessPreprocess(
 		case "doc", "docx", "odt":
 			docL := doc.NewDocOcrGraphLoader(s3L, ocrL)
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", upload.ID),
-				FilePath:  upload.FileKey,
-				MaxTokens: 500,
-				Loader:    docL,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", upload.ID),
+				FilePath: upload.FileKey,
+				Loader:   docL,
+				Metadata: metadataText,
 			})
 			files = append(files, f)
 
@@ -149,11 +148,10 @@ func ProcessPreprocess(
 		case "pptx":
 			pptxL := pptx.NewPPTXOcrGraphLoader(s3L, ocrL)
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", upload.ID),
-				FilePath:  upload.FileKey,
-				MaxTokens: 500,
-				Loader:    pptxL,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", upload.ID),
+				FilePath: upload.FileKey,
+				Loader:   pptxL,
+				Metadata: metadataText,
 			})
 			files = append(files, f)
 
@@ -178,11 +176,10 @@ func ProcessPreprocess(
 			})
 			pdfL := pdf.NewPDFOcrGraphLoader(s3L, ocrL)
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", upload.ID),
-				FilePath:  upload.FileKey,
-				MaxTokens: 500,
-				Loader:    pdfL,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", upload.ID),
+				FilePath: upload.FileKey,
+				Loader:   pdfL,
+				Metadata: metadataText,
 			})
 			files = append(files, f)
 
@@ -202,11 +199,10 @@ func ProcessPreprocess(
 				Loader:   s3L,
 			})
 			f := loader.NewGraphImageFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", upload.ID),
-				FilePath:  upload.FileKey,
-				MaxTokens: 500,
-				Loader:    imgL,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", upload.ID),
+				FilePath: upload.FileKey,
+				Loader:   imgL,
+				Metadata: metadataText,
 			})
 			files = append(files, f)
 			pageCount += 1
@@ -216,11 +212,10 @@ func ProcessPreprocess(
 				Loader:   s3L,
 			})
 			f := loader.NewGraphAudioFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", upload.ID),
-				FilePath:  upload.FileKey,
-				MaxTokens: 500,
-				Loader:    audioL,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", upload.ID),
+				FilePath: upload.FileKey,
+				Loader:   audioL,
+				Metadata: metadataText,
 			})
 			files = append(files, f)
 
@@ -238,14 +233,33 @@ func ProcessPreprocess(
 			} else {
 				pageCount += 1
 			}
+		case "json":
+			f := loader.NewGraphJSONFile(loader.NewGraphFileParams{
+				ID:       fmt.Sprintf("%d", upload.ID),
+				FilePath: upload.FileKey,
+				Loader:   s3L,
+				Metadata: metadataText,
+			})
+			files = append(files, f)
+
+			head, err := s3Client.HeadObject(ctx, &awss3.HeadObjectInput{
+				Bucket: aws.String(util.GetEnv("AWS_BUCKET")),
+				Key:    aws.String(upload.FileKey),
+			})
+			if err == nil && head.ContentLength != nil {
+				sizeKB := *head.ContentLength / 1024
+				pages := max(int(sizeKB/50), 1)
+				pageCount += pages
+			} else {
+				pageCount += 1
+			}
 		case "csv":
 			csvL := csv.NewCSVGraphLoader(s3L)
 			f := loader.NewGraphCSVFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", upload.ID),
-				FilePath:  upload.FileKey,
-				MaxTokens: 500,
-				Loader:    csvL,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", upload.ID),
+				FilePath: upload.FileKey,
+				Loader:   csvL,
+				Metadata: metadataText,
 			})
 			files = append(files, f)
 
@@ -262,11 +276,10 @@ func ProcessPreprocess(
 			}
 		case "xlsx", "xls":
 			tempFile := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", upload.ID),
-				FilePath:  upload.FileKey,
-				MaxTokens: 500,
-				Loader:    s3L,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", upload.ID),
+				FilePath: upload.FileKey,
+				Loader:   s3L,
+				Metadata: metadataText,
 			})
 			content, err := s3L.GetFileText(ctx, tempFile)
 			if err != nil {
@@ -312,11 +325,10 @@ func ProcessPreprocess(
 			}
 		case "txt", "md":
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", upload.ID),
-				FilePath:  upload.FileKey,
-				MaxTokens: 500,
-				Loader:    s3L,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", upload.ID),
+				FilePath: upload.FileKey,
+				Loader:   s3L,
+				Metadata: metadataText,
 			})
 			files = append(files, f)
 
@@ -334,10 +346,9 @@ func ProcessPreprocess(
 		default:
 			f := loader.NewGraphGenericFile(
 				loader.NewGraphFileParams{
-					ID:        fmt.Sprintf("%d", upload.ID),
-					FilePath:  upload.FileKey,
-					MaxTokens: 500,
-					Loader:    s3L,
+					ID:       fmt.Sprintf("%d", upload.ID),
+					FilePath: upload.FileKey,
+					Loader:   s3L,
 				},
 				upload.Name,
 			)

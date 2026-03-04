@@ -389,7 +389,6 @@ func AddFilesToProjectHandler(c echo.Context) error {
 
 	s3Client := c.(*middleware.AppContext).App.S3
 
-
 	keys := make(map[string]string, 0)
 	for _, file := range uploads {
 		src, err := file.Open()

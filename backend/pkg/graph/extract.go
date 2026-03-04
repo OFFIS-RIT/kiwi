@@ -10,6 +10,7 @@ import (
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	csvchunking "github.com/OFFIS-RIT/kiwi/backend/pkg/chunking/csv"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 
@@ -296,7 +297,7 @@ func summarizeCSV(text string, baseName string) string {
 
 	header := rows[0]
 	dataRows := rows
-	if isCSVHeader(rows) {
+	if csvchunking.IsCSVHeader(rows) {
 		dataRows = rows[1:]
 	}
 

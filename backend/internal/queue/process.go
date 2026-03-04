@@ -25,6 +25,10 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
+	csvchunker "github.com/OFFIS-RIT/kiwi/backend/pkg/chunking/csv"
+	jsonchunker "github.com/OFFIS-RIT/kiwi/backend/pkg/chunking/json"
+	singlechunker "github.com/OFFIS-RIT/kiwi/backend/pkg/chunking/single"
+	textchunker "github.com/OFFIS-RIT/kiwi/backend/pkg/chunking/text"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/graph"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader/s3"
@@ -72,6 +76,7 @@ func ProcessGraphMessage(
 
 	s3Bucket := util.GetEnvString("AWS_BUCKET", "kiwi")
 	s3L := s3.NewS3GraphFileLoaderWithClient(s3Bucket, s3Client)
+	tokenEncoder := "o200k_base"
 	files := make([]loader.GraphFile, 0)
 	excelSheetFileCounts := make(map[int64]int, len(*data.ProjectFiles))
 
@@ -103,17 +108,38 @@ func ProcessGraphMessage(
 					continue
 				}
 				f := loader.NewGraphCSVFile(loader.NewGraphFileParams{
-					ID:        fmt.Sprintf("%d-sheet-%d", file.ID, sheetIndex),
-					FilePath:  sheetFile,
-					MaxTokens: 500,
-					Loader:    s3L,
-					Metadata:  metadataText,
+					ID:       fmt.Sprintf("%d-sheet-%d", file.ID, sheetIndex),
+					FilePath: sheetFile,
+					Loader:   s3L,
+					Metadata: metadataText,
+					Chunker: csvchunker.NewCSVChunker(csvchunker.NewCSVChunkerParams{
+						MaxChunkSize: 500,
+						Encoder:      tokenEncoder,
+					}),
 				})
 
 				files = append(files, f)
 				excelSheetFileCounts[file.ID]++
 				sheetIndex++
 			}
+		case "json":
+			key := file.FileKey
+			base := filepath.Base(file.FileKey)
+			nameWithoutExt := strings.TrimSuffix(base, filepath.Ext(base))
+			name := fmt.Sprintf("%s.txt", nameWithoutExt)
+			key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
+
+			f := loader.NewGraphJSONFile(loader.NewGraphFileParams{
+				ID:       fmt.Sprintf("%d", file.ID),
+				FilePath: key,
+				Loader:   s3L,
+				Metadata: metadataText,
+				Chunker: jsonchunker.NewJSONChunker(jsonchunker.NewJSONChunkerParams{
+					MaxChunkSize: 500,
+					Encoder:      tokenEncoder,
+				}),
+			})
+			files = append(files, f)
 		case "csv":
 			key := file.FileKey
 			base := filepath.Base(file.FileKey)
@@ -122,11 +148,14 @@ func ProcessGraphMessage(
 			key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
 
 			f := loader.NewGraphCSVFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", file.ID),
-				FilePath:  key,
-				MaxTokens: 500,
-				Loader:    s3L,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", file.ID),
+				FilePath: key,
+				Loader:   s3L,
+				Metadata: metadataText,
+				Chunker: csvchunker.NewCSVChunker(csvchunker.NewCSVChunkerParams{
+					MaxChunkSize: 500,
+					Encoder:      tokenEncoder,
+				}),
 			})
 			files = append(files, f)
 		case "jpg", "jpeg", "png", "bmp", "gif", "tiff", "heic", "webp":
@@ -137,11 +166,11 @@ func ProcessGraphMessage(
 			key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
 
 			f := loader.NewGraphImageFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", file.ID),
-				FilePath:  key,
-				MaxTokens: 500,
-				Loader:    s3L,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", file.ID),
+				FilePath: key,
+				Loader:   s3L,
+				Metadata: metadataText,
+				Chunker:  singlechunker.NewSingleChunker(),
 			})
 			files = append(files, f)
 		case "mp3", "wav", "mpeg", "mpga", "m4a", "ogg", "webm":
@@ -152,11 +181,14 @@ func ProcessGraphMessage(
 			key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
 
 			f := loader.NewGraphAudioFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", file.ID),
-				FilePath:  key,
-				MaxTokens: 2000,
-				Loader:    s3L,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", file.ID),
+				FilePath: key,
+				Loader:   s3L,
+				Metadata: metadataText,
+				Chunker: textchunker.NewTextChunker(textchunker.NewTextChunkerParams{
+					MaxChunkSize: 2000,
+					Encoder:      tokenEncoder,
+				}),
 			})
 			files = append(files, f)
 		case "doc", "docx", "odt", "pptx", "pdf":
@@ -167,20 +199,26 @@ func ProcessGraphMessage(
 			key = fmt.Sprintf("%s/%s", filepath.Dir(file.FileKey), name)
 
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", file.ID),
-				FilePath:  key,
-				MaxTokens: 2000,
-				Loader:    s3L,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", file.ID),
+				FilePath: key,
+				Loader:   s3L,
+				Metadata: metadataText,
+				Chunker: textchunker.NewTextChunker(textchunker.NewTextChunkerParams{
+					MaxChunkSize: 2000,
+					Encoder:      tokenEncoder,
+				}),
 			})
 			files = append(files, f)
 		case "txt", "md":
 			f := loader.NewGraphDocumentFile(loader.NewGraphFileParams{
-				ID:        fmt.Sprintf("%d", file.ID),
-				FilePath:  file.FileKey,
-				MaxTokens: 2000,
-				Loader:    s3L,
-				Metadata:  metadataText,
+				ID:       fmt.Sprintf("%d", file.ID),
+				FilePath: file.FileKey,
+				Loader:   s3L,
+				Metadata: metadataText,
+				Chunker: textchunker.NewTextChunker(textchunker.NewTextChunkerParams{
+					MaxChunkSize: 2000,
+					Encoder:      tokenEncoder,
+				}),
 			})
 			files = append(files, f)
 		default:
@@ -192,10 +230,13 @@ func ProcessGraphMessage(
 
 			f := loader.NewGraphGenericFile(
 				loader.NewGraphFileParams{
-					ID:        fmt.Sprintf("%d", file.ID),
-					FilePath:  key,
-					MaxTokens: 500,
-					Loader:    s3L,
+					ID:       fmt.Sprintf("%d", file.ID),
+					FilePath: key,
+					Loader:   s3L,
+					Chunker: textchunker.NewTextChunker(textchunker.NewTextChunkerParams{
+						MaxChunkSize: 500,
+						Encoder:      tokenEncoder,
+					}),
 				},
 				file.Name,
 			)
@@ -257,7 +298,7 @@ func ProcessGraphMessage(
 	}
 
 	graphClient, err := graph.NewGraphClient(graph.NewGraphClientParams{
-		TokenEncoder:  "o200k_base",
+		TokenEncoder:  tokenEncoder,
 		ParallelFiles: 1,
 	})
 	if err != nil {

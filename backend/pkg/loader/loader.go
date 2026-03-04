@@ -2,6 +2,8 @@ package loader
 
 import (
 	"context"
+
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/chunking"
 )
 
 type GraphFileType string
@@ -12,6 +14,7 @@ const (
 	GraphFileTypeAudio    GraphFileType = "audio"
 	GraphFileTypeFile     GraphFileType = "file"
 	GraphFileTypeCSV      GraphFileType = "csv"
+	GraphFileTypeJSON     GraphFileType = "json"
 )
 
 type GraphBase64 struct {
@@ -20,19 +23,20 @@ type GraphBase64 struct {
 }
 
 // GraphFile represents a file that can be processed into text units
-// for graph construction. It contains metadata such as the file path,
-// maximum token limit, and optional custom entities.
+// for graph construction. It contains metadata such as the file path
+// and optional custom entities.
 //
 // The actual file content is retrieved via the associated GraphFileLoader.
+// Chunking strategy is determined by the assigned Chunker.
 type GraphFile struct {
 	ID             string
 	FilePath       string
 	FileType       GraphFileType
-	MaxTokens      int
 	CustomEntities []string
 	Loader         GraphFileLoader
 	Description    string
 	Metadata       string
+	Chunker        chunking.Chunker
 }
 
 // NewGraphFileParams defines the input parameters for creating a new GraphFile
@@ -41,10 +45,10 @@ type GraphFile struct {
 type NewGraphFileParams struct {
 	ID             string
 	FilePath       string
-	MaxTokens      int
 	CustomEntities []string
 	Loader         GraphFileLoader
 	Metadata       string
+	Chunker        chunking.Chunker
 }
 
 // NewGraphImageFile creates a new GraphFile of type GraphFileTypeImage
@@ -57,10 +61,10 @@ func NewGraphImageFile(
 		ID:             params.ID,
 		FilePath:       params.FilePath,
 		FileType:       GraphFileTypeImage,
-		MaxTokens:      params.MaxTokens,
 		Loader:         params.Loader,
 		CustomEntities: params.CustomEntities,
 		Metadata:       params.Metadata,
+		Chunker:        params.Chunker,
 	}
 }
 
@@ -74,10 +78,10 @@ func NewGraphDocumentFile(
 		ID:             params.ID,
 		FilePath:       params.FilePath,
 		FileType:       GraphFileTypeDocument,
-		MaxTokens:      params.MaxTokens,
 		Loader:         params.Loader,
 		CustomEntities: params.CustomEntities,
 		Metadata:       params.Metadata,
+		Chunker:        params.Chunker,
 	}
 }
 
@@ -91,10 +95,10 @@ func NewGraphAudioFile(
 		ID:             params.ID,
 		FilePath:       params.FilePath,
 		FileType:       GraphFileTypeAudio,
-		MaxTokens:      params.MaxTokens,
 		Loader:         params.Loader,
 		CustomEntities: params.CustomEntities,
 		Metadata:       params.Metadata,
+		Chunker:        params.Chunker,
 	}
 }
 
@@ -109,11 +113,11 @@ func NewGraphGenericFile(
 		ID:             params.ID,
 		FilePath:       params.FilePath,
 		FileType:       GraphFileTypeFile,
-		MaxTokens:      params.MaxTokens,
 		Loader:         params.Loader,
 		CustomEntities: params.CustomEntities,
 		Description:    description,
 		Metadata:       params.Metadata,
+		Chunker:        params.Chunker,
 	}
 }
 
@@ -123,10 +127,23 @@ func NewGraphCSVFile(params NewGraphFileParams) GraphFile {
 		ID:             params.ID,
 		FilePath:       params.FilePath,
 		FileType:       GraphFileTypeCSV,
-		MaxTokens:      params.MaxTokens,
 		Loader:         params.Loader,
 		CustomEntities: params.CustomEntities,
 		Metadata:       params.Metadata,
+		Chunker:        params.Chunker,
+	}
+}
+
+// NewGraphJSONFile creates a new GraphFile of type GraphFileTypeJSON.
+func NewGraphJSONFile(params NewGraphFileParams) GraphFile {
+	return GraphFile{
+		ID:             params.ID,
+		FilePath:       params.FilePath,
+		FileType:       GraphFileTypeJSON,
+		Loader:         params.Loader,
+		CustomEntities: params.CustomEntities,
+		Metadata:       params.Metadata,
+		Chunker:        params.Chunker,
 	}
 }
 
