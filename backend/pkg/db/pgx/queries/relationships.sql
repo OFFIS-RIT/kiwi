@@ -37,8 +37,10 @@ WHERE r.id = ANY(sqlc.arg(ids)::bigint[]);
 -- name: UpdateProjectRelationship :one
 UPDATE relationships SET description = $2, rank = $3, embedding = $4, updated_at = NOW() WHERE public_id = $1 RETURNING id;
 
--- name: DeleteProjectRelationship :exec
-DELETE FROM relationships WHERE id = $1;
+-- name: DeleteProjectRelationshipsByIDs :exec
+DELETE FROM relationships
+WHERE project_id = sqlc.arg(project_id)
+  AND id = ANY(sqlc.arg(ids)::bigint[]);
 
 -- name: UpsertRelationshipSources :exec
 WITH input AS (
@@ -60,28 +62,45 @@ SET relationship_id = EXCLUDED.relationship_id,
     embedding = EXCLUDED.embedding,
     updated_at = NOW();
 
--- name: UpdateRelationshipSourceEntity :exec
-UPDATE relationships SET source_id = $2 WHERE source_id = $1 AND project_id = $3;
+-- name: UpdateRelationshipSourceEntitiesBatch :exec
+UPDATE relationships
+SET source_id = sqlc.arg(canonical_id)
+WHERE project_id = sqlc.arg(project_id)
+  AND source_id = ANY(sqlc.arg(entity_ids)::bigint[]);
 
--- name: UpdateRelationshipTargetEntity :exec
-UPDATE relationships SET target_id = $2 WHERE target_id = $1 AND project_id = $3;
+-- name: UpdateRelationshipTargetEntitiesBatch :exec
+UPDATE relationships
+SET target_id = sqlc.arg(canonical_id)
+WHERE project_id = sqlc.arg(project_id)
+  AND target_id = ANY(sqlc.arg(entity_ids)::bigint[]);
 
--- name: FindDuplicateRelationships :many
-SELECT r1.id as id1, r1.public_id as public_id1, r1.rank as rank1,
-       r2.id as id2, r2.public_id as public_id2, r2.rank as rank2,
-       r1.source_id, r1.target_id
-FROM relationships r1
-JOIN relationships r2 ON (
-    (r1.source_id = r2.source_id AND r1.target_id = r2.target_id)
-    OR (r1.source_id = r2.target_id AND r1.target_id = r2.source_id)
+-- name: TransferRelationshipSourcesBatchByMappings :exec
+WITH input AS (
+    SELECT
+        rel.relationship_id,
+        (sqlc.arg(canonical_ids)::bigint[])[rel.ord]::bigint AS canonical_id
+    FROM unnest(sqlc.arg(relationship_ids)::bigint[]) WITH ORDINALITY AS rel(relationship_id, ord)
 )
-WHERE r1.id < r2.id AND r1.project_id = $1;
+UPDATE relationship_sources rs
+SET relationship_id = input.canonical_id
+FROM input
+JOIN relationships r ON r.id = input.relationship_id
+WHERE rs.relationship_id = input.relationship_id
+  AND r.project_id = sqlc.arg(project_id);
 
--- name: TransferRelationshipSources :exec
-UPDATE relationship_sources SET relationship_id = $2 WHERE relationship_id = $1;
-
--- name: UpdateRelationshipRank :exec
-UPDATE relationships SET rank = $1, updated_at = NOW() WHERE id = $2;
+-- name: UpdateProjectRelationshipRanksByIDs :exec
+WITH input AS (
+    SELECT
+        rel.id,
+        (sqlc.arg(ranks)::float8[])[rel.ord]::float8 AS rank
+    FROM unnest(sqlc.arg(ids)::bigint[]) WITH ORDINALITY AS rel(id, ord)
+)
+UPDATE relationships r
+SET rank = input.rank,
+    updated_at = NOW()
+FROM input
+WHERE r.id = input.id
+  AND r.project_id = sqlc.arg(project_id);
 
 -- name: DeleteRelationshipsWithoutSources :exec
 DELETE FROM relationships 

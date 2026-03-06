@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"slices"
@@ -9,6 +8,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 
 	"github.com/labstack/echo/v4"
 )
@@ -160,7 +160,7 @@ func DeleteGroupHandler(c echo.Context) error {
 		}
 	}
 
-	projects, err := qtx.GetProjectsByGroup(ctx, sql.NullInt64{Int64: params.ID, Valid: true})
+	projects, err := qtx.GetProjectsByGroup(ctx, sqltype.NullInt64{Int64: params.ID, Valid: true})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, deleteGroupResponse{
 			Message: "Internal server error",

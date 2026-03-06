@@ -7,8 +7,8 @@ package pgdb
 
 import (
 	"context"
-	"database/sql"
 
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -53,9 +53,9 @@ type GetAvailableExpertProjectsParams struct {
 
 type GetAvailableExpertProjectsRow struct {
 	ProjectID   int64              `json:"project_id"`
-	GroupID     sql.NullInt64      `json:"group_id"`
-	UserID      sql.NullInt64      `json:"user_id"`
-	GraphID     sql.NullInt64      `json:"graph_id"`
+	GroupID     sqltype.NullInt64  `json:"group_id"`
+	UserID      sqltype.NullInt64  `json:"user_id"`
+	GraphID     sqltype.NullInt64  `json:"graph_id"`
 	Name        string             `json:"name"`
 	Description pgtype.Text        `json:"description"`
 	State       string             `json:"state"`
@@ -115,9 +115,9 @@ WHERE g.type = 'expert'
 
 type GetExpertProjectByProjectIDRow struct {
 	ProjectID   int64              `json:"project_id"`
-	GroupID     sql.NullInt64      `json:"group_id"`
-	UserID      sql.NullInt64      `json:"user_id"`
-	GraphID     sql.NullInt64      `json:"graph_id"`
+	GroupID     sqltype.NullInt64  `json:"group_id"`
+	UserID      sqltype.NullInt64  `json:"user_id"`
+	GraphID     sqltype.NullInt64  `json:"graph_id"`
 	Name        string             `json:"name"`
 	Description pgtype.Text        `json:"description"`
 	State       string             `json:"state"`
@@ -166,9 +166,9 @@ ORDER BY g.id ASC
 
 type GetExpertProjectsRow struct {
 	ProjectID   int64              `json:"project_id"`
-	GroupID     sql.NullInt64      `json:"group_id"`
-	UserID      sql.NullInt64      `json:"user_id"`
-	GraphID     sql.NullInt64      `json:"graph_id"`
+	GroupID     sqltype.NullInt64  `json:"group_id"`
+	UserID      sqltype.NullInt64  `json:"user_id"`
+	GraphID     sqltype.NullInt64  `json:"graph_id"`
 	Name        string             `json:"name"`
 	Description pgtype.Text        `json:"description"`
 	State       string             `json:"state"`

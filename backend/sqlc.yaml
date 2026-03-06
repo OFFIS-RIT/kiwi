@@ -17,5 +17,5 @@ sql:
           - db_type: "pg_catalog.int8"
             nullable: true
             go_type:
-              import: "database/sql"
+              import: "github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
               type: "NullInt64"

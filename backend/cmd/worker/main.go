@@ -117,8 +117,6 @@ func main() {
 	if err != nil {
 		logger.Fatal("Unable to parse database config", "err", err)
 	}
-	pgCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-	pgCfg.ConnConfig.StatementCacheCapacity = 0
 	pgCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		return pgxvec.RegisterTypes(ctx, conn)
 	}

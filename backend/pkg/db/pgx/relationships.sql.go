@@ -11,12 +11,19 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
-const deleteProjectRelationship = `-- name: DeleteProjectRelationship :exec
-DELETE FROM relationships WHERE id = $1
+const deleteProjectRelationshipsByIDs = `-- name: DeleteProjectRelationshipsByIDs :exec
+DELETE FROM relationships
+WHERE project_id = $1
+  AND id = ANY($2::bigint[])
 `
 
-func (q *Queries) DeleteProjectRelationship(ctx context.Context, id int64) error {
-	_, err := q.db.Exec(ctx, deleteProjectRelationship, id)
+type DeleteProjectRelationshipsByIDsParams struct {
+	ProjectID int64   `json:"project_id"`
+	Ids       []int64 `json:"ids"`
+}
+
+func (q *Queries) DeleteProjectRelationshipsByIDs(ctx context.Context, arg DeleteProjectRelationshipsByIDsParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectRelationshipsByIDs, arg.ProjectID, arg.Ids)
 	return err
 }
 
@@ -29,58 +36,6 @@ WHERE project_id = $1
 func (q *Queries) DeleteRelationshipsWithoutSources(ctx context.Context, projectID int64) error {
 	_, err := q.db.Exec(ctx, deleteRelationshipsWithoutSources, projectID)
 	return err
-}
-
-const findDuplicateRelationships = `-- name: FindDuplicateRelationships :many
-SELECT r1.id as id1, r1.public_id as public_id1, r1.rank as rank1,
-       r2.id as id2, r2.public_id as public_id2, r2.rank as rank2,
-       r1.source_id, r1.target_id
-FROM relationships r1
-JOIN relationships r2 ON (
-    (r1.source_id = r2.source_id AND r1.target_id = r2.target_id)
-    OR (r1.source_id = r2.target_id AND r1.target_id = r2.source_id)
-)
-WHERE r1.id < r2.id AND r1.project_id = $1
-`
-
-type FindDuplicateRelationshipsRow struct {
-	Id1       int64   `json:"id1"`
-	PublicId1 string  `json:"public_id1"`
-	Rank1     float64 `json:"rank1"`
-	Id2       int64   `json:"id2"`
-	PublicId2 string  `json:"public_id2"`
-	Rank2     float64 `json:"rank2"`
-	SourceID  int64   `json:"source_id"`
-	TargetID  int64   `json:"target_id"`
-}
-
-func (q *Queries) FindDuplicateRelationships(ctx context.Context, projectID int64) ([]FindDuplicateRelationshipsRow, error) {
-	rows, err := q.db.Query(ctx, findDuplicateRelationships, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FindDuplicateRelationshipsRow{}
-	for rows.Next() {
-		var i FindDuplicateRelationshipsRow
-		if err := rows.Scan(
-			&i.Id1,
-			&i.PublicId1,
-			&i.Rank1,
-			&i.Id2,
-			&i.PublicId2,
-			&i.Rank2,
-			&i.SourceID,
-			&i.TargetID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const getProjectRelationships = `-- name: GetProjectRelationships :many
@@ -360,17 +315,29 @@ func (q *Queries) GetRelationshipsWithSourcesFromUnits(ctx context.Context, arg 
 	return items, nil
 }
 
-const transferRelationshipSources = `-- name: TransferRelationshipSources :exec
-UPDATE relationship_sources SET relationship_id = $2 WHERE relationship_id = $1
+const transferRelationshipSourcesBatchByMappings = `-- name: TransferRelationshipSourcesBatchByMappings :exec
+WITH input AS (
+    SELECT
+        rel.relationship_id,
+        ($2::bigint[])[rel.ord]::bigint AS canonical_id
+    FROM unnest($3::bigint[]) WITH ORDINALITY AS rel(relationship_id, ord)
+)
+UPDATE relationship_sources rs
+SET relationship_id = input.canonical_id
+FROM input
+JOIN relationships r ON r.id = input.relationship_id
+WHERE rs.relationship_id = input.relationship_id
+  AND r.project_id = $1
 `
 
-type TransferRelationshipSourcesParams struct {
-	RelationshipID   int64 `json:"relationship_id"`
-	RelationshipID_2 int64 `json:"relationship_id_2"`
+type TransferRelationshipSourcesBatchByMappingsParams struct {
+	ProjectID       int64   `json:"project_id"`
+	CanonicalIds    []int64 `json:"canonical_ids"`
+	RelationshipIds []int64 `json:"relationship_ids"`
 }
 
-func (q *Queries) TransferRelationshipSources(ctx context.Context, arg TransferRelationshipSourcesParams) error {
-	_, err := q.db.Exec(ctx, transferRelationshipSources, arg.RelationshipID, arg.RelationshipID_2)
+func (q *Queries) TransferRelationshipSourcesBatchByMappings(ctx context.Context, arg TransferRelationshipSourcesBatchByMappingsParams) error {
+	_, err := q.db.Exec(ctx, transferRelationshipSourcesBatchByMappings, arg.ProjectID, arg.CanonicalIds, arg.RelationshipIds)
 	return err
 }
 
@@ -395,6 +362,32 @@ func (q *Queries) UpdateProjectRelationship(ctx context.Context, arg UpdateProje
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const updateProjectRelationshipRanksByIDs = `-- name: UpdateProjectRelationshipRanksByIDs :exec
+WITH input AS (
+    SELECT
+        rel.id,
+        ($2::float8[])[rel.ord]::float8 AS rank
+    FROM unnest($3::bigint[]) WITH ORDINALITY AS rel(id, ord)
+)
+UPDATE relationships r
+SET rank = input.rank,
+    updated_at = NOW()
+FROM input
+WHERE r.id = input.id
+  AND r.project_id = $1
+`
+
+type UpdateProjectRelationshipRanksByIDsParams struct {
+	ProjectID int64     `json:"project_id"`
+	Ranks     []float64 `json:"ranks"`
+	Ids       []int64   `json:"ids"`
+}
+
+func (q *Queries) UpdateProjectRelationshipRanksByIDs(ctx context.Context, arg UpdateProjectRelationshipRanksByIDsParams) error {
+	_, err := q.db.Exec(ctx, updateProjectRelationshipRanksByIDs, arg.ProjectID, arg.Ranks, arg.Ids)
+	return err
 }
 
 const updateProjectRelationshipsByIDs = `-- name: UpdateProjectRelationshipsByIDs :exec
@@ -424,47 +417,39 @@ func (q *Queries) UpdateProjectRelationshipsByIDs(ctx context.Context, arg Updat
 	return err
 }
 
-const updateRelationshipRank = `-- name: UpdateRelationshipRank :exec
-UPDATE relationships SET rank = $1, updated_at = NOW() WHERE id = $2
+const updateRelationshipSourceEntitiesBatch = `-- name: UpdateRelationshipSourceEntitiesBatch :exec
+UPDATE relationships
+SET source_id = $1
+WHERE project_id = $2
+  AND source_id = ANY($3::bigint[])
 `
 
-type UpdateRelationshipRankParams struct {
-	Rank float64 `json:"rank"`
-	ID   int64   `json:"id"`
+type UpdateRelationshipSourceEntitiesBatchParams struct {
+	CanonicalID int64   `json:"canonical_id"`
+	ProjectID   int64   `json:"project_id"`
+	EntityIds   []int64 `json:"entity_ids"`
 }
 
-func (q *Queries) UpdateRelationshipRank(ctx context.Context, arg UpdateRelationshipRankParams) error {
-	_, err := q.db.Exec(ctx, updateRelationshipRank, arg.Rank, arg.ID)
+func (q *Queries) UpdateRelationshipSourceEntitiesBatch(ctx context.Context, arg UpdateRelationshipSourceEntitiesBatchParams) error {
+	_, err := q.db.Exec(ctx, updateRelationshipSourceEntitiesBatch, arg.CanonicalID, arg.ProjectID, arg.EntityIds)
 	return err
 }
 
-const updateRelationshipSourceEntity = `-- name: UpdateRelationshipSourceEntity :exec
-UPDATE relationships SET source_id = $2 WHERE source_id = $1 AND project_id = $3
+const updateRelationshipTargetEntitiesBatch = `-- name: UpdateRelationshipTargetEntitiesBatch :exec
+UPDATE relationships
+SET target_id = $1
+WHERE project_id = $2
+  AND target_id = ANY($3::bigint[])
 `
 
-type UpdateRelationshipSourceEntityParams struct {
-	SourceID   int64 `json:"source_id"`
-	SourceID_2 int64 `json:"source_id_2"`
-	ProjectID  int64 `json:"project_id"`
+type UpdateRelationshipTargetEntitiesBatchParams struct {
+	CanonicalID int64   `json:"canonical_id"`
+	ProjectID   int64   `json:"project_id"`
+	EntityIds   []int64 `json:"entity_ids"`
 }
 
-func (q *Queries) UpdateRelationshipSourceEntity(ctx context.Context, arg UpdateRelationshipSourceEntityParams) error {
-	_, err := q.db.Exec(ctx, updateRelationshipSourceEntity, arg.SourceID, arg.SourceID_2, arg.ProjectID)
-	return err
-}
-
-const updateRelationshipTargetEntity = `-- name: UpdateRelationshipTargetEntity :exec
-UPDATE relationships SET target_id = $2 WHERE target_id = $1 AND project_id = $3
-`
-
-type UpdateRelationshipTargetEntityParams struct {
-	TargetID   int64 `json:"target_id"`
-	TargetID_2 int64 `json:"target_id_2"`
-	ProjectID  int64 `json:"project_id"`
-}
-
-func (q *Queries) UpdateRelationshipTargetEntity(ctx context.Context, arg UpdateRelationshipTargetEntityParams) error {
-	_, err := q.db.Exec(ctx, updateRelationshipTargetEntity, arg.TargetID, arg.TargetID_2, arg.ProjectID)
+func (q *Queries) UpdateRelationshipTargetEntitiesBatch(ctx context.Context, arg UpdateRelationshipTargetEntitiesBatchParams) error {
+	_, err := q.db.Exec(ctx, updateRelationshipTargetEntitiesBatch, arg.CanonicalID, arg.ProjectID, arg.EntityIds)
 	return err
 }
 

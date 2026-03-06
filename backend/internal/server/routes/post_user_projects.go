@@ -1,8 +1,6 @@
 package routes
 
 import (
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,6 +15,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
 
@@ -81,7 +80,7 @@ func CreateUserProjectHandler(c echo.Context) error {
 	qtx := q.WithTx(tx)
 
 	project, err := qtx.CreateProjectWithOwner(ctx, pgdb.CreateProjectWithOwnerParams{
-		UserID:      sql.NullInt64{Int64: user.UserID, Valid: true},
+		UserID:      sqltype.NullInt64{Int64: user.UserID, Valid: true},
 		Name:        data.Name,
 		Description: pgtype.Text{},
 		State:       "create",
@@ -96,7 +95,7 @@ func CreateUserProjectHandler(c echo.Context) error {
 	if err := qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 		ProjectID:     project.ID,
 		UpdateType:    "create",
-		UpdateMessage: json.RawMessage(util.ConvertStructToJson(project)),
+		UpdateMessage: util.ConvertStructToJson(project),
 	}); err != nil {
 		logger.Error("Failed to add project update", "err", err)
 		return c.JSON(http.StatusInternalServerError, createUserProjectResponse{Message: "Internal server error"})
@@ -139,7 +138,7 @@ func CreateUserProjectHandler(c echo.Context) error {
 		if err := qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 			ProjectID:     project.ID,
 			UpdateType:    "add_file",
-			UpdateMessage: json.RawMessage(util.ConvertStructToJson(projectFile)),
+			UpdateMessage: util.ConvertStructToJson(projectFile),
 		}); err != nil {
 			logger.Error("Failed to add project update", "err", err)
 			return c.JSON(http.StatusInternalServerError, createUserProjectResponse{Message: "Internal server error"})

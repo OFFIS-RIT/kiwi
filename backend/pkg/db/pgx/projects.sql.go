@@ -7,8 +7,8 @@ package pgdb
 
 import (
 	"context"
-	"database/sql"
 
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -42,13 +42,13 @@ func (q *Queries) AddFileToProject(ctx context.Context, arg AddFileToProjectPara
 
 const addProjectUpdate = `-- name: AddProjectUpdate :exec
 INSERT INTO project_updates (project_id, update_type, update_message)
-VALUES ($1, $2, $3)
+VALUES ($1, $2, $3::text::json)
 `
 
 type AddProjectUpdateParams struct {
 	ProjectID     int64  `json:"project_id"`
 	UpdateType    string `json:"update_type"`
-	UpdateMessage []byte `json:"update_message"`
+	UpdateMessage string `json:"update_message"`
 }
 
 func (q *Queries) AddProjectUpdate(ctx context.Context, arg AddProjectUpdateParams) error {
@@ -76,9 +76,9 @@ VALUES ($1, $2, $3) RETURNING id, group_id, user_id, graph_id, name, description
 `
 
 type CreateProjectParams struct {
-	GroupID sql.NullInt64 `json:"group_id"`
-	Name    string        `json:"name"`
-	State   string        `json:"state"`
+	GroupID sqltype.NullInt64 `json:"group_id"`
+	Name    string            `json:"name"`
+	State   string            `json:"state"`
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Graph, error) {
@@ -107,14 +107,14 @@ RETURNING id, group_id, user_id, graph_id, name, description, state, type, hidde
 `
 
 type CreateProjectWithOwnerParams struct {
-	GroupID     sql.NullInt64 `json:"group_id"`
-	UserID      sql.NullInt64 `json:"user_id"`
-	GraphID     sql.NullInt64 `json:"graph_id"`
-	Name        string        `json:"name"`
-	Description pgtype.Text   `json:"description"`
-	State       string        `json:"state"`
-	Type        pgtype.Text   `json:"type"`
-	Hidden      bool          `json:"hidden"`
+	GroupID     sqltype.NullInt64 `json:"group_id"`
+	UserID      sqltype.NullInt64 `json:"user_id"`
+	GraphID     sqltype.NullInt64 `json:"graph_id"`
+	Name        string            `json:"name"`
+	Description pgtype.Text       `json:"description"`
+	State       string            `json:"state"`
+	Type        pgtype.Text       `json:"type"`
+	Hidden      bool              `json:"hidden"`
 }
 
 func (q *Queries) CreateProjectWithOwner(ctx context.Context, arg CreateProjectWithOwnerParams) (Graph, error) {
@@ -403,7 +403,7 @@ WHERE g.group_id = $1
    OR parent.group_id = $1
 `
 
-func (q *Queries) GetProjectsByGroup(ctx context.Context, groupID sql.NullInt64) ([]Graph, error) {
+func (q *Queries) GetProjectsByGroup(ctx context.Context, groupID sqltype.NullInt64) ([]Graph, error) {
 	rows, err := q.db.Query(ctx, getProjectsByGroup, groupID)
 	if err != nil {
 		return nil, err
@@ -547,7 +547,7 @@ type GetUserProjectsRow struct {
 	ProjectType  string `json:"project_type"`
 }
 
-func (q *Queries) GetUserProjects(ctx context.Context, userID sql.NullInt64) ([]GetUserProjectsRow, error) {
+func (q *Queries) GetUserProjects(ctx context.Context, userID sqltype.NullInt64) ([]GetUserProjectsRow, error) {
 	rows, err := q.db.Query(ctx, getUserProjects, userID)
 	if err != nil {
 		return nil, err

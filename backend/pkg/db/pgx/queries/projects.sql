@@ -134,7 +134,7 @@ DELETE FROM project_files WHERE id = $1;
 
 -- name: AddProjectUpdate :exec
 INSERT INTO project_updates (project_id, update_type, update_message)
-VALUES ($1, $2, $3);
+VALUES ($1, $2, sqlc.arg(update_message)::text::json);
 
 -- name: GetDeletedProjectFiles :many
 SELECT * FROM project_files WHERE project_id = $1 AND deleted = true;
