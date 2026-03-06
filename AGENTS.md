@@ -111,7 +111,7 @@ make start            # Start production
 make stop             # Stop production
 
 # Database
-make migrate          # Run migrations (reads .env for DATABASE_URL)
+make migrate          # Run migrations (uses DATABASE_DIRECT_URL when set)
 
 # Backend code generation
 cd backend && make generate   # Generate sqlc code after modifying .sql files
@@ -182,7 +182,8 @@ kiwi/
 
 | Service  | Dev Port    | Purpose                       |
 | -------- | ----------- | ----------------------------- |
-| db       | 5432        | PostgreSQL + pgvector         |
+| db       | internal    | PostgreSQL + pgvector         |
+| db-bouncer | 5432      | PostgreSQL connection pool    |
 | rabbitmq | 5672, 15672 | Message queue + management UI |
 | rustfs   | 9000, 9001  | S3-compatible storage         |
 | ollama   | 11434       | Local LLM inference           |
@@ -197,7 +198,8 @@ Copy `.env.sample` to `.env`. Key variables:
 
 | Variable                                      | Purpose                                   |
 | --------------------------------------------- | ----------------------------------------- |
-| `DATABASE_URL`                                | PostgreSQL connection                     |
+| `DATABASE_URL`                                | PgBouncer PostgreSQL connection           |
+| `DATABASE_DIRECT_URL`                         | Direct PostgreSQL connection for migrations |
 | `AWS_*`                                       | RustFS/S3 config (endpoint, keys, bucket) |
 | `AI_ADAPTER`                                  | `openai` or `ollama`                      |
 | `AI_CHAT_URL`, `AI_EMBED_URL`, `AI_IMAGE_URL` | AI service endpoints                      |

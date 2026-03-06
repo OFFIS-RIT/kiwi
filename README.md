@@ -111,7 +111,8 @@ make migrate          # Run database migrations manually
 | frontend | 3000        | Next.js dev server    |
 | auth     | 4321        | Auth                  |
 | server   | 8080        | Go API server         |
-| db       | 5432        | PostgreSQL + pgvector |
+| db       | internal    | PostgreSQL + pgvector |
+| db-bouncer | 5432      | PostgreSQL connection pool |
 | rabbitmq | 5672, 15672 | Message queue         |
 | rustfs   | 9000, 9001  | S3-compatible storage |
 | ollama   | 11434       | Local LLM inference   |
@@ -298,7 +299,8 @@ Copy `.env.sample` to `.env` and configure:
 | `MASTER_USER_ID`         | Master user ID (integer)           |
 | `MASTER_USER_ROLE`       | Master user role (e.g., admin)     |
 | `NEXT_PUBLIC_API_URL`    | Frontend API base URL              |
-| `DATABASE_URL`           | PostgreSQL connection string       |
+| `DATABASE_URL`           | PgBouncer PostgreSQL connection string |
+| `DATABASE_DIRECT_URL`    | Direct PostgreSQL connection string for migrations |
 | `AWS_REGION`             | S3 region                          |
 | `AWS_ENDPOINT`           | RustFS/S3 endpoint                 |
 | `AWS_PUBLIC_ENDPOINT`    | Public S3 endpoint (for file URLs) |
