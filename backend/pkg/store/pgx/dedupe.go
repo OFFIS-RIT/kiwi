@@ -60,6 +60,8 @@ type relationshipState struct {
 	SourceID     int64
 	TargetID     int64
 	Rank         float64
+	RankSum      float64
+	RankCount    int
 	OriginalRank float64
 	Active       bool
 }
@@ -161,7 +163,7 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 		relationshipPlanner.applyEntityMerges(iterationApplied)
 		relationshipPlanner.dedupeIteration()
 		plan := relationshipPlanner.buildPlan()
-		if err := s.applyRelationshipDedupePlan(ctx, qtx, projectID, plan); err != nil {
+		if err := s.applyRelationshipDedupePlan(ctx, projectID, plan); err != nil {
 			return fmt.Errorf("failed to dedupe relationships: %w", err)
 		}
 		relationshipPlanner.commitPlan(plan)
@@ -889,6 +891,8 @@ func newRelationshipDedupePlanner(rows []pgdb.GetProjectRelationshipsRow) *relat
 			SourceID:     row.SourceID,
 			TargetID:     row.TargetID,
 			Rank:         row.Rank,
+			RankSum:      row.Rank,
+			RankCount:    1,
 			OriginalRank: row.Rank,
 			Active:       true,
 		}
@@ -950,8 +954,15 @@ func (p *relationshipDedupePlanner) dedupeIteration() {
 		})
 
 		keep := group[0]
-		lastDupe := group[len(group)-1]
-		keep.Rank = (keep.Rank + lastDupe.Rank) / 2
+		totalRank := 0.0
+		totalCount := 0
+		for _, state := range group {
+			totalRank += state.RankSum
+			totalCount += state.RankCount
+		}
+		keep.RankSum = totalRank
+		keep.RankCount = totalCount
+		keep.Rank = totalRank / float64(totalCount)
 
 		for _, dupe := range group[1:] {
 			dupe.Active = false
@@ -1087,12 +1098,22 @@ func selectGroupTypeBySources(entities []*entityWithMeta) string {
 
 func (s *GraphDBStorage) applyRelationshipDedupePlan(
 	ctx context.Context,
-	qtx *pgdb.Queries,
 	projectID int64,
 	plan relationshipDedupePlan,
 ) error {
+	if len(plan.RelationshipIDs) == 0 && len(plan.RankIDs) == 0 && len(plan.DeleteIDs) == 0 {
+		return nil
+	}
+
+	tx, err := s.conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin relationship dedupe tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	txq := pgdb.New(tx)
+
 	if len(plan.RelationshipIDs) > 0 {
-		err := qtx.TransferRelationshipSourcesBatchByMappings(ctx, pgdb.TransferRelationshipSourcesBatchByMappingsParams{
+		err := txq.TransferRelationshipSourcesBatchByMappings(ctx, pgdb.TransferRelationshipSourcesBatchByMappingsParams{
 			ProjectID:       projectID,
 			RelationshipIds: plan.RelationshipIDs,
 			CanonicalIds:    plan.CanonicalIDs,
@@ -1103,7 +1124,7 @@ func (s *GraphDBStorage) applyRelationshipDedupePlan(
 	}
 
 	if len(plan.RankIDs) > 0 {
-		err := qtx.UpdateProjectRelationshipRanksByIDs(ctx, pgdb.UpdateProjectRelationshipRanksByIDsParams{
+		err := txq.UpdateProjectRelationshipRanksByIDs(ctx, pgdb.UpdateProjectRelationshipRanksByIDsParams{
 			ProjectID: projectID,
 			Ids:       plan.RankIDs,
 			Ranks:     plan.Ranks,
@@ -1114,13 +1135,17 @@ func (s *GraphDBStorage) applyRelationshipDedupePlan(
 	}
 
 	if len(plan.DeleteIDs) > 0 {
-		err := qtx.DeleteProjectRelationshipsByIDs(ctx, pgdb.DeleteProjectRelationshipsByIDsParams{
+		err := txq.DeleteProjectRelationshipsByIDs(ctx, pgdb.DeleteProjectRelationshipsByIDsParams{
 			ProjectID: projectID,
 			Ids:       plan.DeleteIDs,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to delete duplicate relationships: %w", err)
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit relationship dedupe tx: %w", err)
 	}
 
 	return nil

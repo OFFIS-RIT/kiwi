@@ -1,13 +1,14 @@
 package pgx
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 )
 
-func TestRelationshipDedupePlanner_SingleIterationMatchesCurrentSemantics(t *testing.T) {
+func TestRelationshipDedupePlanner_SingleIterationAveragesAllDuplicateRanks(t *testing.T) {
 	planner := newRelationshipDedupePlanner([]pgdb.GetProjectRelationshipsRow{
 		{ID: 1, SourceID: 10, TargetID: 20, Rank: 0.2},
 		{ID: 2, SourceID: 10, TargetID: 20, Rank: 0.4},
@@ -30,12 +31,10 @@ func TestRelationshipDedupePlanner_SingleIterationMatchesCurrentSemantics(t *tes
 	if !reflect.DeepEqual(plan.RankIDs, []int64{1}) {
 		t.Fatalf("expected rank ids [1], got %v", plan.RankIDs)
 	}
-	if !reflect.DeepEqual(plan.Ranks, []float64{0.5}) {
-		t.Fatalf("expected ranks [0.5], got %v", plan.Ranks)
-	}
+	assertFloatSlicesClose(t, plan.Ranks, []float64{(0.2 + 0.4 + 0.8) / 3})
 }
 
-func TestRelationshipDedupePlanner_MultiIterationPreservesRankProgression(t *testing.T) {
+func TestRelationshipDedupePlanner_MultiIterationPreservesTrueMean(t *testing.T) {
 	planner := newRelationshipDedupePlanner([]pgdb.GetProjectRelationshipsRow{
 		{ID: 1, SourceID: 10, TargetID: 20, Rank: 0.2},
 		{ID: 2, SourceID: 10, TargetID: 20, Rank: 0.4},
@@ -62,9 +61,7 @@ func TestRelationshipDedupePlanner_MultiIterationPreservesRankProgression(t *tes
 	if !reflect.DeepEqual(plan.RankIDs, []int64{1}) {
 		t.Fatalf("expected rank ids [1], got %v", plan.RankIDs)
 	}
-	if !reflect.DeepEqual(plan.Ranks, []float64{0.55}) {
-		t.Fatalf("expected ranks [0.55], got %v", plan.Ranks)
-	}
+	assertFloatSlicesClose(t, plan.Ranks, []float64{(0.2 + 0.4 + 0.8) / 3})
 }
 
 func TestRelationshipDedupePlanner_CommitPlanClearsAppliedChanges(t *testing.T) {
@@ -114,7 +111,17 @@ func TestRelationshipDedupePlanner_ResolvesCanonicalChains(t *testing.T) {
 	if !reflect.DeepEqual(plan.RankIDs, []int64{4}) {
 		t.Fatalf("expected rank ids [4], got %v", plan.RankIDs)
 	}
-	if !reflect.DeepEqual(plan.Ranks, []float64{0.55}) {
-		t.Fatalf("expected ranks [0.55], got %v", plan.Ranks)
+	assertFloatSlicesClose(t, plan.Ranks, []float64{(0.2 + 0.4 + 0.8) / 3})
+}
+
+func assertFloatSlicesClose(t *testing.T, got, want []float64) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected %d floats, got %d", len(want), len(got))
+	}
+	for i := range got {
+		if math.Abs(got[i]-want[i]) > 1e-9 {
+			t.Fatalf("expected float at index %d to be %v, got %v", i, want[i], got[i])
+		}
 	}
 }
