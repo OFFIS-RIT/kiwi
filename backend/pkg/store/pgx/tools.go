@@ -47,7 +47,7 @@ func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId
 			"properties": map[string]any{
 				"query": map[string]any{
 					"type":        "string",
-					"description": "The search query to find relevant entities using semantic similarity.",
+					"description": "A full natural-language semantic search query describing the user's intent. Use a complete query, not a short keyword list.",
 				},
 				"keywords": map[string]any{
 					"type": "array",
@@ -143,7 +143,7 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 				},
 				"query": map[string]any{
 					"type":        "string",
-					"description": "The search query to rank neighbours by relevance.",
+					"description": "A full natural-language semantic search query to rank neighbours by relevance. Use a complete query, not a short keyword list.",
 				},
 				"keywords": map[string]any{
 					"type": "array",
@@ -417,7 +417,7 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace g
 				},
 				"query": map[string]any{
 					"type":        "string",
-					"description": "The search query to rank sources by relevance.",
+					"description": "A full natural-language semantic search query to rank sources by relevance. Use a complete query, not a short keyword list.",
 				},
 				"keywords": map[string]any{
 					"type": "array",
@@ -528,7 +528,7 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, t
 				},
 				"query": map[string]any{
 					"type":        "string",
-					"description": "The search query to rank sources by relevance.",
+					"description": "A full natural-language semantic search query to rank sources by relevance. Use a complete query, not a short keyword list.",
 				},
 				"keywords": map[string]any{
 					"type": "array",
@@ -734,7 +734,7 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 			"properties": map[string]any{
 				"query": map[string]any{
 					"type":        "string",
-					"description": "The search query to find relevant entities using semantic similarity.",
+					"description": "A full natural-language semantic search query describing the user's intent. Use a complete query, not a short keyword list.",
 				},
 				"type": map[string]any{
 					"type":        "string",
@@ -837,7 +837,7 @@ func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, proj
 			"properties": map[string]any{
 				"query": map[string]any{
 					"type":        "string",
-					"description": "The search query to find relevant relationships using semantic similarity.",
+					"description": "A full natural-language semantic search query describing the user's intent. Use a complete query, not a short keyword list.",
 				},
 				"keywords": map[string]any{
 					"type": "array",
