@@ -75,8 +75,9 @@ type relationshipDedupePlan struct {
 }
 
 type relationshipDedupePlanner struct {
-	states map[int64]*relationshipState
-	parent map[int64]int64
+	states    map[int64]*relationshipState
+	parent    map[int64]int64
+	deleteIDs map[int64]struct{}
 }
 
 // DedupeAndMergeEntities finds and merges duplicate entities in the DB.
@@ -92,6 +93,8 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 		return fmt.Errorf("invalid graph ID: %w", err)
 	}
 
+	// Parallel group processing below assumes s.conn is pool-backed (for example
+	// a *pgxpool.Pool), so each query/transaction can use its own connection.
 	qtx := pgdb.New(s.conn)
 
 	batchSize := ai.GetDedupeBatchSize()
@@ -138,7 +141,7 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 			idx := i
 			groupIDs := slices.Clone(group)
 			eg.Go(func() error {
-				applied, err := s.dedupeEntityGroup(gCtx, qtx, projectID, groupIDs, aiClient, iteration)
+				applied, err := s.dedupeEntityGroup(gCtx, projectID, groupIDs, aiClient, iteration)
 				if err != nil {
 					return fmt.Errorf("group %d merge failed: %w", idx, err)
 				}
@@ -753,12 +756,12 @@ func isRetryableTxError(err error) bool {
 
 func (s *GraphDBStorage) dedupeEntityGroup(
 	ctx context.Context,
-	qtx *pgdb.Queries,
 	projectID int64,
 	group []int64,
 	aiClient ai.GraphAIClient,
 	iteration int,
 ) ([]appliedEntityMergeComponent, error) {
+	qtx := pgdb.New(s.conn)
 	entities, err := s.getEntitiesWithMeta(ctx, qtx, projectID, group)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get entities: %w", err)
@@ -898,8 +901,9 @@ func newRelationshipDedupePlanner(rows []pgdb.GetProjectRelationshipsRow) *relat
 		}
 	}
 	return &relationshipDedupePlanner{
-		states: states,
-		parent: make(map[int64]int64),
+		states:    states,
+		parent:    make(map[int64]int64),
+		deleteIDs: make(map[int64]struct{}),
 	}
 }
 
@@ -927,6 +931,10 @@ func (p *relationshipDedupePlanner) applyEntityMerges(components []appliedEntity
 		}
 		if canonicalID, ok := remap[state.TargetID]; ok {
 			state.TargetID = canonicalID
+		}
+		if state.SourceID == state.TargetID {
+			state.Active = false
+			p.deleteIDs[state.ID] = struct{}{}
 		}
 	}
 }
@@ -967,6 +975,7 @@ func (p *relationshipDedupePlanner) dedupeIteration() {
 		for _, dupe := range group[1:] {
 			dupe.Active = false
 			p.parent[dupe.ID] = keep.ID
+			p.deleteIDs[dupe.ID] = struct{}{}
 		}
 	}
 }
@@ -976,8 +985,16 @@ func (p *relationshipDedupePlanner) buildPlan() relationshipDedupePlan {
 		return relationshipDedupePlan{}
 	}
 
-	deleteIDs := make([]int64, 0, len(p.parent))
+	deleteSet := make(map[int64]struct{}, len(p.parent)+len(p.deleteIDs))
 	for relationshipID := range p.parent {
+		deleteSet[relationshipID] = struct{}{}
+	}
+	for relationshipID := range p.deleteIDs {
+		deleteSet[relationshipID] = struct{}{}
+	}
+
+	deleteIDs := make([]int64, 0, len(deleteSet))
+	for relationshipID := range deleteSet {
 		deleteIDs = append(deleteIDs, relationshipID)
 	}
 	slices.Sort(deleteIDs)
@@ -1044,6 +1061,7 @@ func (p *relationshipDedupePlanner) commitPlan(plan relationshipDedupePlan) {
 	}
 
 	p.parent = make(map[int64]int64)
+	p.deleteIDs = make(map[int64]struct{})
 }
 
 func (p *relationshipDedupePlanner) resolveCanonicalID(relationshipID int64) int64 {

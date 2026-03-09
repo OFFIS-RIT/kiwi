@@ -114,6 +114,35 @@ func TestRelationshipDedupePlanner_ResolvesCanonicalChains(t *testing.T) {
 	assertFloatSlicesClose(t, plan.Ranks, []float64{(0.2 + 0.4 + 0.8) / 3})
 }
 
+func TestRelationshipDedupePlanner_DeletesSelfLoopsAfterEntityMerge(t *testing.T) {
+	planner := newRelationshipDedupePlanner([]pgdb.GetProjectRelationshipsRow{
+		{ID: 7, SourceID: 20, TargetID: 30, Rank: 0.5},
+		{ID: 8, SourceID: 10, TargetID: 40, Rank: 0.2},
+	})
+
+	planner.applyEntityMerges([]appliedEntityMergeComponent{{
+		CanonicalID: 10,
+		DupeIDs:     []int64{20, 30},
+	}})
+	plan := planner.buildPlan()
+
+	if len(plan.RelationshipIDs) != 0 || len(plan.CanonicalIDs) != 0 {
+		t.Fatalf("expected no relationship remaps for self-loop deletion, got %+v", plan)
+	}
+	if !reflect.DeepEqual(plan.DeleteIDs, []int64{7}) {
+		t.Fatalf("expected delete ids [7], got %v", plan.DeleteIDs)
+	}
+	if len(plan.RankIDs) != 0 || len(plan.Ranks) != 0 {
+		t.Fatalf("expected no rank updates for self-loop deletion, got %+v", plan)
+	}
+	if _, ok := planner.states[8]; !ok || !planner.states[8].Active {
+		t.Fatalf("expected non-self-loop relationship to remain active")
+	}
+	if _, ok := planner.states[7]; !ok || planner.states[7].Active {
+		t.Fatalf("expected self-loop relationship to be inactive")
+	}
+}
+
 func assertFloatSlicesClose(t *testing.T, got, want []float64) {
 	t.Helper()
 	if len(got) != len(want) {
