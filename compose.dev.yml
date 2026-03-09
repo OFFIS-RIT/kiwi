@@ -58,6 +58,7 @@ services:
     command: sh -c "bun install && bun run dev"
   db:
     image: ghcr.io/offis-rit/kiwi/postgres:dev
+  db-bouncer:
     ports:
       - "5432:5432"
   db-migration:

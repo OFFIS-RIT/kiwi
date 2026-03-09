@@ -54,7 +54,7 @@ migrate:
 			--network kiwi_internal \
 			migrate/migrate \
 			-path=/migrations \
-			-database "$${DATABASE_URL}" \
+			-database "$${DATABASE_DIRECT_URL:-postgresql://kiwi:kiwi@db:5432/kiwi?sslmode=disable}" \
 			up; \
 		rm -rf $(ROOT_DIR).migrations_processed
 

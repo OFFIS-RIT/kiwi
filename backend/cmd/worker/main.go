@@ -103,8 +103,8 @@ func main() {
 
 			EmbeddingURL: util.GetEnv("AI_EMBED_URL"),
 			EmbeddingKey: util.GetEnv("AI_EMBED_KEY"),
-			ChatURL:      util.GetEnv("AI_CHAT_URL"),
-			ChatKey:      util.GetEnv("AI_CHAT_KEY"),
+			ChatURL:      util.GetEnv("AI_EXTRACT_URL"),
+			ChatKey:      util.GetEnv("AI_EXTRACT_KEY"),
 			ImageURL:     util.GetEnv("AI_IMAGE_URL"),
 			ImageKey:     util.GetEnv("AI_IMAGE_KEY"),
 
@@ -117,6 +117,8 @@ func main() {
 	if err != nil {
 		logger.Fatal("Unable to parse database config", "err", err)
 	}
+	pgCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	pgCfg.ConnConfig.StatementCacheCapacity = 0
 	pgCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		return pgxvec.RegisterTypes(ctx, conn)
 	}
