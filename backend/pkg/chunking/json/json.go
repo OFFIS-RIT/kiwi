@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/chunking"
-	gonanoid "github.com/matoous/go-nanoid/v2"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ids"
 	"github.com/pkoukk/tiktoken-go"
 )
 
@@ -53,22 +53,14 @@ func (c *JSONChunker) Chunk(_ context.Context, input string) ([]chunking.Chunk, 
 
 	// Tier 1: entire document fits in one chunk.
 	if tokenCount(text) <= c.maxChunkSize {
-		id, err := gonanoid.New()
-		if err != nil {
-			return nil, err
-		}
-		return []chunking.Chunk{{ID: id, Text: text}}, nil
+		return []chunking.Chunk{{ID: ids.New(), Text: text}}, nil
 	}
 
 	// Parse the JSON to determine structure.
 	var raw any
 	if err := json.Unmarshal([]byte(text), &raw); err != nil {
 		// Not valid JSON — fall back to returning as a single chunk.
-		id, err := gonanoid.New()
-		if err != nil {
-			return nil, err
-		}
-		return []chunking.Chunk{{ID: id, Text: text}}, nil
+		return []chunking.Chunk{{ID: ids.New(), Text: text}}, nil
 	}
 
 	var textChunks []string
@@ -80,11 +72,7 @@ func (c *JSONChunker) Chunk(_ context.Context, input string) ([]chunking.Chunk, 
 		textChunks, err = c.chunkArray(v, "$", tokenCount)
 	default:
 		// Scalar at top level — single chunk.
-		id, err := gonanoid.New()
-		if err != nil {
-			return nil, err
-		}
-		return []chunking.Chunk{{ID: id, Text: text}}, nil
+		return []chunking.Chunk{{ID: ids.New(), Text: text}}, nil
 	}
 
 	if err != nil {
@@ -93,11 +81,7 @@ func (c *JSONChunker) Chunk(_ context.Context, input string) ([]chunking.Chunk, 
 
 	result := make([]chunking.Chunk, len(textChunks))
 	for i, t := range textChunks {
-		id, err := gonanoid.New()
-		if err != nil {
-			return nil, err
-		}
-		result[i] = chunking.Chunk{ID: id, Text: t}
+		result[i] = chunking.Chunk{ID: ids.New(), Text: t}
 	}
 
 	return result, nil

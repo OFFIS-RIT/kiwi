@@ -8,15 +8,15 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/labstack/echo/v4"
 )
 
 func DeleteUserFromGroupHandler(c echo.Context) error {
 	type deleteGroupData struct {
-		GroupID int64   `param:"id" validate:"required,numeric"`
-		UserIDs []int64 `json:"user_id" validate:"required,numeric"`
+		GroupID string   `param:"id" validate:"required"`
+		UserIDs []string `json:"user_id" validate:"required"`
 	}
 
 	type deleteGroupResponse struct {
@@ -112,7 +112,7 @@ func DeleteUserFromGroupHandler(c echo.Context) error {
 
 func DeleteGroupHandler(c echo.Context) error {
 	type deleteGroupParams struct {
-		ID int64 `param:"id" validate:"required,numeric"`
+		ID string `param:"id" validate:"required"`
 	}
 
 	type deleteGroupResponse struct {
@@ -160,11 +160,19 @@ func DeleteGroupHandler(c echo.Context) error {
 		}
 	}
 
-	projects, err := qtx.GetProjectsByGroup(ctx, sqltype.NullInt64{Int64: params.ID, Valid: true})
+	projects, err := qtx.GetProjectsByGroup(ctx, pgtype.Text{String: params.ID, Valid: true})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, deleteGroupResponse{
 			Message: "Internal server error",
 		})
+	}
+
+	for _, project := range projects {
+		if _, err := qtx.CancelWorkflowRunsByProject(ctx, project.ID); err != nil {
+			return c.JSON(http.StatusInternalServerError, deleteGroupResponse{
+				Message: "Internal server error",
+			})
+		}
 	}
 
 	err = qtx.DeleteGroup(ctx, params.ID)
@@ -183,7 +191,7 @@ func DeleteGroupHandler(c echo.Context) error {
 
 	s3Client := c.(*middleware.AppContext).App.S3
 	for _, project := range projects {
-		storage.DeleteFolder(ctx, s3Client, fmt.Sprintf("projects/%d", project.ID))
+		storage.DeleteFolder(ctx, s3Client, fmt.Sprintf("projects/%s", project.ID))
 	}
 
 	return c.JSON(http.StatusOK, deleteGroupResponse{

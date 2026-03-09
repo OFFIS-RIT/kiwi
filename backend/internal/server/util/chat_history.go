@@ -39,8 +39,29 @@ func ExtractCitationIDs(text string) []string {
 	return ids
 }
 
-func ResolveCitationDataByMessage(ctx context.Context, q *pgdb.Queries, projectID int64, messages []pgdb.ChatMessage) (map[int64][]CitationData, error) {
-	messageCitationIDs := make(map[int64][]string)
+func ResolveCitationData(ctx context.Context, q *pgdb.Queries, projectID string, citationIDs []string) ([]CitationData, error) {
+	files, err := q.GetFilesFromTextUnitIDs(ctx, pgdb.GetFilesFromTextUnitIDsParams{
+		SourceIds: citationIDs,
+		ProjectID: projectID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	fileData := make([]CitationData, 0, len(files))
+	for _, file := range files {
+		fileData = append(fileData, CitationData{
+			ID:   file.ID,
+			Key:  file.FileKey,
+			Name: file.Name,
+		})
+	}
+
+	return fileData, nil
+}
+
+func ResolveCitationDataByMessage(ctx context.Context, q *pgdb.Queries, projectID string, messages []pgdb.ChatMessage) (map[string][]CitationData, error) {
+	messageCitationIDs := make(map[string][]string)
 	allCitationIDs := make([]string, 0)
 	allCitationIDSet := make(map[string]struct{})
 
@@ -61,27 +82,20 @@ func ResolveCitationDataByMessage(ctx context.Context, q *pgdb.Queries, projectI
 	}
 
 	if len(allCitationIDs) == 0 {
-		return map[int64][]CitationData{}, nil
+		return map[string][]CitationData{}, nil
 	}
 
-	files, err := q.GetFilesFromTextUnitIDs(ctx, pgdb.GetFilesFromTextUnitIDsParams{
-		SourceIds: allCitationIDs,
-		ProjectID: projectID,
-	})
+	files, err := ResolveCitationData(ctx, q, projectID, allCitationIDs)
 	if err != nil {
 		return nil, err
 	}
 
 	citationByID := make(map[string]CitationData)
 	for _, file := range files {
-		citationByID[file.PublicID] = CitationData{
-			ID:   file.PublicID,
-			Name: file.Name,
-			Key:  file.FileKey,
-		}
+		citationByID[file.ID] = file
 	}
 
-	resolvedByMessageID := make(map[int64][]CitationData)
+	resolvedByMessageID := make(map[string][]CitationData)
 	for messageID, citationIDs := range messageCitationIDs {
 		resolved := make([]CitationData, 0, len(citationIDs))
 		for _, citationID := range citationIDs {

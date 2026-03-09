@@ -10,9 +10,9 @@ import (
 
 func TestPlanEntityMergeComponents_OverlappingGroups(t *testing.T) {
 	entities := []entityWithMeta{
-		{Entity: common.Entity{Name: "A", Type: "ORG"}, DBID: 1, SourceCount: 1},
-		{Entity: common.Entity{Name: "B", Type: "ORG"}, DBID: 2, SourceCount: 5},
-		{Entity: common.Entity{Name: "C", Type: "ORG"}, DBID: 3, SourceCount: 2},
+		{Entity: common.Entity{Name: "A", Type: "ORG"}, DBID: "1", SourceCount: 1},
+		{Entity: common.Entity{Name: "B", Type: "ORG"}, DBID: "2", SourceCount: 5},
+		{Entity: common.Entity{Name: "C", Type: "ORG"}, DBID: "3", SourceCount: 2},
 	}
 	res := &ai.DuplicatesResponse{Duplicates: []ai.DuplicateGroup{
 		{Name: "B", Entities: []string{"A", "B"}},
@@ -23,10 +23,10 @@ func TestPlanEntityMergeComponents_OverlappingGroups(t *testing.T) {
 	if len(plan) != 1 {
 		t.Fatalf("expected 1 merge component, got %d", len(plan))
 	}
-	if plan[0].CanonicalID != 2 {
-		t.Fatalf("expected canonical id 2, got %d", plan[0].CanonicalID)
+	if plan[0].CanonicalID != "2" {
+		t.Fatalf("expected canonical id 2, got %s", plan[0].CanonicalID)
 	}
-	if !reflect.DeepEqual(plan[0].DupeIDs, []int64{1, 3}) {
+	if !reflect.DeepEqual(plan[0].DupeIDs, []string{"1", "3"}) {
 		t.Fatalf("expected dupe ids [1 3], got %v", plan[0].DupeIDs)
 	}
 	if plan[0].CanonicalName != "B" {
@@ -36,10 +36,10 @@ func TestPlanEntityMergeComponents_OverlappingGroups(t *testing.T) {
 
 func TestPlanEntityMergeComponents_DisjointGroups(t *testing.T) {
 	entities := []entityWithMeta{
-		{Entity: common.Entity{Name: "A1", Type: "ORG"}, DBID: 1, SourceCount: 1},
-		{Entity: common.Entity{Name: "A2", Type: "ORG"}, DBID: 2, SourceCount: 2},
-		{Entity: common.Entity{Name: "D1", Type: "ORG"}, DBID: 3, SourceCount: 1},
-		{Entity: common.Entity{Name: "D2", Type: "ORG"}, DBID: 4, SourceCount: 3},
+		{Entity: common.Entity{Name: "A1", Type: "ORG"}, DBID: "1", SourceCount: 1},
+		{Entity: common.Entity{Name: "A2", Type: "ORG"}, DBID: "2", SourceCount: 2},
+		{Entity: common.Entity{Name: "D1", Type: "ORG"}, DBID: "3", SourceCount: 1},
+		{Entity: common.Entity{Name: "D2", Type: "ORG"}, DBID: "4", SourceCount: 3},
 	}
 	res := &ai.DuplicatesResponse{Duplicates: []ai.DuplicateGroup{
 		{Name: "A2", Entities: []string{"A1", "A2"}},
@@ -51,19 +51,19 @@ func TestPlanEntityMergeComponents_DisjointGroups(t *testing.T) {
 		t.Fatalf("expected 2 merge components, got %d", len(plan))
 	}
 
-	if plan[0].CanonicalID != 2 || !reflect.DeepEqual(plan[0].DupeIDs, []int64{1}) || plan[0].CanonicalName != "A2" {
+	if plan[0].CanonicalID != "2" || !reflect.DeepEqual(plan[0].DupeIDs, []string{"1"}) || plan[0].CanonicalName != "A2" {
 		t.Fatalf("unexpected plan[0]: %+v", plan[0])
 	}
-	if plan[1].CanonicalID != 4 || !reflect.DeepEqual(plan[1].DupeIDs, []int64{3}) || plan[1].CanonicalName != "D2" {
+	if plan[1].CanonicalID != "4" || !reflect.DeepEqual(plan[1].DupeIDs, []string{"3"}) || plan[1].CanonicalName != "D2" {
 		t.Fatalf("unexpected plan[1]: %+v", plan[1])
 	}
 }
 
 func TestPlanEntityMergeComponents_SameNameMapsToMultipleRows(t *testing.T) {
 	entities := []entityWithMeta{
-		{Entity: common.Entity{Name: "ACME", Type: "ORG"}, DBID: 1, SourceCount: 1},
-		{Entity: common.Entity{Name: "ACME", Type: "ORG"}, DBID: 2, SourceCount: 2},
-		{Entity: common.Entity{Name: "ACME CORP", Type: "ORG"}, DBID: 3, SourceCount: 3},
+		{Entity: common.Entity{Name: "ACME", Type: "ORG"}, DBID: "1", SourceCount: 1},
+		{Entity: common.Entity{Name: "ACME", Type: "ORG"}, DBID: "2", SourceCount: 2},
+		{Entity: common.Entity{Name: "ACME CORP", Type: "ORG"}, DBID: "3", SourceCount: 3},
 	}
 	res := &ai.DuplicatesResponse{Duplicates: []ai.DuplicateGroup{
 		{Name: "ACME CORP", Entities: []string{"ACME", "ACME CORP"}},
@@ -73,10 +73,10 @@ func TestPlanEntityMergeComponents_SameNameMapsToMultipleRows(t *testing.T) {
 	if len(plan) != 1 {
 		t.Fatalf("expected 1 merge component, got %d", len(plan))
 	}
-	if plan[0].CanonicalID != 3 {
-		t.Fatalf("expected canonical id 3, got %d", plan[0].CanonicalID)
+	if plan[0].CanonicalID != "3" {
+		t.Fatalf("expected canonical id 3, got %s", plan[0].CanonicalID)
 	}
-	if !reflect.DeepEqual(plan[0].DupeIDs, []int64{1, 2}) {
+	if !reflect.DeepEqual(plan[0].DupeIDs, []string{"1", "2"}) {
 		t.Fatalf("expected dupe ids [1 2], got %v", plan[0].DupeIDs)
 	}
 	if plan[0].CanonicalName != "ACME CORP" {
@@ -86,9 +86,9 @@ func TestPlanEntityMergeComponents_SameNameMapsToMultipleRows(t *testing.T) {
 
 func TestPlanEntityMergeComponents_RespectsType(t *testing.T) {
 	entities := []entityWithMeta{
-		{Entity: common.Entity{Name: "APPLE", Type: "ORG"}, DBID: 1, SourceCount: 10},
-		{Entity: common.Entity{Name: "APPLE", Type: "PRODUCT"}, DBID: 2, SourceCount: 5},
-		{Entity: common.Entity{Name: "APPLE INC", Type: "ORG"}, DBID: 3, SourceCount: 1},
+		{Entity: common.Entity{Name: "APPLE", Type: "ORG"}, DBID: "1", SourceCount: 10},
+		{Entity: common.Entity{Name: "APPLE", Type: "PRODUCT"}, DBID: "2", SourceCount: 5},
+		{Entity: common.Entity{Name: "APPLE INC", Type: "ORG"}, DBID: "3", SourceCount: 1},
 	}
 	res := &ai.DuplicatesResponse{Duplicates: []ai.DuplicateGroup{
 		{Name: "APPLE INC", Entities: []string{"APPLE", "APPLE INC"}},
@@ -98,10 +98,10 @@ func TestPlanEntityMergeComponents_RespectsType(t *testing.T) {
 	if len(plan) != 1 {
 		t.Fatalf("expected 1 merge component, got %d", len(plan))
 	}
-	if plan[0].CanonicalID != 1 {
-		t.Fatalf("expected canonical id 1, got %d", plan[0].CanonicalID)
+	if plan[0].CanonicalID != "1" {
+		t.Fatalf("expected canonical id 1, got %s", plan[0].CanonicalID)
 	}
-	if !reflect.DeepEqual(plan[0].DupeIDs, []int64{3}) {
+	if !reflect.DeepEqual(plan[0].DupeIDs, []string{"3"}) {
 		t.Fatalf("expected dupe ids [3], got %v", plan[0].DupeIDs)
 	}
 	if plan[0].CanonicalName != "APPLE INC" {
@@ -111,8 +111,8 @@ func TestPlanEntityMergeComponents_RespectsType(t *testing.T) {
 
 func TestPlanEntityMergeComponents_IgnoresUnknownNames(t *testing.T) {
 	entities := []entityWithMeta{
-		{Entity: common.Entity{Name: "A", Type: "ORG"}, DBID: 1, SourceCount: 1},
-		{Entity: common.Entity{Name: "B", Type: "ORG"}, DBID: 2, SourceCount: 2},
+		{Entity: common.Entity{Name: "A", Type: "ORG"}, DBID: "1", SourceCount: 1},
+		{Entity: common.Entity{Name: "B", Type: "ORG"}, DBID: "2", SourceCount: 2},
 	}
 	res := &ai.DuplicatesResponse{Duplicates: []ai.DuplicateGroup{
 		{Name: "B", Entities: []string{"A", "B", "C"}},
@@ -122,18 +122,18 @@ func TestPlanEntityMergeComponents_IgnoresUnknownNames(t *testing.T) {
 	if len(plan) != 1 {
 		t.Fatalf("expected 1 merge component, got %d", len(plan))
 	}
-	if plan[0].CanonicalID != 2 {
-		t.Fatalf("expected canonical id 2, got %d", plan[0].CanonicalID)
+	if plan[0].CanonicalID != "2" {
+		t.Fatalf("expected canonical id 2, got %s", plan[0].CanonicalID)
 	}
-	if !reflect.DeepEqual(plan[0].DupeIDs, []int64{1}) {
+	if !reflect.DeepEqual(plan[0].DupeIDs, []string{"1"}) {
 		t.Fatalf("expected dupe ids [1], got %v", plan[0].DupeIDs)
 	}
 }
 
 func TestPlanEntityMergeComponents_TieBreaksCanonicalByID(t *testing.T) {
 	entities := []entityWithMeta{
-		{Entity: common.Entity{Name: "X", Type: "ORG"}, DBID: 10, SourceCount: 1},
-		{Entity: common.Entity{Name: "Y", Type: "ORG"}, DBID: 5, SourceCount: 1},
+		{Entity: common.Entity{Name: "X", Type: "ORG"}, DBID: "10", SourceCount: 1},
+		{Entity: common.Entity{Name: "Y", Type: "ORG"}, DBID: "5", SourceCount: 1},
 	}
 	res := &ai.DuplicatesResponse{Duplicates: []ai.DuplicateGroup{
 		{Name: "X", Entities: []string{"X", "Y"}},
@@ -143,10 +143,10 @@ func TestPlanEntityMergeComponents_TieBreaksCanonicalByID(t *testing.T) {
 	if len(plan) != 1 {
 		t.Fatalf("expected 1 merge component, got %d", len(plan))
 	}
-	if plan[0].CanonicalID != 5 {
-		t.Fatalf("expected canonical id 5, got %d", plan[0].CanonicalID)
+	if plan[0].CanonicalID != "5" {
+		t.Fatalf("expected canonical id 5, got %s", plan[0].CanonicalID)
 	}
-	if !reflect.DeepEqual(plan[0].DupeIDs, []int64{10}) {
+	if !reflect.DeepEqual(plan[0].DupeIDs, []string{"10"}) {
 		t.Fatalf("expected dupe ids [10], got %v", plan[0].DupeIDs)
 	}
 	if plan[0].CanonicalName != "X" {
@@ -163,13 +163,13 @@ func TestChooseCanonicalName_PrefersAIName(t *testing.T) {
 
 func TestBuildConnectedComponents_SortsGroupsDeterministically(t *testing.T) {
 	pairs := []entityPair{
-		{ID1: 6, ID2: 5},
-		{ID1: 3, ID2: 2},
-		{ID1: 2, ID2: 1},
+		{ID1: "6", ID2: "5"},
+		{ID1: "3", ID2: "2"},
+		{ID1: "2", ID2: "1"},
 	}
 
 	groups := buildConnectedComponents(pairs)
-	want := [][]int64{{1, 2, 3}, {5, 6}}
+	want := [][]string{{"1", "2", "3"}, {"5", "6"}}
 	if !reflect.DeepEqual(groups, want) {
 		t.Fatalf("expected groups %v, got %v", want, groups)
 	}

@@ -80,7 +80,6 @@ require (
 	github.com/lib/pq v1.11.2
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
@@ -97,7 +96,7 @@ require (
 	github.com/invopop/jsonschema v0.13.0
 	github.com/kaptinlin/jsonrepair v0.2.17
 	github.com/m43i/go-doc-extract v0.1.1
-	github.com/matoous/go-nanoid/v2 v2.1.0
+	github.com/oklog/ulid/v2 v2.1.1
 	github.com/ollama/ollama v0.17.1
 	github.com/openai/openai-go/v3 v3.26.0
 	github.com/pkoukk/tiktoken-go v0.1.8

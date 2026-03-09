@@ -26,7 +26,7 @@ import { apiClient, type SSEFrame, streamSSERequest } from "./client";
 
 type CreateProjectResponse = {
   project?: {
-    id: number;
+    id: string;
     name: string;
   };
 };

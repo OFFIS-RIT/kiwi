@@ -12,27 +12,22 @@ import (
 )
 
 const deleteTextUnitsByFileIDs = `-- name: DeleteTextUnitsByFileIDs :exec
-DELETE FROM text_units WHERE project_file_id = ANY($1::bigint[])
+DELETE FROM text_units WHERE project_file_id = ANY($1::text[])
 `
 
-func (q *Queries) DeleteTextUnitsByFileIDs(ctx context.Context, dollar_1 []int64) error {
+func (q *Queries) DeleteTextUnitsByFileIDs(ctx context.Context, dollar_1 []string) error {
 	_, err := q.db.Exec(ctx, deleteTextUnitsByFileIDs, dollar_1)
 	return err
 }
 
 const getFilesFromTextUnitIDs = `-- name: GetFilesFromTextUnitIDs :many
 WITH project_scope AS (
-  SELECT $1::bigint AS project_id
+  SELECT $1::text AS project_id
 ),
 input_ids AS (
   SELECT DISTINCT trim(u.pid) AS pid
   FROM unnest($2::text[]) AS u(pid)
   WHERE trim(u.pid) <> ''
-),
-numeric_ids AS (
-  SELECT pid, pid::bigint AS id
-  FROM input_ids
-  WHERE pid ~ '^[0-9]+$'
 ),
 project_files_scope AS (
   SELECT pf.id
@@ -40,73 +35,30 @@ project_files_scope AS (
   JOIN project_scope ps ON ps.project_id = pf.project_id
 ),
 resolved_text_units AS (
-  -- text_unit by public_id (scoped)
-  SELECT tu.id, tu.public_id, tu.project_file_id
+  SELECT tu.id, tu.project_file_id
   FROM input_ids i
-  JOIN text_units tu ON tu.public_id = i.pid
-  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
-
-  UNION
-
-  -- entity_source by public_id -> text_unit (scoped)
-  SELECT tu.id, tu.public_id, tu.project_file_id
-  FROM input_ids i
-  JOIN entity_sources es ON es.public_id = i.pid
-  JOIN text_units tu ON tu.id = es.text_unit_id
-  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
-
-  UNION
-
-  -- relationship_source by public_id -> text_unit (scoped)
-  SELECT tu.id, tu.public_id, tu.project_file_id
-  FROM input_ids i
-  JOIN relationship_sources rs ON rs.public_id = i.pid
-  JOIN text_units tu ON tu.id = rs.text_unit_id
-  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
-
-  UNION
-
-  -- numeric text_unit id (scoped)
-  SELECT tu.id, tu.public_id, tu.project_file_id
-  FROM numeric_ids n
-  JOIN text_units tu ON tu.id = n.id
-  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
-
-  UNION
-
-  -- numeric entity_source id -> text_unit (scoped)
-  SELECT tu.id, tu.public_id, tu.project_file_id
-  FROM numeric_ids n
-  JOIN entity_sources es ON es.id = n.id
-  JOIN text_units tu ON tu.id = es.text_unit_id
-  JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
-
-  UNION
-
-  -- numeric relationship_source id -> text_unit (scoped)
-  SELECT tu.id, tu.public_id, tu.project_file_id
-  FROM numeric_ids n
-  JOIN relationship_sources rs ON rs.id = n.id
-  JOIN text_units tu ON tu.id = rs.text_unit_id
+  JOIN text_units tu ON tu.id = i.pid
   JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 )
-SELECT DISTINCT f.name, f.file_key, rtu.public_id
+SELECT DISTINCT f.name, f.file_key, rtu.id
 FROM resolved_text_units rtu
 JOIN project_files f ON f.id = rtu.project_file_id
 JOIN project_scope ps ON ps.project_id = f.project_id
 `
 
 type GetFilesFromTextUnitIDsParams struct {
-	ProjectID int64    `json:"project_id"`
+	ProjectID string   `json:"project_id"`
 	SourceIds []string `json:"source_ids"`
 }
 
 type GetFilesFromTextUnitIDsRow struct {
-	Name     string `json:"name"`
-	FileKey  string `json:"file_key"`
-	PublicID string `json:"public_id"`
+	Name    string `json:"name"`
+	FileKey string `json:"file_key"`
+	ID      string `json:"id"`
 }
 
+// Intentionally resolves only direct text_units.id values.
+// Legacy entity_sources/relationship_sources fallback was removed on purpose.
 func (q *Queries) GetFilesFromTextUnitIDs(ctx context.Context, arg GetFilesFromTextUnitIDsParams) ([]GetFilesFromTextUnitIDsRow, error) {
 	rows, err := q.db.Query(ctx, getFilesFromTextUnitIDs, arg.ProjectID, arg.SourceIds)
 	if err != nil {
@@ -116,7 +68,7 @@ func (q *Queries) GetFilesFromTextUnitIDs(ctx context.Context, arg GetFilesFromT
 	items := []GetFilesFromTextUnitIDsRow{}
 	for rows.Next() {
 		var i GetFilesFromTextUnitIDsRow
-		if err := rows.Scan(&i.Name, &i.FileKey, &i.PublicID); err != nil {
+		if err := rows.Scan(&i.Name, &i.FileKey, &i.ID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -129,7 +81,7 @@ func (q *Queries) GetFilesFromTextUnitIDs(ctx context.Context, arg GetFilesFromT
 
 const getFilesWithMetadataFromTextUnitIDs = `-- name: GetFilesWithMetadataFromTextUnitIDs :many
 WITH project_scope AS (
-    SELECT $1::bigint AS project_id
+    SELECT $1::text AS project_id
 ),
 project_files_scope AS (
     SELECT pf.id
@@ -141,64 +93,20 @@ input_ids AS (
     FROM unnest($2::text[]) AS u(pid)
     WHERE trim(u.pid) <> ''
 ),
-numeric_ids AS (
-    SELECT pid, pid::bigint AS id
-    FROM input_ids
-    WHERE pid ~ '^[0-9]+$'
-),
 resolved_text_units AS (
-    SELECT tu.id, tu.public_id, tu.project_file_id
+    SELECT tu.id, tu.project_file_id
     FROM input_ids i
-    JOIN text_units tu ON tu.public_id = i.pid
-    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
-
-    UNION
-
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM input_ids i
-    JOIN entity_sources es ON es.public_id = i.pid
-    JOIN text_units tu ON tu.id = es.text_unit_id
-    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
-
-    UNION
-
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM input_ids i
-    JOIN relationship_sources rs ON rs.public_id = i.pid
-    JOIN text_units tu ON tu.id = rs.text_unit_id
-    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
-
-    UNION
-
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM numeric_ids n
-    JOIN text_units tu ON tu.id = n.id
-    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
-
-    UNION
-
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM numeric_ids n
-    JOIN entity_sources es ON es.id = n.id
-    JOIN text_units tu ON tu.id = es.text_unit_id
-    JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
-
-    UNION
-
-    SELECT tu.id, tu.public_id, tu.project_file_id
-    FROM numeric_ids n
-    JOIN relationship_sources rs ON rs.id = n.id
-    JOIN text_units tu ON tu.id = rs.text_unit_id
+    JOIN text_units tu ON tu.id = i.pid
     JOIN project_files_scope pfs ON pfs.id = tu.project_file_id
 )
-SELECT DISTINCT f.name, f.file_key, f.metadata, rtu.public_id
+SELECT DISTINCT f.name, f.file_key, f.metadata, rtu.id
 FROM resolved_text_units rtu
 JOIN project_files f ON f.id = rtu.project_file_id
 JOIN project_scope ps ON ps.project_id = f.project_id
 `
 
 type GetFilesWithMetadataFromTextUnitIDsParams struct {
-	ProjectID int64    `json:"project_id"`
+	ProjectID string   `json:"project_id"`
 	SourceIds []string `json:"source_ids"`
 }
 
@@ -206,9 +114,11 @@ type GetFilesWithMetadataFromTextUnitIDsRow struct {
 	Name     string      `json:"name"`
 	FileKey  string      `json:"file_key"`
 	Metadata pgtype.Text `json:"metadata"`
-	PublicID string      `json:"public_id"`
+	ID       string      `json:"id"`
 }
 
+// Intentionally resolves only direct text_units.id values.
+// Legacy entity_sources/relationship_sources fallback was removed on purpose.
 func (q *Queries) GetFilesWithMetadataFromTextUnitIDs(ctx context.Context, arg GetFilesWithMetadataFromTextUnitIDsParams) ([]GetFilesWithMetadataFromTextUnitIDsRow, error) {
 	rows, err := q.db.Query(ctx, getFilesWithMetadataFromTextUnitIDs, arg.ProjectID, arg.SourceIds)
 	if err != nil {
@@ -222,7 +132,7 @@ func (q *Queries) GetFilesWithMetadataFromTextUnitIDs(ctx context.Context, arg G
 			&i.Name,
 			&i.FileKey,
 			&i.Metadata,
-			&i.PublicID,
+			&i.ID,
 		); err != nil {
 			return nil, err
 		}
@@ -238,27 +148,25 @@ const getProjectIDFromTextUnit = `-- name: GetProjectIDFromTextUnit :one
 SELECT p.id FROM graphs p
 JOIN project_files f ON f.project_id = p.id
 JOIN text_units tu ON tu.project_file_id = f.id
-WHERE tu.public_id = $1
+WHERE tu.id = $1
 `
 
-func (q *Queries) GetProjectIDFromTextUnit(ctx context.Context, publicID string) (int64, error) {
-	row := q.db.QueryRow(ctx, getProjectIDFromTextUnit, publicID)
-	var id int64
+func (q *Queries) GetProjectIDFromTextUnit(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRow(ctx, getProjectIDFromTextUnit, id)
 	err := row.Scan(&id)
 	return id, err
 }
 
-const getTextUnitByPublicId = `-- name: GetTextUnitByPublicId :one
-SELECT id, public_id, project_file_id, text, created_at, updated_at FROM text_units
-WHERE public_id = $1
+const getTextUnitByID = `-- name: GetTextUnitByID :one
+SELECT id, project_file_id, text, created_at, updated_at FROM text_units
+WHERE id = $1
 `
 
-func (q *Queries) GetTextUnitByPublicId(ctx context.Context, publicID string) (TextUnit, error) {
-	row := q.db.QueryRow(ctx, getTextUnitByPublicId, publicID)
+func (q *Queries) GetTextUnitByID(ctx context.Context, id string) (TextUnit, error) {
+	row := q.db.QueryRow(ctx, getTextUnitByID, id)
 	var i TextUnit
 	err := row.Scan(
 		&i.ID,
-		&i.PublicID,
 		&i.ProjectFileID,
 		&i.Text,
 		&i.CreatedAt,
@@ -267,59 +175,23 @@ func (q *Queries) GetTextUnitByPublicId(ctx context.Context, publicID string) (T
 	return i, err
 }
 
-const getTextUnitIDsByPublicIDs = `-- name: GetTextUnitIDsByPublicIDs :many
-SELECT id, public_id
-FROM text_units
-WHERE public_id = ANY($1::text[])
-`
-
-type GetTextUnitIDsByPublicIDsRow struct {
-	ID       int64  `json:"id"`
-	PublicID string `json:"public_id"`
-}
-
-func (q *Queries) GetTextUnitIDsByPublicIDs(ctx context.Context, publicIds []string) ([]GetTextUnitIDsByPublicIDsRow, error) {
-	rows, err := q.db.Query(ctx, getTextUnitIDsByPublicIDs, publicIds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []GetTextUnitIDsByPublicIDsRow{}
-	for rows.Next() {
-		var i GetTextUnitIDsByPublicIDsRow
-		if err := rows.Scan(&i.ID, &i.PublicID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getTextUnitIdsForFiles = `-- name: GetTextUnitIdsForFiles :many
-SELECT id, public_id FROM text_units WHERE project_file_id = ANY($1::bigint[])
+SELECT id FROM text_units WHERE project_file_id = ANY($1::text[])
 `
 
-type GetTextUnitIdsForFilesRow struct {
-	ID       int64  `json:"id"`
-	PublicID string `json:"public_id"`
-}
-
-func (q *Queries) GetTextUnitIdsForFiles(ctx context.Context, dollar_1 []int64) ([]GetTextUnitIdsForFilesRow, error) {
+func (q *Queries) GetTextUnitIdsForFiles(ctx context.Context, dollar_1 []string) ([]string, error) {
 	rows, err := q.db.Query(ctx, getTextUnitIdsForFiles, dollar_1)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []GetTextUnitIdsForFilesRow{}
+	items := []string{}
 	for rows.Next() {
-		var i GetTextUnitIdsForFilesRow
-		if err := rows.Scan(&i.ID, &i.PublicID); err != nil {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		items = append(items, i)
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -330,15 +202,15 @@ func (q *Queries) GetTextUnitIdsForFiles(ctx context.Context, dollar_1 []int64) 
 const upsertTextUnits = `-- name: UpsertTextUnits :many
 WITH input AS (
     SELECT
-        u.public_id,
-        ($1::bigint[])[u.ord]::bigint AS project_file_id,
+        u.id,
+        ($1::text[])[u.ord]::text AS project_file_id,
         ($2::text[])[u.ord]::text AS text
-    FROM unnest($3::text[]) WITH ORDINALITY AS u(public_id, ord)
+    FROM unnest($3::text[]) WITH ORDINALITY AS u(id, ord)
 )
-INSERT INTO text_units (public_id, project_file_id, text)
-SELECT public_id, project_file_id, text
+INSERT INTO text_units (id, project_file_id, text)
+SELECT id, project_file_id, text
 FROM input
-ON CONFLICT (public_id) DO UPDATE
+ON CONFLICT (id) DO UPDATE
 SET project_file_id = EXCLUDED.project_file_id,
     text = EXCLUDED.text,
     updated_at = NOW()
@@ -346,20 +218,20 @@ RETURNING id
 `
 
 type UpsertTextUnitsParams struct {
-	ProjectFileIds []int64  `json:"project_file_ids"`
+	ProjectFileIds []string `json:"project_file_ids"`
 	Texts          []string `json:"texts"`
-	PublicIds      []string `json:"public_ids"`
+	Ids            []string `json:"ids"`
 }
 
-func (q *Queries) UpsertTextUnits(ctx context.Context, arg UpsertTextUnitsParams) ([]int64, error) {
-	rows, err := q.db.Query(ctx, upsertTextUnits, arg.ProjectFileIds, arg.Texts, arg.PublicIds)
+func (q *Queries) UpsertTextUnits(ctx context.Context, arg UpsertTextUnitsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, upsertTextUnits, arg.ProjectFileIds, arg.Texts, arg.Ids)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []int64{}
+	items := []string{}
 	for rows.Next() {
-		var id int64
+		var id string
 		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}

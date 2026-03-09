@@ -8,11 +8,12 @@ import (
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func EditProjectHandler(c echo.Context) error {
 	type editProjectData struct {
-		ID   int64  `param:"id" validate:"required,numeric"`
+		ID   string `param:"id" validate:"required"`
 		Name string `json:"name" validate:"required"`
 	}
 
@@ -51,13 +52,13 @@ func EditProjectHandler(c echo.Context) error {
 	}
 
 	if projectMeta.UserID.Valid {
-		if projectMeta.UserID.Int64 != user.UserID {
+		if projectMeta.UserID.String != user.UserID {
 			return c.JSON(http.StatusForbidden, editProjectResponse{Message: "You are not allowed to modify this project"})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     data.ID,
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 		})
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, editProjectResponse{Message: "You are not allowed to modify this project"})

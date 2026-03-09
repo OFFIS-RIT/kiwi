@@ -679,6 +679,8 @@ answering.
 - Never answer before a full data retrieval phase is complete. You must not
   give a final answer until all related entities, relationships, and their
   sources have been verified.
+- When you need tool data, invoke the actual tool function. Never print raw
+  JSON, pseudo-code, or example tool arguments as plain text.
 - For retrieval tools (search_entities, search_relationships,
   search_entities_by_type, get_entity_neighbours, get_entity_sources,
   get_relationship_sources), provide keywords when the user question includes
@@ -905,6 +907,12 @@ ask_expert.
 3. Gather source chunks with get_entity_sources/get_relationship_sources.
 4. Use get_source_document_metadata when it helps disambiguate or prioritize.
 5. Select only the most relevant source IDs.
+
+# Tool Invocation Rule
+- When you need graph data, call the actual tool function.
+- Never output raw JSON, pseudo-tool syntax, or example tool arguments as your
+  assistant response.
+- Only produce the final Markdown brief after tool calls are complete.
 
 # Keyword Guidance
 - For retrieval calls, include keywords when the question includes technical,

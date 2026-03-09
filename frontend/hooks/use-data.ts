@@ -27,9 +27,10 @@ function parseCount(value?: string): number {
  * Determines the current process step based on the step with the highest file count.
  * Steps are aggregated as follows:
  * - pending → queued (shown if no active processing steps)
- * - preprocessing + preprocessed → processing_files
- * - extracting → graph_creation
- * - indexing → saving
+ * - preprocessing + metadata + chunking → processing_files
+ * - extracting + deduplicating → graph_creation
+ * - saving → saving
+ * - describing → generating_descriptions
  * - failed → failed (only if majority)
  *
  * "Completed" is never shown. If only completed files remain, falls back to "saving".
@@ -41,14 +42,19 @@ function determineProcessStep(
 
   const queuedCount = parseCount(progress.pending);
   const processingFilesCount =
-    parseCount(progress.preprocessing) + parseCount(progress.preprocessed);
-  const graphCreationCount = parseCount(progress.extracting);
-  const savingCount = parseCount(progress.indexing);
+    parseCount(progress.preprocessing) +
+    parseCount(progress.metadata) +
+    parseCount(progress.chunking);
+  const graphCreationCount =
+    parseCount(progress.extracting) + parseCount(progress.deduplicating);
+  const savingCount = parseCount(progress.saving);
+  const describingCount = parseCount(progress.describing);
   const failedCount = parseCount(progress.failed);
   const completedCount = parseCount(progress.completed);
 
   // Active steps ordered by progress (furthest first for tie-breaking)
   const activeStepCounts: { step: ProcessStep; count: number }[] = [
+    { step: "generating_descriptions", count: describingCount },
     { step: "saving", count: savingCount },
     { step: "graph_creation", count: graphCreationCount },
     { step: "processing_files", count: processingFilesCount },
@@ -156,6 +162,8 @@ export function useGroupsWithProjects() {
             processPercentage: apiProject.process_percentage,
             processEstimatedDuration: apiProject.process_estimated_duration,
             processTimeRemaining: apiProject.process_time_remaining,
+            processEtaConfidence: apiProject.process_eta_confidence,
+            processEtaSampleCount: apiProject.process_eta_sample_count,
           })) || [];
 
         return {
@@ -216,6 +224,8 @@ export function useGroupsWithProjectsSuspense() {
             processPercentage: apiProject.process_percentage,
             processEstimatedDuration: apiProject.process_estimated_duration,
             processTimeRemaining: apiProject.process_time_remaining,
+            processEtaConfidence: apiProject.process_eta_confidence,
+            processEtaSampleCount: apiProject.process_eta_sample_count,
           })) || [];
 
         return {
@@ -268,7 +278,7 @@ export function useUpdateGroup() {
     }: {
       groupId: string;
       name: string;
-      users?: { user_id: number; role: string }[];
+      users?: { user_id: string; role: string }[];
     }) => {
       const { updateGroup } = await import("@/lib/api");
       return updateGroup(groupId, name, users);

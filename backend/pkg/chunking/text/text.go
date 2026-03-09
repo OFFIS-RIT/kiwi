@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/chunking"
-	gonanoid "github.com/matoous/go-nanoid/v2"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ids"
 	"github.com/pkoukk/tiktoken-go"
 )
 
@@ -52,13 +52,8 @@ func (c *TextChunker) Chunk(_ context.Context, input string) ([]chunking.Chunk, 
 
 	result := make([]chunking.Chunk, len(chunks))
 	for i, chunk := range chunks {
-		id, err := gonanoid.New()
-		if err != nil {
-			return nil, err
-		}
-
 		result[i] = chunking.Chunk{
-			ID:   id,
+			ID:   ids.New(),
 			Text: chunk,
 		}
 	}

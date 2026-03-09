@@ -8,7 +8,7 @@
  * Group as returned by the /groups endpoint.
  */
 export type ApiGroup = {
-  group_id: number;
+  group_id: string;
   group_name: string;
   role: string;
 };
@@ -32,9 +32,12 @@ export type ProcessStep =
 export type ApiBatchStepProgress = {
   pending?: string;
   preprocessing?: string;
-  preprocessed?: string;
+  metadata?: string;
+  chunking?: string;
   extracting?: string;
-  indexing?: string;
+  deduplicating?: string;
+  saving?: string;
+  describing?: string;
   completed?: string;
   failed?: string;
 };
@@ -44,20 +47,22 @@ export type ApiBatchStepProgress = {
  * Includes processing state for in-progress operations.
  */
 export type ApiProject = {
-  project_id: number;
+  project_id: string;
   project_name: string;
   project_state: "ready" | "create" | "update";
   process_step?: ApiBatchStepProgress;
   process_percentage?: number;
   process_estimated_duration?: number;
   process_time_remaining?: number;
+  process_eta_confidence?: "low" | "medium" | "high";
+  process_eta_sample_count?: number;
 };
 
 /**
  * Group with nested projects array.
  */
 export type ApiGroupWithProjects = {
-  group_id: number;
+  group_id: string;
   group_name: string;
   role: string;
   projects: ApiProject[];
@@ -72,8 +77,8 @@ export type FileStatus = "processing" | "processed" | "failed" | "no_status";
  * File metadata for files uploaded to a project.
  */
 export type ApiProjectFile = {
-  id: number;
-  project_id: number;
+  id: string;
+  project_id: string;
   name: string;
   file_key: string;
   status?: FileStatus;
@@ -91,8 +96,8 @@ export type ApiProjectFile = {
  * User membership in a group with role.
  */
 export type ApiGroupUser = {
-  group_id: number;
-  user_id: number;
+  group_id: string;
+  user_id: string;
   role: string;
   created_at: {
     Time: string;
@@ -294,9 +299,8 @@ export type ApiChatHistoryResponse = {
  * Text unit (chunk) from the knowledge graph.
  */
 export type ApiTextUnit = {
-  id: number;
-  public_id: string;
-  project_file_id: number;
+  id: string;
+  project_file_id: string;
   text: string;
   created_at: string;
   updated_at: string;

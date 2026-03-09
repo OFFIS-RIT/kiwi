@@ -12,9 +12,9 @@ import (
 )
 
 const addChatMessage = `-- name: AddChatMessage :exec
-INSERT INTO chat_messages (chat_id, role, content, tool_call_id, tool_name, tool_arguments, tool_execution, reasoning, metrics)
+INSERT INTO chat_messages (id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, tool_execution, reasoning, metrics)
 VALUES (
-    $1::bigint,
+    $1,
     $2,
     $3,
     $4,
@@ -22,12 +22,14 @@ VALUES (
     $6,
     $7,
     $8,
-    $9
+    $9,
+    $10
 )
 `
 
 type AddChatMessageParams struct {
-	ChatID        int64       `json:"chat_id"`
+	ID            string      `json:"id"`
+	ChatID        string      `json:"chat_id"`
 	Role          string      `json:"role"`
 	Content       string      `json:"content"`
 	ToolCallID    string      `json:"tool_call_id"`
@@ -40,6 +42,7 @@ type AddChatMessageParams struct {
 
 func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) error {
 	_, err := q.db.Exec(ctx, addChatMessage,
+		arg.ID,
 		arg.ChatID,
 		arg.Role,
 		arg.Content,
@@ -54,26 +57,26 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 }
 
 const createUserChat = `-- name: CreateUserChat :one
-INSERT INTO user_chats (public_id, user_id, project_id, title)
+INSERT INTO user_chats (id, user_id, project_id, title)
 VALUES (
     $1,
     $2,
-    $3::bigint,
+    $3,
     $4
 )
-RETURNING id, public_id, user_id, project_id, title, created_at, updated_at
+RETURNING id, user_id, project_id, title, created_at, updated_at
 `
 
 type CreateUserChatParams struct {
-	PublicID  string `json:"public_id"`
-	UserID    int64  `json:"user_id"`
-	ProjectID int64  `json:"project_id"`
-	Title     string `json:"title"`
+	ID        string      `json:"id"`
+	UserID    string      `json:"user_id"`
+	ProjectID pgtype.Text `json:"project_id"`
+	Title     string      `json:"title"`
 }
 
 func (q *Queries) CreateUserChat(ctx context.Context, arg CreateUserChatParams) (UserChat, error) {
 	row := q.db.QueryRow(ctx, createUserChat,
-		arg.PublicID,
+		arg.ID,
 		arg.UserID,
 		arg.ProjectID,
 		arg.Title,
@@ -81,7 +84,6 @@ func (q *Queries) CreateUserChat(ctx context.Context, arg CreateUserChatParams) 
 	var i UserChat
 	err := row.Scan(
 		&i.ID,
-		&i.PublicID,
 		&i.UserID,
 		&i.ProjectID,
 		&i.Title,
@@ -91,21 +93,21 @@ func (q *Queries) CreateUserChat(ctx context.Context, arg CreateUserChatParams) 
 	return i, err
 }
 
-const deleteUserChatByPublicIDAndProject = `-- name: DeleteUserChatByPublicIDAndProject :execrows
+const deleteUserChatByIDAndProject = `-- name: DeleteUserChatByIDAndProject :execrows
 DELETE FROM user_chats
-WHERE public_id = $1
+WHERE id = $1
   AND user_id = $2
-  AND project_id = $3::bigint
+  AND project_id = $3
 `
 
-type DeleteUserChatByPublicIDAndProjectParams struct {
-	PublicID  string `json:"public_id"`
-	UserID    int64  `json:"user_id"`
-	ProjectID int64  `json:"project_id"`
+type DeleteUserChatByIDAndProjectParams struct {
+	ID        string      `json:"id"`
+	UserID    string      `json:"user_id"`
+	ProjectID pgtype.Text `json:"project_id"`
 }
 
-func (q *Queries) DeleteUserChatByPublicIDAndProject(ctx context.Context, arg DeleteUserChatByPublicIDAndProjectParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteUserChatByPublicIDAndProject, arg.PublicID, arg.UserID, arg.ProjectID)
+func (q *Queries) DeleteUserChatByIDAndProject(ctx context.Context, arg DeleteUserChatByIDAndProjectParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserChatByIDAndProject, arg.ID, arg.UserID, arg.ProjectID)
 	if err != nil {
 		return 0, err
 	}
@@ -114,11 +116,11 @@ func (q *Queries) DeleteUserChatByPublicIDAndProject(ctx context.Context, arg De
 
 const getChatMessagesByChatID = `-- name: GetChatMessagesByChatID :many
 SELECT id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, tool_execution, reasoning, metrics, created_at, updated_at FROM chat_messages
-WHERE chat_id = $1::bigint
-ORDER BY id ASC
+WHERE chat_id = $1
+ORDER BY created_at ASC, id ASC
 `
 
-func (q *Queries) GetChatMessagesByChatID(ctx context.Context, chatID int64) ([]ChatMessage, error) {
+func (q *Queries) GetChatMessagesByChatID(ctx context.Context, chatID string) ([]ChatMessage, error) {
 	rows, err := q.db.Query(ctx, getChatMessagesByChatID, chatID)
 	if err != nil {
 		return nil, err
@@ -153,16 +155,16 @@ func (q *Queries) GetChatMessagesByChatID(ctx context.Context, chatID int64) ([]
 
 const getChatMessagesByChatIDWithoutServerToolCalls = `-- name: GetChatMessagesByChatIDWithoutServerToolCalls :many
 SELECT id, chat_id, role, content, tool_call_id, tool_name, tool_arguments, tool_execution, reasoning, metrics, created_at, updated_at FROM chat_messages
-WHERE chat_id = $1::bigint
+WHERE chat_id = $1
   AND (
       role IN ('user', 'assistant')
       OR role = 'assistant_tool_call'
       OR (role = 'tool' AND tool_execution = 'client')
   )
-ORDER BY id ASC
+ORDER BY created_at ASC, id ASC
 `
 
-func (q *Queries) GetChatMessagesByChatIDWithoutServerToolCalls(ctx context.Context, chatID int64) ([]ChatMessage, error) {
+func (q *Queries) GetChatMessagesByChatIDWithoutServerToolCalls(ctx context.Context, chatID string) ([]ChatMessage, error) {
 	rows, err := q.db.Query(ctx, getChatMessagesByChatIDWithoutServerToolCalls, chatID)
 	if err != nil {
 		return nil, err
@@ -195,25 +197,24 @@ func (q *Queries) GetChatMessagesByChatIDWithoutServerToolCalls(ctx context.Cont
 	return items, nil
 }
 
-const getUserChatByPublicIDAndProject = `-- name: GetUserChatByPublicIDAndProject :one
-SELECT id, public_id, user_id, project_id, title, created_at, updated_at FROM user_chats
-WHERE public_id = $1
+const getUserChatByIDAndProject = `-- name: GetUserChatByIDAndProject :one
+SELECT id, user_id, project_id, title, created_at, updated_at FROM user_chats
+WHERE id = $1
   AND user_id = $2
-  AND project_id = $3::bigint
+  AND project_id = $3
 `
 
-type GetUserChatByPublicIDAndProjectParams struct {
-	PublicID  string `json:"public_id"`
-	UserID    int64  `json:"user_id"`
-	ProjectID int64  `json:"project_id"`
+type GetUserChatByIDAndProjectParams struct {
+	ID        string      `json:"id"`
+	UserID    string      `json:"user_id"`
+	ProjectID pgtype.Text `json:"project_id"`
 }
 
-func (q *Queries) GetUserChatByPublicIDAndProject(ctx context.Context, arg GetUserChatByPublicIDAndProjectParams) (UserChat, error) {
-	row := q.db.QueryRow(ctx, getUserChatByPublicIDAndProject, arg.PublicID, arg.UserID, arg.ProjectID)
+func (q *Queries) GetUserChatByIDAndProject(ctx context.Context, arg GetUserChatByIDAndProjectParams) (UserChat, error) {
+	row := q.db.QueryRow(ctx, getUserChatByIDAndProject, arg.ID, arg.UserID, arg.ProjectID)
 	var i UserChat
 	err := row.Scan(
 		&i.ID,
-		&i.PublicID,
 		&i.UserID,
 		&i.ProjectID,
 		&i.Title,
@@ -224,20 +225,20 @@ func (q *Queries) GetUserChatByPublicIDAndProject(ctx context.Context, arg GetUs
 }
 
 const getUserChatsByProject = `-- name: GetUserChatsByProject :many
-SELECT public_id, title FROM user_chats
+SELECT id, title FROM user_chats
 WHERE user_id = $1
-  AND project_id = $2::bigint
+  AND project_id = $2
 ORDER BY updated_at DESC, id DESC
 `
 
 type GetUserChatsByProjectParams struct {
-	UserID    int64 `json:"user_id"`
-	ProjectID int64 `json:"project_id"`
+	UserID    string      `json:"user_id"`
+	ProjectID pgtype.Text `json:"project_id"`
 }
 
 type GetUserChatsByProjectRow struct {
-	PublicID string `json:"public_id"`
-	Title    string `json:"title"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
 }
 
 func (q *Queries) GetUserChatsByProject(ctx context.Context, arg GetUserChatsByProjectParams) ([]GetUserChatsByProjectRow, error) {
@@ -249,7 +250,7 @@ func (q *Queries) GetUserChatsByProject(ctx context.Context, arg GetUserChatsByP
 	items := []GetUserChatsByProjectRow{}
 	for rows.Next() {
 		var i GetUserChatsByProjectRow
-		if err := rows.Scan(&i.PublicID, &i.Title); err != nil {
+		if err := rows.Scan(&i.ID, &i.Title); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -263,10 +264,10 @@ func (q *Queries) GetUserChatsByProject(ctx context.Context, arg GetUserChatsByP
 const touchUserChat = `-- name: TouchUserChat :exec
 UPDATE user_chats
 SET updated_at = NOW()
-WHERE id = $1::bigint
+WHERE id = $1
 `
 
-func (q *Queries) TouchUserChat(ctx context.Context, chatID int64) error {
+func (q *Queries) TouchUserChat(ctx context.Context, chatID string) error {
 	_, err := q.db.Exec(ctx, touchUserChat, chatID)
 	return err
 }

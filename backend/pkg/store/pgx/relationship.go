@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
+	"sort"
 
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 
@@ -18,14 +18,14 @@ import (
 func (s *GraphDBStorage) GetRelationshipByProjectID(
 	ctx context.Context,
 	qtx *pgdb.Queries,
-	projectId int64,
-) ([]int64, []common.Relationship, error) {
+	projectId string,
+) ([]string, []common.Relationship, error) {
 	relations, err := qtx.GetProjectRelationships(ctx, projectId)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	ids := make([]int64, len(relations))
+	ids := make([]string, len(relations))
 	relationships := make([]common.Relationship, len(relations))
 	for idx := range relations {
 		rel := relations[idx]
@@ -42,15 +42,15 @@ func (s *GraphDBStorage) GetRelationshipByProjectID(
 
 		source := &common.Entity{
 			Name: dbSource.Name,
-			ID:   dbSource.PublicID,
+			ID:   dbSource.ID,
 		}
 		target := &common.Entity{
 			Name: dbTarget.Name,
-			ID:   dbTarget.PublicID,
+			ID:   dbTarget.ID,
 		}
 
 		relationships[idx] = common.Relationship{
-			ID:          rel.PublicID,
+			ID:          rel.ID,
 			Description: rel.Description,
 			Strength:    rel.Rank,
 			Source:      source,
@@ -61,21 +61,21 @@ func (s *GraphDBStorage) GetRelationshipByProjectID(
 	return ids, relationships, nil
 }
 
-func (s *GraphDBStorage) UpdateRelationshipByPublicID(
+func (s *GraphDBStorage) UpdateRelationshipByID(
 	ctx context.Context,
 	qtx *pgdb.Queries,
 	relation common.Relationship,
-) (int64, error) {
+) (string, error) {
 	embedding, err := s.aiClient.GenerateEmbedding(ctx, []byte(relation.Description))
 	if err != nil {
-		return -1, err
+		return "", err
 	}
 	embed := pgvector.NewVector(embedding)
 
 	s.dbLock.Lock()
 	defer s.dbLock.Unlock()
 	return qtx.UpdateProjectRelationship(ctx, pgdb.UpdateProjectRelationshipParams{
-		PublicID:    relation.ID,
+		ID:          relation.ID,
 		Description: relation.Description,
 		Rank:        relation.Strength,
 		Embedding:   embed,
@@ -85,111 +85,136 @@ func (s *GraphDBStorage) UpdateRelationshipByPublicID(
 func (s *GraphDBStorage) getPathBetweenEntities(
 	ctx context.Context,
 	conn pgxIConn,
-	sourceId int64,
-	targetId int64,
+	sourceId string,
+	targetId string,
 	graphId string,
-) ([]int64, []int64, []common.Relationship, error) {
-	query := fmt.Sprintf(`
-		WITH route AS (
-			SELECT *
-			FROM pgr_dijkstra(
-				'SELECT
-					id,
-					source_id AS source,
-					target_id AS target,
-					1.0 / NULLIF(rank, 0) AS cost
-				FROM relationships
-				WHERE project_id = %s',
-				$1::bigint,
-				$2::bigint,
-				directed := false
-			)
-		),
-		best_path AS (
-			SELECT
-				path_seq,
-				node AS node_id,
-				edge AS rel_id,
-				cost
-			FROM route
-		)
-		SELECT
-			r.id,
-			r.public_id,
-			r.description,
-			r.rank,
-			r.source_id,
-			r.target_id
-		FROM best_path bp
-		JOIN relationships r ON r.id = bp.rel_id
-		ORDER BY bp.path_seq;
-	`, graphId)
-
-	rows, err := conn.Query(
-		ctx,
-		query,
-		sourceId,
-		targetId,
-	)
+) ([]string, []string, []common.Relationship, error) {
+	q := pgdb.New(conn)
+	rows, err := q.GetProjectRelationships(ctx, graphId)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	defer rows.Close()
 
-	ids := make([]int64, 0)
-	relations := make([]common.Relationship, 0)
-	entityIds := make([]int64, 0)
-
-	for rows.Next() {
-		var id int64
-		var sourceId int64
-		var targetId int64
-		var relation common.Relationship
-		err := rows.Scan(
-			&id,
-			&relation.ID,
-			&relation.Description,
-			&relation.Strength,
-			&sourceId,
-			&targetId,
-		)
-		if err != nil {
-			return nil, nil, nil, err
+	type edge struct {
+		rel  pgdb.GetProjectRelationshipsRow
+		next string
+		cost float64
+	}
+	adjacency := make(map[string][]edge)
+	for _, row := range rows {
+		cost := 1.0
+		if row.Rank > 0 {
+			cost = 1.0 / row.Rank
 		}
+		adjacency[row.SourceID] = append(adjacency[row.SourceID], edge{rel: row, next: row.TargetID, cost: cost})
+		adjacency[row.TargetID] = append(adjacency[row.TargetID], edge{rel: row, next: row.SourceID, cost: cost})
+	}
 
-		relations = append(relations, relation)
-		ids = append(ids, id)
-		if !slices.Contains(entityIds, sourceId) {
-			entityIds = append(entityIds, sourceId)
+	if sourceId == "" || targetId == "" {
+		return nil, nil, nil, nil
+	}
+	if sourceId == targetId {
+		return nil, []string{sourceId}, nil, nil
+	}
+
+	dist := map[string]float64{sourceId: 0}
+	visited := make(map[string]bool)
+	prevEntity := make(map[string]string)
+	prevRel := make(map[string]pgdb.GetProjectRelationshipsRow)
+	queue := []string{sourceId}
+
+	for len(queue) > 0 {
+		bestIdx := 0
+		bestID := queue[0]
+		bestDist := dist[bestID]
+		for i := 1; i < len(queue); i++ {
+			candidateID := queue[i]
+			candidateDist := dist[candidateID]
+			if candidateDist < bestDist || (candidateDist == bestDist && candidateID < bestID) {
+				bestIdx = i
+				bestID = candidateID
+				bestDist = candidateDist
+			}
 		}
-		if !slices.Contains(entityIds, targetId) {
-			entityIds = append(entityIds, targetId)
+		queue = append(queue[:bestIdx], queue[bestIdx+1:]...)
+		if visited[bestID] {
+			continue
+		}
+		visited[bestID] = true
+		if bestID == targetId {
+			break
+		}
+		for _, edge := range adjacency[bestID] {
+			if visited[edge.next] {
+				continue
+			}
+			candidateDist := bestDist + edge.cost
+			currentDist, ok := dist[edge.next]
+			if !ok || candidateDist < currentDist || (candidateDist == currentDist && edge.rel.ID < prevRel[edge.next].ID) {
+				dist[edge.next] = candidateDist
+				prevEntity[edge.next] = bestID
+				prevRel[edge.next] = edge.rel
+				if !slices.Contains(queue, edge.next) {
+					queue = append(queue, edge.next)
+				}
+			}
 		}
 	}
 
-	return ids, entityIds, relations, nil
+	if _, ok := dist[targetId]; !ok {
+		return nil, nil, nil, nil
+	}
+
+	pathRelations := make([]pgdb.GetProjectRelationshipsRow, 0)
+	entitySet := map[string]struct{}{sourceId: {}, targetId: {}}
+	for current := targetId; current != sourceId; current = prevEntity[current] {
+		rel, ok := prevRel[current]
+		if !ok {
+			return nil, nil, nil, nil
+		}
+		pathRelations = append(pathRelations, rel)
+		entitySet[rel.SourceID] = struct{}{}
+		entitySet[rel.TargetID] = struct{}{}
+	}
+	slices.Reverse(pathRelations)
+
+	relationIDs := make([]string, 0, len(pathRelations))
+	relations := make([]common.Relationship, 0, len(pathRelations))
+	for _, rel := range pathRelations {
+		relationIDs = append(relationIDs, rel.ID)
+		relations = append(relations, common.Relationship{
+			ID:          rel.ID,
+			Description: rel.Description,
+			Strength:    rel.Rank,
+			Source:      &common.Entity{ID: rel.SourceID},
+			Target:      &common.Entity{ID: rel.TargetID},
+		})
+	}
+	entityIDs := make([]string, 0, len(entitySet))
+	for id := range entitySet {
+		entityIDs = append(entityIDs, id)
+	}
+	sort.Strings(entityIDs)
+
+	return relationIDs, entityIDs, relations, nil
 }
 
 // SaveRelationships persists a batch of relationships and their sources to the
 // database. It generates vector embeddings for semantic search and links each
 // relationship to its source and target entities.
-func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []common.Relationship, graphId string) ([]int64, error) {
+func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []common.Relationship, graphId string) ([]string, error) {
 	if len(relations) == 0 {
 		return nil, nil
-	}
-
-	projectID, err := strconv.ParseInt(graphId, 10, 64)
-	if err != nil {
-		return nil, err
 	}
 
 	relChunk := 250
 	sourceChunk := 500
 
-	ids := make([]int64, 0, len(relations))
+	ids := make([]string, 0, len(relations))
+	projectID := graphId
 
-	err = store.ChunkRange(len(relations), relChunk, func(start, end int) error {
-		merged := mergeRelationshipsByPublicID(relations[start:end])
+	err := store.ChunkRange(len(relations), relChunk, func(start, end int) error {
+		merged := mergeRelationshipsByID(relations[start:end])
 		if len(merged) == 0 {
 			return nil
 		}
@@ -203,27 +228,6 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 		defer tx.Rollback(ctx)
 		qtx := pgdb.New(tx)
 
-		entityPublicIDs := make([]string, 0, len(merged)*2)
-		for _, r := range merged {
-			if r.Source != nil {
-				entityPublicIDs = append(entityPublicIDs, r.Source.ID)
-			}
-			if r.Target != nil {
-				entityPublicIDs = append(entityPublicIDs, r.Target.ID)
-			}
-		}
-		entityRows, err := qtx.GetEntityIDsByPublicIDs(ctx, pgdb.GetEntityIDsByPublicIDsParams{
-			ProjectID: projectID,
-			PublicIds: store.DedupeStrings(entityPublicIDs),
-		})
-		if err != nil {
-			return err
-		}
-		entityIDByPublicID := make(map[string]int64, len(entityRows))
-		for _, r := range entityRows {
-			entityIDByPublicID[r.PublicID] = r.ID
-		}
-
 		relInputs := make([][]byte, len(merged))
 		for i := range merged {
 			relInputs[i] = []byte(merged[i].Description)
@@ -234,30 +238,28 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 			return err
 		}
 
-		relPublicIDs := make([]string, 0, len(merged))
-		sourceIDs := make([]int64, 0, len(merged))
-		targetIDs := make([]int64, 0, len(merged))
+		relIDs := make([]string, 0, len(merged))
+		sourceIDs := make([]string, 0, len(merged))
+		targetIDs := make([]string, 0, len(merged))
 		ranks := make([]float64, 0, len(merged))
 		descriptions := make([]string, 0, len(merged))
 		embeddings := make([]pgvector.Vector, 0, len(merged))
 		for i, r := range merged {
 			if r.ID == "" {
-				return fmt.Errorf("relationship public_id is empty")
+				return fmt.Errorf("relationship id is empty")
 			}
 			if r.Source == nil || r.Target == nil {
-				return fmt.Errorf("relationship missing source/target: public_id=%s", r.ID)
+				return fmt.Errorf("relationship missing source/target: id=%s", r.ID)
 			}
-			sID, ok := entityIDByPublicID[r.Source.ID]
-			if !ok {
-				return fmt.Errorf("missing source entity: relationship=%s entity_public_id=%s", r.ID, r.Source.ID)
+			if r.Source.ID == "" {
+				return fmt.Errorf("missing source entity id: relationship=%s", r.ID)
 			}
-			tID, ok := entityIDByPublicID[r.Target.ID]
-			if !ok {
-				return fmt.Errorf("missing target entity: relationship=%s entity_public_id=%s", r.ID, r.Target.ID)
+			if r.Target.ID == "" {
+				return fmt.Errorf("missing target entity id: relationship=%s", r.ID)
 			}
-			relPublicIDs = append(relPublicIDs, r.ID)
-			sourceIDs = append(sourceIDs, sID)
-			targetIDs = append(targetIDs, tID)
+			relIDs = append(relIDs, r.ID)
+			sourceIDs = append(sourceIDs, r.Source.ID)
+			targetIDs = append(targetIDs, r.Target.ID)
 			ranks = append(ranks, r.Strength)
 			descriptions = append(descriptions, r.Description)
 			embeddings = append(embeddings, pgvector.NewVector(relEmb[i]))
@@ -271,36 +273,19 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 			Ranks:        ranks,
 			Descriptions: descriptions,
 			Embeddings:   embeddings,
-			PublicIds:    relPublicIDs,
+			Ids:          relIDs,
 		})
 		if err != nil {
 			return err
 		}
 
-		relIDByPublicID := make(map[string]int64, len(relRows))
-		for _, r := range relRows {
-			relIDByPublicID[r.PublicID] = r.ID
-			ids = append(ids, r.ID)
-		}
+		ids = append(ids, relRows...)
 
-		sources := flattenRelationshipSources(merged, relIDByPublicID)
+		sources := flattenRelationshipSources(merged)
 		if len(sources) > 0 {
 			err = store.ChunkRange(len(sources), sourceChunk, func(sStart, sEnd int) error {
 				part := sources[sStart:sEnd]
 				logger.Debug("[Graph][SaveRelationships] Saving relationship sources chunk", "sources", len(part))
-
-				unitPublicIDs := make([]string, 0, len(part))
-				for _, src := range part {
-					unitPublicIDs = append(unitPublicIDs, src.unitPublicID)
-				}
-				unitRows, err := qtx.GetTextUnitIDsByPublicIDs(ctx, store.DedupeStrings(unitPublicIDs))
-				if err != nil {
-					return err
-				}
-				unitIDByPublicID := make(map[string]int64, len(unitRows))
-				for _, r := range unitRows {
-					unitIDByPublicID[r.PublicID] = r.ID
-				}
 
 				inputs := make([][]byte, len(part))
 				for i := range part {
@@ -312,30 +297,29 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 					return err
 				}
 
-				sPublicIDs := make([]string, 0, len(part))
-				sRelIDs := make([]int64, 0, len(part))
-				sUnitIDs := make([]int64, 0, len(part))
+				sIDs := make([]string, 0, len(part))
+				sRelIDs := make([]string, 0, len(part))
+				sUnitIDs := make([]string, 0, len(part))
 				sDescriptions := make([]string, 0, len(part))
 				sEmbeddings := make([]pgvector.Vector, 0, len(part))
 				for i := range part {
-					unitID, ok := unitIDByPublicID[part[i].unitPublicID]
-					if !ok {
-						return fmt.Errorf("missing text unit for source: unit_public_id=%s", part[i].unitPublicID)
+					if part[i].unitID == "" {
+						return fmt.Errorf("missing text unit for source: source_id=%s", part[i].id)
 					}
-					sPublicIDs = append(sPublicIDs, part[i].publicID)
+					sIDs = append(sIDs, part[i].id)
 					sRelIDs = append(sRelIDs, part[i].relationshipID)
-					sUnitIDs = append(sUnitIDs, unitID)
+					sUnitIDs = append(sUnitIDs, part[i].unitID)
 					sDescriptions = append(sDescriptions, part[i].description)
 					sEmbeddings = append(sEmbeddings, pgvector.NewVector(embs[i]))
 				}
 
 				logger.Debug("[Graph][SaveRelationships] Bulk upserting relationship sources", "count", len(part))
 				return qtx.UpsertRelationshipSources(ctx, pgdb.UpsertRelationshipSourcesParams{
+					Ids:             sIDs,
 					RelationshipIds: sRelIDs,
 					TextUnitIds:     sUnitIDs,
 					Descriptions:    sDescriptions,
 					Embeddings:      sEmbeddings,
-					PublicIds:       sPublicIDs,
 				})
 			})
 			if err != nil {
@@ -354,13 +338,13 @@ func (s *GraphDBStorage) SaveRelationships(ctx context.Context, relations []comm
 }
 
 type relationshipSourceRow struct {
-	publicID       string
-	relationshipID int64
-	unitPublicID   string
+	id             string
+	relationshipID string
+	unitID         string
 	description    string
 }
 
-func mergeRelationshipsByPublicID(in []common.Relationship) []common.Relationship {
+func mergeRelationshipsByID(in []common.Relationship) []common.Relationship {
 	byID := make(map[string]int, len(in))
 	out := make([]common.Relationship, 0, len(in))
 	for _, r := range in {
@@ -389,12 +373,11 @@ func mergeRelationshipsByPublicID(in []common.Relationship) []common.Relationshi
 	return out
 }
 
-func flattenRelationshipSources(relations []common.Relationship, relIDByPublicID map[string]int64) []relationshipSourceRow {
+func flattenRelationshipSources(relations []common.Relationship) []relationshipSourceRow {
 	rows := make([]relationshipSourceRow, 0)
-	indexByPublicID := make(map[string]int)
+	indexByID := make(map[string]int)
 	for _, r := range relations {
-		relID, ok := relIDByPublicID[r.ID]
-		if !ok {
+		if r.ID == "" {
 			continue
 		}
 		for _, src := range r.Sources {
@@ -402,16 +385,16 @@ func flattenRelationshipSources(relations []common.Relationship, relIDByPublicID
 				continue
 			}
 			row := relationshipSourceRow{
-				publicID:       src.ID,
-				relationshipID: relID,
-				unitPublicID:   src.Unit.ID,
+				id:             src.ID,
+				relationshipID: r.ID,
+				unitID:         src.Unit.ID,
 				description:    src.Description,
 			}
-			if idx, ok := indexByPublicID[row.publicID]; ok {
+			if idx, ok := indexByID[row.id]; ok {
 				rows[idx] = row
 				continue
 			}
-			indexByPublicID[row.publicID] = len(rows)
+			indexByID[row.id] = len(rows)
 			rows = append(rows, row)
 		}
 	}

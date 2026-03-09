@@ -2,7 +2,6 @@ package pgx
 
 import (
 	"context"
-	"strconv"
 
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 
@@ -21,12 +20,7 @@ func (s *GraphDBStorage) DeleteGraph(ctx context.Context, graphID string) error 
 	q := pgdb.New(s.conn)
 	qtx := q.WithTx(tx)
 
-	projectId, err := strconv.ParseInt(graphID, 10, 64)
-	if err != nil {
-		return err
-	}
-
-	err = qtx.DeleteProject(ctx, projectId)
+	err = qtx.DeleteProject(ctx, graphID)
 	if err != nil {
 		return err
 	}
@@ -41,7 +35,7 @@ func (s *GraphDBStorage) DeleteGraph(ctx context.Context, graphID string) error 
 
 // DeleteFile removes a file and its text units from the graph, then cleans up
 // any orphaned entities and relationships that no longer have source references.
-func (s *GraphDBStorage) DeleteFile(ctx context.Context, fileID int64, projectID int64) error {
+func (s *GraphDBStorage) DeleteFile(ctx context.Context, fileID string, projectID string) error {
 	tx, err := s.conn.Begin(ctx)
 	if err != nil {
 		return err
@@ -74,8 +68,8 @@ func (s *GraphDBStorage) DeleteFile(ctx context.Context, fileID int64, projectID
 
 // RollbackFileData removes graph data (text_units, sources, orphaned entities/relationships)
 // for the given file IDs without deleting the project_files records themselves.
-// This allows the queue to retry processing the same files.
-func (s *GraphDBStorage) RollbackFileData(ctx context.Context, fileIDs []int64, projectID int64) error {
+// This allows durable workflow retries to reprocess the same files.
+func (s *GraphDBStorage) RollbackFileData(ctx context.Context, fileIDs []string, projectID string) error {
 	if len(fileIDs) == 0 {
 		return nil
 	}

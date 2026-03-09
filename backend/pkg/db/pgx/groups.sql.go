@@ -15,8 +15,8 @@ VALUES ($1, $2, $3) RETURNING group_id, user_id, role, created_at, updated_at
 `
 
 type AddUserToGroupParams struct {
-	GroupID int64  `json:"group_id"`
-	UserID  int64  `json:"user_id"`
+	GroupID string `json:"group_id"`
+	UserID  string `json:"user_id"`
 	Role    string `json:"role"`
 }
 
@@ -34,12 +34,17 @@ func (q *Queries) AddUserToGroup(ctx context.Context, arg AddUserToGroupParams) 
 }
 
 const createGroup = `-- name: CreateGroup :one
-INSERT INTO groups (name)
-VALUES ($1) RETURNING id, name
+INSERT INTO groups (id, name)
+VALUES ($1, $2) RETURNING id, name
 `
 
-func (q *Queries) CreateGroup(ctx context.Context, name string) (Group, error) {
-	row := q.db.QueryRow(ctx, createGroup, name)
+type CreateGroupParams struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func (q *Queries) CreateGroup(ctx context.Context, arg CreateGroupParams) (Group, error) {
+	row := q.db.QueryRow(ctx, createGroup, arg.ID, arg.Name)
 	var i Group
 	err := row.Scan(&i.ID, &i.Name)
 	return i, err
@@ -49,7 +54,7 @@ const deleteGroup = `-- name: DeleteGroup :exec
 DELETE FROM groups WHERE id = $1
 `
 
-func (q *Queries) DeleteGroup(ctx context.Context, id int64) error {
+func (q *Queries) DeleteGroup(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteGroup, id)
 	return err
 }
@@ -59,8 +64,8 @@ DELETE FROM group_users WHERE group_id = $1 AND user_id = $2
 `
 
 type DeleteUserFromGroupParams struct {
-	GroupID int64 `json:"group_id"`
-	UserID  int64 `json:"user_id"`
+	GroupID string `json:"group_id"`
+	UserID  string `json:"user_id"`
 }
 
 func (q *Queries) DeleteUserFromGroup(ctx context.Context, arg DeleteUserFromGroupParams) error {
@@ -78,7 +83,7 @@ ORDER BY g.id
 `
 
 type GetAllGroupsRow struct {
-	GroupID   int64  `json:"group_id"`
+	GroupID   string `json:"group_id"`
 	GroupName string `json:"group_name"`
 	Role      string `json:"role"`
 }
@@ -107,7 +112,7 @@ const getGroup = `-- name: GetGroup :one
 SELECT id, name FROM groups WHERE id = $1
 `
 
-func (q *Queries) GetGroup(ctx context.Context, id int64) (Group, error) {
+func (q *Queries) GetGroup(ctx context.Context, id string) (Group, error) {
 	row := q.db.QueryRow(ctx, getGroup, id)
 	var i Group
 	err := row.Scan(&i.ID, &i.Name)
@@ -118,7 +123,7 @@ const getGroupUsers = `-- name: GetGroupUsers :many
 SELECT group_id, user_id, role, created_at, updated_at FROM group_users WHERE group_id = $1
 `
 
-func (q *Queries) GetGroupUsers(ctx context.Context, groupID int64) ([]GroupUser, error) {
+func (q *Queries) GetGroupUsers(ctx context.Context, groupID string) ([]GroupUser, error) {
 	rows, err := q.db.Query(ctx, getGroupUsers, groupID)
 	if err != nil {
 		return nil, err
@@ -156,12 +161,12 @@ WHERE gu.user_id = $1
 `
 
 type GetGroupsForUserRow struct {
-	GroupID   int64  `json:"group_id"`
+	GroupID   string `json:"group_id"`
 	GroupName string `json:"group_name"`
 	Role      string `json:"role"`
 }
 
-func (q *Queries) GetGroupsForUser(ctx context.Context, userID int64) ([]GetGroupsForUserRow, error) {
+func (q *Queries) GetGroupsForUser(ctx context.Context, userID string) ([]GetGroupsForUserRow, error) {
 	rows, err := q.db.Query(ctx, getGroupsForUser, userID)
 	if err != nil {
 		return nil, err
@@ -186,8 +191,8 @@ SELECT COUNT(*) AS count FROM group_users WHERE group_id = $1 AND user_id = $2
 `
 
 type IsUserInGroupParams struct {
-	GroupID int64 `json:"group_id"`
-	UserID  int64 `json:"user_id"`
+	GroupID string `json:"group_id"`
+	UserID  string `json:"user_id"`
 }
 
 func (q *Queries) IsUserInGroup(ctx context.Context, arg IsUserInGroupParams) (int64, error) {
@@ -202,7 +207,7 @@ UPDATE groups SET name = $2 WHERE id = $1 RETURNING id, name
 `
 
 type UpdateGroupParams struct {
-	ID   int64  `json:"id"`
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 

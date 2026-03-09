@@ -3,14 +3,15 @@ package pgx
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
 	"golang.org/x/sync/errgroup"
 )
@@ -18,23 +19,24 @@ import (
 const descriptionBatchSize = 100
 
 type descriptionSource struct {
-	ID          int64
+	ID          string
+	CreatedAt   pgtype.Timestamptz
 	Description string
 }
 
 type entityDescriptionUpdate struct {
-	ID          int64
+	ID          string
 	Description string
 	Embedding   pgvector.Vector
 }
 
 type relationshipDescriptionUpdate struct {
-	ID          int64
+	ID          string
 	Description string
 	Embedding   pgvector.Vector
 }
 
-func (s *GraphDBStorage) GenerateEntityDescriptions(ctx context.Context, entityIDs []int64) error {
+func (s *GraphDBStorage) GenerateEntityDescriptions(ctx context.Context, entityIDs []string) error {
 	if len(entityIDs) == 0 {
 		return nil
 	}
@@ -47,20 +49,21 @@ func (s *GraphDBStorage) GenerateEntityDescriptions(ctx context.Context, entityI
 
 	logger.Debug("[Store] Generating entity descriptions", "count", len(entities))
 
-	updates := make([]entityDescriptionUpdate, 0, len(entities))
-	var updatesMu sync.Mutex
+	updates := make([]entityDescriptionUpdate, len(entities))
+	hasUpdate := make([]bool, len(entities))
 
 	eg, gCtx := errgroup.WithContext(ctx)
-	for _, entity := range entities {
+	eg.SetLimit(descriptionParallelismLimit())
+	for i, entity := range entities {
+		index := i
 		ent := entity
 		eg.Go(func() error {
 			update, ok, err := s.buildEntityUpdateFromSources(gCtx, ent.ID, ent.Name, "", false)
 			if err != nil || !ok {
 				return err
 			}
-			updatesMu.Lock()
-			updates = append(updates, update)
-			updatesMu.Unlock()
+			updates[index] = update
+			hasUpdate[index] = true
 			return nil
 		})
 	}
@@ -68,6 +71,7 @@ func (s *GraphDBStorage) GenerateEntityDescriptions(ctx context.Context, entityI
 	if err := eg.Wait(); err != nil {
 		return fmt.Errorf("failed to generate entity descriptions: %w", err)
 	}
+	updates = compactEntityDescriptionUpdates(updates, hasUpdate)
 	if len(updates) == 0 {
 		return nil
 	}
@@ -82,7 +86,7 @@ func (s *GraphDBStorage) GenerateEntityDescriptions(ctx context.Context, entityI
 	return nil
 }
 
-func (s *GraphDBStorage) GenerateRelationshipDescriptions(ctx context.Context, relationshipIDs []int64) error {
+func (s *GraphDBStorage) GenerateRelationshipDescriptions(ctx context.Context, relationshipIDs []string) error {
 	if len(relationshipIDs) == 0 {
 		return nil
 	}
@@ -95,11 +99,13 @@ func (s *GraphDBStorage) GenerateRelationshipDescriptions(ctx context.Context, r
 
 	logger.Debug("[Store] Generating relationship descriptions", "count", len(rels))
 
-	updates := make([]relationshipDescriptionUpdate, 0, len(rels))
-	var updatesMu sync.Mutex
+	updates := make([]relationshipDescriptionUpdate, len(rels))
+	hasUpdate := make([]bool, len(rels))
 
 	eg, gCtx := errgroup.WithContext(ctx)
-	for _, rel := range rels {
+	eg.SetLimit(descriptionParallelismLimit())
+	for i, rel := range rels {
+		index := i
 		r := rel
 		eg.Go(func() error {
 			relationName := fmt.Sprintf("%s -> %s", r.SourceName, r.TargetName)
@@ -107,9 +113,8 @@ func (s *GraphDBStorage) GenerateRelationshipDescriptions(ctx context.Context, r
 			if err != nil || !ok {
 				return err
 			}
-			updatesMu.Lock()
-			updates = append(updates, update)
-			updatesMu.Unlock()
+			updates[index] = update
+			hasUpdate[index] = true
 			return nil
 		})
 	}
@@ -117,6 +122,7 @@ func (s *GraphDBStorage) GenerateRelationshipDescriptions(ctx context.Context, r
 	if err := eg.Wait(); err != nil {
 		return fmt.Errorf("failed to generate relationship descriptions: %w", err)
 	}
+	updates = compactRelationshipDescriptionUpdates(updates, hasUpdate)
 	if len(updates) == 0 {
 		return nil
 	}
@@ -131,7 +137,7 @@ func (s *GraphDBStorage) GenerateRelationshipDescriptions(ctx context.Context, r
 	return nil
 }
 
-func (s *GraphDBStorage) UpdateEntityDescriptions(ctx context.Context, fileIDs []int64) error {
+func (s *GraphDBStorage) UpdateEntityDescriptions(ctx context.Context, fileIDs []string) error {
 	if len(fileIDs) == 0 {
 		return nil
 	}
@@ -140,7 +146,7 @@ func (s *GraphDBStorage) UpdateEntityDescriptions(ctx context.Context, fileIDs [
 	if err != nil {
 		return err
 	}
-	if projectID == 0 {
+	if projectID == "" {
 		return nil
 	}
 
@@ -156,7 +162,7 @@ func (s *GraphDBStorage) UpdateEntityDescriptions(ctx context.Context, fileIDs [
 		return nil
 	}
 
-	entityIDs := make([]int64, len(entities))
+	entityIDs := make([]string, len(entities))
 	for i, entity := range entities {
 		entityIDs[i] = entity.ID
 	}
@@ -164,7 +170,7 @@ func (s *GraphDBStorage) UpdateEntityDescriptions(ctx context.Context, fileIDs [
 	return s.UpdateEntityDescriptionsByIDsFromFiles(ctx, entityIDs, fileIDs)
 }
 
-func (s *GraphDBStorage) UpdateRelationshipDescriptions(ctx context.Context, fileIDs []int64) error {
+func (s *GraphDBStorage) UpdateRelationshipDescriptions(ctx context.Context, fileIDs []string) error {
 	if len(fileIDs) == 0 {
 		return nil
 	}
@@ -173,7 +179,7 @@ func (s *GraphDBStorage) UpdateRelationshipDescriptions(ctx context.Context, fil
 	if err != nil {
 		return err
 	}
-	if projectID == 0 {
+	if projectID == "" {
 		return nil
 	}
 
@@ -189,7 +195,7 @@ func (s *GraphDBStorage) UpdateRelationshipDescriptions(ctx context.Context, fil
 		return nil
 	}
 
-	relIDs := make([]int64, len(rels))
+	relIDs := make([]string, len(rels))
 	for i, rel := range rels {
 		relIDs[i] = rel.ID
 	}
@@ -197,7 +203,7 @@ func (s *GraphDBStorage) UpdateRelationshipDescriptions(ctx context.Context, fil
 	return s.UpdateRelationshipDescriptionsByIDsFromFiles(ctx, relIDs, fileIDs)
 }
 
-func (s *GraphDBStorage) UpdateEntityDescriptionsByIDsFromFiles(ctx context.Context, entityIDs []int64, fileIDs []int64) error {
+func (s *GraphDBStorage) UpdateEntityDescriptionsByIDsFromFiles(ctx context.Context, entityIDs []string, fileIDs []string) error {
 	if len(entityIDs) == 0 || len(fileIDs) == 0 {
 		return nil
 	}
@@ -208,7 +214,7 @@ func (s *GraphDBStorage) UpdateEntityDescriptionsByIDsFromFiles(ctx context.Cont
 		return err
 	}
 
-	entityByID := make(map[int64]pgdb.GetProjectEntitiesByIDsRow, len(entities))
+	entityByID := make(map[string]pgdb.GetProjectEntitiesByIDsRow, len(entities))
 	for _, entity := range entities {
 		entityByID[entity.ID] = entity
 	}
@@ -252,7 +258,7 @@ func (s *GraphDBStorage) UpdateEntityDescriptionsByIDsFromFiles(ctx context.Cont
 	return nil
 }
 
-func (s *GraphDBStorage) UpdateRelationshipDescriptionsByIDsFromFiles(ctx context.Context, relationshipIDs []int64, fileIDs []int64) error {
+func (s *GraphDBStorage) UpdateRelationshipDescriptionsByIDsFromFiles(ctx context.Context, relationshipIDs []string, fileIDs []string) error {
 	if len(relationshipIDs) == 0 || len(fileIDs) == 0 {
 		return nil
 	}
@@ -263,7 +269,7 @@ func (s *GraphDBStorage) UpdateRelationshipDescriptionsByIDsFromFiles(ctx contex
 		return err
 	}
 
-	relByID := make(map[int64]pgdb.GetProjectRelationshipsWithEntityNamesByIDsRow, len(rels))
+	relByID := make(map[string]pgdb.GetProjectRelationshipsWithEntityNamesByIDsRow, len(rels))
 	for _, rel := range rels {
 		relByID[rel.ID] = rel
 	}
@@ -315,10 +321,7 @@ func (s *GraphDBStorage) DeleteFilesAndRegenerateDescriptions(
 	ctx context.Context,
 	graphID string,
 ) error {
-	projectID, err := strconv.ParseInt(graphID, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid graph ID: %w", err)
-	}
+	projectID := graphID
 
 	q := pgdb.New(s.conn)
 
@@ -334,19 +337,14 @@ func (s *GraphDBStorage) DeleteFilesAndRegenerateDescriptions(
 
 	logger.Debug("[Store] Processing files marked for deletion", "count", len(deletedFiles))
 
-	fileIDs := make([]int64, len(deletedFiles))
+	fileIDs := make([]string, len(deletedFiles))
 	for i, file := range deletedFiles {
 		fileIDs[i] = file.ID
 	}
 
-	unitRows, err := q.GetTextUnitIdsForFiles(ctx, fileIDs)
+	unitIDs, err := q.GetTextUnitIdsForFiles(ctx, fileIDs)
 	if err != nil {
 		return fmt.Errorf("failed to get text units for files: %w", err)
-	}
-
-	unitIDs := make([]int64, len(unitRows))
-	for i, row := range unitRows {
-		unitIDs[i] = row.ID
 	}
 
 	var affectedEntities []pgdb.GetEntitiesWithSourcesFromUnitsRow
@@ -382,7 +380,7 @@ func (s *GraphDBStorage) DeleteFilesAndRegenerateDescriptions(
 	for _, file := range deletedFiles {
 		err = qtx.DeleteProjectFile(ctx, file.ID)
 		if err != nil {
-			return fmt.Errorf("failed to delete file %d: %w", file.ID, err)
+			return fmt.Errorf("failed to delete file %s: %w", file.ID, err)
 		}
 	}
 
@@ -402,12 +400,12 @@ func (s *GraphDBStorage) DeleteFilesAndRegenerateDescriptions(
 
 	logger.Debug("[Store] Deleted files and orphaned items, regenerating descriptions")
 
-	entityIDs := make([]int64, 0, len(affectedEntities))
+	entityIDs := make([]string, 0, len(affectedEntities))
 	for _, entity := range affectedEntities {
 		entityIDs = append(entityIDs, entity.ID)
 	}
 
-	relationshipIDs := make([]int64, 0, len(affectedRelationships))
+	relationshipIDs := make([]string, 0, len(affectedRelationships))
 	for _, rel := range affectedRelationships {
 		relationshipIDs = append(relationshipIDs, rel.ID)
 	}
@@ -437,42 +435,44 @@ func (s *GraphDBStorage) DeleteFilesAndRegenerateDescriptions(
 
 func (s *GraphDBStorage) buildEntityUpdateFromSources(
 	ctx context.Context,
-	entityID int64,
+	entityID string,
 	entityName string,
 	currentDescription string,
 	updateOnly bool,
-	fileIDs ...int64,
+	fileIDs ...string,
 ) (entityDescriptionUpdate, bool, error) {
-	fetch := func(ctx context.Context, lastID int64) ([]descriptionSource, error) {
+	fetch := func(ctx context.Context, cursor descriptionCursor) ([]descriptionSource, error) {
 		q := pgdb.New(s.conn)
 		if len(fileIDs) == 0 {
 			rows, err := q.GetEntitySourceDescriptionsBatch(ctx, pgdb.GetEntitySourceDescriptionsBatchParams{
-				EntityID: entityID,
-				ID:       lastID,
-				Limit:    int32(descriptionBatchSize),
+				EntityID:        entityID,
+				CursorCreatedAt: cursor.CreatedAt,
+				CursorID:        cursor.ID,
+				BatchLimit:      int32(descriptionBatchSize),
 			})
 			if err != nil {
 				return nil, err
 			}
 			batch := make([]descriptionSource, len(rows))
 			for i, row := range rows {
-				batch[i] = descriptionSource{ID: row.ID, Description: row.Description}
+				batch[i] = descriptionSource{ID: row.ID, CreatedAt: row.CreatedAt, Description: row.Description}
 			}
 			return batch, nil
 		}
 
 		rows, err := q.GetEntitySourceDescriptionsForFilesBatch(ctx, pgdb.GetEntitySourceDescriptionsForFilesBatchParams{
-			EntityID: entityID,
-			Column2:  fileIDs,
-			ID:       lastID,
-			Limit:    int32(descriptionBatchSize),
+			EntityID:        entityID,
+			FileIds:         fileIDs,
+			CursorCreatedAt: cursor.CreatedAt,
+			CursorID:        cursor.ID,
+			BatchLimit:      int32(descriptionBatchSize),
 		})
 		if err != nil {
 			return nil, err
 		}
 		batch := make([]descriptionSource, len(rows))
 		for i, row := range rows {
-			batch[i] = descriptionSource{ID: row.ID, Description: row.Description}
+			batch[i] = descriptionSource{ID: row.ID, CreatedAt: row.CreatedAt, Description: row.Description}
 		}
 		return batch, nil
 	}
@@ -496,42 +496,44 @@ func (s *GraphDBStorage) buildEntityUpdateFromSources(
 
 func (s *GraphDBStorage) buildRelationshipUpdateFromSources(
 	ctx context.Context,
-	relationshipID int64,
+	relationshipID string,
 	relationName string,
 	currentDescription string,
 	updateOnly bool,
-	fileIDs ...int64,
+	fileIDs ...string,
 ) (relationshipDescriptionUpdate, bool, error) {
-	fetch := func(ctx context.Context, lastID int64) ([]descriptionSource, error) {
+	fetch := func(ctx context.Context, cursor descriptionCursor) ([]descriptionSource, error) {
 		q := pgdb.New(s.conn)
 		if len(fileIDs) == 0 {
 			rows, err := q.GetRelationshipSourceDescriptionsBatch(ctx, pgdb.GetRelationshipSourceDescriptionsBatchParams{
-				RelationshipID: relationshipID,
-				ID:             lastID,
-				Limit:          int32(descriptionBatchSize),
+				RelationshipID:  relationshipID,
+				CursorCreatedAt: cursor.CreatedAt,
+				CursorID:        cursor.ID,
+				BatchLimit:      int32(descriptionBatchSize),
 			})
 			if err != nil {
 				return nil, err
 			}
 			batch := make([]descriptionSource, len(rows))
 			for i, row := range rows {
-				batch[i] = descriptionSource{ID: row.ID, Description: row.Description}
+				batch[i] = descriptionSource{ID: row.ID, CreatedAt: row.CreatedAt, Description: row.Description}
 			}
 			return batch, nil
 		}
 
 		rows, err := q.GetRelationshipSourceDescriptionsForFilesBatch(ctx, pgdb.GetRelationshipSourceDescriptionsForFilesBatchParams{
-			RelationshipID: relationshipID,
-			Column2:        fileIDs,
-			ID:             lastID,
-			Limit:          int32(descriptionBatchSize),
+			RelationshipID:  relationshipID,
+			FileIds:         fileIDs,
+			CursorCreatedAt: cursor.CreatedAt,
+			CursorID:        cursor.ID,
+			BatchLimit:      int32(descriptionBatchSize),
 		})
 		if err != nil {
 			return nil, err
 		}
 		batch := make([]descriptionSource, len(rows))
 		for i, row := range rows {
-			batch[i] = descriptionSource{ID: row.ID, Description: row.Description}
+			batch[i] = descriptionSource{ID: row.ID, CreatedAt: row.CreatedAt, Description: row.Description}
 		}
 		return batch, nil
 	}
@@ -553,14 +555,19 @@ func (s *GraphDBStorage) buildRelationshipUpdateFromSources(
 	}, true, nil
 }
 
+type descriptionCursor struct {
+	CreatedAt pgtype.Timestamptz
+	ID        string
+}
+
 func (s *GraphDBStorage) buildDescriptionFromSources(
 	ctx context.Context,
 	name string,
 	currentDescription string,
 	updateOnly bool,
-	fetch func(ctx context.Context, lastID int64) ([]descriptionSource, error),
+	fetch func(ctx context.Context, cursor descriptionCursor) ([]descriptionSource, error),
 ) (string, bool, error) {
-	lastID := int64(0)
+	cursor := descriptionCursor{}
 	processed := false
 
 	for {
@@ -568,7 +575,7 @@ func (s *GraphDBStorage) buildDescriptionFromSources(
 			return "", false, err
 		}
 
-		rows, err := fetch(ctx, lastID)
+		rows, err := fetch(ctx, cursor)
 		if err != nil {
 			return "", false, err
 		}
@@ -582,7 +589,7 @@ func (s *GraphDBStorage) buildDescriptionFromSources(
 		batchDescriptions := make([]string, len(rows))
 		for i, row := range rows {
 			batchDescriptions[i] = row.Description
-			lastID = row.ID
+			cursor = descriptionCursor{CreatedAt: row.CreatedAt, ID: row.ID}
 		}
 		batchText := strings.Join(batchDescriptions, "\n\n")
 
@@ -609,7 +616,7 @@ func (s *GraphDBStorage) updateEntitiesBatch(ctx context.Context, updates []enti
 		return nil
 	}
 
-	ids := make([]int64, len(updates))
+	ids := make([]string, len(updates))
 	descriptions := make([]string, len(updates))
 	embeddings := make([]pgvector.Vector, len(updates))
 	for i, update := range updates {
@@ -631,7 +638,7 @@ func (s *GraphDBStorage) updateRelationshipsBatch(ctx context.Context, updates [
 		return nil
 	}
 
-	ids := make([]int64, len(updates))
+	ids := make([]string, len(updates))
 	descriptions := make([]string, len(updates))
 	embeddings := make([]pgvector.Vector, len(updates))
 	for i, update := range updates {
@@ -648,21 +655,45 @@ func (s *GraphDBStorage) updateRelationshipsBatch(ctx context.Context, updates [
 	})
 }
 
-func (s *GraphDBStorage) getProjectIDFromFiles(ctx context.Context, fileIDs []int64) (int64, error) {
+func descriptionParallelismLimit() int {
+	return max(1, int(util.GetEnvNumeric("AI_PARALLEL_REQ", 15)))
+}
+
+func compactEntityDescriptionUpdates(updates []entityDescriptionUpdate, hasUpdate []bool) []entityDescriptionUpdate {
+	result := make([]entityDescriptionUpdate, 0, len(updates))
+	for i, update := range updates {
+		if i < len(hasUpdate) && hasUpdate[i] {
+			result = append(result, update)
+		}
+	}
+	return result
+}
+
+func compactRelationshipDescriptionUpdates(updates []relationshipDescriptionUpdate, hasUpdate []bool) []relationshipDescriptionUpdate {
+	result := make([]relationshipDescriptionUpdate, 0, len(updates))
+	for i, update := range updates {
+		if i < len(hasUpdate) && hasUpdate[i] {
+			result = append(result, update)
+		}
+	}
+	return result
+}
+
+func (s *GraphDBStorage) getProjectIDFromFiles(ctx context.Context, fileIDs []string) (string, error) {
 	if len(fileIDs) == 0 {
-		return 0, nil
+		return "", nil
 	}
 
 	q := pgdb.New(s.conn)
 	projectIDs, err := q.GetProjectIDsForFiles(ctx, fileIDs)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	if len(projectIDs) == 0 {
-		return 0, nil
+		return "", nil
 	}
 	if len(projectIDs) > 1 {
-		return 0, fmt.Errorf("multiple project IDs found for files")
+		return "", fmt.Errorf("multiple project IDs found for files")
 	}
 
 	return projectIDs[0], nil

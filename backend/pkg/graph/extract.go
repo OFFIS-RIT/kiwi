@@ -12,9 +12,8 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	csvchunking "github.com/OFFIS-RIT/kiwi/backend/pkg/chunking/csv"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/common"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ids"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/loader"
-
-	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
 type extractEntity struct {
@@ -36,7 +35,7 @@ type extractResponse struct {
 }
 
 type extractRequest struct {
-	unit processUnit
+	unit *common.Unit
 	file loader.GraphFile
 }
 
@@ -67,7 +66,7 @@ func (textExtractor) buildSystemPrompt(req extractRequest, entityTypes []string)
 func (csvExtractor) buildSystemPrompt(req extractRequest, entityTypes []string) (string, error) {
 	baseName := filepath.Base(req.file.FilePath)
 	entityList := strings.Join(entityTypes, ",")
-	csvSummary := summarizeCSV(req.unit.text, baseName)
+	csvSummary := summarizeCSV(req.unit.Text, baseName)
 	return fmt.Sprintf(
 		ai.ExtractPromptCSV,
 		entityList,
@@ -133,6 +132,21 @@ func extractFromUnit(
 	file loader.GraphFile,
 	client ai.GraphAIClient,
 ) (*common.Unit, []common.Entity, []common.Relationship, error) {
+	return extractFromCommonUnit(ctx, &common.Unit{
+		ID:     unit.id,
+		FileID: unit.fileID,
+		Start:  unit.start,
+		End:    unit.end,
+		Text:   unit.text,
+	}, file, client)
+}
+
+func extractFromCommonUnit(
+	ctx context.Context,
+	unit *common.Unit,
+	file loader.GraphFile,
+	client ai.GraphAIClient,
+) (*common.Unit, []common.Entity, []common.Relationship, error) {
 	e := file.CustomEntities
 	if len(e) == 0 {
 		e = []string{"ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"}
@@ -142,11 +156,11 @@ func extractFromUnit(
 	}
 
 	finalUnit := &common.Unit{
-		ID:     unit.id,
-		FileID: unit.fileID,
-		Start:  unit.start,
-		End:    unit.end,
-		Text:   unit.text,
+		ID:     unit.ID,
+		FileID: unit.FileID,
+		Start:  unit.Start,
+		End:    unit.End,
+		Text:   unit.Text,
 	}
 
 	if file.FileType == loader.GraphFileTypeFile {
@@ -179,7 +193,7 @@ func extractFromUnit(
 		ctx,
 		"extract_entities_and_relationships",
 		"Extract entities and relationships form a provided document.",
-		unit.text,
+		unit.Text,
 		&res,
 		opts...,
 	)
@@ -190,14 +204,8 @@ func extractFromUnit(
 	entities := make([]common.Entity, 0, len(res.Entities))
 	relations := make([]common.Relationship, 0, len(res.Relationships))
 	for _, entity := range res.Entities {
-		eId, err := gonanoid.New()
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to generate ID for entity: %w", err)
-		}
-		sId, err := gonanoid.New()
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to generate ID for source: %w", err)
-		}
+		eId := ids.New()
+		sId := ids.New()
 		s := common.Source{
 			ID:          sId,
 			Unit:        finalUnit,
@@ -212,14 +220,8 @@ func extractFromUnit(
 		entities = append(entities, e)
 	}
 	for _, rel := range res.Relationships {
-		rId, err := gonanoid.New()
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to generate ID for entity: %w", err)
-		}
-		sId, err := gonanoid.New()
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to generate ID for source: %w", err)
-		}
+		rId := ids.New()
+		sId := ids.New()
 		s := common.Source{
 			ID:          sId,
 			Unit:        finalUnit,
@@ -260,14 +262,8 @@ func buildFileEntities(file loader.GraphFile, unit *common.Unit) ([]common.Entit
 	}
 	name := strings.ToUpper(fmt.Sprintf("FILE: %s", description))
 
-	eID, err := gonanoid.New()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate ID for entity: %w", err)
-	}
-	sID, err := gonanoid.New()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate ID for source: %w", err)
-	}
+	eID := ids.New()
+	sID := ids.New()
 
 	source := common.Source{
 		ID:          sID,

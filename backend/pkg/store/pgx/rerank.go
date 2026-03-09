@@ -12,7 +12,7 @@ const rrfK = 60.0
 
 type hybridDiscoveryCandidate struct {
 	Index            int
-	ID               int64
+	ID               string
 	SemanticDistance float64
 	KeywordRank      float64
 	KeywordMatches   int32
@@ -299,7 +299,7 @@ func rerankEntitySourceResults(rows []pgdb.FindRelevantSourcesForEntitiesWithKey
 	for i, row := range rows {
 		candidates[i] = hybridDiscoveryCandidate{
 			Index:            i,
-			ID:               row.ID,
+			ID:               row.SourceRecordID,
 			SemanticDistance: row.SemanticDistance,
 			KeywordRank:      row.KeywordRank,
 			KeywordMatches:   row.KeywordMatches,
@@ -321,7 +321,7 @@ func rerankRelationshipSourceResults(rows []pgdb.FindRelevantSourcesForRelations
 	for i, row := range rows {
 		candidates[i] = hybridDiscoveryCandidate{
 			Index:            i,
-			ID:               row.ID,
+			ID:               row.SourceRecordID,
 			SemanticDistance: row.SemanticDistance,
 			KeywordRank:      row.KeywordRank,
 			KeywordMatches:   row.KeywordMatches,

@@ -12,12 +12,12 @@ import (
 // EditGroupHandler updates a group
 func EditGroupHandler(c echo.Context) error {
 	type editGroupUser struct {
-		UserID int64  `json:"user_id" validate:"numeric"`
+		UserID string `json:"user_id"`
 		Role   string `json:"role" validate:"oneof=admin user"`
 	}
 
 	type editGroupData struct {
-		GroupID int64            `param:"id" validate:"required,numeric"`
+		GroupID string           `param:"id" validate:"required"`
 		Name    *string          `json:"name"`
 		Users   []*editGroupUser `json:"users"`
 	}

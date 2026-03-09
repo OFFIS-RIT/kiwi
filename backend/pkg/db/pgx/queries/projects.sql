@@ -54,16 +54,16 @@ ORDER BY g.id;
 SELECT
     COUNT(*) AS count
 FROM graphs AS g
-WHERE g.id = sqlc.arg(id)::bigint
+WHERE g.id = sqlc.arg(id)
   AND (
-    g.user_id = sqlc.arg(user_id)::bigint
+    g.user_id = sqlc.arg(user_id)
     OR (
       g.group_id IS NOT NULL
       AND EXISTS (
         SELECT 1
         FROM group_users AS gu
         WHERE gu.group_id = g.group_id
-          AND gu.user_id = sqlc.arg(user_id)::bigint
+          AND gu.user_id = sqlc.arg(user_id)
       )
     )
     OR (
@@ -73,14 +73,14 @@ WHERE g.id = sqlc.arg(id)::bigint
         FROM graphs AS parent
         WHERE parent.id = g.graph_id
           AND (
-            parent.user_id = sqlc.arg(user_id)::bigint
+            parent.user_id = sqlc.arg(user_id)
             OR (
               parent.group_id IS NOT NULL
               AND EXISTS (
                 SELECT 1
                 FROM group_users AS parent_gu
                 WHERE parent_gu.group_id = parent.group_id
-                  AND parent_gu.user_id = sqlc.arg(user_id)::bigint
+                  AND parent_gu.user_id = sqlc.arg(user_id)
               )
             )
           )
@@ -93,12 +93,12 @@ WHERE g.id = sqlc.arg(id)::bigint
 SELECT * FROM graphs WHERE id = $1;
 
 -- name: CreateProject :one
-INSERT INTO graphs (group_id, name, state)
-VALUES ($1, $2, $3) RETURNING *;
+INSERT INTO graphs (id, group_id, name, state)
+VALUES ($1, $2, $3, $4) RETURNING *;
 
 -- name: CreateProjectWithOwner :one
-INSERT INTO graphs (group_id, user_id, graph_id, name, description, state, type, hidden)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO graphs (id, group_id, user_id, graph_id, name, description, state, type, hidden)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: UpdateProject :one
@@ -111,8 +111,8 @@ UPDATE graphs SET state = $2 WHERE id = $1 RETURNING *;
 DELETE FROM graphs WHERE id = $1;
 
 -- name: AddFileToProject :one
-INSERT INTO project_files (project_id, name, file_key)
-VALUES ($1, $2, $3) RETURNING *;
+INSERT INTO project_files (id, project_id, name, file_key)
+VALUES ($1, $2, $3, $4) RETURNING *;
 
 -- name: GetProjectFiles :many
 SELECT * FROM project_files WHERE project_id = $1;
@@ -127,14 +127,14 @@ WHERE project_id = $1
 -- name: GetProjectIDsForFiles :many
 SELECT DISTINCT project_id
 FROM project_files
-WHERE id = ANY(sqlc.arg(file_ids)::bigint[]);
+WHERE id = ANY(sqlc.arg(file_ids)::text[]);
 
 -- name: DeleteProjectFile :exec
 DELETE FROM project_files WHERE id = $1;
 
 -- name: AddProjectUpdate :exec
-INSERT INTO project_updates (project_id, update_type, update_message)
-VALUES ($1, $2, sqlc.arg(update_message)::text::json);
+INSERT INTO project_updates (id, project_id, update_type, update_message)
+VALUES ($1, $2, $3, sqlc.arg(update_message)::text::json);
 
 -- name: GetDeletedProjectFiles :many
 SELECT * FROM project_files WHERE project_id = $1 AND deleted = true;
@@ -153,7 +153,7 @@ UPDATE project_files SET token_count = $2 WHERE id = $1;
 -- name: GetTokenCountsOfFiles :many
 SELECT id, token_count
 FROM project_files
-WHERE id = ANY($1::bigint[]);
+WHERE id = ANY($1::text[]);
 
 -- name: UpdateProjectFileMetadata :exec
 UPDATE project_files SET metadata = $2, updated_at = NOW() WHERE id = $1;

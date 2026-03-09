@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/chunking"
-	gonanoid "github.com/matoous/go-nanoid/v2"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ids"
 )
 
 type SingleChunker struct{}
@@ -14,14 +14,9 @@ func NewSingleChunker() *SingleChunker {
 }
 
 func (c *SingleChunker) Chunk(_ context.Context, input string) ([]chunking.Chunk, error) {
-	id, err := gonanoid.New()
-	if err != nil {
-		return nil, err
-	}
-
 	return []chunking.Chunk{
 		{
-			ID:   id,
+			ID:   ids.New(),
 			Text: input,
 		},
 	}, nil

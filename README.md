@@ -47,7 +47,7 @@
 | Frontend | Next.js 16, React 19, TanStack Query, Tailwind CSS, Bun |
 | Backend  | Go 1.25, Echo Framework, sqlc                           |
 | Database | PostgreSQL + pgvector                                   |
-| Queue    | RabbitMQ                                                |
+| Workflow | PostgreSQL-backed durable workflow runtime              |
 | Storage  | RustFS (S3-compatible)                                  |
 | AI       | OpenAI API / Ollama                                     |
 
@@ -104,42 +104,44 @@ make dev-stop         # Stop environment
 make migrate          # Run database migrations manually
 ```
 
+When `MASTER_USER_ID` is configured, `make migrate` and the Compose migration
+container also bootstrap the matching row in `users`.
+
 ### Services
 
-| Service  | Port        | Description           |
-| -------- | ----------- | --------------------- |
-| frontend | 3000        | Next.js dev server    |
-| auth     | 4321        | Auth                  |
-| server   | 8080        | Go API server         |
-| db       | internal    | PostgreSQL + pgvector |
-| db-bouncer | 5432      | PostgreSQL connection pool |
-| rabbitmq | 5672, 15672 | Message queue         |
-| rustfs   | 9000, 9001  | S3-compatible storage |
-| ollama   | 11434       | Local LLM inference   |
+| Service    | Port     | Description                      |
+| ---------- | -------- | -------------------------------- |
+| frontend   | 3000     | Next.js dev server               |
+| auth       | 4321     | Auth                             |
+| server     | 8080     | Go API server                    |
+| worker     | -        | Durable workflow worker          |
+| db         | internal | PostgreSQL + pgvector            |
+| db-bouncer | 5432     | PostgreSQL connection pool       |
+| rustfs     | 9000, 9001 | S3-compatible storage          |
+| ollama     | 11434    | Local LLM inference              |
 
-### Worker Modes
+### Worker Runtime
 
-The background worker (`backend/cmd/worker`) can be started in different modes to control which RabbitMQ queues it consumes.
+The background worker (`backend/cmd/worker`) executes durable workflow runs stored in PostgreSQL.
 
-- `full` (default): consumes `graph_queue`, `delete_queue`, `preprocess_queue`, `description_queue`
-- `preprocess`: consumes only `preprocess_queue`
-- `graph`: consumes `graph_queue`, `delete_queue`, `description_queue`
+- API requests enqueue `process`, `delete`, and `description` workflow runs transactionally.
+- The worker polls pending runs, claims a lease, heartbeats while executing, and retries failures with backoff.
+- File indexing fans out to one `process` workflow per file; once all file workflows in a correlation finish, description workflows are enqueued automatically.
+- Delete operations use `delete` workflows and refresh affected descriptions before the project returns to `ready`.
 
-Note: All worker modes still declare/create all queues on startup (the worker also publishes messages to other queues).
+Useful environment variables:
+
+- `WORKFLOW_WORKER_CONCURRENCY`: number of workflow runs a worker process executes in parallel
+- `WORKFLOW_MAX_ATTEMPTS`: maximum retry attempts for `process`, `delete`, and `description` workflows
 
 ```bash
 # From ./backend
 
-# Full worker (default)
+# Start a worker
 go run ./cmd/worker
 
-# Preprocess-only worker
-go run ./cmd/worker --worker=preprocess
-go run ./cmd/worker --preprocess
-
-# Graph worker (graph + delete + description)
-go run ./cmd/worker --worker=graph
-go run ./cmd/worker --graph
+# Increase worker parallelism
+WORKFLOW_WORKER_CONCURRENCY=4 go run ./cmd/worker
 ```
 
 ---
@@ -176,27 +178,27 @@ the Nginx container.
 │   (Service)  │                          │  + pgvector │
 └──────────────┘                          └─────────────┘
                                                  ▲
-┌──────────────┐     ┌──────────────┐            │
-│   RabbitMQ   │◀───▶│    Worker    │────────────┘
-│   (queue)    │     │ (background) │
-└──────────────┘     └──────────────┘
-       │                    │
-       ▼                    ▼
-┌──────────────┐     ┌──────────────┐
-│    RustFS    │     │ Ollama/OpenAI│
-│  (S3 files)  │     │   (AI/LLM)   │
-└──────────────┘     └──────────────┘
+                                                 │
+                                         ┌──────────────┐
+                                         │    Worker    │
+                                         │  (workflow)  │
+                                         └──────────────┘
+                                           │        │
+                                           ▼        ▼
+                                     ┌──────────┐ ┌──────────────┐
+                                     │  RustFS  │ │ Ollama/OpenAI│
+                                     │ (S3)     │ │   (AI/LLM)   │
+                                     └──────────┘ └──────────────┘
 ```
 
 ### Processing Pipeline
 
-1. User uploads files → API stores in RustFS
-2. API publishes job to RabbitMQ
-3. Worker processes files (PDF, images, audio, CSV, Excel)
-4. Worker extracts entities/relations via AI
-5. Worker stores graph in PostgreSQL with embeddings
-6. User queries via chat → vector search, graph traversal, or agentic tool
-   exploration + AI response
+1. User uploads files → API stores the originals in RustFS
+2. API enqueues durable workflow runs in PostgreSQL within the request transaction
+3. Worker claims pending runs from workflow storage and processes files (PDF, images, audio, CSV, Excel)
+4. Worker extracts entities/relations via AI and stores graph data in PostgreSQL with embeddings
+5. When all file workflows in a batch finish, description workflows are enqueued and the project returns to `ready`
+6. User queries via chat → vector search, graph traversal, or agentic tool exploration + AI response
 
 ### Query Modes
 
@@ -230,9 +232,14 @@ adapters. Implement these interfaces to integrate with your own infrastructure:
 | ------------------ | ------------ | ------------------------------------------------------------------ |
 | `GraphAIClient`    | `pkg/ai`     | AI operations (completions, embeddings, image/audio transcription) |
 | `GraphStorage`     | `pkg/store`  | Graph persistence and querying                                     |
+| `WorkflowStorage`  | `pkg/store`  | Durable workflow run and step persistence                          |
 | `GraphFileLoader`  | `pkg/loader` | File content loading from any source                               |
 | `GraphQueryClient` | `pkg/query`  | Query execution with local/global/tool modes                       |
 | `LoggerInstance`   | `pkg/logger` | Logging backend                                                    |
+
+The durable workflow runtime lives in `pkg/workflow` and provides replayable
+workflow execution, memoized steps, durable sleep, child workflows, and a
+standalone worker that uses `WorkflowStorage` for persistence.
 
 ### Built-in Adapters
 
@@ -296,8 +303,10 @@ Copy `.env.sample` to `.env` and configure:
 | `LDAP_BASE_DN`           | LDAP base DN                       |
 | `LDAP_SEARCH_ATTR`       | LDAP search attribute              |
 | `MASTER_API_KEY`         | Master API key for authentication  |
-| `MASTER_USER_ID`         | Master user ID (integer)           |
+| `MASTER_USER_ID`         | Master user ID (string)            |
 | `MASTER_USER_ROLE`       | Master user role (e.g., admin)     |
+| `MASTER_USER_NAME`       | Optional display name for the bootstrapped master user |
+| `MASTER_USER_EMAIL`      | Optional email for the bootstrapped master user |
 | `NEXT_PUBLIC_API_URL`    | Frontend API base URL              |
 | `DATABASE_URL`           | PgBouncer PostgreSQL connection string |
 | `DATABASE_DIRECT_URL`    | Direct PostgreSQL connection string for migrations |
@@ -334,10 +343,8 @@ Copy `.env.sample` to `.env` and configure:
 | `AI_EMBED_KEY`           | Embedding API key                  |
 | `AI_EMBED_URL`           | Embedding endpoint                 |
 | `AI_EMBED_MODEL`         | Embedding model name               |
-| `RABBITMQ_USER`          | RabbitMQ username                  |
-| `RABBITMQ_PASSWORD`      | RabbitMQ password                  |
-| `RABBITMQ_HOST`          | RabbitMQ host                      |
-| `RABBITMQ_PORT`          | RabbitMQ port                      |
+| `WORKFLOW_WORKER_CONCURRENCY` | Parallel workflow runs per worker process |
+| `WORKFLOW_MAX_ATTEMPTS`  | Retry limit for process/delete/description workflows |
 
 ### Optional: Clarifying Questions (Agentic Queries)
 

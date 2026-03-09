@@ -16,8 +16,3 @@ CREATE INDEX idx_extraction_staging_cleanup
     ON extraction_staging(created_at);
 CREATE INDEX idx_extraction_staging_project 
     ON extraction_staging(project_id);
-SELECT cron.schedule(
-    'cleanup-extraction-staging',
-    '0 * * * *',
-    $$DELETE FROM extraction_staging WHERE created_at < NOW() - INTERVAL '24 hours'$$
-);

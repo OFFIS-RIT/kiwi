@@ -9,12 +9,12 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func GetUserProjectsHandler(c echo.Context) error {
 	type userProject struct {
-		ProjectID                int64                   `json:"project_id"`
+		ProjectID                string                  `json:"project_id"`
 		ProjectName              string                  `json:"project_name"`
 		ProjectState             string                  `json:"project_state"`
 		Hidden                   bool                    `json:"hidden"`
@@ -23,6 +23,8 @@ func GetUserProjectsHandler(c echo.Context) error {
 		ProcessPercentage        *int32                  `json:"process_percentage,omitempty"`
 		ProcessEstimatedDuration *int64                  `json:"process_estimated_duration,omitempty"`
 		ProcessTimeRemaining     *int64                  `json:"process_time_remaining,omitempty"`
+		ProcessEtaConfidence     *string                 `json:"process_eta_confidence,omitempty"`
+		ProcessEtaSampleCount    *int32                  `json:"process_eta_sample_count,omitempty"`
 	}
 
 	user := c.(*middleware.AppContext).User
@@ -34,7 +36,7 @@ func GetUserProjectsHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
-	rows, err := q.GetUserProjects(ctx, sqltype.NullInt64{Int64: user.UserID, Valid: true})
+	rows, err := q.GetUserProjects(ctx, pgtype.Text{String: user.UserID, Valid: true})
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
@@ -70,6 +72,12 @@ func GetUserProjectsHandler(c echo.Context) error {
 					}
 					if batchProgress.TimeRemaining != nil {
 						project.ProcessTimeRemaining = batchProgress.TimeRemaining
+					}
+					if batchProgress.EtaConfidence != nil {
+						project.ProcessEtaConfidence = batchProgress.EtaConfidence
+					}
+					if batchProgress.EtaSampleCount != nil {
+						project.ProcessEtaSampleCount = batchProgress.EtaSampleCount
 					}
 				}
 			}

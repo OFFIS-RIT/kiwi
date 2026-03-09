@@ -27,6 +27,8 @@ export type Project = {
   processPercentage?: number;
   processEstimatedDuration?: number;
   processTimeRemaining?: number;
+  processEtaConfidence?: "low" | "medium" | "high";
+  processEtaSampleCount?: number;
 };
 
 /**

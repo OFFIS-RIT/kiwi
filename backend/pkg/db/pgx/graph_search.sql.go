@@ -12,28 +12,28 @@ import (
 )
 
 const findRelevantEntitySources = `-- name: FindRelevantEntitySources :many
-SELECT s.id, s.public_id, s.description, u.public_id, e.name FROM entity_sources s
-JOIN text_units u ON u.id = s.text_unit_id
+SELECT s.id AS source_record_id, tu.id AS text_unit_id, s.description, e.name
+FROM entity_sources s
+JOIN text_units tu ON tu.id = s.text_unit_id
 JOIN entities e ON e.id = s.entity_id
-WHERE s.entity_id = ANY($1::bigint[])
+WHERE s.entity_id = ANY($1::text[])
     AND (s.embedding <=> $2) < $4::double precision
-ORDER BY s.embedding <=> $2
+ORDER BY s.embedding <=> $2, s.id
 LIMIT $3
 `
 
 type FindRelevantEntitySourcesParams struct {
-	Column1   []int64         `json:"column_1"`
+	Column1   []string        `json:"column_1"`
 	Embedding pgvector.Vector `json:"embedding"`
 	Limit     int32           `json:"limit"`
 	Column4   float64         `json:"column_4"`
 }
 
 type FindRelevantEntitySourcesRow struct {
-	ID          int64  `json:"id"`
-	PublicID    string `json:"public_id"`
-	Description string `json:"description"`
-	PublicID_2  string `json:"public_id_2"`
-	Name        string `json:"name"`
+	SourceRecordID string `json:"source_record_id"`
+	TextUnitID     string `json:"text_unit_id"`
+	Description    string `json:"description"`
+	Name           string `json:"name"`
 }
 
 func (q *Queries) FindRelevantEntitySources(ctx context.Context, arg FindRelevantEntitySourcesParams) ([]FindRelevantEntitySourcesRow, error) {
@@ -51,10 +51,9 @@ func (q *Queries) FindRelevantEntitySources(ctx context.Context, arg FindRelevan
 	for rows.Next() {
 		var i FindRelevantEntitySourcesRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.PublicID,
+			&i.SourceRecordID,
+			&i.TextUnitID,
 			&i.Description,
-			&i.PublicID_2,
 			&i.Name,
 		); err != nil {
 			return nil, err
@@ -68,32 +67,32 @@ func (q *Queries) FindRelevantEntitySources(ctx context.Context, arg FindRelevan
 }
 
 const findRelevantRelationSources = `-- name: FindRelevantRelationSources :many
-SELECT s.id, s.public_id, s.description, u.public_id, se.name, te.name, r.rank FROM relationship_sources s
-JOIN text_units u ON u.id = s.text_unit_id
+SELECT s.id AS source_record_id, tu.id AS text_unit_id, s.description, se.name, te.name, r.rank
+FROM relationship_sources s
+JOIN text_units tu ON tu.id = s.text_unit_id
 JOIN relationships r ON r.id = s.relationship_id
 JOIN entities se ON r.source_id = se.id
 JOIN entities te ON r.target_id = te.id
-WHERE s.relationship_id = ANY ($1::bigint[])
+WHERE s.relationship_id = ANY ($1::text[])
     AND (s.embedding <=> $2) < $4::double precision
-ORDER BY s.embedding <=> $2
+ORDER BY s.embedding <=> $2, s.id
 LIMIT $3
 `
 
 type FindRelevantRelationSourcesParams struct {
-	Column1   []int64         `json:"column_1"`
+	Column1   []string        `json:"column_1"`
 	Embedding pgvector.Vector `json:"embedding"`
 	Limit     int32           `json:"limit"`
 	Column4   float64         `json:"column_4"`
 }
 
 type FindRelevantRelationSourcesRow struct {
-	ID          int64   `json:"id"`
-	PublicID    string  `json:"public_id"`
-	Description string  `json:"description"`
-	PublicID_2  string  `json:"public_id_2"`
-	Name        string  `json:"name"`
-	Name_2      string  `json:"name_2"`
-	Rank        float64 `json:"rank"`
+	SourceRecordID string  `json:"source_record_id"`
+	TextUnitID     string  `json:"text_unit_id"`
+	Description    string  `json:"description"`
+	Name           string  `json:"name"`
+	Name_2         string  `json:"name_2"`
+	Rank           float64 `json:"rank"`
 }
 
 func (q *Queries) FindRelevantRelationSources(ctx context.Context, arg FindRelevantRelationSourcesParams) ([]FindRelevantRelationSourcesRow, error) {
@@ -111,10 +110,9 @@ func (q *Queries) FindRelevantRelationSources(ctx context.Context, arg FindRelev
 	for rows.Next() {
 		var i FindRelevantRelationSourcesRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.PublicID,
+			&i.SourceRecordID,
+			&i.TextUnitID,
 			&i.Description,
-			&i.PublicID_2,
 			&i.Name,
 			&i.Name_2,
 			&i.Rank,
@@ -133,14 +131,14 @@ const findRelevantSourcesForEntitiesWithKeywords = `-- name: FindRelevantSources
 WITH semantic_candidates AS (
     SELECT s.id
     FROM entity_sources s
-    WHERE s.entity_id = ANY($4::bigint[])
-    ORDER BY s.embedding <=> $1
+    WHERE s.entity_id = ANY($4::text[])
+    ORDER BY s.embedding <=> $1, s.id
     LIMIT $3
 ),
 keyword_candidates AS (
     SELECT s.id
     FROM entity_sources s
-    WHERE s.entity_id = ANY($4::bigint[])
+    WHERE s.entity_id = ANY($4::text[])
       AND COALESCE(array_length($2::text[], 1), 0) > 0
       AND s.search_tsv @@ plainto_tsquery('simple', array_to_string($2::text[], ' '))
     ORDER BY ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' '))) DESC,
@@ -153,8 +151,8 @@ candidates AS (
     SELECT id FROM keyword_candidates
 )
 SELECT
-    s.id,
-    u.public_id,
+    s.id AS source_record_id,
+    tu.id AS text_unit_id,
     s.entity_id,
     s.description,
     (s.embedding <=> $1)::double precision AS semantic_distance,
@@ -175,7 +173,7 @@ SELECT
     COALESCE(array_length($2::text[], 1), 0)::int AS keyword_total
 FROM candidates c
 JOIN entity_sources s ON s.id = c.id
-JOIN text_units u ON u.id = s.text_unit_id
+JOIN text_units tu ON tu.id = s.text_unit_id
 ORDER BY semantic_distance ASC, s.id
 LIMIT $3
 `
@@ -184,13 +182,13 @@ type FindRelevantSourcesForEntitiesWithKeywordsParams struct {
 	Embedding      pgvector.Vector `json:"embedding"`
 	Keywords       []string        `json:"keywords"`
 	CandidateLimit int32           `json:"candidate_limit"`
-	EntityIds      []int64         `json:"entity_ids"`
+	EntityIds      []string        `json:"entity_ids"`
 }
 
 type FindRelevantSourcesForEntitiesWithKeywordsRow struct {
-	ID               int64   `json:"id"`
-	PublicID         string  `json:"public_id"`
-	EntityID         int64   `json:"entity_id"`
+	SourceRecordID   string  `json:"source_record_id"`
+	TextUnitID       string  `json:"text_unit_id"`
+	EntityID         string  `json:"entity_id"`
 	Description      string  `json:"description"`
 	SemanticDistance float64 `json:"semantic_distance"`
 	KeywordRank      float64 `json:"keyword_rank"`
@@ -213,8 +211,8 @@ func (q *Queries) FindRelevantSourcesForEntitiesWithKeywords(ctx context.Context
 	for rows.Next() {
 		var i FindRelevantSourcesForEntitiesWithKeywordsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.PublicID,
+			&i.SourceRecordID,
+			&i.TextUnitID,
 			&i.EntityID,
 			&i.Description,
 			&i.SemanticDistance,
@@ -236,14 +234,14 @@ const findRelevantSourcesForRelationsWithKeywords = `-- name: FindRelevantSource
 WITH semantic_candidates AS (
     SELECT s.id
     FROM relationship_sources s
-    WHERE s.relationship_id = ANY($4::bigint[])
-    ORDER BY s.embedding <=> $1
+    WHERE s.relationship_id = ANY($4::text[])
+    ORDER BY s.embedding <=> $1, s.id
     LIMIT $3
 ),
 keyword_candidates AS (
     SELECT s.id
     FROM relationship_sources s
-    WHERE s.relationship_id = ANY($4::bigint[])
+    WHERE s.relationship_id = ANY($4::text[])
       AND COALESCE(array_length($2::text[], 1), 0) > 0
       AND s.search_tsv @@ plainto_tsquery('simple', array_to_string($2::text[], ' '))
     ORDER BY ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string($2::text[], ' '))) DESC,
@@ -256,8 +254,8 @@ candidates AS (
     SELECT id FROM keyword_candidates
 )
 SELECT
-    s.id,
-    u.public_id,
+    s.id AS source_record_id,
+    tu.id AS text_unit_id,
     s.description,
     r.source_id,
     r.target_id,
@@ -279,7 +277,7 @@ SELECT
     COALESCE(array_length($2::text[], 1), 0)::int AS keyword_total
 FROM candidates c
 JOIN relationship_sources s ON s.id = c.id
-JOIN text_units u ON u.id = s.text_unit_id
+JOIN text_units tu ON tu.id = s.text_unit_id
 JOIN relationships r ON r.id = s.relationship_id
 ORDER BY semantic_distance ASC, s.id
 LIMIT $3
@@ -289,15 +287,15 @@ type FindRelevantSourcesForRelationsWithKeywordsParams struct {
 	Embedding       pgvector.Vector `json:"embedding"`
 	Keywords        []string        `json:"keywords"`
 	CandidateLimit  int32           `json:"candidate_limit"`
-	RelationshipIds []int64         `json:"relationship_ids"`
+	RelationshipIds []string        `json:"relationship_ids"`
 }
 
 type FindRelevantSourcesForRelationsWithKeywordsRow struct {
-	ID               int64   `json:"id"`
-	PublicID         string  `json:"public_id"`
+	SourceRecordID   string  `json:"source_record_id"`
+	TextUnitID       string  `json:"text_unit_id"`
 	Description      string  `json:"description"`
-	SourceID         int64   `json:"source_id"`
-	TargetID         int64   `json:"target_id"`
+	SourceID         string  `json:"source_id"`
+	TargetID         string  `json:"target_id"`
 	SemanticDistance float64 `json:"semantic_distance"`
 	KeywordRank      float64 `json:"keyword_rank"`
 	KeywordMatches   int32   `json:"keyword_matches"`
@@ -319,8 +317,8 @@ func (q *Queries) FindRelevantSourcesForRelationsWithKeywords(ctx context.Contex
 	for rows.Next() {
 		var i FindRelevantSourcesForRelationsWithKeywordsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.PublicID,
+			&i.SourceRecordID,
+			&i.TextUnitID,
 			&i.Description,
 			&i.SourceID,
 			&i.TargetID,
@@ -344,18 +342,18 @@ SELECT e.id
 FROM entities e
 WHERE e.project_id = $1
     AND (e.embedding <=> $2) < $4::double precision
-ORDER BY e.embedding <=> $2
+ORDER BY e.embedding <=> $2, e.id
 LIMIT $3
 `
 
 type FindSimilarEntitiesParams struct {
-	ProjectID int64           `json:"project_id"`
+	ProjectID string          `json:"project_id"`
 	Embedding pgvector.Vector `json:"embedding"`
 	Limit     int32           `json:"limit"`
 	Column4   float64         `json:"column_4"`
 }
 
-func (q *Queries) FindSimilarEntities(ctx context.Context, arg FindSimilarEntitiesParams) ([]int64, error) {
+func (q *Queries) FindSimilarEntities(ctx context.Context, arg FindSimilarEntitiesParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, findSimilarEntities,
 		arg.ProjectID,
 		arg.Embedding,
@@ -366,9 +364,9 @@ func (q *Queries) FindSimilarEntities(ctx context.Context, arg FindSimilarEntiti
 		return nil, err
 	}
 	defer rows.Close()
-	items := []int64{}
+	items := []string{}
 	for rows.Next() {
-		var id int64
+		var id string
 		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
@@ -381,28 +379,28 @@ func (q *Queries) FindSimilarEntities(ctx context.Context, arg FindSimilarEntiti
 }
 
 const findSimilarEntitySources = `-- name: FindSimilarEntitySources :many
-SELECT s.id, s.public_id, s.description, u.public_id, e.name FROM entity_sources s
-JOIN text_units u ON u.id = s.text_unit_id
+SELECT s.id AS source_record_id, tu.id AS text_unit_id, s.description, e.name
+FROM entity_sources s
+JOIN text_units tu ON tu.id = s.text_unit_id
 JOIN entities e ON e.id = s.entity_id
 WHERE (s.embedding <=> $1) < $4::double precision
     AND e.project_id = $2
-ORDER BY s.embedding <=> $1
+ORDER BY s.embedding <=> $1, s.id
 LIMIT $3
 `
 
 type FindSimilarEntitySourcesParams struct {
 	Embedding pgvector.Vector `json:"embedding"`
-	ProjectID int64           `json:"project_id"`
+	ProjectID string          `json:"project_id"`
 	Limit     int32           `json:"limit"`
 	Column4   float64         `json:"column_4"`
 }
 
 type FindSimilarEntitySourcesRow struct {
-	ID          int64  `json:"id"`
-	PublicID    string `json:"public_id"`
-	Description string `json:"description"`
-	PublicID_2  string `json:"public_id_2"`
-	Name        string `json:"name"`
+	SourceRecordID string `json:"source_record_id"`
+	TextUnitID     string `json:"text_unit_id"`
+	Description    string `json:"description"`
+	Name           string `json:"name"`
 }
 
 func (q *Queries) FindSimilarEntitySources(ctx context.Context, arg FindSimilarEntitySourcesParams) ([]FindSimilarEntitySourcesRow, error) {
@@ -420,10 +418,9 @@ func (q *Queries) FindSimilarEntitySources(ctx context.Context, arg FindSimilarE
 	for rows.Next() {
 		var i FindSimilarEntitySourcesRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.PublicID,
+			&i.SourceRecordID,
+			&i.TextUnitID,
 			&i.Description,
-			&i.PublicID_2,
 			&i.Name,
 		); err != nil {
 			return nil, err
@@ -441,7 +438,7 @@ WITH semantic_candidates AS (
     SELECT r.id
     FROM relationships r
     WHERE $3 IN (r.source_id, r.target_id)
-    ORDER BY r.embedding <=> $1
+    ORDER BY r.embedding <=> $1, r.id
     LIMIT $4
 ),
 keyword_candidates AS (
@@ -504,17 +501,17 @@ LIMIT $4
 type GetEntityNeighboursRankedWithKeywordsParams struct {
 	Embedding      pgvector.Vector `json:"embedding"`
 	Keywords       []string        `json:"keywords"`
-	SourceID       int64           `json:"source_id"`
+	SourceID       string          `json:"source_id"`
 	CandidateLimit int32           `json:"candidate_limit"`
 }
 
 type GetEntityNeighboursRankedWithKeywordsRow struct {
-	RelationshipID          int64   `json:"relationship_id"`
+	RelationshipID          string  `json:"relationship_id"`
 	RelationshipDescription string  `json:"relationship_description"`
 	Rank                    float64 `json:"rank"`
-	SourceID                int64   `json:"source_id"`
-	TargetID                int64   `json:"target_id"`
-	NeighbourID             int64   `json:"neighbour_id"`
+	SourceID                string  `json:"source_id"`
+	TargetID                string  `json:"target_id"`
+	NeighbourID             string  `json:"neighbour_id"`
 	NeighbourName           string  `json:"neighbour_name"`
 	NeighbourType           string  `json:"neighbour_type"`
 	NeighbourDescription    string  `json:"neighbour_description"`
@@ -577,22 +574,22 @@ SELECT
 FROM relationships r
 JOIN entities se ON r.source_id = se.id
 JOIN entities te ON r.target_id = te.id
-WHERE r.id = ANY($1::bigint[])
+WHERE r.id = ANY($1::text[])
 `
 
 type GetRelationshipsByIDsRow struct {
-	ID          int64   `json:"id"`
+	ID          string  `json:"id"`
 	Description string  `json:"description"`
 	Rank        float64 `json:"rank"`
-	SourceID    int64   `json:"source_id"`
-	TargetID    int64   `json:"target_id"`
+	SourceID    string  `json:"source_id"`
+	TargetID    string  `json:"target_id"`
 	SourceName  string  `json:"source_name"`
 	SourceType  string  `json:"source_type"`
 	TargetName  string  `json:"target_name"`
 	TargetType  string  `json:"target_type"`
 }
 
-func (q *Queries) GetRelationshipsByIDs(ctx context.Context, dollar_1 []int64) ([]GetRelationshipsByIDsRow, error) {
+func (q *Queries) GetRelationshipsByIDs(ctx context.Context, dollar_1 []string) ([]GetRelationshipsByIDsRow, error) {
 	rows, err := q.db.Query(ctx, getRelationshipsByIDs, dollar_1)
 	if err != nil {
 		return nil, err
@@ -627,7 +624,7 @@ WITH semantic_candidates AS (
     SELECT e.id
     FROM entities e
     WHERE e.project_id = $4
-    ORDER BY e.embedding <=> $1
+    ORDER BY e.embedding <=> $1, e.id
     LIMIT $3
 ),
 keyword_candidates AS (
@@ -676,11 +673,11 @@ type SearchEntitiesByEmbeddingWithKeywordsParams struct {
 	Embedding      pgvector.Vector `json:"embedding"`
 	Keywords       []string        `json:"keywords"`
 	CandidateLimit int32           `json:"candidate_limit"`
-	ProjectID      int64           `json:"project_id"`
+	ProjectID      string          `json:"project_id"`
 }
 
 type SearchEntitiesByEmbeddingWithKeywordsRow struct {
-	ID               int64   `json:"id"`
+	ID               string  `json:"id"`
 	Name             string  `json:"name"`
 	Type             string  `json:"type"`
 	Description      string  `json:"description"`
@@ -730,7 +727,7 @@ WITH semantic_candidates AS (
     FROM entities e
     WHERE e.project_id = $4
       AND e.type = $5
-    ORDER BY e.embedding <=> $1
+    ORDER BY e.embedding <=> $1, e.id
     LIMIT $3
 ),
 keyword_candidates AS (
@@ -780,12 +777,12 @@ type SearchEntitiesByTypeWithKeywordsParams struct {
 	Embedding      pgvector.Vector `json:"embedding"`
 	Keywords       []string        `json:"keywords"`
 	CandidateLimit int32           `json:"candidate_limit"`
-	ProjectID      int64           `json:"project_id"`
+	ProjectID      string          `json:"project_id"`
 	Type           string          `json:"type"`
 }
 
 type SearchEntitiesByTypeWithKeywordsRow struct {
-	ID               int64   `json:"id"`
+	ID               string  `json:"id"`
 	Name             string  `json:"name"`
 	Type             string  `json:"type"`
 	Description      string  `json:"description"`
@@ -835,12 +832,14 @@ WITH semantic_candidates AS (
     SELECT r.id
     FROM relationships r
     WHERE r.project_id = $4
-    ORDER BY r.embedding <=> $1
+    ORDER BY r.embedding <=> $1, r.id
     LIMIT $3
 ),
 keyword_candidates AS (
     SELECT r.id
     FROM relationships r
+    JOIN entities se ON r.source_id = se.id
+    JOIN entities te ON r.target_id = te.id
     WHERE r.project_id = $4
       AND COALESCE(array_length($2::text[], 1), 0) > 0
       AND r.search_tsv @@ plainto_tsquery('simple', array_to_string($2::text[], ' '))
@@ -891,15 +890,15 @@ type SearchRelationshipsByEmbeddingWithKeywordsParams struct {
 	Embedding      pgvector.Vector `json:"embedding"`
 	Keywords       []string        `json:"keywords"`
 	CandidateLimit int32           `json:"candidate_limit"`
-	ProjectID      int64           `json:"project_id"`
+	ProjectID      string          `json:"project_id"`
 }
 
 type SearchRelationshipsByEmbeddingWithKeywordsRow struct {
-	ID               int64   `json:"id"`
+	ID               string  `json:"id"`
 	Description      string  `json:"description"`
 	Rank             float64 `json:"rank"`
-	SourceID         int64   `json:"source_id"`
-	TargetID         int64   `json:"target_id"`
+	SourceID         string  `json:"source_id"`
+	TargetID         string  `json:"target_id"`
 	SourceName       string  `json:"source_name"`
 	SourceType       string  `json:"source_type"`
 	TargetName       string  `json:"target_name"`

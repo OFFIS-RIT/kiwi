@@ -5,14 +5,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
+	"github.com/OFFIS-RIT/kiwi/backend/internal/aiclient"
 	mid "github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
+	workflowservice "github.com/OFFIS-RIT/kiwi/backend/internal/workflow"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 
 	"github.com/MicahParks/keyfunc/v3"
@@ -66,24 +66,19 @@ func Init() {
 	}
 	defer conn.Close()
 
-	que := queue.Init()
-	defer que.Close()
-	ch, err := que.Channel()
-	if err != nil {
-		logger.Fatal("Failed to open channel", "err", err)
-	}
-
-	queues := []string{"index_queue", "update_queue", "delete_queue", "preprocess_queue", "description_queue"}
-	err = queue.SetupQueues(ch, queues)
-
 	s3 := storage.NewS3Client(ctx)
 
 	masterAPIKey := util.GetEnv("MASTER_API_KEY")
-	masterUserID, _ := strconv.ParseInt(util.GetEnv("MASTER_USER_ID"), 10, 64)
+	masterUserID := util.GetEnv("MASTER_USER_ID")
 	masterUserRole := util.GetEnv("MASTER_USER_ROLE")
 	timeoutMin := int(util.GetEnvNumeric("AI_TIMEOUT", 10))
+	workflowAIClient := aiclient.NewChat(timeoutMin)
+	workflowService, err := workflowservice.NewService(ctx, conn, s3, workflowAIClient)
+	if err != nil {
+		logger.Fatal("Failed to initialize workflow service", "err", err)
+	}
 
-	e.Use(mid.AppContextMiddleware(conn, ch, &k, s3, masterAPIKey, masterUserID, masterUserRole, timeoutMin))
+	e.Use(mid.AppContextMiddleware(conn, &k, s3, workflowService, masterAPIKey, masterUserID, masterUserRole, timeoutMin))
 	e.Use(middleware.CORS())
 	e.Use(middleware.RequestLogger())
 	e.Use(middleware.Recover())

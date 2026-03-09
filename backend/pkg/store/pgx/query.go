@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
@@ -25,10 +24,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 	embedding []float32,
 	graphId string,
 ) (string, error) {
-	projectId, err := strconv.ParseInt(graphId, 10, 64)
-	if err != nil {
-		return "", err
-	}
+	projectId := graphId
 
 	tx, err := s.conn.Begin(ctx)
 	if err != nil {
@@ -49,7 +45,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		return "", err
 	}
 
-	relevantEntityIds := make([]int64, 0)
+	relevantEntityIds := make([]string, 0)
 	relevantEntities, err := qtx.GetProjectEntitiesByNames(ctx, pgdb.GetProjectEntitiesByNamesParams{
 		ProjectID: projectId,
 		Column2:   intent.Entities,
@@ -59,7 +55,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 	}
 	graphquery.RecordQueriedEntityIDs(s.trace, relevantEntityIds...)
 
-	additionalEntityIds := make([]int64, 0)
+	additionalEntityIds := make([]string, 0)
 	dbAdditionalEntityIds, err := s.getSimilarEntityIdsByEmebedding(ctx, qtx, projectId, embedding, 4)
 	if err != nil {
 		return "", err
@@ -74,8 +70,8 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 
 	checkedPairs := make([]string, 0)
 
-	foundPaths := make(map[int64]bool)
-	pathEntityIds := make(map[int64]bool)
+	foundPaths := make(map[string]bool)
+	pathEntityIds := make(map[string]bool)
 	for _, sourceId := range relevantEntityIds {
 		for _, targetId := range relevantEntityIds {
 			if sourceId == targetId {
@@ -84,9 +80,9 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 
 			var pairKey string
 			if sourceId > targetId {
-				pairKey = fmt.Sprintf("%d-%d", targetId, sourceId)
+				pairKey = targetId + "-" + sourceId
 			} else {
-				pairKey = fmt.Sprintf("%d-%d", sourceId, targetId)
+				pairKey = sourceId + "-" + targetId
 			}
 
 			if slices.Contains(checkedPairs, pairKey) {
@@ -125,7 +121,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 	}
 	embed := pgvector.NewVector(semanticEmbed)
 
-	entitySourcesList := make(map[int64]bool)
+	entitySourcesList := make(map[string]bool)
 	entitySources, err := qtx.FindRelevantEntitySources(ctx, pgdb.FindRelevantEntitySourcesParams{
 		Column1:   relevantEntityIds,
 		Embedding: embed,
@@ -147,7 +143,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 	}
 	entitySources = append(entitySources, additionalEntitySources...)
 	for _, source := range entitySources {
-		entitySourcesList[source.ID] = true
+		entitySourcesList[source.SourceRecordID] = true
 	}
 
 	additionalSources := make([]pgdb.FindSimilarEntitySourcesRow, 0)
@@ -158,12 +154,12 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		Column4:   0.4,
 	})
 	for _, source := range dbAdditionalSources {
-		if _, ok := entitySourcesList[source.ID]; !ok {
+		if _, ok := entitySourcesList[source.SourceRecordID]; !ok {
 			additionalSources = append(additionalSources, source)
 		}
 	}
 
-	relationshipIds := make([]int64, 0, len(foundPaths))
+	relationshipIds := make([]string, 0, len(foundPaths))
 	for id := range foundPaths {
 		relationshipIds = append(relationshipIds, id)
 	}
@@ -179,7 +175,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		return "", err
 	}
 
-	pathEntityIdsList := make([]int64, 0, len(pathEntityIds))
+	pathEntityIdsList := make([]string, 0, len(pathEntityIds))
 	for id := range pathEntityIds {
 		if slices.Contains(relevantEntityIds, id) {
 			continue
@@ -203,7 +199,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 
 	var result strings.Builder
 	var sections []string
-	usedSourcePublicIds := make([]string, 0)
+	usedSourceIDs := make([]string, 0)
 
 	err = tx.Commit(ctx)
 	if err != nil {
@@ -215,8 +211,8 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		entitySection.WriteString("Relevant Entities:\n")
 		for _, source := range entitySources {
 			if source.Description != "" {
-				usedSourcePublicIds = append(usedSourcePublicIds, source.PublicID_2)
-				fmt.Fprintf(&entitySection, "%s,%s: %s\n", source.Name, source.PublicID_2, source.Description)
+				usedSourceIDs = append(usedSourceIDs, source.TextUnitID)
+				fmt.Fprintf(&entitySection, "%s,%s: %s\n", source.Name, source.TextUnitID, source.Description)
 			}
 		}
 		sections = append(sections, entitySection.String())
@@ -227,8 +223,8 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		relationshipSection.WriteString("Connecting Relationships:\n")
 		for _, source := range relationshipSources {
 			if source.Description != "" {
-				usedSourcePublicIds = append(usedSourcePublicIds, source.PublicID_2)
-				fmt.Fprintf(&relationshipSection, "%s<->%s,%s: %s\n", source.Name, source.Name_2, source.PublicID_2, source.Description)
+				usedSourceIDs = append(usedSourceIDs, source.TextUnitID)
+				fmt.Fprintf(&relationshipSection, "%s<->%s,%s: %s\n", source.Name, source.Name_2, source.TextUnitID, source.Description)
 			}
 		}
 		sections = append(sections, relationshipSection.String())
@@ -239,8 +235,8 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		pathSection.WriteString("Connecting Entities:\n")
 		for _, source := range pathSources {
 			if source.Description != "" {
-				usedSourcePublicIds = append(usedSourcePublicIds, source.PublicID_2)
-				fmt.Fprintf(&pathSection, "%s,%s: %s\n", source.Name, source.PublicID_2, source.Description)
+				usedSourceIDs = append(usedSourceIDs, source.TextUnitID)
+				fmt.Fprintf(&pathSection, "%s,%s: %s\n", source.Name, source.TextUnitID, source.Description)
 			}
 		}
 		sections = append(sections, pathSection.String())
@@ -251,33 +247,33 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 		additionalSection.WriteString("Additional Sources:\n")
 		for _, source := range additionalSources {
 			if source.Description != "" {
-				usedSourcePublicIds = append(usedSourcePublicIds, source.PublicID_2)
-				fmt.Fprintf(&additionalSection, "%s,%s: %s\n", source.Name, source.PublicID_2, source.Description)
+				usedSourceIDs = append(usedSourceIDs, source.TextUnitID)
+				fmt.Fprintf(&additionalSection, "%s,%s: %s\n", source.Name, source.TextUnitID, source.Description)
 			}
 		}
 		sections = append(sections, additionalSection.String())
 	}
 
-	// Collect all source public IDs for metadata lookup
-	allSourcePublicIds := make([]string, 0)
+	// Collect all source text unit IDs for metadata lookup
+	allSourceIDs := make([]string, 0)
 	for _, source := range entitySources {
-		allSourcePublicIds = append(allSourcePublicIds, source.PublicID_2)
+		allSourceIDs = append(allSourceIDs, source.TextUnitID)
 	}
 	for _, source := range additionalSources {
-		allSourcePublicIds = append(allSourcePublicIds, source.PublicID_2)
+		allSourceIDs = append(allSourceIDs, source.TextUnitID)
 	}
 	for _, source := range relationshipSources {
-		allSourcePublicIds = append(allSourcePublicIds, source.PublicID_2)
+		allSourceIDs = append(allSourceIDs, source.TextUnitID)
 	}
 	for _, source := range pathSources {
-		allSourcePublicIds = append(allSourcePublicIds, source.PublicID_2)
+		allSourceIDs = append(allSourceIDs, source.TextUnitID)
 	}
 
 	// Get file metadata for document context
-	if len(allSourcePublicIds) > 0 {
+	if len(allSourceIDs) > 0 {
 		filesWithMetadata, err := q.GetFilesWithMetadataFromTextUnitIDs(ctx, pgdb.GetFilesWithMetadataFromTextUnitIDsParams{
 			ProjectID: projectId,
-			SourceIds: allSourcePublicIds,
+			SourceIds: allSourceIDs,
 		})
 		if err == nil && len(filesWithMetadata) > 0 {
 			seenFiles := make(map[string]bool)
@@ -291,7 +287,7 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 				seenFiles[f.FileKey] = true
 				if f.Metadata.Valid && f.Metadata.String != "" {
 					hasMetadata = true
-					usedSourcePublicIds = append(usedSourcePublicIds, f.PublicID)
+					usedSourceIDs = append(usedSourceIDs, f.ID)
 					fmt.Fprintf(&metadataSection, "%s: %s\n", f.Name, f.Metadata.String)
 				}
 			}
@@ -300,8 +296,8 @@ func (s *GraphDBStorage) GetLocalQueryContext(
 			}
 		}
 	}
-	graphquery.RecordConsideredSourceIDs(s.trace, allSourcePublicIds...)
-	graphquery.RecordUsedSourceIDs(s.trace, usedSourcePublicIds...)
+	graphquery.RecordConsideredSourceIDs(s.trace, allSourceIDs...)
+	graphquery.RecordUsedSourceIDs(s.trace, usedSourceIDs...)
 
 	if len(sections) > 0 {
 		result.WriteString(strings.Join(sections, "\n"))

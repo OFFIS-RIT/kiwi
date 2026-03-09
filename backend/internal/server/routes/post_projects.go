@@ -2,27 +2,23 @@ package routes
 
 import (
 	"database/sql"
-	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 
 	_ "github.com/go-playground/validator"
 	"github.com/labstack/echo/v4"
-	gonanoid "github.com/matoous/go-nanoid/v2"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	serverutil "github.com/OFFIS-RIT/kiwi/backend/internal/server/util"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ids"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	graphquery "github.com/OFFIS-RIT/kiwi/backend/pkg/query"
 	bqc "github.com/OFFIS-RIT/kiwi/backend/pkg/query/pgx"
 	graphstorage "github.com/OFFIS-RIT/kiwi/backend/pkg/store/pgx"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type clientToolCallResponse struct {
@@ -31,35 +27,37 @@ type clientToolCallResponse struct {
 	ToolArguments string `json:"tool_arguments"`
 }
 
-func buildExpertGraphCatalog(currentProjectID int64, expertProjects []pgdb.GetAvailableExpertProjectsRow) string {
-	var catalogBuilder strings.Builder
-	fmt.Fprintf(&catalogBuilder, "Current query graph id (you may use this with ask_expert for complex query decomposition): %d\n", currentProjectID)
+type projectQueryRequest struct {
+	ProjectID      string `param:"id" validate:"required"`
+	Prompt         string `json:"prompt" validate:"required"`
+	ConversationID string `json:"conversation_id"`
+	Mode           string `json:"mode"`
+	Model          string `json:"model"`
+	Think          bool   `json:"think"`
+	ToolID         string `json:"tool_id,omitempty"`
+}
 
-	if len(expertProjects) == 0 {
-		catalogBuilder.WriteString("Available expert graphs (state=ready only): none.")
-		return strings.TrimSpace(catalogBuilder.String())
-	}
+type projectQueryResponseData struct {
+	ID   string  `json:"id"`
+	Name string  `json:"name"`
+	Key  string  `json:"key"`
+	Text *string `json:"text,omitempty"`
+}
 
-	catalogBuilder.WriteString("Available expert graphs (state=ready only; use these exact expert_graph_id values with ask_expert):\n")
-	for _, expertProject := range expertProjects {
-		description := "No description provided."
-		if expertProject.Description.Valid {
-			trimmedDescription := strings.TrimSpace(expertProject.Description.String)
-			if trimmedDescription != "" {
-				description = trimmedDescription
-			}
-		}
-
-		fmt.Fprintf(&catalogBuilder, "- expert_graph_id=%d | expert_graph_name=%q | description=%q\n", expertProject.ProjectID, expertProject.Name, description)
-	}
-
-	return strings.TrimSpace(catalogBuilder.String())
+type queryProjectResponse struct {
+	ConversationID      string                     `json:"conversation_id"`
+	Message             string                     `json:"message"`
+	Data                []projectQueryResponseData `json:"data"`
+	ClientToolCall      *clientToolCallResponse    `json:"client_tool_call,omitempty"`
+	Reasoning           string                     `json:"reasoning,omitempty"`
+	ConsideredFileCount int                        `json:"considered_file_count"`
+	UsedFileCount       int                        `json:"used_file_count"`
 }
 
 // CreateProjectHandler creates a new project from multipart/form-data
 func CreateProjectHandler(c echo.Context) error {
 	type createProjectBody struct {
-		GroupID int64  `form:"group_id" validate:"required,numeric"`
+		GroupID string `form:"group_id" validate:"required"`
 		Name    string `form:"name" validate:"required"`
 	}
 
@@ -95,7 +93,7 @@ func CreateProjectHandler(c echo.Context) error {
 		})
 	}
 
-	if data.GroupID <= 0 {
+	if data.GroupID == "" {
 		return c.JSON(http.StatusBadRequest, createProjectResponse{
 			Message: "group_id is required",
 		})
@@ -154,7 +152,8 @@ func CreateProjectHandler(c echo.Context) error {
 	}
 
 	project, err := qtx.CreateProject(ctx, pgdb.CreateProjectParams{
-		GroupID: sqltype.NullInt64{Int64: data.GroupID, Valid: true},
+		ID:      ids.New(),
+		GroupID: pgtype.Text{String: data.GroupID, Valid: true},
 		Name:    data.Name,
 		State:   state,
 	})
@@ -166,6 +165,7 @@ func CreateProjectHandler(c echo.Context) error {
 	}
 
 	err = qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
+		ID:            ids.New(),
 		ProjectID:     project.ID,
 		UpdateType:    "create",
 		UpdateMessage: util.ConvertStructToJson(project),
@@ -178,64 +178,21 @@ func CreateProjectHandler(c echo.Context) error {
 	}
 
 	s3Client := c.(*middleware.AppContext).App.S3
-	keys := make(map[string]string, 0)
-	for _, file := range uploads {
-		src, err := file.Open()
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, createProjectResponse{
-				Message: "Invalid request body",
-			})
-		}
-		defer src.Close()
-
-		fId, err := gonanoid.New()
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, createProjectResponse{
-				Message: "Internal server error",
-			})
-		}
-		key, err := storage.PutFile(
-			ctx,
-			s3Client,
-			fmt.Sprintf("projects/%d/files", project.ID),
-			file.Filename,
-			fId,
-			src,
-		)
-		if err != nil {
-			logger.Error("Failed to upload file", "err", err)
-			return c.JSON(http.StatusInternalServerError, createProjectResponse{
-				Message: "Internal server error",
-			})
-		}
-		keys[key] = file.Filename
+	uploadedFiles, err := uploadProjectFiles(ctx, s3Client, project.ID, uploads)
+	if err != nil {
+		logger.Error("Failed to upload project files", "err", err)
+		return c.JSON(http.StatusInternalServerError, createProjectResponse{Message: "Internal server error"})
 	}
 
-	projectFiles := make([]pgdb.ProjectFile, 0)
-	for key, name := range keys {
-		projectFile, err := qtx.AddFileToProject(ctx, pgdb.AddFileToProjectParams{
-			ProjectID: project.ID,
-			Name:      name,
-			FileKey:   key,
-		})
-		if err != nil {
-			logger.Error("Failed to add file to project", "err", err)
-			return c.JSON(http.StatusInternalServerError, createProjectResponse{
-				Message: "Internal server error",
-			})
-		}
-		err = qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
-			ProjectID:     project.ID,
-			UpdateType:    "add_file",
-			UpdateMessage: util.ConvertStructToJson(projectFile),
-		})
-		if err != nil {
-			logger.Error("Failed to add project update", "err", err)
-			return c.JSON(http.StatusInternalServerError, createProjectResponse{
-				Message: "Internal server error",
-			})
-		}
-		projectFiles = append(projectFiles, projectFile)
+	projectFiles, err := createProjectFiles(ctx, qtx, project.ID, uploadedFiles)
+	if err != nil {
+		logger.Error("Failed to create project files", "err", err)
+		return c.JSON(http.StatusInternalServerError, createProjectResponse{Message: "Internal server error"})
+	}
+
+	if _, err := c.(*middleware.AppContext).App.Workflows.EnqueueProcessFiles(ctx, tx, project.ID, projectFiles, "index"); err != nil {
+		logger.Error("Failed to enqueue project workflows", "err", err)
+		return c.JSON(http.StatusInternalServerError, createProjectResponse{Message: "Internal server error"})
 	}
 
 	err = tx.Commit(ctx)
@@ -259,54 +216,6 @@ func CreateProjectHandler(c echo.Context) error {
 		)
 	}
 
-	batchSize := int(util.GetEnvNumeric("WORKER_BATCH_SIZE", 10))
-	correlationID, _ := gonanoid.New()
-	totalBatches := (len(projectFiles) + batchSize - 1) / batchSize
-
-	for batchID := range totalBatches {
-		startIdx := batchID * batchSize
-		endIdx := min(startIdx+batchSize, len(projectFiles))
-		batchFiles := projectFiles[startIdx:endIdx]
-
-		fileIDs := make([]int64, len(batchFiles))
-		for i, f := range batchFiles {
-			fileIDs[i] = f.ID
-		}
-
-		logger.Debug("[Server] Creating batch status", "project_id", project.ID, "correlation_id", correlationID, "batch_id", batchID, "total_batches", totalBatches, "files_count", len(batchFiles))
-		_, _ = q.CreateBatchStatus(ctx, pgdb.CreateBatchStatusParams{
-			ProjectID:     project.ID,
-			CorrelationID: correlationID,
-			BatchID:       int32(batchID),
-			TotalBatches:  int32(totalBatches),
-			FilesCount:    int32(len(batchFiles)),
-			FileIds:       fileIDs,
-			Operation:     "index",
-		})
-	}
-
-	ch := c.(*middleware.AppContext).App.Queue
-	for batchID := range totalBatches {
-		startIdx := batchID * batchSize
-		endIdx := min(startIdx+batchSize, len(projectFiles))
-		batchFiles := projectFiles[startIdx:endIdx]
-
-		queueData := queue.QueueProjectFileMsg{
-			Message:       "Project created successfully",
-			ProjectID:     project.ID,
-			CorrelationID: correlationID,
-			BatchID:       batchID,
-			TotalBatches:  totalBatches,
-			ProjectFiles:  &batchFiles,
-			Operation:     "index",
-		}
-
-		err = queue.PublishFIFO(ch, "preprocess_queue", []byte(util.ConvertStructToJson(queueData)))
-		if err != nil {
-			logger.Error("Failed to publish batch to preprocess_queue", "batch_id", batchID, "err", err)
-		}
-	}
-
 	return c.JSON(
 		http.StatusOK,
 		resp,
@@ -316,12 +225,12 @@ func CreateProjectHandler(c echo.Context) error {
 // AddFilesToProjectHandler adds files to an existing project (multipart/form-data)
 func AddFilesToProjectHandler(c echo.Context) error {
 	type addFilesParams struct {
-		ProjectID int64 `param:"id" validate:"required,numeric"`
+		ProjectID string `param:"id" validate:"required"`
 	}
 
 	type addFilesResponse struct {
 		Message      string              `json:"message"`
-		ProjectID    int64               `json:"project_id"`
+		ProjectID    string              `json:"project_id"`
 		ProjectFiles []*pgdb.ProjectFile `json:"project_files,omitempty"`
 	}
 
@@ -374,13 +283,13 @@ func AddFilesToProjectHandler(c echo.Context) error {
 	}
 
 	if project.UserID.Valid {
-		if project.UserID.Int64 != user.UserID {
+		if project.UserID.String != user.UserID {
 			return c.JSON(http.StatusForbidden, addFilesResponse{Message: "You are not allowed to modify this project"})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 		})
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, addFilesResponse{Message: "You are not allowed to modify this project"})
@@ -388,121 +297,41 @@ func AddFilesToProjectHandler(c echo.Context) error {
 	}
 
 	s3Client := c.(*middleware.AppContext).App.S3
-
-	keys := make(map[string]string, 0)
-	for _, file := range uploads {
-		src, err := file.Open()
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, addFilesResponse{
-				Message: "Could not open file",
-			})
-		}
-		defer src.Close()
-
-		fId, err := gonanoid.New()
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, addFilesResponse{
-				Message: "Internal server error",
-			})
-		}
-		key, err := storage.PutFile(
-			ctx,
-			s3Client,
-			fmt.Sprintf("projects/%d/files", params.ProjectID),
-			file.Filename,
-			fId,
-			src,
-		)
-		if err != nil {
-			logger.Error("Failed to upload file", "err", err)
-			return c.JSON(http.StatusInternalServerError, addFilesResponse{
-				Message: "Internal server error",
-			})
-		}
-		keys[key] = file.Filename
+	uploadedFiles, err := uploadProjectFiles(ctx, s3Client, params.ProjectID, uploads)
+	if err != nil {
+		logger.Error("Failed to upload project files", "err", err)
+		return c.JSON(http.StatusInternalServerError, addFilesResponse{Message: "Internal server error"})
 	}
 
-	projectFiles := make([]*pgdb.ProjectFile, 0)
-	for key, name := range keys {
-		projectFile, err := q.AddFileToProject(ctx, pgdb.AddFileToProjectParams{
-			ProjectID: params.ProjectID,
-			Name:      name,
-			FileKey:   key,
-		})
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, addFilesResponse{
-				Message: "Failed to add file to project",
-			})
-		}
-		err = q.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
-			ProjectID:     params.ProjectID,
-			UpdateType:    "add_file",
-			UpdateMessage: util.ConvertStructToJson(projectFile),
-		})
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, addFilesResponse{
-				Message: "Failed to add file to project",
-			})
-		}
-		projectFiles = append(projectFiles, &projectFile)
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		logger.Error("Failed to begin transaction", "err", err)
+		return c.JSON(http.StatusInternalServerError, addFilesResponse{Message: "Internal server error"})
+	}
+	defer tx.Rollback(ctx)
+	qtx := q.WithTx(tx)
+
+	projectFiles, err := createProjectFiles(ctx, qtx, params.ProjectID, uploadedFiles)
+	if err != nil {
+		logger.Error("Failed to create project files", "err", err)
+		return c.JSON(http.StatusInternalServerError, addFilesResponse{Message: "Failed to add file to project"})
+	}
+	if _, err := c.(*middleware.AppContext).App.Workflows.EnqueueProcessFiles(ctx, tx, params.ProjectID, projectFiles, "update"); err != nil {
+		logger.Error("Failed to enqueue update workflows", "err", err)
+		return c.JSON(http.StatusInternalServerError, addFilesResponse{Message: "Failed to add file to project"})
+	}
+	if err := tx.Commit(ctx); err != nil {
+		logger.Error("Failed to commit file upload transaction", "err", err)
+		return c.JSON(http.StatusInternalServerError, addFilesResponse{Message: "Failed to add file to project"})
 	}
 
 	resp := addFilesResponse{
 		Message:      "File added successfully",
 		ProjectID:    params.ProjectID,
-		ProjectFiles: projectFiles,
+		ProjectFiles: make([]*pgdb.ProjectFile, 0, len(projectFiles)),
 	}
-
-	batchSize := int(util.GetEnvNumeric("WORKER_BATCH_SIZE", 10))
-	correlationID, _ := gonanoid.New()
-	totalBatches := (len(projectFiles) + batchSize - 1) / batchSize
-
-	for batchID := range totalBatches {
-		startIdx := batchID * batchSize
-		endIdx := min(startIdx+batchSize, len(projectFiles))
-		batchFiles := projectFiles[startIdx:endIdx]
-
-		fileIDs := make([]int64, len(batchFiles))
-		for i, f := range batchFiles {
-			fileIDs[i] = f.ID
-		}
-
-		_, _ = q.CreateBatchStatus(ctx, pgdb.CreateBatchStatusParams{
-			ProjectID:     params.ProjectID,
-			CorrelationID: correlationID,
-			BatchID:       int32(batchID),
-			TotalBatches:  int32(totalBatches),
-			FilesCount:    int32(len(batchFiles)),
-			FileIds:       fileIDs,
-			Operation:     "update",
-		})
-	}
-
-	ch := c.(*middleware.AppContext).App.Queue
-	for batchID := range totalBatches {
-		startIdx := batchID * batchSize
-		endIdx := min(startIdx+batchSize, len(projectFiles))
-		batchFilesPtrs := projectFiles[startIdx:endIdx]
-
-		batchFiles := make([]pgdb.ProjectFile, len(batchFilesPtrs))
-		for i, pf := range batchFilesPtrs {
-			batchFiles[i] = *pf
-		}
-
-		queueData := queue.QueueProjectFileMsg{
-			Message:       "File added successfully",
-			ProjectID:     params.ProjectID,
-			CorrelationID: correlationID,
-			BatchID:       batchID,
-			TotalBatches:  totalBatches,
-			ProjectFiles:  &batchFiles,
-			Operation:     "update",
-		}
-
-		err = queue.PublishFIFO(ch, "preprocess_queue", []byte(util.ConvertStructToJson(queueData)))
-		if err != nil {
-			logger.Error("Failed to publish batch to preprocess_queue", "batch_id", batchID, "err", err)
-		}
+	for i := range projectFiles {
+		resp.ProjectFiles = append(resp.ProjectFiles, &projectFiles[i])
 	}
 
 	return c.JSON(
@@ -513,44 +342,17 @@ func AddFilesToProjectHandler(c echo.Context) error {
 
 // QueryProjectHandler handles project queries
 func QueryProjectHandler(c echo.Context) error {
-	type queryProjectRequest struct {
-		ProjectID      int64  `param:"id" validate:"required,numeric"`
-		Prompt         string `json:"prompt" validate:"required"`
-		ConversationID string `json:"conversation_id"`
-		Mode           string `json:"mode"`
-		Model          string `json:"model"`
-		Think          bool   `json:"think"`
-		ToolID         string `json:"tool_id,omitempty"`
-	}
-
-	type responseData struct {
-		ID   string  `json:"id"`
-		Name string  `json:"name"`
-		Key  string  `json:"key"`
-		Text *string `json:"text,omitempty"`
-	}
-
-	type queryProjectResponse struct {
-		ConversationID      string                  `json:"conversation_id"`
-		Message             string                  `json:"message"`
-		Data                []responseData          `json:"data"`
-		ClientToolCall      *clientToolCallResponse `json:"client_tool_call,omitempty"`
-		Reasoning           string                  `json:"reasoning,omitempty"`
-		ConsideredFileCount int                     `json:"considered_file_count"`
-		UsedFileCount       int                     `json:"used_file_count"`
-	}
-
-	data := new(queryProjectRequest)
+	data := new(projectQueryRequest)
 	if err := c.Bind(data); err != nil {
 		return c.JSON(http.StatusBadRequest, queryProjectResponse{
 			Message: "Invalid request body",
-			Data:    []responseData{},
+			Data:    []projectQueryResponseData{},
 		})
 	}
 	if err := c.Validate(data); err != nil {
 		return c.JSON(http.StatusBadRequest, queryProjectResponse{
 			Message: "Invalid request body",
-			Data:    []responseData{},
+			Data:    []projectQueryResponseData{},
 		})
 	}
 
@@ -559,7 +361,7 @@ func QueryProjectHandler(c echo.Context) error {
 	if data.Prompt == "" {
 		return c.JSON(http.StatusBadRequest, queryProjectResponse{
 			Message: "prompt is required",
-			Data:    []responseData{},
+			Data:    []projectQueryResponseData{},
 		})
 	}
 
@@ -567,7 +369,7 @@ func QueryProjectHandler(c echo.Context) error {
 	if user == nil {
 		return c.JSON(http.StatusUnauthorized, queryProjectResponse{
 			Message: "Unauthorized",
-			Data:    []responseData{},
+			Data:    []projectQueryResponseData{},
 		})
 	}
 
@@ -581,35 +383,35 @@ func QueryProjectHandler(c echo.Context) error {
 		if err == sql.ErrNoRows {
 			return c.JSON(http.StatusNotFound, queryProjectResponse{
 				Message: "Project not found",
-				Data:    []responseData{},
+				Data:    []projectQueryResponseData{},
 			})
 		} else {
 			logger.Error("Failed to get project", "err", err)
 			return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 				Message: "Internal server error",
-				Data:    []responseData{},
+				Data:    []projectQueryResponseData{},
 			})
 		}
 	}
 
 	if project.UserID.Valid {
-		if project.UserID.Int64 != user.UserID {
-			return c.JSON(http.StatusForbidden, queryProjectResponse{Message: "Unauthorized", Data: []responseData{}})
+		if project.UserID.String != user.UserID {
+			return c.JSON(http.StatusForbidden, queryProjectResponse{Message: "Unauthorized", Data: []projectQueryResponseData{}})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 			ID:     data.ProjectID,
 		})
 		if err != nil || count == 0 {
-			return c.JSON(http.StatusForbidden, queryProjectResponse{Message: "Unauthorized", Data: []responseData{}})
+			return c.JSON(http.StatusForbidden, queryProjectResponse{Message: "Unauthorized", Data: []projectQueryResponseData{}})
 		}
 	}
 
 	if project.Type.Valid {
 		return c.JSON(http.StatusForbidden, queryProjectResponse{
 			Message: "This graph is not accessible for direct access",
-			Data:    []responseData{},
+			Data:    []projectQueryResponseData{},
 		})
 	}
 
@@ -617,40 +419,35 @@ func QueryProjectHandler(c echo.Context) error {
 
 	var conversation pgdb.UserChat
 	if conversationID == "" {
-		publicID, err := gonanoid.New()
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
-		}
-
 		conversation, err = q.CreateUserChat(ctx, pgdb.CreateUserChatParams{
-			PublicID:  publicID,
+			ID:        ids.New(),
 			UserID:    user.UserID,
-			ProjectID: data.ProjectID,
+			ProjectID: pgtype.Text{String: data.ProjectID, Valid: true},
 			Title:     serverutil.BuildConversationTitle(data.Prompt),
 		})
 		if err != nil {
 			logger.Error("Failed to create conversation", "err", err)
-			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []projectQueryResponseData{}})
 		}
 	} else {
-		conversation, err = q.GetUserChatByPublicIDAndProject(ctx, pgdb.GetUserChatByPublicIDAndProjectParams{
-			PublicID:  conversationID,
+		conversation, err = q.GetUserChatByIDAndProject(ctx, pgdb.GetUserChatByIDAndProjectParams{
+			ID:        conversationID,
 			UserID:    user.UserID,
-			ProjectID: data.ProjectID,
+			ProjectID: pgtype.Text{String: data.ProjectID, Valid: true},
 		})
 		if err != nil {
 			if err == sql.ErrNoRows {
-				return c.JSON(http.StatusNotFound, queryProjectResponse{Message: "Conversation not found", Data: []responseData{}})
+				return c.JSON(http.StatusNotFound, queryProjectResponse{Message: "Conversation not found", Data: []projectQueryResponseData{}})
 			}
 			logger.Error("Failed to load conversation", "err", err)
-			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []projectQueryResponseData{}})
 		}
 	}
 
 	historyRows, err := q.GetChatMessagesByChatID(ctx, conversation.ID)
 	if err != nil {
 		logger.Error("Failed to load conversation history", "err", err)
-		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []projectQueryResponseData{}})
 	}
 
 	chatHistory := make([]ai.ChatMessage, 0, len(historyRows)+1)
@@ -671,7 +468,7 @@ func QueryProjectHandler(c echo.Context) error {
 		promptHandledAsToolResult, err = serverutil.AppendPendingToolResult(ctx, q, conversation.ID, &chatHistory, pendingToolCall, data.ToolID, data.Prompt)
 		if err != nil {
 			logger.Error("Failed to persist pending tool result", "err", err)
-			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []projectQueryResponseData{}})
 		}
 	}
 
@@ -680,7 +477,7 @@ func QueryProjectHandler(c echo.Context) error {
 		chatHistory = append(chatHistory, userMessage)
 		if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, userMessage); err != nil {
 			logger.Error("Failed to persist user prompt", "err", err)
-			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+			return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []projectQueryResponseData{}})
 		}
 	}
 
@@ -690,14 +487,14 @@ func QueryProjectHandler(c echo.Context) error {
 	storageClient, err := graphstorage.NewGraphDBStorageWithConnection(ctx, conn, aiClient, msgs, graphstorage.WithTracer(trace))
 	if err != nil {
 		logger.Error("Failed to create graph storage client", "err", err)
-		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []projectQueryResponseData{}})
 	}
 
 	prompts, err := q.GetProjectSystemPrompts(ctx, data.ProjectID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 			Message: "Internal server error",
-			Data:    []responseData{},
+			Data:    []projectQueryResponseData{},
 		})
 	}
 	systemPrompts := make([]string, 0, len(prompts))
@@ -717,203 +514,69 @@ func QueryProjectHandler(c echo.Context) error {
 	}
 
 	expertProjects, err := q.GetAvailableExpertProjects(ctx, pgdb.GetAvailableExpertProjectsParams{
-		CurrentProjectID: data.ProjectID,
-		UserID:           user.UserID,
+		CurrentProjectID: pgtype.Text{String: data.ProjectID, Valid: true},
+		UserID:           pgtype.Text{String: user.UserID, Valid: true},
 	})
 	if err != nil {
 		logger.Error("Failed to load expert graph catalog", "err", err)
 		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 			Message: "Internal server error",
-			Data:    []responseData{},
+			Data:    []projectQueryResponseData{},
 		})
 	}
-	expertGraphCatalog := buildExpertGraphCatalog(data.ProjectID, expertProjects)
+	expertGraphCatalog := serverutil.BuildExpertGraphCatalog(data.ProjectID, expertProjects)
 	opts = append(opts, bqc.WithExpertGraphCatalog(expertGraphCatalog))
 
-	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, fmt.Sprintf("%d", data.ProjectID), opts)
-	clarificationEnabled := util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false)
+	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, data.ProjectID, opts)
 	queryMode := data.Mode
 	if pendingToolCall != nil {
 		queryMode = "agentic"
 	}
 
-	var contentChan <-chan ai.StreamEvent
-	switch queryMode {
-	case "normal":
-		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
-	case "agentic":
-		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, user.UserID, trace)
-		if clarificationEnabled {
-			toolList = append(toolList, graphstorage.GetClarificationTool())
-		}
-		contentChan, err = queryClient.QueryStreamAgentic(ctx, chatHistory, toolList)
-	default:
-		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
+	toolList := []ai.Tool(nil)
+	if queryMode == "agentic" {
+		toolList = graphstorage.GetServerToolList(conn, aiClient, data.ProjectID, user.UserID, trace, true)
 	}
+
+	answer, err := serverutil.ExecuteBlockingProjectQuery(ctx, queryClient, queryMode, chatHistory, toolList)
 	if err != nil {
 		logger.Error("[Query] graph error", "err", err)
 		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 			Message: "Es ist ein interner Fehler aufgetreten.",
-			Data:    []responseData{},
+			Data:    []projectQueryResponseData{},
 		})
 	}
 
-	var messageBuffer strings.Builder
-	var reasoningBuffer strings.Builder
-	var pendingClientToolCall *clientToolCallResponse
-	var pendingClientToolCallReasoning string
-
-	for event := range contentChan {
-		switch event.Type {
-		case "reasoning":
-			reasoningContent := event.Content
-			if reasoningContent == "" {
-				reasoningContent = event.Reasoning
-			}
-			if reasoningContent != "" {
-				reasoningBuffer.WriteString(reasoningContent)
-			}
-		case "step":
-			if event.Step == "thinking" {
-				reasoningContent := event.Content
-				if reasoningContent == "" {
-					reasoningContent = event.Reasoning
-				}
-				if reasoningContent != "" {
-					reasoningBuffer.WriteString(reasoningContent)
-				}
-				continue
-			}
-
-			if event.Step == "" || event.Step == "db_query" {
-				continue
-			}
-
-			toolCall := ai.ChatMessage{
-				Role:          "assistant_tool_call",
-				ToolName:      event.Step,
-				ToolCallID:    event.ToolCallID,
-				ToolArguments: event.ToolArguments,
-				ToolExecution: ai.ToolExecutionServer,
-				Reasoning:     reasoningBuffer.String(),
-			}
-			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
-				logger.Error("Failed to persist legacy tool call", "err", err)
-				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
-			}
-			reasoningBuffer.Reset()
-		case "tool_call":
-			reasoningForToolCall := reasoningBuffer.String()
-			toolCall := ai.ChatMessage{
-				Role:          "assistant_tool_call",
-				ToolCallID:    event.ToolCallID,
-				ToolName:      event.ToolName,
-				ToolArguments: event.ToolArguments,
-				ToolExecution: event.ToolExecution,
-				Reasoning:     reasoningForToolCall,
-			}
-			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolCall); err != nil {
-				logger.Error("Failed to persist tool call", "err", err)
-				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
-			}
-			reasoningBuffer.Reset()
-			if event.ToolExecution == ai.ToolExecutionClient {
-				pendingClientToolCall = &clientToolCallResponse{
-					ToolCallID:    event.ToolCallID,
-					ToolName:      event.ToolName,
-					ToolArguments: event.ToolArguments,
-				}
-				pendingClientToolCallReasoning = reasoningForToolCall
-			}
-		case "tool_result":
-			result := event.ToolResult
-			if result == "" {
-				result = event.Content
-			}
-			toolResult := ai.ChatMessage{
-				Role:          "tool",
-				Message:       result,
-				ToolCallID:    event.ToolCallID,
-				ToolName:      event.ToolName,
-				ToolExecution: event.ToolExecution,
-			}
-			if err := serverutil.AppendChatMessage(ctx, q, conversation.ID, toolResult); err != nil {
-				logger.Error("Failed to persist tool result", "err", err)
-				return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
-			}
-		case "content":
-			messageBuffer.WriteString(event.Content)
-		}
-	}
-
-	if pendingClientToolCall != nil {
-		resp := queryProjectResponse{
-			ConversationID:      conversation.PublicID,
-			Message:             "",
-			Data:                []responseData{},
-			ClientToolCall:      pendingClientToolCall,
-			ConsideredFileCount: 0,
-			UsedFileCount:       0,
-		}
-		if pendingClientToolCallReasoning != "" {
-			resp.Reasoning = pendingClientToolCallReasoning
-		} else if reasoningBuffer.Len() > 0 {
-			resp.Reasoning = reasoningBuffer.String()
-		}
-		return c.JSON(http.StatusOK, resp)
-	}
-
-	answer := util.NormalizeIDs(messageBuffer.String())
-	reasoning := reasoningBuffer.String()
+	answer = util.NormalizeIDs(answer)
+	reasoning := ""
 	metrics := aiClient.GetMetrics()
 
 	if err := serverutil.AppendAssistantChatMessage(ctx, q, conversation.ID, answer, reasoning, &metrics); err != nil {
 		logger.Error("Failed to persist final assistant message", "err", err)
-		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []responseData{}})
+		return c.JSON(http.StatusInternalServerError, queryProjectResponse{Message: "Internal server error", Data: []projectQueryResponseData{}})
 	}
 
-	fileData := make([]responseData, 0)
-	re := regexp.MustCompile(`\[\[([^][]+)\]\]`)
-	matches := re.FindAllStringSubmatch(answer, -1)
-	findings := make([]string, 0)
-	findingsSet := make(map[string]struct{})
-	for _, match := range matches {
-		id := match[1]
-		if id == "" {
-			continue
-		}
-		if _, exists := findingsSet[id]; exists {
-			continue
-		}
-		findingsSet[id] = struct{}{}
-		findings = append(findings, id)
-	}
-	files, err := q.GetFilesFromTextUnitIDs(ctx, pgdb.GetFilesFromTextUnitIDsParams{
-		SourceIds: findings,
-		ProjectID: data.ProjectID,
-	})
+	citationData, err := serverutil.ResolveCitationData(ctx, q, data.ProjectID, serverutil.ExtractCitationIDs(answer))
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, queryProjectResponse{
 			Message: "Internal server error",
-			Data:    []responseData{},
-		})
-	}
-	for _, file := range files {
-		fileData = append(fileData, responseData{
-			ID:   file.PublicID,
-			Key:  file.FileKey,
-			Name: file.Name,
+			Data:    []projectQueryResponseData{},
 		})
 	}
 
+	responseData := make([]projectQueryResponseData, 0, len(citationData))
 	usedFileKeySet := make(map[string]struct{})
-	for _, f := range fileData {
-		if f.Key == "" {
+	for _, file := range citationData {
+		responseData = append(responseData, projectQueryResponseData{
+			ID:   file.ID,
+			Key:  file.Key,
+			Name: file.Name,
+		})
+		if file.Key == "" {
 			continue
 		}
-		usedFileKeySet[f.Key] = struct{}{}
+		usedFileKeySet[file.Key] = struct{}{}
 	}
-	usedFileCount := len(usedFileKeySet)
 
 	consideredFileCount := 0
 	if snap := trace.Snapshot(); len(snap.ConsideredSourceIDs) > 0 {
@@ -925,22 +588,22 @@ func QueryProjectHandler(c echo.Context) error {
 			logger.Error("Failed to resolve considered files", "err", err)
 		} else {
 			consideredFileKeySet := make(map[string]struct{})
-			for _, f := range consideredFiles {
-				if f.FileKey == "" {
+			for _, file := range consideredFiles {
+				if file.FileKey == "" {
 					continue
 				}
-				consideredFileKeySet[f.FileKey] = struct{}{}
+				consideredFileKeySet[file.FileKey] = struct{}{}
 			}
 			consideredFileCount = len(consideredFileKeySet)
 		}
 	}
 
 	resp := queryProjectResponse{
-		ConversationID:      conversation.PublicID,
+		ConversationID:      conversation.ID,
 		Message:             answer,
-		Data:                fileData,
+		Data:                responseData,
+		UsedFileCount:       len(usedFileKeySet),
 		ConsideredFileCount: consideredFileCount,
-		UsedFileCount:       usedFileCount,
 	}
 	if reasoning != "" {
 		resp.Reasoning = reasoning
@@ -951,24 +614,7 @@ func QueryProjectHandler(c echo.Context) error {
 
 // QueryProjectStreamHandler handles streaming project queries
 func QueryProjectStreamHandler(c echo.Context) error {
-	type queryProjectRequest struct {
-		ProjectID      int64  `param:"id" validate:"required,numeric"`
-		Prompt         string `json:"prompt" validate:"required"`
-		ConversationID string `json:"conversation_id"`
-		Mode           string `json:"mode"`
-		Model          string `json:"model"`
-		Think          bool   `json:"think"`
-		ToolID         string `json:"tool_id,omitempty"`
-	}
-
-	type responseData struct {
-		ID   string  `json:"id"`
-		Name string  `json:"name"`
-		Key  string  `json:"key"`
-		Text *string `json:"text,omitempty"`
-	}
-
-	data := new(queryProjectRequest)
+	data := new(projectQueryRequest)
 	if err := c.Bind(data); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "Invalid request body"})
 	}
@@ -1003,12 +649,12 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 
 	if project.UserID.Valid {
-		if project.UserID.Int64 != user.UserID {
+		if project.UserID.String != user.UserID {
 			return c.JSON(http.StatusForbidden, map[string]string{"message": "Unauthorized"})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 			ID:     data.ProjectID,
 		})
 		if err != nil || count == 0 {
@@ -1028,15 +674,10 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	)
 
 	if conversationID == "" {
-		publicID, err := gonanoid.New()
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
-		}
-
 		conversation, err = q.CreateUserChat(ctx, pgdb.CreateUserChatParams{
-			PublicID:  publicID,
+			ID:        ids.New(),
 			UserID:    user.UserID,
-			ProjectID: data.ProjectID,
+			ProjectID: pgtype.Text{String: data.ProjectID, Valid: true},
 			Title:     serverutil.BuildConversationTitle(data.Prompt),
 		})
 		if err != nil {
@@ -1045,10 +686,10 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		}
 		isNewConversation = true
 	} else {
-		conversation, err = q.GetUserChatByPublicIDAndProject(ctx, pgdb.GetUserChatByPublicIDAndProjectParams{
-			PublicID:  conversationID,
+		conversation, err = q.GetUserChatByIDAndProject(ctx, pgdb.GetUserChatByIDAndProjectParams{
+			ID:        conversationID,
 			UserID:    user.UserID,
-			ProjectID: data.ProjectID,
+			ProjectID: pgtype.Text{String: data.ProjectID, Valid: true},
 		})
 		if err != nil {
 			if err == sql.ErrNoRows {
@@ -1128,14 +769,14 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 
 	expertProjects, err := q.GetAvailableExpertProjects(ctx, pgdb.GetAvailableExpertProjectsParams{
-		CurrentProjectID: data.ProjectID,
-		UserID:           user.UserID,
+		CurrentProjectID: pgtype.Text{String: data.ProjectID, Valid: true},
+		UserID:           pgtype.Text{String: user.UserID, Valid: true},
 	})
 	if err != nil {
 		logger.Error("Failed to load expert graph catalog", "err", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 	}
-	expertGraphCatalog := buildExpertGraphCatalog(data.ProjectID, expertProjects)
+	expertGraphCatalog := serverutil.BuildExpertGraphCatalog(data.ProjectID, expertProjects)
 	opts = append(opts, bqc.WithExpertGraphCatalog(expertGraphCatalog))
 	clarificationEnabled := util.GetEnvBool("AI_ENABLE_QUERY_CLARIFICATION", false)
 
@@ -1146,13 +787,13 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	c.Response().WriteHeader(http.StatusOK)
 
 	if err := serverutil.WriteSSEEvent(c, "conversation", map[string]any{
-		"conversation_id": conversation.PublicID,
+		"conversation_id": conversation.ID,
 		"is_new":          isNewConversation,
 	}); err != nil {
 		return nil
 	}
 
-	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, fmt.Sprintf("%d", data.ProjectID), opts)
+	queryClient := bqc.NewGraphQueryClient(aiClient, storageClient, data.ProjectID, opts)
 	queryMode := data.Mode
 	if pendingToolCall != nil {
 		queryMode = "agentic"
@@ -1163,9 +804,9 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	case "normal":
 		contentChan, err = queryClient.QueryStreamLocal(ctx, chatHistory)
 	case "agentic":
-		toolList := graphstorage.GetToolList(conn, aiClient, data.ProjectID, user.UserID, trace)
+		toolList := graphstorage.GetServerToolList(conn, aiClient, data.ProjectID, user.UserID, trace, true)
 		if clarificationEnabled {
-			toolList = append(toolList, graphstorage.GetClarificationTool())
+			toolList = graphstorage.GetCombinedToolList(conn, aiClient, data.ProjectID, user.UserID, trace, true)
 		}
 		contentChan, err = queryClient.QueryStreamAgentic(ctx, chatHistory, toolList)
 	default:
@@ -1173,46 +814,42 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 	if err != nil {
 		_ = serverutil.WriteSSEEvent(c, "error", map[string]string{"message": "Es ist ein interner Fehler aufgetreten."})
-		_ = serverutil.WriteSSEEvent(c, "done", map[string]any{"conversation_id": conversation.PublicID})
+		_ = serverutil.WriteSSEEvent(c, "done", map[string]any{"conversation_id": conversation.ID})
 		return nil
 	}
 
-	re := regexp.MustCompile(`\[\[([^][]+)\]\]`)
 	resolvedCitationIDs := make(map[string]bool)
-	citationCache := make(map[string]*responseData)
+	citationCache := make(map[string]*projectQueryResponseData)
 	var messageBuffer strings.Builder
 	var reasoningBuffer strings.Builder
-	var allFoundData []responseData
+	var allFoundData []projectQueryResponseData
 	var pendingClientToolCall *clientToolCallResponse
 	var pendingClientToolCallReasoning string
 	citationParser := serverutil.StreamCitationParser{}
 
-	resolveCitationData := func(id string) *responseData {
+	resolveCitationTextUnitData := func(id string) *projectQueryResponseData {
 		if cached, ok := citationCache[id]; ok {
 			return cached
 		}
 
-		files, err := q.GetFilesFromTextUnitIDs(ctx, pgdb.GetFilesFromTextUnitIDsParams{
-			SourceIds: []string{id},
-			ProjectID: data.ProjectID,
-		})
+		citationData, err := serverutil.ResolveCitationData(ctx, q, data.ProjectID, []string{id})
 		if err != nil {
 			logger.Error("Error getting files for citation", "id", id, "err", err)
 			citationCache[id] = nil
 			return nil
 		}
-		if len(files) == 0 {
+		if len(citationData) == 0 {
 			citationCache[id] = nil
 			return nil
 		}
 
-		resolved := &responseData{
-			ID:   files[0].PublicID,
-			Key:  files[0].FileKey,
-			Name: files[0].Name,
+		resolved := projectQueryResponseData{
+			ID:   citationData[0].ID,
+			Key:  citationData[0].Key,
+			Name: citationData[0].Name,
 		}
-		citationCache[id] = resolved
-		return resolved
+		citationCache[id] = &resolved
+		return &resolved
 	}
 
 	for event := range contentChan {
@@ -1336,7 +973,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 					return serverutil.WriteSSEEvent(c, "content", map[string]string{"content": content})
 				},
 				func(citationID string) error {
-					citationData := resolveCitationData(citationID)
+					citationData := resolveCitationTextUnitData(citationID)
 					if citationData != nil && !resolvedCitationIDs[citationID] {
 						resolvedCitationIDs[citationID] = true
 						allFoundData = append(allFoundData, *citationData)
@@ -1375,9 +1012,9 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		}
 
 		doneData := map[string]any{
-			"conversation_id":  conversation.PublicID,
+			"conversation_id":  conversation.ID,
 			"message":          "",
-			"data":             []responseData{},
+			"data":             []projectQueryResponseData{},
 			"client_tool_call": pendingClientToolCall,
 		}
 		if pendingClientToolCallReasoning != "" {
@@ -1399,14 +1036,12 @@ func QueryProjectStreamHandler(c echo.Context) error {
 		return nil
 	}
 
-	matches := re.FindAllStringSubmatch(finalMessage, -1)
-	for _, match := range matches {
-		citationID := match[1]
+	for _, citationID := range serverutil.ExtractCitationIDs(finalMessage) {
 		if resolvedCitationIDs[citationID] {
 			continue
 		}
 
-		citationData := resolveCitationData(citationID)
+		citationData := resolveCitationTextUnitData(citationID)
 		if citationData == nil {
 			continue
 		}
@@ -1449,7 +1084,7 @@ func QueryProjectStreamHandler(c echo.Context) error {
 	}
 
 	doneData := map[string]any{
-		"conversation_id":       conversation.PublicID,
+		"conversation_id":       conversation.ID,
 		"message":               finalMessage,
 		"data":                  allFoundData,
 		"used_file_count":       usedFileCount,

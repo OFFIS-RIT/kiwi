@@ -8,7 +8,6 @@ package pgdb
 import (
 	"context"
 
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -19,7 +18,7 @@ WITH current_graph AS (
         COALESCE(g.group_id, parent.group_id) AS group_id
     FROM graphs AS g
     LEFT JOIN graphs AS parent ON g.graph_id = parent.id
-    WHERE g.id = $2::bigint
+    WHERE g.id = $2
 )
 SELECT
     p.id AS project_id,
@@ -40,22 +39,22 @@ WHERE p.type = 'expert'
   AND (
       (cg.group_id IS NOT NULL AND COALESCE(p.group_id, parent.group_id) = cg.group_id)
       OR (p.group_id IS NULL AND p.user_id IS NULL AND p.graph_id IS NULL)
-      OR p.user_id = $1::bigint
-      OR p.graph_id = $2::bigint
+      OR p.user_id = $1
+      OR p.graph_id = $2
   )
 ORDER BY p.id ASC
 `
 
 type GetAvailableExpertProjectsParams struct {
-	UserID           int64 `json:"user_id"`
-	CurrentProjectID int64 `json:"current_project_id"`
+	UserID           pgtype.Text `json:"user_id"`
+	CurrentProjectID pgtype.Text `json:"current_project_id"`
 }
 
 type GetAvailableExpertProjectsRow struct {
-	ProjectID   int64              `json:"project_id"`
-	GroupID     sqltype.NullInt64  `json:"group_id"`
-	UserID      sqltype.NullInt64  `json:"user_id"`
-	GraphID     sqltype.NullInt64  `json:"graph_id"`
+	ProjectID   string             `json:"project_id"`
+	GroupID     pgtype.Text        `json:"group_id"`
+	UserID      pgtype.Text        `json:"user_id"`
+	GraphID     pgtype.Text        `json:"graph_id"`
 	Name        string             `json:"name"`
 	Description pgtype.Text        `json:"description"`
 	State       string             `json:"state"`
@@ -114,10 +113,10 @@ WHERE g.type = 'expert'
 `
 
 type GetExpertProjectByProjectIDRow struct {
-	ProjectID   int64              `json:"project_id"`
-	GroupID     sqltype.NullInt64  `json:"group_id"`
-	UserID      sqltype.NullInt64  `json:"user_id"`
-	GraphID     sqltype.NullInt64  `json:"graph_id"`
+	ProjectID   string             `json:"project_id"`
+	GroupID     pgtype.Text        `json:"group_id"`
+	UserID      pgtype.Text        `json:"user_id"`
+	GraphID     pgtype.Text        `json:"graph_id"`
 	Name        string             `json:"name"`
 	Description pgtype.Text        `json:"description"`
 	State       string             `json:"state"`
@@ -127,7 +126,7 @@ type GetExpertProjectByProjectIDRow struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) GetExpertProjectByProjectID(ctx context.Context, id int64) (GetExpertProjectByProjectIDRow, error) {
+func (q *Queries) GetExpertProjectByProjectID(ctx context.Context, id string) (GetExpertProjectByProjectIDRow, error) {
 	row := q.db.QueryRow(ctx, getExpertProjectByProjectID, id)
 	var i GetExpertProjectByProjectIDRow
 	err := row.Scan(
@@ -165,10 +164,10 @@ ORDER BY g.id ASC
 `
 
 type GetExpertProjectsRow struct {
-	ProjectID   int64              `json:"project_id"`
-	GroupID     sqltype.NullInt64  `json:"group_id"`
-	UserID      sqltype.NullInt64  `json:"user_id"`
-	GraphID     sqltype.NullInt64  `json:"graph_id"`
+	ProjectID   string             `json:"project_id"`
+	GroupID     pgtype.Text        `json:"group_id"`
+	UserID      pgtype.Text        `json:"user_id"`
+	GraphID     pgtype.Text        `json:"graph_id"`
 	Name        string             `json:"name"`
 	Description pgtype.Text        `json:"description"`
 	State       string             `json:"state"`

@@ -1,7 +1,6 @@
 package query
 
 import (
-	"slices"
 	"sort"
 	"sync"
 )
@@ -24,8 +23,8 @@ type TraceEvent struct {
 	Kind TraceEventKind
 
 	SourceIDs       []string
-	EntityIDs       []int64
-	RelationshipIDs []int64
+	EntityIDs       []string
+	RelationshipIDs []string
 	EntityTypes     []string
 
 	ToolName      string
@@ -68,14 +67,14 @@ func RecordUsedSourceIDs(t Tracer, ids ...string) {
 	t.Record(TraceEvent{Kind: TraceEventUsedSourceIDs, SourceIDs: ids})
 }
 
-func RecordQueriedEntityIDs(t Tracer, ids ...int64) {
+func RecordQueriedEntityIDs(t Tracer, ids ...string) {
 	if t == nil {
 		return
 	}
 	t.Record(TraceEvent{Kind: TraceEventQueriedEntityIDs, EntityIDs: ids})
 }
 
-func RecordQueriedRelationshipIDs(t Tracer, ids ...int64) {
+func RecordQueriedRelationshipIDs(t Tracer, ids ...string) {
 	if t == nil {
 		return
 	}
@@ -101,16 +100,16 @@ type QueryTrace struct {
 
 	consideredSourceIDs      map[string]struct{}
 	usedSourceIDs            map[string]struct{}
-	queriedEntityIDs         map[int64]struct{}
-	queriedRelationshipIDs   map[int64]struct{}
+	queriedEntityIDs         map[string]struct{}
+	queriedRelationshipIDs   map[string]struct{}
 	queriedEntityTypeFilters map[string]struct{}
 }
 
 type QueryTraceSnapshot struct {
 	ConsideredSourceIDs    []string
 	UsedSourceIDs          []string
-	QueriedEntityIDs       []int64
-	QueriedRelationshipIDs []int64
+	QueriedEntityIDs       []string
+	QueriedRelationshipIDs []string
 	QueriedEntityTypes     []string
 }
 
@@ -118,8 +117,8 @@ func NewQueryTrace() *QueryTrace {
 	return &QueryTrace{
 		consideredSourceIDs:      make(map[string]struct{}),
 		usedSourceIDs:            make(map[string]struct{}),
-		queriedEntityIDs:         make(map[int64]struct{}),
-		queriedRelationshipIDs:   make(map[int64]struct{}),
+		queriedEntityIDs:         make(map[string]struct{}),
+		queriedRelationshipIDs:   make(map[string]struct{}),
 		queriedEntityTypeFilters: make(map[string]struct{}),
 	}
 }
@@ -149,14 +148,14 @@ func (t *QueryTrace) Record(event TraceEvent) {
 		}
 	case TraceEventQueriedEntityIDs:
 		for _, id := range event.EntityIDs {
-			if id == 0 {
+			if id == "" {
 				continue
 			}
 			t.queriedEntityIDs[id] = struct{}{}
 		}
 	case TraceEventQueriedRelationshipIDs:
 		for _, id := range event.RelationshipIDs {
-			if id == 0 {
+			if id == "" {
 				continue
 			}
 			t.queriedRelationshipIDs[id] = struct{}{}
@@ -184,8 +183,8 @@ func (t *QueryTrace) Snapshot() QueryTraceSnapshot {
 	s := QueryTraceSnapshot{
 		ConsideredSourceIDs:    make([]string, 0, len(t.consideredSourceIDs)),
 		UsedSourceIDs:          make([]string, 0, len(t.usedSourceIDs)),
-		QueriedEntityIDs:       make([]int64, 0, len(t.queriedEntityIDs)),
-		QueriedRelationshipIDs: make([]int64, 0, len(t.queriedRelationshipIDs)),
+		QueriedEntityIDs:       make([]string, 0, len(t.queriedEntityIDs)),
+		QueriedRelationshipIDs: make([]string, 0, len(t.queriedRelationshipIDs)),
 		QueriedEntityTypes:     make([]string, 0, len(t.queriedEntityTypeFilters)),
 	}
 
@@ -207,8 +206,8 @@ func (t *QueryTrace) Snapshot() QueryTraceSnapshot {
 
 	sort.Strings(s.ConsideredSourceIDs)
 	sort.Strings(s.UsedSourceIDs)
-	slices.Sort(s.QueriedEntityIDs)
-	slices.Sort(s.QueriedRelationshipIDs)
+	sort.Strings(s.QueriedEntityIDs)
+	sort.Strings(s.QueriedRelationshipIDs)
 	sort.Strings(s.QueriedEntityTypes)
 
 	return s

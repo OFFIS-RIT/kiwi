@@ -10,6 +10,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	_ "github.com/go-playground/validator"
 	"github.com/labstack/echo/v4"
@@ -17,7 +18,7 @@ import (
 
 func GetProjectsHandler(c echo.Context) error {
 	type project struct {
-		ProjectID                int64                   `json:"project_id"`
+		ProjectID                string                  `json:"project_id"`
 		ProjectName              string                  `json:"project_name"`
 		ProjectState             string                  `json:"project_state"`
 		Hidden                   bool                    `json:"hidden"`
@@ -26,19 +27,21 @@ func GetProjectsHandler(c echo.Context) error {
 		ProcessPercentage        *int32                  `json:"process_percentage,omitempty"`
 		ProcessEstimatedDuration *int64                  `json:"process_estimated_duration,omitempty"`
 		ProcessTimeRemaining     *int64                  `json:"process_time_remaining,omitempty"`
+		ProcessEtaConfidence     *string                 `json:"process_eta_confidence,omitempty"`
+		ProcessEtaSampleCount    *int32                  `json:"process_eta_sample_count,omitempty"`
 	}
 
 	type group struct {
-		GroupID   int64     `json:"group_id"`
+		GroupID   string    `json:"group_id"`
 		GroupName string    `json:"group_name"`
 		Role      string    `json:"role"`
 		Projects  []project `json:"projects"`
 	}
 
 	type projectRow struct {
-		GroupID      int64
+		GroupID      string
 		GroupName    string
-		ProjectID    int64
+		ProjectID    string
 		ProjectName  string
 		ProjectState string
 		Hidden       bool
@@ -134,6 +137,12 @@ func GetProjectsHandler(c echo.Context) error {
 					if batchProgress.TimeRemaining != nil {
 						p.ProcessTimeRemaining = batchProgress.TimeRemaining
 					}
+					if batchProgress.EtaConfidence != nil {
+						p.ProcessEtaConfidence = batchProgress.EtaConfidence
+					}
+					if batchProgress.EtaSampleCount != nil {
+						p.ProcessEtaSampleCount = batchProgress.EtaSampleCount
+					}
 				}
 			}
 		}
@@ -161,7 +170,7 @@ func GetProjectsHandler(c echo.Context) error {
 
 func GetProjectFilesHandler(c echo.Context) error {
 	type getProjectFilesParams struct {
-		ProjectID int64 `param:"id" validate:"required,numeric"`
+		ProjectID string `param:"id" validate:"required"`
 	}
 
 	params := new(getProjectFilesParams)
@@ -190,13 +199,13 @@ func GetProjectFilesHandler(c echo.Context) error {
 	}
 
 	if project.UserID.Valid {
-		if project.UserID.Int64 != user.UserID {
+		if project.UserID.String != user.UserID {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "Unauthorized"})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 		})
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "You are not a member of this project"})
@@ -208,22 +217,24 @@ func GetProjectFilesHandler(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
 	}
 
-	fileIDs := make([]int64, 0, len(projectFiles))
+	fileIDs := make([]string, 0, len(projectFiles))
 	for _, f := range projectFiles {
 		fileIDs = append(fileIDs, f.ID)
 	}
 
-	batchStatusByFileID := make(map[int64]string, len(fileIDs))
+	batchStatusByFileID := make(map[string]string, len(fileIDs))
 	if len(fileIDs) > 0 {
-		rows, err := q.GetLatestBatchStatusForFiles(ctx, pgdb.GetLatestBatchStatusForFilesParams{
+		rows, err := q.GetLatestWorkflowStatsForFiles(ctx, pgdb.GetLatestWorkflowStatsForFilesParams{
 			ProjectID: params.ProjectID,
-			FileIds:   fileIDs,
+			Column2:   fileIDs,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
 		}
 		for _, r := range rows {
-			batchStatusByFileID[r.FileID] = r.Status
+			if r.FileID.Valid {
+				batchStatusByFileID[r.FileID.String] = r.Status
+			}
 		}
 	}
 
@@ -290,12 +301,12 @@ func GetTextUnitHandler(c echo.Context) error {
 	}
 
 	if project.UserID.Valid {
-		if project.UserID.Int64 != user.UserID {
+		if project.UserID.String != user.UserID {
 			return c.JSON(http.StatusForbidden, getTextUnitResponse{Message: "Unauthorized"})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 			ID:     projectID,
 		})
 		if err != nil || count == 0 {
@@ -303,7 +314,7 @@ func GetTextUnitHandler(c echo.Context) error {
 		}
 	}
 
-	unit, err := qtx.GetTextUnitByPublicId(ctx, params.ID)
+	unit, err := qtx.GetTextUnitByID(ctx, params.ID)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, getTextUnitResponse{
 			Message: "Text unit not found",
@@ -318,7 +329,7 @@ func GetTextUnitHandler(c echo.Context) error {
 
 func GetProjectFile(c echo.Context) error {
 	type getProjectFileParams struct {
-		ProjectID int64  `param:"id" validate:"required,numeric"`
+		ProjectID string `param:"id" validate:"required"`
 		FileKey   string `json:"file_key" validate:"required"`
 	}
 
@@ -361,7 +372,7 @@ func GetProjectFile(c echo.Context) error {
 
 	if !middleware.IsAdmin(user) {
 		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 			ID:     params.ProjectID,
 		})
 		if err != nil || count == 0 {
