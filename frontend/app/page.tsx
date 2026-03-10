@@ -70,12 +70,12 @@ function DashboardContent() {
     <>
       <SidebarInset>
         <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
             <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="mr-2 h-4" />
+            <Separator orientation="vertical" className="mr-2 h-4 shrink-0" />
             <BreadcrumbNav />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <LanguageSwitcher />
             <CreateActions />
             <UserNav />
@@ -83,7 +83,7 @@ function DashboardContent() {
         </header>
         <div className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4">
           {selectedProject && selectedGroup ? (
-            <div className="h-full overflow-hidden">
+            <div className="h-full min-w-0 overflow-hidden">
               <ProjectChat
                 projectName={selectedProject.name}
                 groupName={selectedGroup.name}

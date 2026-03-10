@@ -14,7 +14,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sidebar,
@@ -23,7 +22,9 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
+  SidebarInput,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -47,6 +48,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import type * as React from "react";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 
@@ -285,12 +287,13 @@ export function AppSidebar({
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" onClick={showGroups}>
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
-                  <img
+                  <Image
                     src="/KIWI.jpg"
                     alt="KIWI"
                     width={48}
                     height={48}
-                    className="object-cover"
+                    unoptimized
+                    className="size-full object-cover"
                   />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
@@ -318,10 +321,10 @@ export function AppSidebar({
           <div className="px-2 pb-3">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-              <Input
+              <SidebarInput
                 ref={searchInputRef}
                 placeholder={t("search.placeholder")}
-                className="w-full pl-9 pr-8 h-9 bg-sidebar-accent/50 border-sidebar-border focus-visible:ring-sidebar-ring"
+                className="h-9 bg-sidebar-accent/50 pl-9 pr-8 focus-visible:ring-sidebar-ring"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -529,174 +532,157 @@ function GroupItem({
 }: GroupItemProps) {
   const { selectedGroup, selectedProject, selectItem } = useNavigation();
   const { t } = useLanguage();
-  const [menuOpen, setMenuOpen] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
-
-  const handleMenuClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-  };
 
   const projectsToShow = group.projects;
 
   return (
     <SidebarMenuItem>
-      <div className="relative">
-        <Collapsible
-          className="group/collapsible"
-          open={isExpanded}
-          onOpenChange={onToggleExpanded}
-        >
-          <div className="flex items-center group/header rounded-md">
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 p-0 hover:bg-transparent"
-                aria-label={
-                  isExpanded ? "Gruppe einklappen" : "Gruppe ausklappen"
-                }
-              >
-                <ChevronRight
-                  className={`h-4 w-4 transition-transform ${
-                    isExpanded ? "rotate-90" : ""
-                  }`}
-                />
-              </Button>
-            </CollapsibleTrigger>
-            <div className="relative flex-1">
-              <SidebarMenuButton
-                className="flex-1 pl-0"
-                isActive={selectedGroup?.id === group.id && !selectedProject}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  selectItem(group);
-                }}
-              >
-                <Users className="ml-0" />
-                <span className="truncate">
-                  {highlightTerm
-                    ? fuzzyHighlight(group.name, highlightTerm)
-                    : group.name}
-                </span>
-              </SidebarMenuButton>
-              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-                <DropdownMenuTrigger asChild onClick={handleMenuClick}>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 p-0 opacity-0 group-hover/header:opacity-100 transition-opacity absolute right-0 top-0"
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                    <span className="sr-only">{t("options")}</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  side="right"
-                  className="w-48"
-                >
-                  <DropdownMenuItem onSelect={() => onEditGroup(group)}>
-                    <Edit className="mr-2 h-4 w-4" />
-                    <span>{t("edit")}</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => setShowCreateProject(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    <span>{t("create.new.project")}</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onSelect={() => onDeleteGroup(group)}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    <span>{t("delete")}</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Suspense fallback={null}>
-                <CreateProjectDialog
-                  open={showCreateProject}
-                  onOpenChange={setShowCreateProject}
-                  groupId={group.id}
-                  onProjectCreated={onProjectCreated}
-                />
-              </Suspense>
+      <Collapsible
+        className="group/collapsible"
+        open={isExpanded}
+        onOpenChange={onToggleExpanded}
+      >
+        <div className="group/group-row relative flex min-w-0 items-center gap-1">
+          <CollapsibleTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0 p-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              aria-label={
+                isExpanded ? "Gruppe einklappen" : "Gruppe ausklappen"
+              }
+            >
+              <ChevronRight
+                className={`h-4 w-4 transition-transform ${
+                  isExpanded ? "rotate-90" : ""
+                }`}
+              />
+            </Button>
+          </CollapsibleTrigger>
+          <SidebarMenuButton
+            className="min-w-0 flex-1 pr-8"
+            isActive={selectedGroup?.id === group.id && !selectedProject}
+            onClick={() => selectItem(group)}
+            tooltip={group.name}
+          >
+            <Users className="shrink-0" />
+            <div className="w-0 min-w-0 flex-1 overflow-hidden">
+              <span className="block truncate">
+                {highlightTerm
+                  ? fuzzyHighlight(group.name, highlightTerm)
+                  : group.name}
+              </span>
             </div>
-          </div>
-          <CollapsibleContent>
-            <SidebarMenuSub>
-              {projectsToShow.map((project) => {
-                const isProjectMatched = matchedProjectIds?.has(project.id);
-                const isProcessing = project.processPercentage !== undefined;
+          </SidebarMenuButton>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              asChild
+              onClick={(event) => event.stopPropagation()}
+            >
+              <SidebarMenuAction className="opacity-0 group-hover/group-row:opacity-100 group-focus-within/group-row:opacity-100 data-[state=open]:opacity-100">
+                <MoreVertical className="h-4 w-4" />
+                <span className="sr-only">{t("options")}</span>
+              </SidebarMenuAction>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="right" className="w-48">
+              <DropdownMenuItem onSelect={() => onEditGroup(group)}>
+                <Edit className="mr-2 h-4 w-4" />
+                <span>{t("edit")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setShowCreateProject(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                <span>{t("create.new.project")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onSelect={() => onDeleteGroup(group)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                <span>{t("delete")}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        <Suspense fallback={null}>
+          <CreateProjectDialog
+            open={showCreateProject}
+            onOpenChange={setShowCreateProject}
+            groupId={group.id}
+            onProjectCreated={onProjectCreated}
+          />
+        </Suspense>
+        <CollapsibleContent>
+          <SidebarMenuSub className="mr-0 pr-0">
+            {projectsToShow.map((project) => {
+              const isProjectMatched = matchedProjectIds?.has(project.id);
+              const isProcessing = project.processPercentage !== undefined;
 
-                return (
-                  <SidebarMenuItem key={project.id}>
-                    <div className="relative flex items-center group/project rounded-md">
-                      <SidebarMenuButton
-                        className="flex-1"
-                        isActive={selectedProject?.id === project.id}
-                        disabled={project.state === "create"}
-                        onClick={() => {
-                          onSelectProject(group.id);
-                          selectItem(group, project);
-                        }}
+              return (
+                <SidebarMenuItem key={project.id}>
+                  <div className="group/project-row relative">
+                    <SidebarMenuButton
+                      className="min-w-0 pr-8"
+                      isActive={selectedProject?.id === project.id}
+                      disabled={project.state === "create"}
+                      onClick={() => {
+                        onSelectProject(group.id);
+                        selectItem(group, project);
+                      }}
+                      tooltip={project.name}
+                    >
+                      {isProcessing ? (
+                        <ProjectProgressChart project={project} />
+                      ) : (
+                        <BookOpen className="shrink-0" />
+                      )}
+                      <div className="w-0 min-w-0 flex-1 overflow-hidden">
+                        <span className="block truncate">
+                          {highlightTerm && isProjectMatched
+                            ? fuzzyHighlight(project.name, highlightTerm)
+                            : project.name}
+                        </span>
+                      </div>
+                    </SidebarMenuButton>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        asChild
+                        onClick={(event) => event.stopPropagation()}
                       >
-                        {isProcessing ? (
-                          <ProjectProgressChart project={project} />
-                        ) : (
-                          <BookOpen className="shrink-0" />
-                        )}
-                        {highlightTerm && isProjectMatched ? (
-                          <span className="truncate">
-                            {fuzzyHighlight(project.name, highlightTerm)}
-                          </span>
-                        ) : (
-                          <span className="truncate">{project.name}</span>
-                        )}
-                      </SidebarMenuButton>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          asChild
-                          onClick={(e) => e.stopPropagation()}
+                        <SidebarMenuAction className="opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
+                          <MoreVertical className="h-4 w-4" />
+                          <span className="sr-only">{t("options")}</span>
+                        </SidebarMenuAction>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        side="right"
+                        className="w-40"
+                      >
+                        <DropdownMenuItem
+                          onSelect={() => onEditProject(project, group.id)}
                         >
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 p-0 opacity-0 group-hover/project:opacity-100 transition-opacity absolute right-0"
-                          >
-                            <MoreVertical className="h-4 w-4" />
-                            <span className="sr-only">{t("options")}</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="start"
-                          side="right"
-                          className="w-40"
+                          <Edit className="mr-2 h-4 w-4" />
+                          <span>{t("edit")}</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => {
+                            onDeleteProject(project, group.id, group.name);
+                          }}
                         >
-                          <DropdownMenuItem
-                            onSelect={() => onEditProject(project, group.id)}
-                          >
-                            <Edit className="mr-2 h-4 w-4" />
-                            <span>{t("edit")}</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onSelect={() => {
-                              onDeleteProject(project, group.id, group.name);
-                            }}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            <span>{t("delete")}</span>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenuSub>
-          </CollapsibleContent>
-        </Collapsible>
-      </div>
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          <span>{t("delete")}</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </Collapsible>
     </SidebarMenuItem>
   );
 }
