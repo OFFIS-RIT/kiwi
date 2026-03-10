@@ -2,7 +2,6 @@ package routes
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -19,6 +18,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 	graphquery "github.com/OFFIS-RIT/kiwi/backend/pkg/query"
 	bqc "github.com/OFFIS-RIT/kiwi/backend/pkg/query/pgx"
@@ -154,7 +154,7 @@ func CreateProjectHandler(c echo.Context) error {
 	}
 
 	project, err := qtx.CreateProject(ctx, pgdb.CreateProjectParams{
-		GroupID: sql.NullInt64{Int64: data.GroupID, Valid: true},
+		GroupID: sqltype.NullInt64{Int64: data.GroupID, Valid: true},
 		Name:    data.Name,
 		State:   state,
 	})
@@ -168,7 +168,7 @@ func CreateProjectHandler(c echo.Context) error {
 	err = qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 		ProjectID:     project.ID,
 		UpdateType:    "create",
-		UpdateMessage: json.RawMessage(util.ConvertStructToJson(project)),
+		UpdateMessage: util.ConvertStructToJson(project),
 	})
 	if err != nil {
 		logger.Error("Failed to add project update", "err", err)
@@ -227,7 +227,7 @@ func CreateProjectHandler(c echo.Context) error {
 		err = qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 			ProjectID:     project.ID,
 			UpdateType:    "add_file",
-			UpdateMessage: json.RawMessage(util.ConvertStructToJson(projectFile)),
+			UpdateMessage: util.ConvertStructToJson(projectFile),
 		})
 		if err != nil {
 			logger.Error("Failed to add project update", "err", err)
@@ -437,7 +437,7 @@ func AddFilesToProjectHandler(c echo.Context) error {
 		err = q.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 			ProjectID:     params.ProjectID,
 			UpdateType:    "add_file",
-			UpdateMessage: json.RawMessage(util.ConvertStructToJson(projectFile)),
+			UpdateMessage: util.ConvertStructToJson(projectFile),
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, addFilesResponse{

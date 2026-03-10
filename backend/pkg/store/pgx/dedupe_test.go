@@ -160,3 +160,17 @@ func TestChooseCanonicalName_PrefersAIName(t *testing.T) {
 		t.Fatalf("expected 'IBM', got %q", name)
 	}
 }
+
+func TestBuildConnectedComponents_SortsGroupsDeterministically(t *testing.T) {
+	pairs := []entityPair{
+		{ID1: 6, ID2: 5},
+		{ID1: 3, ID2: 2},
+		{ID1: 2, ID2: 1},
+	}
+
+	groups := buildConnectedComponents(pairs)
+	want := [][]int64{{1, 2, 3}, {5, 6}}
+	if !reflect.DeepEqual(groups, want) {
+		t.Fatalf("expected groups %v, got %v", want, groups)
+	}
+}

@@ -2,7 +2,6 @@ package routes
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -10,6 +9,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 )
 
 func GetUserProjectsHandler(c echo.Context) error {
@@ -34,7 +34,7 @@ func GetUserProjectsHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	q := pgdb.New(conn)
 
-	rows, err := q.GetUserProjects(ctx, sql.NullInt64{Int64: user.UserID, Valid: true})
+	rows, err := q.GetUserProjects(ctx, sqltype.NullInt64{Int64: user.UserID, Valid: true})
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}

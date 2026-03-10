@@ -129,57 +129,6 @@ func (q *Queries) FindRelevantRelationSources(ctx context.Context, arg FindRelev
 	return items, nil
 }
 
-const findRelevantSourcesForEntities = `-- name: FindRelevantSourcesForEntities :many
-SELECT
-    s.id,
-    u.public_id,
-    s.entity_id,
-    s.description
-FROM entity_sources s
-JOIN text_units u ON u.id = s.text_unit_id
-WHERE s.entity_id = ANY($1::bigint[])
-ORDER BY s.embedding <=> $2
-LIMIT $3
-`
-
-type FindRelevantSourcesForEntitiesParams struct {
-	Column1   []int64         `json:"column_1"`
-	Embedding pgvector.Vector `json:"embedding"`
-	Limit     int32           `json:"limit"`
-}
-
-type FindRelevantSourcesForEntitiesRow struct {
-	ID          int64  `json:"id"`
-	PublicID    string `json:"public_id"`
-	EntityID    int64  `json:"entity_id"`
-	Description string `json:"description"`
-}
-
-func (q *Queries) FindRelevantSourcesForEntities(ctx context.Context, arg FindRelevantSourcesForEntitiesParams) ([]FindRelevantSourcesForEntitiesRow, error) {
-	rows, err := q.db.Query(ctx, findRelevantSourcesForEntities, arg.Column1, arg.Embedding, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FindRelevantSourcesForEntitiesRow{}
-	for rows.Next() {
-		var i FindRelevantSourcesForEntitiesRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.PublicID,
-			&i.EntityID,
-			&i.Description,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const findRelevantSourcesForEntitiesWithKeywords = `-- name: FindRelevantSourcesForEntitiesWithKeywords :many
 WITH semantic_candidates AS (
     SELECT s.id
@@ -272,61 +221,6 @@ func (q *Queries) FindRelevantSourcesForEntitiesWithKeywords(ctx context.Context
 			&i.KeywordRank,
 			&i.KeywordMatches,
 			&i.KeywordTotal,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const findRelevantSourcesForRelations = `-- name: FindRelevantSourcesForRelations :many
-SELECT
-    s.id,
-    u.public_id,
-    s.description,
-    r.source_id,
-    r.target_id
-FROM relationship_sources s
-JOIN text_units u ON u.id = s.text_unit_id
-JOIN relationships r ON r.id = s.relationship_id
-WHERE s.relationship_id = ANY($1::bigint[])
-ORDER BY s.embedding <=> $2
-LIMIT $3
-`
-
-type FindRelevantSourcesForRelationsParams struct {
-	Column1   []int64         `json:"column_1"`
-	Embedding pgvector.Vector `json:"embedding"`
-	Limit     int32           `json:"limit"`
-}
-
-type FindRelevantSourcesForRelationsRow struct {
-	ID          int64  `json:"id"`
-	PublicID    string `json:"public_id"`
-	Description string `json:"description"`
-	SourceID    int64  `json:"source_id"`
-	TargetID    int64  `json:"target_id"`
-}
-
-func (q *Queries) FindRelevantSourcesForRelations(ctx context.Context, arg FindRelevantSourcesForRelationsParams) ([]FindRelevantSourcesForRelationsRow, error) {
-	rows, err := q.db.Query(ctx, findRelevantSourcesForRelations, arg.Column1, arg.Embedding, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FindRelevantSourcesForRelationsRow{}
-	for rows.Next() {
-		var i FindRelevantSourcesForRelationsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.PublicID,
-			&i.Description,
-			&i.SourceID,
-			&i.TargetID,
 		); err != nil {
 			return nil, err
 		}
@@ -542,76 +436,6 @@ func (q *Queries) FindSimilarEntitySources(ctx context.Context, arg FindSimilarE
 	return items, nil
 }
 
-const getEntityNeighboursRanked = `-- name: GetEntityNeighboursRanked :many
-SELECT 
-    r.id as relationship_id,
-    r.description as relationship_description,
-    r.rank,
-    r.source_id,
-    r.target_id,
-    e.id as neighbour_id,
-    e.name as neighbour_name,
-    e.type as neighbour_type,
-    e.description as neighbour_description
-FROM relationships r
-JOIN entities e 
-    ON e.id = CASE 
-        WHEN r.source_id = $1 THEN r.target_id
-        ELSE r.source_id
-    END
-WHERE $1 IN (r.source_id, r.target_id)
-ORDER BY r.embedding <=> $2
-LIMIT $3
-`
-
-type GetEntityNeighboursRankedParams struct {
-	SourceID  int64           `json:"source_id"`
-	Embedding pgvector.Vector `json:"embedding"`
-	Limit     int32           `json:"limit"`
-}
-
-type GetEntityNeighboursRankedRow struct {
-	RelationshipID          int64   `json:"relationship_id"`
-	RelationshipDescription string  `json:"relationship_description"`
-	Rank                    float64 `json:"rank"`
-	SourceID                int64   `json:"source_id"`
-	TargetID                int64   `json:"target_id"`
-	NeighbourID             int64   `json:"neighbour_id"`
-	NeighbourName           string  `json:"neighbour_name"`
-	NeighbourType           string  `json:"neighbour_type"`
-	NeighbourDescription    string  `json:"neighbour_description"`
-}
-
-func (q *Queries) GetEntityNeighboursRanked(ctx context.Context, arg GetEntityNeighboursRankedParams) ([]GetEntityNeighboursRankedRow, error) {
-	rows, err := q.db.Query(ctx, getEntityNeighboursRanked, arg.SourceID, arg.Embedding, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []GetEntityNeighboursRankedRow{}
-	for rows.Next() {
-		var i GetEntityNeighboursRankedRow
-		if err := rows.Scan(
-			&i.RelationshipID,
-			&i.RelationshipDescription,
-			&i.Rank,
-			&i.SourceID,
-			&i.TargetID,
-			&i.NeighbourID,
-			&i.NeighbourName,
-			&i.NeighbourType,
-			&i.NeighbourDescription,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getEntityNeighboursRankedWithKeywords = `-- name: GetEntityNeighboursRankedWithKeywords :many
 WITH semantic_candidates AS (
     SELECT r.id
@@ -787,52 +611,6 @@ func (q *Queries) GetRelationshipsByIDs(ctx context.Context, dollar_1 []int64) (
 			&i.SourceType,
 			&i.TargetName,
 			&i.TargetType,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const searchEntitiesByEmbedding = `-- name: SearchEntitiesByEmbedding :many
-SELECT e.id, e.name, e.type, e.description
-FROM entities e
-WHERE e.project_id = $1
-ORDER BY e.embedding <=> $2
-LIMIT $3
-`
-
-type SearchEntitiesByEmbeddingParams struct {
-	ProjectID int64           `json:"project_id"`
-	Embedding pgvector.Vector `json:"embedding"`
-	Limit     int32           `json:"limit"`
-}
-
-type SearchEntitiesByEmbeddingRow struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Description string `json:"description"`
-}
-
-func (q *Queries) SearchEntitiesByEmbedding(ctx context.Context, arg SearchEntitiesByEmbeddingParams) ([]SearchEntitiesByEmbeddingRow, error) {
-	rows, err := q.db.Query(ctx, searchEntitiesByEmbedding, arg.ProjectID, arg.Embedding, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SearchEntitiesByEmbeddingRow{}
-	for rows.Next() {
-		var i SearchEntitiesByEmbeddingRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Type,
-			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -1041,73 +819,6 @@ func (q *Queries) SearchEntitiesByTypeWithKeywords(ctx context.Context, arg Sear
 			&i.KeywordRank,
 			&i.KeywordMatches,
 			&i.KeywordTotal,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const searchRelationshipsByEmbedding = `-- name: SearchRelationshipsByEmbedding :many
-SELECT 
-    r.id,
-    r.description,
-    r.rank,
-    r.source_id,
-    r.target_id,
-    se.name as source_name,
-    se.type as source_type,
-    te.name as target_name,
-    te.type as target_type
-FROM relationships r
-JOIN entities se ON r.source_id = se.id
-JOIN entities te ON r.target_id = te.id
-WHERE r.project_id = $1
-ORDER BY r.embedding <=> $2
-LIMIT $3
-`
-
-type SearchRelationshipsByEmbeddingParams struct {
-	ProjectID int64           `json:"project_id"`
-	Embedding pgvector.Vector `json:"embedding"`
-	Limit     int32           `json:"limit"`
-}
-
-type SearchRelationshipsByEmbeddingRow struct {
-	ID          int64   `json:"id"`
-	Description string  `json:"description"`
-	Rank        float64 `json:"rank"`
-	SourceID    int64   `json:"source_id"`
-	TargetID    int64   `json:"target_id"`
-	SourceName  string  `json:"source_name"`
-	SourceType  string  `json:"source_type"`
-	TargetName  string  `json:"target_name"`
-	TargetType  string  `json:"target_type"`
-}
-
-func (q *Queries) SearchRelationshipsByEmbedding(ctx context.Context, arg SearchRelationshipsByEmbeddingParams) ([]SearchRelationshipsByEmbeddingRow, error) {
-	rows, err := q.db.Query(ctx, searchRelationshipsByEmbedding, arg.ProjectID, arg.Embedding, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SearchRelationshipsByEmbeddingRow{}
-	for rows.Next() {
-		var i SearchRelationshipsByEmbeddingRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Description,
-			&i.Rank,
-			&i.SourceID,
-			&i.TargetID,
-			&i.SourceName,
-			&i.SourceType,
-			&i.TargetName,
-			&i.TargetType,
 		); err != nil {
 			return nil, err
 		}

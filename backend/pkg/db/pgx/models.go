@@ -5,8 +5,7 @@
 package pgdb
 
 import (
-	"database/sql"
-
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
 )
@@ -79,9 +78,9 @@ type ExtractionStaging struct {
 
 type Graph struct {
 	ID          int64              `json:"id"`
-	GroupID     sql.NullInt64      `json:"group_id"`
-	UserID      sql.NullInt64      `json:"user_id"`
-	GraphID     sql.NullInt64      `json:"graph_id"`
+	GroupID     sqltype.NullInt64  `json:"group_id"`
+	UserID      sqltype.NullInt64  `json:"user_id"`
+	GraphID     sqltype.NullInt64  `json:"graph_id"`
 	Name        string             `json:"name"`
 	Description pgtype.Text        `json:"description"`
 	State       string             `json:"state"`
@@ -208,7 +207,7 @@ type Session struct {
 	UserAgent      pgtype.Text        `json:"user_agent"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	ImpersonatedBy sql.NullInt64      `json:"impersonated_by"`
+	ImpersonatedBy sqltype.NullInt64  `json:"impersonated_by"`
 }
 
 type Stat struct {
@@ -248,7 +247,7 @@ type UserChat struct {
 	ID        int64              `json:"id"`
 	PublicID  string             `json:"public_id"`
 	UserID    int64              `json:"user_id"`
-	ProjectID sql.NullInt64      `json:"project_id"`
+	ProjectID sqltype.NullInt64  `json:"project_id"`
 	Title     string             `json:"title"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`

@@ -2,7 +2,6 @@ package routes
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
 
@@ -119,10 +119,10 @@ func CreateExpertProjectHandler(c echo.Context) error {
 		Hidden:      true,
 	}
 	if data.GroupID > 0 {
-		createParams.GroupID = sql.NullInt64{Int64: data.GroupID, Valid: true}
+		createParams.GroupID = sqltype.NullInt64{Int64: data.GroupID, Valid: true}
 	}
 	if data.GraphID > 0 {
-		createParams.GraphID = sql.NullInt64{Int64: data.GraphID, Valid: true}
+		createParams.GraphID = sqltype.NullInt64{Int64: data.GraphID, Valid: true}
 	}
 
 	project, err := qtx.CreateProjectWithOwner(ctx, createParams)
@@ -134,7 +134,7 @@ func CreateExpertProjectHandler(c echo.Context) error {
 	if err := qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 		ProjectID:     project.ID,
 		UpdateType:    "create",
-		UpdateMessage: json.RawMessage(util.ConvertStructToJson(project)),
+		UpdateMessage: util.ConvertStructToJson(project),
 	}); err != nil {
 		logger.Error("Failed to add project update", "err", err)
 		return c.JSON(http.StatusInternalServerError, createExpertProjectResponse{Message: "Internal server error"})
@@ -177,7 +177,7 @@ func CreateExpertProjectHandler(c echo.Context) error {
 		if err := qtx.AddProjectUpdate(ctx, pgdb.AddProjectUpdateParams{
 			ProjectID:     project.ID,
 			UpdateType:    "add_file",
-			UpdateMessage: json.RawMessage(util.ConvertStructToJson(projectFile)),
+			UpdateMessage: util.ConvertStructToJson(projectFile),
 		}); err != nil {
 			logger.Error("Failed to add project update", "err", err)
 			return c.JSON(http.StatusInternalServerError, createExpertProjectResponse{Message: "Internal server error"})

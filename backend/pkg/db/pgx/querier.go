@@ -6,7 +6,8 @@ package pgdb
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 )
 
 type Querier interface {
@@ -18,7 +19,6 @@ type Querier interface {
 	AddUserToGroup(ctx context.Context, arg AddUserToGroupParams) (GroupUser, error)
 	AreAllBatchesCompleted(ctx context.Context, correlationID string) (bool, error)
 	AreAllDescriptionJobsCompleted(ctx context.Context, correlationID string) (bool, error)
-	CountEntitySources(ctx context.Context, entityID int64) (int32, error)
 	CreateBatchStatus(ctx context.Context, arg CreateBatchStatusParams) (ProjectBatchStatus, error)
 	CreateDescriptionJobStatus(ctx context.Context, arg CreateDescriptionJobStatusParams) (ProjectDescriptionJobStatus, error)
 	CreateGroup(ctx context.Context, name string) (Group, error)
@@ -28,22 +28,19 @@ type Querier interface {
 	DeleteEntitiesWithoutSources(ctx context.Context, projectID int64) error
 	DeleteGroup(ctx context.Context, id int64) error
 	DeleteProject(ctx context.Context, id int64) error
-	DeleteProjectEntity(ctx context.Context, id int64) error
+	DeleteProjectEntitiesByIDs(ctx context.Context, arg DeleteProjectEntitiesByIDsParams) error
 	DeleteProjectFile(ctx context.Context, id int64) error
-	DeleteProjectRelationship(ctx context.Context, id int64) error
+	DeleteProjectRelationshipsByIDs(ctx context.Context, arg DeleteProjectRelationshipsByIDsParams) error
 	DeleteRelationshipsWithoutSources(ctx context.Context, projectID int64) error
 	DeleteStagedData(ctx context.Context, arg DeleteStagedDataParams) error
 	DeleteTextUnitsByFileIDs(ctx context.Context, dollar_1 []int64) error
 	DeleteUserChatByPublicIDAndProject(ctx context.Context, arg DeleteUserChatByPublicIDAndProjectParams) (int64, error)
 	DeleteUserFromGroup(ctx context.Context, arg DeleteUserFromGroupParams) error
-	FindDuplicateRelationships(ctx context.Context, projectID int64) ([]FindDuplicateRelationshipsRow, error)
 	FindEntitiesWithSimilarNames(ctx context.Context, projectID int64) ([]FindEntitiesWithSimilarNamesRow, error)
 	FindEntitiesWithSimilarNamesForEntityIDs(ctx context.Context, arg FindEntitiesWithSimilarNamesForEntityIDsParams) ([]FindEntitiesWithSimilarNamesForEntityIDsRow, error)
 	FindRelevantEntitySources(ctx context.Context, arg FindRelevantEntitySourcesParams) ([]FindRelevantEntitySourcesRow, error)
 	FindRelevantRelationSources(ctx context.Context, arg FindRelevantRelationSourcesParams) ([]FindRelevantRelationSourcesRow, error)
-	FindRelevantSourcesForEntities(ctx context.Context, arg FindRelevantSourcesForEntitiesParams) ([]FindRelevantSourcesForEntitiesRow, error)
 	FindRelevantSourcesForEntitiesWithKeywords(ctx context.Context, arg FindRelevantSourcesForEntitiesWithKeywordsParams) ([]FindRelevantSourcesForEntitiesWithKeywordsRow, error)
-	FindRelevantSourcesForRelations(ctx context.Context, arg FindRelevantSourcesForRelationsParams) ([]FindRelevantSourcesForRelationsRow, error)
 	FindRelevantSourcesForRelationsWithKeywords(ctx context.Context, arg FindRelevantSourcesForRelationsWithKeywordsParams) ([]FindRelevantSourcesForRelationsWithKeywordsRow, error)
 	FindSimilarEntities(ctx context.Context, arg FindSimilarEntitiesParams) ([]int64, error)
 	FindSimilarEntitySources(ctx context.Context, arg FindSimilarEntitySourcesParams) ([]FindSimilarEntitySourcesRow, error)
@@ -58,7 +55,6 @@ type Querier interface {
 	GetEntitiesWithSourcesFromFiles(ctx context.Context, arg GetEntitiesWithSourcesFromFilesParams) ([]GetEntitiesWithSourcesFromFilesRow, error)
 	GetEntitiesWithSourcesFromUnits(ctx context.Context, arg GetEntitiesWithSourcesFromUnitsParams) ([]GetEntitiesWithSourcesFromUnitsRow, error)
 	GetEntityIDsByPublicIDs(ctx context.Context, arg GetEntityIDsByPublicIDsParams) ([]GetEntityIDsByPublicIDsRow, error)
-	GetEntityNeighboursRanked(ctx context.Context, arg GetEntityNeighboursRankedParams) ([]GetEntityNeighboursRankedRow, error)
 	GetEntityNeighboursRankedWithKeywords(ctx context.Context, arg GetEntityNeighboursRankedWithKeywordsParams) ([]GetEntityNeighboursRankedWithKeywordsRow, error)
 	GetEntitySourceDescriptionsBatch(ctx context.Context, arg GetEntitySourceDescriptionsBatchParams) ([]GetEntitySourceDescriptionsBatchRow, error)
 	GetEntitySourceDescriptionsForFilesBatch(ctx context.Context, arg GetEntitySourceDescriptionsForFilesBatchParams) ([]GetEntitySourceDescriptionsForFilesBatchRow, error)
@@ -76,7 +72,9 @@ type Querier interface {
 	GetProjectByID(ctx context.Context, id int64) (Graph, error)
 	GetProjectEntities(ctx context.Context, projectID int64) ([]GetProjectEntitiesRow, error)
 	GetProjectEntitiesByIDs(ctx context.Context, dollar_1 []int64) ([]GetProjectEntitiesByIDsRow, error)
+	GetProjectEntitiesByIDsForUpdate(ctx context.Context, arg GetProjectEntitiesByIDsForUpdateParams) ([]GetProjectEntitiesByIDsForUpdateRow, error)
 	GetProjectEntitiesByNames(ctx context.Context, arg GetProjectEntitiesByNamesParams) ([]GetProjectEntitiesByNamesRow, error)
+	GetProjectEntitiesWithSourceCountsByIDs(ctx context.Context, arg GetProjectEntitiesWithSourceCountsByIDsParams) ([]GetProjectEntitiesWithSourceCountsByIDsRow, error)
 	GetProjectEntityByID(ctx context.Context, id int64) (GetProjectEntityByIDRow, error)
 	GetProjectEntityNames(ctx context.Context, projectID int64) ([]string, error)
 	GetProjectFileByKey(ctx context.Context, arg GetProjectFileByKeyParams) (ProjectFile, error)
@@ -88,7 +86,7 @@ type Querier interface {
 	GetProjectRelationships(ctx context.Context, projectID int64) ([]GetProjectRelationshipsRow, error)
 	GetProjectRelationshipsWithEntityNamesByIDs(ctx context.Context, ids []int64) ([]GetProjectRelationshipsWithEntityNamesByIDsRow, error)
 	GetProjectSystemPrompts(ctx context.Context, projectID int64) ([]ProjectSystemPrompt, error)
-	GetProjectsByGroup(ctx context.Context, groupID sql.NullInt64) ([]Graph, error)
+	GetProjectsByGroup(ctx context.Context, groupID sqltype.NullInt64) ([]Graph, error)
 	GetProjectsForUser(ctx context.Context, userID int64) ([]GetProjectsForUserRow, error)
 	GetRelationshipSourceDescriptionsBatch(ctx context.Context, arg GetRelationshipSourceDescriptionsBatchParams) ([]GetRelationshipSourceDescriptionsBatchRow, error)
 	GetRelationshipSourceDescriptionsForFilesBatch(ctx context.Context, arg GetRelationshipSourceDescriptionsForFilesBatchParams) ([]GetRelationshipSourceDescriptionsForFilesBatchRow, error)
@@ -105,7 +103,7 @@ type Querier interface {
 	GetTokenCountsOfFiles(ctx context.Context, dollar_1 []int64) ([]GetTokenCountsOfFilesRow, error)
 	GetUserChatByPublicIDAndProject(ctx context.Context, arg GetUserChatByPublicIDAndProjectParams) (UserChat, error)
 	GetUserChatsByProject(ctx context.Context, arg GetUserChatsByProjectParams) ([]GetUserChatsByProjectRow, error)
-	GetUserProjects(ctx context.Context, userID sql.NullInt64) ([]GetUserProjectsRow, error)
+	GetUserProjects(ctx context.Context, userID sqltype.NullInt64) ([]GetUserProjectsRow, error)
 	InsertStagedDataBatch(ctx context.Context, arg InsertStagedDataBatchParams) error
 	IsUserInGroup(ctx context.Context, arg IsUserInGroupParams) (int64, error)
 	IsUserInProject(ctx context.Context, arg IsUserInProjectParams) (int64, error)
@@ -117,15 +115,12 @@ type Querier interface {
 	ResetStaleBatchExtractingToPreprocessed(ctx context.Context, id int64) error
 	ResetStaleBatchToPending(ctx context.Context, id int64) error
 	ResetStaleBatchToPreprocessed(ctx context.Context, id int64) error
-	SearchEntitiesByEmbedding(ctx context.Context, arg SearchEntitiesByEmbeddingParams) ([]SearchEntitiesByEmbeddingRow, error)
 	SearchEntitiesByEmbeddingWithKeywords(ctx context.Context, arg SearchEntitiesByEmbeddingWithKeywordsParams) ([]SearchEntitiesByEmbeddingWithKeywordsRow, error)
-	SearchEntitiesByType(ctx context.Context, arg SearchEntitiesByTypeParams) ([]SearchEntitiesByTypeRow, error)
 	SearchEntitiesByTypeWithKeywords(ctx context.Context, arg SearchEntitiesByTypeWithKeywordsParams) ([]SearchEntitiesByTypeWithKeywordsRow, error)
-	SearchRelationshipsByEmbedding(ctx context.Context, arg SearchRelationshipsByEmbeddingParams) ([]SearchRelationshipsByEmbeddingRow, error)
 	SearchRelationshipsByEmbeddingWithKeywords(ctx context.Context, arg SearchRelationshipsByEmbeddingWithKeywordsParams) ([]SearchRelationshipsByEmbeddingWithKeywordsRow, error)
 	TouchUserChat(ctx context.Context, chatID int64) error
-	TransferEntitySources(ctx context.Context, arg TransferEntitySourcesParams) error
-	TransferRelationshipSources(ctx context.Context, arg TransferRelationshipSourcesParams) error
+	TransferEntitySourcesBatch(ctx context.Context, arg TransferEntitySourcesBatchParams) error
+	TransferRelationshipSourcesBatchByMappings(ctx context.Context, arg TransferRelationshipSourcesBatchByMappingsParams) error
 	TryStartDescriptionJob(ctx context.Context, arg TryStartDescriptionJobParams) (bool, error)
 	TryStartGraphBatch(ctx context.Context, arg TryStartGraphBatchParams) (bool, error)
 	TryStartPreprocessBatch(ctx context.Context, arg TryStartPreprocessBatchParams) (bool, error)
@@ -139,11 +134,11 @@ type Querier interface {
 	UpdateProjectEntity(ctx context.Context, arg UpdateProjectEntityParams) (int64, error)
 	UpdateProjectFileMetadata(ctx context.Context, arg UpdateProjectFileMetadataParams) error
 	UpdateProjectRelationship(ctx context.Context, arg UpdateProjectRelationshipParams) (int64, error)
+	UpdateProjectRelationshipRanksByIDs(ctx context.Context, arg UpdateProjectRelationshipRanksByIDsParams) error
 	UpdateProjectRelationshipsByIDs(ctx context.Context, arg UpdateProjectRelationshipsByIDsParams) error
 	UpdateProjectState(ctx context.Context, arg UpdateProjectStateParams) (Graph, error)
-	UpdateRelationshipRank(ctx context.Context, arg UpdateRelationshipRankParams) error
-	UpdateRelationshipSourceEntity(ctx context.Context, arg UpdateRelationshipSourceEntityParams) error
-	UpdateRelationshipTargetEntity(ctx context.Context, arg UpdateRelationshipTargetEntityParams) error
+	UpdateRelationshipSourceEntitiesBatch(ctx context.Context, arg UpdateRelationshipSourceEntitiesBatchParams) error
+	UpdateRelationshipTargetEntitiesBatch(ctx context.Context, arg UpdateRelationshipTargetEntitiesBatchParams) error
 	UpsertEntitySources(ctx context.Context, arg UpsertEntitySourcesParams) error
 	UpsertProjectEntities(ctx context.Context, arg UpsertProjectEntitiesParams) ([]UpsertProjectEntitiesRow, error)
 	UpsertProjectRelationships(ctx context.Context, arg UpsertProjectRelationshipsParams) ([]UpsertProjectRelationshipsRow, error)

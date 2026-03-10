@@ -11,17 +11,6 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
-const countEntitySources = `-- name: CountEntitySources :one
-SELECT COUNT(*)::int FROM entity_sources WHERE entity_id = $1
-`
-
-func (q *Queries) CountEntitySources(ctx context.Context, entityID int64) (int32, error) {
-	row := q.db.QueryRow(ctx, countEntitySources, entityID)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const deleteEntitiesWithoutSources = `-- name: DeleteEntitiesWithoutSources :exec
 DELETE FROM entities 
 WHERE project_id = $1 
@@ -33,12 +22,19 @@ func (q *Queries) DeleteEntitiesWithoutSources(ctx context.Context, projectID in
 	return err
 }
 
-const deleteProjectEntity = `-- name: DeleteProjectEntity :exec
-DELETE FROM entities WHERE id = $1
+const deleteProjectEntitiesByIDs = `-- name: DeleteProjectEntitiesByIDs :exec
+DELETE FROM entities
+WHERE project_id = $1
+  AND id = ANY($2::bigint[])
 `
 
-func (q *Queries) DeleteProjectEntity(ctx context.Context, id int64) error {
-	_, err := q.db.Exec(ctx, deleteProjectEntity, id)
+type DeleteProjectEntitiesByIDsParams struct {
+	ProjectID int64   `json:"project_id"`
+	Ids       []int64 `json:"ids"`
+}
+
+func (q *Queries) DeleteProjectEntitiesByIDs(ctx context.Context, arg DeleteProjectEntitiesByIDsParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectEntitiesByIDs, arg.ProjectID, arg.Ids)
 	return err
 }
 
@@ -46,7 +42,11 @@ const findEntitiesWithSimilarNames = `-- name: FindEntitiesWithSimilarNames :man
 SELECT e1.id as id1, e1.public_id as public_id1, e1.name as name1, e1.type as type1,
        e2.id as id2, e2.public_id as public_id2, e2.name as name2, e2.type as type2
 FROM entities e1
-JOIN entities e2 ON similarity(e1.name, e2.name) > 0.5 AND e1.type = e2.type AND e2.project_id = $1
+JOIN entities e2 ON e2.project_id = $1
+    AND e1.type = e2.type
+    AND e2.type NOT IN ('FACT', 'FILE')
+    AND e2.name % e1.name
+    AND similarity(e1.name, e2.name) > 0.5
 WHERE e1.id < e2.id AND e1.project_id = $1 AND e1.type NOT IN ('FACT', 'FILE')
 `
 
@@ -98,22 +98,26 @@ WITH seed AS (
       AND e.id = ANY($2::bigint[])
       AND e.type NOT IN ('FACT', 'FILE')
 )
-SELECT e1.id as id1, e1.public_id as public_id1, e1.name as name1, e1.type as type1,
-       e2.id as id2, e2.public_id as public_id2, e2.name as name2, e2.type as type2
-FROM seed e1
-JOIN entities e2 ON similarity(e1.name, e2.name) > 0.5
-    AND e1.type = e2.type
-    AND e2.project_id = $1
-WHERE e1.id < e2.id
-UNION ALL
-SELECT e1.id as id1, e1.public_id as public_id1, e1.name as name1, e1.type as type1,
-       e2.id as id2, e2.public_id as public_id2, e2.name as name2, e2.type as type2
-FROM entities e1
-JOIN seed e2 ON similarity(e1.name, e2.name) > 0.5
-    AND e1.type = e2.type
-    AND e1.project_id = $1
-WHERE e1.id < e2.id
-  AND e1.id <> ALL($2::bigint[])
+SELECT DISTINCT ON (
+    LEAST(seed.id, candidate.id),
+    GREATEST(seed.id, candidate.id)
+)
+    LEAST(seed.id, candidate.id)::bigint as id1,
+    (CASE WHEN seed.id < candidate.id THEN seed.public_id ELSE candidate.public_id END)::text as public_id1,
+    (CASE WHEN seed.id < candidate.id THEN seed.name ELSE candidate.name END)::text as name1,
+    (CASE WHEN seed.id < candidate.id THEN seed.type ELSE candidate.type END)::text as type1,
+    GREATEST(seed.id, candidate.id)::bigint as id2,
+    (CASE WHEN seed.id < candidate.id THEN candidate.public_id ELSE seed.public_id END)::text as public_id2,
+    (CASE WHEN seed.id < candidate.id THEN candidate.name ELSE seed.name END)::text as name2,
+    (CASE WHEN seed.id < candidate.id THEN candidate.type ELSE seed.type END)::text as type2
+FROM seed
+JOIN entities candidate ON candidate.project_id = $1
+    AND candidate.type = seed.type
+    AND candidate.type NOT IN ('FACT', 'FILE')
+    AND candidate.id <> seed.id
+    AND candidate.name % seed.name
+    AND similarity(candidate.name, seed.name) > 0.5
+ORDER BY LEAST(seed.id, candidate.id), GREATEST(seed.id, candidate.id)
 `
 
 type FindEntitiesWithSimilarNamesForEntityIDsParams struct {
@@ -489,6 +493,54 @@ func (q *Queries) GetProjectEntitiesByIDs(ctx context.Context, dollar_1 []int64)
 	return items, nil
 }
 
+const getProjectEntitiesByIDsForUpdate = `-- name: GetProjectEntitiesByIDsForUpdate :many
+SELECT e.id, e.public_id, e.name, e.description, e.type
+FROM entities e
+WHERE e.project_id = $1
+  AND e.id = ANY($2::bigint[])
+ORDER BY e.id
+FOR UPDATE
+`
+
+type GetProjectEntitiesByIDsForUpdateParams struct {
+	ProjectID int64   `json:"project_id"`
+	Ids       []int64 `json:"ids"`
+}
+
+type GetProjectEntitiesByIDsForUpdateRow struct {
+	ID          int64  `json:"id"`
+	PublicID    string `json:"public_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+}
+
+func (q *Queries) GetProjectEntitiesByIDsForUpdate(ctx context.Context, arg GetProjectEntitiesByIDsForUpdateParams) ([]GetProjectEntitiesByIDsForUpdateRow, error) {
+	rows, err := q.db.Query(ctx, getProjectEntitiesByIDsForUpdate, arg.ProjectID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetProjectEntitiesByIDsForUpdateRow{}
+	for rows.Next() {
+		var i GetProjectEntitiesByIDsForUpdateRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.Name,
+			&i.Description,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getProjectEntitiesByNames = `-- name: GetProjectEntitiesByNames :many
 SELECT e.id, e.public_id, e.name, e.description, e.type FROM entities e WHERE e.project_id = $1 AND e.name = ANY($2::text[])
 `
@@ -521,6 +573,57 @@ func (q *Queries) GetProjectEntitiesByNames(ctx context.Context, arg GetProjectE
 			&i.Name,
 			&i.Description,
 			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getProjectEntitiesWithSourceCountsByIDs = `-- name: GetProjectEntitiesWithSourceCountsByIDs :many
+SELECT e.id, e.public_id, e.name, e.description, e.type,
+       COUNT(es.id)::bigint AS source_count
+FROM entities e
+LEFT JOIN entity_sources es ON es.entity_id = e.id
+WHERE e.project_id = $1
+  AND e.id = ANY($2::bigint[])
+GROUP BY e.id, e.public_id, e.name, e.description, e.type
+`
+
+type GetProjectEntitiesWithSourceCountsByIDsParams struct {
+	ProjectID int64   `json:"project_id"`
+	Ids       []int64 `json:"ids"`
+}
+
+type GetProjectEntitiesWithSourceCountsByIDsRow struct {
+	ID          int64  `json:"id"`
+	PublicID    string `json:"public_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+	SourceCount int64  `json:"source_count"`
+}
+
+func (q *Queries) GetProjectEntitiesWithSourceCountsByIDs(ctx context.Context, arg GetProjectEntitiesWithSourceCountsByIDsParams) ([]GetProjectEntitiesWithSourceCountsByIDsRow, error) {
+	rows, err := q.db.Query(ctx, getProjectEntitiesWithSourceCountsByIDs, arg.ProjectID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetProjectEntitiesWithSourceCountsByIDsRow{}
+	for rows.Next() {
+		var i GetProjectEntitiesWithSourceCountsByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.Name,
+			&i.Description,
+			&i.Type,
+			&i.SourceCount,
 		); err != nil {
 			return nil, err
 		}
@@ -581,83 +684,41 @@ func (q *Queries) GetProjectEntityNames(ctx context.Context, projectID int64) ([
 	return items, nil
 }
 
-const searchEntitiesByType = `-- name: SearchEntitiesByType :many
-SELECT e.id, e.name, e.type, e.description
+const transferEntitySourcesBatch = `-- name: TransferEntitySourcesBatch :exec
+UPDATE entity_sources es
+SET entity_id = $1
 FROM entities e
-WHERE e.project_id = $1 AND e.type = $2
-ORDER BY e.embedding <=> $3
-LIMIT $4
+WHERE es.entity_id = e.id
+  AND e.project_id = $2
+  AND es.entity_id = ANY($3::bigint[])
 `
 
-type SearchEntitiesByTypeParams struct {
-	ProjectID int64           `json:"project_id"`
-	Type      string          `json:"type"`
-	Embedding pgvector.Vector `json:"embedding"`
-	Limit     int32           `json:"limit"`
+type TransferEntitySourcesBatchParams struct {
+	CanonicalID int64   `json:"canonical_id"`
+	ProjectID   int64   `json:"project_id"`
+	EntityIds   []int64 `json:"entity_ids"`
 }
 
-type SearchEntitiesByTypeRow struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Description string `json:"description"`
-}
-
-func (q *Queries) SearchEntitiesByType(ctx context.Context, arg SearchEntitiesByTypeParams) ([]SearchEntitiesByTypeRow, error) {
-	rows, err := q.db.Query(ctx, searchEntitiesByType,
-		arg.ProjectID,
-		arg.Type,
-		arg.Embedding,
-		arg.Limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SearchEntitiesByTypeRow{}
-	for rows.Next() {
-		var i SearchEntitiesByTypeRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Type,
-			&i.Description,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const transferEntitySources = `-- name: TransferEntitySources :exec
-UPDATE entity_sources SET entity_id = $2 WHERE entity_id = $1
-`
-
-type TransferEntitySourcesParams struct {
-	EntityID   int64 `json:"entity_id"`
-	EntityID_2 int64 `json:"entity_id_2"`
-}
-
-func (q *Queries) TransferEntitySources(ctx context.Context, arg TransferEntitySourcesParams) error {
-	_, err := q.db.Exec(ctx, transferEntitySources, arg.EntityID, arg.EntityID_2)
+func (q *Queries) TransferEntitySourcesBatch(ctx context.Context, arg TransferEntitySourcesBatchParams) error {
+	_, err := q.db.Exec(ctx, transferEntitySourcesBatch, arg.CanonicalID, arg.ProjectID, arg.EntityIds)
 	return err
 }
 
 const updateEntityName = `-- name: UpdateEntityName :exec
-UPDATE entities SET name = $2, updated_at = NOW() WHERE id = $1
+UPDATE entities
+SET name = $1, updated_at = NOW()
+WHERE id = $2
+  AND project_id = $3
 `
 
 type UpdateEntityNameParams struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	ID        int64  `json:"id"`
+	ProjectID int64  `json:"project_id"`
 }
 
 func (q *Queries) UpdateEntityName(ctx context.Context, arg UpdateEntityNameParams) error {
-	_, err := q.db.Exec(ctx, updateEntityName, arg.ID, arg.Name)
+	_, err := q.db.Exec(ctx, updateEntityName, arg.Name, arg.ID, arg.ProjectID)
 	return err
 }
 
