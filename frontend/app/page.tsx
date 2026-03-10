@@ -1,6 +1,7 @@
 "use client";
 
 import { ProjectChat } from "@/components/chat";
+import { AppSidebarInset } from "@/components/common";
 import { GroupList } from "@/components/groups";
 import {
   BreadcrumbNav,
@@ -11,7 +12,7 @@ import {
 import { ProjectList } from "@/components/projects";
 import { AppSidebar } from "@/components/sidebar";
 import { Separator } from "@/components/ui/separator";
-import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { AppProviders, useData, useLanguage, useNavigation } from "@/providers";
 import type { Group, Project } from "@/types";
 import { Suspense, lazy, useState } from "react";
@@ -68,7 +69,7 @@ function DashboardContent() {
 
   return (
     <>
-      <SidebarInset>
+      <AppSidebarInset>
         <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4">
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
             <SidebarTrigger className="-ml-1" />
@@ -111,7 +112,7 @@ function DashboardContent() {
             </div>
           )}
         </div>
-      </SidebarInset>
+      </AppSidebarInset>
 
       <Suspense fallback={null}>
         <EditProjectDialog
