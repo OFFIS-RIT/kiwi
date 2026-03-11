@@ -14,6 +14,7 @@ services:
       WATCHPACK_POLLING: true
       FAST_REFRESH: true
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_AUTH_URL: ${NEXT_PUBLIC_AUTH_URL}
     command: sh -c "bun install && bun run dev"
   server:
     build:

@@ -2,6 +2,7 @@
 export { AppProviders } from "./AppProviders";
 
 // Individual Providers
+export { AuthProvider, useAuth } from "./AuthProvider";
 export { DataProvider, useData } from "./DataProvider";
 export { LanguageProvider, useLanguage } from "./LanguageProvider";
 export { NavigationProvider, useNavigation } from "./NavigationProvider";

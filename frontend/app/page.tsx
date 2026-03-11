@@ -1,5 +1,6 @@
 "use client";
 
+import { AuthScreen } from "@/components/auth";
 import { ProjectChat } from "@/components/chat";
 import { AppSidebarInset } from "@/components/common";
 import { GroupList } from "@/components/groups";
@@ -12,8 +13,19 @@ import {
 import { ProjectList } from "@/components/projects";
 import { AppSidebar } from "@/components/sidebar";
 import { Separator } from "@/components/ui/separator";
-import { SidebarTrigger } from "@/components/ui/sidebar";
-import { AppProviders, useData, useLanguage, useNavigation } from "@/providers";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import {
+  AppProviders,
+  DataProvider,
+  QueryErrorBoundary,
+  QueryProvider,
+  SidebarExpansionProvider,
+  useAuth,
+  useData,
+  useLanguage,
+  useNavigation,
+  NavigationProvider,
+} from "@/providers";
 import type { Group, Project } from "@/types";
 import { Suspense, lazy, useState } from "react";
 
@@ -269,10 +281,50 @@ function Dashboard() {
   );
 }
 
+function AuthenticatedApp() {
+  return (
+    <QueryErrorBoundary>
+      <QueryProvider>
+        <DataProvider>
+          <SidebarExpansionProvider>
+            <NavigationProvider>
+              <SidebarProvider>
+                <Dashboard />
+              </SidebarProvider>
+            </NavigationProvider>
+          </SidebarExpansionProvider>
+        </DataProvider>
+      </QueryProvider>
+    </QueryErrorBoundary>
+  );
+}
+
+function PageContent() {
+  const { isAuthenticated, isPending } = useAuth();
+  const { t } = useLanguage();
+
+  if (isPending) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold">{t("loading")}</h2>
+          <p className="text-muted-foreground">{t("auth.session.loading")}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <AuthScreen />;
+  }
+
+  return <AuthenticatedApp />;
+}
+
 export default function Page() {
   return (
     <AppProviders defaultTheme="light">
-      <Dashboard />
+      <PageContent />
     </AppProviders>
   );
 }

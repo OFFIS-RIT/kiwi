@@ -4,7 +4,9 @@ WORKDIR /app
 
 # Accept build arguments for Next.js public environment variables
 ARG NEXT_PUBLIC_API_URL=/api
+ARG NEXT_PUBLIC_AUTH_URL=/auth
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_AUTH_URL=${NEXT_PUBLIC_AUTH_URL}
 
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile

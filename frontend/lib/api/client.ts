@@ -1,3 +1,7 @@
+"use client";
+
+import { getAuthToken } from "@/lib/auth-client";
+
 /**
  * Centralized API client with consistent error handling and request configuration.
  * All API requests go through this module to ensure consistent authentication and error handling.
@@ -5,7 +9,24 @@
  */
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-const AUTH_TOKEN = "Bearer test";
+
+async function buildRequestHeaders(
+  headers: Record<string, string>,
+  includeJsonContentType: boolean
+) {
+  const requestHeaders: Record<string, string> = { ...headers };
+  const token = await getAuthToken();
+
+  if (token) {
+    requestHeaders.Authorization = `Bearer ${token}`;
+  }
+
+  if (includeJsonContentType) {
+    requestHeaders["Content-Type"] = "application/json";
+  }
+
+  return requestHeaders;
+}
 
 /**
  * Custom error class for API failures with detailed status information.
@@ -40,16 +61,10 @@ async function request<T>(
   options: RequestOptions = {}
 ): Promise<T> {
   const { method = "GET", body, headers = {}, isFormData = false } = options;
-
-  const requestHeaders: Record<string, string> = {
-    Authorization: AUTH_TOKEN,
-    ...headers,
-  };
-
-  // Don't set Content-Type for FormData - browser will set it with boundary
-  if (!isFormData && body) {
-    requestHeaders["Content-Type"] = "application/json";
-  }
+  const requestHeaders = await buildRequestHeaders(
+    headers,
+    !isFormData && body !== undefined
+  );
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     method,
@@ -101,48 +116,54 @@ export const apiClient = {
     onProgress?: (progress: number, loaded: number, total: number) => void
   ) => {
     return new Promise<T>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${API_BASE_URL}${endpoint}`);
-      xhr.setRequestHeader("Authorization", AUTH_TOKEN);
+      void (async () => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_BASE_URL}${endpoint}`);
 
-      if (onProgress) {
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percentComplete = (event.loaded / event.total) * 100;
-            onProgress(percentComplete, event.loaded, event.total);
+        const token = await getAuthToken();
+        if (token) {
+          xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        }
+
+        if (onProgress) {
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percentComplete = (event.loaded / event.total) * 100;
+              onProgress(percentComplete, event.loaded, event.total);
+            }
+          };
+        }
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            if (xhr.status === 204) {
+              resolve(null as T);
+              return;
+            }
+            try {
+              const response = JSON.parse(xhr.responseText);
+              resolve(response);
+            } catch {
+              resolve(xhr.responseText as unknown as T);
+            }
+          } else {
+            reject(
+              new ApiError(
+                `Request failed: ${xhr.statusText}`,
+                xhr.status,
+                xhr.statusText,
+                xhr.responseText
+              )
+            );
           }
         };
-      }
 
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          if (xhr.status === 204) {
-            resolve(null as T);
-            return;
-          }
-          try {
-            const response = JSON.parse(xhr.responseText);
-            resolve(response);
-          } catch {
-            resolve(xhr.responseText as unknown as T);
-          }
-        } else {
-          reject(
-            new ApiError(
-              `Request failed: ${xhr.statusText}`,
-              xhr.status,
-              xhr.statusText,
-              xhr.responseText
-            )
-          );
-        }
-      };
+        xhr.onerror = () => {
+          reject(new Error("Network request failed"));
+        };
 
-      xhr.onerror = () => {
-        reject(new Error("Network request failed"));
-      };
-
-      xhr.send(formData);
+        xhr.send(formData);
+      })().catch(reject);
     });
   },
 
@@ -179,12 +200,10 @@ export async function streamSSERequest(
   onError?: (error: Error) => void
 ): Promise<void> {
   try {
+    const headers = await buildRequestHeaders({}, true);
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: AUTH_TOKEN,
-      },
+      headers,
       body: JSON.stringify(body),
     });
 
@@ -267,4 +286,4 @@ export async function streamSSERequest(
   }
 }
 
-export { API_BASE_URL, AUTH_TOKEN };
+export { API_BASE_URL };

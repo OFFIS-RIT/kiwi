@@ -10,6 +10,7 @@ services:
             - "3000:3000"
         environment:
             NEXT_PUBLIC_API_URL: "/api"
+            NEXT_PUBLIC_AUTH_URL: "/auth"
         depends_on:
             server:
                 condition: service_started

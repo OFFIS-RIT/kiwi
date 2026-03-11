@@ -3,7 +3,7 @@
  */
 
 // Re-export client utilities
-export { apiClient, ApiError, AUTH_TOKEN, streamSSERequest } from "./client";
+export { apiClient, ApiError, streamSSERequest } from "./client";
 export type { SSEFrame } from "./client";
 
 // Re-export groups API

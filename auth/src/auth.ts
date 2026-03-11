@@ -1,4 +1,4 @@
-import { betterAuth } from "better-auth";
+import { betterAuth, generateId } from "better-auth";
 import { credentials } from "better-auth-credentials-plugin";
 import { jwt, admin as adminPlugin } from "better-auth/plugins";
 import { authenticate } from "ldap-authentication";
@@ -50,6 +50,22 @@ type LdapResult = {
 export const auth = betterAuth({
     secret: env.AUTH_SECRET as string,
     baseURL: env.AUTH_URL as string,
+    trustedOrigins: [
+        'http://localhost:3000',
+        'http://frontend:3000',
+        new URL(env.AUTH_URL as string).origin,
+    ],
+    advanced: {
+        database: {
+            generateId: ({ model, size }) => {
+                if (['user', 'account', 'session', 'verification'].includes(model)) {
+                    return undefined as never;
+                }
+
+                return generateId(size);
+            },
+        },
+    },
     database: new Pool({
         connectionString: env.DATABASE_URL as string,
     }),

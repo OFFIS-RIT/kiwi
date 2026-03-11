@@ -308,6 +308,7 @@ Copy `.env.sample` to `.env` and configure:
 | `MASTER_USER_NAME`       | Optional display name for the bootstrapped master user |
 | `MASTER_USER_EMAIL`      | Optional email for the bootstrapped master user |
 | `NEXT_PUBLIC_API_URL`    | Frontend API base URL              |
+| `NEXT_PUBLIC_AUTH_URL`   | Frontend auth base URL             |
 | `DATABASE_URL`           | PgBouncer PostgreSQL connection string |
 | `DATABASE_DIRECT_URL`    | Direct PostgreSQL connection string for migrations |
 | `AWS_REGION`             | S3 region                          |

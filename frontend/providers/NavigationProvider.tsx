@@ -3,6 +3,7 @@
 import type React from "react";
 
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useAuth } from "@/providers/AuthProvider";
 import { createContext, useContext } from "react";
 
 /**
@@ -44,9 +45,12 @@ export function NavigationProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const { user } = useAuth();
+  const storageKey = `kiwi-navigation-state:${user?.id ?? "anonymous"}`;
+
   // Use custom hook for localStorage persistence with proper SSR/hydration handling
   const [navigationState, setNavigationState] =
-    useLocalStorage<NavigationState>("kiwi-navigation-state", {
+    useLocalStorage<NavigationState>(storageKey, {
       selectedGroup: null,
       selectedProject: null,
       showAllGroups: false,
