@@ -22,16 +22,17 @@ export function BreadcrumbNav() {
   const { t } = useLanguage();
 
   return (
-    <Breadcrumb>
-      <BreadcrumbList>
+    <Breadcrumb className="min-w-0 w-full overflow-hidden">
+      <BreadcrumbList className="min-w-0 w-full flex-nowrap overflow-hidden">
         {showAllGroups ? (
-          <BreadcrumbItem>
+          <BreadcrumbItem className="shrink-0">
             <BreadcrumbPage>KIWI</BreadcrumbPage>
           </BreadcrumbItem>
         ) : selectedGroup ? (
           <>
-            <BreadcrumbItem>
+            <BreadcrumbItem className="shrink-0">
               <BreadcrumbLink
+                className="max-w-full truncate"
                 href="#"
                 onClick={(e) => {
                   e.preventDefault();
@@ -41,10 +42,12 @@ export function BreadcrumbNav() {
                 KIWI
               </BreadcrumbLink>
             </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
+            <BreadcrumbSeparator className="shrink-0" />
+            <BreadcrumbItem className="min-w-0 shrink">
               <BreadcrumbLink
+                className="block max-w-full truncate"
                 href="#"
+                title={selectedGroup.name}
                 onClick={(e) => {
                   e.preventDefault();
                   selectItem(selectedGroup);
@@ -55,16 +58,23 @@ export function BreadcrumbNav() {
             </BreadcrumbItem>
             {selectedProject && (
               <>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>{selectedProject.name}</BreadcrumbPage>
+                <BreadcrumbSeparator className="shrink-0" />
+                <BreadcrumbItem className="min-w-0 shrink">
+                  <BreadcrumbPage
+                    className="block max-w-full truncate"
+                    title={selectedProject.name}
+                  >
+                    {selectedProject.name}
+                  </BreadcrumbPage>
                 </BreadcrumbItem>
               </>
             )}
           </>
         ) : (
-          <BreadcrumbItem>
-            <BreadcrumbPage>{t("select.group")}</BreadcrumbPage>
+          <BreadcrumbItem className="min-w-0">
+            <BreadcrumbPage className="block max-w-full truncate">
+              {t("select.group")}
+            </BreadcrumbPage>
           </BreadcrumbItem>
         )}
       </BreadcrumbList>

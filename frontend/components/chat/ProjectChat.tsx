@@ -281,6 +281,7 @@ export function ProjectChat({
   projectId,
 }: ProjectChatProps) {
   const { t, language } = useLanguage();
+  const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -915,24 +916,32 @@ export function ProjectChat({
   }, [displayedInputValue, adjustTextareaHeight]);
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] flex-col overflow-hidden">
-      <div className="mb-4 flex-shrink-0">
-        <div className="flex justify-between gap-2">
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold">{projectName}</h1>
-            <p className="text-muted-foreground">
-              {t("from.group")} {groupName} {t("group")}
+    <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">
+      <div className="mb-4 min-w-0 shrink-0">
+        <div className="flex min-w-0 items-start justify-between gap-4">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <h1
+              className="max-w-full truncate text-2xl font-bold"
+              title={projectName}
+            >
+              {projectName}
+            </h1>
+            <p
+              className="max-w-full truncate text-muted-foreground"
+              title={groupDescription}
+            >
+              {groupDescription}
             </p>
           </div>
 
-          <div className="flex items-end gap-2">
+          <div className="flex shrink-0 items-end gap-2">
             <div className="flex flex-col gap-0.5">
               <Label className="text-xs text-muted-foreground">Mode</Label>
               <Select
                 value={selectedMode}
                 onValueChange={(value: QueryMode) => setSelectedMode(value)}
               >
-                <SelectTrigger className="w-28 h-8">
+                <SelectTrigger className="h-8 w-28">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -951,7 +960,7 @@ export function ProjectChat({
                   setUseThink(value.includes("Thinking"));
                 }}
               >
-                <SelectTrigger className="w-56 h-8">
+                <SelectTrigger className="h-8 w-56">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1215,7 +1224,7 @@ export function ProjectChat({
                 value={displayedInputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className={`flex-1 resize-none overflow-hidden border-input min-h-[2.5rem] w-full min-w-0 rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm ${isRecording && interimTranscript ? "text-muted-foreground" : ""}`}
+                className={`flex-1 resize-none overflow-hidden border-input min-h-10 w-full min-w-0 rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm ${isRecording && interimTranscript ? "text-muted-foreground" : ""}`}
                 disabled={isRecording || !!pendingToolCall}
                 rows={1}
               />
