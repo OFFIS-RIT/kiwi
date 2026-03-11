@@ -281,6 +281,7 @@ export function ProjectChat({
   projectId,
 }: ProjectChatProps) {
   const { t, language } = useLanguage();
+  const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -919,11 +920,17 @@ export function ProjectChat({
       <div className="mb-4 min-w-0 shrink-0">
         <div className="flex min-w-0 items-start justify-between gap-4">
           <div className="min-w-0 flex-1 overflow-hidden">
-            <h1 className="max-w-full truncate text-2xl font-bold">
+            <h1
+              className="max-w-full truncate text-2xl font-bold"
+              title={projectName}
+            >
               {projectName}
             </h1>
-            <p className="max-w-full truncate text-muted-foreground">
-              {t("from.group")} {groupName} {t("group")}
+            <p
+              className="max-w-full truncate text-muted-foreground"
+              title={groupDescription}
+            >
+              {groupDescription}
             </p>
           </div>
 

@@ -564,6 +564,7 @@ function GroupItem({
             className="min-w-0 flex-1 pr-8"
             isActive={selectedGroup?.id === group.id && !selectedProject}
             onClick={() => selectItem(group)}
+            title={group.name}
             tooltip={group.name}
           >
             <Users className="shrink-0" />
@@ -629,6 +630,7 @@ function GroupItem({
                         onSelectProject(group.id);
                         selectItem(group, project);
                       }}
+                      title={project.name}
                       tooltip={project.name}
                     >
                       {isProcessing ? (

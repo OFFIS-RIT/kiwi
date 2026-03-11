@@ -47,6 +47,7 @@ export function BreadcrumbNav() {
               <BreadcrumbLink
                 className="block max-w-full truncate"
                 href="#"
+                title={selectedGroup.name}
                 onClick={(e) => {
                   e.preventDefault();
                   selectItem(selectedGroup);
@@ -59,7 +60,10 @@ export function BreadcrumbNav() {
               <>
                 <BreadcrumbSeparator className="shrink-0" />
                 <BreadcrumbItem className="min-w-0 shrink">
-                  <BreadcrumbPage className="block max-w-full truncate">
+                  <BreadcrumbPage
+                    className="block max-w-full truncate"
+                    title={selectedProject.name}
+                  >
                     {selectedProject.name}
                   </BreadcrumbPage>
                 </BreadcrumbItem>

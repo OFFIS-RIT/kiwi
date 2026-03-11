@@ -44,11 +44,14 @@ export function CardTemplate({
   return (
     <Card className="flex h-full min-h-[255px] min-w-0 flex-col gap-0 overflow-hidden pb-0 transition-all hover:shadow-md">
       <CardHeader className="min-w-0 px-6 pb-4 min-h-[76px]">
-        <CardTitle className="min-w-0 truncate text-lg font-semibold">
+        <CardTitle
+          className="min-w-0 truncate text-lg font-semibold"
+          title={title}
+        >
           {title}
         </CardTitle>
         {description && (
-          <CardDescription className="min-w-0 truncate">
+          <CardDescription className="min-w-0 truncate" title={description}>
             {description}
           </CardDescription>
         )}
