@@ -45,18 +45,17 @@ migrate:
 		if [ -f "$(ENV_FILE)" ]; then . "$(ENV_FILE)"; fi; \
 		set +a; \
 		export AI_EMBED_DIM=$${AI_EMBED_DIM:-4096}; \
-		mkdir -p $(ROOT_DIR).migrations_processed; \
-		for f in $(ROOT_DIR)migrations/*.sql; do \
-			envsubst '$$AI_EMBED_DIM' < "$$f" > "$(ROOT_DIR).migrations_processed/$$(basename $$f)"; \
-		done; \
+		MIGRATION_IMAGE=$$(docker build -q -f postgres/Dockerfile.migration .); \
 		docker run --rm \
-			-v $(ROOT_DIR).migrations_processed:/migrations \
+			-v $(ROOT_DIR)migrations:/app/migrations:ro \
 			--network kiwi_internal \
-			migrate/migrate \
-			-path=/migrations \
-			-database "$${DATABASE_DIRECT_URL:-postgresql://kiwi:kiwi@db:5432/kiwi?sslmode=disable}" \
-			up; \
-		rm -rf $(ROOT_DIR).migrations_processed
+			-e DATABASE_URL="$${DATABASE_DIRECT_URL:-postgresql://kiwi:kiwi@db:5432/kiwi?sslmode=disable}" \
+			-e AI_EMBED_DIM \
+			-e MASTER_USER_ID \
+			-e MASTER_USER_ROLE \
+			-e MASTER_USER_NAME \
+			-e MASTER_USER_EMAIL \
+			$$MIGRATION_IMAGE
 
 db-dump:
 	@set -a; \

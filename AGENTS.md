@@ -127,8 +127,8 @@ After `make dev`, the `rustfs-setup` container auto-creates the S3 bucket.
 kiwi/
 ├── backend/           # Go API server + worker (see backend/AGENTS.md)
 │   ├── cmd/           # Entry points: server, worker
-│   ├── internal/      # Private: db, server, queue, storage
-│   └── pkg/           # Public: ai, graph, loader, store, query
+│   ├── internal/      # Private: db, server, storage, workflow
+│   └── pkg/           # Public: ai, graph, loader, store, query, workflow
 ├── frontend/          # Next.js SPA (see frontend/AGENTS.md)
 │   ├── app/           # Single-page dashboard
 │   ├── components/    # Feature-based components
@@ -151,6 +151,7 @@ kiwi/
 | Database schema  | `migrations/`                           | Use golang-migrate format             |
 | AI logic         | `backend/pkg/ai/`, `backend/pkg/graph/` | OpenAI/Ollama implementations         |
 | File processing  | `backend/pkg/loader/`                   | PDF, image, audio, CSV, Excel         |
+| Durable workflows | `backend/pkg/workflow/`, `backend/pkg/store/` | Replayable workflow runtime + persistence |
 
 ## Architecture
 
@@ -166,31 +167,31 @@ kiwi/
 │   (Service)  │                          │  + pgvector │
 └──────────────┘                          └─────────────┘
                                                  ▲
-┌──────────────┐     ┌──────────────┐            │
-│   RabbitMQ   │◀───▶│    Worker    │────────────┘
-│   (queue)    │     │ (background) │
-└──────────────┘     └──────────────┘
-       │                    │
-       ▼                    ▼
-┌──────────────┐     ┌──────────────┐
-│    RustFS    │     │ Ollama/OpenAI│
-│  (S3 files)  │     │   (AI/LLM)   │
-└──────────────┘     └──────────────┘
+                                                 │
+                                         ┌──────────────┐
+                                         │    Worker    │
+                                         │  (workflow)  │
+                                         └──────────────┘
+                                           │        │
+                                           ▼        ▼
+                                     ┌──────────┐ ┌──────────────┐
+                                     │  RustFS  │ │ Ollama/OpenAI│
+                                     │  (S3)    │ │   (AI/LLM)   │
+                                     └──────────┘ └──────────────┘
 ```
 
 ## Services (Docker Compose)
 
-| Service  | Dev Port    | Purpose                       |
-| -------- | ----------- | ----------------------------- |
-| db       | internal    | PostgreSQL + pgvector         |
+| Service    | Dev Port  | Purpose                       |
+| ---------- | --------- | ----------------------------- |
+| db         | internal  | PostgreSQL + pgvector         |
 | db-bouncer | 5432      | PostgreSQL connection pool    |
-| rabbitmq | 5672, 15672 | Message queue + management UI |
-| rustfs   | 9000, 9001  | S3-compatible storage         |
-| ollama   | 11434       | Local LLM inference           |
-| server   | 8080        | Go API server                 |
-| worker   | -           | Background job processor      |
-| frontend | 3000        | Next.js dev server            |
-| auth     | 4321        | Auth                          |
+| rustfs     | 9000, 9001 | S3-compatible storage        |
+| ollama     | 11434     | Local LLM inference           |
+| server     | 8080      | Go API server                 |
+| worker     | -         | Durable workflow worker       |
+| frontend   | 3000      | Next.js dev server            |
+| auth       | 4321      | Auth                          |
 
 ## Environment Variables
 
@@ -200,11 +201,14 @@ Copy `.env.sample` to `.env`. Key variables:
 | --------------------------------------------- | ----------------------------------------- |
 | `DATABASE_URL`                                | PgBouncer PostgreSQL connection           |
 | `DATABASE_DIRECT_URL`                         | Direct PostgreSQL connection for migrations |
+| `MASTER_USER_ID`, `MASTER_USER_ROLE`          | Master API user identity for backend auth |
+| `MASTER_USER_NAME`, `MASTER_USER_EMAIL`       | Optional bootstrap values for the master user row |
 | `AWS_*`                                       | RustFS/S3 config (endpoint, keys, bucket) |
 | `AI_ADAPTER`                                  | `openai` or `ollama`                      |
 | `AI_CHAT_URL`, `AI_EMBED_URL`, `AI_IMAGE_URL` | AI service endpoints                      |
 | `AI_*_MODEL`                                  | Model names for chat/embed/image          |
-| `RABBITMQ_*`                                  | Queue connection                          |
+| `WORKFLOW_WORKER_CONCURRENCY`                 | Parallel workflow runs per worker process |
+| `WORKFLOW_MAX_ATTEMPTS`                       | Retry limit for durable workflows         |
 | `NEXT_PUBLIC_API_URL`                         | Frontend API base URL                     |
 
 ## Database Migrations
@@ -218,6 +222,9 @@ make migrate   # Apply pending migrations
 # migrations/{N+1}_{description}.up.sql
 # migrations/{N+1}_{description}.down.sql
 ```
+
+When `MASTER_USER_ID` is configured, the migration runner also bootstraps the
+matching row in `users` after applying migrations.
 
 ## Subdirectory Guidelines
 
@@ -272,8 +279,8 @@ Before committing any changes, ensure the following steps are performed:
 ### Processing Pipeline
 
 1. User uploads files → API stores in RustFS
-2. API publishes job to RabbitMQ
-3. Worker consumes job, loads files via `pkg/loader/`
+2. API enqueues durable workflow runs in PostgreSQL
+3. Worker claims workflow runs, loads files via `pkg/loader/`
 4. Worker extracts entities/relations via `pkg/graph/` + AI
-5. Worker stores graph in PostgreSQL with embeddings
+5. Worker stores graph in PostgreSQL with embeddings and schedules follow-up description workflows
 6. User queries via chat → vector search + AI response

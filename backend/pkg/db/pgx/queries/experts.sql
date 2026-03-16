@@ -39,7 +39,7 @@ WITH current_graph AS (
         COALESCE(g.group_id, parent.group_id) AS group_id
     FROM graphs AS g
     LEFT JOIN graphs AS parent ON g.graph_id = parent.id
-    WHERE g.id = sqlc.arg(current_project_id)::bigint
+    WHERE g.id = sqlc.arg(current_project_id)
 )
 SELECT
     p.id AS project_id,
@@ -60,7 +60,7 @@ WHERE p.type = 'expert'
   AND (
       (cg.group_id IS NOT NULL AND COALESCE(p.group_id, parent.group_id) = cg.group_id)
       OR (p.group_id IS NULL AND p.user_id IS NULL AND p.graph_id IS NULL)
-      OR p.user_id = sqlc.arg(user_id)::bigint
-      OR p.graph_id = sqlc.arg(current_project_id)::bigint
+      OR p.user_id = sqlc.arg(user_id)
+      OR p.graph_id = sqlc.arg(current_project_id)
   )
 ORDER BY p.id ASC;

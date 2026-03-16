@@ -15,11 +15,12 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func GetUserChatsHandler(c echo.Context) error {
 	type getUserChatsParams struct {
-		ProjectID int64 `param:"id" validate:"required,numeric"`
+		ProjectID string `param:"id" validate:"required"`
 	}
 
 	type responseData struct {
@@ -55,13 +56,13 @@ func GetUserChatsHandler(c echo.Context) error {
 	}
 
 	if project.UserID.Valid {
-		if project.UserID.Int64 != user.UserID {
+		if project.UserID.String != user.UserID {
 			return c.JSON(http.StatusForbidden, map[string]string{"message": "Unauthorized"})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 		})
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, map[string]string{"message": "Unauthorized"})
@@ -70,7 +71,7 @@ func GetUserChatsHandler(c echo.Context) error {
 
 	chats, err := q.GetUserChatsByProject(ctx, pgdb.GetUserChatsByProjectParams{
 		UserID:    user.UserID,
-		ProjectID: params.ProjectID,
+		ProjectID: pgtype.Text{String: params.ProjectID, Valid: true},
 	})
 	if err != nil {
 		logger.Error("Failed to get user chats", "err", err)
@@ -80,7 +81,7 @@ func GetUserChatsHandler(c echo.Context) error {
 	resp := make([]responseData, 0, len(chats))
 	for _, chat := range chats {
 		resp = append(resp, responseData{
-			ConversationID: chat.PublicID,
+			ConversationID: chat.ID,
 			Title:          chat.Title,
 		})
 	}
@@ -90,7 +91,7 @@ func GetUserChatsHandler(c echo.Context) error {
 
 func GetChatHandler(c echo.Context) error {
 	type getChatParams struct {
-		ProjectID      int64  `param:"id" validate:"required,numeric"`
+		ProjectID      string `param:"id" validate:"required"`
 		ConversationID string `param:"conversation_id" validate:"required"`
 	}
 
@@ -153,23 +154,23 @@ func GetChatHandler(c echo.Context) error {
 	}
 
 	if project.UserID.Valid {
-		if project.UserID.Int64 != user.UserID {
+		if project.UserID.String != user.UserID {
 			return c.JSON(http.StatusForbidden, map[string]string{"message": "Unauthorized"})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 		})
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, map[string]string{"message": "Unauthorized"})
 		}
 	}
 
-	conversation, err := q.GetUserChatByPublicIDAndProject(ctx, pgdb.GetUserChatByPublicIDAndProjectParams{
-		PublicID:  params.ConversationID,
+	conversation, err := q.GetUserChatByIDAndProject(ctx, pgdb.GetUserChatByIDAndProjectParams{
+		ID:        params.ConversationID,
 		UserID:    user.UserID,
-		ProjectID: params.ProjectID,
+		ProjectID: pgtype.Text{String: params.ProjectID, Valid: true},
 	})
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -278,7 +279,7 @@ func GetChatHandler(c echo.Context) error {
 		if len(message.Metrics) > 0 {
 			metrics := ai.ModelMetrics{}
 			if err := json.Unmarshal(message.Metrics, &metrics); err != nil {
-				logger.Error("Failed to decode assistant metrics", "conversation_id", conversation.PublicID, "message_id", message.ID, "err", err)
+				logger.Error("Failed to decode assistant metrics", "conversation_id", conversation.ID, "message_id", message.ID, "err", err)
 				return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 			}
 			item.Metrics = &metrics
@@ -311,7 +312,7 @@ func GetChatHandler(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, getChatResponse{
-		ConversationID: conversation.PublicID,
+		ConversationID: conversation.ID,
 		Title:          conversation.Title,
 		Messages:       messages,
 	})

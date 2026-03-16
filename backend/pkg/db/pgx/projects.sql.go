@@ -8,23 +8,28 @@ package pgdb
 import (
 	"context"
 
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const addFileToProject = `-- name: AddFileToProject :one
-INSERT INTO project_files (project_id, name, file_key)
-VALUES ($1, $2, $3) RETURNING id, project_id, name, file_key, deleted, token_count, metadata, created_at, updated_at
+INSERT INTO project_files (id, project_id, name, file_key)
+VALUES ($1, $2, $3, $4) RETURNING id, project_id, name, file_key, deleted, token_count, metadata, created_at, updated_at
 `
 
 type AddFileToProjectParams struct {
-	ProjectID int64  `json:"project_id"`
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
 	Name      string `json:"name"`
 	FileKey   string `json:"file_key"`
 }
 
 func (q *Queries) AddFileToProject(ctx context.Context, arg AddFileToProjectParams) (ProjectFile, error) {
-	row := q.db.QueryRow(ctx, addFileToProject, arg.ProjectID, arg.Name, arg.FileKey)
+	row := q.db.QueryRow(ctx, addFileToProject,
+		arg.ID,
+		arg.ProjectID,
+		arg.Name,
+		arg.FileKey,
+	)
 	var i ProjectFile
 	err := row.Scan(
 		&i.ID,
@@ -41,18 +46,24 @@ func (q *Queries) AddFileToProject(ctx context.Context, arg AddFileToProjectPara
 }
 
 const addProjectUpdate = `-- name: AddProjectUpdate :exec
-INSERT INTO project_updates (project_id, update_type, update_message)
-VALUES ($1, $2, $3::text::json)
+INSERT INTO project_updates (id, project_id, update_type, update_message)
+VALUES ($1, $2, $3, $4::text::json)
 `
 
 type AddProjectUpdateParams struct {
-	ProjectID     int64  `json:"project_id"`
+	ID            string `json:"id"`
+	ProjectID     string `json:"project_id"`
 	UpdateType    string `json:"update_type"`
 	UpdateMessage string `json:"update_message"`
 }
 
 func (q *Queries) AddProjectUpdate(ctx context.Context, arg AddProjectUpdateParams) error {
-	_, err := q.db.Exec(ctx, addProjectUpdate, arg.ProjectID, arg.UpdateType, arg.UpdateMessage)
+	_, err := q.db.Exec(ctx, addProjectUpdate,
+		arg.ID,
+		arg.ProjectID,
+		arg.UpdateType,
+		arg.UpdateMessage,
+	)
 	return err
 }
 
@@ -61,8 +72,8 @@ UPDATE project_files SET token_count = $2 WHERE id = $1
 `
 
 type AddTokenCountToFileParams struct {
-	ID         int64 `json:"id"`
-	TokenCount int32 `json:"token_count"`
+	ID         string `json:"id"`
+	TokenCount int32  `json:"token_count"`
 }
 
 func (q *Queries) AddTokenCountToFile(ctx context.Context, arg AddTokenCountToFileParams) error {
@@ -71,18 +82,24 @@ func (q *Queries) AddTokenCountToFile(ctx context.Context, arg AddTokenCountToFi
 }
 
 const createProject = `-- name: CreateProject :one
-INSERT INTO graphs (group_id, name, state)
-VALUES ($1, $2, $3) RETURNING id, group_id, user_id, graph_id, name, description, state, type, hidden, created_at, updated_at
+INSERT INTO graphs (id, group_id, name, state)
+VALUES ($1, $2, $3, $4) RETURNING id, group_id, user_id, graph_id, name, description, state, type, hidden, created_at, updated_at
 `
 
 type CreateProjectParams struct {
-	GroupID sqltype.NullInt64 `json:"group_id"`
-	Name    string            `json:"name"`
-	State   string            `json:"state"`
+	ID      string      `json:"id"`
+	GroupID pgtype.Text `json:"group_id"`
+	Name    string      `json:"name"`
+	State   string      `json:"state"`
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Graph, error) {
-	row := q.db.QueryRow(ctx, createProject, arg.GroupID, arg.Name, arg.State)
+	row := q.db.QueryRow(ctx, createProject,
+		arg.ID,
+		arg.GroupID,
+		arg.Name,
+		arg.State,
+	)
 	var i Graph
 	err := row.Scan(
 		&i.ID,
@@ -101,24 +118,26 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (G
 }
 
 const createProjectWithOwner = `-- name: CreateProjectWithOwner :one
-INSERT INTO graphs (group_id, user_id, graph_id, name, description, state, type, hidden)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO graphs (id, group_id, user_id, graph_id, name, description, state, type, hidden)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, group_id, user_id, graph_id, name, description, state, type, hidden, created_at, updated_at
 `
 
 type CreateProjectWithOwnerParams struct {
-	GroupID     sqltype.NullInt64 `json:"group_id"`
-	UserID      sqltype.NullInt64 `json:"user_id"`
-	GraphID     sqltype.NullInt64 `json:"graph_id"`
-	Name        string            `json:"name"`
-	Description pgtype.Text       `json:"description"`
-	State       string            `json:"state"`
-	Type        pgtype.Text       `json:"type"`
-	Hidden      bool              `json:"hidden"`
+	ID          string      `json:"id"`
+	GroupID     pgtype.Text `json:"group_id"`
+	UserID      pgtype.Text `json:"user_id"`
+	GraphID     pgtype.Text `json:"graph_id"`
+	Name        string      `json:"name"`
+	Description pgtype.Text `json:"description"`
+	State       string      `json:"state"`
+	Type        pgtype.Text `json:"type"`
+	Hidden      bool        `json:"hidden"`
 }
 
 func (q *Queries) CreateProjectWithOwner(ctx context.Context, arg CreateProjectWithOwnerParams) (Graph, error) {
 	row := q.db.QueryRow(ctx, createProjectWithOwner,
+		arg.ID,
 		arg.GroupID,
 		arg.UserID,
 		arg.GraphID,
@@ -149,7 +168,7 @@ const deleteProject = `-- name: DeleteProject :exec
 DELETE FROM graphs WHERE id = $1
 `
 
-func (q *Queries) DeleteProject(ctx context.Context, id int64) error {
+func (q *Queries) DeleteProject(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteProject, id)
 	return err
 }
@@ -158,7 +177,7 @@ const deleteProjectFile = `-- name: DeleteProjectFile :exec
 DELETE FROM project_files WHERE id = $1
 `
 
-func (q *Queries) DeleteProjectFile(ctx context.Context, id int64) error {
+func (q *Queries) DeleteProjectFile(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteProjectFile, id)
 	return err
 }
@@ -179,9 +198,9 @@ ORDER BY grp.id, g.id
 `
 
 type GetAllProjectsWithGroupsRow struct {
-	GroupID      int64  `json:"group_id"`
+	GroupID      string `json:"group_id"`
 	GroupName    string `json:"group_name"`
-	ProjectID    int64  `json:"project_id"`
+	ProjectID    string `json:"project_id"`
 	ProjectName  string `json:"project_name"`
 	ProjectState string `json:"project_state"`
 	Hidden       bool   `json:"hidden"`
@@ -222,7 +241,7 @@ const getDeletedProjectFiles = `-- name: GetDeletedProjectFiles :many
 SELECT id, project_id, name, file_key, deleted, token_count, metadata, created_at, updated_at FROM project_files WHERE project_id = $1 AND deleted = true
 `
 
-func (q *Queries) GetDeletedProjectFiles(ctx context.Context, projectID int64) ([]ProjectFile, error) {
+func (q *Queries) GetDeletedProjectFiles(ctx context.Context, projectID string) ([]ProjectFile, error) {
 	rows, err := q.db.Query(ctx, getDeletedProjectFiles, projectID)
 	if err != nil {
 		return nil, err
@@ -256,7 +275,7 @@ const getProjectByID = `-- name: GetProjectByID :one
 SELECT id, group_id, user_id, graph_id, name, description, state, type, hidden, created_at, updated_at FROM graphs WHERE id = $1
 `
 
-func (q *Queries) GetProjectByID(ctx context.Context, id int64) (Graph, error) {
+func (q *Queries) GetProjectByID(ctx context.Context, id string) (Graph, error) {
 	row := q.db.QueryRow(ctx, getProjectByID, id)
 	var i Graph
 	err := row.Scan(
@@ -284,7 +303,7 @@ WHERE project_id = $1
 `
 
 type GetProjectFileByKeyParams struct {
-	ProjectID int64  `json:"project_id"`
+	ProjectID string `json:"project_id"`
 	FileKey   string `json:"file_key"`
 }
 
@@ -309,7 +328,7 @@ const getProjectFiles = `-- name: GetProjectFiles :many
 SELECT id, project_id, name, file_key, deleted, token_count, metadata, created_at, updated_at FROM project_files WHERE project_id = $1
 `
 
-func (q *Queries) GetProjectFiles(ctx context.Context, projectID int64) ([]ProjectFile, error) {
+func (q *Queries) GetProjectFiles(ctx context.Context, projectID string) ([]ProjectFile, error) {
 	rows, err := q.db.Query(ctx, getProjectFiles, projectID)
 	if err != nil {
 		return nil, err
@@ -342,18 +361,18 @@ func (q *Queries) GetProjectFiles(ctx context.Context, projectID int64) ([]Proje
 const getProjectIDsForFiles = `-- name: GetProjectIDsForFiles :many
 SELECT DISTINCT project_id
 FROM project_files
-WHERE id = ANY($1::bigint[])
+WHERE id = ANY($1::text[])
 `
 
-func (q *Queries) GetProjectIDsForFiles(ctx context.Context, fileIds []int64) ([]int64, error) {
+func (q *Queries) GetProjectIDsForFiles(ctx context.Context, fileIds []string) ([]string, error) {
 	rows, err := q.db.Query(ctx, getProjectIDsForFiles, fileIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []int64{}
+	items := []string{}
 	for rows.Next() {
-		var project_id int64
+		var project_id string
 		if err := rows.Scan(&project_id); err != nil {
 			return nil, err
 		}
@@ -369,7 +388,7 @@ const getProjectSystemPrompts = `-- name: GetProjectSystemPrompts :many
 SELECT id, project_id, prompt, created_at, updated_at FROM project_system_prompts WHERE project_id = $1
 `
 
-func (q *Queries) GetProjectSystemPrompts(ctx context.Context, projectID int64) ([]ProjectSystemPrompt, error) {
+func (q *Queries) GetProjectSystemPrompts(ctx context.Context, projectID string) ([]ProjectSystemPrompt, error) {
 	rows, err := q.db.Query(ctx, getProjectSystemPrompts, projectID)
 	if err != nil {
 		return nil, err
@@ -403,7 +422,7 @@ WHERE g.group_id = $1
    OR parent.group_id = $1
 `
 
-func (q *Queries) GetProjectsByGroup(ctx context.Context, groupID sqltype.NullInt64) ([]Graph, error) {
+func (q *Queries) GetProjectsByGroup(ctx context.Context, groupID pgtype.Text) ([]Graph, error) {
 	rows, err := q.db.Query(ctx, getProjectsByGroup, groupID)
 	if err != nil {
 		return nil, err
@@ -457,9 +476,9 @@ ORDER BY grp.id, g.id
 `
 
 type GetProjectsForUserRow struct {
-	GroupID      int64  `json:"group_id"`
+	GroupID      string `json:"group_id"`
 	GroupName    string `json:"group_name"`
-	ProjectID    int64  `json:"project_id"`
+	ProjectID    string `json:"project_id"`
 	ProjectName  string `json:"project_name"`
 	ProjectState string `json:"project_state"`
 	Hidden       bool   `json:"hidden"`
@@ -467,7 +486,7 @@ type GetProjectsForUserRow struct {
 	Role         string `json:"role"`
 }
 
-func (q *Queries) GetProjectsForUser(ctx context.Context, userID int64) ([]GetProjectsForUserRow, error) {
+func (q *Queries) GetProjectsForUser(ctx context.Context, userID string) ([]GetProjectsForUserRow, error) {
 	rows, err := q.db.Query(ctx, getProjectsForUser, userID)
 	if err != nil {
 		return nil, err
@@ -499,15 +518,15 @@ func (q *Queries) GetProjectsForUser(ctx context.Context, userID int64) ([]GetPr
 const getTokenCountsOfFiles = `-- name: GetTokenCountsOfFiles :many
 SELECT id, token_count
 FROM project_files
-WHERE id = ANY($1::bigint[])
+WHERE id = ANY($1::text[])
 `
 
 type GetTokenCountsOfFilesRow struct {
-	ID         int64 `json:"id"`
-	TokenCount int32 `json:"token_count"`
+	ID         string `json:"id"`
+	TokenCount int32  `json:"token_count"`
 }
 
-func (q *Queries) GetTokenCountsOfFiles(ctx context.Context, dollar_1 []int64) ([]GetTokenCountsOfFilesRow, error) {
+func (q *Queries) GetTokenCountsOfFiles(ctx context.Context, dollar_1 []string) ([]GetTokenCountsOfFilesRow, error) {
 	rows, err := q.db.Query(ctx, getTokenCountsOfFiles, dollar_1)
 	if err != nil {
 		return nil, err
@@ -540,14 +559,14 @@ ORDER BY g.id
 `
 
 type GetUserProjectsRow struct {
-	ProjectID    int64  `json:"project_id"`
+	ProjectID    string `json:"project_id"`
 	ProjectName  string `json:"project_name"`
 	ProjectState string `json:"project_state"`
 	Hidden       bool   `json:"hidden"`
 	ProjectType  string `json:"project_type"`
 }
 
-func (q *Queries) GetUserProjects(ctx context.Context, userID sqltype.NullInt64) ([]GetUserProjectsRow, error) {
+func (q *Queries) GetUserProjects(ctx context.Context, userID pgtype.Text) ([]GetUserProjectsRow, error) {
 	rows, err := q.db.Query(ctx, getUserProjects, userID)
 	if err != nil {
 		return nil, err
@@ -577,16 +596,16 @@ const isUserInProject = `-- name: IsUserInProject :one
 SELECT
     COUNT(*) AS count
 FROM graphs AS g
-WHERE g.id = $1::bigint
+WHERE g.id = $1
   AND (
-    g.user_id = $2::bigint
+    g.user_id = $2
     OR (
       g.group_id IS NOT NULL
       AND EXISTS (
         SELECT 1
         FROM group_users AS gu
         WHERE gu.group_id = g.group_id
-          AND gu.user_id = $2::bigint
+          AND gu.user_id = $2
       )
     )
     OR (
@@ -596,14 +615,14 @@ WHERE g.id = $1::bigint
         FROM graphs AS parent
         WHERE parent.id = g.graph_id
           AND (
-            parent.user_id = $2::bigint
+            parent.user_id = $2
             OR (
               parent.group_id IS NOT NULL
               AND EXISTS (
                 SELECT 1
                 FROM group_users AS parent_gu
                 WHERE parent_gu.group_id = parent.group_id
-                  AND parent_gu.user_id = $2::bigint
+                  AND parent_gu.user_id = $2
               )
             )
           )
@@ -614,8 +633,8 @@ WHERE g.id = $1::bigint
 `
 
 type IsUserInProjectParams struct {
-	ID     int64 `json:"id"`
-	UserID int64 `json:"user_id"`
+	ID     string      `json:"id"`
+	UserID pgtype.Text `json:"user_id"`
 }
 
 func (q *Queries) IsUserInProject(ctx context.Context, arg IsUserInProjectParams) (int64, error) {
@@ -632,7 +651,7 @@ WHERE project_id = $1 AND file_key = $2
 `
 
 type MarkProjectFileAsDeletedParams struct {
-	ProjectID int64  `json:"project_id"`
+	ProjectID string `json:"project_id"`
 	FileKey   string `json:"file_key"`
 }
 
@@ -646,7 +665,7 @@ UPDATE graphs SET name = $2 WHERE id = $1 RETURNING id, group_id, user_id, graph
 `
 
 type UpdateProjectParams struct {
-	ID   int64  `json:"id"`
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -674,7 +693,7 @@ UPDATE project_files SET metadata = $2, updated_at = NOW() WHERE id = $1
 `
 
 type UpdateProjectFileMetadataParams struct {
-	ID       int64       `json:"id"`
+	ID       string      `json:"id"`
 	Metadata pgtype.Text `json:"metadata"`
 }
 
@@ -688,7 +707,7 @@ UPDATE graphs SET state = $2 WHERE id = $1 RETURNING id, group_id, user_id, grap
 `
 
 type UpdateProjectStateParams struct {
-	ID    int64  `json:"id"`
+	ID    string `json:"id"`
 	State string `json:"state"`
 }
 

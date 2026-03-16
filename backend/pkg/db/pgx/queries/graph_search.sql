@@ -3,21 +3,21 @@ SELECT e.id
 FROM entities e
 WHERE e.project_id = $1
     AND (e.embedding <=> $2) < $4::double precision
-ORDER BY e.embedding <=> $2
+ORDER BY e.embedding <=> $2, e.id
 LIMIT $3;
 
 -- name: FindRelevantSourcesForEntitiesWithKeywords :many
 WITH semantic_candidates AS (
     SELECT s.id
     FROM entity_sources s
-    WHERE s.entity_id = ANY(sqlc.arg(entity_ids)::bigint[])
-    ORDER BY s.embedding <=> sqlc.arg(embedding)
+    WHERE s.entity_id = ANY(sqlc.arg(entity_ids)::text[])
+    ORDER BY s.embedding <=> sqlc.arg(embedding), s.id
     LIMIT sqlc.arg(candidate_limit)
 ),
 keyword_candidates AS (
     SELECT s.id
     FROM entity_sources s
-    WHERE s.entity_id = ANY(sqlc.arg(entity_ids)::bigint[])
+    WHERE s.entity_id = ANY(sqlc.arg(entity_ids)::text[])
       AND COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0) > 0
       AND s.search_tsv @@ plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' '))
     ORDER BY ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' '))) DESC,
@@ -30,8 +30,8 @@ candidates AS (
     SELECT id FROM keyword_candidates
 )
 SELECT
-    s.id,
-    u.public_id,
+    s.id AS source_record_id,
+    tu.id AS text_unit_id,
     s.entity_id,
     s.description,
     (s.embedding <=> sqlc.arg(embedding))::double precision AS semantic_distance,
@@ -52,7 +52,7 @@ SELECT
     COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0)::int AS keyword_total
 FROM candidates c
 JOIN entity_sources s ON s.id = c.id
-JOIN text_units u ON u.id = s.text_unit_id
+JOIN text_units tu ON tu.id = s.text_unit_id
 ORDER BY semantic_distance ASC, s.id
 LIMIT sqlc.arg(candidate_limit);
 
@@ -60,14 +60,14 @@ LIMIT sqlc.arg(candidate_limit);
 WITH semantic_candidates AS (
     SELECT s.id
     FROM relationship_sources s
-    WHERE s.relationship_id = ANY(sqlc.arg(relationship_ids)::bigint[])
-    ORDER BY s.embedding <=> sqlc.arg(embedding)
+    WHERE s.relationship_id = ANY(sqlc.arg(relationship_ids)::text[])
+    ORDER BY s.embedding <=> sqlc.arg(embedding), s.id
     LIMIT sqlc.arg(candidate_limit)
 ),
 keyword_candidates AS (
     SELECT s.id
     FROM relationship_sources s
-    WHERE s.relationship_id = ANY(sqlc.arg(relationship_ids)::bigint[])
+    WHERE s.relationship_id = ANY(sqlc.arg(relationship_ids)::text[])
       AND COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0) > 0
       AND s.search_tsv @@ plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' '))
     ORDER BY ts_rank_cd(s.search_tsv, plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' '))) DESC,
@@ -80,8 +80,8 @@ candidates AS (
     SELECT id FROM keyword_candidates
 )
 SELECT
-    s.id,
-    u.public_id,
+    s.id AS source_record_id,
+    tu.id AS text_unit_id,
     s.description,
     r.source_id,
     r.target_id,
@@ -103,38 +103,41 @@ SELECT
     COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0)::int AS keyword_total
 FROM candidates c
 JOIN relationship_sources s ON s.id = c.id
-JOIN text_units u ON u.id = s.text_unit_id
+JOIN text_units tu ON tu.id = s.text_unit_id
 JOIN relationships r ON r.id = s.relationship_id
 ORDER BY semantic_distance ASC, s.id
 LIMIT sqlc.arg(candidate_limit);
 
 -- name: FindSimilarEntitySources :many
-SELECT s.id, s.public_id, s.description, u.public_id, e.name FROM entity_sources s
-JOIN text_units u ON u.id = s.text_unit_id
+SELECT s.id AS source_record_id, tu.id AS text_unit_id, s.description, e.name
+FROM entity_sources s
+JOIN text_units tu ON tu.id = s.text_unit_id
 JOIN entities e ON e.id = s.entity_id
 WHERE (s.embedding <=> $1) < $4::double precision
     AND e.project_id = $2
-ORDER BY s.embedding <=> $1
+ORDER BY s.embedding <=> $1, s.id
 LIMIT $3;
 
 -- name: FindRelevantEntitySources :many
-SELECT s.id, s.public_id, s.description, u.public_id, e.name FROM entity_sources s
-JOIN text_units u ON u.id = s.text_unit_id
+SELECT s.id AS source_record_id, tu.id AS text_unit_id, s.description, e.name
+FROM entity_sources s
+JOIN text_units tu ON tu.id = s.text_unit_id
 JOIN entities e ON e.id = s.entity_id
-WHERE s.entity_id = ANY($1::bigint[])
+WHERE s.entity_id = ANY($1::text[])
     AND (s.embedding <=> $2) < $4::double precision
-ORDER BY s.embedding <=> $2
+ORDER BY s.embedding <=> $2, s.id
 LIMIT $3;
 
 -- name: FindRelevantRelationSources :many
-SELECT s.id, s.public_id, s.description, u.public_id, se.name, te.name, r.rank FROM relationship_sources s
-JOIN text_units u ON u.id = s.text_unit_id
+SELECT s.id AS source_record_id, tu.id AS text_unit_id, s.description, se.name, te.name, r.rank
+FROM relationship_sources s
+JOIN text_units tu ON tu.id = s.text_unit_id
 JOIN relationships r ON r.id = s.relationship_id
 JOIN entities se ON r.source_id = se.id
 JOIN entities te ON r.target_id = te.id
-WHERE s.relationship_id = ANY ($1::bigint[])
+WHERE s.relationship_id = ANY ($1::text[])
     AND (s.embedding <=> $2) < $4::double precision
-ORDER BY s.embedding <=> $2
+ORDER BY s.embedding <=> $2, s.id
 LIMIT $3;
 
 -- name: GetRelationshipsByIDs :many
@@ -151,14 +154,14 @@ SELECT
 FROM relationships r
 JOIN entities se ON r.source_id = se.id
 JOIN entities te ON r.target_id = te.id
-WHERE r.id = ANY($1::bigint[]);
+WHERE r.id = ANY($1::text[]);
 
 -- name: SearchEntitiesByEmbeddingWithKeywords :many
 WITH semantic_candidates AS (
     SELECT e.id
     FROM entities e
     WHERE e.project_id = sqlc.arg(project_id)
-    ORDER BY e.embedding <=> sqlc.arg(embedding)
+    ORDER BY e.embedding <=> sqlc.arg(embedding), e.id
     LIMIT sqlc.arg(candidate_limit)
 ),
 keyword_candidates AS (
@@ -208,7 +211,7 @@ WITH semantic_candidates AS (
     FROM entities e
     WHERE e.project_id = sqlc.arg(project_id)
       AND e.type = sqlc.arg(type)
-    ORDER BY e.embedding <=> sqlc.arg(embedding)
+    ORDER BY e.embedding <=> sqlc.arg(embedding), e.id
     LIMIT sqlc.arg(candidate_limit)
 ),
 keyword_candidates AS (
@@ -258,12 +261,14 @@ WITH semantic_candidates AS (
     SELECT r.id
     FROM relationships r
     WHERE r.project_id = sqlc.arg(project_id)
-    ORDER BY r.embedding <=> sqlc.arg(embedding)
+    ORDER BY r.embedding <=> sqlc.arg(embedding), r.id
     LIMIT sqlc.arg(candidate_limit)
 ),
 keyword_candidates AS (
     SELECT r.id
     FROM relationships r
+    JOIN entities se ON r.source_id = se.id
+    JOIN entities te ON r.target_id = te.id
     WHERE r.project_id = sqlc.arg(project_id)
       AND COALESCE(array_length(sqlc.arg(keywords)::text[], 1), 0) > 0
       AND r.search_tsv @@ plainto_tsquery('simple', array_to_string(sqlc.arg(keywords)::text[], ' '))
@@ -314,7 +319,7 @@ WITH semantic_candidates AS (
     SELECT r.id
     FROM relationships r
     WHERE sqlc.arg(source_id) IN (r.source_id, r.target_id)
-    ORDER BY r.embedding <=> sqlc.arg(embedding)
+    ORDER BY r.embedding <=> sqlc.arg(embedding), r.id
     LIMIT sqlc.arg(candidate_limit)
 ),
 keyword_candidates AS (

@@ -81,15 +81,10 @@ services:
             PDF_ENABLE_PANEL_SPLIT: ${PDF_ENABLE_PANEL_SPLIT}
             PDF_PANEL_SEPARATOR_MIN_COVERAGE: ${PDF_PANEL_SEPARATOR_MIN_COVERAGE}
             PDF_MAX_TILES_PER_PAGE: ${PDF_MAX_TILES_PER_PAGE}
-            RABBITMQ_USER: ${RABBITMQ_USER}
-            RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-            RABBITMQ_HOST: ${RABBITMQ_HOST}
-            RABBITMQ_PORT: ${RABBITMQ_PORT}
             MASTER_API_KEY: ${MASTER_API_KEY}
             MASTER_USER_ID: ${MASTER_USER_ID}
             MASTER_USER_ROLE: ${MASTER_USER_ROLE}
-            WORKER_PREFETCH: ${WORKER_PREFETCH}
-            WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE}
+            WORKFLOW_MAX_ATTEMPTS: ${WORKFLOW_MAX_ATTEMPTS}
         healthcheck:
             test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
             interval: 30s
@@ -101,8 +96,6 @@ services:
                 condition: service_healthy
             db-migration:
                 condition: service_completed_successfully
-            rabbitmq:
-                condition: service_healthy
             rustfs:
                 condition: service_healthy
     worker:
@@ -150,19 +143,13 @@ services:
             PDF_ENABLE_PANEL_SPLIT: ${PDF_ENABLE_PANEL_SPLIT}
             PDF_PANEL_SEPARATOR_MIN_COVERAGE: ${PDF_PANEL_SEPARATOR_MIN_COVERAGE}
             PDF_MAX_TILES_PER_PAGE: ${PDF_MAX_TILES_PER_PAGE}
-            RABBITMQ_USER: ${RABBITMQ_USER}
-            RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-            RABBITMQ_HOST: ${RABBITMQ_HOST}
-            RABBITMQ_PORT: ${RABBITMQ_PORT}
-            WORKER_PREFETCH: ${WORKER_PREFETCH}
-            WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE}
+            WORKFLOW_WORKER_CONCURRENCY: ${WORKFLOW_WORKER_CONCURRENCY}
+            WORKFLOW_MAX_ATTEMPTS: ${WORKFLOW_MAX_ATTEMPTS}
         depends_on:
             db-bouncer:
                 condition: service_healthy
             db-migration:
                 condition: service_completed_successfully
-            rabbitmq:
-                condition: service_healthy
             rustfs:
                 condition: service_healthy
     db:
@@ -194,6 +181,10 @@ services:
         environment:
             DATABASE_URL: "${DATABASE_DIRECT_URL:-postgresql://kiwi:kiwi@db:5432/kiwi?sslmode=disable}"
             AI_EMBED_DIM: ${AI_EMBED_DIM:-4096}
+            MASTER_USER_ID: ${MASTER_USER_ID:-}
+            MASTER_USER_ROLE: ${MASTER_USER_ROLE:-admin}
+            MASTER_USER_NAME: ${MASTER_USER_NAME:-Master User}
+            MASTER_USER_EMAIL: ${MASTER_USER_EMAIL:-}
         depends_on:
             db:
                 condition: service_healthy
@@ -220,25 +211,6 @@ services:
             timeout: 5s
             retries: 5
             start_period: 10s
-    rabbitmq:
-        container_name: rabbitmq
-        image: rabbitmq:3-management
-        restart: unless-stopped
-        ports:
-            - "5672:5672"
-            - "15672:15672"
-        environment:
-            RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-            RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-            RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbit consumer_timeout 360000000
-        volumes:
-            - rabbitmq_data:/var/lib/rabbitmq
-        healthcheck:
-            test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-            interval: 30s
-            timeout: 5s
-            retries: 5
-            start_period: 17s
     rustfs:
         container_name: rustfs
         image: rustfs/rustfs:latest
@@ -284,7 +256,6 @@ services:
 
 volumes:
     postgres_data:
-    rabbitmq_data:
     rustfs_data:
 
 networks:

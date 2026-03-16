@@ -11,11 +11,12 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func DeleteChatHandler(c echo.Context) error {
 	type deleteChatParams struct {
-		ProjectID      int64  `param:"id" validate:"required,numeric"`
+		ProjectID      string `param:"id" validate:"required"`
 		ConversationID string `param:"conversation_id" validate:"required"`
 	}
 
@@ -56,23 +57,23 @@ func DeleteChatHandler(c echo.Context) error {
 	}
 
 	if project.UserID.Valid {
-		if project.UserID.Int64 != user.UserID {
+		if project.UserID.String != user.UserID {
 			return c.JSON(http.StatusForbidden, deleteChatResponse{Message: "Unauthorized"})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := q.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ProjectID,
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 		})
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, deleteChatResponse{Message: "Unauthorized"})
 		}
 	}
 
-	rowsAffected, err := q.DeleteUserChatByPublicIDAndProject(ctx, pgdb.DeleteUserChatByPublicIDAndProjectParams{
-		PublicID:  params.ConversationID,
+	rowsAffected, err := q.DeleteUserChatByIDAndProject(ctx, pgdb.DeleteUserChatByIDAndProjectParams{
+		ID:        params.ConversationID,
 		UserID:    user.UserID,
-		ProjectID: params.ProjectID,
+		ProjectID: pgtype.Text{String: params.ProjectID, Valid: true},
 	})
 	if err != nil {
 		logger.Error("Failed to delete conversation", "err", err)

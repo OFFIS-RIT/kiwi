@@ -8,18 +8,19 @@ package pgdb
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
 )
 
 const deleteProjectRelationshipsByIDs = `-- name: DeleteProjectRelationshipsByIDs :exec
 DELETE FROM relationships
 WHERE project_id = $1
-  AND id = ANY($2::bigint[])
+  AND id = ANY($2::text[])
 `
 
 type DeleteProjectRelationshipsByIDsParams struct {
-	ProjectID int64   `json:"project_id"`
-	Ids       []int64 `json:"ids"`
+	ProjectID string   `json:"project_id"`
+	Ids       []string `json:"ids"`
 }
 
 func (q *Queries) DeleteProjectRelationshipsByIDs(ctx context.Context, arg DeleteProjectRelationshipsByIDsParams) error {
@@ -33,25 +34,24 @@ WHERE project_id = $1
   AND id NOT IN (SELECT DISTINCT relationship_id FROM relationship_sources)
 `
 
-func (q *Queries) DeleteRelationshipsWithoutSources(ctx context.Context, projectID int64) error {
+func (q *Queries) DeleteRelationshipsWithoutSources(ctx context.Context, projectID string) error {
 	_, err := q.db.Exec(ctx, deleteRelationshipsWithoutSources, projectID)
 	return err
 }
 
 const getProjectRelationships = `-- name: GetProjectRelationships :many
-SELECT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank FROM relationships r WHERE r.project_id = $1
+SELECT r.id, r.source_id, r.target_id, r.description, r.rank FROM relationships r WHERE r.project_id = $1
 `
 
 type GetProjectRelationshipsRow struct {
-	ID          int64   `json:"id"`
-	PublicID    string  `json:"public_id"`
-	SourceID    int64   `json:"source_id"`
-	TargetID    int64   `json:"target_id"`
+	ID          string  `json:"id"`
+	SourceID    string  `json:"source_id"`
+	TargetID    string  `json:"target_id"`
 	Description string  `json:"description"`
 	Rank        float64 `json:"rank"`
 }
 
-func (q *Queries) GetProjectRelationships(ctx context.Context, projectID int64) ([]GetProjectRelationshipsRow, error) {
+func (q *Queries) GetProjectRelationships(ctx context.Context, projectID string) ([]GetProjectRelationshipsRow, error) {
 	rows, err := q.db.Query(ctx, getProjectRelationships, projectID)
 	if err != nil {
 		return nil, err
@@ -62,7 +62,6 @@ func (q *Queries) GetProjectRelationships(ctx context.Context, projectID int64) 
 		var i GetProjectRelationshipsRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.PublicID,
 			&i.SourceID,
 			&i.TargetID,
 			&i.Description,
@@ -79,27 +78,26 @@ func (q *Queries) GetProjectRelationships(ctx context.Context, projectID int64) 
 }
 
 const getProjectRelationshipsWithEntityNamesByIDs = `-- name: GetProjectRelationshipsWithEntityNamesByIDs :many
-SELECT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank,
+SELECT r.id, r.source_id, r.target_id, r.description, r.rank,
        se.name AS source_name,
        te.name AS target_name
 FROM relationships r
 JOIN entities se ON r.source_id = se.id
 JOIN entities te ON r.target_id = te.id
-WHERE r.id = ANY($1::bigint[])
+WHERE r.id = ANY($1::text[])
 `
 
 type GetProjectRelationshipsWithEntityNamesByIDsRow struct {
-	ID          int64   `json:"id"`
-	PublicID    string  `json:"public_id"`
-	SourceID    int64   `json:"source_id"`
-	TargetID    int64   `json:"target_id"`
+	ID          string  `json:"id"`
+	SourceID    string  `json:"source_id"`
+	TargetID    string  `json:"target_id"`
 	Description string  `json:"description"`
 	Rank        float64 `json:"rank"`
 	SourceName  string  `json:"source_name"`
 	TargetName  string  `json:"target_name"`
 }
 
-func (q *Queries) GetProjectRelationshipsWithEntityNamesByIDs(ctx context.Context, ids []int64) ([]GetProjectRelationshipsWithEntityNamesByIDsRow, error) {
+func (q *Queries) GetProjectRelationshipsWithEntityNamesByIDs(ctx context.Context, ids []string) ([]GetProjectRelationshipsWithEntityNamesByIDsRow, error) {
 	rows, err := q.db.Query(ctx, getProjectRelationshipsWithEntityNamesByIDs, ids)
 	if err != nil {
 		return nil, err
@@ -110,7 +108,6 @@ func (q *Queries) GetProjectRelationshipsWithEntityNamesByIDs(ctx context.Contex
 		var i GetProjectRelationshipsWithEntityNamesByIDsRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.PublicID,
 			&i.SourceID,
 			&i.TargetID,
 			&i.Description,
@@ -128,28 +125,77 @@ func (q *Queries) GetProjectRelationshipsWithEntityNamesByIDs(ctx context.Contex
 	return items, nil
 }
 
+const getRelationshipSourceCountsByIDs = `-- name: GetRelationshipSourceCountsByIDs :many
+SELECT r.id, COUNT(rs.id)::int AS source_count
+FROM relationships r
+LEFT JOIN relationship_sources rs ON rs.relationship_id = r.id
+WHERE r.id = ANY($1::text[])
+  AND r.project_id = $2
+GROUP BY r.id
+`
+
+type GetRelationshipSourceCountsByIDsParams struct {
+	Column1   []string `json:"column_1"`
+	ProjectID string   `json:"project_id"`
+}
+
+type GetRelationshipSourceCountsByIDsRow struct {
+	ID          string `json:"id"`
+	SourceCount int32  `json:"source_count"`
+}
+
+func (q *Queries) GetRelationshipSourceCountsByIDs(ctx context.Context, arg GetRelationshipSourceCountsByIDsParams) ([]GetRelationshipSourceCountsByIDsRow, error) {
+	rows, err := q.db.Query(ctx, getRelationshipSourceCountsByIDs, arg.Column1, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetRelationshipSourceCountsByIDsRow{}
+	for rows.Next() {
+		var i GetRelationshipSourceCountsByIDsRow
+		if err := rows.Scan(&i.ID, &i.SourceCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRelationshipSourceDescriptionsBatch = `-- name: GetRelationshipSourceDescriptionsBatch :many
-SELECT rs.id, rs.description
+SELECT rs.id, rs.created_at, rs.description
 FROM relationship_sources rs
 WHERE rs.relationship_id = $1
-  AND rs.id > $2
-ORDER BY rs.id
-LIMIT $3
+  AND (
+      rs.created_at > $2
+      OR (rs.created_at = $2 AND rs.id > $3)
+  )
+ORDER BY rs.created_at, rs.id
+LIMIT $4
 `
 
 type GetRelationshipSourceDescriptionsBatchParams struct {
-	RelationshipID int64 `json:"relationship_id"`
-	ID             int64 `json:"id"`
-	Limit          int32 `json:"limit"`
+	RelationshipID  string             `json:"relationship_id"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        string             `json:"cursor_id"`
+	BatchLimit      int32              `json:"batch_limit"`
 }
 
 type GetRelationshipSourceDescriptionsBatchRow struct {
-	ID          int64  `json:"id"`
-	Description string `json:"description"`
+	ID          string             `json:"id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	Description string             `json:"description"`
 }
 
 func (q *Queries) GetRelationshipSourceDescriptionsBatch(ctx context.Context, arg GetRelationshipSourceDescriptionsBatchParams) ([]GetRelationshipSourceDescriptionsBatchRow, error) {
-	rows, err := q.db.Query(ctx, getRelationshipSourceDescriptionsBatch, arg.RelationshipID, arg.ID, arg.Limit)
+	rows, err := q.db.Query(ctx, getRelationshipSourceDescriptionsBatch,
+		arg.RelationshipID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.BatchLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +203,7 @@ func (q *Queries) GetRelationshipSourceDescriptionsBatch(ctx context.Context, ar
 	items := []GetRelationshipSourceDescriptionsBatchRow{}
 	for rows.Next() {
 		var i GetRelationshipSourceDescriptionsBatchRow
-		if err := rows.Scan(&i.ID, &i.Description); err != nil {
+		if err := rows.Scan(&i.ID, &i.CreatedAt, &i.Description); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -169,34 +215,40 @@ func (q *Queries) GetRelationshipSourceDescriptionsBatch(ctx context.Context, ar
 }
 
 const getRelationshipSourceDescriptionsForFilesBatch = `-- name: GetRelationshipSourceDescriptionsForFilesBatch :many
-SELECT rs.id, rs.description
+SELECT rs.id, rs.created_at, rs.description
 FROM relationship_sources rs
 JOIN text_units tu ON tu.id = rs.text_unit_id
 WHERE rs.relationship_id = $1
-  AND tu.project_file_id = ANY($2::bigint[])
-  AND rs.id > $3
-ORDER BY rs.id
-LIMIT $4
+  AND tu.project_file_id = ANY($2::text[])
+  AND (
+      rs.created_at > $3
+      OR (rs.created_at = $3 AND rs.id > $4)
+  )
+ORDER BY rs.created_at, rs.id
+LIMIT $5
 `
 
 type GetRelationshipSourceDescriptionsForFilesBatchParams struct {
-	RelationshipID int64   `json:"relationship_id"`
-	Column2        []int64 `json:"column_2"`
-	ID             int64   `json:"id"`
-	Limit          int32   `json:"limit"`
+	RelationshipID  string             `json:"relationship_id"`
+	FileIds         []string           `json:"file_ids"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        string             `json:"cursor_id"`
+	BatchLimit      int32              `json:"batch_limit"`
 }
 
 type GetRelationshipSourceDescriptionsForFilesBatchRow struct {
-	ID          int64  `json:"id"`
-	Description string `json:"description"`
+	ID          string             `json:"id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	Description string             `json:"description"`
 }
 
 func (q *Queries) GetRelationshipSourceDescriptionsForFilesBatch(ctx context.Context, arg GetRelationshipSourceDescriptionsForFilesBatchParams) ([]GetRelationshipSourceDescriptionsForFilesBatchRow, error) {
 	rows, err := q.db.Query(ctx, getRelationshipSourceDescriptionsForFilesBatch,
 		arg.RelationshipID,
-		arg.Column2,
-		arg.ID,
-		arg.Limit,
+		arg.FileIds,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.BatchLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -205,7 +257,7 @@ func (q *Queries) GetRelationshipSourceDescriptionsForFilesBatch(ctx context.Con
 	items := []GetRelationshipSourceDescriptionsForFilesBatchRow{}
 	for rows.Next() {
 		var i GetRelationshipSourceDescriptionsForFilesBatchRow
-		if err := rows.Scan(&i.ID, &i.Description); err != nil {
+		if err := rows.Scan(&i.ID, &i.CreatedAt, &i.Description); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -217,24 +269,23 @@ func (q *Queries) GetRelationshipSourceDescriptionsForFilesBatch(ctx context.Con
 }
 
 const getRelationshipsWithSourcesFromFiles = `-- name: GetRelationshipsWithSourcesFromFiles :many
-SELECT DISTINCT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank
+SELECT DISTINCT r.id, r.source_id, r.target_id, r.description, r.rank
 FROM relationships r
 JOIN relationship_sources rs ON rs.relationship_id = r.id
 JOIN text_units tu ON tu.id = rs.text_unit_id
-WHERE tu.project_file_id = ANY($1::bigint[])
+WHERE tu.project_file_id = ANY($1::text[])
   AND r.project_id = $2
 `
 
 type GetRelationshipsWithSourcesFromFilesParams struct {
-	Column1   []int64 `json:"column_1"`
-	ProjectID int64   `json:"project_id"`
+	Column1   []string `json:"column_1"`
+	ProjectID string   `json:"project_id"`
 }
 
 type GetRelationshipsWithSourcesFromFilesRow struct {
-	ID          int64   `json:"id"`
-	PublicID    string  `json:"public_id"`
-	SourceID    int64   `json:"source_id"`
-	TargetID    int64   `json:"target_id"`
+	ID          string  `json:"id"`
+	SourceID    string  `json:"source_id"`
+	TargetID    string  `json:"target_id"`
 	Description string  `json:"description"`
 	Rank        float64 `json:"rank"`
 }
@@ -250,7 +301,6 @@ func (q *Queries) GetRelationshipsWithSourcesFromFiles(ctx context.Context, arg 
 		var i GetRelationshipsWithSourcesFromFilesRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.PublicID,
 			&i.SourceID,
 			&i.TargetID,
 			&i.Description,
@@ -267,23 +317,22 @@ func (q *Queries) GetRelationshipsWithSourcesFromFiles(ctx context.Context, arg 
 }
 
 const getRelationshipsWithSourcesFromUnits = `-- name: GetRelationshipsWithSourcesFromUnits :many
-SELECT DISTINCT r.id, r.public_id, r.source_id, r.target_id, r.description, r.rank
+SELECT DISTINCT r.id, r.source_id, r.target_id, r.description, r.rank
 FROM relationships r
 JOIN relationship_sources rs ON rs.relationship_id = r.id
-WHERE rs.text_unit_id = ANY($1::bigint[])
+WHERE rs.text_unit_id = ANY($1::text[])
   AND r.project_id = $2
 `
 
 type GetRelationshipsWithSourcesFromUnitsParams struct {
-	Column1   []int64 `json:"column_1"`
-	ProjectID int64   `json:"project_id"`
+	Column1   []string `json:"column_1"`
+	ProjectID string   `json:"project_id"`
 }
 
 type GetRelationshipsWithSourcesFromUnitsRow struct {
-	ID          int64   `json:"id"`
-	PublicID    string  `json:"public_id"`
-	SourceID    int64   `json:"source_id"`
-	TargetID    int64   `json:"target_id"`
+	ID          string  `json:"id"`
+	SourceID    string  `json:"source_id"`
+	TargetID    string  `json:"target_id"`
 	Description string  `json:"description"`
 	Rank        float64 `json:"rank"`
 }
@@ -299,7 +348,6 @@ func (q *Queries) GetRelationshipsWithSourcesFromUnits(ctx context.Context, arg 
 		var i GetRelationshipsWithSourcesFromUnitsRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.PublicID,
 			&i.SourceID,
 			&i.TargetID,
 			&i.Description,
@@ -319,8 +367,8 @@ const transferRelationshipSourcesBatchByMappings = `-- name: TransferRelationshi
 WITH input AS (
     SELECT
         rel.relationship_id,
-        ($2::bigint[])[rel.ord]::bigint AS canonical_id
-    FROM unnest($3::bigint[]) WITH ORDINALITY AS rel(relationship_id, ord)
+        ($2::text[])[rel.ord]::text AS canonical_id
+    FROM unnest($3::text[]) WITH ORDINALITY AS rel(relationship_id, ord)
 )
 UPDATE relationship_sources rs
 SET relationship_id = input.canonical_id
@@ -331,9 +379,9 @@ WHERE rs.relationship_id = input.relationship_id
 `
 
 type TransferRelationshipSourcesBatchByMappingsParams struct {
-	ProjectID       int64   `json:"project_id"`
-	CanonicalIds    []int64 `json:"canonical_ids"`
-	RelationshipIds []int64 `json:"relationship_ids"`
+	ProjectID       string   `json:"project_id"`
+	CanonicalIds    []string `json:"canonical_ids"`
+	RelationshipIds []string `json:"relationship_ids"`
 }
 
 func (q *Queries) TransferRelationshipSourcesBatchByMappings(ctx context.Context, arg TransferRelationshipSourcesBatchByMappingsParams) error {
@@ -342,24 +390,24 @@ func (q *Queries) TransferRelationshipSourcesBatchByMappings(ctx context.Context
 }
 
 const updateProjectRelationship = `-- name: UpdateProjectRelationship :one
-UPDATE relationships SET description = $2, rank = $3, embedding = $4, updated_at = NOW() WHERE public_id = $1 RETURNING id
+UPDATE relationships SET description = $2, rank = $3, embedding = $4, updated_at = NOW() WHERE id = $1 RETURNING id
 `
 
 type UpdateProjectRelationshipParams struct {
-	PublicID    string          `json:"public_id"`
+	ID          string          `json:"id"`
 	Description string          `json:"description"`
 	Rank        float64         `json:"rank"`
 	Embedding   pgvector.Vector `json:"embedding"`
 }
 
-func (q *Queries) UpdateProjectRelationship(ctx context.Context, arg UpdateProjectRelationshipParams) (int64, error) {
+func (q *Queries) UpdateProjectRelationship(ctx context.Context, arg UpdateProjectRelationshipParams) (string, error) {
 	row := q.db.QueryRow(ctx, updateProjectRelationship,
-		arg.PublicID,
+		arg.ID,
 		arg.Description,
 		arg.Rank,
 		arg.Embedding,
 	)
-	var id int64
+	var id string
 	err := row.Scan(&id)
 	return id, err
 }
@@ -369,7 +417,7 @@ WITH input AS (
     SELECT
         rel.id,
         ($2::float8[])[rel.ord]::float8 AS rank
-    FROM unnest($3::bigint[]) WITH ORDINALITY AS rel(id, ord)
+    FROM unnest($3::text[]) WITH ORDINALITY AS rel(id, ord)
 )
 UPDATE relationships r
 SET rank = input.rank,
@@ -380,9 +428,9 @@ WHERE r.id = input.id
 `
 
 type UpdateProjectRelationshipRanksByIDsParams struct {
-	ProjectID int64     `json:"project_id"`
+	ProjectID string    `json:"project_id"`
 	Ranks     []float64 `json:"ranks"`
-	Ids       []int64   `json:"ids"`
+	Ids       []string  `json:"ids"`
 }
 
 func (q *Queries) UpdateProjectRelationshipRanksByIDs(ctx context.Context, arg UpdateProjectRelationshipRanksByIDsParams) error {
@@ -396,7 +444,7 @@ WITH input AS (
         u.id,
         ($1::text[])[u.ord]::text AS description,
         ($2::vector[])[u.ord]::vector AS embedding
-    FROM unnest($3::bigint[]) WITH ORDINALITY AS u(id, ord)
+    FROM unnest($3::text[]) WITH ORDINALITY AS u(id, ord)
 )
 UPDATE relationships r
 SET description = input.description,
@@ -409,7 +457,7 @@ WHERE r.id = input.id
 type UpdateProjectRelationshipsByIDsParams struct {
 	Descriptions []string          `json:"descriptions"`
 	Embeddings   []pgvector.Vector `json:"embeddings"`
-	Ids          []int64           `json:"ids"`
+	Ids          []string          `json:"ids"`
 }
 
 func (q *Queries) UpdateProjectRelationshipsByIDs(ctx context.Context, arg UpdateProjectRelationshipsByIDsParams) error {
@@ -421,13 +469,13 @@ const updateRelationshipSourceEntitiesBatch = `-- name: UpdateRelationshipSource
 UPDATE relationships
 SET source_id = $1
 WHERE project_id = $2
-  AND source_id = ANY($3::bigint[])
+  AND source_id = ANY($3::text[])
 `
 
 type UpdateRelationshipSourceEntitiesBatchParams struct {
-	CanonicalID int64   `json:"canonical_id"`
-	ProjectID   int64   `json:"project_id"`
-	EntityIds   []int64 `json:"entity_ids"`
+	CanonicalID string   `json:"canonical_id"`
+	ProjectID   string   `json:"project_id"`
+	EntityIds   []string `json:"entity_ids"`
 }
 
 func (q *Queries) UpdateRelationshipSourceEntitiesBatch(ctx context.Context, arg UpdateRelationshipSourceEntitiesBatchParams) error {
@@ -439,13 +487,13 @@ const updateRelationshipTargetEntitiesBatch = `-- name: UpdateRelationshipTarget
 UPDATE relationships
 SET target_id = $1
 WHERE project_id = $2
-  AND target_id = ANY($3::bigint[])
+  AND target_id = ANY($3::text[])
 `
 
 type UpdateRelationshipTargetEntitiesBatchParams struct {
-	CanonicalID int64   `json:"canonical_id"`
-	ProjectID   int64   `json:"project_id"`
-	EntityIds   []int64 `json:"entity_ids"`
+	CanonicalID string   `json:"canonical_id"`
+	ProjectID   string   `json:"project_id"`
+	EntityIds   []string `json:"entity_ids"`
 }
 
 func (q *Queries) UpdateRelationshipTargetEntitiesBatch(ctx context.Context, arg UpdateRelationshipTargetEntitiesBatchParams) error {
@@ -456,18 +504,18 @@ func (q *Queries) UpdateRelationshipTargetEntitiesBatch(ctx context.Context, arg
 const upsertProjectRelationships = `-- name: UpsertProjectRelationships :many
 WITH input AS (
     SELECT
-        u.public_id,
-        ($2::bigint[])[u.ord]::bigint AS source_id,
-        ($3::bigint[])[u.ord]::bigint AS target_id,
+        u.id,
+        ($2::text[])[u.ord]::text AS source_id,
+        ($3::text[])[u.ord]::text AS target_id,
         ($4::float8[])[u.ord]::float8 AS rank,
         ($5::text[])[u.ord]::text AS description,
         ($6::vector[])[u.ord]::vector AS embedding
-    FROM unnest($7::text[]) WITH ORDINALITY AS u(public_id, ord)
+    FROM unnest($7::text[]) WITH ORDINALITY AS u(id, ord)
 )
-INSERT INTO relationships (public_id, project_id, source_id, target_id, rank, description, embedding)
-SELECT public_id, $1::bigint, source_id, target_id, rank, description, embedding
+INSERT INTO relationships (id, project_id, source_id, target_id, rank, description, embedding)
+SELECT id, $1::text, source_id, target_id, rank, description, embedding
 FROM input
-ON CONFLICT (public_id) DO UPDATE
+ON CONFLICT (id) DO UPDATE
 SET project_id = EXCLUDED.project_id,
     source_id = EXCLUDED.source_id,
     target_id = EXCLUDED.target_id,
@@ -475,25 +523,20 @@ SET project_id = EXCLUDED.project_id,
     description = EXCLUDED.description,
     embedding = EXCLUDED.embedding,
     updated_at = NOW()
-RETURNING id, public_id
+RETURNING id
 `
 
 type UpsertProjectRelationshipsParams struct {
-	ProjectID    int64             `json:"project_id"`
-	SourceIds    []int64           `json:"source_ids"`
-	TargetIds    []int64           `json:"target_ids"`
+	ProjectID    string            `json:"project_id"`
+	SourceIds    []string          `json:"source_ids"`
+	TargetIds    []string          `json:"target_ids"`
 	Ranks        []float64         `json:"ranks"`
 	Descriptions []string          `json:"descriptions"`
 	Embeddings   []pgvector.Vector `json:"embeddings"`
-	PublicIds    []string          `json:"public_ids"`
+	Ids          []string          `json:"ids"`
 }
 
-type UpsertProjectRelationshipsRow struct {
-	ID       int64  `json:"id"`
-	PublicID string `json:"public_id"`
-}
-
-func (q *Queries) UpsertProjectRelationships(ctx context.Context, arg UpsertProjectRelationshipsParams) ([]UpsertProjectRelationshipsRow, error) {
+func (q *Queries) UpsertProjectRelationships(ctx context.Context, arg UpsertProjectRelationshipsParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, upsertProjectRelationships,
 		arg.ProjectID,
 		arg.SourceIds,
@@ -501,19 +544,19 @@ func (q *Queries) UpsertProjectRelationships(ctx context.Context, arg UpsertProj
 		arg.Ranks,
 		arg.Descriptions,
 		arg.Embeddings,
-		arg.PublicIds,
+		arg.Ids,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []UpsertProjectRelationshipsRow{}
+	items := []string{}
 	for rows.Next() {
-		var i UpsertProjectRelationshipsRow
-		if err := rows.Scan(&i.ID, &i.PublicID); err != nil {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		items = append(items, i)
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -524,17 +567,17 @@ func (q *Queries) UpsertProjectRelationships(ctx context.Context, arg UpsertProj
 const upsertRelationshipSources = `-- name: UpsertRelationshipSources :exec
 WITH input AS (
     SELECT
-        u.public_id,
-        ($1::bigint[])[u.ord]::bigint AS relationship_id,
-        ($2::bigint[])[u.ord]::bigint AS text_unit_id,
+        u.id,
+        ($1::text[])[u.ord]::text AS relationship_id,
+        ($2::text[])[u.ord]::text AS text_unit_id,
         ($3::text[])[u.ord]::text AS description,
         ($4::vector[])[u.ord]::vector AS embedding
-    FROM unnest($5::text[]) WITH ORDINALITY AS u(public_id, ord)
+    FROM unnest($5::text[]) WITH ORDINALITY AS u(id, ord)
 )
-INSERT INTO relationship_sources (public_id, relationship_id, text_unit_id, description, embedding)
-SELECT public_id, relationship_id, text_unit_id, description, embedding
+INSERT INTO relationship_sources (id, relationship_id, text_unit_id, description, embedding)
+SELECT id, relationship_id, text_unit_id, description, embedding
 FROM input
-ON CONFLICT (public_id) DO UPDATE
+ON CONFLICT (id) DO UPDATE
 SET relationship_id = EXCLUDED.relationship_id,
     text_unit_id = EXCLUDED.text_unit_id,
     description = EXCLUDED.description,
@@ -543,11 +586,11 @@ SET relationship_id = EXCLUDED.relationship_id,
 `
 
 type UpsertRelationshipSourcesParams struct {
-	RelationshipIds []int64           `json:"relationship_ids"`
-	TextUnitIds     []int64           `json:"text_unit_ids"`
+	RelationshipIds []string          `json:"relationship_ids"`
+	TextUnitIds     []string          `json:"text_unit_ids"`
 	Descriptions    []string          `json:"descriptions"`
 	Embeddings      []pgvector.Vector `json:"embeddings"`
-	PublicIds       []string          `json:"public_ids"`
+	Ids             []string          `json:"ids"`
 }
 
 func (q *Queries) UpsertRelationshipSources(ctx context.Context, arg UpsertRelationshipSourcesParams) error {
@@ -556,7 +599,7 @@ func (q *Queries) UpsertRelationshipSources(ctx context.Context, arg UpsertRelat
 		arg.TextUnitIds,
 		arg.Descriptions,
 		arg.Embeddings,
-		arg.PublicIds,
+		arg.Ids,
 	)
 	return err
 }

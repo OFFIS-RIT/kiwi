@@ -27,7 +27,7 @@ import { Loader2, Plus, UserCircle, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 type EditableUser = {
-  user_id: number;
+  user_id: string;
   role: string;
 };
 
@@ -84,7 +84,7 @@ export function EditGroupDialog({
     }
   }, [group, open, loadGroupUsers]);
 
-  const handleUpdateUserRole = (userId: number, newRole: string) => {
+  const handleUpdateUserRole = (userId: string, newRole: string) => {
     setEditableUsers(
       editableUsers.map((user) =>
         user.user_id === userId ? { ...user, role: newRole } : user
@@ -92,24 +92,24 @@ export function EditGroupDialog({
     );
   };
 
-  const handleRemoveUser = (userId: number) => {
+  const handleRemoveUser = (userId: string) => {
     setEditableUsers(editableUsers.filter((user) => user.user_id !== userId));
   };
 
   const handleAddUser = () => {
-    const userIdNum = Number.parseInt(newUserId, 10);
-    if (!userIdNum || isNaN(userIdNum)) {
+    const userID = newUserId.trim();
+    if (!userID) {
       setError(t("error.invalid.userid"));
       return;
     }
-    if (editableUsers.some((u) => u.user_id === userIdNum)) {
+    if (editableUsers.some((u) => u.user_id === userID)) {
       setError(t("error.duplicate.userid"));
       return;
     }
     setError(null);
     setEditableUsers([
       ...editableUsers,
-      { user_id: userIdNum, role: newUserRole },
+      { user_id: userID, role: newUserRole },
     ]);
     setNewUserId("");
     setNewUserRole("user");

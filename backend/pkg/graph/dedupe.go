@@ -33,6 +33,15 @@ func (g *GraphClient) dedupeEntitiesAndRelations(
 	return g.dedupeEntitiesStrict(ctx, entities, relations, aiClient)
 }
 
+func (g *GraphClient) LocalDedupe(
+	ctx context.Context,
+	entities []common.Entity,
+	relations []common.Relationship,
+	aiClient ai.GraphAIClient,
+) ([]common.Entity, []common.Relationship, error) {
+	return g.dedupeEntitiesAndRelations(ctx, entities, relations, aiClient)
+}
+
 func (g *GraphClient) dedupeEntitiesStrict(
 	ctx context.Context,
 	entities []common.Entity,

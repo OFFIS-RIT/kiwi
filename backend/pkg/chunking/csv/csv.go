@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/chunking"
-	gonanoid "github.com/matoous/go-nanoid/v2"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ids"
 	"github.com/pkoukk/tiktoken-go"
 )
 
@@ -47,14 +47,9 @@ func (c *CSVChunker) Chunk(_ context.Context, input string) ([]chunking.Chunk, e
 
 	// Single row: return as-is (header only, no data to split).
 	if len(rows) == 1 {
-		id, err := gonanoid.New()
-		if err != nil {
-			return nil, err
-		}
-
 		return []chunking.Chunk{
 			{
-				ID:   id,
+				ID:   ids.New(),
 				Text: rows[0],
 			},
 		}, nil
@@ -103,13 +98,8 @@ func (c *CSVChunker) Chunk(_ context.Context, input string) ([]chunking.Chunk, e
 
 	result := make([]chunking.Chunk, len(chunks))
 	for i := range chunks {
-		id, err := gonanoid.New()
-		if err != nil {
-			return nil, err
-		}
-
 		result[i] = chunking.Chunk{
-			ID:   id,
+			ID:   ids.New(),
 			Text: chunks[i],
 		}
 	}

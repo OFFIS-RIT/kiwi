@@ -15,7 +15,7 @@ import (
 // DeleteExpertProjectHandler deletes an expert graph and all its content. Admin only.
 func DeleteExpertProjectHandler(c echo.Context) error {
 	type deleteExpertProjectParams struct {
-		ID int64 `param:"id" validate:"required,numeric"`
+		ID string `param:"id" validate:"required"`
 	}
 
 	type deleteExpertProjectResponse struct {
@@ -57,6 +57,10 @@ func DeleteExpertProjectHandler(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, deleteExpertProjectResponse{Message: "Internal server error"})
 	}
 
+	if _, err := qtx.CancelWorkflowRunsByProject(ctx, params.ID); err != nil {
+		return c.JSON(http.StatusInternalServerError, deleteExpertProjectResponse{Message: "Internal server error"})
+	}
+
 	if err := qtx.DeleteProject(ctx, params.ID); err != nil {
 		return c.JSON(http.StatusInternalServerError, deleteExpertProjectResponse{Message: "Internal server error"})
 	}
@@ -66,7 +70,7 @@ func DeleteExpertProjectHandler(c echo.Context) error {
 	}
 
 	s3Client := c.(*middleware.AppContext).App.S3
-	storage.DeleteFolder(ctx, s3Client, fmt.Sprintf("projects/%d", params.ID))
+	storage.DeleteFolder(ctx, s3Client, fmt.Sprintf("projects/%s", params.ID))
 
 	return c.JSON(http.StatusOK, deleteExpertProjectResponse{Message: "Expert project deleted"})
 }

@@ -38,7 +38,7 @@ func appendOptionalNextStepHint(result *strings.Builder, hint string) {
 	fmt.Fprintf(result, "\nHint: Optional next step: %s\n", hint)
 }
 
-func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) ai.Tool {
+func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId string, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "search_entities",
 		Description: "Search for entities in the knowledge graph by semantic similarity with optional keyword boosts. Returns a list of entities matching the query. Use this as the entry point to explore the graph.",
@@ -105,7 +105,7 @@ func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId
 			}
 			entities = rerankEntityResults(entities, limit)
 			if len(entities) > 0 {
-				ids := make([]int64, 0, len(entities))
+				ids := make([]string, 0, len(entities))
 				for _, e := range entities {
 					ids = append(ids, e.ID)
 				}
@@ -120,7 +120,7 @@ func toolSearchEntities(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId
 			} else {
 				for i, e := range entities {
 					desc := truncateDescription(e.Description, 150)
-					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s): %s\n", i+1, e.ID, e.Name, e.Type, desc)
+					fmt.Fprintf(&result, "%d. [ID: %s] %s (%s): %s\n", i+1, e.ID, e.Name, e.Type, desc)
 				}
 				appendOptionalNextStepHint(&result, "use get_entity_neighbours on the top entity IDs to expand context, then get_entity_sources for citations")
 			}
@@ -138,7 +138,7 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 			"type": "object",
 			"properties": map[string]any{
 				"entity_id": map[string]any{
-					"type":        "integer",
+					"type":        "string",
 					"description": "The ID of the entity whose neighbours to retrieve.",
 				},
 				"query": map[string]any{
@@ -166,11 +166,10 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 				return "", fmt.Errorf("failed to parse arguments: %w", err)
 			}
 
-			entityIdRaw, ok := params["entity_id"].(float64)
-			if !ok {
-				return "", fmt.Errorf("entity_id is required and must be an integer")
+			entityId, ok := params["entity_id"].(string)
+			if !ok || strings.TrimSpace(entityId) == "" {
+				return "", fmt.Errorf("entity_id is required and must be a string")
 			}
-			entityId := int64(entityIdRaw)
 			graphquery.RecordQueriedEntityIDs(trace, entityId)
 
 			query, ok := params["query"].(string)
@@ -208,8 +207,8 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 			}
 			neighbours = rerankNeighbourResults(neighbours, limit)
 			if len(neighbours) > 0 {
-				neighbourIDs := make([]int64, 0, len(neighbours))
-				relIDs := make([]int64, 0, len(neighbours))
+				neighbourIDs := make([]string, 0, len(neighbours))
+				relIDs := make([]string, 0, len(neighbours))
 				for _, n := range neighbours {
 					neighbourIDs = append(neighbourIDs, n.NeighbourID)
 					relIDs = append(relIDs, n.RelationshipID)
@@ -219,7 +218,7 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 			}
 
 			var result strings.Builder
-			fmt.Fprintf(&result, "## Neighbours of Entity ID: %d\n", entityId)
+			fmt.Fprintf(&result, "## Neighbours of Entity ID: %s\n", entityId)
 			if len(neighbours) == 0 {
 				result.WriteString("No neighbours found for this entity.\n")
 				appendOptionalNextStepHint(&result, "try search_relationships for broader connections or path_between_entities if you have another target entity")
@@ -227,7 +226,7 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 				for i, n := range neighbours {
 					desc := truncateDescription(n.NeighbourDescription, 150)
 					relDesc := truncateDescription(n.RelationshipDescription, 100)
-					fmt.Fprintf(&result, "%d. [Rel ID: %d] \"%s\" (ID: %d, %s) - \"%s\" (rank: %.2f)\n   %s\n",
+					fmt.Fprintf(&result, "%d. [Rel ID: %s] \"%s\" (ID: %s, %s) - \"%s\" (rank: %.2f)\n   %s\n",
 						i+1, n.RelationshipID, n.NeighbourName, n.NeighbourID, n.NeighbourType, relDesc, n.Rank, desc)
 				}
 				appendOptionalNextStepHint(&result, "use get_entity_details for neighbour IDs or get_relationship_details for relationship IDs, then retrieve sources")
@@ -238,7 +237,7 @@ func toolGetEntityNeighbours(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trac
 	}
 }
 
-func toolPathBetweenEntities(conn *pgxpool.Pool, projectId int64, trace graphquery.Tracer) ai.Tool {
+func toolPathBetweenEntities(conn *pgxpool.Pool, projectId string, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "path_between_entities",
 		Description: "Find the shortest path between two entities in the knowledge graph. Returns the sequence of entities and relationships connecting them.",
@@ -267,132 +266,67 @@ func toolPathBetweenEntities(conn *pgxpool.Pool, projectId int64, trace graphque
 				return "", fmt.Errorf("failed to parse arguments: %w", err)
 			}
 
-			startIdRaw, ok := params["start_id"].(float64)
-			if !ok {
-				return "", fmt.Errorf("start_id is required and must be an integer")
+			startId, ok := params["start_id"].(string)
+			if !ok || strings.TrimSpace(startId) == "" {
+				return "", fmt.Errorf("start_id is required and must be a string")
 			}
-			startId := int64(startIdRaw)
 
-			endIdRaw, ok := params["end_id"].(float64)
-			if !ok {
-				return "", fmt.Errorf("end_id is required and must be an integer")
+			endId, ok := params["end_id"].(string)
+			if !ok || strings.TrimSpace(endId) == "" {
+				return "", fmt.Errorf("end_id is required and must be a string")
 			}
-			endId := int64(endIdRaw)
 			graphquery.RecordQueriedEntityIDs(trace, startId, endId)
 
 			logger.Debug("[Tool] path_between_entities", "start_id", startId, "end_id", endId)
 
-			// Dijkstra query to find shortest path
-			query := fmt.Sprintf(`
-				WITH route AS (
-					SELECT *
-					FROM pgr_dijkstra(
-						'SELECT
-							id,
-							source_id AS source,
-							target_id AS target,
-							1.0 / NULLIF(rank, 0) AS cost
-						FROM relationships
-						WHERE project_id = %d',
-						$1::bigint,
-						$2::bigint,
-						directed := false
-					)
-				)
-				SELECT
-					r.id,
-					r.description,
-					r.source_id,
-					r.target_id
-				FROM route rt
-				JOIN relationships r ON r.id = rt.edge
-				WHERE rt.edge != -1
-				ORDER BY rt.path_seq;
-			`, projectId)
-
-			rows, err := conn.Query(ctx, query, startId, endId)
+			storage := &GraphDBStorage{conn: conn}
+			relIDs, entityIDs, relations, err := storage.getPathBetweenEntities(ctx, conn, startId, endId, projectId)
 			if err != nil {
 				return "", fmt.Errorf("failed to find path: %w", err)
 			}
-			defer rows.Close()
-
-			type pathRelation struct {
-				ID          int64
-				Description string
-				SourceId    int64
-				TargetId    int64
-			}
-
-			var relations []pathRelation
-			entityIds := make(map[int64]bool)
-			entityIds[startId] = true
-			entityIds[endId] = true
-
-			for rows.Next() {
-				var rel pathRelation
-				if err := rows.Scan(&rel.ID, &rel.Description, &rel.SourceId, &rel.TargetId); err != nil {
-					return "", fmt.Errorf("failed to scan path row: %w", err)
-				}
-				relations = append(relations, rel)
-				entityIds[rel.SourceId] = true
-				entityIds[rel.TargetId] = true
-			}
 			if len(relations) > 0 {
-				relIDs := make([]int64, 0, len(relations))
-				for _, r := range relations {
-					relIDs = append(relIDs, r.ID)
-				}
 				graphquery.RecordQueriedRelationshipIDs(trace, relIDs...)
 			}
-			if len(entityIds) > 0 {
-				entityIDs := make([]int64, 0, len(entityIds))
-				for id := range entityIds {
-					entityIDs = append(entityIDs, id)
-				}
+			if len(entityIDs) > 0 {
 				graphquery.RecordQueriedEntityIDs(trace, entityIDs...)
 			}
 
 			if len(relations) == 0 {
 				var result strings.Builder
 				result.WriteString("## Path\n")
-				fmt.Fprintf(&result, "No path found between entity %d and entity %d.\n", startId, endId)
+				fmt.Fprintf(&result, "No path found between entity %s and entity %s.\n", startId, endId)
 				appendOptionalNextStepHint(&result, "broaden discovery with search_entities/search_relationships around both endpoint entities")
 				return result.String(), nil
 			}
 
 			// Fetch entity names
-			ids := make([]int64, 0, len(entityIds))
-			for id := range entityIds {
-				ids = append(ids, id)
-			}
-
 			q := pgdb.New(conn)
-			entities, err := q.GetProjectEntitiesByIDs(ctx, ids)
+			entities, err := q.GetProjectEntitiesByIDs(ctx, entityIDs)
 			if err != nil {
 				return "", fmt.Errorf("failed to get entity names: %w", err)
 			}
 
-			entityNames := make(map[int64]string)
+			entityNames := make(map[string]string)
 			for _, e := range entities {
 				entityNames[e.ID] = e.Name
 			}
 
 			var result strings.Builder
-			fmt.Fprintf(&result, "## Path from \"%s\" (ID: %d) to \"%s\" (ID: %d)\n",
+			fmt.Fprintf(&result, "## Path from \"%s\" (ID: %s) to \"%s\" (ID: %s)\n",
 				entityNames[startId], startId, entityNames[endId], endId)
 
 			currentEntity := startId
-			fmt.Fprintf(&result, "%d \"%s\"", currentEntity, entityNames[currentEntity])
+			fmt.Fprintf(&result, "%s \"%s\"", currentEntity, entityNames[currentEntity])
 
 			for _, rel := range relations {
-				var nextEntity int64
-				if rel.SourceId == currentEntity {
-					nextEntity = rel.TargetId
+				var nextEntity string
+				if rel.Source != nil && rel.Source.ID == currentEntity {
+					nextEntity = rel.Target.ID
 				} else {
-					nextEntity = rel.SourceId
+					nextEntity = rel.Source.ID
 				}
 				relDesc := truncateDescription(rel.Description, 50)
-				fmt.Fprintf(&result, " --[%s (rel %d)]--> %d \"%s\"", relDesc, rel.ID, nextEntity, entityNames[nextEntity])
+				fmt.Fprintf(&result, " --[%s (rel %s)]--> %s \"%s\"", relDesc, rel.ID, nextEntity, entityNames[nextEntity])
 				currentEntity = nextEntity
 			}
 			result.WriteString("\n")
@@ -412,7 +346,7 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace g
 			"properties": map[string]any{
 				"entity_ids": map[string]any{
 					"type":        "array",
-					"items":       map[string]any{"type": "integer"},
+					"items":       map[string]any{"type": "string"},
 					"description": "The IDs of the entities to retrieve sources for.",
 				},
 				"query": map[string]any{
@@ -444,10 +378,10 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace g
 			if !ok || len(entityIdsRaw) == 0 {
 				return "", fmt.Errorf("entity_ids is required and must be a non-empty array")
 			}
-			entityIds := make([]int64, 0, len(entityIdsRaw))
+			entityIds := make([]string, 0, len(entityIdsRaw))
 			for _, id := range entityIdsRaw {
-				if idFloat, ok := id.(float64); ok {
-					entityIds = append(entityIds, int64(idFloat))
+				if idStr, ok := id.(string); ok && strings.TrimSpace(idStr) != "" {
+					entityIds = append(entityIds, idStr)
 				}
 			}
 			graphquery.RecordQueriedEntityIDs(trace, entityIds...)
@@ -489,7 +423,7 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace g
 			if len(sources) > 0 {
 				sourceIDs := make([]string, 0, len(sources))
 				for _, s := range sources {
-					sourceIDs = append(sourceIDs, s.PublicID)
+					sourceIDs = append(sourceIDs, s.TextUnitID)
 				}
 				graphquery.RecordConsideredSourceIDs(trace, sourceIDs...)
 				graphquery.RecordUsedSourceIDs(trace, sourceIDs...)
@@ -504,7 +438,7 @@ func toolGetEntitySources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, trace g
 				for i, s := range sources {
 					desc := strings.ReplaceAll(s.Description, "\n", " ")
 					desc = strings.ReplaceAll(desc, "\r", " ")
-					fmt.Fprintf(&result, "%d. [Entity ID: %d] (Source: %s): %s\n", i+1, s.EntityID, s.PublicID, desc)
+					fmt.Fprintf(&result, "%d. [Entity ID: %s] (Source: %s): %s\n", i+1, s.EntityID, s.TextUnitID, desc)
 				}
 				appendOptionalNextStepHint(&result, "call get_source_document_metadata with returned source IDs to validate context before final answer")
 			}
@@ -523,7 +457,7 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, t
 			"properties": map[string]any{
 				"relationship_ids": map[string]any{
 					"type":        "array",
-					"items":       map[string]any{"type": "integer"},
+					"items":       map[string]any{"type": "string"},
 					"description": "The IDs of the relationships to retrieve sources for.",
 				},
 				"query": map[string]any{
@@ -555,10 +489,10 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, t
 			if !ok || len(relationshipIdsRaw) == 0 {
 				return "", fmt.Errorf("relationship_ids is required and must be a non-empty array")
 			}
-			relationshipIds := make([]int64, 0, len(relationshipIdsRaw))
+			relationshipIds := make([]string, 0, len(relationshipIdsRaw))
 			for _, id := range relationshipIdsRaw {
-				if idFloat, ok := id.(float64); ok {
-					relationshipIds = append(relationshipIds, int64(idFloat))
+				if idStr, ok := id.(string); ok && strings.TrimSpace(idStr) != "" {
+					relationshipIds = append(relationshipIds, idStr)
 				}
 			}
 			graphquery.RecordQueriedRelationshipIDs(trace, relationshipIds...)
@@ -599,9 +533,9 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, t
 			sources = rerankRelationshipSourceResults(sources, limit)
 			if len(sources) > 0 {
 				sourceIDs := make([]string, 0, len(sources))
-				entityIDs := make([]int64, 0, len(sources)*2)
+				entityIDs := make([]string, 0, len(sources)*2)
 				for _, s := range sources {
-					sourceIDs = append(sourceIDs, s.PublicID)
+					sourceIDs = append(sourceIDs, s.TextUnitID)
 					entityIDs = append(entityIDs, s.SourceID, s.TargetID)
 				}
 				graphquery.RecordConsideredSourceIDs(trace, sourceIDs...)
@@ -618,7 +552,7 @@ func toolGetRelationshipSources(conn *pgxpool.Pool, aiClient ai.GraphAIClient, t
 				for i, s := range sources {
 					desc := strings.ReplaceAll(s.Description, "\n", " ")
 					desc = strings.ReplaceAll(desc, "\r", " ")
-					fmt.Fprintf(&result, "%d. [%d <-> %d] (Source: %s): %s\n", i+1, s.SourceID, s.TargetID, s.PublicID, desc)
+					fmt.Fprintf(&result, "%d. [%s <-> %s] (Source: %s): %s\n", i+1, s.SourceID, s.TargetID, s.TextUnitID, desc)
 				}
 				appendOptionalNextStepHint(&result, "call get_source_document_metadata with returned source IDs to validate context before final answer")
 			}
@@ -637,7 +571,7 @@ func toolGetEntityDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.Tool {
 			"properties": map[string]any{
 				"entity_ids": map[string]any{
 					"type":        "array",
-					"items":       map[string]any{"type": "integer"},
+					"items":       map[string]any{"type": "string"},
 					"description": "The IDs of the entities to retrieve details for (max 100).",
 				},
 			},
@@ -657,10 +591,10 @@ func toolGetEntityDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.Tool {
 				return "", fmt.Errorf("entity_ids is limited to 100 entities maximum")
 			}
 
-			entityIds := make([]int64, 0, len(entityIdsRaw))
+			entityIds := make([]string, 0, len(entityIdsRaw))
 			for _, id := range entityIdsRaw {
-				if idFloat, ok := id.(float64); ok {
-					entityIds = append(entityIds, int64(idFloat))
+				if idStr, ok := id.(string); ok && strings.TrimSpace(idStr) != "" {
+					entityIds = append(entityIds, idStr)
 				}
 			}
 			graphquery.RecordQueriedEntityIDs(trace, entityIds...)
@@ -681,7 +615,7 @@ func toolGetEntityDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.Tool {
 				for i, e := range entities {
 					desc := strings.ReplaceAll(e.Description, "\n", " ")
 					desc = strings.ReplaceAll(desc, "\r", " ")
-					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s)\n   %s\n\n", i+1, e.ID, e.Name, e.Type, desc)
+					fmt.Fprintf(&result, "%d. [ID: %s] %s (%s)\n   %s\n\n", i+1, e.ID, e.Name, e.Type, desc)
 				}
 			}
 			appendOptionalNextStepHint(&result, "call get_entity_sources with these entity IDs to collect citable evidence")
@@ -691,7 +625,7 @@ func toolGetEntityDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.Tool {
 	}
 }
 
-func toolGetEntityTypes(conn *pgxpool.Pool, projectId int64) ai.Tool {
+func toolGetEntityTypes(conn *pgxpool.Pool, projectId string) ai.Tool {
 	return ai.Tool{
 		Name:        "get_entity_types",
 		Description: "List all entity types in the knowledge graph with their counts. Use this to understand what kinds of entities exist in the graph.",
@@ -725,7 +659,7 @@ func toolGetEntityTypes(conn *pgxpool.Pool, projectId int64) ai.Tool {
 	}
 }
 
-func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) ai.Tool {
+func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId string, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "search_entities_by_type",
 		Description: "Search for entities of a specific type by semantic similarity with optional keyword boosts. Use this when you want to find entities of a particular type (e.g., all Person entities related to a topic).",
@@ -803,7 +737,7 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 			}
 			entities = rerankEntityTypeResults(entities, limit)
 			if len(entities) > 0 {
-				ids := make([]int64, 0, len(entities))
+				ids := make([]string, 0, len(entities))
 				for _, e := range entities {
 					ids = append(ids, e.ID)
 				}
@@ -818,7 +752,7 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 			} else {
 				for i, e := range entities {
 					desc := truncateDescription(e.Description, 150)
-					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s): %s\n", i+1, e.ID, e.Name, e.Type, desc)
+					fmt.Fprintf(&result, "%d. [ID: %s] %s (%s): %s\n", i+1, e.ID, e.Name, e.Type, desc)
 				}
 				appendOptionalNextStepHint(&result, "use get_entity_neighbours on the top entity IDs to expand context, then get_entity_sources for citations")
 			}
@@ -828,7 +762,7 @@ func toolSearchEntitiesByType(conn *pgxpool.Pool, aiClient ai.GraphAIClient, pro
 	}
 }
 
-func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, trace graphquery.Tracer) ai.Tool {
+func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId string, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "search_relationships",
 		Description: "Search for relationships in the knowledge graph by semantic similarity with optional keyword boosts. Returns relationships describing how entities are connected, including their strength score. Use this to find specific connections or interactions between entities.",
@@ -895,8 +829,8 @@ func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, proj
 			}
 			relationships = rerankRelationshipResults(relationships, limit)
 			if len(relationships) > 0 {
-				relIDs := make([]int64, 0, len(relationships))
-				entityIDs := make([]int64, 0, len(relationships)*2)
+				relIDs := make([]string, 0, len(relationships))
+				entityIDs := make([]string, 0, len(relationships)*2)
 				for _, r := range relationships {
 					relIDs = append(relIDs, r.ID)
 					entityIDs = append(entityIDs, r.SourceID, r.TargetID)
@@ -913,7 +847,7 @@ func toolSearchRelationships(conn *pgxpool.Pool, aiClient ai.GraphAIClient, proj
 			} else {
 				for i, r := range relationships {
 					desc := truncateDescription(r.Description, 150)
-					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s) <-> %s (%s) (strength: %.2f)\n   %s\n",
+					fmt.Fprintf(&result, "%d. [ID: %s] %s (%s) <-> %s (%s) (strength: %.2f)\n   %s\n",
 						i+1, r.ID, r.SourceName, r.SourceType, r.TargetName, r.TargetType, r.Rank, desc)
 				}
 				appendOptionalNextStepHint(&result, "use get_relationship_details for top relationship IDs, then get_relationship_sources for citations")
@@ -933,7 +867,7 @@ func toolGetRelationshipDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.
 			"properties": map[string]any{
 				"relationship_ids": map[string]any{
 					"type":        "array",
-					"items":       map[string]any{"type": "integer"},
+					"items":       map[string]any{"type": "string"},
 					"description": "The IDs of the relationships to retrieve details for (max 100).",
 				},
 			},
@@ -953,10 +887,10 @@ func toolGetRelationshipDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.
 				return "", fmt.Errorf("relationship_ids is limited to 100 relationships maximum")
 			}
 
-			relationshipIds := make([]int64, 0, len(relationshipIdsRaw))
+			relationshipIds := make([]string, 0, len(relationshipIdsRaw))
 			for _, id := range relationshipIdsRaw {
-				if idFloat, ok := id.(float64); ok {
-					relationshipIds = append(relationshipIds, int64(idFloat))
+				if idStr, ok := id.(string); ok && strings.TrimSpace(idStr) != "" {
+					relationshipIds = append(relationshipIds, idStr)
 				}
 			}
 			graphquery.RecordQueriedRelationshipIDs(trace, relationshipIds...)
@@ -969,7 +903,7 @@ func toolGetRelationshipDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.
 				return "", fmt.Errorf("failed to get relationship details: %w", err)
 			}
 			if len(relationships) > 0 {
-				entityIDs := make([]int64, 0, len(relationships)*2)
+				entityIDs := make([]string, 0, len(relationships)*2)
 				for _, r := range relationships {
 					entityIDs = append(entityIDs, r.SourceID, r.TargetID)
 				}
@@ -984,7 +918,7 @@ func toolGetRelationshipDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.
 				for i, r := range relationships {
 					desc := strings.ReplaceAll(r.Description, "\n", " ")
 					desc = strings.ReplaceAll(desc, "\r", " ")
-					fmt.Fprintf(&result, "%d. [ID: %d] %s (%s) <-> %s (%s) (strength: %.2f)\n   %s\n\n",
+					fmt.Fprintf(&result, "%d. [ID: %s] %s (%s) <-> %s (%s) (strength: %.2f)\n   %s\n\n",
 						i+1, r.ID, r.SourceName, r.SourceType, r.TargetName, r.TargetType, r.Rank, desc)
 				}
 			}
@@ -995,7 +929,7 @@ func toolGetRelationshipDetails(conn *pgxpool.Pool, trace graphquery.Tracer) ai.
 	}
 }
 
-func toolGetSourceDocumentMetadata(conn *pgxpool.Pool, projectId int64, trace graphquery.Tracer) ai.Tool {
+func toolGetSourceDocumentMetadata(conn *pgxpool.Pool, projectId string, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "get_source_document_metadata",
 		Description: "Get metadata (document type, date, summary) for the source documents associated with given source IDs. Use this to understand the context and nature of the source documents before citing them.",
@@ -1005,7 +939,7 @@ func toolGetSourceDocumentMetadata(conn *pgxpool.Pool, projectId int64, trace gr
 				"source_ids": map[string]any{
 					"type":        "array",
 					"items":       map[string]any{"type": "string"},
-					"description": "The public IDs of the sources (from get_entity_sources or get_relationship_sources) to get document metadata for.",
+					"description": "The source text unit IDs (from get_entity_sources or get_relationship_sources) to get document metadata for.",
 				},
 			},
 			"required": []string{"source_ids"},
@@ -1089,7 +1023,7 @@ func buildExpertSourceBriefNone(queryFocus string, gaps string) string {
 	return fmt.Sprintf("## Expert Source Brief\n- decision: none\n- query_focus: %s\n- sources: []\n- gaps: %s", queryFocus, gaps)
 }
 
-func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentProjectID int64, currentUserID int64, trace graphquery.Tracer) ai.Tool {
+func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentUserID string, trace graphquery.Tracer) ai.Tool {
 	return ai.Tool{
 		Name:        "ask_expert",
 		Description: "Ask up to 3 expert graphs in one call. Provide a requests array with expert_graph_id and question. The tool runs internal agentic retrieval loops in parallel and returns structured source briefs (IDs + relevance), not user-facing answers.",
@@ -1105,7 +1039,7 @@ func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentProject
 						"type": "object",
 						"properties": map[string]any{
 							"expert_graph_id": map[string]any{
-								"type":        "integer",
+								"type":        "string",
 								"description": "Graph ID to query.",
 							},
 							"question": map[string]any{
@@ -1121,7 +1055,7 @@ func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentProject
 		},
 		Handler: func(ctx context.Context, args string) (string, error) {
 			type expertRequest struct {
-				ExpertGraphID int64  `json:"expert_graph_id"`
+				ExpertGraphID string `json:"expert_graph_id"`
 				Question      string `json:"question"`
 			}
 
@@ -1130,7 +1064,7 @@ func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentProject
 			}
 
 			type expertResult struct {
-				GraphID     int64
+				GraphID     string
 				GraphName   string
 				SourceBrief string
 				Err         error
@@ -1150,15 +1084,13 @@ func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentProject
 
 			for i := range payload.Requests {
 				payload.Requests[i].Question = strings.TrimSpace(payload.Requests[i].Question)
-				if payload.Requests[i].ExpertGraphID <= 0 {
-					return "", fmt.Errorf("requests[%d].expert_graph_id must be a positive integer", i)
+				if strings.TrimSpace(payload.Requests[i].ExpertGraphID) == "" {
+					return "", fmt.Errorf("requests[%d].expert_graph_id must be a non-empty string", i)
 				}
 				if payload.Requests[i].Question == "" {
 					return "", fmt.Errorf("requests[%d].question is required and must be a non-empty string", i)
 				}
 			}
-
-			logger.Debug("[Tool] ask_expert", "request_count", len(payload.Requests), "current_project_id", currentProjectID)
 
 			results := make([]expertResult, len(payload.Requests))
 			var wg sync.WaitGroup
@@ -1174,19 +1106,19 @@ func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentProject
 					graph, err := q.GetProjectByID(ctx, req.ExpertGraphID)
 					if err != nil {
 						if err == sql.ErrNoRows {
-							res.SourceBrief = buildExpertSourceBriefNone("graph lookup", fmt.Sprintf("Graph with ID %d does not exist.", req.ExpertGraphID))
+							res.SourceBrief = buildExpertSourceBriefNone("graph lookup", fmt.Sprintf("Graph with ID %s does not exist.", req.ExpertGraphID))
 							results[index] = res
 							return
 						}
 
-						res.Err = fmt.Errorf("failed to load graph %d: %w", req.ExpertGraphID, err)
+						res.Err = fmt.Errorf("failed to load graph %s: %w", req.ExpertGraphID, err)
 						results[index] = res
 						return
 					}
 
 					res.GraphName = graph.Name
 					if graph.State != "ready" {
-						res.SourceBrief = buildExpertSourceBriefNone("graph readiness", fmt.Sprintf("Graph with ID %d is not ready yet (current state: %s).", req.ExpertGraphID, graph.State))
+						res.SourceBrief = buildExpertSourceBriefNone("graph readiness", fmt.Sprintf("Graph with ID %s is not ready yet (current state: %s).", req.ExpertGraphID, graph.State))
 						results[index] = res
 						return
 					}
@@ -1198,14 +1130,14 @@ func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentProject
 
 					innerStorage, err := NewGraphDBStorageWithConnection(ctx, conn, aiClient, []string{req.Question}, WithTracer(innerTrace))
 					if err != nil {
-						res.Err = fmt.Errorf("failed to create expert graph storage for graph %d: %w", req.ExpertGraphID, err)
+						res.Err = fmt.Errorf("failed to create expert graph storage for graph %s: %w", req.ExpertGraphID, err)
 						results[index] = res
 						return
 					}
 
 					projectPrompts, err := q.GetProjectSystemPrompts(ctx, req.ExpertGraphID)
 					if err != nil && err != sql.ErrNoRows {
-						res.Err = fmt.Errorf("failed to load system prompts for graph %d: %w", req.ExpertGraphID, err)
+						res.Err = fmt.Errorf("failed to load system prompts for graph %s: %w", req.ExpertGraphID, err)
 						results[index] = res
 						return
 					}
@@ -1221,11 +1153,11 @@ func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentProject
 						innerOpts = append(innerOpts, querypgx.WithSystemPrompts(systemPrompts...))
 					}
 
-					innerQueryClient := querypgx.NewGraphQueryClient(aiClient, innerStorage, fmt.Sprintf("%d", req.ExpertGraphID), innerOpts)
-					innerTools := getToolList(conn, aiClient, req.ExpertGraphID, currentUserID, innerTrace, false)
+					innerQueryClient := querypgx.NewGraphQueryClient(aiClient, innerStorage, req.ExpertGraphID, innerOpts)
+					innerTools := GetServerToolList(conn, aiClient, req.ExpertGraphID, currentUserID, innerTrace, false)
 					innerAnswer, err := innerQueryClient.QueryAgentic(ctx, []ai.ChatMessage{{Role: "user", Message: req.Question}}, innerTools)
 					if err != nil {
-						res.Err = fmt.Errorf("failed to query graph %d: %w", req.ExpertGraphID, err)
+						res.Err = fmt.Errorf("failed to query graph %s: %w", req.ExpertGraphID, err)
 						results[index] = res
 						return
 					}
@@ -1249,7 +1181,7 @@ func toolAskExpert(conn *pgxpool.Pool, aiClient ai.GraphAIClient, currentProject
 			for i, res := range results {
 				result.WriteString("\n")
 				fmt.Fprintf(&result, "### Expert Request %d\n", i+1)
-				fmt.Fprintf(&result, "- expert_graph_id: %d\n", res.GraphID)
+				fmt.Fprintf(&result, "- expert_graph_id: %s\n", res.GraphID)
 				if strings.TrimSpace(res.GraphName) != "" {
 					fmt.Fprintf(&result, "- expert_graph_name: %s\n", res.GraphName)
 				}
@@ -1306,12 +1238,8 @@ func GetClarificationTool() ai.Tool {
 	}
 }
 
-// GetToolList returns a set of AI tools for exploring and querying a knowledge
-// graph. Tools include entity search, relationship search, neighbour exploration,
-// path finding, source retrieval, and document metadata access. These tools
-// enable agentic workflows where the AI can navigate the graph structure
-// autonomously.
-func getToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, currentUserID int64, trace graphquery.Tracer, includeAskExpert bool) []ai.Tool {
+// GetServerToolList returns the server-executed tool set for graph queries.
+func GetServerToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId string, currentUserID string, trace graphquery.Tracer, includeExpert bool) []ai.Tool {
 	tools := []ai.Tool{
 		toolSearchEntities(conn, aiClient, projectId, trace),
 		toolSearchRelationships(conn, aiClient, projectId, trace),
@@ -1326,13 +1254,20 @@ func getToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64,
 		toolGetSourceDocumentMetadata(conn, projectId, trace),
 	}
 
-	if includeAskExpert {
-		tools = append(tools, toolAskExpert(conn, aiClient, projectId, currentUserID, trace))
+	if includeExpert {
+		tools = append(tools, toolAskExpert(conn, aiClient, currentUserID, trace))
 	}
 
 	return tools
 }
 
-func GetToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId int64, currentUserID int64, trace graphquery.Tracer) []ai.Tool {
-	return getToolList(conn, aiClient, projectId, currentUserID, trace, true)
+// GetClientToolList returns the client-executed tool set for graph queries.
+func GetClientToolList() []ai.Tool {
+	return []ai.Tool{GetClarificationTool()}
+}
+
+// GetCombinedToolList returns the full graph tool set, including client tools.
+func GetCombinedToolList(conn *pgxpool.Pool, aiClient ai.GraphAIClient, projectId string, currentUserID string, trace graphquery.Tracer, includeExpert bool) []ai.Tool {
+	tools := GetServerToolList(conn, aiClient, projectId, currentUserID, trace, includeExpert)
+	return append(tools, GetClientToolList()...)
 }

@@ -15,7 +15,7 @@ import (
 // DeleteUserProjectHandler deletes a user-owned project and all its content.
 func DeleteUserProjectHandler(c echo.Context) error {
 	type deleteUserProjectParams struct {
-		ID int64 `param:"id" validate:"required,numeric"`
+		ID string `param:"id" validate:"required"`
 	}
 
 	type deleteUserProjectResponse struct {
@@ -54,8 +54,12 @@ func DeleteUserProjectHandler(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, deleteUserProjectResponse{Message: "Internal server error"})
 	}
 
-	if !project.UserID.Valid || project.UserID.Int64 != user.UserID {
+	if !project.UserID.Valid || project.UserID.String != user.UserID {
 		return c.JSON(http.StatusForbidden, deleteUserProjectResponse{Message: "You are not allowed to delete this user project"})
+	}
+
+	if _, err := qtx.CancelWorkflowRunsByProject(ctx, params.ID); err != nil {
+		return c.JSON(http.StatusInternalServerError, deleteUserProjectResponse{Message: "Internal server error"})
 	}
 
 	if err := qtx.DeleteProject(ctx, params.ID); err != nil {
@@ -67,7 +71,7 @@ func DeleteUserProjectHandler(c echo.Context) error {
 	}
 
 	s3Client := c.(*middleware.AppContext).App.S3
-	storage.DeleteFolder(ctx, s3Client, fmt.Sprintf("projects/%d", params.ID))
+	storage.DeleteFolder(ctx, s3Client, fmt.Sprintf("projects/%s", params.ID))
 
 	return c.JSON(http.StatusOK, deleteUserProjectResponse{Message: "User project deleted"})
 }

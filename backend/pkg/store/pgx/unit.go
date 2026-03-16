@@ -2,7 +2,6 @@ package pgx
 
 import (
 	"context"
-	"strconv"
 	"strings"
 
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
@@ -12,25 +11,25 @@ import (
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/store"
 )
 
-func parseBaseFileID(fileID string) (int64, error) {
+func parseBaseFileID(fileID string) string {
 	baseID := fileID
 	if before, _, ok := strings.Cut(fileID, "-sheet-"); ok {
 		baseID = before
 	}
-	return strconv.ParseInt(baseID, 10, 64)
+	return baseID
 }
 
 // SaveUnits persists a batch of text units to the database within a single
 // transaction. Text units represent chunks of source documents that are linked
 // to entities and relationships through sources.
-func (s *GraphDBStorage) SaveUnits(ctx context.Context, units []*common.Unit) ([]int64, error) {
+func (s *GraphDBStorage) SaveUnits(ctx context.Context, units []*common.Unit) ([]string, error) {
 	if len(units) == 0 {
 		return nil, nil
 	}
 
 	logger.Debug("[Graph][SaveUnits] Bulk upserting text units", "units", len(units))
 
-	ids := make([]int64, 0, len(units))
+	ids := make([]string, 0, len(units))
 	chunkSize := 1000
 	err := store.ChunkRange(len(units), chunkSize, func(start, end int) error {
 		tx, err := s.conn.Begin(ctx)
@@ -42,20 +41,16 @@ func (s *GraphDBStorage) SaveUnits(ctx context.Context, units []*common.Unit) ([
 
 		count := end - start
 		publicIDs := make([]string, 0, count)
-		fileIDs := make([]int64, 0, count)
+		fileIDs := make([]string, 0, count)
 		texts := make([]string, 0, count)
 		for _, unit := range units[start:end] {
-			fId, err := parseBaseFileID(unit.FileID)
-			if err != nil {
-				return err
-			}
 			publicIDs = append(publicIDs, unit.ID)
-			fileIDs = append(fileIDs, fId)
+			fileIDs = append(fileIDs, parseBaseFileID(unit.FileID))
 			texts = append(texts, unit.Text)
 		}
 
 		chunkIDs, err := qtx.UpsertTextUnits(ctx, pgdb.UpsertTextUnitsParams{
-			PublicIds:      publicIDs,
+			Ids:            publicIDs,
 			ProjectFileIds: fileIDs,
 			Texts:          texts,
 		})

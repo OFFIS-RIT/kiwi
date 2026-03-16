@@ -6,7 +6,10 @@ import (
 	"unicode"
 )
 
-const nanoidLen = 21
+const (
+	nanoidLen = 21
+	ulidLen   = 26
+)
 
 var (
 	reBoldDouble = regexp.MustCompile(`\*\*\s*\[\[([^][]+)\]\]\s*\*\*`)
@@ -35,6 +38,9 @@ func isNanoidChar(c byte) bool {
 }
 
 func isNanoid(s string) bool {
+	if len(s) == ulidLen {
+		return isULID(s)
+	}
 	if len(s) != nanoidLen {
 		return false
 	}
@@ -46,15 +52,46 @@ func isNanoid(s string) bool {
 	return true
 }
 
+func isULIDChar(c byte) bool {
+	switch {
+	case c >= '0' && c <= '9':
+		return true
+	case c >= 'A' && c <= 'Z':
+		return c != 'I' && c != 'L' && c != 'O' && c != 'U'
+	case c >= 'a' && c <= 'z':
+		upper := c - ('a' - 'A')
+		return upper != 'I' && upper != 'L' && upper != 'O' && upper != 'U'
+	default:
+		return false
+	}
+}
+
+func isULID(s string) bool {
+	if len(s) != ulidLen {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if !isULIDChar(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 func extractNanoid(s string) string {
 	if len(s) < nanoidLen {
 		return ""
 	}
-	for i := len(s) - nanoidLen; i >= 0; i-- {
-		candidate := s[i : i+nanoidLen]
-		if isNanoid(candidate) {
-			if i == 0 || !isNanoidChar(s[i-1]) {
-				return candidate
+	for _, size := range []int{ulidLen, nanoidLen} {
+		if len(s) < size {
+			continue
+		}
+		for i := len(s) - size; i >= 0; i-- {
+			candidate := s[i : i+size]
+			if isNanoid(candidate) {
+				if i == 0 || !isNanoidChar(s[i-1]) {
+					return candidate
+				}
 			}
 		}
 	}

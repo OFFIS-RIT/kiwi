@@ -8,12 +8,14 @@ import (
 
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ids"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
 
 // CreateGroupHandler creates a new group
 func CreateGroupHandler(c echo.Context) error {
 	type userInGroupBody struct {
-		UserID int64  `json:"user_id" validate:"required,numeric"`
+		UserID string `json:"user_id" validate:"required"`
 		Role   string `json:"role" validate:"required,oneof=admin user"`
 	}
 
@@ -52,6 +54,7 @@ func CreateGroupHandler(c echo.Context) error {
 	conn := c.(*middleware.AppContext).App.DBConn
 	tx, err := conn.Begin(ctx)
 	if err != nil {
+		logger.Error("", "err", err)
 		return c.JSON(http.StatusInternalServerError, createGroupResponse{
 			Message: "Internal server error",
 		})
@@ -60,8 +63,9 @@ func CreateGroupHandler(c echo.Context) error {
 	queries := pgdb.New(conn)
 	qtx := queries.WithTx(tx)
 
-	group, err := qtx.CreateGroup(ctx, data.Name)
+	group, err := qtx.CreateGroup(ctx, pgdb.CreateGroupParams{ID: ids.New(), Name: data.Name})
 	if err != nil {
+		logger.Error("", "err", err)
 		return c.JSON(http.StatusInternalServerError, createGroupResponse{
 			Message: "Internal server error",
 		})
@@ -75,6 +79,7 @@ func CreateGroupHandler(c echo.Context) error {
 			Role:    user.Role,
 		})
 		if err != nil {
+			logger.Error("", "err", err)
 			return c.JSON(http.StatusInternalServerError, createGroupResponse{
 				Message: "Internal server error",
 			})
@@ -84,6 +89,7 @@ func CreateGroupHandler(c echo.Context) error {
 
 	err = tx.Commit(ctx)
 	if err != nil {
+		logger.Error("", "err", err)
 		return c.JSON(http.StatusInternalServerError, createGroupResponse{
 			Message: "Internal server error",
 		})
@@ -102,11 +108,11 @@ func CreateGroupHandler(c echo.Context) error {
 // AddUserToGroupHandler adds a user to a group
 func AddUserToGroupHandler(c echo.Context) error {
 	type addUserToGroupParams struct {
-		GroupID int64 `param:"id" validate:"required,numeric"`
+		GroupID string `param:"id" validate:"required"`
 	}
 
 	type addUserToGroupBody struct {
-		UserID int64  `json:"user_id" validate:"required,numeric"`
+		UserID string `json:"user_id" validate:"required"`
 		Role   string `json:"role" validate:"required,oneof=admin user"`
 	}
 

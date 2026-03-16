@@ -66,10 +66,6 @@ services:
       context: .
       dockerfile: postgres/Dockerfile.migration
     image: ghcr.io/offis-rit/kiwi/postgres-migration:dev
-  rabbitmq:
-    ports:
-      - "5672:5672"
-      - "15672:15672"
   rustfs:
     ports:
       - "9000:9000"

@@ -10,7 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	gonanoid "github.com/matoous/go-nanoid/v2"
+
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ids"
 )
 
 var (
@@ -91,11 +92,7 @@ func (c *Client) Acquire(ctx context.Context, key string, opts Options) (*Lease,
 		opts.WaitJitter = 0
 	}
 
-	tok, err := gonanoid.New()
-	if err != nil {
-		return nil, err
-	}
-	token := opts.TokenPrefix + tok
+	token := opts.TokenPrefix + ids.New()
 
 	acquireOnce := func(ctx context.Context) (bool, error) {
 		var returnedKey string

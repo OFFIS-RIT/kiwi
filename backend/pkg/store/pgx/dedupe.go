@@ -27,38 +27,36 @@ const (
 
 // entityPair represents two potentially duplicate entities
 type entityPair struct {
-	ID1       int64
-	PublicID1 string
-	Name1     string
-	Type1     string
-	ID2       int64
-	PublicID2 string
-	Name2     string
-	Type2     string
+	ID1   string
+	Name1 string
+	Type1 string
+	ID2   string
+	Name2 string
+	Type2 string
 }
 
 // entityWithMeta holds entity data plus DB id and source count
 type entityWithMeta struct {
 	common.Entity
-	DBID        int64
+	DBID        string
 	SourceCount int
 }
 
 type entityMergeComponent struct {
-	CanonicalID   int64
-	DupeIDs       []int64
+	CanonicalID   string
+	DupeIDs       []string
 	CanonicalName string
 }
 
 type appliedEntityMergeComponent struct {
-	CanonicalID int64
-	DupeIDs     []int64
+	CanonicalID string
+	DupeIDs     []string
 }
 
 type relationshipState struct {
-	ID           int64
-	SourceID     int64
-	TargetID     int64
+	ID           string
+	SourceID     string
+	TargetID     string
 	Rank         float64
 	RankSum      float64
 	RankCount    int
@@ -67,17 +65,17 @@ type relationshipState struct {
 }
 
 type relationshipDedupePlan struct {
-	RelationshipIDs []int64
-	CanonicalIDs    []int64
-	RankIDs         []int64
+	RelationshipIDs []string
+	CanonicalIDs    []string
+	RankIDs         []string
 	Ranks           []float64
-	DeleteIDs       []int64
+	DeleteIDs       []string
 }
 
 type relationshipDedupePlanner struct {
-	states    map[int64]*relationshipState
-	parent    map[int64]int64
-	deleteIDs map[int64]struct{}
+	states    map[string]*relationshipState
+	parent    map[string]string
+	deleteIDs map[string]struct{}
 }
 
 // DedupeAndMergeEntities finds and merges duplicate entities in the DB.
@@ -86,12 +84,9 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 	ctx context.Context,
 	graphID string,
 	aiClient ai.GraphAIClient,
-	seedEntityIDs []int64,
+	seedEntityIDs []string,
 ) error {
-	projectID, err := strconv.ParseInt(graphID, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid graph ID: %w", err)
-	}
+	projectID := graphID
 
 	// Parallel group processing below assumes s.conn is pool-backed (for example
 	// a *pgxpool.Pool), so each query/transaction can use its own connection.
@@ -194,8 +189,8 @@ func (s *GraphDBStorage) DedupeAndMergeEntities(
 func (s *GraphDBStorage) findSimilarEntityPairs(
 	ctx context.Context,
 	qtx *pgdb.Queries,
-	projectID int64,
-	seedEntityIDs []int64,
+	projectID string,
+	seedEntityIDs []string,
 ) ([]entityPair, error) {
 	var (
 		raws       []pgdb.FindEntitiesWithSimilarNamesRow
@@ -218,14 +213,12 @@ func (s *GraphDBStorage) findSimilarEntityPairs(
 		pairs := make([]entityPair, len(raws))
 		for i, row := range raws {
 			pairs[i] = entityPair{
-				ID1:       row.Id1,
-				PublicID1: row.PublicId1,
-				Name1:     row.Name1,
-				Type1:     row.Type1,
-				ID2:       row.Id2,
-				PublicID2: row.PublicId2,
-				Name2:     row.Name2,
-				Type2:     row.Type2,
+				ID1:   row.Id1,
+				Name1: row.Name1,
+				Type1: row.Type1,
+				ID2:   row.Id2,
+				Name2: row.Name2,
+				Type2: row.Type2,
 			}
 		}
 		return pairs, nil
@@ -234,14 +227,12 @@ func (s *GraphDBStorage) findSimilarEntityPairs(
 	pairs := make([]entityPair, len(rawsSeeded))
 	for i, row := range rawsSeeded {
 		pairs[i] = entityPair{
-			ID1:       row.Id1,
-			PublicID1: row.PublicId1,
-			Name1:     row.Name1,
-			Type1:     row.Type1,
-			ID2:       row.Id2,
-			PublicID2: row.PublicId2,
-			Name2:     row.Name2,
-			Type2:     row.Type2,
+			ID1:   row.Id1,
+			Name1: row.Name1,
+			Type1: row.Type1,
+			ID2:   row.Id2,
+			Name2: row.Name2,
+			Type2: row.Type2,
 		}
 	}
 	return pairs, nil
@@ -249,11 +240,11 @@ func (s *GraphDBStorage) findSimilarEntityPairs(
 
 // buildConnectedComponents groups entity IDs that are transitively similar
 // Uses union-find algorithm
-func buildConnectedComponents(pairs []entityPair) [][]int64 {
-	parent := make(map[int64]int64)
+func buildConnectedComponents(pairs []entityPair) [][]string {
+	parent := make(map[string]string)
 
-	var find func(x int64) int64
-	find = func(x int64) int64 {
+	var find func(x string) string
+	find = func(x string) string {
 		if _, ok := parent[x]; !ok {
 			parent[x] = x
 		}
@@ -263,7 +254,7 @@ func buildConnectedComponents(pairs []entityPair) [][]int64 {
 		return parent[x]
 	}
 
-	union := func(x, y int64) {
+	union := func(x, y string) {
 		px, py := find(x), find(y)
 		if px != py {
 			parent[px] = py
@@ -274,16 +265,16 @@ func buildConnectedComponents(pairs []entityPair) [][]int64 {
 		union(p.ID1, p.ID2)
 	}
 
-	components := make(map[int64][]int64)
+	components := make(map[string][]string)
 	for id := range parent {
 		root := find(id)
 		components[root] = append(components[root], id)
 	}
 
-	result := make([][]int64, 0, len(components))
+	result := make([][]string, 0, len(components))
 	for _, group := range components {
 		if len(group) > 1 {
-			slices.Sort(group)
+			sort.Strings(group)
 			result = append(result, group)
 		}
 	}
@@ -291,7 +282,7 @@ func buildConnectedComponents(pairs []entityPair) [][]int64 {
 		if len(result[i]) == 0 || len(result[j]) == 0 {
 			return len(result[i]) < len(result[j])
 		}
-		return result[i][0] < result[j][0]
+		return compareIDStrings(result[i][0], result[j][0]) < 0
 	})
 	return result
 }
@@ -300,8 +291,8 @@ func buildConnectedComponents(pairs []entityPair) [][]int64 {
 func (s *GraphDBStorage) getEntitiesWithMeta(
 	ctx context.Context,
 	qtx *pgdb.Queries,
-	projectID int64,
-	ids []int64,
+	projectID string,
+	ids []string,
 ) ([]entityWithMeta, error) {
 	entities, err := qtx.GetProjectEntitiesWithSourceCountsByIDs(ctx, pgdb.GetProjectEntitiesWithSourceCountsByIDsParams{
 		ProjectID: projectID,
@@ -315,7 +306,7 @@ func (s *GraphDBStorage) getEntitiesWithMeta(
 	for i, e := range entities {
 		result[i] = entityWithMeta{
 			Entity: common.Entity{
-				ID:          e.PublicID,
+				ID:          e.ID,
 				Name:        e.Name,
 				Type:        e.Type,
 				Description: e.Description,
@@ -330,7 +321,7 @@ func (s *GraphDBStorage) getEntitiesWithMeta(
 // applyEntityMerges applies the AI dedupe results to merge entities
 func (s *GraphDBStorage) applyEntityMerges(
 	ctx context.Context,
-	projectID int64,
+	projectID string,
 	entities []entityWithMeta,
 	dupeResponse *ai.DuplicatesResponse,
 ) ([]appliedEntityMergeComponent, error) {
@@ -343,7 +334,7 @@ func (s *GraphDBStorage) applyEntityMerges(
 		return nil, nil
 	}
 
-	entityByID := make(map[int64]*entityWithMeta, len(entities))
+	entityByID := make(map[string]*entityWithMeta, len(entities))
 	for i := range entities {
 		entityByID[entities[i].DBID] = &entities[i]
 	}
@@ -371,7 +362,7 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 	}
 
 	byName := make(map[string][]*entityWithMeta)
-	byID := make(map[int64]*entityWithMeta, len(entities))
+	byID := make(map[string]*entityWithMeta, len(entities))
 	for i := range entities {
 		e := &entities[i]
 		byID[e.DBID] = e
@@ -383,7 +374,7 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 	}
 
 	type resolvedGroup struct {
-		ids           []int64
+		ids           []string
 		canonicalName string
 	}
 	resolved := make([]resolvedGroup, 0, len(dupeResponse.Duplicates))
@@ -392,7 +383,7 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 			continue
 		}
 
-		candidateByID := make(map[int64]*entityWithMeta)
+		candidateByID := make(map[string]*entityWithMeta)
 		for _, name := range group.Entities {
 			nameKey := normalizeDedupeKey(name)
 			if nameKey == "" {
@@ -416,7 +407,7 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 			continue
 		}
 
-		idsSet := make(map[int64]struct{})
+		idsSet := make(map[string]struct{})
 		for _, e := range candidates {
 			if e == nil {
 				continue
@@ -430,11 +421,11 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 			continue
 		}
 
-		ids := make([]int64, 0, len(idsSet))
+		ids := make([]string, 0, len(idsSet))
 		for id := range idsSet {
 			ids = append(ids, id)
 		}
-		slices.Sort(ids)
+		sort.Strings(ids)
 
 		resolved = append(resolved, resolvedGroup{ids: ids, canonicalName: strings.TrimSpace(group.Name)})
 	}
@@ -443,9 +434,9 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 		return nil
 	}
 
-	parent := make(map[int64]int64)
-	var find func(int64) int64
-	find = func(x int64) int64 {
+	parent := make(map[string]string)
+	var find func(string) string
+	find = func(x string) string {
 		p, ok := parent[x]
 		if !ok {
 			parent[x] = x
@@ -456,7 +447,7 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 		}
 		return parent[x]
 	}
-	union := func(x, y int64) {
+	union := func(x, y string) {
 		px, py := find(x), find(y)
 		if px != py {
 			parent[px] = py
@@ -473,13 +464,13 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 		}
 	}
 
-	components := make(map[int64][]int64)
+	components := make(map[string][]string)
 	for id := range parent {
 		root := find(id)
 		components[root] = append(components[root], id)
 	}
 
-	nameCandidates := make(map[int64][]string)
+	nameCandidates := make(map[string][]string)
 	for _, g := range resolved {
 		if len(g.ids) == 0 {
 			continue
@@ -498,13 +489,13 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 		}
 		slices.Sort(ids)
 
-		canonicalID := int64(0)
+		canonicalID := ""
 		for _, id := range ids {
 			e := byID[id]
 			if e == nil {
 				continue
 			}
-			if canonicalID == 0 {
+			if canonicalID == "" {
 				canonicalID = id
 				continue
 			}
@@ -513,15 +504,15 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 				canonicalID = id
 				continue
 			}
-			if e.SourceCount > cur.SourceCount || (e.SourceCount == cur.SourceCount && id < canonicalID) {
+			if e.SourceCount > cur.SourceCount || (e.SourceCount == cur.SourceCount && compareIDStrings(id, canonicalID) < 0) {
 				canonicalID = id
 			}
 		}
-		if canonicalID == 0 {
+		if canonicalID == "" {
 			continue
 		}
 
-		dupeIDs := make([]int64, 0, len(ids)-1)
+		dupeIDs := make([]string, 0, len(ids)-1)
 		for _, id := range ids {
 			if id == canonicalID {
 				continue
@@ -531,7 +522,7 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 		if len(dupeIDs) == 0 {
 			continue
 		}
-		slices.Sort(dupeIDs)
+		sort.Strings(dupeIDs)
 
 		fallbackName := byID[canonicalID].Name
 		canonicalName := chooseCanonicalName(nameCandidates[root], fallbackName)
@@ -547,7 +538,7 @@ func planEntityMergeComponents(entities []entityWithMeta, dupeResponse *ai.Dupli
 		if plan[i].CanonicalID == plan[j].CanonicalID {
 			return len(plan[i].DupeIDs) > len(plan[j].DupeIDs)
 		}
-		return plan[i].CanonicalID < plan[j].CanonicalID
+		return compareIDStrings(plan[i].CanonicalID, plan[j].CanonicalID) < 0
 	})
 
 	return plan
@@ -582,11 +573,11 @@ func chooseCanonicalName(candidates []string, fallback string) string {
 
 func (s *GraphDBStorage) applyEntityMergeComponent(
 	ctx context.Context,
-	projectID int64,
+	projectID string,
 	comp entityMergeComponent,
-	entityByID map[int64]*entityWithMeta,
+	entityByID map[string]*entityWithMeta,
 ) (*appliedEntityMergeComponent, error) {
-	if comp.CanonicalID == 0 || len(comp.DupeIDs) == 0 {
+	if comp.CanonicalID == "" || len(comp.DupeIDs) == 0 {
 		return nil, nil
 	}
 
@@ -616,9 +607,9 @@ func (s *GraphDBStorage) applyEntityMergeComponent(
 
 func (s *GraphDBStorage) applyEntityMergeComponentOnce(
 	ctx context.Context,
-	projectID int64,
+	projectID string,
 	comp entityMergeComponent,
-	entityByID map[int64]*entityWithMeta,
+	entityByID map[string]*entityWithMeta,
 ) (*appliedEntityMergeComponent, error) {
 	tx, err := s.conn.Begin(ctx)
 	if err != nil {
@@ -627,7 +618,7 @@ func (s *GraphDBStorage) applyEntityMergeComponentOnce(
 	defer tx.Rollback(ctx)
 	qtx := pgdb.New(tx)
 
-	idsToCheck := make([]int64, 0, 1+len(comp.DupeIDs))
+	idsToCheck := make([]string, 0, 1+len(comp.DupeIDs))
 	idsToCheck = append(idsToCheck, comp.CanonicalID)
 	idsToCheck = append(idsToCheck, comp.DupeIDs...)
 
@@ -641,37 +632,37 @@ func (s *GraphDBStorage) applyEntityMergeComponentOnce(
 	if len(existingRows) <= 1 {
 		return nil, nil
 	}
-	exists := make(map[int64]struct{}, len(existingRows))
+	exists := make(map[string]struct{}, len(existingRows))
 	for _, r := range existingRows {
 		exists[r.ID] = struct{}{}
 	}
 
 	canonicalID := comp.CanonicalID
 	if _, ok := exists[canonicalID]; !ok {
-		canonicalID = 0
+		canonicalID = ""
 		for id := range exists {
-			if canonicalID == 0 {
+			if canonicalID == "" {
 				canonicalID = id
 				continue
 			}
 			cur := entityByID[canonicalID]
 			cand := entityByID[id]
 			if cur == nil || cand == nil {
-				if id < canonicalID {
+				if compareIDStrings(id, canonicalID) < 0 {
 					canonicalID = id
 				}
 				continue
 			}
-			if cand.SourceCount > cur.SourceCount || (cand.SourceCount == cur.SourceCount && id < canonicalID) {
+			if cand.SourceCount > cur.SourceCount || (cand.SourceCount == cur.SourceCount && compareIDStrings(id, canonicalID) < 0) {
 				canonicalID = id
 			}
 		}
-		if canonicalID == 0 {
+		if canonicalID == "" {
 			return nil, nil
 		}
 	}
 
-	dupeIDs := make([]int64, 0, len(comp.DupeIDs))
+	dupeIDs := make([]string, 0, len(comp.DupeIDs))
 	for _, id := range comp.DupeIDs {
 		if id == canonicalID {
 			continue
@@ -684,7 +675,7 @@ func (s *GraphDBStorage) applyEntityMergeComponentOnce(
 	if len(dupeIDs) == 0 {
 		return nil, nil
 	}
-	slices.Sort(dupeIDs)
+	sort.Strings(dupeIDs)
 
 	canonicalName := strings.TrimSpace(comp.CanonicalName)
 	if canonicalName != "" {
@@ -756,8 +747,8 @@ func isRetryableTxError(err error) bool {
 
 func (s *GraphDBStorage) dedupeEntityGroup(
 	ctx context.Context,
-	projectID int64,
-	group []int64,
+	projectID string,
+	group []string,
 	aiClient ai.GraphAIClient,
 	iteration int,
 ) ([]appliedEntityMergeComponent, error) {
@@ -887,7 +878,7 @@ func normalizeDedupeKeyWithType(name, typ string) string {
 }
 
 func newRelationshipDedupePlanner(rows []pgdb.GetProjectRelationshipsRow) *relationshipDedupePlanner {
-	states := make(map[int64]*relationshipState, len(rows))
+	states := make(map[string]*relationshipState, len(rows))
 	for _, row := range rows {
 		states[row.ID] = &relationshipState{
 			ID:           row.ID,
@@ -902,8 +893,8 @@ func newRelationshipDedupePlanner(rows []pgdb.GetProjectRelationshipsRow) *relat
 	}
 	return &relationshipDedupePlanner{
 		states:    states,
-		parent:    make(map[int64]int64),
-		deleteIDs: make(map[int64]struct{}),
+		parent:    make(map[string]string),
+		deleteIDs: make(map[string]struct{}),
 	}
 }
 
@@ -912,7 +903,7 @@ func (p *relationshipDedupePlanner) applyEntityMerges(components []appliedEntity
 		return
 	}
 
-	remap := make(map[int64]int64)
+	remap := make(map[string]string)
 	for _, comp := range components {
 		for _, dupeID := range comp.DupeIDs {
 			remap[dupeID] = comp.CanonicalID
@@ -958,7 +949,7 @@ func (p *relationshipDedupePlanner) dedupeIteration() {
 			continue
 		}
 		sort.Slice(group, func(i, j int) bool {
-			return group[i].ID < group[j].ID
+			return compareIDStrings(group[i].ID, group[j].ID) < 0
 		})
 
 		keep := group[0]
@@ -985,7 +976,7 @@ func (p *relationshipDedupePlanner) buildPlan() relationshipDedupePlan {
 		return relationshipDedupePlan{}
 	}
 
-	deleteSet := make(map[int64]struct{}, len(p.parent)+len(p.deleteIDs))
+	deleteSet := make(map[string]struct{}, len(p.parent)+len(p.deleteIDs))
 	for relationshipID := range p.parent {
 		deleteSet[relationshipID] = struct{}{}
 	}
@@ -993,14 +984,14 @@ func (p *relationshipDedupePlanner) buildPlan() relationshipDedupePlan {
 		deleteSet[relationshipID] = struct{}{}
 	}
 
-	deleteIDs := make([]int64, 0, len(deleteSet))
+	deleteIDs := make([]string, 0, len(deleteSet))
 	for relationshipID := range deleteSet {
 		deleteIDs = append(deleteIDs, relationshipID)
 	}
-	slices.Sort(deleteIDs)
+	sort.Strings(deleteIDs)
 
-	relationshipIDs := make([]int64, 0, len(deleteIDs))
-	canonicalIDs := make([]int64, 0, len(deleteIDs))
+	relationshipIDs := make([]string, 0, len(deleteIDs))
+	canonicalIDs := make([]string, 0, len(deleteIDs))
 	for _, relationshipID := range deleteIDs {
 		canonicalID := p.resolveCanonicalID(relationshipID)
 		if canonicalID == relationshipID {
@@ -1011,7 +1002,7 @@ func (p *relationshipDedupePlanner) buildPlan() relationshipDedupePlan {
 	}
 
 	type rankUpdate struct {
-		id   int64
+		id   string
 		rank float64
 	}
 	rankUpdates := make([]rankUpdate, 0)
@@ -1025,9 +1016,9 @@ func (p *relationshipDedupePlanner) buildPlan() relationshipDedupePlan {
 		rankUpdates = append(rankUpdates, rankUpdate{id: state.ID, rank: state.Rank})
 	}
 	sort.Slice(rankUpdates, func(i, j int) bool {
-		return rankUpdates[i].id < rankUpdates[j].id
+		return compareIDStrings(rankUpdates[i].id, rankUpdates[j].id) < 0
 	})
-	rankIDs := make([]int64, 0, len(rankUpdates))
+	rankIDs := make([]string, 0, len(rankUpdates))
 	ranks := make([]float64, 0, len(rankUpdates))
 	for _, update := range rankUpdates {
 		rankIDs = append(rankIDs, update.id)
@@ -1060,11 +1051,11 @@ func (p *relationshipDedupePlanner) commitPlan(plan relationshipDedupePlan) {
 		state.OriginalRank = state.Rank
 	}
 
-	p.parent = make(map[int64]int64)
-	p.deleteIDs = make(map[int64]struct{})
+	p.parent = make(map[string]string)
+	p.deleteIDs = make(map[string]struct{})
 }
 
-func (p *relationshipDedupePlanner) resolveCanonicalID(relationshipID int64) int64 {
+func (p *relationshipDedupePlanner) resolveCanonicalID(relationshipID string) string {
 	nextID, ok := p.parent[relationshipID]
 	if !ok {
 		return relationshipID
@@ -1074,11 +1065,27 @@ func (p *relationshipDedupePlanner) resolveCanonicalID(relationshipID int64) int
 	return rootID
 }
 
-func relationshipEdgeKey(sourceID, targetID int64) string {
+func relationshipEdgeKey(sourceID, targetID string) string {
 	if sourceID > targetID {
 		sourceID, targetID = targetID, sourceID
 	}
-	return strconv.FormatInt(sourceID, 10) + "|" + strconv.FormatInt(targetID, 10)
+	return sourceID + "|" + targetID
+}
+
+func compareIDStrings(left, right string) int {
+	leftInt, leftErr := strconv.ParseInt(left, 10, 64)
+	rightInt, rightErr := strconv.ParseInt(right, 10, 64)
+	if leftErr == nil && rightErr == nil {
+		switch {
+		case leftInt < rightInt:
+			return -1
+		case leftInt > rightInt:
+			return 1
+		default:
+			return 0
+		}
+	}
+	return strings.Compare(left, right)
 }
 
 func selectGroupTypeBySources(entities []*entityWithMeta) string {
@@ -1116,7 +1123,7 @@ func selectGroupTypeBySources(entities []*entityWithMeta) string {
 
 func (s *GraphDBStorage) applyRelationshipDedupePlan(
 	ctx context.Context,
-	projectID int64,
+	projectID string,
 	plan relationshipDedupePlan,
 ) error {
 	if len(plan.RelationshipIDs) == 0 && len(plan.RankIDs) == 0 && len(plan.DeleteIDs) == 0 {

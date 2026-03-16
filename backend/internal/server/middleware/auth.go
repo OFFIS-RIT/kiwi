@@ -38,7 +38,7 @@ func AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		app := c.(*AppContext).App
 
 		// Master API Key bypass
-		if app.MasterAPIKey != "" && app.MasterUserID != 0 && app.MasterUserRole != "" && token == app.MasterAPIKey {
+		if app.MasterAPIKey != "" && app.MasterUserID != "" && app.MasterUserRole != "" && token == app.MasterAPIKey {
 			c.(*AppContext).User = &AppUser{
 				UserID:      app.MasterUserID,
 				Role:        app.MasterUserRole,
@@ -59,14 +59,14 @@ func AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
 		}
 
-		var userID int64
+		var userID string
 		if idClaim, ok := claims["id"].(string); ok {
-			userID, err = strconv.ParseInt(idClaim, 10, 64)
-			if err != nil {
+			if strings.TrimSpace(idClaim) == "" {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid user ID"})
 			}
+			userID = idClaim
 		} else if idFloat, ok := claims["id"].(float64); ok {
-			userID = int64(idFloat)
+			userID = strconv.FormatInt(int64(idFloat), 10)
 		} else {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid user ID"})
 		}

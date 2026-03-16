@@ -118,7 +118,7 @@ return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request
 
 ```go
 logger.Info("Starting server", "port", port)
-logger.Error("Failed to process", "err", err, "queue", queueName)
+logger.Error("Failed to process workflow", "err", err, "workflow", workflowName)
 logger.Fatal("Unable to connect", "err", err)  // exits process
 ```
 
@@ -127,7 +127,7 @@ logger.Fatal("Unable to connect", "err", err)  // exits process
 ```
 cmd/
   server/main.go     # HTTP API entry point (Echo framework)
-  worker/main.go     # Background worker (RabbitMQ consumer)
+  worker/main.go     # Background durable workflow worker
 
 internal/
   server/
@@ -135,7 +135,7 @@ internal/
     middleware/      # Auth and context middleware
     server.go        # Server initialization
     routes.go        # Route registration
-  queue/             # RabbitMQ message handlers
+  workflow/          # Workflow definitions, enqueueing, worker bootstrap
   storage/           # S3 client
   util/              # Utilities (env, retry, IDs)
 
@@ -150,8 +150,18 @@ pkg/
   loader/            # File loaders (PDF, image, audio, CSV, Excel)
   store/             # Graph storage interface
   query/             # Graph query interface
+  workflow/          # Durable workflow engine and worker runtime
   logger/            # Logging abstraction
 ```
+
+## Workflow Runtime
+
+- Workflow runs are persisted in PostgreSQL via `pkg/store/pgx` and executed by `pkg/workflow`.
+- API handlers enqueue `process` and `delete` runs through `internal/workflow.Service`, usually inside the same transaction as project/file changes.
+- `cmd/worker` polls pending runs from the database, claims a lease, heartbeats while running, and retries failures with exponential backoff.
+- `process` workflows execute `preprocess -> metadata -> chunk -> extract -> dedupe -> save`, then enqueue `description` workflows once all files in a correlation are done.
+- `delete` workflows remove file graph data, refresh affected descriptions, and restore the project to `ready` when the batch completes.
+- Key env vars: `WORKFLOW_WORKER_CONCURRENCY`, `WORKFLOW_MAX_ATTEMPTS`.
 
 ## Database (sqlc)
 
@@ -186,7 +196,6 @@ gopls hasn't updated yet. Verify the method exists in the generated code and pro
 | `github.com/labstack/echo/v4` | HTTP framework |
 | `github.com/jackc/pgx/v5` | PostgreSQL driver |
 | `github.com/pgvector/pgvector-go` | Vector similarity search |
-| `github.com/rabbitmq/amqp091-go` | Message queue |
 | `github.com/openai/openai-go/v3` | OpenAI client |
 | `github.com/ollama/ollama` | Ollama client |
 | `golang.org/x/sync/errgroup` | Parallel processing with error handling |

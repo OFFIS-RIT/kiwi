@@ -27,9 +27,7 @@ func GetGroupsHandler(c echo.Context) error {
 		return c.JSON(http.StatusOK, res)
 	}
 
-	userID := int64(user.UserID)
-
-	res, err := q.GetGroupsForUser(ctx, userID)
+	res, err := q.GetGroupsForUser(ctx, user.UserID)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
@@ -39,7 +37,7 @@ func GetGroupsHandler(c echo.Context) error {
 
 func GetGroupUsersHandler(c echo.Context) error {
 	type getGroupUsersParams struct {
-		GroupID int64 `param:"id" validate:"required,numeric"`
+		GroupID string `param:"id" validate:"required"`
 	}
 
 	params := new(getGroupUsersParams)

@@ -4,20 +4,21 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/OFFIS-RIT/kiwi/backend/internal/queue"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/server/middleware"
 	"github.com/OFFIS-RIT/kiwi/backend/internal/storage"
-	"github.com/OFFIS-RIT/kiwi/backend/internal/util"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // DeleteFileFromProjectHandler marks files for deletion in a project
 func DeleteFileFromProjectHandler(c echo.Context) error {
 	type deleteProjectData struct {
-		ProjectID int64    `param:"id" validate:"required,numeric"`
+		ProjectID string   `param:"id" validate:"required"`
 		FileKeys  []string `json:"file_keys" validate:"required"`
 	}
 
@@ -64,17 +65,31 @@ func DeleteFileFromProjectHandler(c echo.Context) error {
 	}
 
 	if project.UserID.Valid {
-		if project.UserID.Int64 != user.UserID {
+		if project.UserID.String != user.UserID {
 			return c.JSON(http.StatusForbidden, deleteProjectResponse{Message: "You are not allowed to modify this project"})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     data.ProjectID,
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 		})
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, deleteProjectResponse{Message: "You are not allowed to modify this project"})
 		}
+	}
+
+	targetFiles := make([]pgdb.ProjectFile, 0, len(data.FileKeys))
+	projectFiles, err := qtx.GetProjectFiles(ctx, data.ProjectID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, deleteProjectResponse{Message: "Internal server error"})
+	}
+	for _, file := range projectFiles {
+		if slices.Contains(data.FileKeys, file.FileKey) {
+			targetFiles = append(targetFiles, file)
+		}
+	}
+	if len(targetFiles) == 0 {
+		return c.JSON(http.StatusBadRequest, deleteProjectResponse{Message: "No matching files found"})
 	}
 
 	for _, fileKey := range data.FileKeys {
@@ -89,22 +104,8 @@ func DeleteFileFromProjectHandler(c echo.Context) error {
 		}
 	}
 
-	dbFiles, err := qtx.GetProjectFiles(ctx, data.ProjectID)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, deleteProjectResponse{
-			Message: "Internal server error",
-		})
-	}
-
-	type deleteStruct struct {
-		ProjectID int64 `json:"project_id"`
-	}
-
-	ch := c.(*middleware.AppContext).App.Queue
-	err = queue.PublishFIFO(ch, "delete_queue", []byte(util.ConvertStructToJson(deleteStruct{
-		ProjectID: data.ProjectID,
-	})))
-	if err != nil {
+	if _, err := c.(*middleware.AppContext).App.Workflows.EnqueueDeleteFiles(ctx, tx, data.ProjectID, targetFiles); err != nil {
+		logger.Error("Failed to enqueue delete workflows", "err", err)
 		return c.JSON(http.StatusInternalServerError, deleteProjectResponse{Message: "Internal server error"})
 	}
 
@@ -117,14 +118,14 @@ func DeleteFileFromProjectHandler(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, deleteProjectResponse{
 		Message: "Files marked for deletion",
-		Files:   &dbFiles,
+		Files:   &projectFiles,
 	})
 }
 
 // DeleteProjectHandler delete a project and all its content
 func DeleteProjectHandler(c echo.Context) error {
 	type deleteProjectParams struct {
-		ID int64 `param:"id" validate:"required,numeric"`
+		ID string `param:"id" validate:"required"`
 	}
 
 	type deleteProjectResponse struct {
@@ -169,17 +170,23 @@ func DeleteProjectHandler(c echo.Context) error {
 	}
 
 	if project.UserID.Valid {
-		if project.UserID.Int64 != user.UserID {
+		if project.UserID.String != user.UserID {
 			return c.JSON(http.StatusForbidden, deleteProjectResponse{Message: "You are not allowed to modify this project"})
 		}
 	} else if !middleware.IsAdmin(user) {
 		count, err := qtx.IsUserInProject(ctx, pgdb.IsUserInProjectParams{
 			ID:     params.ID,
-			UserID: user.UserID,
+			UserID: pgtype.Text{String: user.UserID, Valid: true},
 		})
 		if err != nil || count == 0 {
 			return c.JSON(http.StatusForbidden, deleteProjectResponse{Message: "You are not allowed to modify this project"})
 		}
+	}
+
+	if _, err := qtx.CancelWorkflowRunsByProject(ctx, params.ID); err != nil {
+		return c.JSON(http.StatusInternalServerError, deleteProjectResponse{
+			Message: "Internal server error",
+		})
 	}
 
 	err = qtx.DeleteProject(ctx, params.ID)
@@ -197,7 +204,7 @@ func DeleteProjectHandler(c echo.Context) error {
 	}
 
 	s3Client := c.(*middleware.AppContext).App.S3
-	storage.DeleteFolder(ctx, s3Client, fmt.Sprintf("projects/%d", params.ID))
+	storage.DeleteFolder(ctx, s3Client, fmt.Sprintf("projects/%s", params.ID))
 
 	return c.JSON(http.StatusOK, deleteProjectResponse{
 		Message: "Project deleted",

@@ -10,25 +10,25 @@ import (
 
 func TestRelationshipDedupePlanner_SingleIterationAveragesAllDuplicateRanks(t *testing.T) {
 	planner := newRelationshipDedupePlanner([]pgdb.GetProjectRelationshipsRow{
-		{ID: 1, SourceID: 10, TargetID: 20, Rank: 0.2},
-		{ID: 2, SourceID: 10, TargetID: 20, Rank: 0.4},
-		{ID: 3, SourceID: 20, TargetID: 10, Rank: 0.8},
-		{ID: 4, SourceID: 30, TargetID: 40, Rank: 0.1},
+		{ID: "1", SourceID: "10", TargetID: "20", Rank: 0.2},
+		{ID: "2", SourceID: "10", TargetID: "20", Rank: 0.4},
+		{ID: "3", SourceID: "20", TargetID: "10", Rank: 0.8},
+		{ID: "4", SourceID: "30", TargetID: "40", Rank: 0.1},
 	})
 
 	planner.dedupeIteration()
 	plan := planner.buildPlan()
 
-	if !reflect.DeepEqual(plan.RelationshipIDs, []int64{2, 3}) {
+	if !reflect.DeepEqual(plan.RelationshipIDs, []string{"2", "3"}) {
 		t.Fatalf("expected duplicate relationship ids [2 3], got %v", plan.RelationshipIDs)
 	}
-	if !reflect.DeepEqual(plan.CanonicalIDs, []int64{1, 1}) {
+	if !reflect.DeepEqual(plan.CanonicalIDs, []string{"1", "1"}) {
 		t.Fatalf("expected canonical ids [1 1], got %v", plan.CanonicalIDs)
 	}
-	if !reflect.DeepEqual(plan.DeleteIDs, []int64{2, 3}) {
+	if !reflect.DeepEqual(plan.DeleteIDs, []string{"2", "3"}) {
 		t.Fatalf("expected delete ids [2 3], got %v", plan.DeleteIDs)
 	}
-	if !reflect.DeepEqual(plan.RankIDs, []int64{1}) {
+	if !reflect.DeepEqual(plan.RankIDs, []string{"1"}) {
 		t.Fatalf("expected rank ids [1], got %v", plan.RankIDs)
 	}
 	assertFloatSlicesClose(t, plan.Ranks, []float64{(0.2 + 0.4 + 0.8) / 3})
@@ -36,9 +36,9 @@ func TestRelationshipDedupePlanner_SingleIterationAveragesAllDuplicateRanks(t *t
 
 func TestRelationshipDedupePlanner_MultiIterationPreservesTrueMean(t *testing.T) {
 	planner := newRelationshipDedupePlanner([]pgdb.GetProjectRelationshipsRow{
-		{ID: 1, SourceID: 10, TargetID: 20, Rank: 0.2},
-		{ID: 2, SourceID: 10, TargetID: 20, Rank: 0.4},
-		{ID: 3, SourceID: 30, TargetID: 40, Rank: 0.8},
+		{ID: "1", SourceID: "10", TargetID: "20", Rank: 0.2},
+		{ID: "2", SourceID: "10", TargetID: "20", Rank: 0.4},
+		{ID: "3", SourceID: "30", TargetID: "40", Rank: 0.8},
 	})
 
 	planner.dedupeIteration()
@@ -46,19 +46,19 @@ func TestRelationshipDedupePlanner_MultiIterationPreservesTrueMean(t *testing.T)
 	planner.commitPlan(firstPlan)
 
 	planner.applyEntityMerges([]appliedEntityMergeComponent{
-		{CanonicalID: 10, DupeIDs: []int64{30}},
-		{CanonicalID: 20, DupeIDs: []int64{40}},
+		{CanonicalID: "10", DupeIDs: []string{"30"}},
+		{CanonicalID: "20", DupeIDs: []string{"40"}},
 	})
 	planner.dedupeIteration()
 	plan := planner.buildPlan()
 
-	if !reflect.DeepEqual(plan.RelationshipIDs, []int64{3}) {
+	if !reflect.DeepEqual(plan.RelationshipIDs, []string{"3"}) {
 		t.Fatalf("expected duplicate relationship ids [3], got %v", plan.RelationshipIDs)
 	}
-	if !reflect.DeepEqual(plan.CanonicalIDs, []int64{1}) {
+	if !reflect.DeepEqual(plan.CanonicalIDs, []string{"1"}) {
 		t.Fatalf("expected canonical ids [1], got %v", plan.CanonicalIDs)
 	}
-	if !reflect.DeepEqual(plan.RankIDs, []int64{1}) {
+	if !reflect.DeepEqual(plan.RankIDs, []string{"1"}) {
 		t.Fatalf("expected rank ids [1], got %v", plan.RankIDs)
 	}
 	assertFloatSlicesClose(t, plan.Ranks, []float64{(0.2 + 0.4 + 0.8) / 3})
@@ -66,8 +66,8 @@ func TestRelationshipDedupePlanner_MultiIterationPreservesTrueMean(t *testing.T)
 
 func TestRelationshipDedupePlanner_CommitPlanClearsAppliedChanges(t *testing.T) {
 	planner := newRelationshipDedupePlanner([]pgdb.GetProjectRelationshipsRow{
-		{ID: 1, SourceID: 10, TargetID: 20, Rank: 0.2},
-		{ID: 2, SourceID: 10, TargetID: 20, Rank: 0.4},
+		{ID: "1", SourceID: "10", TargetID: "20", Rank: 0.2},
+		{ID: "2", SourceID: "10", TargetID: "20", Rank: 0.4},
 	})
 
 	planner.dedupeIteration()
@@ -83,9 +83,9 @@ func TestRelationshipDedupePlanner_CommitPlanClearsAppliedChanges(t *testing.T) 
 
 func TestRelationshipDedupePlanner_ResolvesCanonicalChains(t *testing.T) {
 	planner := newRelationshipDedupePlanner([]pgdb.GetProjectRelationshipsRow{
-		{ID: 5, SourceID: 10, TargetID: 20, Rank: 0.2},
-		{ID: 6, SourceID: 10, TargetID: 20, Rank: 0.4},
-		{ID: 4, SourceID: 30, TargetID: 40, Rank: 0.8},
+		{ID: "5", SourceID: "10", TargetID: "20", Rank: 0.2},
+		{ID: "6", SourceID: "10", TargetID: "20", Rank: 0.4},
+		{ID: "4", SourceID: "30", TargetID: "40", Rank: 0.8},
 	})
 
 	planner.dedupeIteration()
@@ -93,22 +93,22 @@ func TestRelationshipDedupePlanner_ResolvesCanonicalChains(t *testing.T) {
 	planner.commitPlan(firstPlan)
 
 	planner.applyEntityMerges([]appliedEntityMergeComponent{
-		{CanonicalID: 10, DupeIDs: []int64{30}},
-		{CanonicalID: 20, DupeIDs: []int64{40}},
+		{CanonicalID: "10", DupeIDs: []string{"30"}},
+		{CanonicalID: "20", DupeIDs: []string{"40"}},
 	})
 	planner.dedupeIteration()
 	plan := planner.buildPlan()
 
-	if !reflect.DeepEqual(plan.RelationshipIDs, []int64{5}) {
+	if !reflect.DeepEqual(plan.RelationshipIDs, []string{"5"}) {
 		t.Fatalf("expected duplicate relationship ids [5], got %v", plan.RelationshipIDs)
 	}
-	if !reflect.DeepEqual(plan.CanonicalIDs, []int64{4}) {
+	if !reflect.DeepEqual(plan.CanonicalIDs, []string{"4"}) {
 		t.Fatalf("expected canonical ids [4], got %v", plan.CanonicalIDs)
 	}
-	if !reflect.DeepEqual(plan.DeleteIDs, []int64{5}) {
+	if !reflect.DeepEqual(plan.DeleteIDs, []string{"5"}) {
 		t.Fatalf("expected delete ids [5], got %v", plan.DeleteIDs)
 	}
-	if !reflect.DeepEqual(plan.RankIDs, []int64{4}) {
+	if !reflect.DeepEqual(plan.RankIDs, []string{"4"}) {
 		t.Fatalf("expected rank ids [4], got %v", plan.RankIDs)
 	}
 	assertFloatSlicesClose(t, plan.Ranks, []float64{(0.2 + 0.4 + 0.8) / 3})
@@ -116,29 +116,29 @@ func TestRelationshipDedupePlanner_ResolvesCanonicalChains(t *testing.T) {
 
 func TestRelationshipDedupePlanner_DeletesSelfLoopsAfterEntityMerge(t *testing.T) {
 	planner := newRelationshipDedupePlanner([]pgdb.GetProjectRelationshipsRow{
-		{ID: 7, SourceID: 20, TargetID: 30, Rank: 0.5},
-		{ID: 8, SourceID: 10, TargetID: 40, Rank: 0.2},
+		{ID: "7", SourceID: "20", TargetID: "30", Rank: 0.5},
+		{ID: "8", SourceID: "10", TargetID: "40", Rank: 0.2},
 	})
 
 	planner.applyEntityMerges([]appliedEntityMergeComponent{{
-		CanonicalID: 10,
-		DupeIDs:     []int64{20, 30},
+		CanonicalID: "10",
+		DupeIDs:     []string{"20", "30"},
 	}})
 	plan := planner.buildPlan()
 
 	if len(plan.RelationshipIDs) != 0 || len(plan.CanonicalIDs) != 0 {
 		t.Fatalf("expected no relationship remaps for self-loop deletion, got %+v", plan)
 	}
-	if !reflect.DeepEqual(plan.DeleteIDs, []int64{7}) {
+	if !reflect.DeepEqual(plan.DeleteIDs, []string{"7"}) {
 		t.Fatalf("expected delete ids [7], got %v", plan.DeleteIDs)
 	}
 	if len(plan.RankIDs) != 0 || len(plan.Ranks) != 0 {
 		t.Fatalf("expected no rank updates for self-loop deletion, got %+v", plan)
 	}
-	if _, ok := planner.states[8]; !ok || !planner.states[8].Active {
+	if _, ok := planner.states["8"]; !ok || !planner.states["8"].Active {
 		t.Fatalf("expected non-self-loop relationship to remain active")
 	}
-	if _, ok := planner.states[7]; !ok || planner.states[7].Active {
+	if _, ok := planner.states["7"]; !ok || planner.states["7"].Active {
 		t.Fatalf("expected self-loop relationship to be inactive")
 	}
 }

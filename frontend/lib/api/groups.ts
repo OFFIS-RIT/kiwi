@@ -27,7 +27,7 @@ export async function fetchProjects(): Promise<ApiGroupWithProjects[]> {
 export async function createGroup(name: string) {
   return apiClient.post("/groups", {
     name,
-    users: [{ user_id: 12, role: "admin" }],
+    users: [{ user_id: "12", role: "admin" }],
   });
 }
 
@@ -40,7 +40,7 @@ export async function createGroup(name: string) {
 export async function updateGroup(
   groupId: string,
   name: string,
-  users: { user_id: number; role: string }[]
+  users: { user_id: string; role: string }[]
 ) {
   return apiClient.patch(`/groups/${groupId}`, { name, users });
 }

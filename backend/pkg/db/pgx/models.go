@@ -5,14 +5,13 @@
 package pgdb
 
 import (
-	"github.com/OFFIS-RIT/kiwi/backend/pkg/db/sqltype"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
 )
 
 type Account struct {
-	ID                    int64              `json:"id"`
-	UserId                int64              `json:"user_id"`
+	ID                    string             `json:"id"`
+	UserId                string             `json:"user_id"`
 	AccountId             string             `json:"account_id"`
 	ProviderId            string             `json:"provider_id"`
 	AccessToken           pgtype.Text        `json:"access_token"`
@@ -27,8 +26,8 @@ type Account struct {
 }
 
 type ChatMessage struct {
-	ID            int64              `json:"id"`
-	ChatID        int64              `json:"chat_id"`
+	ID            string             `json:"id"`
+	ChatID        string             `json:"chat_id"`
 	Role          string             `json:"role"`
 	Content       string             `json:"content"`
 	ToolCallID    string             `json:"tool_call_id"`
@@ -42,9 +41,8 @@ type ChatMessage struct {
 }
 
 type Entity struct {
-	ID          int64              `json:"id"`
-	PublicID    string             `json:"public_id"`
-	ProjectID   int64              `json:"project_id"`
+	ID          string             `json:"id"`
+	ProjectID   string             `json:"project_id"`
 	Name        string             `json:"name"`
 	Description string             `json:"description"`
 	Type        string             `json:"type"`
@@ -55,10 +53,9 @@ type Entity struct {
 }
 
 type EntitySource struct {
-	ID          int64              `json:"id"`
-	PublicID    string             `json:"public_id"`
-	EntityID    int64              `json:"entity_id"`
-	TextUnitID  int64              `json:"text_unit_id"`
+	ID          string             `json:"id"`
+	EntityID    string             `json:"entity_id"`
+	TextUnitID  string             `json:"text_unit_id"`
 	Description string             `json:"description"`
 	Embedding   pgvector.Vector    `json:"embedding"`
 	SearchTsv   interface{}        `json:"search_tsv"`
@@ -66,21 +63,11 @@ type EntitySource struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
-type ExtractionStaging struct {
-	ID            int64              `json:"id"`
-	CorrelationID string             `json:"correlation_id"`
-	BatchID       int32              `json:"batch_id"`
-	ProjectID     int64              `json:"project_id"`
-	DataType      string             `json:"data_type"`
-	Data          []byte             `json:"data"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-}
-
 type Graph struct {
-	ID          int64              `json:"id"`
-	GroupID     sqltype.NullInt64  `json:"group_id"`
-	UserID      sqltype.NullInt64  `json:"user_id"`
-	GraphID     sqltype.NullInt64  `json:"graph_id"`
+	ID          string             `json:"id"`
+	GroupID     pgtype.Text        `json:"group_id"`
+	UserID      pgtype.Text        `json:"user_id"`
+	GraphID     pgtype.Text        `json:"graph_id"`
 	Name        string             `json:"name"`
 	Description pgtype.Text        `json:"description"`
 	State       string             `json:"state"`
@@ -91,13 +78,13 @@ type Graph struct {
 }
 
 type Group struct {
-	ID   int64  `json:"id"`
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
 type GroupUser struct {
-	GroupID   int64              `json:"group_id"`
-	UserID    int64              `json:"user_id"`
+	GroupID   string             `json:"group_id"`
+	UserID    string             `json:"user_id"`
 	Role      string             `json:"role"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
@@ -111,41 +98,9 @@ type Jwk struct {
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 }
 
-type ProjectBatchStatus struct {
-	ID                int64              `json:"id"`
-	ProjectID         int64              `json:"project_id"`
-	CorrelationID     string             `json:"correlation_id"`
-	BatchID           int32              `json:"batch_id"`
-	TotalBatches      int32              `json:"total_batches"`
-	FilesCount        int32              `json:"files_count"`
-	FileIds           []int64            `json:"file_ids"`
-	Status            string             `json:"status"`
-	Operation         string             `json:"operation"`
-	EstimatedDuration int64              `json:"estimated_duration"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	StartedAt         pgtype.Timestamptz `json:"started_at"`
-	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
-	ErrorMessage      pgtype.Text        `json:"error_message"`
-}
-
-type ProjectDescriptionJobStatus struct {
-	ID              int64              `json:"id"`
-	ProjectID       int64              `json:"project_id"`
-	CorrelationID   string             `json:"correlation_id"`
-	JobID           int32              `json:"job_id"`
-	TotalJobs       int32              `json:"total_jobs"`
-	EntityIds       []int64            `json:"entity_ids"`
-	RelationshipIds []int64            `json:"relationship_ids"`
-	Status          string             `json:"status"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	StartedAt       pgtype.Timestamptz `json:"started_at"`
-	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
-	ErrorMessage    pgtype.Text        `json:"error_message"`
-}
-
 type ProjectFile struct {
-	ID         int64              `json:"id"`
-	ProjectID  int64              `json:"project_id"`
+	ID         string             `json:"id"`
+	ProjectID  string             `json:"project_id"`
 	Name       string             `json:"name"`
 	FileKey    string             `json:"file_key"`
 	Deleted    pgtype.Bool        `json:"deleted"`
@@ -156,16 +111,16 @@ type ProjectFile struct {
 }
 
 type ProjectSystemPrompt struct {
-	ID        int64              `json:"id"`
-	ProjectID int64              `json:"project_id"`
+	ID        string             `json:"id"`
+	ProjectID string             `json:"project_id"`
 	Prompt    string             `json:"prompt"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ProjectUpdate struct {
-	ID            int64              `json:"id"`
-	ProjectID     int64              `json:"project_id"`
+	ID            string             `json:"id"`
+	ProjectID     string             `json:"project_id"`
 	UpdateType    string             `json:"update_type"`
 	UpdateMessage []byte             `json:"update_message"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
@@ -173,11 +128,10 @@ type ProjectUpdate struct {
 }
 
 type Relationship struct {
-	ID          int64              `json:"id"`
-	PublicID    string             `json:"public_id"`
-	SourceID    int64              `json:"source_id"`
-	TargetID    int64              `json:"target_id"`
-	ProjectID   int64              `json:"project_id"`
+	ID          string             `json:"id"`
+	SourceID    string             `json:"source_id"`
+	TargetID    string             `json:"target_id"`
+	ProjectID   string             `json:"project_id"`
 	Rank        float64            `json:"rank"`
 	Description string             `json:"description"`
 	Embedding   pgvector.Vector    `json:"embedding"`
@@ -187,10 +141,9 @@ type Relationship struct {
 }
 
 type RelationshipSource struct {
-	ID             int64              `json:"id"`
-	PublicID       string             `json:"public_id"`
-	RelationshipID int64              `json:"relationship_id"`
-	TextUnitID     int64              `json:"text_unit_id"`
+	ID             string             `json:"id"`
+	RelationshipID string             `json:"relationship_id"`
+	TextUnitID     string             `json:"text_unit_id"`
 	Description    string             `json:"description"`
 	Embedding      pgvector.Vector    `json:"embedding"`
 	SearchTsv      interface{}        `json:"search_tsv"`
@@ -199,38 +152,60 @@ type RelationshipSource struct {
 }
 
 type Session struct {
-	ID             int64              `json:"id"`
-	UserId         int64              `json:"user_id"`
+	ID             string             `json:"id"`
+	UserId         string             `json:"user_id"`
 	Token          string             `json:"token"`
 	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
 	IpAddress      pgtype.Text        `json:"ip_address"`
 	UserAgent      pgtype.Text        `json:"user_agent"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	ImpersonatedBy sqltype.NullInt64  `json:"impersonated_by"`
+	ImpersonatedBy pgtype.Text        `json:"impersonated_by"`
 }
 
 type Stat struct {
-	ID        int64              `json:"id"`
-	ProjectID int64              `json:"project_id"`
-	Amount    int32              `json:"amount"`
-	Duration  int64              `json:"duration"`
-	StatType  string             `json:"stat_type"`
+	ID        string             `json:"id"`
+	RunID     pgtype.Text        `json:"run_id"`
+	Type      string             `json:"type"`
+	Data      []byte             `json:"data"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type StatsWorkflowStepSamplesV struct {
+	ID                string             `json:"id"`
+	Type              string             `json:"type"`
+	RunID             pgtype.Text        `json:"run_id"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	WorkflowName      interface{}        `json:"workflow_name"`
+	WorkflowVersion   interface{}        `json:"workflow_version"`
+	Operation         interface{}        `json:"operation"`
+	AiAdapter         interface{}        `json:"ai_adapter"`
+	ChatModel         interface{}        `json:"chat_model"`
+	EmbedModel        interface{}        `json:"embed_model"`
+	FileType          interface{}        `json:"file_type"`
+	NeedsOcr          interface{}        `json:"needs_ocr"`
+	EstimatedTokens   interface{}        `json:"estimated_tokens"`
+	ChunkCount        interface{}        `json:"chunk_count"`
+	EntityCount       interface{}        `json:"entity_count"`
+	RelationshipCount interface{}        `json:"relationship_count"`
+	SourceCount       interface{}        `json:"source_count"`
+	DurationMs        interface{}        `json:"duration_ms"`
+	StepName          string             `json:"step_name"`
+	TokenBucket       interface{}        `json:"token_bucket"`
+	ChunkBucket       interface{}        `json:"chunk_bucket"`
+	SourceBucket      interface{}        `json:"source_bucket"`
 }
 
 type TextUnit struct {
-	ID            int64              `json:"id"`
-	PublicID      string             `json:"public_id"`
-	ProjectFileID int64              `json:"project_file_id"`
+	ID            string             `json:"id"`
+	ProjectFileID string             `json:"project_file_id"`
 	Text          string             `json:"text"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 type User struct {
-	ID            int64              `json:"id"`
+	ID            string             `json:"id"`
 	Name          string             `json:"name"`
 	Email         string             `json:"email"`
 	EmailVerified bool               `json:"email_verified"`
@@ -244,20 +219,90 @@ type User struct {
 }
 
 type UserChat struct {
-	ID        int64              `json:"id"`
-	PublicID  string             `json:"public_id"`
-	UserID    int64              `json:"user_id"`
-	ProjectID sqltype.NullInt64  `json:"project_id"`
+	ID        string             `json:"id"`
+	UserID    string             `json:"user_id"`
+	ProjectID pgtype.Text        `json:"project_id"`
 	Title     string             `json:"title"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Verification struct {
-	ID         int64              `json:"id"`
+	ID         string             `json:"id"`
 	Identifier string             `json:"identifier"`
 	Value      string             `json:"value"`
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type WorkflowRun struct {
+	ID                      string             `json:"id"`
+	Name                    string             `json:"name"`
+	Version                 string             `json:"version"`
+	Input                   []byte             `json:"input"`
+	Output                  []byte             `json:"output"`
+	Status                  string             `json:"status"`
+	ErrorMessage            string             `json:"error_message"`
+	AttemptCount            int32              `json:"attempt_count"`
+	AvailableAt             pgtype.Timestamptz `json:"available_at"`
+	WorkerID                string             `json:"worker_id"`
+	LeaseToken              string             `json:"lease_token"`
+	WaitReason              string             `json:"wait_reason"`
+	SleepUntil              pgtype.Timestamptz `json:"sleep_until"`
+	IdempotencyKey          pgtype.Text        `json:"idempotency_key"`
+	ParentRunID             pgtype.Text        `json:"parent_run_id"`
+	ParentStepName          pgtype.Text        `json:"parent_step_name"`
+	RootRunID               pgtype.Text        `json:"root_run_id"`
+	RetryInitialIntervalMs  int64              `json:"retry_initial_interval_ms"`
+	RetryBackoffCoefficient float64            `json:"retry_backoff_coefficient"`
+	RetryMaximumIntervalMs  int64              `json:"retry_maximum_interval_ms"`
+	RetryMaximumAttempts    int32              `json:"retry_maximum_attempts"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+	LastHeartbeatAt         pgtype.Timestamptz `json:"last_heartbeat_at"`
+}
+
+type WorkflowStat struct {
+	ID                      string             `json:"id"`
+	RunID                   pgtype.Text        `json:"run_id"`
+	ProjectID               string             `json:"project_id"`
+	CorrelationID           string             `json:"correlation_id"`
+	WorkflowName            string             `json:"workflow_name"`
+	WorkflowVersion         string             `json:"workflow_version"`
+	SubjectType             string             `json:"subject_type"`
+	SubjectID               string             `json:"subject_id"`
+	FileID                  pgtype.Text        `json:"file_id"`
+	Operation               string             `json:"operation"`
+	Status                  string             `json:"status"`
+	CurrentStep             string             `json:"current_step"`
+	CurrentStepStartedAt    pgtype.Timestamptz `json:"current_step_started_at"`
+	EstimatedDuration       int64              `json:"estimated_duration"`
+	PredictionSampleCount   int32              `json:"prediction_sample_count"`
+	PredictionFallbackLevel int32              `json:"prediction_fallback_level"`
+	Metrics                 []byte             `json:"metrics"`
+	Prediction              []byte             `json:"prediction"`
+	ErrorMessage            string             `json:"error_message"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+	CompletedAt             pgtype.Timestamptz `json:"completed_at"`
+}
+
+type WorkflowStepAttempt struct {
+	ID            string             `json:"id"`
+	RunID         string             `json:"run_id"`
+	RunAttempt    int32              `json:"run_attempt"`
+	StepName      string             `json:"step_name"`
+	StepIndex     int32              `json:"step_index"`
+	StepType      string             `json:"step_type"`
+	Status        string             `json:"status"`
+	Input         []byte             `json:"input"`
+	Output        []byte             `json:"output"`
+	ErrorMessage  string             `json:"error_message"`
+	AttemptNumber int32              `json:"attempt_number"`
+	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	SleepUntil    pgtype.Timestamptz `json:"sleep_until"`
+	ChildRunID    pgtype.Text        `json:"child_run_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
 }

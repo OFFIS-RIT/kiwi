@@ -26,8 +26,8 @@ SELECT * FROM groups WHERE id = $1;
 SELECT * FROM group_users WHERE group_id = $1;
 
 -- name: CreateGroup :one
-INSERT INTO groups (name)
-VALUES ($1) RETURNING *;
+INSERT INTO groups (id, name)
+VALUES ($1, $2) RETURNING *;
 
 -- name: UpdateGroup :one
 UPDATE groups SET name = $2 WHERE id = $1 RETURNING *;

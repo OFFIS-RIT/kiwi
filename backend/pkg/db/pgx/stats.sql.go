@@ -7,48 +7,291 @@ package pgdb
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const addProcessTime = `-- name: AddProcessTime :exec
-INSERT INTO stats 
-    (project_id, amount, duration, stat_type)
-VALUES
-    ($1, $2, $3, $4)
+const insertStatSample = `-- name: InsertStatSample :exec
+INSERT INTO stats (id, type, run_id, data)
+VALUES ($1, $2, $3, $4)
 `
 
-type AddProcessTimeParams struct {
-	ProjectID int64  `json:"project_id"`
-	Amount    int32  `json:"amount"`
-	Duration  int64  `json:"duration"`
-	StatType  string `json:"stat_type"`
+type InsertStatSampleParams struct {
+	ID    string      `json:"id"`
+	Type  string      `json:"type"`
+	RunID pgtype.Text `json:"run_id"`
+	Data  []byte      `json:"data"`
 }
 
-func (q *Queries) AddProcessTime(ctx context.Context, arg AddProcessTimeParams) error {
-	_, err := q.db.Exec(ctx, addProcessTime,
-		arg.ProjectID,
-		arg.Amount,
-		arg.Duration,
-		arg.StatType,
+func (q *Queries) InsertStatSample(ctx context.Context, arg InsertStatSampleParams) error {
+	_, err := q.db.Exec(ctx, insertStatSample,
+		arg.ID,
+		arg.Type,
+		arg.RunID,
+		arg.Data,
 	)
 	return err
 }
 
-const predictProjectProcessTime = `-- name: PredictProjectProcessTime :one
-SELECT (
-    (SUM(duration)::DOUBLE PRECISION / NULLIF(SUM(amount), 0)) * $1
-)::BIGINT AS predicted_duration
-FROM stats
-WHERE stat_type = $2
+const predictDescriptionDurationByModel = `-- name: PredictDescriptionDurationByModel :one
+SELECT
+    COUNT(DISTINCT run_id)::int AS sample_count,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms), 0)::bigint AS total_ms
+FROM stats_workflow_step_samples_v
+WHERE type = 'workflow.description.describe'
+  AND workflow_version = $1
+  AND source_bucket BETWEEN $2 AND $3
 `
 
-type PredictProjectProcessTimeParams struct {
-	Duration int64  `json:"duration"`
-	StatType string `json:"stat_type"`
+type PredictDescriptionDurationByModelParams struct {
+	WorkflowVersion interface{} `json:"workflow_version"`
+	SourceBucket    interface{} `json:"source_bucket"`
+	SourceBucket_2  interface{} `json:"source_bucket_2"`
 }
 
-func (q *Queries) PredictProjectProcessTime(ctx context.Context, arg PredictProjectProcessTimeParams) (int64, error) {
-	row := q.db.QueryRow(ctx, predictProjectProcessTime, arg.Duration, arg.StatType)
-	var predicted_duration int64
-	err := row.Scan(&predicted_duration)
-	return predicted_duration, err
+type PredictDescriptionDurationByModelRow struct {
+	SampleCount int32 `json:"sample_count"`
+	TotalMs     int64 `json:"total_ms"`
+}
+
+func (q *Queries) PredictDescriptionDurationByModel(ctx context.Context, arg PredictDescriptionDurationByModelParams) (PredictDescriptionDurationByModelRow, error) {
+	row := q.db.QueryRow(ctx, predictDescriptionDurationByModel, arg.WorkflowVersion, arg.SourceBucket, arg.SourceBucket_2)
+	var i PredictDescriptionDurationByModelRow
+	err := row.Scan(&i.SampleCount, &i.TotalMs)
+	return i, err
+}
+
+const predictDescriptionDurationExact = `-- name: PredictDescriptionDurationExact :one
+SELECT
+    COUNT(DISTINCT run_id)::int AS sample_count,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms), 0)::bigint AS total_ms
+FROM stats_workflow_step_samples_v
+WHERE type = 'workflow.description.describe'
+  AND workflow_version = $1
+  AND ai_adapter = $2
+  AND chat_model = $3
+  AND source_bucket BETWEEN $4 AND $5
+`
+
+type PredictDescriptionDurationExactParams struct {
+	WorkflowVersion interface{} `json:"workflow_version"`
+	AiAdapter       interface{} `json:"ai_adapter"`
+	ChatModel       interface{} `json:"chat_model"`
+	SourceBucket    interface{} `json:"source_bucket"`
+	SourceBucket_2  interface{} `json:"source_bucket_2"`
+}
+
+type PredictDescriptionDurationExactRow struct {
+	SampleCount int32 `json:"sample_count"`
+	TotalMs     int64 `json:"total_ms"`
+}
+
+func (q *Queries) PredictDescriptionDurationExact(ctx context.Context, arg PredictDescriptionDurationExactParams) (PredictDescriptionDurationExactRow, error) {
+	row := q.db.QueryRow(ctx, predictDescriptionDurationExact,
+		arg.WorkflowVersion,
+		arg.AiAdapter,
+		arg.ChatModel,
+		arg.SourceBucket,
+		arg.SourceBucket_2,
+	)
+	var i PredictDescriptionDurationExactRow
+	err := row.Scan(&i.SampleCount, &i.TotalMs)
+	return i, err
+}
+
+const predictWorkflowStepDurationsByFileType = `-- name: PredictWorkflowStepDurationsByFileType :one
+SELECT
+    COUNT(DISTINCT run_id)::int AS sample_count,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'preprocess'), 0)::bigint AS preprocess_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'metadata'), 0)::bigint AS metadata_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'chunk'), 0)::bigint AS chunk_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'extract'), 0)::bigint AS extract_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'dedupe'), 0)::bigint AS dedupe_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name IN ('save', 'delete')), 0)::bigint AS save_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name IN ('describe', 'descriptions')), 0)::bigint AS describe_ms,
+    COALESCE(SUM(duration_ms) FILTER (WHERE step_name = 'preprocess'), 0)::bigint AS total_duration_hint
+FROM stats_workflow_step_samples_v
+WHERE workflow_name = $1
+  AND workflow_version = $2
+  AND operation = $3
+  AND file_type = $4
+  AND needs_ocr = $5
+  AND token_bucket BETWEEN $6 AND $7
+`
+
+type PredictWorkflowStepDurationsByFileTypeParams struct {
+	WorkflowName    interface{} `json:"workflow_name"`
+	WorkflowVersion interface{} `json:"workflow_version"`
+	Operation       interface{} `json:"operation"`
+	FileType        interface{} `json:"file_type"`
+	NeedsOcr        interface{} `json:"needs_ocr"`
+	TokenBucket     interface{} `json:"token_bucket"`
+	TokenBucket_2   interface{} `json:"token_bucket_2"`
+}
+
+type PredictWorkflowStepDurationsByFileTypeRow struct {
+	SampleCount       int32 `json:"sample_count"`
+	PreprocessMs      int64 `json:"preprocess_ms"`
+	MetadataMs        int64 `json:"metadata_ms"`
+	ChunkMs           int64 `json:"chunk_ms"`
+	ExtractMs         int64 `json:"extract_ms"`
+	DedupeMs          int64 `json:"dedupe_ms"`
+	SaveMs            int64 `json:"save_ms"`
+	DescribeMs        int64 `json:"describe_ms"`
+	TotalDurationHint int64 `json:"total_duration_hint"`
+}
+
+func (q *Queries) PredictWorkflowStepDurationsByFileType(ctx context.Context, arg PredictWorkflowStepDurationsByFileTypeParams) (PredictWorkflowStepDurationsByFileTypeRow, error) {
+	row := q.db.QueryRow(ctx, predictWorkflowStepDurationsByFileType,
+		arg.WorkflowName,
+		arg.WorkflowVersion,
+		arg.Operation,
+		arg.FileType,
+		arg.NeedsOcr,
+		arg.TokenBucket,
+		arg.TokenBucket_2,
+	)
+	var i PredictWorkflowStepDurationsByFileTypeRow
+	err := row.Scan(
+		&i.SampleCount,
+		&i.PreprocessMs,
+		&i.MetadataMs,
+		&i.ChunkMs,
+		&i.ExtractMs,
+		&i.DedupeMs,
+		&i.SaveMs,
+		&i.DescribeMs,
+		&i.TotalDurationHint,
+	)
+	return i, err
+}
+
+const predictWorkflowStepDurationsByWorkflow = `-- name: PredictWorkflowStepDurationsByWorkflow :one
+SELECT
+    COUNT(DISTINCT run_id)::int AS sample_count,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'preprocess'), 0)::bigint AS preprocess_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'metadata'), 0)::bigint AS metadata_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'chunk'), 0)::bigint AS chunk_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'extract'), 0)::bigint AS extract_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'dedupe'), 0)::bigint AS dedupe_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name IN ('save', 'delete')), 0)::bigint AS save_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name IN ('describe', 'descriptions')), 0)::bigint AS describe_ms,
+    COALESCE(SUM(duration_ms) FILTER (WHERE step_name = 'preprocess'), 0)::bigint AS total_duration_hint
+FROM stats_workflow_step_samples_v
+WHERE workflow_name = $1
+  AND workflow_version = $2
+  AND operation = $3
+`
+
+type PredictWorkflowStepDurationsByWorkflowParams struct {
+	WorkflowName    interface{} `json:"workflow_name"`
+	WorkflowVersion interface{} `json:"workflow_version"`
+	Operation       interface{} `json:"operation"`
+}
+
+type PredictWorkflowStepDurationsByWorkflowRow struct {
+	SampleCount       int32 `json:"sample_count"`
+	PreprocessMs      int64 `json:"preprocess_ms"`
+	MetadataMs        int64 `json:"metadata_ms"`
+	ChunkMs           int64 `json:"chunk_ms"`
+	ExtractMs         int64 `json:"extract_ms"`
+	DedupeMs          int64 `json:"dedupe_ms"`
+	SaveMs            int64 `json:"save_ms"`
+	DescribeMs        int64 `json:"describe_ms"`
+	TotalDurationHint int64 `json:"total_duration_hint"`
+}
+
+func (q *Queries) PredictWorkflowStepDurationsByWorkflow(ctx context.Context, arg PredictWorkflowStepDurationsByWorkflowParams) (PredictWorkflowStepDurationsByWorkflowRow, error) {
+	row := q.db.QueryRow(ctx, predictWorkflowStepDurationsByWorkflow, arg.WorkflowName, arg.WorkflowVersion, arg.Operation)
+	var i PredictWorkflowStepDurationsByWorkflowRow
+	err := row.Scan(
+		&i.SampleCount,
+		&i.PreprocessMs,
+		&i.MetadataMs,
+		&i.ChunkMs,
+		&i.ExtractMs,
+		&i.DedupeMs,
+		&i.SaveMs,
+		&i.DescribeMs,
+		&i.TotalDurationHint,
+	)
+	return i, err
+}
+
+const predictWorkflowStepDurationsExact = `-- name: PredictWorkflowStepDurationsExact :one
+SELECT
+    COUNT(DISTINCT run_id)::int AS sample_count,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'preprocess'), 0)::bigint AS preprocess_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'metadata'), 0)::bigint AS metadata_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'chunk'), 0)::bigint AS chunk_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'extract'), 0)::bigint AS extract_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name = 'dedupe'), 0)::bigint AS dedupe_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name IN ('save', 'delete')), 0)::bigint AS save_ms,
+    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE step_name IN ('describe', 'descriptions')), 0)::bigint AS describe_ms,
+    COALESCE(SUM(duration_ms) FILTER (WHERE step_name = 'preprocess'), 0)::bigint AS total_duration_hint
+FROM stats_workflow_step_samples_v
+WHERE workflow_name = $1
+  AND workflow_version = $2
+  AND operation = $3
+  AND file_type = $4
+  AND ai_adapter = $5
+  AND chat_model = $6
+  AND needs_ocr = $7
+  AND token_bucket BETWEEN $8 AND $9
+  AND ($10 < 0 OR chunk_bucket BETWEEN $10 AND $11)
+`
+
+type PredictWorkflowStepDurationsExactParams struct {
+	WorkflowName    interface{} `json:"workflow_name"`
+	WorkflowVersion interface{} `json:"workflow_version"`
+	Operation       interface{} `json:"operation"`
+	FileType        interface{} `json:"file_type"`
+	AiAdapter       interface{} `json:"ai_adapter"`
+	ChatModel       interface{} `json:"chat_model"`
+	NeedsOcr        interface{} `json:"needs_ocr"`
+	TokenBucket     interface{} `json:"token_bucket"`
+	TokenBucket_2   interface{} `json:"token_bucket_2"`
+	Column10        interface{} `json:"column_10"`
+	ChunkBucket     interface{} `json:"chunk_bucket"`
+}
+
+type PredictWorkflowStepDurationsExactRow struct {
+	SampleCount       int32 `json:"sample_count"`
+	PreprocessMs      int64 `json:"preprocess_ms"`
+	MetadataMs        int64 `json:"metadata_ms"`
+	ChunkMs           int64 `json:"chunk_ms"`
+	ExtractMs         int64 `json:"extract_ms"`
+	DedupeMs          int64 `json:"dedupe_ms"`
+	SaveMs            int64 `json:"save_ms"`
+	DescribeMs        int64 `json:"describe_ms"`
+	TotalDurationHint int64 `json:"total_duration_hint"`
+}
+
+func (q *Queries) PredictWorkflowStepDurationsExact(ctx context.Context, arg PredictWorkflowStepDurationsExactParams) (PredictWorkflowStepDurationsExactRow, error) {
+	row := q.db.QueryRow(ctx, predictWorkflowStepDurationsExact,
+		arg.WorkflowName,
+		arg.WorkflowVersion,
+		arg.Operation,
+		arg.FileType,
+		arg.AiAdapter,
+		arg.ChatModel,
+		arg.NeedsOcr,
+		arg.TokenBucket,
+		arg.TokenBucket_2,
+		arg.Column10,
+		arg.ChunkBucket,
+	)
+	var i PredictWorkflowStepDurationsExactRow
+	err := row.Scan(
+		&i.SampleCount,
+		&i.PreprocessMs,
+		&i.MetadataMs,
+		&i.ChunkMs,
+		&i.ExtractMs,
+		&i.DedupeMs,
+		&i.SaveMs,
+		&i.DescribeMs,
+		&i.TotalDurationHint,
+	)
+	return i, err
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/ai"
 	pgdb "github.com/OFFIS-RIT/kiwi/backend/pkg/db/pgx"
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ids"
 )
 
 const defaultPendingToolResult = "No answer"
@@ -37,7 +38,7 @@ func GetPendingToolCall(historyRows []pgdb.ChatMessage) *pgdb.ChatMessage {
 func AppendPendingToolResult(
 	ctx context.Context,
 	q *pgdb.Queries,
-	chatID int64,
+	chatID string,
 	chatHistory *[]ai.ChatMessage,
 	pending *pgdb.ChatMessage,
 	toolID string,
@@ -73,7 +74,7 @@ func AppendPendingToolResult(
 	return usedPromptAsToolResult, nil
 }
 
-func AppendChatMessage(ctx context.Context, q *pgdb.Queries, chatID int64, message ai.ChatMessage) error {
+func AppendChatMessage(ctx context.Context, q *pgdb.Queries, chatID string, message ai.ChatMessage) error {
 	content := internalutil.SanitizePostgresText(message.Message)
 	toolCallID := internalutil.SanitizePostgresText(message.ToolCallID)
 	toolName := internalutil.SanitizePostgresText(message.ToolName)
@@ -86,6 +87,7 @@ func AppendChatMessage(ctx context.Context, q *pgdb.Queries, chatID int64, messa
 	}
 
 	if err := q.AddChatMessage(ctx, pgdb.AddChatMessageParams{
+		ID:            ids.New(),
 		ChatID:        chatID,
 		Role:          message.Role,
 		Content:       content,
@@ -104,7 +106,7 @@ func AppendChatMessage(ctx context.Context, q *pgdb.Queries, chatID int64, messa
 func AppendAssistantChatMessage(
 	ctx context.Context,
 	q *pgdb.Queries,
-	chatID int64,
+	chatID string,
 	content string,
 	reasoning string,
 	metrics *ai.ModelMetrics,
@@ -127,6 +129,7 @@ func AppendAssistantChatMessage(
 	}
 
 	if err := q.AddChatMessage(ctx, pgdb.AddChatMessageParams{
+		ID:            ids.New(),
 		ChatID:        chatID,
 		Role:          "assistant",
 		Content:       cleanContent,

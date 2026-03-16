@@ -18,8 +18,7 @@ import (
 	"time"
 	"unicode"
 
-	gonanoid "github.com/matoous/go-nanoid/v2"
-
+	"github.com/OFFIS-RIT/kiwi/backend/pkg/ids"
 	"github.com/OFFIS-RIT/kiwi/backend/pkg/logger"
 )
 
@@ -56,10 +55,7 @@ type pdfCropRect struct {
 // TransformDocToPdf converts a document file (docx, doc, odt, etc.) to PDF using unoconv.
 // The ext parameter should be the file extension without the leading dot (e.g., "docx").
 func TransformDocToPdf(input []byte, ext string) ([]byte, error) {
-	id, err := gonanoid.New()
-	if err != nil {
-		return nil, fmt.Errorf("nanoid: %w", err)
-	}
+	id := ids.New()
 	tmpDir := filepath.Join(os.TempDir(), "kiwi-ocr-"+id)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir tmp: %w", err)
@@ -112,10 +108,7 @@ func TransformDocToImages(ctx context.Context, input []byte, ext string) ([][]by
 		ctx = context.Background()
 	}
 
-	id, err := gonanoid.New()
-	if err != nil {
-		return nil, fmt.Errorf("nanoid: %w", err)
-	}
+	id := ids.New()
 	tmpDir := filepath.Join(os.TempDir(), "kiwi-ocr-"+id)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir tmp: %w", err)
@@ -176,10 +169,7 @@ func TransformPdfToImagesWithOptions(ctx context.Context, input []byte, options 
 		ctx = context.Background()
 	}
 
-	id, err := gonanoid.New()
-	if err != nil {
-		return nil, fmt.Errorf("nanoid: %w", err)
-	}
+	id := ids.New()
 	tmpDir := filepath.Join(os.TempDir(), "kiwi-ocr-"+id)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir tmp: %w", err)
@@ -810,10 +800,7 @@ func extractPageNum(path string) int {
 
 // CountPDFPages returns the number of pages in a PDF document
 func CountPDFPages(input []byte) (int, error) {
-	id, err := gonanoid.New()
-	if err != nil {
-		return 0, fmt.Errorf("nanoid: %w", err)
-	}
+	id := ids.New()
 	tmpDir := filepath.Join(os.TempDir(), "kiwi-count-"+id)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return 0, fmt.Errorf("mkdir tmp: %w", err)
@@ -989,10 +976,7 @@ func tokenizeWithPositions(content string, startIndex int) []tokenPosition {
 // For multi-sheet workbooks, unoconv outputs one CSV per sheet.
 // Returns a map of sheet name -> CSV content.
 func TransformExcelToCsv(input []byte, ext string) (map[string][]byte, error) {
-	id, err := gonanoid.New()
-	if err != nil {
-		return nil, fmt.Errorf("nanoid: %w", err)
-	}
+	id := ids.New()
 	tmpDir := filepath.Join(os.TempDir(), "kiwi-excel-"+id)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir tmp: %w", err)

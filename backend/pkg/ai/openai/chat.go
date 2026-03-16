@@ -567,119 +567,28 @@ func (c *GraphOpenAIClient) GenerateChatWithTools(
 	tools []ai.Tool,
 	opts ...ai.GenerateOption,
 ) (string, error) {
-	rCtx, cancel := context.WithTimeout(ctx, time.Minute*time.Duration(c.timeoutMin))
-	defer cancel()
-
-	client := c.ChatClient
-
-	options := ai.GenerateOptions{
-		Model:         c.chatModel,
-		SystemPrompts: []string{},
-		Temperature:   0.2,
-		Thinking:      "",
-	}
-	for _, o := range opts {
-		o(&options)
+	stream, err := c.GenerateChatStreamWithTools(ctx, messages, tools, opts...)
+	if err != nil {
+		return "", err
 	}
 
-	maxRounds := 40
-	msgs := buildOpenAIChatMessages(options.SystemPrompts, messages)
+	return collectBlockingToolStream(stream)
+}
 
-	openaiTools := make([]openai.ChatCompletionToolUnionParam, len(tools))
-	toolByName := make(map[string]ai.Tool, len(tools))
-	for i, tool := range tools {
-		openaiTools[i] = openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
-			Name:        tool.Name,
-			Description: openai.String(tool.Description),
-			Parameters:  tool.Parameters,
-		})
-		toolByName[tool.Name] = tool
-	}
+func collectBlockingToolStream(stream <-chan ai.StreamEvent) (string, error) {
+	var response strings.Builder
 
-	for range maxRounds {
-		body := openai.ChatCompletionNewParams{
-			Model:       openai.ChatModel(options.Model),
-			Messages:    msgs,
-			Tools:       openaiTools,
-			Temperature: openai.Float(options.Temperature),
+	for event := range stream {
+		if event.Type == "tool_call" && event.ToolExecution == ai.ToolExecutionClient {
+			return "", fmt.Errorf("client tool call requested: %s (%s)", event.ToolName, event.ToolCallID)
 		}
 
-		if options.Thinking != "" {
-			// Needed fix for gpt-5 models as they dont support temperature other than 1.0 when reasoning is enabled
-			if c.chatURL == "" {
-				body.Temperature = openai.Float(1.0)
-			}
-			body.ReasoningEffort = shared.ReasoningEffort(options.Thinking)
-		}
-
-		var (
-			response *openai.ChatCompletion
-			duration int64
-		)
-		err := func() error {
-			if err := c.chatLock.Acquire(rCtx, 1); err != nil {
-				return err
-			}
-			defer c.chatLock.Release(1)
-
-			start := time.Now()
-			r, err := client.Chat.Completions.New(rCtx, body)
-			if err != nil {
-				return err
-			}
-			response = r
-			duration = time.Since(start).Milliseconds()
-			return nil
-		}()
-		if err != nil {
-			return "", err
-		}
-
-		metrics := ai.ModelMetrics{
-			InputTokens:  int(response.Usage.PromptTokens),
-			OutputTokens: int(response.Usage.CompletionTokens),
-			TotalTokens:  int(response.Usage.TotalTokens),
-			DurationMs:   duration,
-		}
-		c.modifyMetrics(metrics)
-
-		if len(response.Choices[0].Message.ToolCalls) == 0 {
-			return response.Choices[0].Message.Content, nil
-		}
-
-		msgs = append(msgs, response.Choices[0].Message.ToParam())
-
-		for _, tc := range response.Choices[0].Message.ToolCalls {
-			ftc := tc.AsFunction()
-
-			toolDef, exists := toolByName[ftc.Function.Name]
-			if exists && toolDef.NormalizedToolExecution() == ai.ToolExecutionClient {
-				return "", fmt.Errorf("client tool call requested: %s (%s)", ftc.Function.Name, ftc.ID)
-			}
-
-			var handler ai.ToolHandler
-			if exists {
-				handler = toolDef.Handler
-			}
-
-			if handler == nil {
-				logger.Error("[Tool] no handler found", "tool", ftc.Function.Name, "args", ftc.Function.Arguments)
-				msgs = append(msgs, openai.ToolMessage("No handler for this tool, dont call again", ftc.ID))
-				continue
-			}
-
-			result, err := handler(rCtx, ftc.Function.Arguments)
-			if err != nil {
-				logger.Error("[Tool] handler error", "tool", ftc.Function.Name, "err", err)
-				msgs = append(msgs, openai.ToolMessage(fmt.Sprintf("Tool error: %v", err), ftc.ID))
-				continue
-			}
-
-			msgs = append(msgs, openai.ToolMessage(result, ftc.ID))
+		if event.Type == "content" {
+			response.WriteString(event.Content)
 		}
 	}
 
-	return "", fmt.Errorf("max tool rounds (%d) exceeded", maxRounds)
+	return response.String(), nil
 }
 
 // GenerateChatStreamWithTools sends a multi-turn conversation with tools and streams the final response.

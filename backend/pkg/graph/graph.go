@@ -3,7 +3,6 @@ package graph
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -17,11 +16,6 @@ import (
 )
 
 func rollbackFiles(ctx context.Context, files []loader.GraphFile, graphID string, storeClient store.GraphStorage) {
-	pid, err := strconv.ParseInt(graphID, 10, 64)
-	if err != nil {
-		return
-	}
-
 	fileIDs := fileIDsFromGraphFiles(files)
 	if len(fileIDs) == 0 {
 		return
@@ -29,7 +23,7 @@ func rollbackFiles(ctx context.Context, files []loader.GraphFile, graphID string
 
 	const maxRetries = 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := storeClient.RollbackFileData(ctx, fileIDs, pid)
+		err := storeClient.RollbackFileData(ctx, fileIDs, graphID)
 		if err == nil {
 			return
 		}
@@ -39,21 +33,20 @@ func rollbackFiles(ctx context.Context, files []loader.GraphFile, graphID string
 	}
 }
 
-func fileIDsFromGraphFiles(files []loader.GraphFile) []int64 {
-	fileIDSet := make(map[int64]struct{})
+func fileIDsFromGraphFiles(files []loader.GraphFile) []string {
+	fileIDSet := make(map[string]struct{})
 	for _, file := range files {
 		fileID := file.ID
 		if idx := strings.Index(fileID, "-sheet-"); idx != -1 {
 			fileID = fileID[:idx]
 		}
-		fid, err := strconv.ParseInt(fileID, 10, 64)
-		if err != nil {
+		if fileID == "" {
 			continue
 		}
-		fileIDSet[fid] = struct{}{}
+		fileIDSet[fileID] = struct{}{}
 	}
 
-	fileIDs := make([]int64, 0, len(fileIDSet))
+	fileIDs := make([]string, 0, len(fileIDSet))
 	for fid := range fileIDSet {
 		fileIDs = append(fileIDs, fid)
 	}
@@ -93,186 +86,6 @@ func (g *GraphClient) DeleteGraph(
 	return nil
 }
 
-// ExtractAndStage performs file extraction and document-level deduplication,
-// then stages the results in the database. This phase does NOT require the project lock.
-//
-// Workers can run this in parallel for different batches. After extraction completes,
-// the worker should acquire the project lock and call MergeFromStaging.
-func (g *GraphClient) ExtractAndStage(
-	ctx context.Context,
-	files []loader.GraphFile,
-	graphID string,
-	aiClient ai.GraphAIClient,
-	storeClient store.GraphStorage,
-	correlationID string,
-	batchID int,
-) error {
-	projectID, err := strconv.ParseInt(graphID, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid graph ID: %w", err)
-	}
-
-	totalFiles := len(files)
-	logger.Info("[Graph] Extracting and staging", "total_files", totalFiles, "graph_id", graphID, "batch_id", batchID)
-
-	eg, gCtx := errgroup.WithContext(ctx)
-	eg.SetLimit(g.parallelFiles)
-
-	type fileResult struct {
-		units     []*common.Unit
-		entities  []common.Entity
-		relations []common.Relationship
-	}
-	results := make([]fileResult, len(files))
-	var resultsMu sync.Mutex
-
-	for i, file := range files {
-		idx := i
-		f := file
-		eg.Go(func() error {
-			select {
-			case <-gCtx.Done():
-				return nil
-			default:
-				result, err := processFile(gCtx, f, aiClient, g.maxRetries)
-				if err != nil {
-					return fmt.Errorf("failed to process file %s: %w", f.ID, err)
-				}
-
-				dedupedEntities, dedupedRelations, err := g.dedupeEntitiesAndRelations(gCtx, result.entities, result.relations, aiClient)
-				if err != nil {
-					return fmt.Errorf("failed to dedupe document entities: %w", err)
-				}
-
-				resultsMu.Lock()
-				results[idx] = fileResult{
-					units:     result.units,
-					entities:  dedupedEntities,
-					relations: dedupedRelations,
-				}
-				resultsMu.Unlock()
-
-				return nil
-			}
-		})
-	}
-
-	if err := eg.Wait(); err != nil {
-		return fmt.Errorf("extraction failed:\n%w", err)
-	}
-
-	var allUnits []*common.Unit
-	var allEntities []common.Entity
-	var allRelations []common.Relationship
-
-	for _, r := range results {
-		allUnits = append(allUnits, r.units...)
-		allEntities = append(allEntities, r.entities...)
-		allRelations = append(allRelations, r.relations...)
-	}
-
-	logger.Info("[Graph] Staging extraction results",
-		"units", len(allUnits),
-		"entities", len(allEntities),
-		"relations", len(allRelations),
-		"batch_id", batchID,
-	)
-
-	if err := storeClient.StageUnits(ctx, correlationID, batchID, projectID, allUnits); err != nil {
-		return fmt.Errorf("failed to stage units: %w", err)
-	}
-
-	if err := storeClient.StageEntities(ctx, correlationID, batchID, projectID, allEntities); err != nil {
-		return fmt.Errorf("failed to stage entities: %w", err)
-	}
-
-	if err := storeClient.StageRelationships(ctx, correlationID, batchID, projectID, allRelations); err != nil {
-		return fmt.Errorf("failed to stage relationships: %w", err)
-	}
-
-	logger.Info("[Graph] Extraction and staging completed", "batch_id", batchID)
-
-	return nil
-}
-
-// MergeFromStaging reads staged data from the database and merges it into the main
-// graph tables. This phase REQUIRES the project lock to be held.
-//
-// After calling this method, the caller should also call storeClient.DeleteStagedData
-// to clean up the staging table.
-func (g *GraphClient) MergeFromStaging(
-	ctx context.Context,
-	files []loader.GraphFile,
-	graphID string,
-	aiClient ai.GraphAIClient,
-	storeClient store.GraphStorage,
-	correlationID string,
-	batchID int,
-) error {
-	logger.Info("[Graph] Merging from staging", "graph_id", graphID, "batch_id", batchID)
-
-	projectID, err := strconv.ParseInt(graphID, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid graph ID: %w", err)
-	}
-
-	units, err := storeClient.GetStagedUnits(ctx, correlationID, batchID, projectID)
-	if err != nil {
-		return fmt.Errorf("failed to get staged units: %w", err)
-	}
-
-	entities, err := storeClient.GetStagedEntities(ctx, correlationID, batchID, projectID)
-	if err != nil {
-		return fmt.Errorf("failed to get staged entities: %w", err)
-	}
-
-	relations, err := storeClient.GetStagedRelationships(ctx, correlationID, batchID, projectID)
-	if err != nil {
-		return fmt.Errorf("failed to get staged relationships: %w", err)
-	}
-
-	logger.Info("[Graph] Retrieved staged data",
-		"units", len(units),
-		"entities", len(entities),
-		"relations", len(relations),
-		"batch_id", batchID,
-	)
-	logger.Info("[Graph] Saving staged data to main tables")
-
-	_, err = storeClient.SaveUnits(ctx, units)
-	if err != nil {
-		rollbackFiles(ctx, files, graphID, storeClient)
-		return fmt.Errorf("failed to save units: %w", err)
-	}
-
-	seedEntityIDs, err := storeClient.SaveEntities(ctx, entities, graphID)
-	if err != nil {
-		rollbackFiles(ctx, files, graphID, storeClient)
-		return fmt.Errorf("failed to save entities: %w", err)
-	}
-
-	_, err = storeClient.SaveRelationships(ctx, relations, graphID)
-	if err != nil {
-		rollbackFiles(ctx, files, graphID, storeClient)
-		return fmt.Errorf("failed to save relationships: %w", err)
-	}
-
-	logger.Info("[Graph] Data saved and merged, starting cross-document deduplication")
-	if len(seedEntityIDs) > 0 {
-		err = storeClient.DedupeAndMergeEntities(ctx, graphID, aiClient, seedEntityIDs)
-		if err != nil {
-			rollbackFiles(ctx, files, graphID, storeClient)
-			return fmt.Errorf("failed to dedupe entities in DB: %w", err)
-		}
-		logger.Info("[Graph] Cross-document deduplication completed")
-	} else {
-		logger.Debug("[Graph] No new entities saved; skipping cross-document deduplication", "batch_id", batchID)
-	}
-	logger.Info("[Graph] Merge from staging completed", "batch_id", batchID)
-
-	return nil
-}
-
 func (g *GraphClient) processFilesAndBuildGraph(
 	ctx context.Context,
 	files []loader.GraphFile,
@@ -303,7 +116,7 @@ func (g *GraphClient) processFilesAndBuildGraph(
 
 	payloadCh := make(chan filePayload, g.parallelFiles)
 
-	seedEntityIDs := make([]int64, 0, totalFiles)
+	seedEntityIDs := make([]string, 0, totalFiles)
 	eg.Go(func() error {
 		for payload := range payloadCh {
 			_, err := storeClient.SaveUnits(gCtx, payload.units)
