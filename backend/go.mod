@@ -93,7 +93,7 @@ require (
 
 require (
 	codeberg.org/readeck/go-readability/v2 v2.1.1
-	github.com/charmbracelet/log v0.4.2
+	github.com/charmbracelet/log v1.0.0
 	github.com/invopop/jsonschema v0.13.0
 	github.com/kaptinlin/jsonrepair v0.2.17
 	github.com/m43i/go-doc-extract v0.1.1
