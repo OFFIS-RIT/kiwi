@@ -140,7 +140,6 @@ export type ApiProjectQueryRequest = {
   prompt: string;
   conversation_id?: string;
   mode?: QueryMode;
-  model?: string;
   think?: boolean;
   tool_id?: string;
 };
