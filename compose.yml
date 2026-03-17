@@ -99,7 +99,6 @@ services:
             rustfs:
                 condition: service_healthy
     worker:
-        container_name: worker
         build:
             context: ./backend
             dockerfile: Dockerfile.worker
