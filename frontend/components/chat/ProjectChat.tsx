@@ -8,14 +8,6 @@ import { ClarificationBlock } from "@/components/chat/ClarificationBlock";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import {
   deleteProjectChat,
@@ -29,7 +21,6 @@ import type {
   ApiClientToolCall,
   ApiQueryMetrics,
   ApiResponseData,
-  QueryMode,
   QueryStep,
 } from "@/types";
 import {
@@ -287,9 +278,6 @@ export function ProjectChat({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [isAssistantTyping, setIsAssistantTyping] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<QueryMode>("agentic");
-  const [selectedModel, setSelectedModel] = useState("gpt-oss (Thinking)");
-  const [useThink, setUseThink] = useState(true);
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -601,9 +589,8 @@ export function ProjectChat({
           {
             prompt,
             conversation_id: conversationIdRef.current ?? undefined,
-            mode: selectedMode,
-            model: selectedModel.replace(" (Thinking)", ""),
-            think: useThink,
+            mode: "agentic",
+            think: true,
             tool_id: toolId,
           },
           {
@@ -728,7 +715,7 @@ export function ProjectChat({
         setStreamingReasoning("");
       }
     },
-    [projectId, selectedMode, selectedModel, useThink, t]
+    [projectId, t]
   );
 
   const handleSendMessage = useCallback(async () => {
@@ -935,42 +922,6 @@ export function ProjectChat({
           </div>
 
           <div className="flex shrink-0 items-end gap-2">
-            <div className="flex flex-col gap-0.5">
-              <Label className="text-xs text-muted-foreground">Mode</Label>
-              <Select
-                value={selectedMode}
-                onValueChange={(value: QueryMode) => setSelectedMode(value)}
-              >
-                <SelectTrigger className="h-8 w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="agentic">Agentic</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-col gap-0.5">
-              <Label className="text-xs text-muted-foreground">Model</Label>
-              <Select
-                value={selectedModel}
-                onValueChange={(value) => {
-                  setSelectedModel(value);
-                  setUseThink(value.includes("Thinking"));
-                }}
-              >
-                <SelectTrigger className="h-8 w-56">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="gpt-oss (Thinking)">
-                    gpt-oss (Thinking)
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
             <Button
               variant="outline"
               size="icon"

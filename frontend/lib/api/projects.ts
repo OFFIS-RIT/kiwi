@@ -152,7 +152,7 @@ export type StreamEventHandlers = {
  * Streams a query to the project's knowledge base using real SSE frames.
  *
  * @param projectId - Project to query
- * @param request - Query request body (prompt, conversation_id, mode, model, think, tool_id)
+ * @param request - Query request body (prompt, conversation_id, mode, think, tool_id)
  * @param handlers - Callbacks for each SSE event type
  * @param onStreamError - Error callback for network/parse errors
  */
