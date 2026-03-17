@@ -153,6 +153,7 @@ const translations = {
     language: "Language",
     english: "English",
     german: "German",
+    "app.build": "Build",
 
     // Search
     search: "Search",
@@ -388,6 +389,7 @@ const translations = {
     language: "Sprache",
     english: "Englisch",
     german: "Deutsch",
+    "app.build": "Version",
 
     // Search
     search: "Suchen",

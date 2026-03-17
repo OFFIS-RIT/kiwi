@@ -59,7 +59,10 @@ jobs:
             context: ./frontend
             file: ./frontend/Dockerfile
             cache: frontend
-            build_args: NEXT_PUBLIC_API_URL=/api
+            target: ""
+            build_args: |
+              NEXT_PUBLIC_API_URL=/api
+              NEXT_PUBLIC_APP_BUILD_LABEL=${{ github.ref_name }}
           - name: auth
             image: auth
             context: ./auth

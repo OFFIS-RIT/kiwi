@@ -18,6 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -66,6 +67,7 @@ type SearchResult = {
 };
 
 const MIN_SEARCH_LENGTH = 1;
+const APP_BUILD_LABEL = process.env.NEXT_PUBLIC_APP_BUILD_LABEL?.trim();
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   onEditGroup: (group: Group) => void;
@@ -419,6 +421,19 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      {APP_BUILD_LABEL ? (
+        <SidebarFooter className="border-t border-sidebar-border gap-1 group-data-[collapsible=icon]:hidden">
+          <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/40">
+            {t("app.build")}
+          </span>
+          <span
+            className="truncate font-mono text-xs text-sidebar-foreground/70"
+            title={APP_BUILD_LABEL}
+          >
+            {APP_BUILD_LABEL}
+          </span>
+        </SidebarFooter>
+      ) : null}
       <SidebarRail />
     </Sidebar>
   );
