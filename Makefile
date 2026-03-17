@@ -19,14 +19,14 @@ build-dev:
 	@docker build -f auth/Dockerfile.dev -t ghcr.io/offis-rit/kiwi/auth:dev ./auth/
 
 start:
-	@docker compose -f compose.yml -f compose.prod.yml up -d
+	@docker compose -f compose.yml -f compose.prod.yml up -d --scale worker=8
 
 stop:
 	@docker compose -f compose.yml -f compose.prod.yml down
 
 dev:
 	@echo "Starting development environment..."
-	@docker compose -f compose.yml -f compose.dev.yml up -d
+	@docker compose -f compose.yml -f compose.dev.yml up -d --scale worker=8
 	@docker compose -f compose.yml -f compose.dev.yml logs -f server worker frontend
 
 dev-backend:
