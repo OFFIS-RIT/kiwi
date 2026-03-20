@@ -24,6 +24,14 @@ start:
 stop:
 	@docker compose -f compose.yml -f compose.prod.yml down
 
+pull:
+	@docker pull ghcr.io/offis-rit/kiwi/postgres:latest
+	@docker pull ghcr.io/offis-rit/kiwi/postgres-migration:latest
+	@docker pull ghcr.io/offis-rit/kiwi/server:latest
+	@docker pull ghcr.io/offis-rit/kiwi/worker:latest
+	@docker pull ghcr.io/offis-rit/kiwi/frontend:latest
+	@docker pull ghcr.io/offis-rit/kiwi/auth:latest
+
 dev:
 	@echo "Starting development environment..."
 	@docker compose -f compose.yml -f compose.dev.yml up -d --scale worker=8
@@ -97,4 +105,4 @@ db-restore:
 			pg_restore --clean --if-exists -d "$${DATABASE_URL}" "/backups/$$(basename $$DUMP_PATH)"; \
 		echo "Restore complete"
 
-.PHONY: build build-dev start stop dev dev-backend dev-stop migrate db-dump db-restore
+.PHONY: build build-dev start stop pull dev dev-backend dev-stop migrate db-dump db-restore
