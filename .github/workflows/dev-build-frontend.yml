@@ -24,18 +24,11 @@ jobs:
         steps:
             - name: Checkout code
               uses: actions/checkout@v6
-              with:
-                  fetch-depth: 0
 
             - name: Resolve frontend build label
               id: build_label
               run: |
-                  TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || true)
-                  if [ -n "$TAG" ]; then
-                      echo "label=$TAG" >> "$GITHUB_OUTPUT"
-                  else
-                      echo "label=$(git log -1 --date=short --format=%cd)" >> "$GITHUB_OUTPUT"
-                  fi
+                  echo "label=$(git log -1 --date=short --format=%cd)" >> "$GITHUB_OUTPUT"
 
             - name: Lowercase Image Prefix
               run: |

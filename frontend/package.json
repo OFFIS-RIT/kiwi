@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "NEXT_PUBLIC_APP_BUILD_LABEL=\"$(bun run scripts/resolve-build-label.ts)\" next dev --turbopack",
-    "build": "NEXT_PUBLIC_APP_BUILD_LABEL=\"$(bun run scripts/resolve-build-label.ts)\" next build",
+    "dev": "next dev --turbopack",
+    "build": "next build",
     "start": "next start",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",

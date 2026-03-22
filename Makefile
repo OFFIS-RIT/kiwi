@@ -1,5 +1,3 @@
-BUILD_LABEL := $(shell git describe --tags --exact-match HEAD 2>/dev/null || git log -1 --date=short --format=%cd)
-
 build:
 	@cd backend && make generate
 	@cd ../
@@ -7,7 +5,7 @@ build:
 	@docker build -f postgres/Dockerfile.migration -t ghcr.io/offis-rit/kiwi/postgres-migration:latest .
 	@docker build -f backend/Dockerfile.server -t ghcr.io/offis-rit/kiwi/server:latest ./backend/
 	@docker build -f backend/Dockerfile.worker -t ghcr.io/offis-rit/kiwi/worker:latest ./backend/
-	@docker build --build-arg NEXT_PUBLIC_APP_BUILD_LABEL="$(BUILD_LABEL)" -f frontend/Dockerfile -t ghcr.io/offis-rit/kiwi/frontend:latest ./frontend
+	@docker build -f frontend/Dockerfile -t ghcr.io/offis-rit/kiwi/frontend:latest ./frontend
 	@docker build -f auth/Dockerfile -t ghcr.io/offis-rit/kiwi/auth:latest ./auth/
 
 build-dev:
@@ -28,12 +26,12 @@ stop:
 
 dev:
 	@echo "Starting development environment..."
-	@NEXT_PUBLIC_APP_BUILD_LABEL="$(BUILD_LABEL)" docker compose -f compose.yml -f compose.dev.yml up -d --scale worker=8
+	@docker compose -f compose.yml -f compose.dev.yml up -d --scale worker=8
 	@docker compose -f compose.yml -f compose.dev.yml logs -f server worker frontend
 
 dev-backend:
 	@echo "Starting development backend environment..."
-	@NEXT_PUBLIC_APP_BUILD_LABEL="$(BUILD_LABEL)" docker compose -f compose.yml -f compose.dev.yml up -d --scale frontend=0
+	@docker compose -f compose.yml -f compose.dev.yml up -d --scale frontend=0
 	@docker compose -f compose.yml -f compose.dev.yml logs -f server worker
 
 dev-stop:
