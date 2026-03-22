@@ -208,12 +208,14 @@ return <p>{t("no.group.selected")}</p>;
 
 ## Key Dependencies
 
-| Package                 | Purpose                    |
-| ----------------------- | -------------------------- |
-| `@tanstack/react-query` | Server state management    |
-| `next-themes`           | Theme switching            |
-| `sonner`                | Toast notifications        |
-| `lucide-react`          | Icons                      |
-| `recharts`              | Charts                     |
-| `fuse.js`               | Client-side fuzzy search   |
-| `react-markdown`        | Markdown rendering in chat |
+| Package                  | Purpose                              |
+| ------------------------ | ------------------------------------ |
+| `@tanstack/react-query`  | Server state management              |
+| `next-themes`            | Theme switching                      |
+| `sonner`                 | Toast notifications                  |
+| `lucide-react`           | Icons                                |
+| `recharts`               | Charts                               |
+| `fuse.js`                | Client-side fuzzy search             |
+| `react-markdown`         | Markdown rendering in chat           |
+| `remark-math`            | Math syntax (`$` / `$$`) in markdown |
+| `rehype-katex` / `katex` | LaTeX math rendering in chat         |
