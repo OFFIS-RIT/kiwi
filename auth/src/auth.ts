@@ -57,13 +57,7 @@ export const auth = betterAuth({
     ],
     advanced: {
         database: {
-            generateId: ({ model, size }) => {
-                if (['user', 'account', 'session', 'verification'].includes(model)) {
-                    return undefined as never;
-                }
-
-                return generateId(size);
-            },
+            generateId: ({ size }) => generateId(size),
         },
     },
     database: new Pool({
