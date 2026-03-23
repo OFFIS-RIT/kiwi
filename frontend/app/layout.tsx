@@ -1,4 +1,5 @@
 import type React from "react";
+import "katex/dist/katex.min.css";
 import "@/app/globals.css";
 import { Inter } from "next/font/google";
 import type { Metadata } from "next";

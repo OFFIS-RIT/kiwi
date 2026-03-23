@@ -832,6 +832,18 @@ export function ProjectChat({
     cleaned = cleaned.replace(/^[\s]*[-*+]\s+(.+)$/gm, "$1");
     cleaned = cleaned.replace(/^[\s]*\d+\.\s+(.+)$/gm, "$1");
 
+    // Strip LaTeX/math delimiters for copy and TTS (keep inner text only)
+    cleaned = cleaned.replace(/\$\$[\s\S]*?\$\$/g, (block) =>
+      block.slice(2, -2).trim().replace(/\s+/g, " ")
+    );
+    cleaned = cleaned.replace(/\$([^$\n]+)\$/g, "$1");
+    cleaned = cleaned.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner: string) =>
+      inner.trim().replace(/\s+/g, " ")
+    );
+    cleaned = cleaned.replace(/\\\(([\s\S]*?)\\\)/g, (_, inner: string) =>
+      inner.trim().replace(/\s+/g, " ")
+    );
+
     // Clean up extra whitespace
     cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
     // Remove double spaces (but keep single spaces)

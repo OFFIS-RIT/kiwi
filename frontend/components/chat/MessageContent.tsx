@@ -2,10 +2,13 @@
 
 import { Button } from "@/components/ui/button";
 import { downloadProjectFile } from "@/lib/api/projects";
+import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
 import { FileText } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { TextReferenceBadge } from "./TextReferenceBadge";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
@@ -43,6 +46,20 @@ export function MessageContent({
     return mapping;
   }, [content, referencePattern]);
 
+  const markdownContent = React.useMemo(
+    () => normalizeLatexDelimitersForMarkdown(content),
+    [content]
+  );
+
+  const shouldSkipBadgeRecursion = (node: React.ReactElement): boolean => {
+    const type = node.type as unknown as string;
+    if (type === "code" || type === "pre") return true;
+    const props = node.props as { className?: string };
+    const cn = props.className;
+    if (typeof cn === "string" && cn.includes("katex")) return true;
+    return false;
+  };
+
   const injectBadges = (children: React.ReactNode): React.ReactNode => {
     let matchCounter = 0;
     const processNode = (node: React.ReactNode): React.ReactNode => {
@@ -74,8 +91,7 @@ export function MessageContent({
         return parts.length ? parts : node;
       }
       if (React.isValidElement(node)) {
-        const type = node.type as unknown as string;
-        if (type === "code" || type === "pre") return node;
+        if (shouldSkipBadgeRecursion(node)) return node;
         const childProps = (node.props ?? {}) as { children?: React.ReactNode };
         if (!childProps.children) return node;
         return React.cloneElement(
@@ -122,9 +138,18 @@ export function MessageContent({
           <ThinkingDropdown reasoning={reasoning} />
         </div>
       )}
-      <div className="mb-3 prose prose-sm dark:prose-invert max-w-none overflow-x-auto">
+      <div className="mb-3 prose prose-sm dark:prose-invert max-w-none overflow-x-auto [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden">
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[
+            [
+              rehypeKatex,
+              {
+                strict: false,
+                throwOnError: false,
+              },
+            ],
+          ]}
           components={{
             p: ({ children }) => <p>{injectBadges(children)}</p>,
             ul: ({ children }) => (
@@ -204,7 +229,7 @@ export function MessageContent({
             pre: ({ children }) => <pre>{children}</pre>,
           }}
         >
-          {content}
+          {markdownContent}
         </ReactMarkdown>
       </div>
 
