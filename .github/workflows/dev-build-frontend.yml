@@ -25,6 +25,11 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v6
 
+            - name: Resolve frontend build label
+              id: build_label
+              run: |
+                  echo "label=$(git log -1 --date=short --format=%cd)" >> "$GITHUB_OUTPUT"
+
             - name: Lowercase Image Prefix
               run: |
                   echo "IMAGE_PREFIX=${IMAGE_PREFIX,,}" >> ${GITHUB_ENV}
@@ -60,7 +65,9 @@ jobs:
                   platforms: linux/amd64,linux/arm64
                   push: true
                   tags: ${{ env.IMAGE_PREFIX }}/frontend:${{ env.IMAGE_TAG }}
-                  build-args: NEXT_PUBLIC_API_URL=/api
+                  build-args: |
+                      NEXT_PUBLIC_API_URL=/api
+                      NEXT_PUBLIC_APP_BUILD_LABEL=${{ steps.build_label.outputs.label }}
                   cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-frontend
                   cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-frontend-new,mode=max
 
