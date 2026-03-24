@@ -14,6 +14,7 @@ const authMode = process.env.NEXT_PUBLIC_AUTH_MODE ?? "credentials";
 
 export function AuthPage({ view, onViewChange }: AuthPageProps) {
   const { t } = useLanguage();
+  const showRegister = authMode === "credentials" && view === "register";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
@@ -32,10 +33,10 @@ export function AuthPage({ view, onViewChange }: AuthPageProps) {
             {t("auth.welcome.subtitle")}
           </p>
         </div>
-        {view === "login" ? (
-          <LoginForm onSwitchToRegister={() => onViewChange("register")} />
-        ) : (
+        {showRegister ? (
           <RegisterForm onSwitchToLogin={() => onViewChange("login")} />
+        ) : (
+          <LoginForm onSwitchToRegister={() => onViewChange("register")} />
         )}
       </div>
     </div>
