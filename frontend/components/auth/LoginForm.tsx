@@ -85,8 +85,7 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
       {error && <p className="text-sm text-destructive">{error}</p>}
       <Button
         type="submit"
-        className="w-full"
-        style={{ backgroundColor: "#b8860b" }}
+        className="w-full bg-[var(--brand)] text-[var(--brand-foreground)] hover:bg-[var(--brand)]/90"
         disabled={loading}
       >
         {loading ? (
