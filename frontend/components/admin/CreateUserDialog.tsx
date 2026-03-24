@@ -40,12 +40,13 @@ export function CreateUserDialog({
 
     setLoading(true);
     try {
-      await authClient.admin.createUser({
+      const { error } = await authClient.admin.createUser({
         name,
         email,
         password,
         role: "user",
       });
+      if (error) throw error;
       setName("");
       setEmail("");
       setPassword("");
