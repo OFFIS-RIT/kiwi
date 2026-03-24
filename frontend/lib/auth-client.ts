@@ -15,6 +15,7 @@ export const authClient = createAuthClient({
 
 let cachedToken: string | null = null;
 let cachedAt = 0;
+let inflight: Promise<string> | null = null;
 const TOKEN_TTL_MS = 4 * 60 * 1000; // 4 minutes
 
 export async function getToken(): Promise<string> {
@@ -23,14 +24,23 @@ export async function getToken(): Promise<string> {
     return cachedToken;
   }
 
-  const { data, error } = await authClient.token();
-  if (error || !data?.token) {
-    throw new Error("Failed to retrieve auth token");
-  }
+  if (inflight) return inflight;
 
-  cachedToken = data.token;
-  cachedAt = now;
-  return cachedToken;
+  inflight = authClient
+    .token()
+    .then(({ data, error }) => {
+      if (error || !data?.token) {
+        throw new Error("Failed to retrieve auth token");
+      }
+      cachedToken = data.token;
+      cachedAt = Date.now();
+      return cachedToken;
+    })
+    .finally(() => {
+      inflight = null;
+    });
+
+  return inflight;
 }
 
 export function clearTokenCache() {
