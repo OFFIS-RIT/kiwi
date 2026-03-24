@@ -50,9 +50,11 @@ export function EditUserDialog({
 
     setSaving(true);
     let didSucceed = false;
+    let savedName = user.name;
+    let savedEmail = user.email;
     try {
-      const nameChanged = name !== user.name;
-      const emailChanged = email !== user.email;
+      const nameChanged = name !== savedName;
+      const emailChanged = email !== savedEmail;
 
       if (nameChanged || emailChanged) {
         const { error } = await authClient.admin.updateUser({
@@ -63,8 +65,8 @@ export function EditUserDialog({
           },
         });
         if (error) throw error;
-        user.name = name;
-        user.email = email;
+        savedName = name;
+        savedEmail = email;
         didSucceed = true;
         toast.success(t("admin.user.updated"));
       }
