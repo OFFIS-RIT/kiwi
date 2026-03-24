@@ -10,7 +10,7 @@ import {
   user as userRole,
 } from "@/lib/auth-permissions";
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 type AuthUser = {
   id: string;
@@ -40,6 +40,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const user = session?.user ?? null;
   const role = (user as any)?.role ?? null;
 
+  // Clear navigation state when a different user logs in
+  const prevUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (user?.id && prevUserIdRef.current && user.id !== prevUserIdRef.current) {
+      localStorage.removeItem("kiwi-navigation-state");
+    }
+    prevUserIdRef.current = user?.id ?? null;
+  }, [user?.id]);
+
   const isAdmin = role === "admin";
   const isManager = role === "manager";
 
@@ -60,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await authClient.signOut();
     clearTokenCache();
     queryClient.clear();
+    localStorage.removeItem("kiwi-navigation-state");
   };
 
   const value: AuthContextType = {
