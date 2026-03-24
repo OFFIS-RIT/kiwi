@@ -63,6 +63,8 @@ export function EditUserDialog({
           },
         });
         if (error) throw error;
+        user.name = name;
+        user.email = email;
         didSucceed = true;
         toast.success(t("admin.user.updated"));
       }
