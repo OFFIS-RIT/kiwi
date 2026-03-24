@@ -46,4 +46,5 @@ export async function getToken(): Promise<string> {
 export function clearTokenCache() {
   cachedToken = null;
   cachedAt = 0;
+  inflight = null;
 }
