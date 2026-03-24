@@ -1,11 +1,6 @@
 import { cors } from "@elysiajs/cors";
 import { Context, Elysia } from "elysia";
-import { env } from "bun";
-import { auth } from "./auth";
-
-const trustedOrigins = env.AUTH_TRUSTED_ORIGINS
-    ? (env.AUTH_TRUSTED_ORIGINS as string).split(",").map((o) => o.trim()).filter(Boolean)
-    : ["http://localhost:3000"];
+import { auth, trustedOrigins } from "./auth";
 
 const betterAuthView = (context: Context) => {
     const BETTER_AUTH_ACCEPT_METHODS = ["POST", "GET"];
