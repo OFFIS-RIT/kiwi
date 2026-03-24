@@ -20,6 +20,7 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
   const { t } = useLanguage();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -35,17 +36,27 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
     setLoading(true);
     try {
       if (isLdap) {
+        // Custom LDAP schema uses `credential` instead of `email` — the
+        // credentialsClient cannot infer the server-side inputSchema.
         const { error: signInError } = await authClient.signIn.credentials({
-          email: identifier,
+          credential: identifier,
           password,
-        });
+          rememberMe,
+        } as any);
         if (signInError) {
           setError(signInError.message ?? t("auth.error.invalid.credentials"));
+        } else {
+          // The credentials plugin path (/sign-in/credentials) is not in
+          // better-auth's built-in atomListener list, so the client session
+          // signal is never fired. Force a full reload to pick up the new
+          // session cookie.
+          window.location.reload();
         }
       } else {
         const { error: signInError } = await authClient.signIn.email({
           email: identifier,
           password,
+          rememberMe,
         });
         if (signInError) {
           setError(signInError.message ?? t("auth.error.invalid.credentials"));
@@ -87,6 +98,18 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
         />
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          id="rememberMe"
+          type="checkbox"
+          checked={rememberMe}
+          onChange={(e) => setRememberMe(e.target.checked)}
+          className="h-4 w-4 rounded border-input accent-[var(--brand)]"
+        />
+        <Label htmlFor="rememberMe" className="text-sm font-normal cursor-pointer">
+          {t("auth.remember.me")}
+        </Label>
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <Button

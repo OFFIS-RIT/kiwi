@@ -273,6 +273,7 @@ const translations = {
     "auth.error.invalid.credentials": "Invalid credentials. Please try again.",
     "auth.error.email.taken": "This email is already registered.",
     "auth.error.passwords.mismatch": "Passwords do not match.",
+    "auth.remember.me": "Remember me",
     "auth.error.required.fields": "Please fill in all required fields.",
     "auth.error.sign.up": "Registration failed. Please try again.",
     "auth.welcome": "Welcome to KIWI",
@@ -572,6 +573,7 @@ const translations = {
       "Ungültige Anmeldedaten. Bitte erneut versuchen.",
     "auth.error.email.taken": "Diese E-Mail ist bereits registriert.",
     "auth.error.passwords.mismatch": "Passwörter stimmen nicht überein.",
+    "auth.remember.me": "Angemeldet bleiben",
     "auth.error.required.fields": "Bitte alle Pflichtfelder ausfüllen.",
     "auth.error.sign.up":
       "Registrierung fehlgeschlagen. Bitte erneut versuchen.",
