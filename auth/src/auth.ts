@@ -50,6 +50,9 @@ type LdapResult = {
 export const auth = betterAuth({
     secret: env.AUTH_SECRET as string,
     baseURL: env.AUTH_URL as string,
+    trustedOrigins: env.AUTH_TRUSTED_ORIGINS
+        ? (env.AUTH_TRUSTED_ORIGINS as string).split(",").map((o) => o.trim()).filter(Boolean)
+        : ["http://localhost:3000"],
     database: new Pool({
         connectionString: env.DATABASE_URL as string,
     }),

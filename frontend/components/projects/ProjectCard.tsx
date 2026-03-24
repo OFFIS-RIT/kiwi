@@ -12,6 +12,7 @@ import { useCountdown } from "@/hooks/use-countdown";
 import { formatDuration } from "@/lib/utils";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
+import { useAuth } from "@/providers/AuthProvider";
 import type { Project } from "@/types";
 import { BookOpen, Calendar, Loader2 } from "lucide-react";
 
@@ -29,6 +30,9 @@ export function ProjectCard({
   onEdit,
 }: ProjectCardProps) {
   const { t } = useLanguage();
+  const { hasPermission } = useAuth();
+  const canEditProject = hasPermission("project.update");
+  const canViewFiles = hasPermission("project.list:file");
   const { dataUpdatedAt } = useData();
   const lastUpdated = project.lastUpdated;
   const sourcesCount = project.sourcesCount ?? 0;
@@ -46,7 +50,7 @@ export function ProjectCard({
       badgeText={t("knowledge.project")}
       buttonText={t("open")}
       onSelect={onSelect}
-      onEdit={onEdit}
+      onEdit={canEditProject || canViewFiles ? onEdit : undefined}
       disabled={project.state === "create" && !isProcessing}
     >
       {isProcessing ? (

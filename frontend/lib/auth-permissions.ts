@@ -1,6 +1,6 @@
 /**
- * Auth permissions shared with the frontend service.
- * Keep in sync with frontend/lib/auth-permissions.ts
+ * Auth permissions shared with the auth service.
+ * Keep in sync with auth/src/permissions.ts
  */
 import { createAccessControl } from "better-auth/plugins/access";
 import {

@@ -17,12 +17,12 @@ export function ThemeToggle() {
         // Prevent the dropdown from closing
         e.preventDefault();
       }}
-      className="flex items-center justify-between px-2 py-2"
+      className="justify-between"
     >
-      <div className="flex items-center gap-2">
-        {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        <span>{isDark ? t("theme.dark") : t("theme.light")}</span>
-      </div>
+      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      <span className="flex-1">
+        {isDark ? t("theme.dark") : t("theme.light")}
+      </span>
       <Switch
         checked={isDark}
         onCheckedChange={() => setTheme(isDark ? "light" : "dark")}

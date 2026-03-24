@@ -2,6 +2,7 @@
 
 import { CardTemplate } from "@/components/common/CardTemplate";
 import { useLanguage } from "@/providers/LanguageProvider";
+import { useAuth } from "@/providers/AuthProvider";
 import type { Group } from "@/types";
 import { FileText, Loader2, Users } from "lucide-react";
 
@@ -13,6 +14,9 @@ type GroupCardProps = {
 
 export function GroupCard({ group, onSelect, onEdit }: GroupCardProps) {
   const { t } = useLanguage();
+  const { hasPermission } = useAuth();
+  const canEditGroup = hasPermission("group.update");
+  const canViewMembers = hasPermission("group.list:user");
   const processingCount = group.projects.filter(
     (p) => p.processPercentage !== undefined
   ).length;
@@ -24,7 +28,7 @@ export function GroupCard({ group, onSelect, onEdit }: GroupCardProps) {
       badgeText={t("group")}
       buttonText={t("open")}
       onSelect={onSelect}
-      onEdit={onEdit}
+      onEdit={canEditGroup || canViewMembers ? onEdit : undefined}
     >
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <FileText className="h-4 w-4" />

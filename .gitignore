@@ -73,6 +73,9 @@ frontend/next-env.d.ts
 
 *.log
 
+# Superpowers
+.superpowers/
+
 # Binaries
 backend/worker
 backend/server

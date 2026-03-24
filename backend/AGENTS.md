@@ -194,6 +194,8 @@ gopls hasn't updated yet. Verify the method exists in the generated code and pro
 | Package | Purpose |
 |---------|---------|
 | `github.com/labstack/echo/v4` | HTTP framework |
+| `github.com/golang-jwt/jwt/v5` | JWT parsing and validation |
+| `github.com/MicahParks/keyfunc/v3` | JWKS key resolution for JWT verification |
 | `github.com/jackc/pgx/v5` | PostgreSQL driver |
 | `github.com/pgvector/pgvector-go` | Vector similarity search |
 | `github.com/openai/openai-go/v3` | OpenAI client |
@@ -221,6 +223,23 @@ Use utilities from `internal/util/retry.go`:
 result, err := util.RetryWithContext(ctx, 3, func(ctx context.Context) (T, error) {
     return doSomething(ctx)
 })
+```
+
+### Auth Middleware & Permissions
+
+The `internal/server/middleware/` package handles authentication and RBAC:
+
+- `AuthMiddleware` validates JWT tokens (via JWKS from auth service) or master API key
+- `AppContext.User` provides `UserID`, `Role`, and `Permissions` to handlers
+- Use `RequirePermission("resource.action")` middleware on routes
+- Helper functions: `HasPermission()`, `HasAnyPermission()`, `IsAdmin()`
+
+```go
+// Route with permission check
+apiRoutes.POST("/projects", routes.CreateProjectHandler, middleware.RequirePermission("project.create"))
+
+// Check permissions in handler
+if middleware.HasPermission(ctx.User, "group.update") { ... }
 ```
 
 ### Accessing Request Context in Echo
