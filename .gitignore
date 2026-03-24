@@ -17,6 +17,10 @@
 # antigravity
 .agents/
 
+# claude
+.claude/
+docs/
+
 # certs
 certs/kiwi.*
 
