@@ -53,10 +53,16 @@ export function UserTable() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchValue, setSearchValue] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const limit = 20;
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(searchValue), 300);
+    return () => clearTimeout(id);
+  }, [searchValue]);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -65,9 +71,9 @@ export function UserTable() {
         query: {
           limit,
           offset,
-          ...(searchValue
+          ...(debouncedSearch
             ? {
-                searchValue,
+                searchValue: debouncedSearch,
                 searchField: "name" as const,
                 searchOperator: "contains" as const,
               }
@@ -91,7 +97,7 @@ export function UserTable() {
     } finally {
       setLoading(false);
     }
-  }, [searchValue, offset, t]);
+  }, [debouncedSearch, offset, t]);
 
   useEffect(() => {
     fetchUsers();
