@@ -4,8 +4,13 @@ import type React from "react";
 
 import { AuthPage } from "@/components/auth";
 import { authClient, clearTokenCache, getToken } from "@/lib/auth-client";
+import {
+  admin as adminRole,
+  manager as managerRole,
+  user as userRole,
+} from "@/lib/auth-permissions";
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useState } from "react";
 
 type AuthUser = {
   id: string;
@@ -17,7 +22,6 @@ type AuthUser = {
 type AuthContextType = {
   user: AuthUser | null;
   role: string | null;
-  permissions: string[];
   isAdmin: boolean;
   isManager: boolean;
   isPending: boolean;
@@ -36,17 +40,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const user = session?.user ?? null;
   const role = (user as any)?.role ?? null;
 
-  const permissions = useMemo(() => {
-    if (!session?.user) return [];
-    return (session.user as any).permissions ?? [];
-  }, [session]);
-
   const isAdmin = role === "admin";
   const isManager = role === "manager";
 
+  const roleMap: Record<string, { statements: Record<string, readonly string[]> }> = {
+    admin: adminRole,
+    manager: managerRole,
+    user: userRole,
+  };
+
   const hasPermission = (permission: string): boolean => {
     if (isAdmin) return true;
-    return permissions.includes(permission);
+    const [resource, action] = permission.split(".");
+    const roleObj = roleMap[role ?? "user"];
+    return roleObj?.statements[resource]?.includes(action) ?? false;
   };
 
   const handleSignOut = async () => {
@@ -65,7 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       : null,
     role,
-    permissions,
     isAdmin,
     isManager,
     isPending,
