@@ -35,15 +35,21 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
     setLoading(true);
     try {
       if (isLdap) {
-        await authClient.signIn.credentials({
+        const { error: signInError } = await authClient.signIn.credentials({
           email: identifier,
           password,
         });
+        if (signInError) {
+          setError(signInError.message ?? t("auth.error.invalid.credentials"));
+        }
       } else {
-        await authClient.signIn.email({
+        const { error: signInError } = await authClient.signIn.email({
           email: identifier,
           password,
         });
+        if (signInError) {
+          setError(signInError.message ?? t("auth.error.invalid.credentials"));
+        }
       }
     } catch {
       setError(t("auth.error.invalid.credentials"));
