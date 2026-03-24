@@ -103,10 +103,11 @@ export function UserTable() {
       return;
     }
     try {
-      await authClient.admin.setRole({
+      const { error } = await authClient.admin.setRole({
         userId,
         role: newRole as "user" | "admin" | "manager",
       });
+      if (error) throw error;
       await fetchUsers();
     } catch {
       toast.error(t("error.saving"));
@@ -119,11 +120,10 @@ export function UserTable() {
       return;
     }
     try {
-      if (user.banned) {
-        await authClient.admin.unbanUser({ userId: user.id });
-      } else {
-        await authClient.admin.banUser({ userId: user.id });
-      }
+      const { error } = user.banned
+        ? await authClient.admin.unbanUser({ userId: user.id })
+        : await authClient.admin.banUser({ userId: user.id });
+      if (error) throw error;
       await fetchUsers();
     } catch {
       toast.error(t("error.saving"));
