@@ -1,6 +1,6 @@
 import { cors } from "@elysiajs/cors";
 import { Context, Elysia } from "elysia";
-import { auth } from "./auth";
+import { auth, trustedOrigins } from "./auth";
 
 const betterAuthView = (context: Context) => {
     const BETTER_AUTH_ACCEPT_METHODS = ["POST", "GET"];
@@ -12,7 +12,14 @@ const betterAuthView = (context: Context) => {
 };
 
 const app = new Elysia()
-    .use(cors())
+    .use(cors({
+        origin: (request) => {
+            const origin = request.headers.get("origin");
+            return origin ? trustedOrigins.includes(origin) : false;
+        },
+        credentials: true,
+        allowedHeaders: ["Content-Type", "Authorization"],
+    }))
     .get("/auth/health", () => ({ status: "ok" }))
     .all("/auth/*", betterAuthView)
     .listen(4321);

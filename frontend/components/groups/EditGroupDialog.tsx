@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { fetchGroupUsers, updateGroup } from "@/lib/api/groups";
+import { useAuth } from "@/providers/AuthProvider";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { Loader2, Plus, UserCircle, X } from "lucide-react";
@@ -46,7 +48,11 @@ export function EditGroupDialog({
   group,
 }: EditGroupDialogProps) {
   const { t } = useLanguage();
+  const { hasPermission } = useAuth();
   const { refreshData } = useData();
+  const canEdit = hasPermission("group.update");
+  const canAddUser = hasPermission("group.add:user");
+  const canRemoveUser = hasPermission("group.remove:user");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,15 +160,7 @@ export function EditGroupDialog({
                     id="group-name"
                     value={editedName}
                     onChange={(e) => setEditedName(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="group-id">{t("group.id")}</Label>
-                  <Input
-                    id="group-id"
-                    value={group?.id || ""}
-                    disabled
-                    className="bg-muted font-mono text-sm"
+                    disabled={!canEdit}
                   />
                 </div>
               </div>
@@ -186,63 +184,80 @@ export function EditGroupDialog({
                         <span className="flex-1 font-mono text-sm">
                           {t("user.id")}: {user.user_id}
                         </span>
-                        <Select
-                          value={user.role}
-                          onValueChange={(newRole) =>
-                            handleUpdateUserRole(user.user_id, newRole)
-                          }
-                        >
-                          <SelectTrigger className="w-[140px]">
-                            <SelectValue placeholder={t("role")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="admin">{t("admin")}</SelectItem>
-                            <SelectItem value="editor">
-                              {t("editor")}
-                            </SelectItem>
-                            <SelectItem value="user">{t("user")}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleRemoveUser(user.user_id)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
+                        {canRemoveUser ? (
+                          <>
+                            <Select
+                              value={user.role}
+                              onValueChange={(newRole) =>
+                                handleUpdateUserRole(user.user_id, newRole)
+                              }
+                            >
+                              <SelectTrigger className="w-[140px]">
+                                <SelectValue placeholder={t("role")} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="admin">
+                                  {t("admin")}
+                                </SelectItem>
+                                <SelectItem value="user">
+                                  {t("user")}
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleRemoveUser(user.user_id)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className={
+                              user.role === "admin"
+                                ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                                : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700"
+                            }
+                          >
+                            {user.role}
+                          </Badge>
+                        )}
                       </div>
                     ))}
 
-                    <div className="rounded-md border p-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Input
-                          placeholder={t("user.id.placeholder")}
-                          value={newUserId}
-                          onChange={(e) => setNewUserId(e.target.value)}
-                          className="max-w-[160px]"
-                        />
-                        <Select
-                          value={newUserRole}
-                          onValueChange={setNewUserRole}
-                        >
-                          <SelectTrigger className="w-[140px]">
-                            <SelectValue placeholder={t("role")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="admin">{t("admin")}</SelectItem>
-                            <SelectItem value="editor">
-                              {t("editor")}
-                            </SelectItem>
-                            <SelectItem value="user">{t("user")}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button type="button" onClick={handleAddUser}>
-                          <Plus className="mr-2 h-4 w-4" />
-                          {t("add.user")}
-                        </Button>
+                    {canAddUser && (
+                      <div className="rounded-md border p-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Input
+                            placeholder={t("user.id.placeholder")}
+                            value={newUserId}
+                            onChange={(e) => setNewUserId(e.target.value)}
+                            className="max-w-[160px]"
+                          />
+                          <Select
+                            value={newUserRole}
+                            onValueChange={setNewUserRole}
+                          >
+                            <SelectTrigger className="w-[140px]">
+                              <SelectValue placeholder={t("role")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="admin">
+                                {t("admin")}
+                              </SelectItem>
+                              <SelectItem value="user">{t("user")}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button type="button" onClick={handleAddUser}>
+                            <Plus className="mr-2 h-4 w-4" />
+                            {t("add.user")}
+                          </Button>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -257,11 +272,13 @@ export function EditGroupDialog({
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
           >
-            {t("cancel")}
+            {canEdit || canAddUser || canRemoveUser ? t("cancel") : t("close")}
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? t("saving") : t("save")}
-          </Button>
+          {(canEdit || canAddUser || canRemoveUser) && (
+            <Button onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? t("saving") : t("save")}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,9 +1,10 @@
 # KIWI - Agent Guidelines
 
-**Updated:** 2026-01-15
+**Updated:** 2026-03-24
 
 Knowledge graph platform for document processing and AI-powered Q&A. Go backend
-(API + worker), Next.js frontend, PostgreSQL with pgvector, and standalone Auth service.
+(API + worker), Next.js frontend, PostgreSQL with pgvector, and standalone Auth
+service (better-auth with JWT, Admin plugin, LDAP support).
 
 ## GitHub Workflow
 
@@ -129,12 +130,14 @@ kiwi/
 │   ├── cmd/           # Entry points: server, worker
 │   ├── internal/      # Private: db, server, storage, workflow
 │   └── pkg/           # Public: ai, graph, loader, store, query, workflow
+├── auth/              # Auth service (better-auth, Elysia, Bun)
+│   └── src/           # Auth config, permissions, LDAP credentials
 ├── frontend/          # Next.js SPA (see frontend/AGENTS.md)
 │   ├── app/           # Single-page dashboard
-│   ├── components/    # Feature-based components
+│   ├── components/    # Feature-based components (auth/, admin/, etc.)
 │   ├── hooks/         # TanStack Query hooks
-│   ├── lib/api/       # API client
-│   └── providers/     # React Context providers
+│   ├── lib/           # API client, auth client, permissions
+│   └── providers/     # React Context providers (AuthProvider, etc.)
 ├── migrations/        # PostgreSQL migrations (golang-migrate)
 └── nginx/             # Production reverse proxy config
 ```
@@ -148,6 +151,9 @@ kiwi/
 | Add UI component | `frontend/components/{feature}/`        | Add to barrel exports                 |
 | Add data hook    | `frontend/hooks/use-data.ts`            | Use TanStack Query                    |
 | Add provider     | `frontend/providers/`                   | Compose in AppProviders               |
+| Auth permissions  | `auth/src/permissions.ts`               | Shared roles/AC; copied to frontend   |
+| Auth config      | `auth/src/auth.ts`                      | better-auth server config             |
+| Auth middleware   | `backend/internal/server/middleware/`    | JWT validation, RBAC                  |
 | Database schema  | `migrations/`                           | Use golang-migrate format             |
 | AI logic         | `backend/pkg/ai/`, `backend/pkg/graph/` | OpenAI/Ollama implementations         |
 | File processing  | `backend/pkg/loader/`                   | PDF, image, audio, CSV, Excel         |
@@ -191,7 +197,7 @@ kiwi/
 | server     | 8080      | Go API server                 |
 | worker     | -         | Durable workflow worker       |
 | frontend   | 3000      | Next.js dev server            |
-| auth       | 4321      | Auth                          |
+| auth       | 4321      | Auth (better-auth, JWT + RBAC)|
 
 ## Environment Variables
 
@@ -210,6 +216,11 @@ Copy `.env.sample` to `.env`. Key variables:
 | `WORKFLOW_WORKER_CONCURRENCY`                 | Parallel workflow runs per worker process |
 | `WORKFLOW_MAX_ATTEMPTS`                       | Retry limit for durable workflows         |
 | `NEXT_PUBLIC_API_URL`                         | Frontend API base URL                     |
+| `NEXT_PUBLIC_AUTH_URL`                        | Frontend auth service base URL            |
+| `NEXT_PUBLIC_AUTH_MODE`                       | `credentials` or `ldap`                   |
+| `AUTH_SECRET`                                 | Auth service signing secret               |
+| `AUTH_URL`                                    | Auth service base URL (internal)          |
+| `AUTH_TRUSTED_ORIGINS`                        | Allowed frontend origins (comma-separated)|
 
 ## Database Migrations
 

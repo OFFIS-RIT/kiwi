@@ -34,6 +34,9 @@
 - **Vector Search** – Semantic search using pgvector embeddings
 - **Graph Exploration Tools** – AI-powered tools for relationship traversal,
   multi-hop path finding, and autonomous knowledge exploration
+- **Authentication & Authorization** – better-auth with JWT, role-based access
+  control (admin/manager/user), LDAP and email/password modes
+- **User Management** – Admin panel for managing users, roles, and bans
 - **Chat Interface** – Ask questions about your documents with streaming AI
   responses (normal and agentic modes)
 - **Multi-Model Support** – Works with OpenAI API or local Ollama models
@@ -46,6 +49,7 @@
 | -------- | ------------------------------------------------------- |
 | Frontend | Next.js 16, React 19, TanStack Query, Tailwind CSS, Bun |
 | Backend  | Go 1.25, Echo Framework, sqlc                           |
+| Auth     | better-auth (Elysia, JWT, Admin plugin, LDAP)           |
 | Database | PostgreSQL + pgvector                                   |
 | Workflow | PostgreSQL-backed durable workflow runtime              |
 | Storage  | RustFS (S3-compatible)                                  |
@@ -78,6 +82,7 @@ The application will be available at:
 
 - **Frontend**: http://localhost:3000
 - **API**: http://localhost:8080
+- **Auth**: http://localhost:4321
 
 Database migrations are now applied automatically on startup by the
 `db-migration` container (it runs after `db` is healthy and before backend/auth
@@ -112,7 +117,7 @@ container also bootstrap the matching row in `users`.
 | Service    | Port     | Description                      |
 | ---------- | -------- | -------------------------------- |
 | frontend   | 3000     | Next.js dev server               |
-| auth       | 4321     | Auth                             |
+| auth       | 4321     | Auth (better-auth, JWT + RBAC)   |
 | server     | 8080     | Go API server                    |
 | worker     | -        | Durable workflow worker          |
 | db         | internal | PostgreSQL + pgvector            |
@@ -288,6 +293,9 @@ Copy `.env.sample` to `.env` and configure:
 | `PORT`                   | Server port (default: 8080)        |
 | `AUTH_SECRET`            | Secret key for authentication      |
 | `AUTH_URL`               | Authentication service URL         |
+| `AUTH_TRUSTED_ORIGINS`   | Allowed frontend origins (comma-separated) |
+| `NEXT_PUBLIC_AUTH_URL`   | Frontend auth service base URL     |
+| `NEXT_PUBLIC_AUTH_MODE`  | Frontend auth UI mode (see below)  |
 | `APPLE_CLIENT_ID`        | Apple OAuth client ID              |
 | `APPLE_CLIENT_SECRET`    | Apple OAuth client secret          |
 | `APPLE_BUNDLE_ID`        | Apple bundle identifier (optional) |
@@ -345,6 +353,23 @@ Copy `.env.sample` to `.env` and configure:
 | `AI_EMBED_MODEL`         | Embedding model name               |
 | `WORKFLOW_WORKER_CONCURRENCY` | Parallel workflow runs per worker process |
 | `WORKFLOW_MAX_ATTEMPTS`  | Retry limit for process/delete/description workflows |
+
+### Authentication Mode (Credentials vs LDAP)
+
+Authentication mode is configured **independently** on the backend and frontend — they must match:
+
+- **Backend (auth service):** LDAP is auto-enabled when **all** LDAP env vars are
+  present (`LDAP_URL`, `LDAP_BIND_DN`, `LDAP_PASSW`, `LDAP_BASE_DN`,
+  `LDAP_SEARCH_ATTR`). When LDAP is active, email/password sign-up and sign-in
+  are **disabled** automatically.
+- **Frontend:** `NEXT_PUBLIC_AUTH_MODE` controls which login form is shown.
+  Set to `credentials` (default) for email/password or `ldap` for
+  username/password via LDAP. It also hides the "Create User" button in admin
+  when set to `ldap` (since user creation happens through LDAP).
+
+If the two sides disagree (e.g., backend has LDAP enabled but frontend is set to
+`credentials`), login will fail. Always set `NEXT_PUBLIC_AUTH_MODE=ldap` when
+LDAP env vars are configured, and leave it as `credentials` (or unset) otherwise.
 
 ### Optional: Clarifying Questions (Agentic Queries)
 

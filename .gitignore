@@ -17,6 +17,10 @@
 # antigravity
 .agents/
 
+# claude
+.claude/
+docs/
+
 # certs
 certs/kiwi.*
 
@@ -72,6 +76,9 @@ frontend/next-env.d.ts
 .backup/
 
 *.log
+
+# Superpowers
+.superpowers/
 
 # Binaries
 backend/worker

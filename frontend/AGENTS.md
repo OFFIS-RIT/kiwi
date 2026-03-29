@@ -58,10 +58,12 @@ import { useData } from "@/providers";
 
 ```
 components/
+├── admin/          # User management (UserTable, CreateUserDialog, UserManagementSheet)
+├── auth/           # Login/Register UI (AuthPage, LoginForm, RegisterForm)
 ├── chat/           # Chat feature
 ├── groups/         # Group CRUD dialogs, cards
 ├── projects/       # Project CRUD dialogs, cards
-├── header/         # App header components
+├── header/         # App header components (UserNav with auth integration)
 ├── sidebar/        # Navigation sidebar
 ├── common/         # Shared utilities (StateDisplay, LoadingFallback)
 ├── ui/             # Primitives (Radix + Tailwind) - DO NOT EDIT directly
@@ -84,12 +86,15 @@ hooks/
 
 lib/
   api/
-    client.ts       # Centralized fetch wrapper with ApiError
+    client.ts       # Centralized fetch wrapper with ApiError + auth token injection
     groups.ts       # Group/project API functions
+  auth-client.ts    # better-auth React client (JWT, Admin, Credentials plugins)
+  auth-permissions.ts  # Role/permission definitions (local copy of auth/src/permissions.ts)
   utils.ts          # cn() utility for Tailwind classes
 
 providers/
   AppProviders.tsx  # Composes all providers
+  AuthProvider.tsx  # Auth session gate + useAuth() hook (role, permissions, signOut)
   DataProvider.tsx  # Groups/projects data context
   NavigationProvider.tsx  # Selected group/project state (persisted)
   LanguageProvider.tsx    # i18n context
@@ -120,6 +125,7 @@ Query keys defined in `queryKeys` object for cache invalidation.
 
 ### Client State (React Context)
 
+- `useAuth()` - session, user, role, permissions, `hasPermission()`, `signOut()`, `getToken()`
 - `useNavigation()` - selected group/project, persisted to localStorage
 - `useLanguage()` - i18n with `t("key")` function
 - `useData()` - groups data and mutations
@@ -156,6 +162,52 @@ try {
   }
 }
 ```
+
+## Authentication & Authorization
+
+### Auth Flow
+
+The `AuthProvider` wraps the app and gates access:
+
+- No session → renders login/register page (`AuthPage`)
+- Session exists → renders dashboard (children)
+- `useAuth()` provides role, permissions, and `hasPermission()` for RBAC
+
+### Role-Based Visibility
+
+UI elements are hidden (not disabled) based on permissions:
+
+```typescript
+const { hasPermission } = useAuth();
+{hasPermission("group.create") && <CreateGroupButton />}
+```
+
+Roles: `admin` (full access), `manager` (projects + files), `user` (read-only + chat).
+
+### Token Management
+
+- `lib/auth-client.ts` provides `getToken()` which caches JWTs for 4 minutes
+- `lib/api/client.ts` calls `getToken()` before every request (fetch, XHR, SSE)
+- On 401 response: token cache is cleared and user is signed out
+
+### Permissions Sync
+
+`lib/auth-permissions.ts` is a local copy of `auth/src/permissions.ts` (Turbopack
+cannot resolve imports outside the project root). Keep these files in sync when
+changing role definitions.
+
+## Testing
+
+```bash
+# Run frontend tests
+bun run test
+
+# Run tests in watch mode
+bun run test:watch
+```
+
+Tests use Vitest + React Testing Library + MSW. Config: `vitest.config.ts`,
+setup: `vitest.setup.tsx`. Test files are co-located: `*.test.tsx` / `*.test.ts`.
 
 ## Patterns
 
@@ -215,6 +267,7 @@ return <p>{t("no.group.selected")}</p>;
 | `sonner`                 | Toast notifications                  |
 | `lucide-react`           | Icons                                |
 | `recharts`               | Charts                               |
+| `better-auth`            | Auth client SDK (JWT, Admin plugins) |
 | `fuse.js`                | Client-side fuzzy search             |
 | `react-markdown`         | Markdown rendering in chat           |
 | `remark-math`            | Math syntax (`$` / `$$`) in markdown |

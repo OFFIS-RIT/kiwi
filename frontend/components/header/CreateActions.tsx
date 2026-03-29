@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/providers/LanguageProvider";
+import { useAuth } from "@/providers/AuthProvider";
 import { BookOpen, Plus, Upload, Users } from "lucide-react";
 import { Suspense, lazy, useState } from "react";
 
@@ -24,8 +25,13 @@ const CreateProjectDialog = lazy(() =>
 
 export function CreateActions() {
   const { t } = useLanguage();
+  const { hasPermission } = useAuth();
+  const canCreateGroup = hasPermission("group.create");
+  const canCreateProject = hasPermission("project.create");
   const [showProjectDialog, setShowProjectDialog] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
+
+  if (!canCreateGroup && !canCreateProject) return null;
 
   return (
     <>
@@ -37,18 +43,24 @@ export function CreateActions() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => setShowGroupDialog(true)}>
-            <Users className="mr-2 h-4 w-4" />
-            <span>{t("create.new.group")}</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setShowProjectDialog(true)}>
-            <BookOpen className="mr-2 h-4 w-4" />
-            <span>{t("create.new.project")}</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <Upload className="mr-2 h-4 w-4" />
-            <span>{t("upload.files")}</span>
-          </DropdownMenuItem>
+          {canCreateGroup && (
+            <DropdownMenuItem onSelect={() => setShowGroupDialog(true)}>
+              <Users className="h-4 w-4" />
+              <span>{t("create.new.group")}</span>
+            </DropdownMenuItem>
+          )}
+          {canCreateProject && (
+            <DropdownMenuItem onSelect={() => setShowProjectDialog(true)}>
+              <BookOpen className="h-4 w-4" />
+              <span>{t("create.new.project")}</span>
+            </DropdownMenuItem>
+          )}
+          {canCreateProject && (
+            <DropdownMenuItem>
+              <Upload className="h-4 w-4" />
+              <span>{t("upload.files")}</span>
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

@@ -2,7 +2,7 @@
   "name": "app",
   "version": "1.0.50",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "bun test",
     "dev": "bun run --watch src/index.ts",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix"

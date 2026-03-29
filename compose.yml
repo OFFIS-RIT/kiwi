@@ -24,6 +24,12 @@ services:
             DATABASE_URL: ${DATABASE_URL}
             AUTH_SECRET: ${AUTH_SECRET}
             AUTH_URL: ${AUTH_URL}
+            AUTH_TRUSTED_ORIGINS: ${AUTH_TRUSTED_ORIGINS:-}
+            LDAP_URL: ${LDAP_URL:-}
+            LDAP_BIND_DN: ${LDAP_BIND_DN:-}
+            LDAP_PASSW: ${LDAP_PASSW:-}
+            LDAP_BASE_DN: ${LDAP_BASE_DN:-}
+            LDAP_SEARCH_ATTR: ${LDAP_SEARCH_ATTR:-}
         healthcheck:
             test: ["CMD", "/busybox", "wget", "-qO-", "http://localhost:4321/auth/health"]
             interval: 10s

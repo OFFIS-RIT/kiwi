@@ -23,6 +23,7 @@ import {
   updateProject,
 } from "@/lib/api/projects";
 import { cn, formatBytes } from "@/lib/utils";
+import { useAuth } from "@/providers/AuthProvider";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { ApiProjectFile } from "@/types";
@@ -47,7 +48,11 @@ export function EditProjectDialog({
   project,
 }: EditProjectDialogProps) {
   const { t } = useLanguage();
+  const { hasPermission } = useAuth();
   const { refreshData } = useData();
+  const canEdit = hasPermission("project.update");
+  const canDeleteFiles = hasPermission("project.delete:file");
+  const canAddFiles = hasPermission("project.add:file");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -278,15 +283,7 @@ export function EditProjectDialog({
                     id="project-name-edit"
                     value={editedName}
                     onChange={(e) => setEditedName(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="project-id">{t("project.id")}</Label>
-                  <Input
-                    id="project-id"
-                    value={project.id}
-                    disabled
-                    className="bg-muted font-mono text-sm"
+                    disabled={!canEdit}
                   />
                 </div>
               </div>
@@ -342,26 +339,28 @@ export function EditProjectDialog({
                               </p>
                             </div>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className={cn(
-                              "absolute right-1 top-1 h-6 w-6",
-                              isMarkedForDeletion
-                                ? "text-destructive hover:text-destructive"
-                                : "text-muted-foreground hover:text-destructive"
-                            )}
-                            onClick={() =>
-                              handleToggleFileForDeletion(file.file_key)
-                            }
-                            aria-label={
-                              isMarkedForDeletion
-                                ? t("undo.delete.file")
-                                : t("mark.delete.file")
-                            }
-                          >
-                            <XIcon className="h-3.5 w-3.5" />
-                          </Button>
+                          {canDeleteFiles && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "absolute right-1 top-1 h-6 w-6",
+                                isMarkedForDeletion
+                                  ? "text-destructive hover:text-destructive"
+                                  : "text-muted-foreground hover:text-destructive"
+                              )}
+                              onClick={() =>
+                                handleToggleFileForDeletion(file.file_key)
+                              }
+                              aria-label={
+                                isMarkedForDeletion
+                                  ? t("undo.delete.file")
+                                  : t("mark.delete.file")
+                              }
+                            >
+                              <XIcon className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       );
                     })}
@@ -374,27 +373,32 @@ export function EditProjectDialog({
                 )}
               </div>
 
-              <Separator />
+              {canAddFiles && (
+                <>
+                  <Separator />
 
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">{t("add.files")}</h3>
-                <FileUploader files={newFiles} setFiles={setNewFiles} />
-                {isSubmitting && newFiles.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>{t("uploading.files")}</span>
-                      <span>{Math.round(uploadProgress)}%</span>
-                    </div>
-                    <Progress value={uploadProgress} />
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>
-                        {formatBytes(uploadedBytes)} / {formatBytes(totalBytes)}
-                      </span>
-                      <span>{formatBytes(uploadSpeed)}/s</span>
-                    </div>
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">{t("add.files")}</h3>
+                    <FileUploader files={newFiles} setFiles={setNewFiles} />
+                    {isSubmitting && newFiles.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>{t("uploading.files")}</span>
+                          <span>{Math.round(uploadProgress)}%</span>
+                        </div>
+                        <Progress value={uploadProgress} />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>
+                            {formatBytes(uploadedBytes)} /{" "}
+                            {formatBytes(totalBytes)}
+                          </span>
+                          <span>{formatBytes(uploadSpeed)}/s</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
             </div>
           </ScrollArea>
         </div>
@@ -405,18 +409,25 @@ export function EditProjectDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
           >
-            {t("cancel")}
+            {canEdit || canAddFiles || canDeleteFiles
+              ? t("cancel")
+              : t("close")}
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || !hasChanges}>
-            {isSubmitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {t("save.changes")}
-              </>
-            ) : (
-              t("save.changes")
-            )}
-          </Button>
+          {(canEdit || canAddFiles || canDeleteFiles) && (
+            <Button
+              onClick={handleSubmit}
+              disabled={isSubmitting || !hasChanges}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t("save.changes")}
+                </>
+              ) : (
+                t("save.changes")
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

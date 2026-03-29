@@ -7,6 +7,10 @@ import { z } from "zod";
 import { ac, admin, manager, user as userRole } from "./permissions";
 import { env } from "bun";
 
+export const trustedOrigins = env.AUTH_TRUSTED_ORIGINS
+    ? (env.AUTH_TRUSTED_ORIGINS as string).split(",").map((o) => o.trim()).filter(Boolean)
+    : ["http://localhost:3000"];
+
 const customResources = ["group", "project"] as const;
 
 const rolePermissions: Record<string, Record<string, readonly string[]>> = {
@@ -50,6 +54,7 @@ type LdapResult = {
 export const auth = betterAuth({
     secret: env.AUTH_SECRET as string,
     baseURL: env.AUTH_URL as string,
+    trustedOrigins,
     database: new Pool({
         connectionString: env.DATABASE_URL as string,
     }),

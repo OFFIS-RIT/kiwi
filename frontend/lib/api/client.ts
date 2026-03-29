@@ -4,8 +4,9 @@
  * @module api/client
  */
 
+import { authClient, clearTokenCache, getToken } from "@/lib/auth-client";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-const AUTH_TOKEN = "Bearer test";
 
 /**
  * Custom error class for API failures with detailed status information.
@@ -41,8 +42,9 @@ async function request<T>(
 ): Promise<T> {
   const { method = "GET", body, headers = {}, isFormData = false } = options;
 
+  const token = await getToken();
   const requestHeaders: Record<string, string> = {
-    Authorization: AUTH_TOKEN,
+    Authorization: `Bearer ${token}`,
     ...headers,
   };
 
@@ -62,6 +64,10 @@ async function request<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearTokenCache();
+      void authClient.signOut();
+    }
     const errorBody = await response.text().catch(() => "");
     if (errorBody) {
       console.error(`API Error [${endpoint}]:`, errorBody);
@@ -100,50 +106,57 @@ export const apiClient = {
     formData: FormData,
     onProgress?: (progress: number, loaded: number, total: number) => void
   ) => {
-    return new Promise<T>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${API_BASE_URL}${endpoint}`);
-      xhr.setRequestHeader("Authorization", AUTH_TOKEN);
+    return getToken().then(
+      (token) =>
+        new Promise<T>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", `${API_BASE_URL}${endpoint}`);
+          xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
-      if (onProgress) {
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percentComplete = (event.loaded / event.total) * 100;
-            onProgress(percentComplete, event.loaded, event.total);
+          if (onProgress) {
+            xhr.upload.onprogress = (event) => {
+              if (event.lengthComputable) {
+                const percentComplete = (event.loaded / event.total) * 100;
+                onProgress(percentComplete, event.loaded, event.total);
+              }
+            };
           }
-        };
-      }
 
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          if (xhr.status === 204) {
-            resolve(null as T);
-            return;
-          }
-          try {
-            const response = JSON.parse(xhr.responseText);
-            resolve(response);
-          } catch {
-            resolve(xhr.responseText as unknown as T);
-          }
-        } else {
-          reject(
-            new ApiError(
-              `Request failed: ${xhr.statusText}`,
-              xhr.status,
-              xhr.statusText,
-              xhr.responseText
-            )
-          );
-        }
-      };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              if (xhr.status === 204) {
+                resolve(null as T);
+                return;
+              }
+              try {
+                const response = JSON.parse(xhr.responseText);
+                resolve(response);
+              } catch {
+                resolve(xhr.responseText as unknown as T);
+              }
+            } else {
+              if (xhr.status === 401) {
+                clearTokenCache();
+                void authClient.signOut();
+              }
+              reject(
+                new ApiError(
+                  `Request failed: ${xhr.statusText}`,
+                  xhr.status,
+                  xhr.statusText,
+                  xhr.responseText
+                )
+              );
+            }
+          };
 
-      xhr.onerror = () => {
-        reject(new Error("Network request failed"));
-      };
+          xhr.onerror = () => {
+            reject(new Error("Network request failed"));
+          };
 
-      xhr.send(formData);
-    });
+          xhr.send(formData);
+        })
+    );
   },
 
   patch: <T>(endpoint: string, body: unknown) =>
@@ -179,16 +192,21 @@ export async function streamSSERequest(
   onError?: (error: Error) => void
 ): Promise<void> {
   try {
+    const token = await getToken();
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: AUTH_TOKEN,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        clearTokenCache();
+        void authClient.signOut();
+      }
       const errorBody = await response.text().catch(() => "");
       console.error(`SSE Error [${endpoint}]:`, errorBody);
       throw new ApiError(
@@ -267,4 +285,4 @@ export async function streamSSERequest(
   }
 }
 
-export { API_BASE_URL, AUTH_TOKEN };
+export { API_BASE_URL };
