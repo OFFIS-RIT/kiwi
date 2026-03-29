@@ -4,8 +4,19 @@ import { createAuthClient } from "better-auth/react";
 
 import { ac, admin, manager, user } from "@/lib/auth-permissions";
 
+const getBaseURL = () => {
+  let url = process.env.NEXT_PUBLIC_AUTH_URL;
+  if (!url) {
+    return "/auth";
+  }
+  if (typeof window === "undefined" && url.startsWith("/")) {
+    return `http://localhost:3000${url}`;
+  }
+  return url;
+};
+
 export const authClient = createAuthClient({
-  baseURL: process.env.NEXT_PUBLIC_AUTH_URL,
+  baseURL: getBaseURL(),
   plugins: [
     jwtClient(),
     adminClient({ ac, roles: { admin, manager, user } }),
