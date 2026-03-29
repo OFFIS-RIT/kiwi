@@ -7,7 +7,7 @@ import { ac, admin, manager, user } from "@/lib/auth-permissions";
 const getBaseURL = () => {
   let url = process.env.NEXT_PUBLIC_AUTH_URL;
   if (!url) {
-    return "/auth";
+    url = "/auth";
   }
   if (typeof window === "undefined" && url.startsWith("/")) {
     return `http://localhost:3000${url}`;
