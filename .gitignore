@@ -25,45 +25,42 @@ docs/
 certs/kiwi.*
 
 # Build
-backend/dist/
-backend/bin/
+dist/
+bin/
 
 # Tmp
-backend/tmp/
-backend/graphs/
+tmp/
+graphs/
 
 # dependencies
-frontend/node_modules
-frontend/.pnp
-frontend/.pnp.*
-frontend/.yarn/*
+node_modules
+.pnp
+.pnp.*
+.yarn/*
 
 # testing
-frontend/coverage
+coverage
 
 # evaluation
 evaluation/
 
 # next.js
-frontend/.next/
-frontend/out/
+.next/
+out/
 
 # production
-frontend/build
+build
 
 # misc
-frontend/.DS_Store
-frontend/*.pem
+.DS_Store
+*.pem
 
 # debug
-frontend/bun-debug.log*
-
-# vercel
-frontend/.vercel
+bun-debug.log*
 
 # typescript
-frontend/*.tsbuildinfo
-frontend/next-env.d.ts
+*.tsbuildinfo
+next-env.d.ts
 
 # Docker
 *.pid
@@ -85,3 +82,6 @@ backend/worker
 backend/server
 backend/worker.exe
 backend/server.exe
+
+# turbo
+.turbo

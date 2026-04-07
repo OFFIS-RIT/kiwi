@@ -1,49 +1,49 @@
 services:
-  nginx:
-    container_name: nginx
-    image: nginx:alpine
-    ports:
-      - "443:443"
-    environment:
-      - AWS_PUBLIC_ENDPOINT=${AWS_PUBLIC_ENDPOINT:-http://localhost:9000}
-    volumes:
-      - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
-      - ./certs:/etc/nginx/certs:ro
-    command: >
-      /bin/sh -c "
-        export S3_PUBLIC_HOST=$$(echo $$AWS_PUBLIC_ENDPOINT | sed -E 's|^https?://([^/:]+).*|\1|');
-        envsubst '$${S3_PUBLIC_HOST}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf &&
-        nginx -g 'daemon off;'
-      "
-    depends_on:
-      frontend:
-        condition: service_started 
-      server:
-        condition: service_healthy
-      auth:
-        condition: service_healthy
+    nginx:
+        container_name: nginx
+        image: nginx:alpine
+        ports:
+            - "443:443"
+        environment:
+            - AWS_PUBLIC_ENDPOINT=${AWS_PUBLIC_ENDPOINT:-http://localhost:9000}
+        volumes:
+            - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+            - ./certs:/etc/nginx/certs:ro
+        command: >
+            /bin/sh -c "
+              export S3_PUBLIC_HOST=$$(echo $$AWS_PUBLIC_ENDPOINT | sed -E 's|^https?://([^/:]+).*|\1|');
+              envsubst '$${S3_PUBLIC_HOST}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf &&
+              nginx -g 'daemon off;'
+            "
+        depends_on:
+            frontend:
+                condition: service_started
+            server:
+                condition: service_healthy
+            auth:
+                condition: service_healthy
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: "/api"
-        NEXT_PUBLIC_AUTH_URL: "/auth"
-        NEXT_PUBLIC_AUTH_MODE: ${NEXT_PUBLIC_AUTH_MODE:-credentials}
+    frontend:
+        build:
+            context: ./frontend
+            dockerfile: Dockerfile
+            args:
+                NEXT_PUBLIC_API_URL: "/api"
+                NEXT_PUBLIC_AUTH_URL: "/auth"
+                NEXT_PUBLIC_AUTH_MODE: ${NEXT_PUBLIC_AUTH_MODE:-credentials}
 
-  auth:
-    build:
-      context: ./auth
-      dockerfile: Dockerfile
-    healthcheck:
-      test: ["CMD", "/busybox", "wget", "-qO-", "http://localhost:4321/auth/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    auth:
+        build:
+            context: ./auth
+            dockerfile: Dockerfile
+        healthcheck:
+            test: ["CMD", "/busybox", "wget", "-qO-", "http://localhost:4321/auth/health"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
 
 networks:
-  default:
-    driver: bridge
-    name: kiwi_internal
+    default:
+        driver: bridge
+        name: kiwi_internal

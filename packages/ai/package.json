@@ -1,0 +1,28 @@
+{
+    "name": "@kiwi/ai",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./lock": "./src/lock.ts",
+        "./prompts/*": "./src/prompts/*.ts"
+    },
+    "dependencies": {
+        "@ai-sdk/anthropic": "catalog:",
+        "@ai-sdk/azure": "catalog:",
+        "@ai-sdk/openai": "catalog:",
+        "@ai-sdk/openai-compatible": "catalog:",
+        "@ai-sdk/provider": "catalog:",
+        "@kiwi/db": "workspace:*",
+        "ai": "catalog:",
+        "drizzle-orm": "catalog:",
+        "tiktoken": "^1.0.22",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

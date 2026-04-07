@@ -1,0 +1,31 @@
+{
+    "name": "@kiwi/worker",
+    "private": true,
+    "type": "module",
+    "exports": {
+        "./*": "./workflows/*.ts"
+    },
+    "scripts": {
+        "worker": "npx @openworkflow/cli worker start",
+        "dev": "bunx @openworkflow/cli worker start"
+    },
+    "dependencies": {
+        "@kiwi/ai": "workspace:*",
+        "@kiwi/db": "workspace:*",
+        "@kiwi/files": "workspace:*",
+        "@kiwi/graph": "workspace:*",
+        "@t3-oss/env-core": "catalog:",
+        "ai": "catalog:",
+        "drizzle-orm": "catalog:",
+        "openworkflow": "catalog:",
+        "postgres": "catalog:",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "@openworkflow/cli": "^0.4.3",
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

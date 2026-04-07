@@ -1,0 +1,36 @@
+{
+    "name": "@kiwi/api",
+    "version": "0.2.0",
+    "module": "src/index.js",
+    "exports": {
+        ".": "./src/index.ts",
+        "./types": "./src/types/index.ts"
+    },
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "dev": "bun run --watch src/index.ts"
+    },
+    "dependencies": {
+        "@elysiajs/cors": "^1.4.1",
+        "@kiwi/ai": "workspace:*",
+        "@kiwi/auth": "workspace:*",
+        "@kiwi/db": "workspace:*",
+        "@kiwi/files": "workspace:*",
+        "@kiwi/logger": "workspace:*",
+        "@kiwi/worker": "workspace:*",
+        "@t3-oss/env-core": "catalog:",
+        "better-auth": "catalog:",
+        "better-auth-credentials-plugin": "catalog:",
+        "better-result": "catalog:",
+        "drizzle-orm": "catalog:",
+        "elysia": "latest",
+        "ldap-authentication": "4.0.3",
+        "openworkflow": "catalog:",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "@types/bun": "^catalog:",
+        "@types/pg": "catalog:",
+        "bun-types": "catalog:"
+    }
+}

@@ -78,7 +78,6 @@ Always apply appropriate labels when creating Issues and PRs:
 | `dependencies`   | Dependency updates         |
 | `github_actions` | GitHub Actions changes     |
 
-
 ### Commit Messages
 
 Use Conventional Commits-style format:
@@ -144,19 +143,19 @@ kiwi/
 
 ## Where to Look
 
-| Task             | Location                                | Notes                                 |
-| ---------------- | --------------------------------------- | ------------------------------------- |
-| Add API endpoint | `backend/internal/server/routes/`       | Follow `{verb}_{resource}.go` pattern |
-| Add SQL query    | `backend/pkg/db/pgx/queries/`          | Run `make generate` after             |
-| Add UI component | `frontend/components/{feature}/`        | Add to barrel exports                 |
-| Add data hook    | `frontend/hooks/use-data.ts`            | Use TanStack Query                    |
-| Add provider     | `frontend/providers/`                   | Compose in AppProviders               |
-| Auth permissions  | `auth/src/permissions.ts`               | Shared roles/AC; copied to frontend   |
-| Auth config      | `auth/src/auth.ts`                      | better-auth server config             |
-| Auth middleware   | `backend/internal/server/middleware/`    | JWT validation, RBAC                  |
-| Database schema  | `migrations/`                           | Use golang-migrate format             |
-| AI logic         | `backend/pkg/ai/`, `backend/pkg/graph/` | OpenAI/Ollama implementations         |
-| File processing  | `backend/pkg/loader/`                   | PDF, image, audio, CSV, Excel         |
+| Task              | Location                                      | Notes                                     |
+| ----------------- | --------------------------------------------- | ----------------------------------------- |
+| Add API endpoint  | `backend/internal/server/routes/`             | Follow `{verb}_{resource}.go` pattern     |
+| Add SQL query     | `backend/pkg/db/pgx/queries/`                 | Run `make generate` after                 |
+| Add UI component  | `frontend/components/{feature}/`              | Add to barrel exports                     |
+| Add data hook     | `frontend/hooks/use-data.ts`                  | Use TanStack Query                        |
+| Add provider      | `frontend/providers/`                         | Compose in AppProviders                   |
+| Auth permissions  | `auth/src/permissions.ts`                     | Shared roles/AC; copied to frontend       |
+| Auth config       | `auth/src/auth.ts`                            | better-auth server config                 |
+| Auth middleware   | `backend/internal/server/middleware/`         | JWT validation, RBAC                      |
+| Database schema   | `migrations/`                                 | Use golang-migrate format                 |
+| AI logic          | `backend/pkg/ai/`, `backend/pkg/graph/`       | OpenAI/Ollama implementations             |
+| File processing   | `backend/pkg/loader/`                         | PDF, image, audio, CSV, Excel             |
 | Durable workflows | `backend/pkg/workflow/`, `backend/pkg/store/` | Replayable workflow runtime + persistence |
 
 ## Architecture
@@ -188,39 +187,39 @@ kiwi/
 
 ## Services (Docker Compose)
 
-| Service    | Dev Port  | Purpose                       |
-| ---------- | --------- | ----------------------------- |
-| db         | internal  | PostgreSQL + pgvector         |
-| db-bouncer | 5432      | PostgreSQL connection pool    |
-| rustfs     | 9000, 9001 | S3-compatible storage        |
-| ollama     | 11434     | Local LLM inference           |
-| server     | 8080      | Go API server                 |
-| worker     | -         | Durable workflow worker       |
-| frontend   | 3000      | Next.js dev server            |
-| auth       | 4321      | Auth (better-auth, JWT + RBAC)|
+| Service    | Dev Port   | Purpose                        |
+| ---------- | ---------- | ------------------------------ |
+| db         | internal   | PostgreSQL + pgvector          |
+| db-bouncer | 5432       | PostgreSQL connection pool     |
+| rustfs     | 9000, 9001 | S3-compatible storage          |
+| ollama     | 11434      | Local LLM inference            |
+| server     | 8080       | Go API server                  |
+| worker     | -          | Durable workflow worker        |
+| frontend   | 3000       | Next.js dev server             |
+| auth       | 4321       | Auth (better-auth, JWT + RBAC) |
 
 ## Environment Variables
 
 Copy `.env.sample` to `.env`. Key variables:
 
-| Variable                                      | Purpose                                   |
-| --------------------------------------------- | ----------------------------------------- |
-| `DATABASE_URL`                                | PgBouncer PostgreSQL connection           |
-| `DATABASE_DIRECT_URL`                         | Direct PostgreSQL connection for migrations |
-| `MASTER_USER_ID`, `MASTER_USER_ROLE`          | Master API user identity for backend auth |
+| Variable                                      | Purpose                                           |
+| --------------------------------------------- | ------------------------------------------------- |
+| `DATABASE_URL`                                | PgBouncer PostgreSQL connection                   |
+| `DATABASE_DIRECT_URL`                         | Direct PostgreSQL connection for migrations       |
+| `MASTER_USER_ID`, `MASTER_USER_ROLE`          | Master API user identity for backend auth         |
 | `MASTER_USER_NAME`, `MASTER_USER_EMAIL`       | Optional bootstrap values for the master user row |
-| `AWS_*`                                       | RustFS/S3 config (endpoint, keys, bucket) |
-| `AI_ADAPTER`                                  | `openai` or `ollama`                      |
-| `AI_CHAT_URL`, `AI_EMBED_URL`, `AI_IMAGE_URL` | AI service endpoints                      |
-| `AI_*_MODEL`                                  | Model names for chat/embed/image          |
-| `WORKFLOW_WORKER_CONCURRENCY`                 | Parallel workflow runs per worker process |
-| `WORKFLOW_MAX_ATTEMPTS`                       | Retry limit for durable workflows         |
-| `NEXT_PUBLIC_API_URL`                         | Frontend API base URL                     |
-| `NEXT_PUBLIC_AUTH_URL`                        | Frontend auth service base URL            |
-| `NEXT_PUBLIC_AUTH_MODE`                       | `credentials` or `ldap`                   |
-| `AUTH_SECRET`                                 | Auth service signing secret               |
-| `AUTH_URL`                                    | Auth service base URL (internal)          |
-| `AUTH_TRUSTED_ORIGINS`                        | Allowed frontend origins (comma-separated)|
+| `AWS_*`                                       | RustFS/S3 config (endpoint, keys, bucket)         |
+| `AI_ADAPTER`                                  | `openai` or `ollama`                              |
+| `AI_CHAT_URL`, `AI_EMBED_URL`, `AI_IMAGE_URL` | AI service endpoints                              |
+| `AI_*_MODEL`                                  | Model names for chat/embed/image                  |
+| `WORKFLOW_WORKER_CONCURRENCY`                 | Parallel workflow runs per worker process         |
+| `WORKFLOW_MAX_ATTEMPTS`                       | Retry limit for durable workflows                 |
+| `NEXT_PUBLIC_API_URL`                         | Frontend API base URL                             |
+| `NEXT_PUBLIC_AUTH_URL`                        | Frontend auth service base URL                    |
+| `NEXT_PUBLIC_AUTH_MODE`                       | `credentials` or `ldap`                           |
+| `AUTH_SECRET`                                 | Auth service signing secret                       |
+| `AUTH_URL`                                    | Auth service base URL (internal)                  |
+| `AUTH_TRUSTED_ORIGINS`                        | Allowed frontend origins (comma-separated)        |
 
 ## Database Migrations
 
@@ -248,23 +247,21 @@ matching row in `users` after applying migrations.
 Before committing any changes, ensure the following steps are performed:
 
 1. **Documentation Check**:
-
-   - Verify and update `AGENTS.md` and `README.md` if the changes affect
-     architecture, workflows, or setup.
-   - Ensure documentation stays in sync with the code.
+    - Verify and update `AGENTS.md` and `README.md` if the changes affect
+      architecture, workflows, or setup.
+    - Ensure documentation stays in sync with the code.
 
 2. **Backend Verification**:
-
-   - **Build**: Run `go build ./...` in `backend/` to ensure binary compilation
-     succeeds.
-   - **Test**: Run `go test ./...` in `backend/` to ensure all tests pass.
-   - **Lint**: Follow standard Go conventions (no linter configured).
+    - **Build**: Run `go build ./...` in `backend/` to ensure binary compilation
+      succeeds.
+    - **Test**: Run `go test ./...` in `backend/` to ensure all tests pass.
+    - **Lint**: Follow standard Go conventions (no linter configured).
 
 3. **Frontend Verification**:
-   - **Build**: Run `bun run build` in `frontend/` to check for build errors.
-   - **Lint**: Run `bun run lint` in `frontend/` to catch code quality issues.
-   - **Format**: Run `bun run format:check` in `frontend/` to ensure code style
-     compliance.
+    - **Build**: Run `bun run build` in `frontend/` to check for build errors.
+    - **Lint**: Run `bun run lint` in `frontend/` to catch code quality issues.
+    - **Format**: Run `bun run format:check` in `frontend/` to ensure code style
+      compliance.
 
 ## Anti-Patterns
 

@@ -40,8 +40,8 @@
 - **Chat Interface** – Ask questions about your documents with streaming AI
   responses (normal and agentic modes)
 - **Multi-Model Support** – Works with OpenAI API or local Ollama models
-  - **Note:** When using OpenAI API with reasoning enabled, temperature is fixed
-    to 1.0 (required by o-series and gpt-5+ models)
+    - **Note:** When using OpenAI API with reasoning enabled, temperature is fixed
+      to 1.0 (required by o-series and gpt-5+ models)
 
 ## Tech Stack
 
@@ -114,16 +114,16 @@ container also bootstrap the matching row in `users`.
 
 ### Services
 
-| Service    | Port     | Description                      |
-| ---------- | -------- | -------------------------------- |
-| frontend   | 3000     | Next.js dev server               |
-| auth       | 4321     | Auth (better-auth, JWT + RBAC)   |
-| server     | 8080     | Go API server                    |
-| worker     | -        | Durable workflow worker          |
-| db         | internal | PostgreSQL + pgvector            |
-| db-bouncer | 5432     | PostgreSQL connection pool       |
+| Service    | Port       | Description                    |
+| ---------- | ---------- | ------------------------------ |
+| frontend   | 3000       | Next.js dev server             |
+| auth       | 4321       | Auth (better-auth, JWT + RBAC) |
+| server     | 8080       | Go API server                  |
+| worker     | -          | Durable workflow worker        |
+| db         | internal   | PostgreSQL + pgvector          |
+| db-bouncer | 5432       | PostgreSQL connection pool     |
 | rustfs     | 9000, 9001 | S3-compatible storage          |
-| ollama     | 11434    | Local LLM inference              |
+| ollama     | 11434      | Local LLM inference            |
 
 ### Worker Runtime
 
@@ -207,10 +207,10 @@ the Nginx container.
 
 ### Query Modes
 
-| Mode     | API              | Description                                                              |
-| -------- | ---------------- | ------------------------------------------------------------------------ |
-| Normal   | `mode=normal`    | Vector similarity search with path finding between relevant entities     |
-| Agentic  | `mode=agentic`   | Agentic exploration using graph tools for autonomous knowledge discovery |
+| Mode    | API            | Description                                                              |
+| ------- | -------------- | ------------------------------------------------------------------------ |
+| Normal  | `mode=normal`  | Vector similarity search with path finding between relevant entities     |
+| Agentic | `mode=agentic` | Agentic exploration using graph tools for autonomous knowledge discovery |
 
 #### Graph Exploration Tools (Agentic Mode)
 
@@ -287,72 +287,72 @@ Copy `.env.sample` to `.env` and configure:
 <details>
 <summary><strong>Environment Variables</strong></summary>
 
-| Variable                 | Description                        |
-| ------------------------ | ---------------------------------- |
-| `DEBUG`                  | Enable debug mode                  |
-| `PORT`                   | Server port (default: 8080)        |
-| `AUTH_SECRET`            | Secret key for authentication      |
-| `AUTH_URL`               | Authentication service URL         |
-| `AUTH_TRUSTED_ORIGINS`   | Allowed frontend origins (comma-separated) |
-| `NEXT_PUBLIC_AUTH_URL`   | Frontend auth service base URL     |
-| `NEXT_PUBLIC_AUTH_MODE`  | Frontend auth UI mode (see below)  |
-| `APPLE_CLIENT_ID`        | Apple OAuth client ID              |
-| `APPLE_CLIENT_SECRET`    | Apple OAuth client secret          |
-| `APPLE_BUNDLE_ID`        | Apple bundle identifier (optional) |
-| `GOOGLE_CLIENT_ID`       | Google OAuth client ID             |
-| `GOOGLE_CLIENT_SECRET`   | Google OAuth client secret         |
-| `MICROSOFT_CLIENT_ID`    | Microsoft OAuth client ID          |
-| `MICROSOFT_CLIENT_SECRET`| Microsoft OAuth client secret      |
-| `MICROSOFT_TENANT_ID`    | Microsoft tenant ID (optional)     |
-| `MICROSOFT_AUTHORITY_URL`| Microsoft authority URL (optional) |
-| `LDAP_URL`               | LDAP server URL                    |
-| `LDAP_BIND_DN`           | LDAP bind DN                       |
-| `LDAP_PASSW`             | LDAP bind password                 |
-| `LDAP_BASE_DN`           | LDAP base DN                       |
-| `LDAP_SEARCH_ATTR`       | LDAP search attribute              |
-| `MASTER_API_KEY`         | Master API key for authentication  |
-| `MASTER_USER_ID`         | Master user ID (string)            |
-| `MASTER_USER_ROLE`       | Master user role (e.g., admin)     |
-| `MASTER_USER_NAME`       | Optional display name for the bootstrapped master user |
-| `MASTER_USER_EMAIL`      | Optional email for the bootstrapped master user |
-| `NEXT_PUBLIC_API_URL`    | Frontend API base URL              |
-| `DATABASE_URL`           | PgBouncer PostgreSQL connection string |
-| `DATABASE_DIRECT_URL`    | Direct PostgreSQL connection string for migrations |
-| `AWS_REGION`             | S3 region                          |
-| `AWS_ENDPOINT`           | RustFS/S3 endpoint                 |
-| `AWS_PUBLIC_ENDPOINT`    | Public S3 endpoint (for file URLs) |
-| `AWS_ACCESS_KEY`         | S3 access key                      |
-| `AWS_SECRET_KEY`         | S3 secret key                      |
-| `AWS_BUCKET`             | S3 bucket name                     |
-| `AI_ADAPTER`             | `openai` or `ollama`               |
-| `AI_PARALLEL_REQ`        | Max parallel AI requests           |
-| `AI_TIMEOUT_WORKER`      | Worker AI timeout minutes (<=0 for unlimited, mapped to `AI_TIMEOUT`) |
-| `AI_TIMEOUT_SERVER`      | Server AI timeout minutes (<=0 for unlimited, mapped to `AI_TIMEOUT`) |
-| `AI_CHAT_KEY`            | Chat API key                       |
-| `AI_CHAT_URL`            | Chat model endpoint                |
-| `AI_CHAT_MODEL`          | Model for descriptions             |
-| `AI_EXTRACT_KEY`         | Extract API key                    |
-| `AI_EXTRACT_URL`         | Extract model endpoint             |
-| `AI_EXTRACT_MODEL`       | Model for extraction               |
-| `AI_IMAGE_KEY`           | Image API key                      |
-| `AI_IMAGE_URL`           | Image/OCR endpoint                 |
-| `AI_IMAGE_MODEL`         | Image model name                   |
-| `PDF_RENDER_MODE`        | PDF render mode: `auto`, `full`, `tile` |
-| `PDF_DPI_DEFAULT`        | DPI for normal PDF pages           |
-| `PDF_DPI_LARGE_PAGE`     | DPI for large/tiled PDF pages      |
-| `PDF_PREVIEW_DPI`        | Low-res DPI used for layout detection |
-| `PDF_TILE_MAX_EDGE_PX`   | Maximum tile width/height in pixels |
-| `PDF_TILE_OVERLAP_PX`    | Tile overlap in pixels             |
-| `PDF_LARGE_PAGE_EDGE_THRESHOLD_PX` | Edge threshold to classify a page as large |
-| `PDF_LARGE_PAGE_AREA_THRESHOLD_PX` | Area threshold to classify a page as large |
-| `PDF_ENABLE_PANEL_SPLIT` | Enable region-aware panel splitting before tiling |
-| `PDF_PANEL_SEPARATOR_MIN_COVERAGE` | Separator detection sensitivity for panel split |
-| `PDF_MAX_TILES_PER_PAGE` | Safety cap for tiles generated per page |
-| `AI_EMBED_KEY`           | Embedding API key                  |
-| `AI_EMBED_URL`           | Embedding endpoint                 |
-| `AI_EMBED_MODEL`         | Embedding model name               |
-| `WORKFLOW_WORKER_CONCURRENCY` | Parallel workflow runs per worker process |
-| `WORKFLOW_MAX_ATTEMPTS`  | Retry limit for process/delete/description workflows |
+| Variable                           | Description                                                           |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `DEBUG`                            | Enable debug mode                                                     |
+| `PORT`                             | Server port (default: 8080)                                           |
+| `AUTH_SECRET`                      | Secret key for authentication                                         |
+| `AUTH_URL`                         | Authentication service URL                                            |
+| `AUTH_TRUSTED_ORIGINS`             | Allowed frontend origins (comma-separated)                            |
+| `NEXT_PUBLIC_AUTH_URL`             | Frontend auth service base URL                                        |
+| `NEXT_PUBLIC_AUTH_MODE`            | Frontend auth UI mode (see below)                                     |
+| `APPLE_CLIENT_ID`                  | Apple OAuth client ID                                                 |
+| `APPLE_CLIENT_SECRET`              | Apple OAuth client secret                                             |
+| `APPLE_BUNDLE_ID`                  | Apple bundle identifier (optional)                                    |
+| `GOOGLE_CLIENT_ID`                 | Google OAuth client ID                                                |
+| `GOOGLE_CLIENT_SECRET`             | Google OAuth client secret                                            |
+| `MICROSOFT_CLIENT_ID`              | Microsoft OAuth client ID                                             |
+| `MICROSOFT_CLIENT_SECRET`          | Microsoft OAuth client secret                                         |
+| `MICROSOFT_TENANT_ID`              | Microsoft tenant ID (optional)                                        |
+| `MICROSOFT_AUTHORITY_URL`          | Microsoft authority URL (optional)                                    |
+| `LDAP_URL`                         | LDAP server URL                                                       |
+| `LDAP_BIND_DN`                     | LDAP bind DN                                                          |
+| `LDAP_PASSW`                       | LDAP bind password                                                    |
+| `LDAP_BASE_DN`                     | LDAP base DN                                                          |
+| `LDAP_SEARCH_ATTR`                 | LDAP search attribute                                                 |
+| `MASTER_API_KEY`                   | Master API key for authentication                                     |
+| `MASTER_USER_ID`                   | Master user ID (string)                                               |
+| `MASTER_USER_ROLE`                 | Master user role (e.g., admin)                                        |
+| `MASTER_USER_NAME`                 | Optional display name for the bootstrapped master user                |
+| `MASTER_USER_EMAIL`                | Optional email for the bootstrapped master user                       |
+| `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                 |
+| `DATABASE_URL`                     | PgBouncer PostgreSQL connection string                                |
+| `DATABASE_DIRECT_URL`              | Direct PostgreSQL connection string for migrations                    |
+| `AWS_REGION`                       | S3 region                                                             |
+| `AWS_ENDPOINT`                     | RustFS/S3 endpoint                                                    |
+| `AWS_PUBLIC_ENDPOINT`              | Public S3 endpoint (for file URLs)                                    |
+| `AWS_ACCESS_KEY`                   | S3 access key                                                         |
+| `AWS_SECRET_KEY`                   | S3 secret key                                                         |
+| `AWS_BUCKET`                       | S3 bucket name                                                        |
+| `AI_ADAPTER`                       | `openai` or `ollama`                                                  |
+| `AI_PARALLEL_REQ`                  | Max parallel AI requests                                              |
+| `AI_TIMEOUT_WORKER`                | Worker AI timeout minutes (<=0 for unlimited, mapped to `AI_TIMEOUT`) |
+| `AI_TIMEOUT_SERVER`                | Server AI timeout minutes (<=0 for unlimited, mapped to `AI_TIMEOUT`) |
+| `AI_CHAT_KEY`                      | Chat API key                                                          |
+| `AI_CHAT_URL`                      | Chat model endpoint                                                   |
+| `AI_CHAT_MODEL`                    | Model for descriptions                                                |
+| `AI_EXTRACT_KEY`                   | Extract API key                                                       |
+| `AI_EXTRACT_URL`                   | Extract model endpoint                                                |
+| `AI_EXTRACT_MODEL`                 | Model for extraction                                                  |
+| `AI_IMAGE_KEY`                     | Image API key                                                         |
+| `AI_IMAGE_URL`                     | Image/OCR endpoint                                                    |
+| `AI_IMAGE_MODEL`                   | Image model name                                                      |
+| `PDF_RENDER_MODE`                  | PDF render mode: `auto`, `full`, `tile`                               |
+| `PDF_DPI_DEFAULT`                  | DPI for normal PDF pages                                              |
+| `PDF_DPI_LARGE_PAGE`               | DPI for large/tiled PDF pages                                         |
+| `PDF_PREVIEW_DPI`                  | Low-res DPI used for layout detection                                 |
+| `PDF_TILE_MAX_EDGE_PX`             | Maximum tile width/height in pixels                                   |
+| `PDF_TILE_OVERLAP_PX`              | Tile overlap in pixels                                                |
+| `PDF_LARGE_PAGE_EDGE_THRESHOLD_PX` | Edge threshold to classify a page as large                            |
+| `PDF_LARGE_PAGE_AREA_THRESHOLD_PX` | Area threshold to classify a page as large                            |
+| `PDF_ENABLE_PANEL_SPLIT`           | Enable region-aware panel splitting before tiling                     |
+| `PDF_PANEL_SEPARATOR_MIN_COVERAGE` | Separator detection sensitivity for panel split                       |
+| `PDF_MAX_TILES_PER_PAGE`           | Safety cap for tiles generated per page                               |
+| `AI_EMBED_KEY`                     | Embedding API key                                                     |
+| `AI_EMBED_URL`                     | Embedding endpoint                                                    |
+| `AI_EMBED_MODEL`                   | Embedding model name                                                  |
+| `WORKFLOW_WORKER_CONCURRENCY`      | Parallel workflow runs per worker process                             |
+| `WORKFLOW_MAX_ATTEMPTS`            | Retry limit for process/delete/description workflows                  |
 
 ### Authentication Mode (Credentials vs LDAP)
 

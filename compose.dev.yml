@@ -1,86 +1,85 @@
 services:
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.dev
-    image: ghcr.io/offis-rit/kiwi/frontend:dev
-    volumes:
-      - ./frontend:/app
-      - frontend-node-modules:/app/node_modules
-    ports:
-      - "3000:3000"
-    environment:
-      NODE_ENV: development
-      WATCHPACK_POLLING: true
-      FAST_REFRESH: true
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-      NEXT_PUBLIC_AUTH_URL: ${NEXT_PUBLIC_AUTH_URL}
-      NEXT_PUBLIC_AUTH_MODE: ${NEXT_PUBLIC_AUTH_MODE:-credentials}
-    command: sh -c "bun install && bun run dev"
-  server:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.server.dev
-    image: ghcr.io/offis-rit/kiwi/server:dev
-    volumes:
-      - ./backend:/app
-      - air-server-tmp:/app/tmp
-    ports:
-      - "8080:8080"
-    environment:
-      CI: 1
-      CLICOLOR_FORCE: 1
-      GO_ENV: development
-      AWS_PUBLIC_ENDPOINT: ${AWS_PUBLIC_ENDPOINT}
-  worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker.dev
-    image: ghcr.io/offis-rit/kiwi/worker:dev
-    volumes:
-      - ./backend:/app
-      - air-worker-tmp:/app/tmp
-    environment:
-      CI: 1
-      CLICOLOR_FORCE: 1
-      GO_ENV: development
-      AWS_PUBLIC_ENDPOINT: ${AWS_PUBLIC_ENDPOINT}
-  auth:
-    build:
-      context: ./auth
-      dockerfile: Dockerfile.dev
-    image: ghcr.io/offis-rit/kiwi/auth:dev
-    volumes:
-      - ./auth:/app
-      - auth-node-modules:/app/node_modules
-    ports:
-      - "4321:4321"
-    environment:
-      NODE_ENV: development
-    command: sh -c "bun install && bun run dev"
-  db:
-    image: ghcr.io/offis-rit/kiwi/postgres:dev
-  db-bouncer:
-    ports:
-      - "5432:5432"
-  db-migration:
-    build:
-      context: .
-      dockerfile: postgres/Dockerfile.migration
-    image: ghcr.io/offis-rit/kiwi/postgres-migration:dev
-  rustfs:
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-
+    frontend:
+        build:
+            context: ./frontend
+            dockerfile: Dockerfile.dev
+        image: ghcr.io/offis-rit/kiwi/frontend:dev
+        volumes:
+            - ./frontend:/app
+            - frontend-node-modules:/app/node_modules
+        ports:
+            - "3000:3000"
+        environment:
+            NODE_ENV: development
+            WATCHPACK_POLLING: true
+            FAST_REFRESH: true
+            NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+            NEXT_PUBLIC_AUTH_URL: ${NEXT_PUBLIC_AUTH_URL}
+            NEXT_PUBLIC_AUTH_MODE: ${NEXT_PUBLIC_AUTH_MODE:-credentials}
+        command: sh -c "bun install && bun run dev"
+    server:
+        build:
+            context: ./backend
+            dockerfile: Dockerfile.server.dev
+        image: ghcr.io/offis-rit/kiwi/server:dev
+        volumes:
+            - ./backend:/app
+            - air-server-tmp:/app/tmp
+        ports:
+            - "8080:8080"
+        environment:
+            CI: 1
+            CLICOLOR_FORCE: 1
+            GO_ENV: development
+            AWS_PUBLIC_ENDPOINT: ${AWS_PUBLIC_ENDPOINT}
+    worker:
+        build:
+            context: ./backend
+            dockerfile: Dockerfile.worker.dev
+        image: ghcr.io/offis-rit/kiwi/worker:dev
+        volumes:
+            - ./backend:/app
+            - air-worker-tmp:/app/tmp
+        environment:
+            CI: 1
+            CLICOLOR_FORCE: 1
+            GO_ENV: development
+            AWS_PUBLIC_ENDPOINT: ${AWS_PUBLIC_ENDPOINT}
+    auth:
+        build:
+            context: ./auth
+            dockerfile: Dockerfile.dev
+        image: ghcr.io/offis-rit/kiwi/auth:dev
+        volumes:
+            - ./auth:/app
+            - auth-node-modules:/app/node_modules
+        ports:
+            - "4321:4321"
+        environment:
+            NODE_ENV: development
+        command: sh -c "bun install && bun run dev"
+    db:
+        image: ghcr.io/offis-rit/kiwi/postgres:dev
+    db-bouncer:
+        ports:
+            - "5432:5432"
+    db-migration:
+        build:
+            context: .
+            dockerfile: postgres/Dockerfile.migration
+        image: ghcr.io/offis-rit/kiwi/postgres-migration:dev
+    rustfs:
+        ports:
+            - "9000:9000"
+            - "9001:9001"
 
 volumes:
-  air-server-tmp:
-  air-worker-tmp:
-  frontend-node-modules:
-  auth-node-modules:
+    air-server-tmp:
+    air-worker-tmp:
+    frontend-node-modules:
+    auth-node-modules:
 
 networks:
-  default:
-    driver: bridge
-    name: kiwi_internal
+    default:
+        driver: bridge
+        name: kiwi_internal

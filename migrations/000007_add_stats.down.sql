@@ -1,3 +1,0 @@
-DROP TABLE IF EXISTS stats;
-ALTER TABLE IF EXISTS project_files
-DROP COLUMN IF EXISTS token_count;

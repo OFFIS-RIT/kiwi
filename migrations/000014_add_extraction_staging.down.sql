@@ -1,2 +1,0 @@
-DROP TABLE IF EXISTS extraction_staging;
-DROP EXTENSION IF EXISTS pg_cron;

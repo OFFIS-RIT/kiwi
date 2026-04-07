@@ -1,0 +1,21 @@
+{
+    "name": "@kiwi/db",
+    "private": true,
+    "type": "module",
+    "exports": {
+        "./utils": "./src/utils.ts",
+        ".": "./src/index.ts",
+        "./tables/*": "./src/tables/*.ts"
+    },
+    "dependencies": {
+        "drizzle-orm": "catalog:",
+        "pg": "catalog:",
+        "ulid": "^3.0.2"
+    },
+    "devDependencies": {
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

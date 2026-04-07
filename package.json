@@ -1,0 +1,54 @@
+{
+    "name": "kiwi",
+    "private": true,
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
+    "scripts": {
+        "build": "dotenv -- turbo build",
+        "dev": "dotenv -- turbo dev",
+        "lint": "oxlint",
+        "format": "oxfmt",
+        "db:generate": "dotenv -- drizzle-kit generate",
+        "db:migrate": "dotenv -- drizzle-kit migrate",
+        "db:studio": "dotenv -- drizzle-kit studio"
+    },
+    "devDependencies": {
+        "@types/bun": "catalog:",
+        "dotenv-cli": "^11.0.0",
+        "drizzle-kit": "^1.0.0-beta.19",
+        "oxfmt": "^0.41.0",
+        "oxlint": "^1.56.0",
+        "turbo": "^2.9.4"
+    },
+    "packageManager": "bun@1.3.11",
+    "catalog": {
+        "@t3-oss/env-core": "^0.13.11",
+        "openworkflow": "^0.8.1",
+        "postgres": "^3.4.8",
+        "drizzle-orm": "^1.0.0-beta.19",
+        "better-result": "^2.8.1",
+        "@types/bun": "latest",
+        "typescript": "^5",
+        "better-auth": "^1.5.5",
+        "better-auth-credentials-plugin": "0.5.2",
+        "pg": "^8.20.0",
+        "@types/pg": "^8.18.0",
+        "bun-types": "latest",
+        "zod": "4.3.6",
+        "next": "^16.1.6",
+        "next-themes": "^0.4.6",
+        "react": "^19.2.4",
+        "react-dom": "^19.2.4",
+        "@types/node": "^25",
+        "@types/react": "^19",
+        "@types/react-dom": "^19",
+        "@ai-sdk/anthropic": "^3.0.64",
+        "@ai-sdk/azure": "^3.0.49",
+        "@ai-sdk/openai": "^3.0.48",
+        "@ai-sdk/openai-compatible": "^2.0.37",
+        "@ai-sdk/provider": "^3.0.8",
+        "ai": "^6.0.138"
+    }
+}
