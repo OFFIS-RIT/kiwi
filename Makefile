@@ -19,32 +19,29 @@ build-dev:
 	@docker build -f auth/Dockerfile.dev -t ghcr.io/offis-rit/kiwi/auth:dev ./auth/
 
 start:
-	@docker compose -f compose.yml -f compose.prod.yml up -d --scale worker=8
+	@docker compose -f compose.prod.yml up -d --scale worker=8
 
 stop:
-	@docker compose -f compose.yml -f compose.prod.yml down
+	@docker compose -f compose.prod.yml down
 
 pull:
 	@docker pull ghcr.io/offis-rit/kiwi/postgres:latest
 	@docker pull ghcr.io/offis-rit/kiwi/postgres-migration:latest
-	@docker pull ghcr.io/offis-rit/kiwi/server:latest
+	@docker pull ghcr.io/offis-rit/kiwi/api:latest
 	@docker pull ghcr.io/offis-rit/kiwi/worker:latest
 	@docker pull ghcr.io/offis-rit/kiwi/frontend:latest
-	@docker pull ghcr.io/offis-rit/kiwi/auth:latest
 
 dev:
-	@echo "Starting development environment..."
-	@docker compose -f compose.yml -f compose.dev.yml up -d --scale worker=8
-	@docker compose -f compose.yml -f compose.dev.yml logs -f server worker frontend
+	@echo "Starting development infrastructure..."
+	@docker compose up -d
+	@echo "Infrastructure is ready. Start the apps with: bun run dev"
 
 dev-backend:
-	@echo "Starting development backend environment..."
-	@docker compose -f compose.yml -f compose.dev.yml up -d --scale frontend=0
-	@docker compose -f compose.yml -f compose.dev.yml logs -f server worker
+	@$(MAKE) dev
 
 dev-stop:
-	@echo "Stoping development environment..."
-	@docker compose -f compose.yml -f compose.dev.yml down --remove-orphans
+	@echo "Stopping development infrastructure..."
+	@docker compose down --remove-orphans
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 ENV_FILE := $(ROOT_DIR).env
@@ -57,7 +54,7 @@ migrate:
 		docker run --rm \
 			-v $(ROOT_DIR)migrations:/app/migrations:ro \
 			--network kiwi_internal \
-			-e DATABASE_URL="$${DATABASE_DIRECT_URL:-postgresql://kiwi:kiwi@db:5432/kiwi?sslmode=disable}" \
+			-e DATABASE_URL="$${DATABASE_DIRECT_URL_INTERNAL:-$${DATABASE_DIRECT_URL:-postgresql://kiwi:kiwi@db:5432/kiwi?sslmode=disable}}" \
 			-e AI_EMBED_DIM \
 			-e MASTER_USER_ID \
 			-e MASTER_USER_ROLE \
@@ -76,7 +73,7 @@ db-dump:
 			-v $(ROOT_DIR).backup:/backups \
 			--network kiwi_internal \
 			postgres:18 \
-			pg_dump "$${DATABASE_URL}" -Fc -f "/backups/$$DUMP_FILE"; \
+			pg_dump "$${DATABASE_URL_INTERNAL:-$${DATABASE_URL}}" -Fc -f "/backups/$$DUMP_FILE"; \
 		echo "Backup complete: backups/$$DUMP_FILE"
 
 DUMP_FILE ?=
@@ -102,7 +99,7 @@ db-restore:
 			-v $(ROOT_DIR).backup:/backups \
 			--network kiwi_internal \
 			postgres:18 \
-			pg_restore --clean --if-exists -d "$${DATABASE_URL}" "/backups/$$(basename $$DUMP_PATH)"; \
+			pg_restore --clean --if-exists -d "$${DATABASE_URL_INTERNAL:-$${DATABASE_URL}}" "/backups/$$(basename $$DUMP_PATH)"; \
 		echo "Restore complete"
 
 .PHONY: build build-dev start stop pull dev dev-backend dev-stop migrate db-dump db-restore

@@ -14,11 +14,7 @@
 # vscode
 .vscode/
 
-# antigravity
-.agents/
-
 # claude
-.claude/
 docs/
 
 # certs

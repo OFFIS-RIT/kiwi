@@ -74,19 +74,21 @@ cd kiwi
 cp .env.sample .env
 # Edit .env with your AI API keys
 
-# Start development environment
-make dev
+# Start development infrastructure
+docker compose up -d
+
+# Start frontend, API, and worker
+bun run dev
 ```
 
 The application will be available at:
 
 - **Frontend**: http://localhost:3000
-- **API**: http://localhost:8080
-- **Auth**: http://localhost:4321
+- **API**: http://localhost:4321
+- **Auth Routes**: http://localhost:4321/auth
 
 Database migrations are now applied automatically on startup by the
-`db-migration` container (it runs after `db` is healthy and before backend/auth
-services start).
+`db-migration` container when the Compose infrastructure starts.
 
 ### First Time Setup
 
@@ -103,9 +105,9 @@ docker exec -it ollama ollama pull <model-name>
 ## Development
 
 ```bash
-make dev              # Start all services (with logs)
-make dev-backend      # Start without frontend
-make dev-stop         # Stop environment
+docker compose up -d  # Start PostgreSQL, PgBouncer, and RustFS
+bun run dev           # Start frontend, API, and worker
+docker compose down   # Stop infrastructure
 make migrate          # Run database migrations manually
 ```
 
@@ -117,36 +119,27 @@ container also bootstrap the matching row in `users`.
 | Service    | Port       | Description                    |
 | ---------- | ---------- | ------------------------------ |
 | frontend   | 3000       | Next.js dev server             |
-| auth       | 4321       | Auth (better-auth, JWT + RBAC) |
-| server     | 8080       | Go API server                  |
+| api        | 4321       | Bun API server with `/auth`    |
 | worker     | -          | Durable workflow worker        |
 | db         | internal   | PostgreSQL + pgvector          |
 | db-bouncer | 5432       | PostgreSQL connection pool     |
 | rustfs     | 9000, 9001 | S3-compatible storage          |
-| ollama     | 11434      | Local LLM inference            |
 
 ### Worker Runtime
 
-The background worker (`backend/cmd/worker`) executes durable workflow runs stored in PostgreSQL.
+The background worker (`apps/worker`) executes durable workflow runs stored in PostgreSQL.
 
 - API requests enqueue `process`, `delete`, and `description` workflow runs transactionally.
 - The worker polls pending runs, claims a lease, heartbeats while executing, and retries failures with backoff.
 - File indexing fans out to one `process` workflow per file; once all file workflows in a correlation finish, description workflows are enqueued automatically.
 - Delete operations use `delete` workflows and refresh affected descriptions before the project returns to `ready`.
 
-Useful environment variables:
-
-- `WORKFLOW_WORKER_CONCURRENCY`: number of workflow runs a worker process executes in parallel
-- `WORKFLOW_MAX_ATTEMPTS`: maximum retry attempts for `process`, `delete`, and `description` workflows
-
 ```bash
-# From ./backend
+# Start the full local stack
+bun run dev
 
-# Start a worker
-go run ./cmd/worker
-
-# Increase worker parallelism
-WORKFLOW_WORKER_CONCURRENCY=4 go run ./cmd/worker
+# Start only the worker
+bun --cwd apps/worker run dev
 ```
 
 ---
@@ -154,12 +147,11 @@ WORKFLOW_WORKER_CONCURRENCY=4 go run ./cmd/worker
 ## Production
 
 ```bash
-make build    # Build Docker images
-make start    # Start production
-make stop     # Stop production
+docker compose -f compose.prod.yml up -d  # Start production
+docker compose -f compose.prod.yml down   # Stop production
 ```
 
-`make start` also runs the `db-migration` startup container automatically,
+`compose.prod.yml` also runs the `db-migration` startup container automatically,
 which applies pending migrations before app services connect to the database.
 
 ### SSL/TLS
@@ -289,13 +281,13 @@ Copy `.env.sample` to `.env` and configure:
 
 | Variable                           | Description                                                           |
 | ---------------------------------- | --------------------------------------------------------------------- |
-| `DEBUG`                            | Enable debug mode                                                     |
-| `PORT`                             | Server port (default: 8080)                                           |
+| `LOG_LEVEL`                        | API log level                                                         |
 | `AUTH_SECRET`                      | Secret key for authentication                                         |
-| `AUTH_URL`                         | Authentication service URL                                            |
-| `AUTH_TRUSTED_ORIGINS`             | Allowed frontend origins (comma-separated)                            |
+| `AUTH_URL`                         | Public auth base URL                                                  |
+| `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                 |
 | `NEXT_PUBLIC_AUTH_URL`             | Frontend auth service base URL                                        |
 | `NEXT_PUBLIC_AUTH_MODE`            | Frontend auth UI mode (see below)                                     |
+| `NEXT_PUBLIC_APP_BUILD_LABEL`      | Optional frontend build label                                         |
 | `APPLE_CLIENT_ID`                  | Apple OAuth client ID                                                 |
 | `APPLE_CLIENT_SECRET`              | Apple OAuth client secret                                             |
 | `APPLE_BUNDLE_ID`                  | Apple bundle identifier (optional)                                    |
@@ -310,55 +302,43 @@ Copy `.env.sample` to `.env` and configure:
 | `LDAP_PASSW`                       | LDAP bind password                                                    |
 | `LDAP_BASE_DN`                     | LDAP base DN                                                          |
 | `LDAP_SEARCH_ATTR`                 | LDAP search attribute                                                 |
-| `MASTER_API_KEY`                   | Master API key for authentication                                     |
 | `MASTER_USER_ID`                   | Master user ID (string)                                               |
 | `MASTER_USER_ROLE`                 | Master user role (e.g., admin)                                        |
 | `MASTER_USER_NAME`                 | Optional display name for the bootstrapped master user                |
 | `MASTER_USER_EMAIL`                | Optional email for the bootstrapped master user                       |
-| `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                 |
-| `DATABASE_URL`                     | PgBouncer PostgreSQL connection string                                |
-| `DATABASE_DIRECT_URL`              | Direct PostgreSQL connection string for migrations                    |
-| `AWS_REGION`                       | S3 region                                                             |
-| `AWS_ENDPOINT`                     | RustFS/S3 endpoint                                                    |
-| `AWS_PUBLIC_ENDPOINT`              | Public S3 endpoint (for file URLs)                                    |
-| `AWS_ACCESS_KEY`                   | S3 access key                                                         |
-| `AWS_SECRET_KEY`                   | S3 secret key                                                         |
-| `AWS_BUCKET`                       | S3 bucket name                                                        |
-| `AI_ADAPTER`                       | `openai` or `ollama`                                                  |
-| `AI_PARALLEL_REQ`                  | Max parallel AI requests                                              |
-| `AI_TIMEOUT_WORKER`                | Worker AI timeout minutes (<=0 for unlimited, mapped to `AI_TIMEOUT`) |
-| `AI_TIMEOUT_SERVER`                | Server AI timeout minutes (<=0 for unlimited, mapped to `AI_TIMEOUT`) |
-| `AI_CHAT_KEY`                      | Chat API key                                                          |
-| `AI_CHAT_URL`                      | Chat model endpoint                                                   |
-| `AI_CHAT_MODEL`                    | Model for descriptions                                                |
-| `AI_EXTRACT_KEY`                   | Extract API key                                                       |
-| `AI_EXTRACT_URL`                   | Extract model endpoint                                                |
-| `AI_EXTRACT_MODEL`                 | Model for extraction                                                  |
-| `AI_IMAGE_KEY`                     | Image API key                                                         |
-| `AI_IMAGE_URL`                     | Image/OCR endpoint                                                    |
-| `AI_IMAGE_MODEL`                   | Image model name                                                      |
-| `PDF_RENDER_MODE`                  | PDF render mode: `auto`, `full`, `tile`                               |
-| `PDF_DPI_DEFAULT`                  | DPI for normal PDF pages                                              |
-| `PDF_DPI_LARGE_PAGE`               | DPI for large/tiled PDF pages                                         |
-| `PDF_PREVIEW_DPI`                  | Low-res DPI used for layout detection                                 |
-| `PDF_TILE_MAX_EDGE_PX`             | Maximum tile width/height in pixels                                   |
-| `PDF_TILE_OVERLAP_PX`              | Tile overlap in pixels                                                |
-| `PDF_LARGE_PAGE_EDGE_THRESHOLD_PX` | Edge threshold to classify a page as large                            |
-| `PDF_LARGE_PAGE_AREA_THRESHOLD_PX` | Area threshold to classify a page as large                            |
-| `PDF_ENABLE_PANEL_SPLIT`           | Enable region-aware panel splitting before tiling                     |
-| `PDF_PANEL_SEPARATOR_MIN_COVERAGE` | Separator detection sensitivity for panel split                       |
-| `PDF_MAX_TILES_PER_PAGE`           | Safety cap for tiles generated per page                               |
-| `AI_EMBED_KEY`                     | Embedding API key                                                     |
-| `AI_EMBED_URL`                     | Embedding endpoint                                                    |
-| `AI_EMBED_MODEL`                   | Embedding model name                                                  |
-| `WORKFLOW_WORKER_CONCURRENCY`      | Parallel workflow runs per worker process                             |
-| `WORKFLOW_MAX_ATTEMPTS`            | Retry limit for process/delete/description workflows                  |
+| `DATABASE_URL`                     | Host PgBouncer PostgreSQL connection string                           |
+| `OPENWORKFLOW_POSTGRES_URL`        | Host OpenWorkflow PostgreSQL connection string                        |
+| `DATABASE_DIRECT_URL`              | Host direct PostgreSQL connection string                              |
+| `DATABASE_URL_INTERNAL`            | Internal PgBouncer URL for Compose containers                         |
+| `OPENWORKFLOW_POSTGRES_URL_INTERNAL` | Internal OpenWorkflow URL for Compose containers                    |
+| `DATABASE_DIRECT_URL_INTERNAL`     | Internal direct PostgreSQL URL for migrations                         |
+| `S3_REGION`                        | S3 region                                                             |
+| `S3_ENDPOINT`                      | Host RustFS endpoint                                                  |
+| `S3_ENDPOINT_INTERNAL`             | Internal RustFS endpoint for Compose containers                       |
+| `S3_PUBLIC_ENDPOINT`               | Public S3 endpoint used behind nginx                                  |
+| `S3_ACCESS_KEY_ID`                 | S3 access key                                                         |
+| `S3_SECRET_ACCESS_KEY`             | S3 secret key                                                         |
+| `S3_BUCKET`                        | S3 bucket name                                                        |
+| `AI_TEXT_ADAPTER`                  | Text model adapter: `openai`, `azure`, `anthropic`, `openaiAPI`      |
+| `AI_TEXT_MODEL`                    | Text model name                                                       |
+| `AI_TEXT_KEY`                      | Text model API key                                                    |
+| `AI_TEXT_URL`                      | Optional OpenAI-compatible text endpoint                              |
+| `AI_TEXT_RESOURCE_NAME`            | Azure resource name for text models                                   |
+| `AI_EMBEDDING_ADAPTER`             | Embedding adapter: `openai`, `azure`, `openaiAPI`                    |
+| `AI_EMBEDDING_MODEL`               | Embedding model name                                                  |
+| `AI_EMBEDDING_KEY`                 | Embedding API key                                                     |
+| `AI_EMBEDDING_URL`                 | Optional OpenAI-compatible embedding endpoint                         |
+| `AI_EMBEDDING_RESOURCE_NAME`       | Azure resource name for embeddings                                    |
+| `AI_IMAGE_*`                       | Optional image / vision model configuration                           |
+| `AI_AUDIO_*`                       | Optional audio model configuration                                    |
+| `AI_EMBED_DIM`                     | Embedding dimension used by migrations                                |
+| `OTEL_EXPORTER_OTLP_*`             | Optional OpenTelemetry log export configuration                       |
 
 ### Authentication Mode (Credentials vs LDAP)
 
 Authentication mode is configured **independently** on the backend and frontend — they must match:
 
-- **Backend (auth service):** LDAP is auto-enabled when **all** LDAP env vars are
+- **API/auth backend:** LDAP is auto-enabled when **all** LDAP env vars are
   present (`LDAP_URL`, `LDAP_BIND_DN`, `LDAP_PASSW`, `LDAP_BASE_DN`,
   `LDAP_SEARCH_ATTR`). When LDAP is active, email/password sign-up and sign-in
   are **disabled** automatically.
@@ -400,11 +380,9 @@ Note: When all LDAP variables are set, LDAP sign-in is enabled and email/passwor
 
 ## AGENTS.md
 
-| Document                                 | Description                                |
-| ---------------------------------------- | ------------------------------------------ |
-| [Root AGENTS.md](AGENTS.md)              | Project overview, architecture, workflows  |
-| [Backend AGENTS.md](backend/AGENTS.md)   | Go conventions, sqlc, testing              |
-| [Frontend AGENTS.md](frontend/AGENTS.md) | React patterns, TanStack Query, components |
+| Document                    | Description                            |
+| --------------------------- | -------------------------------------- |
+| [AGENTS.md](AGENTS.md)      | Repo technologies, commands, and style |
 
 ---
 

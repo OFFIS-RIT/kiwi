@@ -44,9 +44,9 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        # Auth service proxy
+        # Auth routes are served by the API service
         location /auth/ {
-            proxy_pass http://auth:4321/auth/;
+            proxy_pass http://api:4321/auth/;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -54,9 +54,9 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        # API Requests an Backend weiterleiten
+        # Strip /api before forwarding to the API service
         location /api/ {
-            proxy_pass http://server:8080;
+            proxy_pass http://api:4321/;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
