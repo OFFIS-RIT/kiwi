@@ -22,7 +22,7 @@ const searchRelationshipsSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-const searchRelationshipsTool = (graphId: string) =>
+export const searchRelationshipsTool = (graphId: string) =>
     tool({
         description:
             "Use when you need relationship IDs before calling the source tool, or when the important fact is the connection itself rather than a single entity.",
@@ -114,7 +114,12 @@ const searchRelationshipsTool = (graphId: string) =>
                             .select({ id: sourcesTable.id })
                             .from(sourcesTable)
                             .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                            .where(and(eq(sourcesTable.relationshipId, relationshipTable.id), inArray(textUnitTable.fileId, fileIds)))
+                            .where(
+                                and(
+                                    eq(sourcesTable.relationshipId, relationshipTable.id),
+                                    inArray(textUnitTable.fileId, fileIds)
+                                )
+                            )
                     )
                 );
             }
@@ -153,14 +158,15 @@ const searchRelationshipsTool = (graphId: string) =>
                     ? items.map((row) => {
                           const normalized = row.description.replace(/\s+/g, " ").trim();
                           const words = normalized.length > 0 ? normalized.split(" ") : [];
-                          const shortDescription = words.length > 40 ? `${words.slice(0, 40).join(" ")}...` : normalized;
+                          const shortDescription =
+                              words.length > 40 ? `${words.slice(0, 40).join(" ")}...` : normalized;
                           const source = entityMap.get(row.sourceId);
                           const target = entityMap.get(row.targetId);
 
                           return `- ${row.id}, ${row.sourceId} ${source?.name ?? "Unknown"} -> ${row.targetId} ${target?.name ?? "Unknown"}, ${shortDescription || "No description"}, rank ${row.rank}`;
                       })
                     : ["- none"]),
-                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items.at(-1)?.id}`] : []),
+                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
             ].join("\n");
         },
     });
@@ -173,7 +179,7 @@ const getRelationshipsSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-const getRelationshipsTool = (graphId: string) =>
+export const getRelationshipsTool = (graphId: string) =>
     tool({
         description:
             "Use when you already have entity IDs and want the direct edges touching them. Good for understanding how a small set of entities is connected.",
@@ -237,7 +243,7 @@ const getRelationshipsTool = (graphId: string) =>
                           return `- ${row.id}, ${row.sourceId} ${source?.name ?? "Unknown"} -> ${row.targetId} ${target?.name ?? "Unknown"}, ${shortDescription || "No description"}, rank ${row.rank}`;
                       })
                     : ["- none"]),
-                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items.at(-1)?.id}`] : []),
+                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
             ].join("\n");
         },
     });
@@ -248,7 +254,7 @@ const getNeighbourSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-const getNeighboursTool = (graphId: string) =>
+export const getNeighboursTool = (graphId: string) =>
     tool({
         description:
             "Use when you have one entity ID and want the entities directly connected to it, along with the relationship that connects them.",
@@ -319,7 +325,7 @@ const getNeighboursTool = (graphId: string) =>
                           return `- ${neighbourId}, ${neighbour?.name ?? "Unknown"}, ${neighbour?.type ?? "Unknown"}, ${shortEntityDescription || "No description"}; via ${row.id}, ${shortRelationship || "No relationship description"}, rank ${row.rank}`;
                       })
                     : ["- none"]),
-                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items.at(-1)?.id}`] : []),
+                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
             ].join("\n");
         },
     });
@@ -329,7 +335,7 @@ const getPathBetweenSchema = z.object({
     targetEntityId: z.string().describe("Target entity ID."),
 });
 
-const getPathBetweenTool = (graphId: string) =>
+export const getPathBetweenTool = (graphId: string) =>
     tool({
         description:
             "Use when you have two entity IDs and want one short connection path between them. This searches direct graph hops and returns a compact path summary.",

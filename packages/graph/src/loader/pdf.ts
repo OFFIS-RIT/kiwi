@@ -547,6 +547,7 @@ async function defaultTranscribePage(image: Uint8Array, model: LanguageModelV3):
     const { text } = await generateText({
         model,
         system: transcribePrompt,
+        temperature: 0.1,
         messages: [
             {
                 role: "user",

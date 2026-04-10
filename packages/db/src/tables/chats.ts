@@ -38,14 +38,49 @@ export type MessageToolPart = {
     toolCallId: string;
     toolName: string;
     execution: "server" | "client";
-    status: "pending" | "failed";
+    status: "pending" | "completed" | "failed";
     // oxlint-disable-next-line no-explicit-any -- fine here args can be anything
     args: any;
     // oxlint-disable-next-line no-explicit-any -- fine here execution can be anything
     result?: any;
 };
 
-export type MessagePart = MessageTextPart | MessageReasoningPart | MessageToolPart;
+export type MessageCitationPart = {
+    type: "citation";
+    citation: {
+        id: string;
+        sourceId: string;
+        textUnitId: string;
+        fileId: string;
+        fileName: string;
+        fileKey: string;
+        excerpt?: string;
+        description?: string;
+    };
+};
+
+export type MessageMetadataPart = {
+    type: "metadata";
+    metadata: {
+        createdAt?: string;
+        modelId?: string;
+        totalTokens?: number;
+        inputTokens?: number;
+        outputTokens?: number;
+        tokensPerSecond?: number;
+        timeToFirstToken?: number;
+        durationMs?: number;
+        consideredFileCount?: number;
+        usedFileCount?: number;
+    };
+};
+
+export type MessagePart =
+    | MessageTextPart
+    | MessageReasoningPart
+    | MessageToolPart
+    | MessageCitationPart
+    | MessageMetadataPart;
 
 export const messageTable = pgTable.withRLS(
     "messages",

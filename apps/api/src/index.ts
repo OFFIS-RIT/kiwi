@@ -4,6 +4,7 @@ import { Elysia } from "elysia";
 import { initLogger, shutdownLogger } from "./logger";
 import { authMiddleware } from "./middleware/auth";
 import { authRoute } from "./routes/auth";
+import { chatRoute } from "./routes/chat";
 import { graphRoute } from "./routes/graph";
 import { groupRoute } from "./routes/group";
 import { unitRoute } from "./routes/unit";
@@ -14,6 +15,7 @@ const app = new Elysia()
     .use(cors())
     .use(authMiddleware)
     .use(authRoute)
+    .use(chatRoute)
     .use(graphRoute)
     .use(groupRoute)
     .use(unitRoute)

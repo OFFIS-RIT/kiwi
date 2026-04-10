@@ -19,6 +19,7 @@
         "@kiwi/logger": "workspace:*",
         "@kiwi/worker": "workspace:*",
         "@t3-oss/env-core": "catalog:",
+        "ai": "catalog:",
         "better-auth": "catalog:",
         "better-auth-credentials-plugin": "catalog:",
         "better-result": "catalog:",

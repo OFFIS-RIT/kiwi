@@ -35,6 +35,7 @@ import { embedMany } from "ai";
 import { processFilesSpec } from "./process-files-spec";
 import { getDerivedFilePrefix, getDerivedImagePrefix } from "../lib/derived-files";
 import { buildPDFLoaderOptions } from "../lib/pdf-loader";
+import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 
 const WORKFLOW_STORAGE_VERSION = "v1";
 
@@ -529,6 +530,20 @@ export const processFile = defineWorkflow(
                 sourceKey,
                 duration,
                 tokenCount: tokens,
+                metadataExcerpt: buildMetadataExcerpt(text),
+            };
+        });
+
+        const metadataResult = await step.run({ name: "metadata" }, async () => {
+            const metadata = await buildMetadata(client.text!, fileData.name, baseFile.metadataExcerpt);
+
+            await db
+                .update(filesTable)
+                .set({ metadata: metadata || null })
+                .where(eq(filesTable.id, input.fileId));
+
+            return {
+                metadata,
             };
         });
 
@@ -575,7 +590,11 @@ export const processFile = defineWorkflow(
                 throw new Error(`Failed to load units from ${unitsResult.key}`);
             }
 
-            const graphs = await Promise.all(loadedUnits.content.map((unit) => processUnit(unit, client.text!)));
+            const graphs = await Promise.all(
+                loadedUnits.content.map((unit) =>
+                    processUnit(unit, client.text!, fileData.name, metadataResult.metadata || undefined)
+                )
+            );
             const mergedGraph = mergeGraphs(graphs);
             const graph = dedupe(mergedGraph);
 

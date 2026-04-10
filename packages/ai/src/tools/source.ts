@@ -7,10 +7,15 @@ import { z } from "zod";
 const getSourcesSchema = z.object({
     query: z
         .string()
-        .describe("Optional short phrase to refine already-scoped sources after you have selected entityIds or relationshipIds.")
+        .describe(
+            "Optional short phrase to refine already-scoped sources after you have selected entityIds or relationshipIds."
+        )
         .optional(),
     keywords: z.array(z.string()).describe("Optional extra terms to refine already-scoped source matching.").optional(),
-    files: z.array(z.string()).describe("Optional file IDs to narrow the evidence set after choosing entities or relationships.").optional(),
+    files: z
+        .array(z.string())
+        .describe("Optional file IDs to narrow the evidence set after choosing entities or relationships.")
+        .optional(),
     entityIds: z
         .array(z.string())
         .describe("Entity IDs you already identified and now want grounding evidence for.")
@@ -135,7 +140,7 @@ export const getSourcesTool = (graphId: string) =>
                           return `- ${row.id}, ${subject}, file ${row.fileId} ${row.fileName}, ${normalizedDescription || "No description"}, excerpt: ${shortExcerpt || "No excerpt"}`;
                       })
                     : ["- none"]),
-                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items.at(-1)?.id}`] : []),
+                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
             ].join("\n");
         },
     });

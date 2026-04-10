@@ -1,5 +1,5 @@
 import Elysia from "elysia";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "@kiwi/db/drizzle";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { Result } from "better-result";

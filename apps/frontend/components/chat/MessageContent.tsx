@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { downloadProjectFile } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
+import type { ChatMessage, CitationData } from "@/types/chat";
 import { FileText } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
@@ -13,35 +14,49 @@ import { TextReferenceBadge } from "./TextReferenceBadge";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
 type MessageContentProps = {
-    content: string;
-    reasoning?: string;
+    parts: ChatMessage["parts"];
     projectId?: string;
-    sourceFiles?: { id: string; name: string; key: string }[];
 };
 
-export function MessageContent({ content, reasoning, projectId, sourceFiles = [] }: MessageContentProps) {
-    const referencePattern = React.useMemo(() => /\[\[([a-zA-Z0-9_-]+)\]\]/g, []);
+export function MessageContent({ parts, projectId }: MessageContentProps) {
+    const referencePattern = React.useMemo(() => /\[\[cite:([a-zA-Z0-9_-]+)\]\]/g, []);
 
-    const createReferenceMapping = React.useMemo(() => {
-        const foundReferences: string[] = [];
-        const matches = content.matchAll(new RegExp(referencePattern, "g"));
+    const { markdownContent, reasoning, citations } = React.useMemo(() => {
+        const citationOrder: CitationData[] = [];
+        const citationMap = new Map<string, number>();
+        let markdown = "";
+        let reasoningText = "";
 
-        for (const match of matches) {
-            const id = match[1];
-            if (!foundReferences.includes(id)) {
-                foundReferences.push(id);
+        for (const part of parts) {
+            switch (part.type) {
+                case "text":
+                    markdown += part.text;
+                    break;
+                case "reasoning":
+                    reasoningText += part.text;
+                    break;
+                case "data-citation": {
+                    const existingIndex = citationMap.get(part.data.sourceId);
+                    if (existingIndex === undefined) {
+                        citationMap.set(part.data.sourceId, citationOrder.length);
+                        citationOrder.push(part.data);
+                    }
+                    markdown += `[[cite:${part.data.sourceId}]]`;
+                    break;
+                }
             }
         }
 
-        const mapping = new Map<string, number>();
-        foundReferences.forEach((id, index) => {
-            mapping.set(id, index);
-        });
+        return {
+            markdownContent: normalizeLatexDelimitersForMarkdown(markdown),
+            reasoning: reasoningText || undefined,
+            citations: citationOrder,
+        };
+    }, [parts]);
 
-        return mapping;
-    }, [content, referencePattern]);
-
-    const markdownContent = React.useMemo(() => normalizeLatexDelimitersForMarkdown(content), [content]);
+    const citationIndexMap = React.useMemo(() => {
+        return new Map(citations.map((citation, index) => [citation.sourceId, index]));
+    }, [citations]);
 
     const shouldSkipBadgeRecursion = (node: React.ReactElement): boolean => {
         const type = node.type as unknown as string;
@@ -53,29 +68,46 @@ export function MessageContent({ content, reasoning, projectId, sourceFiles = []
 
     const injectBadges = (children: React.ReactNode): React.ReactNode => {
         let matchCounter = 0;
+
         const processNode = (node: React.ReactNode): React.ReactNode => {
             if (typeof node === "string") {
                 const parts: React.ReactNode[] = [];
                 let lastIndex = 0;
                 let match: RegExpExecArray | null;
                 const regex = new RegExp(referencePattern);
+
                 while ((match = regex.exec(node)) !== null) {
                     if (match.index > lastIndex) {
                         parts.push(node.slice(lastIndex, match.index));
                     }
-                    const id = match[1];
-                    const idx = createReferenceMapping.get(id) ?? 0;
-                    const uniqueKey = `ref-${id}-${matchCounter++}`;
-                    parts.push(
-                        <TextReferenceBadge key={uniqueKey} referenceId={id} index={idx} projectId={projectId} />
-                    );
+
+                    const sourceId = match[1]!;
+                    const citationIndex = citationIndexMap.get(sourceId);
+                    const citation = citationIndex === undefined ? undefined : citations[citationIndex];
+
+                    if (citation && citationIndex !== undefined) {
+                        parts.push(
+                            <TextReferenceBadge
+                                key={`ref-${sourceId}-${matchCounter++}`}
+                                citation={citation}
+                                index={citationIndex}
+                                projectId={projectId}
+                            />
+                        );
+                    } else {
+                        parts.push(match[0]);
+                    }
+
                     lastIndex = match.index + match[0].length;
                 }
+
                 if (lastIndex < node.length) {
                     parts.push(node.slice(lastIndex));
                 }
+
                 return parts.length ? parts : node;
             }
+
             if (React.isValidElement(node)) {
                 if (shouldSkipBadgeRecursion(node)) return node;
                 const childProps = (node.props ?? {}) as { children?: React.ReactNode };
@@ -86,9 +118,11 @@ export function MessageContent({ content, reasoning, projectId, sourceFiles = []
                     React.Children.map(childProps.children, processNode)
                 );
             }
+
             if (Array.isArray(node)) {
                 return node.map(processNode);
             }
+
             return node;
         };
 
@@ -106,16 +140,13 @@ export function MessageContent({ content, reasoning, projectId, sourceFiles = []
         }
     };
 
-    const uniqueSourceFiles = sourceFiles.reduce(
-        (unique, file) => {
-            const existingFile = unique.find((f) => f.key === file.key);
-            if (!existingFile) {
-                unique.push(file);
-            }
-            return unique;
-        },
-        [] as typeof sourceFiles
-    );
+    const uniqueSourceFiles = citations.reduce((unique, citation) => {
+        const existingFile = unique.find((file) => file.fileKey === citation.fileKey);
+        if (!existingFile) {
+            unique.push(citation);
+        }
+        return unique;
+    }, [] as CitationData[]);
 
     return (
         <div className="leading-relaxed">
@@ -138,11 +169,11 @@ export function MessageContent({ content, reasoning, projectId, sourceFiles = []
                     ]}
                     components={{
                         p: ({ children }) => <p>{injectBadges(children)}</p>,
-                        ul: ({ children }) => <ul className="list-disc pl-6 my-2">{injectBadges(children)}</ul>,
-                        ol: ({ children }) => <ol className="list-decimal pl-6 my-2">{injectBadges(children)}</ol>,
+                        ul: ({ children }) => <ul className="my-2 list-disc pl-6">{injectBadges(children)}</ul>,
+                        ol: ({ children }) => <ol className="my-2 list-decimal pl-6">{injectBadges(children)}</ol>,
                         li: ({ children }) => <li className="my-1">{injectBadges(children)}</li>,
                         blockquote: ({ children }) => (
-                            <blockquote className="border-l-4 pl-3 my-3 text-muted-foreground">
+                            <blockquote className="my-3 border-l-4 pl-3 text-muted-foreground">
                                 {injectBadges(children)}
                             </blockquote>
                         ),
@@ -151,32 +182,32 @@ export function MessageContent({ content, reasoning, projectId, sourceFiles = []
                         del: ({ children }) => <del>{injectBadges(children)}</del>,
                         a: ({ children }) => <>{injectBadges(children)}</>,
                         h1: ({ children }) => (
-                            <h1 className="mt-4 mb-2 text-2xl font-semibold">{injectBadges(children)}</h1>
+                            <h1 className="mb-2 mt-4 text-2xl font-semibold">{injectBadges(children)}</h1>
                         ),
                         h2: ({ children }) => (
-                            <h2 className="mt-4 mb-2 text-xl font-semibold">{injectBadges(children)}</h2>
+                            <h2 className="mb-2 mt-4 text-xl font-semibold">{injectBadges(children)}</h2>
                         ),
                         h3: ({ children }) => (
-                            <h3 className="mt-3 mb-1.5 text-lg font-medium">{injectBadges(children)}</h3>
+                            <h3 className="mb-1.5 mt-3 text-lg font-medium">{injectBadges(children)}</h3>
                         ),
                         h4: ({ children }) => (
-                            <h4 className="mt-3 mb-1.5 text-base font-medium">{injectBadges(children)}</h4>
+                            <h4 className="mb-1.5 mt-3 text-base font-medium">{injectBadges(children)}</h4>
                         ),
                         h5: ({ children }) => (
-                            <h5 className="mt-2 mb-1 text-sm font-medium">{injectBadges(children)}</h5>
+                            <h5 className="mb-1 mt-2 text-sm font-medium">{injectBadges(children)}</h5>
                         ),
                         h6: ({ children }) => (
-                            <h6 className="mt-2 mb-1 text-xs font-medium uppercase tracking-wide">
+                            <h6 className="mb-1 mt-2 text-xs font-medium uppercase tracking-wide">
                                 {injectBadges(children)}
                             </h6>
                         ),
                         hr: () => null,
                         table: ({ children }) => (
-                            <table className="not-prose w-full border-collapse table-fixed">{children}</table>
+                            <table className="not-prose w-full table-fixed border-collapse">{children}</table>
                         ),
                         thead: ({ children }) => <thead className="bg-muted/30">{children}</thead>,
                         tbody: ({ children }) => <tbody>{children}</tbody>,
-                        tr: ({ children }) => <tr className="">{children}</tr>,
+                        tr: ({ children }) => <tr>{children}</tr>,
                         td: ({ children }) => (
                             <td className="border border-border px-3 py-2 align-top">{injectBadges(children)}</td>
                         ),
@@ -194,19 +225,19 @@ export function MessageContent({ content, reasoning, projectId, sourceFiles = []
             </div>
 
             {uniqueSourceFiles.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-border/50">
-                    <div className="text-sm text-muted-foreground mb-2">Quellen:</div>
+                <div className="mt-3 border-t border-border/50 pt-3">
+                    <div className="mb-2 text-sm text-muted-foreground">Quellen:</div>
                     <div className="flex flex-wrap gap-2">
-                        {uniqueSourceFiles.map((file) => (
+                        {uniqueSourceFiles.map((citation) => (
                             <Button
-                                key={file.id}
+                                key={citation.sourceId}
                                 variant="outline"
                                 size="sm"
                                 className="h-7 px-2 py-1 text-xs"
-                                onClick={() => handleFileDownload(file.name, file.key)}
+                                onClick={() => handleFileDownload(citation.fileName, citation.fileKey)}
                             >
-                                <FileText className="h-3 w-3 mr-1" />
-                                {file.name}
+                                <FileText className="mr-1 h-3 w-3" />
+                                {citation.fileName}
                             </Button>
                         ))}
                     </div>

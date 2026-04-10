@@ -20,7 +20,7 @@ const searchEntitiesSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-const searchEntityTool = (graphId: string) =>
+export const searchEntityTool = (graphId: string) =>
     tool({
         description:
             "Use when you need entity IDs before calling relationship or source tools. Best for finding entities by name, alias, type, or a short topic phrase.",
@@ -91,7 +91,7 @@ const searchEntityTool = (graphId: string) =>
             return [
                 "## Entities",
                 ...(lines.length > 0 ? lines : ["- none"]),
-                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items.at(-1)?.id}`] : []),
+                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
             ].join("\n");
         },
     });
@@ -105,7 +105,7 @@ const listEntitiesSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-const listEntitiesTool = (graphId: string) =>
+export const listEntitiesTool = (graphId: string) =>
     tool({
         description:
             "Use when you want a broad scan of entity IDs in the graph or inside specific files and do not yet know which entities matter.",
@@ -157,7 +157,7 @@ const listEntitiesTool = (graphId: string) =>
             return [
                 "## Entities",
                 ...(lines.length > 0 ? lines : ["- none"]),
-                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items.at(-1)?.id}`] : []),
+                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
             ].join("\n");
         },
     });

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull } from "@kiwi/db/drizzle";
 import { Elysia, t } from "elysia";
 import { auth } from "@kiwi/auth/server";
 import type { KiwiPermissions } from "@kiwi/auth/permissions";

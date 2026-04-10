@@ -40,11 +40,8 @@ export {
     fetchProjectDetail,
     fetchProjectFiles,
     fetchTextUnit,
-    queryProject,
-    queryProjectStream,
     updateProject,
 } from "./projects";
-export type { StreamEventHandlers } from "./projects";
 
 // Re-export types for convenience
 export type {

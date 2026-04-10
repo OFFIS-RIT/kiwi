@@ -10,6 +10,7 @@
         "test:watch": "vitest"
     },
     "dependencies": {
+        "@ai-sdk/react": "catalog:",
         "@kiwi/api": "workspace:*",
         "@kiwi/auth": "workspace:*",
         "@radix-ui/react-avatar": "^1.1.11",
@@ -25,6 +26,7 @@
         "@radix-ui/react-tooltip": "^1.2.8",
         "@tanstack/react-query": "^5.90.21",
         "@tanstack/react-query-devtools": "^5.91.3",
+        "ai": "catalog:",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "fuse.js": "^7.1.0",

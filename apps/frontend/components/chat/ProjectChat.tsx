@@ -9,17 +9,18 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
-import { deleteProjectChat, fetchProjectChat, fetchProjectChats, queryProjectStream } from "@/lib/api/projects";
+import { API_BASE_URL } from "@/lib/api/client";
+import { deleteProjectChat, fetchProjectChat, fetchProjectChats } from "@/lib/api/projects";
 import { useLanguage } from "@/providers/LanguageProvider";
-import type { ApiChatHistoryMessage, ApiClientToolCall, ApiQueryMetrics, ApiResponseData, QueryStep } from "@/types";
+import type { ChatMessage } from "@/types/chat";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai";
+import { useChat } from "@ai-sdk/react";
 import { Check, Copy, FileText, Loader2, Mic, MicOff, RotateCcw, SendIcon, Volume2, VolumeX } from "lucide-react";
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { MessageContent } from "./MessageContent";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
-import { v4 as uuidv4 } from "uuid";
-
-// Lazy load dialog for better code splitting
 const ResetChatDialog = lazy(() =>
     import("./ResetChatDialog").then((mod) => ({
         default: mod.ResetChatDialog,
@@ -28,111 +29,65 @@ const ResetChatDialog = lazy(() =>
 
 const SILENCE_TIMEOUT_MS = 5000;
 
-type Message = {
-    id: string;
-    content: string;
-    reasoning?: string;
-    role: "user" | "assistant";
-    timestamp: Date;
-    isLoading?: boolean;
-    sourceFiles?: ApiResponseData[];
-    metrics?: ApiQueryMetrics;
-    consideredFileCount?: number;
-    usedFileCount?: number;
-    /** Pending client tool call on this assistant message. */
-    pendingToolCall?: ApiClientToolCall;
-    /** Answers the user submitted for clarification questions (per-question). */
-    submittedAnswers?: string[];
-};
-
 type ProjectChatProps = {
     projectName: string;
     groupName: string;
     projectId: string;
 };
 
-function parseToolArguments(toolArguments: string): {
-    questions: string[];
-    reason?: string;
-} {
-    const trimmedToolArguments = toolArguments.trim();
-    if (!trimmedToolArguments) {
-        return {
-            questions: [],
-            reason: undefined,
-        };
-    }
-
-    try {
-        const parsed = JSON.parse(trimmedToolArguments) as {
-            questions?: unknown;
-            reason?: unknown;
-        };
-        const questions = Array.isArray(parsed.questions)
-            ? parsed.questions
-                  .filter((question): question is string => typeof question === "string")
-                  .map((question) => question.trim())
-                  .filter(Boolean)
-            : [];
-
-        const reason =
-            typeof parsed.reason === "string" && parsed.reason.trim().length > 0 ? parsed.reason.trim() : undefined;
-
-        return {
-            questions,
-            reason,
-        };
-    } catch {
-        if (
-            (trimmedToolArguments.startsWith("{") && trimmedToolArguments.endsWith("}")) ||
-            (trimmedToolArguments.startsWith("[") && trimmedToolArguments.endsWith("]"))
-        ) {
-            return {
-                questions: [],
-                reason: undefined,
-            };
-        }
-
-        return {
-            questions: [trimmedToolArguments],
-            reason: undefined,
-        };
-    }
-}
-
-type ClarificationToolCall = {
-    toolCall: ApiClientToolCall;
-    questions: string[];
-    reason?: string;
+type ChatSessionState = {
+    id: string;
+    messages: ChatMessage[];
 };
 
-function getClarificationToolCall(toolCall?: ApiClientToolCall | null): ClarificationToolCall | null {
-    if (!toolCall) {
-        return null;
-    }
+type ClarificationState = {
+    toolCallId: string;
+    questions: string[];
+    reason?: string;
+    submittedAnswers?: string[];
+    submitted: boolean;
+};
 
-    if (toolCall.tool_name !== "ask_clarifying_questions") {
-        return null;
-    }
-
-    const { questions, reason } = parseToolArguments(toolCall.tool_arguments);
-    if (questions.length === 0) {
-        return null;
-    }
-
-    return {
-        toolCall,
-        questions,
-        reason,
-    };
+function isToolPart(
+    part: ChatMessage["parts"][number]
+): part is Extract<ChatMessage["parts"][number], { toolCallId: string; state: string }> {
+    return "toolCallId" in part && "state" in part;
 }
 
-function parseSubmittedAnswers(submittedMessage: string | undefined, questions: string[]): string[] | undefined {
-    if (!submittedMessage?.trim()) {
+function getMessageText(message: ChatMessage): string {
+    return message.parts
+        .filter((part): part is Extract<ChatMessage["parts"][number], { type: "text" }> => part.type === "text")
+        .map((part) => part.text)
+        .join("");
+}
+
+function getMessageTimestamp(message: ChatMessage): Date {
+    const createdAt = message.metadata?.createdAt;
+    if (!createdAt) {
+        return new Date();
+    }
+
+    const parsed = new Date(createdAt);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function parseClarificationOutput(output: unknown, questions: string[]): string[] | undefined {
+    if (!output || typeof output !== "object") {
         return undefined;
     }
 
-    const lines = submittedMessage
+    const answersValue = (output as { answers?: unknown }).answers;
+    if (Array.isArray(answersValue)) {
+        const answers = answersValue.filter((value): value is string => typeof value === "string");
+        return answers.length > 0 ? answers : undefined;
+    }
+
+    const messageValue = (output as { message?: unknown }).message;
+    if (typeof messageValue !== "string") {
+        return undefined;
+    }
+
+    const lines = messageValue
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean);
@@ -141,91 +96,155 @@ function parseSubmittedAnswers(submittedMessage: string | undefined, questions: 
         return undefined;
     }
 
-    if (questions.length === 0) {
-        return lines.map((line) => {
-            const separatorIdx = line.indexOf(": ");
-            return separatorIdx >= 0 ? line.slice(separatorIdx + 2) : line;
-        });
-    }
-
-    const orderedAnswers = questions.map((question, index) => {
-        const prefixed = `${question}: `;
-        const matchingLine = lines.find((line) => line.startsWith(prefixed));
+    return questions.map((question, index) => {
+        const prefix = `${question}: `;
+        const matchingLine = lines.find((line) => line.startsWith(prefix));
         if (matchingLine) {
-            return matchingLine.slice(prefixed.length);
+            return matchingLine.slice(prefix.length);
         }
 
         const fallbackLine = lines[index] ?? "";
         const separatorIdx = fallbackLine.indexOf(": ");
         return separatorIdx >= 0 ? fallbackLine.slice(separatorIdx + 2) : fallbackLine;
     });
-
-    return orderedAnswers.some((answer) => answer.trim().length > 0) ? orderedAnswers : undefined;
 }
 
-function buildToolReasoningChunk(msg: ApiChatHistoryMessage): string | null {
-    if (msg.role !== "assistant_tool_call") {
+function getClarificationState(message: ChatMessage): ClarificationState | null {
+    if (message.role !== "assistant") {
         return null;
     }
 
-    const reasoning = msg.reasoning?.trim();
-    if (!reasoning) {
+    const toolPart = message.parts.find(
+        (part): part is Extract<ChatMessage["parts"][number], { toolCallId: string; state: string }> =>
+            isToolPart(part) && part.type === "tool-ask_clarifying_questions"
+    );
+    if (!toolPart) {
         return null;
     }
 
-    const toolName = msg.tool_name?.trim() || "unknown_tool";
-    return `Tool: ${toolName}\n\n${reasoning}`;
-}
-
-function hydrateMessage(msg: ApiChatHistoryMessage, latestConvId: string, idx: number): Message | null {
-    const timestamp = msg.created_at ? new Date(msg.created_at) : new Date();
-
-    if (msg.role === "assistant_tool_call") {
-        const toolCall: ApiClientToolCall = {
-            tool_call_id: msg.tool_call_id ?? `hydrated-${latestConvId}-tool-${idx}`,
-            tool_name: msg.tool_name ?? "",
-            tool_arguments: msg.tool_arguments ?? "",
-        };
-
-        const clarification = getClarificationToolCall(toolCall);
-        const submittedAnswers = clarification
-            ? parseSubmittedAnswers(msg.tool_result?.message, clarification.questions)
-            : undefined;
-
-        if (!clarification && !msg.message.trim()) {
-            return null;
-        }
-
-        return {
-            id: `hydrated-${latestConvId}-${idx}`,
-            content: msg.message,
-            reasoning: msg.reasoning ?? undefined,
-            role: "assistant",
-            timestamp,
-            pendingToolCall: clarification?.toolCall,
-            submittedAnswers,
-        };
+    const input = "input" in toolPart ? toolPart.input : undefined;
+    if (!input || typeof input !== "object") {
+        return null;
     }
+
+    const rawQuestions = (input as { questions?: unknown }).questions;
+    const questions = Array.isArray(rawQuestions)
+        ? rawQuestions.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [];
+
+    if (questions.length === 0) {
+        return null;
+    }
+
+    const rawReason = (input as { reason?: unknown }).reason;
+    const submitted = toolPart.state === "output-available";
 
     return {
-        id: `hydrated-${latestConvId}-${idx}`,
-        content: msg.message,
-        reasoning: msg.reasoning ?? undefined,
-        role: msg.role,
-        timestamp,
-        metrics: msg.metrics ?? undefined,
-        sourceFiles: msg.data ?? undefined,
+        toolCallId: toolPart.toolCallId,
+        questions,
+        reason: typeof rawReason === "string" ? rawReason : undefined,
+        submitted,
+        submittedAnswers: submitted
+            ? parseClarificationOutput("output" in toolPart ? toolPart.output : undefined, questions)
+            : undefined,
     };
 }
 
+function stripMarkdown(text: string): string {
+    let cleaned = text;
+
+    cleaned = cleaned.replace(/```[\s\S]*?```/g, "");
+    cleaned = cleaned.replace(/`([^`]+)`/g, "$1");
+    cleaned = cleaned.replace(/!\[([^\]]*)\]\([^)]+\)/g, "");
+    cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+    cleaned = cleaned.replace(/^#{1,6}\s+(.+)$/gm, "$1");
+    cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, "$1");
+    cleaned = cleaned.replace(/__([^_]+)__/g, "$1");
+    cleaned = cleaned.replace(/\*([^*]+)\*/g, "$1");
+    cleaned = cleaned.replace(/_([^_]+)_/g, "$1");
+    cleaned = cleaned.replace(/~~([^~]+)~~/g, "$1");
+    cleaned = cleaned.replace(/^>\s+(.+)$/gm, "$1");
+    cleaned = cleaned.replace(/^[-*]{3,}$/gm, "");
+    cleaned = cleaned.replace(/^[\s]*[-*+]\s+(.+)$/gm, "$1");
+    cleaned = cleaned.replace(/^[\s]*\d+\.\s+(.+)$/gm, "$1");
+    cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+    cleaned = cleaned.replace(/[ \t]{2,}/g, " ");
+    return cleaned.trim();
+}
+
 export function ProjectChat({ projectName, groupName, projectId }: ProjectChatProps) {
+    const { t } = useLanguage();
+    const [session, setSession] = useState<ChatSessionState | null>(null);
+    const [isHydrating, setIsHydrating] = useState(false);
+
+    const loadChat = useCallback(async () => {
+        setIsHydrating(true);
+        try {
+            const chats = await fetchProjectChats(projectId);
+
+            if (chats.length > 0) {
+                const latest = await fetchProjectChat(projectId, chats[0].id);
+                setSession({ id: latest.id, messages: latest.messages });
+            } else {
+                setSession({ id: uuidv4(), messages: [] });
+            }
+        } catch (error) {
+            console.error("Failed to hydrate chat:", error);
+            setSession({ id: uuidv4(), messages: [] });
+        } finally {
+            setIsHydrating(false);
+        }
+    }, [projectId]);
+
+    useEffect(() => {
+        void loadChat();
+    }, [loadChat]);
+
+    if (!session) {
+        return (
+            <div className="flex h-[calc(100vh-6rem)] items-center justify-center">
+                <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+        );
+    }
+
+    return (
+        <ProjectChatSession
+            key={session.id}
+            projectName={projectName}
+            groupName={groupName}
+            projectId={projectId}
+            initialSession={session}
+            isHydrating={isHydrating}
+            onReset={async (chatId) => {
+                try {
+                    await deleteProjectChat(projectId, chatId);
+                } catch (error) {
+                    console.error("Failed to delete conversation:", error);
+                } finally {
+                    setSession({ id: uuidv4(), messages: [] });
+                }
+            }}
+        />
+    );
+}
+
+function ProjectChatSession({
+    projectName,
+    groupName,
+    projectId,
+    initialSession,
+    isHydrating,
+    onReset,
+}: ProjectChatProps & {
+    initialSession: ChatSessionState;
+    isHydrating: boolean;
+    onReset: (chatId: string) => Promise<void>;
+}) {
     const { t, language } = useLanguage();
     const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [inputValue, setInputValue] = useState("");
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
-    const [isAssistantTyping, setIsAssistantTyping] = useState(false);
     const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
     const [isRecording, setIsRecording] = useState(false);
@@ -234,151 +253,63 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const [interimTranscript, setInterimTranscript] = useState("");
     const [isTemplateSidebarOpen, setIsTemplateSidebarOpen] = useState(false);
-    const [currentStep, setCurrentStep] = useState<QueryStep | null>(null);
-    const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null);
-    const [streamingReasoning, setStreamingReasoning] = useState("");
-    const thinkingStartedRef = useRef(false);
+    const [currentStep, setCurrentStep] = useState<string | null>(null);
 
-    // Conversation state (backend-managed) — use ref to avoid stale closures in callbacks
-    const conversationIdRef = useRef<string | null>(null);
-    const [isHydrating, setIsHydrating] = useState(false);
-
-    // Client tool-call state
-    const [pendingToolCall, setPendingToolCall] = useState<ApiClientToolCall | null>(null);
-
-    // Text-to-speech for message playback
     const {
         isSupported: ttsSupported,
         speakingMessageId,
         speak: speakText,
         stop: stopSpeaking,
     } = useSpeechSynthesis(language);
+    const [inputValue, setInputValue] = useState("");
 
-    const createWelcomeMessage = useCallback(
-        (): Message => ({
-            id: uuidv4(),
-            content: t("welcome.message", { projectName }),
-            role: "assistant",
-            timestamp: new Date(),
+    const { messages, sendMessage, status, addToolOutput } = useChat<ChatMessage>({
+        id: initialSession.id,
+        messages: initialSession.messages,
+        transport: new DefaultChatTransport({
+            api: `${API_BASE_URL}/stream/${projectId}`,
+            credentials: "include",
         }),
-        [t, projectName]
+        sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+        onData: (part) => {
+            if (part.type === "data-step") {
+                const name = part.data && typeof part.data === "object" && "name" in part.data ? part.data.name : null;
+                setCurrentStep(typeof name === "string" ? name : null);
+            }
+        },
+        onError: (error) => {
+            console.error("Chat stream error:", error);
+        },
+    });
+
+    const isAssistantTyping = status === "submitted" || status === "streaming";
+    const displayedMessages = useMemo(() => messages.filter((message) => message.role !== "system"), [messages]);
+    const pendingClarification = useMemo(
+        () =>
+            displayedMessages
+                .map(getClarificationState)
+                .find((state): state is ClarificationState => !!state && !state.submitted) ?? null,
+        [displayedMessages]
     );
 
     useEffect(() => {
         stopSpeaking();
-        setPendingToolCall(null);
-        setIsAssistantTyping(false);
-        setInputValue("");
-        conversationIdRef.current = null;
+    }, [stopSpeaking, initialSession.id]);
 
-        let cancelled = false;
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [displayedMessages, status]);
 
-        async function hydrate() {
-            setIsHydrating(true);
-            try {
-                const chats = await fetchProjectChats(projectId);
-                if (cancelled) return;
-
-                if (chats.length > 0) {
-                    // Pick the most recent conversation (first in list)
-                    const latestConvId = chats[0].conversation_id;
-                    const chatData = await fetchProjectChat(projectId, latestConvId);
-                    if (cancelled) return;
-
-                    conversationIdRef.current = latestConvId;
-
-                    if (chatData.messages.length > 0) {
-                        let lastUnsubmittedToolCall: ApiClientToolCall | null = null;
-                        const hydratedMessages: Message[] = [];
-                        let pendingToolReasoningChunks: string[] = [];
-
-                        chatData.messages.forEach((msg, idx) => {
-                            if (msg.role === "assistant_tool_call") {
-                                const toolCall: ApiClientToolCall = {
-                                    tool_call_id: msg.tool_call_id ?? `hydrated-${latestConvId}-tool-${idx}`,
-                                    tool_name: msg.tool_name ?? "",
-                                    tool_arguments: msg.tool_arguments ?? "",
-                                };
-                                const clarification = getClarificationToolCall(toolCall);
-
-                                if (!clarification) {
-                                    const toolReasoningChunk = buildToolReasoningChunk(msg);
-                                    if (toolReasoningChunk) {
-                                        pendingToolReasoningChunks = [
-                                            ...pendingToolReasoningChunks,
-                                            toolReasoningChunk,
-                                        ];
-                                    }
-                                    return;
-                                }
-                            }
-
-                            const hydratedMessage = hydrateMessage(msg, latestConvId, idx);
-                            if (!hydratedMessage) {
-                                return;
-                            }
-
-                            if (hydratedMessage.role === "assistant" && pendingToolReasoningChunks.length > 0) {
-                                const prefixedReasoning = pendingToolReasoningChunks.join("\n\n");
-                                hydratedMessage.reasoning = hydratedMessage.reasoning
-                                    ? `${prefixedReasoning}\n\n${hydratedMessage.reasoning}`
-                                    : prefixedReasoning;
-                                pendingToolReasoningChunks = [];
-                            }
-
-                            if (hydratedMessage.pendingToolCall && !hydratedMessage.submittedAnswers) {
-                                lastUnsubmittedToolCall = hydratedMessage.pendingToolCall;
-                            }
-
-                            hydratedMessages.push(hydratedMessage);
-                        });
-
-                        setMessages(hydratedMessages);
-                        setPendingToolCall(lastUnsubmittedToolCall);
-                    } else {
-                        setMessages([createWelcomeMessage()]);
-                        setPendingToolCall(null);
-                    }
-                } else {
-                    // No conversations yet — show welcome message
-                    setMessages([createWelcomeMessage()]);
-                    setPendingToolCall(null);
-                }
-            } catch (err) {
-                console.error("Failed to hydrate chat:", err);
-                if (!cancelled) {
-                    setMessages([createWelcomeMessage()]);
-                    setPendingToolCall(null);
-                }
-            } finally {
-                if (!cancelled) {
-                    setIsHydrating(false);
-                }
-            }
+    useEffect(() => {
+        if (status === "ready") {
+            setCurrentStep(null);
         }
-
-        hydrate();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [projectId, createWelcomeMessage, stopSpeaking]);
+    }, [status]);
 
     useEffect(() => {
         inputRef.current?.focus();
     }, [projectName]);
 
-    useEffect(() => {
-        if (!isAssistantTyping && messages.length > 1) {
-            inputRef.current?.focus();
-        }
-    }, [isAssistantTyping, messages.length]);
-
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
-
-    // Helper to reset silence timeout
     const resetSilenceTimeout = useCallback(() => {
         if (silenceTimeoutRef.current) {
             clearTimeout(silenceTimeoutRef.current);
@@ -397,7 +328,6 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
         }
     }, []);
 
-    // Check for Web Speech API support and initialize
     useEffect(() => {
         const SpeechRecognitionAPI =
             typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
@@ -410,7 +340,6 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
             recognition.lang = language === "de" ? "de-DE" : "en-US";
 
             recognition.onresult = (event: SpeechRecognitionEvent) => {
-                // Reset silence timeout on any speech activity
                 resetSilenceTimeout();
 
                 let finalTranscript = "";
@@ -425,12 +354,10 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
                     }
                 }
 
-                // Update interim transcript for live preview
                 setInterimTranscript(currentInterim);
 
                 if (finalTranscript) {
-                    setInputValue((prev) => (prev ? `${prev} ${finalTranscript}` : finalTranscript));
-                    // Clear interim after final result is added
+                    setInputValue((previous) => (previous ? `${previous} ${finalTranscript}` : finalTranscript));
                     setInterimTranscript("");
                 }
             };
@@ -471,332 +398,68 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
         } else {
             recognitionRef.current.start();
             setIsRecording(true);
-            // Start the initial silence timeout
             resetSilenceTimeout();
         }
-    }, [isRecording, clearSilenceTimeout, resetSilenceTimeout]);
-
-    // -------------------------------------------------------------------------
-    // Shared send logic for normal prompts and tool-call follow-ups
-    // -------------------------------------------------------------------------
-    const sendStreamingQuery = useCallback(
-        async (prompt: string, toolId?: string) => {
-            const assistantMessageId = uuidv4();
-            let assistantMessageCreated = false;
-            let contentBuffer = "";
-            let reasoningBuffer = "";
-            let metricsResult: ApiQueryMetrics | undefined;
-            let receivedToolCall: ApiClientToolCall | undefined;
-            let receivedDone = false;
-
-            setIsAssistantTyping(true);
-            setThinkingStartTime(null);
-            setStreamingReasoning("");
-            setCurrentStep(null);
-            thinkingStartedRef.current = false;
-            setPendingToolCall(null);
-
-            const createOrUpdateAssistantMessage = (updates: Partial<Message>) => {
-                if (!assistantMessageCreated) {
-                    const initialMessage: Message = {
-                        id: assistantMessageId,
-                        content: contentBuffer,
-                        role: "assistant",
-                        timestamp: new Date(),
-                        ...updates,
-                    };
-                    setMessages((prev) => [...prev, initialMessage]);
-                    assistantMessageCreated = true;
-                } else {
-                    setMessages((prev) =>
-                        prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, ...updates } : msg))
-                    );
-                }
-            };
-
-            try {
-                await queryProjectStream(
-                    projectId,
-                    {
-                        prompt,
-                        conversation_id: conversationIdRef.current ?? undefined,
-                        mode: "agentic",
-                        think: true,
-                        tool_id: toolId,
-                    },
-                    {
-                        onConversation: (data) => {
-                            conversationIdRef.current = data.conversation_id;
-                        },
-                        onStep: (data) => {
-                            setCurrentStep(data.name as QueryStep);
-                        },
-                        onReasoning: (data) => {
-                            if (!thinkingStartedRef.current) {
-                                thinkingStartedRef.current = true;
-                                setThinkingStartTime(Date.now());
-                            }
-                            reasoningBuffer += data.content;
-                            setStreamingReasoning(reasoningBuffer);
-                        },
-                        onContent: (data) => {
-                            contentBuffer += data.content;
-                            createOrUpdateAssistantMessage({
-                                content: contentBuffer,
-                                reasoning: reasoningBuffer || undefined,
-                            });
-                            setIsAssistantTyping(false);
-                            setCurrentStep(null);
-                            setThinkingStartTime(null);
-                            setStreamingReasoning("");
-                        },
-                        onCitation: (data) => {
-                            // Append [[id]] marker into the content buffer
-                            contentBuffer += `[[${data.id}]]`;
-                            if (assistantMessageCreated) {
-                                createOrUpdateAssistantMessage({ content: contentBuffer });
-                            }
-                        },
-                        onTool: (data) => {
-                            setCurrentStep(data.name as QueryStep);
-                        },
-                        onMetrics: (data) => {
-                            metricsResult = data;
-                            createOrUpdateAssistantMessage({ metrics: data });
-                        },
-                        onClientToolCall: (data) => {
-                            const clarification = getClarificationToolCall(data);
-                            if (clarification) {
-                                receivedToolCall = clarification.toolCall;
-                            }
-                        },
-                        onDone: (data) => {
-                            receivedDone = true;
-                            // Prefer done.reasoning as authoritative
-                            const finalReasoning = data.reasoning || reasoningBuffer || undefined;
-                            const resolvedToolCall = getClarificationToolCall(
-                                data.client_tool_call ?? receivedToolCall
-                            )?.toolCall;
-
-                            createOrUpdateAssistantMessage({
-                                content: data.message || contentBuffer,
-                                reasoning: finalReasoning,
-                                sourceFiles: data.data.length > 0 ? data.data : undefined,
-                                metrics: metricsResult,
-                                consideredFileCount: data.considered_file_count,
-                                usedFileCount: data.used_file_count,
-                                pendingToolCall: resolvedToolCall,
-                            });
-
-                            // If there's a pending tool call, set it in state
-                            if (resolvedToolCall) {
-                                setPendingToolCall(resolvedToolCall);
-                            }
-
-                            setIsAssistantTyping(false);
-                            setCurrentStep(null);
-                            setThinkingStartTime(null);
-                            setStreamingReasoning("");
-                        },
-                        onError: (data) => {
-                            console.error("SSE error event:", data.message);
-                            createOrUpdateAssistantMessage({
-                                content: data.message || t("error.chat.api"),
-                            });
-                            setIsAssistantTyping(false);
-                            setCurrentStep(null);
-                            setThinkingStartTime(null);
-                            setStreamingReasoning("");
-                        },
-                    },
-                    (error) => {
-                        console.error("Stream network error:", error);
-                        if (!receivedDone) {
-                            createOrUpdateAssistantMessage({
-                                content: contentBuffer || t("error.chat.api"),
-                            });
-                        }
-                        setIsAssistantTyping(false);
-                        setCurrentStep(null);
-                        setThinkingStartTime(null);
-                        setStreamingReasoning("");
-                    }
-                );
-
-                // Handle abrupt EOF without done
-                if (!receivedDone && !assistantMessageCreated) {
-                    createOrUpdateAssistantMessage({
-                        content: contentBuffer || t("error.chat.api"),
-                    });
-                }
-
-                setIsAssistantTyping(false);
-                setCurrentStep(null);
-                setThinkingStartTime(null);
-                setStreamingReasoning("");
-            } catch (error) {
-                console.error("Error in chat API:", error);
-                createOrUpdateAssistantMessage({
-                    content: contentBuffer || t("error.chat.api"),
-                });
-                setIsAssistantTyping(false);
-                setCurrentStep(null);
-                setThinkingStartTime(null);
-                setStreamingReasoning("");
-            }
-        },
-        [projectId, t]
-    );
+    }, [clearSilenceTimeout, isRecording, resetSilenceTimeout]);
 
     const handleSendMessage = useCallback(async () => {
-        if (!inputValue.trim() || isRecording) return;
-
-        const userMessageContent = inputValue;
-        const userMessage: Message = {
-            id: uuidv4(),
-            content: userMessageContent,
-            role: "user",
-            timestamp: new Date(),
-        };
-
-        setMessages((prev) => [...prev, userMessage]);
+        if (!inputValue.trim() || isRecording || pendingClarification) return;
+        await sendMessage({ text: inputValue });
         setInputValue("");
-
-        await sendStreamingQuery(userMessageContent);
-    }, [inputValue, isRecording, sendStreamingQuery]);
+    }, [inputValue, isRecording, pendingClarification, sendMessage]);
 
     const handleClarificationSubmit = useCallback(
-        async (answer: string) => {
-            if (!pendingToolCall) return;
-
-            const toolId = pendingToolCall.tool_call_id;
-
-            // Parse individual answers from the combined string so we can show them
-            // read-only in the ClarificationBlock after submission.
-            const perQuestion = answer.split("\n").map((line) => {
+        (toolCallId: string, questions: string[], answer: string) => {
+            const answers = answer.split("\n").map((line) => {
                 const colonIdx = line.indexOf(": ");
                 return colonIdx >= 0 ? line.slice(colonIdx + 2) : line;
             });
 
-            // Keep the pendingToolCall on the message so the UI stays visible,
-            // but mark it as submitted with the user's answers.
-            setMessages((prev) =>
-                prev.map((msg) =>
-                    msg.pendingToolCall?.tool_call_id === toolId ? { ...msg, submittedAnswers: perQuestion } : msg
-                )
-            );
-            setPendingToolCall(null);
-
-            await sendStreamingQuery(answer, toolId);
+            addToolOutput({
+                tool: "ask_clarifying_questions",
+                toolCallId,
+                output: {
+                    message: answer,
+                    answers,
+                    questions,
+                },
+            });
         },
-        [pendingToolCall, sendStreamingQuery]
+        [addToolOutput]
     );
 
-    const handleResetChat = useCallback(async () => {
-        // Delete conversation on backend if we have one
-        if (conversationIdRef.current) {
-            try {
-                await deleteProjectChat(projectId, conversationIdRef.current);
-            } catch (err) {
-                console.error("Failed to delete conversation:", err);
-            }
-        }
-
-        conversationIdRef.current = null;
-        setPendingToolCall(null);
-        setMessages([createWelcomeMessage()]);
-    }, [createWelcomeMessage, projectId]);
-
     const handleKeyDown = useCallback(
-        (e: React.KeyboardEvent) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage();
+        (event: React.KeyboardEvent) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void handleSendMessage();
             }
         },
         [handleSendMessage]
     );
 
-    const stripMarkdownAndReferences = useCallback((text: string): string => {
-        let cleaned = text;
-
-        // Remove reference IDs in double square brackets: [[...]] and surrounding spaces
-        // Remove optional space before and after the reference
-        cleaned = cleaned.replace(/\s?\[\[([a-zA-Z0-9_-]+)\]\]\s?/g, "");
-
-        // Remove code blocks (```...```)
-        cleaned = cleaned.replace(/```[\s\S]*?```/g, "");
-
-        // Remove inline code (`...`)
-        cleaned = cleaned.replace(/`([^`]+)`/g, "$1");
-
-        // Remove images: ![alt](url)
-        cleaned = cleaned.replace(/!\[([^\]]*)\]\([^)]+\)/g, "");
-
-        // Remove links but keep text: [text](url) -> text
-        cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-
-        // Remove headers (# ## ### etc.)
-        cleaned = cleaned.replace(/^#{1,6}\s+(.+)$/gm, "$1");
-
-        // Remove bold (**text** or __text__)
-        cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, "$1");
-        cleaned = cleaned.replace(/__([^_]+)__/g, "$1");
-
-        // Remove italic (*text* or _text_)
-        cleaned = cleaned.replace(/\*([^*]+)\*/g, "$1");
-        cleaned = cleaned.replace(/_([^_]+)_/g, "$1");
-
-        // Remove strikethrough (~~text~~)
-        cleaned = cleaned.replace(/~~([^~]+)~~/g, "$1");
-
-        // Remove blockquotes (> text)
-        cleaned = cleaned.replace(/^>\s+(.+)$/gm, "$1");
-
-        // Remove horizontal rules (--- or ***)
-        cleaned = cleaned.replace(/^[-*]{3,}$/gm, "");
-
-        // Remove list markers (-, *, 1., etc.)
-        cleaned = cleaned.replace(/^[\s]*[-*+]\s+(.+)$/gm, "$1");
-        cleaned = cleaned.replace(/^[\s]*\d+\.\s+(.+)$/gm, "$1");
-
-        // Clean up extra whitespace
-        cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-        // Remove double spaces (but keep single spaces)
-        cleaned = cleaned.replace(/[ \t]{2,}/g, " ");
-        cleaned = cleaned.trim();
-
-        return cleaned;
+    const handleCopyMessage = useCallback(async (message: ChatMessage) => {
+        try {
+            const plainText = stripMarkdown(getMessageText(message));
+            await navigator.clipboard.writeText(plainText);
+            setCopiedMessageId(message.id);
+            setTimeout(() => setCopiedMessageId(null), 2000);
+        } catch (error) {
+            console.error("Failed to copy message:", error);
+        }
     }, []);
 
-    const handleCopyMessage = useCallback(
-        async (messageId: string, content: string) => {
-            try {
-                const plainText = stripMarkdownAndReferences(content);
-                await navigator.clipboard.writeText(plainText);
-                setCopiedMessageId(messageId);
-                setTimeout(() => {
-                    setCopiedMessageId(null);
-                }, 2000);
-            } catch (error) {
-                console.error("Failed to copy message:", error);
-            }
-        },
-        [stripMarkdownAndReferences]
-    );
-
     const handlePlayMessage = useCallback(
-        (messageId: string, content: string) => {
-            if (speakingMessageId === messageId) {
-                // Currently speaking this message, stop it
+        (message: ChatMessage) => {
+            const plainText = stripMarkdown(getMessageText(message));
+
+            if (speakingMessageId === message.id) {
                 stopSpeaking();
             } else {
-                // Speak this message (stops any other ongoing speech)
-                const plainText = stripMarkdownAndReferences(content);
-                speakText(plainText, messageId);
+                speakText(plainText, message.id);
             }
         },
-        [speakingMessageId, stopSpeaking, stripMarkdownAndReferences, speakText]
+        [speakingMessageId, speakText, stopSpeaking]
     );
 
     const handleInsertTemplate = useCallback((templateBody: string) => {
@@ -826,7 +489,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
 
     useEffect(() => {
         adjustTextareaHeight();
-    }, [displayedInputValue, adjustTextareaHeight]);
+    }, [adjustTextareaHeight, displayedInputValue]);
 
     return (
         <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">
@@ -867,7 +530,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
             </div>
 
             <div className={`flex flex-1 overflow-hidden ${isTemplateSidebarOpen ? "lg:gap-4" : ""}`}>
-                <Card className="flex min-w-0 flex-1 flex-col overflow-hidden py-0 gap-0">
+                <Card className="flex min-w-0 flex-1 flex-col gap-0 overflow-hidden py-0">
                     <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
                         <div className="space-y-4 p-4">
                             {isHydrating && (
@@ -878,191 +541,218 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
                                     </div>
                                 </div>
                             )}
-                            {!isHydrating &&
-                                messages.map((message) => (
-                                    <div
-                                        key={message.id}
-                                        className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                                    >
-                                        <div
-                                            className={`flex max-w-[80%] items-start gap-3 group ${
-                                                message.role === "user" ? "flex-row-reverse" : ""
-                                            }`}
-                                        >
-                                            <Avatar className="h-8 w-8">
-                                                {message.role === "assistant" ? (
-                                                    <AvatarFallback>AI</AvatarFallback>
-                                                ) : (
-                                                    <AvatarFallback>JD</AvatarFallback>
-                                                )}
-                                            </Avatar>
-                                            <div>
-                                                <div
-                                                    className={`rounded-lg p-3 ${
-                                                        message.role === "user"
-                                                            ? "bg-primary text-primary-foreground"
-                                                            : "bg-muted"
-                                                    }`}
-                                                >
-                                                    {message.role === "assistant" ? (
-                                                        <>
-                                                            <MessageContent
-                                                                content={message.content}
-                                                                reasoning={message.reasoning}
-                                                                projectId={projectId}
-                                                                sourceFiles={message.sourceFiles}
-                                                            />
-                                                            {message.pendingToolCall && (
-                                                                <ClarificationBlockWrapper
-                                                                    toolCall={message.pendingToolCall}
-                                                                    onSubmit={handleClarificationSubmit}
-                                                                    disabled={isAssistantTyping}
-                                                                    submitted={!!message.submittedAnswers}
-                                                                    submittedAnswers={message.submittedAnswers}
-                                                                />
-                                                            )}
-                                                        </>
-                                                    ) : (
-                                                        <p>{message.content}</p>
-                                                    )}
-                                                </div>
-                                                <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                                                    <span>
-                                                        {message.timestamp.toLocaleTimeString([], {
-                                                            hour: "2-digit",
-                                                            minute: "2-digit",
-                                                        })}
-                                                    </span>
-                                                    {message.role === "assistant" && message.metrics && (
-                                                        <>
-                                                            <span>•</span>
-                                                            <span>
-                                                                {(message.metrics.duration_ms / 1000).toFixed(1)}s
-                                                            </span>
-                                                        </>
-                                                    )}
-                                                    {message.role === "assistant" &&
-                                                        (message.consideredFileCount !== undefined ||
-                                                            message.usedFileCount !== undefined) && (
-                                                            <>
-                                                                {message.consideredFileCount !== undefined && (
-                                                                    <>
-                                                                        <span>•</span>
-                                                                        <span>
-                                                                            {t("files.considered", {
-                                                                                count: message.consideredFileCount.toString(),
-                                                                            })}
-                                                                        </span>
-                                                                    </>
-                                                                )}
-                                                                {message.usedFileCount !== undefined && (
-                                                                    <>
-                                                                        <span>•</span>
-                                                                        <span>
-                                                                            {t("files.used", {
-                                                                                count: message.usedFileCount.toString(),
-                                                                            })}
-                                                                        </span>
-                                                                    </>
-                                                                )}
-                                                            </>
-                                                        )}
-                                                    {message.role === "assistant" && message.metrics && (
-                                                        <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
-                                                            <span>•</span>
-                                                            <span>{message.metrics.total_tokens} tokens</span>
-                                                            <span>•</span>
-                                                            <span>
-                                                                {message.metrics.tokens_per_second.toFixed(1)} t/s
-                                                            </span>
-                                                        </span>
-                                                    )}
-                                                    <span className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        •
-                                                    </span>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                                                        onClick={() => handleCopyMessage(message.id, message.content)}
-                                                        aria-label={
-                                                            copiedMessageId === message.id
-                                                                ? t("copied.message")
-                                                                : t("copy.message")
-                                                        }
-                                                    >
-                                                        {copiedMessageId === message.id ? (
-                                                            <>
-                                                                <Check className="mr-1 h-3 w-3" />
-                                                                {t("copied.message")}
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <Copy className="mr-1 h-3 w-3" />
-                                                                {t("copy.message")}
-                                                            </>
-                                                        )}
-                                                    </Button>
-                                                    {ttsSupported && (
-                                                        <>
-                                                            <span className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                •
-                                                            </span>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                                                                onClick={() =>
-                                                                    handlePlayMessage(message.id, message.content)
-                                                                }
-                                                                aria-label={
-                                                                    speakingMessageId === message.id
-                                                                        ? t("stop.speaking")
-                                                                        : t("play.message")
-                                                                }
-                                                            >
-                                                                {speakingMessageId === message.id ? (
-                                                                    <>
-                                                                        <VolumeX className="mr-1 h-3 w-3" />
-                                                                        {t("stop.speaking")}
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <Volume2 className="mr-1 h-3 w-3" />
-                                                                        {t("play.message")}
-                                                                    </>
-                                                                )}
-                                                            </Button>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            {isAssistantTyping && (
+
+                            {!isHydrating && displayedMessages.length === 0 && (
                                 <div className="flex justify-start">
                                     <div className="flex max-w-[80%] items-start gap-3">
                                         <Avatar className="h-8 w-8">
                                             <AvatarFallback>AI</AvatarFallback>
                                         </Avatar>
-                                        <div className="w-full min-w-[200px] bg-muted rounded-lg p-3">
-                                            {thinkingStartTime ? (
-                                                <ThinkingDropdown
-                                                    reasoning={streamingReasoning}
-                                                    isLive={true}
-                                                    startTime={thinkingStartTime}
-                                                />
-                                            ) : (
-                                                <div className="flex items-center gap-2 w-full text-sm text-muted-foreground">
-                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                    <span>{currentStep ? t(`step.${currentStep}`) : t("loading")}</span>
-                                                </div>
-                                            )}
+                                        <div className="rounded-lg bg-muted p-3">
+                                            <p>{t("welcome.message", { projectName })}</p>
                                         </div>
                                     </div>
                                 </div>
                             )}
+
+                            {!isHydrating &&
+                                displayedMessages.map((message) => {
+                                    const clarification = getClarificationState(message);
+                                    const timestamp = getMessageTimestamp(message);
+
+                                    return (
+                                        <div
+                                            key={message.id}
+                                            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                                        >
+                                            <div
+                                                className={`group flex max-w-[80%] items-start gap-3 ${
+                                                    message.role === "user" ? "flex-row-reverse" : ""
+                                                }`}
+                                            >
+                                                <Avatar className="h-8 w-8">
+                                                    {message.role === "assistant" ? (
+                                                        <AvatarFallback>AI</AvatarFallback>
+                                                    ) : (
+                                                        <AvatarFallback>JD</AvatarFallback>
+                                                    )}
+                                                </Avatar>
+                                                <div>
+                                                    <div
+                                                        className={`rounded-lg p-3 ${
+                                                            message.role === "user"
+                                                                ? "bg-primary text-primary-foreground"
+                                                                : "bg-muted"
+                                                        }`}
+                                                    >
+                                                        {message.role === "assistant" ? (
+                                                            <>
+                                                                <MessageContent
+                                                                    parts={message.parts}
+                                                                    projectId={projectId}
+                                                                />
+                                                                {clarification && (
+                                                                    <ClarificationBlock
+                                                                        questions={clarification.questions}
+                                                                        reason={clarification.reason}
+                                                                        onSubmit={(answer) =>
+                                                                            handleClarificationSubmit(
+                                                                                clarification.toolCallId,
+                                                                                clarification.questions,
+                                                                                answer
+                                                                            )
+                                                                        }
+                                                                        disabled={isAssistantTyping}
+                                                                        submitted={clarification.submitted}
+                                                                        submittedAnswers={
+                                                                            clarification.submittedAnswers
+                                                                        }
+                                                                    />
+                                                                )}
+                                                            </>
+                                                        ) : (
+                                                            <p>{getMessageText(message)}</p>
+                                                        )}
+                                                    </div>
+                                                    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                                        <span>
+                                                            {timestamp.toLocaleTimeString([], {
+                                                                hour: "2-digit",
+                                                                minute: "2-digit",
+                                                            })}
+                                                        </span>
+                                                        {message.role === "assistant" &&
+                                                            message.metadata?.durationMs && (
+                                                                <>
+                                                                    <span>•</span>
+                                                                    <span>
+                                                                        {(message.metadata.durationMs / 1000).toFixed(
+                                                                            1
+                                                                        )}
+                                                                        s
+                                                                    </span>
+                                                                </>
+                                                            )}
+                                                        {message.role === "assistant" &&
+                                                            message.metadata?.consideredFileCount !== undefined && (
+                                                                <>
+                                                                    <span>•</span>
+                                                                    <span>
+                                                                        {t("files.considered", {
+                                                                            count: message.metadata.consideredFileCount.toString(),
+                                                                        })}
+                                                                    </span>
+                                                                </>
+                                                            )}
+                                                        {message.role === "assistant" &&
+                                                            message.metadata?.usedFileCount !== undefined && (
+                                                                <>
+                                                                    <span>•</span>
+                                                                    <span>
+                                                                        {t("files.used", {
+                                                                            count: message.metadata.usedFileCount.toString(),
+                                                                        })}
+                                                                    </span>
+                                                                </>
+                                                            )}
+                                                        {message.role === "assistant" &&
+                                                            message.metadata?.totalTokens && (
+                                                                <span className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                                                                    <span>•</span>
+                                                                    <span>{message.metadata.totalTokens} tokens</span>
+                                                                    {message.metadata.tokensPerSecond && (
+                                                                        <>
+                                                                            <span>•</span>
+                                                                            <span>
+                                                                                {message.metadata.tokensPerSecond.toFixed(
+                                                                                    1
+                                                                                )}{" "}
+                                                                                t/s
+                                                                            </span>
+                                                                        </>
+                                                                    )}
+                                                                </span>
+                                                            )}
+                                                        <span className="opacity-0 transition-opacity group-hover:opacity-100">
+                                                            •
+                                                        </span>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-5 px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                                                            onClick={() => handleCopyMessage(message)}
+                                                            aria-label={
+                                                                copiedMessageId === message.id
+                                                                    ? t("copied.message")
+                                                                    : t("copy.message")
+                                                            }
+                                                        >
+                                                            {copiedMessageId === message.id ? (
+                                                                <>
+                                                                    <Check className="mr-1 h-3 w-3" />
+                                                                    {t("copied.message")}
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <Copy className="mr-1 h-3 w-3" />
+                                                                    {t("copy.message")}
+                                                                </>
+                                                            )}
+                                                        </Button>
+                                                        {ttsSupported && (
+                                                            <>
+                                                                <span className="opacity-0 transition-opacity group-hover:opacity-100">
+                                                                    •
+                                                                </span>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-5 px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                                                                    onClick={() => handlePlayMessage(message)}
+                                                                    aria-label={
+                                                                        speakingMessageId === message.id
+                                                                            ? t("stop.speaking")
+                                                                            : t("play.message")
+                                                                    }
+                                                                >
+                                                                    {speakingMessageId === message.id ? (
+                                                                        <>
+                                                                            <VolumeX className="mr-1 h-3 w-3" />
+                                                                            {t("stop.speaking")}
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <Volume2 className="mr-1 h-3 w-3" />
+                                                                            {t("play.message")}
+                                                                        </>
+                                                                    )}
+                                                                </Button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+
+                            {isAssistantTyping &&
+                                displayedMessages[displayedMessages.length - 1]?.role !== "assistant" && (
+                                    <div className="flex justify-start">
+                                        <div className="flex max-w-[80%] items-start gap-3">
+                                            <Avatar className="h-8 w-8">
+                                                <AvatarFallback>AI</AvatarFallback>
+                                            </Avatar>
+                                            <div className="w-full min-w-[200px] rounded-lg bg-muted p-3">
+                                                <div className="flex w-full items-center gap-2 text-sm text-muted-foreground">
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                    <span>{currentStep ? t(`step.${currentStep}`) : t("loading")}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                             <div ref={messagesEndRef} />
                         </div>
                     </div>
@@ -1073,10 +763,12 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
                                 ref={inputRef}
                                 placeholder={t("ask.question")}
                                 value={displayedInputValue}
-                                onChange={(e) => setInputValue(e.target.value)}
+                                onChange={(event) => setInputValue(event.target.value)}
                                 onKeyDown={handleKeyDown}
-                                className={`flex-1 resize-none overflow-hidden border-input min-h-10 w-full min-w-0 rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm ${isRecording && interimTranscript ? "text-muted-foreground" : ""}`}
-                                disabled={isRecording || !!pendingToolCall}
+                                className={`flex-1 resize-none overflow-hidden border-input min-h-10 w-full min-w-0 rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm ${
+                                    isRecording && interimTranscript ? "text-muted-foreground" : ""
+                                }`}
+                                disabled={isRecording || !!pendingClarification}
                                 rows={1}
                             />
                             {speechSupported && (
@@ -1085,15 +777,17 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
                                     variant={isRecording ? "destructive" : "outline"}
                                     onClick={toggleRecording}
                                     aria-label={isRecording ? t("stop.recording") : t("start.recording")}
-                                    disabled={!!pendingToolCall}
+                                    disabled={!!pendingClarification}
                                 >
                                     {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                                 </Button>
                             )}
                             <Button
                                 size="icon"
-                                onClick={handleSendMessage}
-                                disabled={!inputValue.trim() || isAssistantTyping || isRecording || !!pendingToolCall}
+                                onClick={() => void handleSendMessage()}
+                                disabled={
+                                    !inputValue.trim() || isAssistantTyping || isRecording || !!pendingClarification
+                                }
                             >
                                 <SendIcon className="h-4 w-4" />
                                 <span className="sr-only">{t("send.message")}</span>
@@ -1114,42 +808,10 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
                 <ResetChatDialog
                     open={isResetDialogOpen}
                     onOpenChange={setIsResetDialogOpen}
-                    onConfirm={handleResetChat}
+                    onConfirm={() => onReset(initialSession.id)}
                     projectName={projectName}
                 />
             </Suspense>
         </div>
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Helper component to parse tool_arguments and render ClarificationBlock
-// ---------------------------------------------------------------------------
-
-function ClarificationBlockWrapper({
-    toolCall,
-    onSubmit,
-    disabled,
-    submitted,
-    submittedAnswers,
-}: {
-    toolCall: ApiClientToolCall;
-    onSubmit: (answer: string) => void;
-    disabled?: boolean;
-    submitted?: boolean;
-    submittedAnswers?: string[];
-}) {
-    const clarification = getClarificationToolCall(toolCall);
-    if (!clarification) return null;
-
-    return (
-        <ClarificationBlock
-            questions={clarification.questions}
-            reason={clarification.reason}
-            onSubmit={onSubmit}
-            disabled={disabled}
-            submitted={submitted}
-            submittedAnswers={submittedAnswers}
-        />
     );
 }

@@ -34,14 +34,20 @@ const extractOutputSchema = z.object({
     ),
 });
 
-export async function processUnit(unit: Unit, model: LanguageModelV3): Promise<Graph> {
+export async function processUnit(
+    unit: Unit,
+    model: LanguageModelV3,
+    documentName = unit.fileId,
+    metadata?: string
+): Promise<Graph> {
     const entities = ["ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"];
-    const prompt = extractPrompt(entities, unit.fileId);
+    const prompt = extractPrompt(entities, documentName, metadata);
 
     const { output } = await generateText({
         model,
         system: prompt,
         prompt: unit.content,
+        temperature: 0.1,
         output: Output.object({
             description: "The extracted entities and relationships from the text.",
             schema: extractOutputSchema,

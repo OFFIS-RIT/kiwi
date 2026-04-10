@@ -16,6 +16,7 @@
         "@kiwi/db": "workspace:*",
         "ai": "catalog:",
         "drizzle-orm": "catalog:",
+        "jsonrepair": "^3.13.1",
         "tiktoken": "^1.0.22",
         "zod": "catalog:"
     },

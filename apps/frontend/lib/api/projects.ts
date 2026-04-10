@@ -15,25 +15,9 @@ import type {
     GraphPatchSuccessData,
     TextUnitResponse,
 } from "@kiwi/api/types";
-import type {
-    ApiChatHistoryResponse,
-    ApiClientToolCall,
-    ApiConversationSummary,
-    ApiProjectFile,
-    ApiProjectQueryRequest,
-    ApiProjectQueryResponse,
-    ApiTextUnit,
-    SSECitationEvent,
-    SSEContentEvent,
-    SSEConversationEvent,
-    SSEDoneEvent,
-    SSEErrorEvent,
-    SSEMetricsEvent,
-    SSEReasoningEvent,
-    SSEStepEvent,
-    SSEToolEvent,
-} from "@/types/api";
-import { apiClient, type SSEFrame, streamSSERequest, unwrapApiResponse } from "./client";
+import type { ChatHistoryResponse, ChatSessionSummary } from "@/types/chat";
+import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
+import { apiClient, unwrapApiResponse } from "./client";
 
 /**
  * Creates a new project within a group with optional file uploads.
@@ -145,112 +129,28 @@ export async function deleteProjectFiles(projectId: string, fileKeys: string[]):
 export type { GraphCreateSuccessData, GraphDeleteSuccessData, GraphDetailSuccessData, GraphPatchSuccessData };
 
 /**
- * Sends a query to the project's knowledge base (non-streaming).
- * Uses the new contract: prompt + conversation_id.
- */
-export async function queryProject(
-    projectId: string,
-    request: ApiProjectQueryRequest
-): Promise<ApiProjectQueryResponse> {
-    return apiClient.post<ApiProjectQueryResponse>(`/projects/${projectId}/query`, request);
-}
-
-/**
- * Handlers for individual SSE events during a streaming query.
- */
-export type StreamEventHandlers = {
-    onConversation?: (data: SSEConversationEvent) => void;
-    onReasoning?: (data: SSEReasoningEvent) => void;
-    onContent?: (data: SSEContentEvent) => void;
-    onCitation?: (data: SSECitationEvent) => void;
-    onStep?: (data: SSEStepEvent) => void;
-    onTool?: (data: SSEToolEvent) => void;
-    onClientToolCall?: (data: ApiClientToolCall) => void;
-    onMetrics?: (data: SSEMetricsEvent) => void;
-    onDone?: (data: SSEDoneEvent) => void;
-    onError?: (data: SSEErrorEvent) => void;
-};
-
-/**
- * Streams a query to the project's knowledge base using real SSE frames.
- *
- * @param projectId - Project to query
- * @param request - Query request body (prompt, conversation_id, mode, think, tool_id)
- * @param handlers - Callbacks for each SSE event type
- * @param onStreamError - Error callback for network/parse errors
- */
-export async function queryProjectStream(
-    projectId: string,
-    request: ApiProjectQueryRequest,
-    handlers: StreamEventHandlers,
-    onStreamError?: (error: Error) => void
-): Promise<void> {
-    return streamSSERequest(
-        `/projects/${projectId}/stream`,
-        request,
-        (frame: SSEFrame) => {
-            switch (frame.event) {
-                case "conversation":
-                    handlers.onConversation?.(frame.data as SSEConversationEvent);
-                    break;
-                case "reasoning":
-                    handlers.onReasoning?.(frame.data as SSEReasoningEvent);
-                    break;
-                case "content":
-                    handlers.onContent?.(frame.data as SSEContentEvent);
-                    break;
-                case "citation":
-                    handlers.onCitation?.(frame.data as SSECitationEvent);
-                    break;
-                case "step":
-                    handlers.onStep?.(frame.data as SSEStepEvent);
-                    break;
-                case "tool":
-                    handlers.onTool?.(frame.data as SSEToolEvent);
-                    break;
-                case "client_tool_call":
-                    handlers.onClientToolCall?.(frame.data as ApiClientToolCall);
-                    break;
-                case "metrics":
-                    handlers.onMetrics?.(frame.data as SSEMetricsEvent);
-                    break;
-                case "done":
-                    handlers.onDone?.(frame.data as SSEDoneEvent);
-                    break;
-                case "error":
-                    handlers.onError?.(frame.data as SSEErrorEvent);
-                    break;
-                default:
-                    console.warn("Unknown SSE event:", frame.event, frame.data);
-            }
-        },
-        onStreamError
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Chat history API
-// ---------------------------------------------------------------------------
-
-/**
  * Fetches the list of conversations for a project.
  */
-export async function fetchProjectChats(projectId: string): Promise<ApiConversationSummary[]> {
-    return apiClient.get<ApiConversationSummary[]>(`/projects/${projectId}/chats`);
+export async function fetchProjectChats(projectId: string): Promise<ChatSessionSummary[]> {
+    const response = await apiClient.get<{ status: "success"; data: ChatSessionSummary[] }>(`/chat/${projectId}`);
+    return unwrapApiResponse(response);
 }
 
 /**
  * Fetches the full chat transcript for a specific conversation.
  */
-export async function fetchProjectChat(projectId: string, conversationId: string): Promise<ApiChatHistoryResponse> {
-    return apiClient.get<ApiChatHistoryResponse>(`/projects/${projectId}/chats/${conversationId}`);
+export async function fetchProjectChat(projectId: string, conversationId: string): Promise<ChatHistoryResponse> {
+    const response = await apiClient.get<{ status: "success"; data: ChatHistoryResponse }>(
+        `/chat/${projectId}/${conversationId}`
+    );
+    return unwrapApiResponse(response);
 }
 
 /**
  * Deletes a conversation.
  */
 export async function deleteProjectChat(projectId: string, conversationId: string): Promise<void> {
-    await apiClient.delete(`/projects/${projectId}/chats/${conversationId}`);
+    await apiClient.delete(`/chat/${projectId}/${conversationId}`);
 }
 
 /**

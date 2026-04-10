@@ -1,6 +1,6 @@
 import { db } from "@kiwi/db";
 import { filesTable, textUnitTable } from "@kiwi/db/tables/graph";
-import { eq } from "drizzle-orm";
+import { eq } from "@kiwi/db/drizzle";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";

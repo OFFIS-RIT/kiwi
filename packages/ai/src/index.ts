@@ -168,7 +168,7 @@ export function estimateToken(text: string, encoding?: TiktokenEncoding): number
     return tokens.length;
 }
 
-function toToolResultOutput(toolName: string, status: "pending" | "failed", result: unknown): ToolResultOutput {
+function toToolResultOutput(toolName: string, status: "completed" | "failed", result: unknown): ToolResultOutput {
     if (status === "failed") {
         return typeof result === "string"
             ? { type: "error-text", value: result }
@@ -189,11 +189,11 @@ function fromToolResultOutput(output: ToolResultOutput): Pick<MessageToolPart, "
         case "execution-denied":
             return { status: "failed", result: output.reason ?? "Tool execution denied" };
         case "text":
-            return { status: "pending", result: output.value };
+            return { status: "completed", result: output.value };
         case "json":
-            return { status: "pending", result: output.value };
+            return { status: "completed", result: output.value };
         case "content":
-            return { status: "pending", result: output.value };
+            return { status: "completed", result: output.value };
     }
 }
 
@@ -335,7 +335,7 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
                             input: part.args,
                         });
 
-                        if (part.result !== undefined || part.status === "failed") {
+                        if (part.status === "completed" || part.status === "failed") {
                             toolResults.push({
                                 type: "tool-result",
                                 toolCallId: part.toolCallId,
@@ -346,6 +346,9 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
 
                         break;
                     }
+                    case "citation":
+                    case "metadata":
+                        break;
                 }
             }
 
@@ -363,7 +366,7 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
             const content: ToolContent = [];
 
             for (const part of message.parts) {
-                if (part.type !== "tool" || (part.result === undefined && part.status !== "failed")) {
+                if (part.type !== "tool" || (part.status !== "completed" && part.status !== "failed")) {
                     continue;
                 }
 
@@ -379,3 +382,5 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
         }
     }
 }
+
+export * from "./chat";

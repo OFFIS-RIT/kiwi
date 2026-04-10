@@ -75,6 +75,7 @@ async function defaultDescribeImage(image: OCRImageAsset, model: LanguageModelV3
     const { text } = await generateText({
         model,
         system: embeddedImagePrompt,
+        temperature: 0.1,
         messages: [
             {
                 role: "user",

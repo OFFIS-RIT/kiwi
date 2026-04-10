@@ -21,6 +21,6 @@ export async function buildDescription(
         ? updateDescriptionPromp(name, sourceDescriptions, currentDescription)
         : descriptionPromp(name, sourceDescriptions);
 
-    const { text } = await generateText({ model, prompt });
+    const { text } = await generateText({ model, prompt, temperature: 0.1 });
     return normalizeDescription(text);
 }

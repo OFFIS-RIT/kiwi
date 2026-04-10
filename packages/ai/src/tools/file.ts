@@ -10,7 +10,7 @@ const listFilesSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-const listFilesTool = (graphId: string) =>
+export const listFilesTool = (graphId: string) =>
     tool({
         description:
             "Use when you need file IDs to narrow other tools. Best for scanning the graph's files or finding a file by partial name.",
@@ -51,7 +51,7 @@ const listFilesTool = (graphId: string) =>
                               `- ${row.id}, ${row.name}, ${row.type}, ${row.mimeType}, ${row.size} bytes, ${row.tokenCount} tokens`
                       )
                     : ["- none"]),
-                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items.at(-1)?.id}`] : []),
+                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
             ].join("\n");
         },
     });

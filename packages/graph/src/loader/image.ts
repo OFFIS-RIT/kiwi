@@ -18,6 +18,7 @@ export class ImageLoader implements GraphLoader {
         const { text } = await generateText({
             model: this.options.model,
             system: "",
+            temperature: 0.1,
             messages: [
                 {
                     role: "user",
