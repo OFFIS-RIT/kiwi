@@ -8,6 +8,10 @@
         ".": "./src/index.ts",
         "./tables/*": "./src/tables/*.ts"
     },
+    "scripts": {
+        "build": "bunx tsc --noEmit",
+        "test": "bun test --pass-with-no-tests"
+    },
     "dependencies": {
         "drizzle-orm": "catalog:",
         "pg": "catalog:",

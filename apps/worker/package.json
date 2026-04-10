@@ -6,6 +6,8 @@
         "./*": "./workflows/*.ts"
     },
     "scripts": {
+        "build": "bunx tsc --noEmit",
+        "test": "bun test",
         "worker": "npx @openworkflow/cli worker start",
         "dev": "bunx @openworkflow/cli worker start"
     },

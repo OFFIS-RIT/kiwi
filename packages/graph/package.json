@@ -10,6 +10,10 @@
         "./merge": "./src/merge.ts",
         "./dedupe": "./src/dedupe.ts"
     },
+    "scripts": {
+        "build": "bunx tsc --noEmit",
+        "test": "bun test"
+    },
     "dependencies": {
         "@ai-sdk/provider": "catalog:",
         "@kiwi/ai": "workspace:*",

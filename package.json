@@ -8,6 +8,7 @@
     "scripts": {
         "build": "dotenv -- turbo build",
         "dev": "dotenv -- turbo dev",
+        "test": "dotenv -- turbo test",
         "lint": "oxlint",
         "format": "oxfmt",
         "db:generate": "dotenv -- drizzle-kit generate",

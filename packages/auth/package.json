@@ -7,6 +7,10 @@
         "./client": "./src/client.ts",
         "./permissions": "./src/permissions.ts"
     },
+    "scripts": {
+        "build": "bunx tsc --noEmit",
+        "test": "bun test --pass-with-no-tests"
+    },
     "dependencies": {
         "@kiwi/db": "workspace:*",
         "better-auth": "catalog:",

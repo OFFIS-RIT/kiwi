@@ -7,6 +7,10 @@
         "./console": "./src/console.ts",
         "./opentelemetry": "./src/opentelemetry.ts"
     },
+    "scripts": {
+        "build": "bunx tsc --noEmit",
+        "test": "bun test"
+    },
     "dependencies": {
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/api-logs": "^0.214.0",
