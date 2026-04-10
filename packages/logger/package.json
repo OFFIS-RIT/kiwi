@@ -8,7 +8,6 @@
         "./opentelemetry": "./src/opentelemetry.ts"
     },
     "scripts": {
-        "build": "bunx tsc --noEmit",
         "test": "bun test"
     },
     "dependencies": {

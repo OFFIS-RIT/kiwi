@@ -6,7 +6,6 @@
         ".": "./src/index.ts"
     },
     "scripts": {
-        "build": "bunx tsc --noEmit",
         "test": "bun test --pass-with-no-tests"
     },
     "dependencies": {
