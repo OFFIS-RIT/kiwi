@@ -33,43 +33,36 @@ jobs:
                       build_args: ""
                       tag_suffix: ""
                       latest_suffix: ""
-                    - name: postgres-migration
-                      image: postgres-migration
+                    - name: migrations
+                      image: migrations
                       context: .
-                      file: ./postgres/Dockerfile.migration
-                      cache: postgres-migration
+                      file: ./migrations/Dockerfile
+                      cache: migrations
                       target: ""
                       build_args: ""
                     - name: server
                       image: server
-                      context: ./backend
-                      file: ./backend/Dockerfile.server
+                      context: .
+                      file: ./apps/api/Dockerfile
                       cache: server
                       target: ""
                       build_args: ""
                     - name: worker
                       image: worker
-                      context: ./backend
-                      file: ./backend/Dockerfile.worker
+                      context: .
+                      file: ./apps/worker/Dockerfile
                       cache: worker
                       target: ""
                       build_args: ""
                     - name: frontend
                       image: frontend
-                      context: ./frontend
-                      file: ./frontend/Dockerfile
+                      context: .
+                      file: ./apps/frontend/Dockerfile
                       cache: frontend
                       target: ""
                       build_args: |
                           NEXT_PUBLIC_API_URL=/api
                           NEXT_PUBLIC_APP_BUILD_LABEL=${{ github.ref_name }}
-                    - name: auth
-                      image: auth
-                      context: ./auth
-                      file: ./auth/Dockerfile
-                      cache: auth
-                      target: ""
-                      build_args: ""
 
         steps:
             - name: Checkout code

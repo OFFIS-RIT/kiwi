@@ -6,6 +6,7 @@ import {
     getClient,
     getProviderOptions,
     messagePartsToUIMessage,
+    toUIMessage,
     type ChatMessageMetadata,
     type ChatUIMessage,
     type CitationPartData,
@@ -13,7 +14,7 @@ import {
     uiMessagesToModelMessages,
 } from "@kiwi/ai";
 import { db } from "@kiwi/db";
-import { and, asc, desc, eq } from "@kiwi/db/drizzle";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { Elysia, t } from "elysia";
@@ -24,14 +25,8 @@ import { requirePermissions } from "../middleware/permissions";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
 import { assertCanViewGraph } from "./graph";
 
-const assistantMetadataPart = (metadata: ChatMessageMetadata): Extract<MessagePart, { type: "metadata" }> => ({
-    type: "metadata",
-    metadata,
-});
-
 type RouteStatus = (code: number, body: unknown) => unknown;
-type ChatMessageRow = typeof messageTable.$inferSelect;
-type ChatRequestBody = {
+type ChatRequest = {
     id: string;
     messages: ChatUIMessage[];
 };
@@ -52,18 +47,6 @@ const requestBodySchema = t.Object({
     id: t.String(),
     messages: t.Array(t.Any()),
 });
-
-function getChatClient() {
-    return getClient({
-        text: buildAdapter(
-            env.AI_TEXT_ADAPTER,
-            env.AI_TEXT_MODEL,
-            env.AI_TEXT_KEY,
-            env.AI_TEXT_URL,
-            env.AI_TEXT_RESOURCE_NAME
-        ),
-    });
-}
 
 function normalizeWhitespace(value: string) {
     return value.replace(/\s+/g, " ").trim();
@@ -95,7 +78,7 @@ function parseCreatedAt(value?: string) {
     return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
-function extractMessageColumnMetrics(metadata?: ChatMessageMetadata) {
+function getMetrics(metadata?: ChatMessageMetadata) {
     return {
         tokensPerSecond: metadata?.tokensPerSecond ?? null,
         timeToFirstToken: metadata?.timeToFirstToken ?? null,
@@ -105,7 +88,23 @@ function extractMessageColumnMetrics(metadata?: ChatMessageMetadata) {
     };
 }
 
-async function ensureChat(userId: string, graphId: string, request: ChatRequestBody) {
+function toolPart<T extends { toolCallId: string; toolName: string; providerExecuted?: boolean; input: unknown }>(
+    part: T,
+    status: "pending" | "completed" | "failed",
+    result?: { value: unknown }
+): Extract<MessagePart, { type: "tool" }> {
+    return {
+        type: "tool",
+        toolCallId: part.toolCallId,
+        toolName: part.toolName,
+        execution: part.providerExecuted ? "server" : "client",
+        status,
+        args: part.input,
+        ...(result ? { result: result.value } : {}),
+    };
+}
+
+async function ensureChat(userId: string, graphId: string, request: ChatRequest) {
     const [existingChat] = await db
         .select({
             id: chatTable.id,
@@ -136,11 +135,11 @@ async function touchChat(chatId: string) {
     await db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId));
 }
 
-async function syncRequestMessages(chatId: string, messages: ChatUIMessage[]) {
+async function syncMessages(chatId: string, messages: ChatUIMessage[]) {
     for (const message of messages) {
         const parts = uiMessageToMessageParts(message);
         const createdAt = parseCreatedAt(message.metadata?.createdAt);
-        const metrics = extractMessageColumnMetrics(message.metadata);
+        const metrics = getMetrics(message.metadata);
         const [existing] = await db
             .select({ id: messageTable.id })
             .from(messageTable)
@@ -172,7 +171,20 @@ async function syncRequestMessages(chatId: string, messages: ChatUIMessage[]) {
     }
 }
 
-async function getGraphPrompt(graphId: string) {
+async function startReply(userId: string, graphId: string, request: ChatRequest) {
+    await ensureChat(userId, graphId, request);
+    await syncMessages(request.id, request.messages);
+
+    const assistantId = crypto.randomUUID();
+    await db.insert(messageTable).values({
+        id: assistantId,
+        chatId: request.id,
+        role: "assistant",
+        status: "pending",
+        parts: [],
+    });
+    await touchChat(request.id);
+
     const [promptRow] = await db
         .select({ prompt: systemPromptsTable.prompt })
         .from(systemPromptsTable)
@@ -180,7 +192,20 @@ async function getGraphPrompt(graphId: string) {
         .orderBy(desc(systemPromptsTable.updatedAt), desc(systemPromptsTable.createdAt))
         .limit(1);
 
-    return promptRow?.prompt ?? undefined;
+    return {
+        assistantId,
+        client: getClient({
+            text: buildAdapter(
+                env.AI_TEXT_ADAPTER,
+                env.AI_TEXT_MODEL,
+                env.AI_TEXT_KEY,
+                env.AI_TEXT_URL,
+                env.AI_TEXT_RESOURCE_NAME
+            ),
+        }),
+        tools: buildChatTools(graphId),
+        prompt: promptRow?.prompt ?? undefined,
+    };
 }
 
 async function enrichCitation(graphId: string, sourceId: string): Promise<CitationPartData | null> {
@@ -218,16 +243,6 @@ async function enrichCitation(graphId: string, sourceId: string): Promise<Citati
     };
 }
 
-function getMessageMetadataFromRow(message: ChatMessageRow): ChatMessageMetadata {
-    return {
-        inputTokens: message.inputTokens ?? undefined,
-        outputTokens: message.outputTokens ?? undefined,
-        totalTokens: message.totalTokens ?? undefined,
-        tokensPerSecond: message.tokensPerSecond ?? undefined,
-        timeToFirstToken: message.timeToFirstToken ?? undefined,
-    };
-}
-
 async function loadChatHistory(userId: string, graphId: string, chatId: string): Promise<ChatHistory> {
     const [chat] = await db
         .select({
@@ -253,23 +268,7 @@ async function loadChatHistory(userId: string, graphId: string, chatId: string):
     return {
         id: chat.id,
         title: chat.title,
-        messages: rows.flatMap((message) => {
-            if (message.role === "tool") {
-                return [];
-            }
-
-            return [
-                messagePartsToUIMessage(
-                    {
-                        id: message.id,
-                        role: message.role,
-                        parts: message.parts,
-                        createdAt: message.createdAt,
-                    },
-                    getMessageMetadataFromRow(message)
-                ),
-            ];
-        }),
+        messages: rows.map((message) => toUIMessage(message)),
     };
 }
 
@@ -291,7 +290,7 @@ async function listChats(userId: string, graphId: string): Promise<ChatSummary[]
     }));
 }
 
-function toFinishMetadata(options: {
+function getFinishMetadata(options: {
     startedAt: number;
     firstOutputAt: number | null;
     totalTokens?: number;
@@ -299,7 +298,6 @@ function toFinishMetadata(options: {
     outputTokens?: number;
     modelId: string;
     usedFileCount?: number;
-    consideredFileCount?: number;
 }): ChatMessageMetadata {
     const durationMs = Math.max(1, Date.now() - options.startedAt);
     const outputTokens = options.outputTokens;
@@ -313,19 +311,7 @@ function toFinishMetadata(options: {
         timeToFirstToken: options.firstOutputAt ? options.firstOutputAt - options.startedAt : undefined,
         tokensPerSecond: outputTokens && durationMs > 0 ? outputTokens / Math.max(durationMs / 1000, 0.001) : undefined,
         usedFileCount: options.usedFileCount,
-        consideredFileCount: options.consideredFileCount,
     };
-}
-
-async function insertPendingAssistantMessage(chatId: string, assistantMessageId: string) {
-    await db.insert(messageTable).values({
-        id: assistantMessageId,
-        chatId,
-        role: "assistant",
-        status: "pending",
-        parts: [],
-    });
-    await touchChat(chatId);
 }
 
 async function updateAssistantMessage(
@@ -334,7 +320,7 @@ async function updateAssistantMessage(
     status: "pending" | "completed" | "failed",
     metadata?: ChatMessageMetadata
 ) {
-    const metrics = extractMessageColumnMetrics(metadata);
+    const metrics = getMetrics(metadata);
 
     await db
         .update(messageTable)
@@ -451,22 +437,15 @@ export const chatRoute = new Elysia()
             }
 
             try {
-                const request = body as ChatRequestBody;
+                const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
-                await ensureChat(user.id, params.id, request);
-                await syncRequestMessages(request.id, request.messages);
-
-                const assistantMessageId = crypto.randomUUID();
-                await insertPendingAssistantMessage(request.id, assistantMessageId);
+                const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request);
 
                 const startedAt = Date.now();
-                const graphPrompt = await getGraphPrompt(params.id);
-                const tools = buildChatTools(params.id);
-                const client = getChatClient();
                 const result = await generateText({
                     model: client.text!,
                     messages: uiMessagesToModelMessages(request.messages),
-                    system: createChatSystemPrompt(graphPrompt),
+                    system: createChatSystemPrompt(prompt),
                     tools,
                     temperature: 0.3,
                     stopWhen: stepCountIs(50),
@@ -477,9 +456,9 @@ export const chatRoute = new Elysia()
                 for (const contentPart of result.content) {
                     switch (contentPart.type) {
                         case "text": {
-                            const segments = createCitationFenceStreamParser();
-                            const parsed = [...segments.push(contentPart.text), ...segments.flush()];
-                            for (const segment of parsed) {
+                            const parser = createCitationFenceStreamParser();
+                            const segments = [...parser.push(contentPart.text), ...parser.flush()];
+                            for (const segment of segments) {
                                 if (segment.type === "text") {
                                     if (segment.text.length > 0) {
                                         parts.push({ type: "text", text: segment.text });
@@ -500,44 +479,25 @@ export const chatRoute = new Elysia()
                             parts.push({ type: "reasoning", text: contentPart.text });
                             break;
                         case "tool-call":
-                            parts.push({
-                                type: "tool",
-                                toolCallId: contentPart.toolCallId,
-                                toolName: contentPart.toolName,
-                                execution: contentPart.providerExecuted ? "server" : "client",
-                                status: "pending",
-                                args: contentPart.input,
-                            });
+                            parts.push(toolPart(contentPart, "pending"));
                             break;
                         case "tool-result":
-                            parts.push({
-                                type: "tool",
-                                toolCallId: contentPart.toolCallId,
-                                toolName: contentPart.toolName,
-                                execution: contentPart.providerExecuted ? "server" : "client",
-                                status: "completed",
-                                args: contentPart.input,
-                                result: contentPart.output,
-                            });
+                            parts.push(toolPart(contentPart, "completed", { value: contentPart.output }));
                             break;
                         case "tool-error":
-                            parts.push({
-                                type: "tool",
-                                toolCallId: contentPart.toolCallId,
-                                toolName: contentPart.toolName,
-                                execution: contentPart.providerExecuted ? "server" : "client",
-                                status: "failed",
-                                args: contentPart.input,
-                                result:
-                                    typeof contentPart.error === "string"
-                                        ? contentPart.error
-                                        : JSON.stringify(contentPart.error),
-                            });
+                            parts.push(
+                                toolPart(contentPart, "failed", {
+                                    value:
+                                        typeof contentPart.error === "string"
+                                            ? contentPart.error
+                                            : JSON.stringify(contentPart.error),
+                                })
+                            );
                             break;
                     }
                 }
 
-                const finishMetadata = toFinishMetadata({
+                const finishMetadata = getFinishMetadata({
                     startedAt,
                     firstOutputAt: startedAt,
                     totalTokens: result.totalUsage.totalTokens,
@@ -552,9 +512,9 @@ export const chatRoute = new Elysia()
                             .map((part) => part.citation.fileId)
                     ).size,
                 });
-                parts.push(assistantMetadataPart(finishMetadata));
+                parts.push({ type: "metadata", metadata: finishMetadata });
 
-                await updateAssistantMessage(assistantMessageId, parts, "completed", finishMetadata);
+                await updateAssistantMessage(assistantId, parts, "completed", finishMetadata);
                 await touchChat(request.id);
 
                 return status(
@@ -563,7 +523,7 @@ export const chatRoute = new Elysia()
                         id: request.id,
                         message: messagePartsToUIMessage(
                             {
-                                id: assistantMessageId,
+                                id: assistantId,
                                 role: "assistant",
                                 parts,
                                 createdAt: new Date(),
@@ -592,32 +552,21 @@ export const chatRoute = new Elysia()
             }
 
             try {
-                const request = body as ChatRequestBody;
+                const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
-                await ensureChat(user.id, params.id, request);
-                await syncRequestMessages(request.id, request.messages);
+                const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request);
 
-                const assistantMessageId = crypto.randomUUID();
-                await insertPendingAssistantMessage(request.id, assistantMessageId);
-
-                const graphPrompt = await getGraphPrompt(params.id);
-                const tools = buildChatTools(params.id);
-                const client = getChatClient();
                 const startedAt = Date.now();
                 let firstOutputAt: number | null = null;
                 const assistantParts: MessagePart[] = [];
                 const citationFileIds = new Set<string>();
                 const textBuffers = new Map<string, string>();
                 const reasoningBuffers = new Map<string, string>();
-                const persistPendingAssistant = async () => {
-                    await updateAssistantMessage(assistantMessageId, assistantParts, "pending");
-                };
 
-                const modelMessages = uiMessagesToModelMessages(request.messages);
                 const result = streamText({
                     model: client.text!,
-                    messages: modelMessages,
-                    system: createChatSystemPrompt(graphPrompt),
+                    messages: uiMessagesToModelMessages(request.messages),
+                    system: createChatSystemPrompt(prompt),
                     tools,
                     temperature: 0.3,
                     stopWhen: stepCountIs(50),
@@ -633,7 +582,7 @@ export const chatRoute = new Elysia()
                     execute: async ({ writer }) => {
                         writer.write({
                             type: "start",
-                            messageId: assistantMessageId,
+                            messageId: assistantId,
                             messageMetadata: {
                                 createdAt: new Date(startedAt).toISOString(),
                                 modelId: env.AI_TEXT_MODEL,
@@ -688,7 +637,7 @@ export const chatRoute = new Elysia()
 
                                             citationFileIds.add(citation.fileId);
                                             assistantParts.push({ type: "citation", citation });
-                                            await persistPendingAssistant();
+                                            await updateAssistantMessage(assistantId, assistantParts, "pending");
                                             writer.write({ type: "data-citation", id: citation.id, data: citation });
                                         }
                                         break;
@@ -715,7 +664,7 @@ export const chatRoute = new Elysia()
                                                     if (citation) {
                                                         citationFileIds.add(citation.fileId);
                                                         assistantParts.push({ type: "citation", citation });
-                                                        await persistPendingAssistant();
+                                                        await updateAssistantMessage(assistantId, assistantParts, "pending");
                                                         writer.write({
                                                             type: "data-citation",
                                                             id: citation.id,
@@ -739,7 +688,7 @@ export const chatRoute = new Elysia()
                                         const text = textBuffers.get(part.id) ?? "";
                                         if (text.length > 0) {
                                             assistantParts.push({ type: "text", text });
-                                            await persistPendingAssistant();
+                                            await updateAssistantMessage(assistantId, assistantParts, "pending");
                                         }
                                         writer.write({ type: "text-end", id: part.id });
                                         textBuffers.delete(part.id);
@@ -761,7 +710,7 @@ export const chatRoute = new Elysia()
                                         const reasoning = reasoningBuffers.get(part.id) ?? "";
                                         if (reasoning.length > 0) {
                                             assistantParts.push({ type: "reasoning", text: reasoning });
-                                            await persistPendingAssistant();
+                                            await updateAssistantMessage(assistantId, assistantParts, "pending");
                                         }
                                         writer.write({ type: "reasoning-end", id: part.id });
                                         reasoningBuffers.delete(part.id);
@@ -786,15 +735,8 @@ export const chatRoute = new Elysia()
                                         break;
                                     }
                                     case "tool-call": {
-                                        assistantParts.push({
-                                            type: "tool",
-                                            toolCallId: part.toolCallId,
-                                            toolName: part.toolName,
-                                            execution: part.providerExecuted ? "server" : "client",
-                                            status: "pending",
-                                            args: part.input,
-                                        });
-                                        await persistPendingAssistant();
+                                        assistantParts.push(toolPart(part, "pending"));
+                                        await updateAssistantMessage(assistantId, assistantParts, "pending");
                                         writer.write({
                                             type: "tool-input-available",
                                             toolCallId: part.toolCallId,
@@ -807,16 +749,8 @@ export const chatRoute = new Elysia()
                                         break;
                                     }
                                     case "tool-result": {
-                                        assistantParts.push({
-                                            type: "tool",
-                                            toolCallId: part.toolCallId,
-                                            toolName: part.toolName,
-                                            execution: part.providerExecuted ? "server" : "client",
-                                            status: "completed",
-                                            args: part.input,
-                                            result: part.output,
-                                        });
-                                        await persistPendingAssistant();
+                                        assistantParts.push(toolPart(part, "completed", { value: part.output }));
+                                        await updateAssistantMessage(assistantId, assistantParts, "pending");
                                         writer.write({
                                             type: "tool-output-available",
                                             toolCallId: part.toolCallId,
@@ -832,16 +766,8 @@ export const chatRoute = new Elysia()
                                             typeof part.error === "string"
                                                 ? part.error
                                                 : JSON.stringify(part.error ?? null);
-                                        assistantParts.push({
-                                            type: "tool",
-                                            toolCallId: part.toolCallId,
-                                            toolName: part.toolName,
-                                            execution: part.providerExecuted ? "server" : "client",
-                                            status: "failed",
-                                            args: part.input,
-                                            result: errorText,
-                                        });
-                                        await persistPendingAssistant();
+                                        assistantParts.push(toolPart(part, "failed", { value: errorText }));
+                                        await updateAssistantMessage(assistantId, assistantParts, "pending");
                                         writer.write({
                                             type: "tool-output-error",
                                             toolCallId: part.toolCallId,
@@ -872,7 +798,7 @@ export const chatRoute = new Elysia()
                                         writer.write({ type: "finish-step" });
                                         break;
                                     case "finish": {
-                                        const finishMetadata = toFinishMetadata({
+                                        const finishMetadata = getFinishMetadata({
                                             startedAt,
                                             firstOutputAt,
                                             totalTokens: part.totalUsage.totalTokens,
@@ -881,9 +807,9 @@ export const chatRoute = new Elysia()
                                             modelId: env.AI_TEXT_MODEL,
                                             usedFileCount: citationFileIds.size,
                                         });
-                                        assistantParts.push(assistantMetadataPart(finishMetadata));
+                                        assistantParts.push({ type: "metadata", metadata: finishMetadata });
                                         await updateAssistantMessage(
-                                            assistantMessageId,
+                                            assistantId,
                                             assistantParts,
                                             "completed",
                                             finishMetadata
@@ -899,7 +825,7 @@ export const chatRoute = new Elysia()
                                     case "error": {
                                         const errorText =
                                             part.error instanceof Error ? part.error.message : String(part.error);
-                                        await updateAssistantMessage(assistantMessageId, assistantParts, "failed");
+                                        await updateAssistantMessage(assistantId, assistantParts, "failed");
                                         writer.write({ type: "error", errorText });
                                         break;
                                     }
@@ -907,7 +833,7 @@ export const chatRoute = new Elysia()
                             }
                         } catch (error) {
                             const errorText = error instanceof Error ? error.message : "Unknown stream error";
-                            await updateAssistantMessage(assistantMessageId, assistantParts, "failed");
+                            await updateAssistantMessage(assistantId, assistantParts, "failed");
                             writer.write({ type: "error", errorText });
                             writer.write({ type: "finish", finishReason: "error" });
                         }

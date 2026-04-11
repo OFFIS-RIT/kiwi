@@ -6,7 +6,13 @@ on:
         branches:
             - dev
         paths:
-            - "frontend/**"
+            - ".dockerignore"
+            - "package.json"
+            - "bun.lock"
+            - "apps/frontend/**"
+            - "apps/api/src/types/**"
+            - "packages/auth/**"
+            - ".github/workflows/dev-build-frontend.yml"
 
 env:
     REGISTRY: ghcr.io
@@ -60,8 +66,8 @@ jobs:
             - name: Build and push image
               uses: docker/build-push-action@v7
               with:
-                  context: ./frontend
-                  file: ./frontend/Dockerfile
+                  context: .
+                  file: ./apps/frontend/Dockerfile
                   platforms: linux/amd64,linux/arm64
                   push: true
                   tags: ${{ env.IMAGE_PREFIX }}/frontend:${{ env.IMAGE_TAG }}

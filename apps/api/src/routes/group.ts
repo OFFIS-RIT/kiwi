@@ -1,5 +1,5 @@
 import Elysia from "elysia";
-import { and, asc, eq, inArray } from "@kiwi/db/drizzle";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { Result } from "better-result";
@@ -8,6 +8,8 @@ import { filesTable, graphTable, groupTable, groupUserTable } from "@kiwi/db/tab
 import { deleteFile, listFiles } from "@kiwi/files";
 import z from "zod";
 import { env } from "../env";
+import { chunk } from "../lib/array";
+import { collectGraphClosure } from "../lib/graph";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
 
 const groupUserRoleSchema = z.enum(["admin", "user", "moderator"]);
@@ -34,30 +36,6 @@ const normalizeGroupUsers = (
                 ])
         ).values()
     );
-
-const chunkItems = <T>(items: T[], chunkSize: number) => {
-    const chunks: T[][] = [];
-
-    for (let index = 0; index < items.length; index += chunkSize) {
-        chunks.push(items.slice(index, index + chunkSize));
-    }
-
-    return chunks;
-};
-
-const mapGroupUserListItem = (user: {
-    group_id: string;
-    user_id: string;
-    role: GroupUserRole;
-    created_at: Date | null;
-    updated_at: Date | null;
-}) => ({
-    group_id: user.group_id,
-    user_id: user.user_id,
-    role: user.role,
-    created_at: user.created_at?.toISOString() ?? null,
-    updated_at: user.updated_at?.toISOString() ?? null,
-});
 
 export const groupRoute = new Elysia({ prefix: "/groups" })
     .use(authMiddleware)
@@ -240,7 +218,18 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
                     .where(eq(groupUserTable.groupId, params.id))
                     .orderBy(asc(groupUserTable.userId));
 
-                return status(200, successResponse(users.map(mapGroupUserListItem)));
+                return status(
+                    200,
+                    successResponse(
+                        users.map((user) => ({
+                            group_id: user.group_id,
+                            user_id: user.user_id,
+                            role: user.role,
+                            created_at: user.created_at?.toISOString() ?? null,
+                            updated_at: user.updated_at?.toISOString() ?? null,
+                        }))
+                    )
+                );
             } catch {
                 return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
             }
@@ -413,29 +402,10 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
                         .from(graphTable)
                         .where(eq(graphTable.groupId, params.id));
 
-                    const graphIds = new Set(directGraphRows.map((graph) => graph.id));
-                    let frontier = [...graphIds];
-
-                    while (frontier.length > 0) {
-                        const childRows = await tx
-                            .select({ id: graphTable.id })
-                            .from(graphTable)
-                            .where(inArray(graphTable.graphId, frontier));
-
-                        const nextFrontier: string[] = [];
-                        for (const child of childRows) {
-                            if (graphIds.has(child.id)) {
-                                continue;
-                            }
-
-                            graphIds.add(child.id);
-                            nextFrontier.push(child.id);
-                        }
-
-                        frontier = nextFrontier;
-                    }
-
-                    const allGraphIds = [...graphIds];
+                    const allGraphIds = await collectGraphClosure(
+                        tx,
+                        directGraphRows.map((graph) => graph.id)
+                    );
                     const fileRows =
                         allGraphIds.length > 0
                             ? await tx
@@ -495,8 +465,8 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
 
             let deleteFailureCount = 0;
             const S3_DELETE_BATCH_SIZE = 25;
-            for (const chunk of chunkItems([...s3Keys], S3_DELETE_BATCH_SIZE)) {
-                const results = await Promise.allSettled(chunk.map((key) => deleteFile(key, env.S3_BUCKET)));
+            for (const keys of chunk([...s3Keys], S3_DELETE_BATCH_SIZE)) {
+                const results = await Promise.allSettled(keys.map((key) => deleteFile(key, env.S3_BUCKET)));
 
                 for (const result of results) {
                     if (result.status === "rejected") {

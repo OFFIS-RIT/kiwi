@@ -33,6 +33,7 @@
     "devDependencies": {
         "@types/bun": "^catalog:",
         "@types/pg": "catalog:",
-        "bun-types": "catalog:"
+        "bun-types": "catalog:",
+        "typescript": "catalog:"
     }
 }

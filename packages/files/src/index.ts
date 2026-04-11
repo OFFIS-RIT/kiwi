@@ -152,3 +152,12 @@ export async function listFiles(path: string, bucket: string): Promise<string[]>
 
     return [...keys];
 }
+
+export function getPresignedDownloadUrl(key: string, bucket: string, expiresIn = 3600) {
+    const client = getClient(bucket);
+
+    return client.presign(key, {
+        method: "GET",
+        expiresIn,
+    });
+}

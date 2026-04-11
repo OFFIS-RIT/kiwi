@@ -42,6 +42,9 @@ export const env = createEnv({
 
         // DB
         DATABASE_URL: z.string(),
+        
+        // Settings
+        WORKER_CONCURRENCY: z.coerce.number().optional(),
     },
     runtimeEnv: process.env,
 });

@@ -1,7 +1,7 @@
 services:
-    db:
-        container_name: db
-        image: ghcr.io/offis-rit/kiwi/postgres:latest
+    postgres:
+        container_name: postgres
+        image: kiwi/postgres:local
         build:
             context: ./postgres
             dockerfile: Dockerfile
@@ -19,26 +19,8 @@ services:
             retries: 5
             start_period: 10s
 
-    db-migration:
-        container_name: db-migration
-        image: ghcr.io/offis-rit/kiwi/postgres-migration:latest
-        build:
-            context: .
-            dockerfile: postgres/Dockerfile.migration
-        restart: "no"
-        environment:
-            DATABASE_URL: "${DATABASE_DIRECT_URL_INTERNAL:-postgresql://kiwi:kiwi@db:5432/kiwi?sslmode=disable}"
-            AI_EMBED_DIM: ${AI_EMBED_DIM:-1536}
-            MASTER_USER_ID: ${MASTER_USER_ID:-}
-            MASTER_USER_ROLE: ${MASTER_USER_ROLE:-admin}
-            MASTER_USER_NAME: ${MASTER_USER_NAME:-Master User}
-            MASTER_USER_EMAIL: ${MASTER_USER_EMAIL:-}
-        depends_on:
-            db:
-                condition: service_healthy
-
-    db-bouncer:
-        container_name: db-bouncer
+    bouncer:
+        container_name: bouncer
         image: edoburu/pgbouncer:latest
         restart: unless-stopped
         ports:
@@ -47,14 +29,14 @@ services:
             DB_USER: kiwi
             DB_PASSWORD: kiwi
             DB_NAME: kiwi
-            DB_HOST: db
+            DB_HOST: postgres
             AUTH_TYPE: scram-sha-256
             POOL_MODE: transaction
             MAX_CLIENT_CONN: 1200
             DEFAULT_POOL_SIZE: 20
             ADMIN_USERS: kiwi
         depends_on:
-            db:
+            postgres:
                 condition: service_healthy
         healthcheck:
             test: ["CMD", "pg_isready", "-h", "localhost", "-U", "kiwi", "-d", "kiwi"]

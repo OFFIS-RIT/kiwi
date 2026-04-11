@@ -2,7 +2,6 @@ import { db } from "@kiwi/db";
 import {
     entityTable,
     filesTable,
-    graphTable,
     relationshipTable,
     sourcesTable,
     textUnitTable,
@@ -340,130 +339,108 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
         return;
     }
 
-    await step.run({ name: "update-project-status" }, async () => {
-        await db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId));
+    const cleanup = await step.run({ name: "remove-file-graph-data" }, async () => {
+        return db.transaction(async (tx) => {
+            const affectedEntityRows = await tx
+                .selectDistinct({ id: sourcesTable.entityId })
+                .from(sourcesTable)
+                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                .where(and(eq(textUnitTable.fileId, input.fileId), isNotNull(sourcesTable.entityId)));
+            const affectedRelationshipRows = await tx
+                .selectDistinct({ id: sourcesTable.relationshipId })
+                .from(sourcesTable)
+                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                .where(and(eq(textUnitTable.fileId, input.fileId), isNotNull(sourcesTable.relationshipId)));
+
+            const affectedEntityIds = affectedEntityRows.map((row) => row.id).filter((id): id is string => id !== null);
+            const affectedRelationshipIds = affectedRelationshipRows
+                .map((row) => row.id)
+                .filter((id): id is string => id !== null);
+
+            await tx.delete(textUnitTable).where(eq(textUnitTable.fileId, input.fileId));
+
+            if (affectedEntityIds.length > 0) {
+                const entityIds = textArray(affectedEntityIds);
+
+                await tx.execute(sql`
+                        DELETE FROM entities entity
+                        WHERE entity.graph_id = ${input.graphId}
+                          AND entity.id = ANY(${entityIds})
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM sources source
+                              WHERE source.entity_id = entity.id
+                          )
+                    `);
+            }
+
+            if (affectedRelationshipIds.length > 0) {
+                const relationshipIds = textArray(affectedRelationshipIds);
+
+                await tx.execute(sql`
+                        DELETE FROM relationships relationship
+                        WHERE relationship.graph_id = ${input.graphId}
+                          AND relationship.id = ANY(${relationshipIds})
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM sources source
+                              WHERE source.relationship_id = relationship.id
+                          )
+                    `);
+            }
+
+            await tx.delete(filesTable).where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.id, input.fileId)));
+
+            const survivingEntityIds =
+                affectedEntityIds.length > 0
+                    ? await tx
+                          .select({ id: entityTable.id })
+                          .from(entityTable)
+                          .where(and(eq(entityTable.graphId, input.graphId), inArray(entityTable.id, affectedEntityIds)))
+                    : [];
+            const survivingRelationshipIds =
+                affectedRelationshipIds.length > 0
+                    ? await tx
+                          .select({ id: relationshipTable.id })
+                          .from(relationshipTable)
+                          .where(
+                              and(eq(relationshipTable.graphId, input.graphId), inArray(relationshipTable.id, affectedRelationshipIds))
+                          )
+                    : [];
+
+            return {
+                entityIds: survivingEntityIds.map((row) => row.id),
+                relationshipIds: survivingRelationshipIds.map((row) => row.id),
+            };
+        });
     });
 
-    try {
-        const cleanup = await step.run({ name: "remove-file-graph-data" }, async () => {
-            return db.transaction(async (tx) => {
-                const affectedEntityRows = await tx
-                    .selectDistinct({ id: sourcesTable.entityId })
-                    .from(sourcesTable)
-                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                    .where(and(eq(textUnitTable.fileId, input.fileId), isNotNull(sourcesTable.entityId)));
-                const affectedRelationshipRows = await tx
-                    .selectDistinct({ id: sourcesTable.relationshipId })
-                    .from(sourcesTable)
-                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                    .where(and(eq(textUnitTable.fileId, input.fileId), isNotNull(sourcesTable.relationshipId)));
+    if (cleanup.entityIds.length > 0 || cleanup.relationshipIds.length > 0) {
+        const client = createDescriptionClient();
 
-                const affectedEntityIds = affectedEntityRows
-                    .map((row) => row.id)
-                    .filter((id): id is string => id !== null);
-                const affectedRelationshipIds = affectedRelationshipRows
-                    .map((row) => row.id)
-                    .filter((id): id is string => id !== null);
-
-                await tx.delete(textUnitTable).where(eq(textUnitTable.fileId, input.fileId));
-
-                if (affectedEntityIds.length > 0) {
-                    const entityIds = textArray(affectedEntityIds);
-
-                    await tx.execute(sql`
-                            DELETE FROM entities entity
-                            WHERE entity.graph_id = ${input.graphId}
-                              AND entity.id = ANY(${entityIds})
-                              AND NOT EXISTS (
-                                  SELECT 1
-                                  FROM sources source
-                                  WHERE source.entity_id = entity.id
-                              )
-                        `);
-                }
-
-                if (affectedRelationshipIds.length > 0) {
-                    const relationshipIds = textArray(affectedRelationshipIds);
-
-                    await tx.execute(sql`
-                            DELETE FROM relationships relationship
-                            WHERE relationship.graph_id = ${input.graphId}
-                              AND relationship.id = ANY(${relationshipIds})
-                              AND NOT EXISTS (
-                                  SELECT 1
-                                  FROM sources source
-                                  WHERE source.relationship_id = relationship.id
-                              )
-                        `);
-                }
-
-                await tx
-                    .delete(filesTable)
-                    .where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.id, input.fileId)));
-
-                const survivingEntityIds =
-                    affectedEntityIds.length > 0
-                        ? await tx
-                              .select({ id: entityTable.id })
-                              .from(entityTable)
-                              .where(
-                                  and(
-                                      eq(entityTable.graphId, input.graphId),
-                                      inArray(entityTable.id, affectedEntityIds)
-                                  )
-                              )
-                        : [];
-                const survivingRelationshipIds =
-                    affectedRelationshipIds.length > 0
-                        ? await tx
-                              .select({ id: relationshipTable.id })
-                              .from(relationshipTable)
-                              .where(
-                                  and(
-                                      eq(relationshipTable.graphId, input.graphId),
-                                      inArray(relationshipTable.id, affectedRelationshipIds)
-                                  )
-                              )
-                        : [];
-
-                return {
-                    entityIds: survivingEntityIds.map((row) => row.id),
-                    relationshipIds: survivingRelationshipIds.map((row) => row.id),
-                };
-            });
+        await step.run({ name: "regenerate-entity-descriptions" }, async () => {
+            await regenerateEntities(input.graphId, cleanup.entityIds, client);
         });
 
-        if (cleanup.entityIds.length > 0 || cleanup.relationshipIds.length > 0) {
-            const client = createDescriptionClient();
-
-            await step.run({ name: "regenerate-entity-descriptions" }, async () => {
-                await regenerateEntities(input.graphId, cleanup.entityIds, client);
-            });
-
-            await step.run({ name: "regenerate-relationship-descriptions" }, async () => {
-                await regenerateRelationships(input.graphId, cleanup.relationshipIds, client);
-            });
-        }
-
-        await step.run({ name: "delete-s3-file" }, async () => {
-            await deleteStoredFile(fileData.key, env.S3_BUCKET);
-        });
-
-        await step.run({ name: "delete-derived-file-artifacts" }, async () => {
-            await deleteDerivedFileArtifacts(input.graphId, input.fileId, env.S3_BUCKET);
-        });
-
-        await step.run({ name: "delete-workflow-artifacts" }, async () => {
-            const workflowPath = `graphs/${input.graphId}/workflows/${WORKFLOW_STORAGE_VERSION}/${input.fileId}`;
-
-            await Promise.all([
-                deleteStoredFile(`${workflowPath}/units.json`, env.S3_BUCKET),
-                deleteStoredFile(`${workflowPath}/graph.json`, env.S3_BUCKET),
-            ]);
-        });
-    } finally {
-        await step.run({ name: "finalize-project-status" }, async () => {
-            await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
+        await step.run({ name: "regenerate-relationship-descriptions" }, async () => {
+            await regenerateRelationships(input.graphId, cleanup.relationshipIds, client);
         });
     }
+
+    await step.run({ name: "delete-s3-file" }, async () => {
+        await deleteStoredFile(fileData.key, env.S3_BUCKET);
+    });
+
+    await step.run({ name: "delete-derived-file-artifacts" }, async () => {
+        await deleteDerivedFileArtifacts(input.graphId, input.fileId, env.S3_BUCKET);
+    });
+
+    await step.run({ name: "delete-workflow-artifacts" }, async () => {
+        const workflowPath = `graphs/${input.graphId}/workflows/${WORKFLOW_STORAGE_VERSION}/${input.fileId}`;
+
+        await Promise.all([
+            deleteStoredFile(`${workflowPath}/units.json`, env.S3_BUCKET),
+            deleteStoredFile(`${workflowPath}/graph.json`, env.S3_BUCKET),
+        ]);
+    });
 });

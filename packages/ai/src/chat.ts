@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 import type { UIDataTypes, UIMessage, UITools } from "ai";
-import type { MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
+import type { ChatMessage, MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
 import { jsonrepair } from "jsonrepair";
 import { toModelMessage } from "./index";
 import { listEntitiesTool, searchEntityTool } from "./tools/entity";
@@ -328,6 +328,37 @@ export function messagePartsToUIMessage(
         metadata,
         parts: uiParts,
     };
+}
+
+export function toUIMessage(
+    message: Pick<
+        ChatMessage,
+        | "id"
+        | "role"
+        | "parts"
+        | "createdAt"
+        | "tokensPerSecond"
+        | "timeToFirstToken"
+        | "inputTokens"
+        | "outputTokens"
+        | "totalTokens"
+    >
+): ChatUIMessage {
+    return messagePartsToUIMessage(
+        {
+            id: message.id,
+            role: message.role,
+            parts: message.parts,
+            createdAt: message.createdAt,
+        },
+        {
+            inputTokens: message.inputTokens ?? undefined,
+            outputTokens: message.outputTokens ?? undefined,
+            totalTokens: message.totalTokens ?? undefined,
+            tokensPerSecond: message.tokensPerSecond ?? undefined,
+            timeToFirstToken: message.timeToFirstToken ?? undefined,
+        }
+    );
 }
 
 export function uiMessagesToModelMessages(messages: ChatUIMessage[]): ModelMessage[] {

@@ -16,6 +16,8 @@
         "out",
         "dist",
         "build",
+        ".agents",
+        ".claude",
         ".DS_Store",
         "*.pem",
         "bun-debug.log*",

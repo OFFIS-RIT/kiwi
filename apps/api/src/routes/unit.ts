@@ -1,13 +1,13 @@
 import { db } from "@kiwi/db";
 import { filesTable, textUnitTable } from "@kiwi/db/tables/graph";
-import { eq } from "@kiwi/db/drizzle";
+import { eq } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
 import { assertCanViewGraph } from "./graph";
 
-const mapUnitErrorResponse = (status: (code: number, body: unknown) => unknown) => (error: unknown) => {
+function mapUnitError(status: (code: number, body: unknown) => unknown, error: unknown) {
     if (!(error instanceof Error)) {
         return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
     }
@@ -33,7 +33,7 @@ const mapUnitErrorResponse = (status: (code: number, body: unknown) => unknown) 
     }
 
     return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
-};
+}
 
 export const unitRoute = new Elysia({ prefix: "/units" }).use(authMiddleware).get(
     "/:unitId",
@@ -74,7 +74,7 @@ export const unitRoute = new Elysia({ prefix: "/units" }).use(authMiddleware).ge
                 })
             );
         } catch (error) {
-            return mapUnitErrorResponse(status)(error);
+            return mapUnitError(status, error);
         }
     },
     {

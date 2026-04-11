@@ -94,7 +94,7 @@ export const messageTable = pgTable.withRLS(
         status: text("status", { enum: ["pending", "completed", "failed", "canceled"] })
             .notNull()
             .default("pending"),
-        role: text("role", { enum: ["user", "assistant", "system", "tool"] }).notNull(),
+        role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
         parts: jsonb("parts").$type<MessagePart[]>().notNull(),
         tokensPerSecond: doublePrecision("tokens_per_second"),
         timeToFirstToken: doublePrecision("time_to_first_token"),

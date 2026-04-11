@@ -1,8 +1,8 @@
 import { defineWorkflowSpec } from "openworkflow";
 import z from "zod";
 
-export const patchGraphFilesSpec = defineWorkflowSpec({
-    name: "patch-graph-files",
+export const deleteGraphFilesSpec = defineWorkflowSpec({
+    name: "delete-graph-files",
     version: "1.0.0",
     retryPolicy: {
         initialInterval: "1s",
@@ -11,7 +11,6 @@ export const patchGraphFilesSpec = defineWorkflowSpec({
     },
     schema: z.object({
         graphId: z.string(),
-        removedFileIds: z.array(z.string()),
-        addedFileIds: z.array(z.string()),
+        fileIds: z.array(z.string()),
     }),
 });

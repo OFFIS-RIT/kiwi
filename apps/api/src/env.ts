@@ -6,6 +6,11 @@ const embeddingAdapterEnum = z.enum(["openai", "azure", "openaiAPI"]);
 
 export const env = createEnv({
     server: {
+        MASTER_USER_ID: z.string().optional(),
+        MASTER_USER_ROLE: z.string().optional(),
+        MASTER_USER_NAME: z.string().optional(),
+        MASTER_USER_EMAIL: z.string().optional(),
+
         OPENWORKFLOW_POSTGRES_URL: z.string(),
         S3_ACCESS_KEY_ID: z.string(),
         S3_SECRET_ACCESS_KEY: z.string(),

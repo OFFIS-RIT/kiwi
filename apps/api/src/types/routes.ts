@@ -148,9 +148,22 @@ export type GraphCreateSuccessData = {
 
 export type GraphPatchSuccessData = {
     graph: GraphRecord;
+};
+
+export type GraphAddFilesSuccessData = {
+    graph: GraphRecord;
     addedFiles: GraphFileRecord[];
-    removedFileIds: string[];
     workflowRunId: string | null;
+};
+
+export type GraphDeleteFilesSuccessData = {
+    graph: GraphRecord;
+    removedFileKeys: string[];
+    workflowRunId: string | null;
+};
+
+export type GraphFileDownloadSuccessData = {
+    url: string;
 };
 
 export type GraphDeleteSuccessData = {
@@ -222,9 +235,42 @@ export type GraphPatchResponse = ApiResponse<
     | "GROUP_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
-    | "INVALID_FILE_IDS"
     | "INVALID_NAME"
     | "NO_CHANGES"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphAddFilesResponse = ApiResponse<
+    GraphAddFilesSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GROUP_NOT_FOUND"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "NO_CHANGES"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphDeleteFilesResponse = ApiResponse<
+    GraphDeleteFilesSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GROUP_NOT_FOUND"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INVALID_FILE_IDS"
+    | "NO_CHANGES"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphFileDownloadResponse = ApiResponse<
+    GraphFileDownloadSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GROUP_NOT_FOUND"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INVALID_FILE_IDS"
     | "INTERNAL_SERVER_ERROR"
 >;
 

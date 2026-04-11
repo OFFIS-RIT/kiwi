@@ -10,8 +10,10 @@ const {
     messagePartsToUIMessage,
     parseCitationFence,
     splitTextWithCitationFences,
+    toUIMessage,
     uiMessageToMessageParts,
 } = await import("../chat");
+const { toModelMessage } = await import("../index");
 
 function mergeTextSegments<T extends { type: string } & Record<string, unknown>>(segments: T[]) {
     return segments.reduce<T[]>((merged, segment) => {
@@ -213,6 +215,91 @@ describe("citation fences", () => {
                     totalTokens: 42,
                     durationMs: 900,
                 },
+            },
+        ]);
+    });
+
+    test("maps db message metrics into UI metadata", () => {
+        expect(
+            toUIMessage({
+                id: "msg-2",
+                chatId: "chat-1",
+                status: "completed",
+                role: "assistant",
+                parts: [{ type: "text", text: "Answer" }],
+                tokensPerSecond: 12.5,
+                timeToFirstToken: 220,
+                inputTokens: 10,
+                outputTokens: 20,
+                totalTokens: 30,
+                createdAt: new Date("2026-01-02T00:00:00.000Z"),
+                updatedAt: new Date("2026-01-02T00:00:01.000Z"),
+            })
+        ).toEqual({
+            id: "msg-2",
+            role: "assistant",
+            metadata: {
+                createdAt: "2026-01-02T00:00:00.000Z",
+                tokensPerSecond: 12.5,
+                timeToFirstToken: 220,
+                inputTokens: 10,
+                outputTokens: 20,
+                totalTokens: 30,
+            },
+            parts: [{ type: "text", text: "Answer" }],
+        });
+    });
+
+    test("rebuilds model tool messages from assistant tool parts", () => {
+        expect(
+            toModelMessage({
+                id: "msg-3",
+                chatId: "chat-1",
+                status: "completed",
+                role: "assistant",
+                parts: [
+                    { type: "text", text: "Checking" },
+                    {
+                        type: "tool",
+                        toolCallId: "tool-1",
+                        toolName: "ask_clarifying_questions",
+                        execution: "client",
+                        status: "completed",
+                        args: { questions: ["Which region?"] },
+                        result: { answers: ["EMEA"] },
+                    },
+                ],
+                tokensPerSecond: null,
+                timeToFirstToken: null,
+                inputTokens: null,
+                outputTokens: null,
+                totalTokens: null,
+                createdAt: new Date("2026-01-03T00:00:00.000Z"),
+                updatedAt: new Date("2026-01-03T00:00:01.000Z"),
+            })
+        ).toEqual([
+            {
+                role: "assistant",
+                content: [
+                    { type: "text", text: "Checking" },
+                    {
+                        type: "tool-call",
+                        toolCallId: "tool-1",
+                        toolName: "ask_clarifying_questions",
+                        input: { questions: ["Which region?"] },
+                    },
+                ],
+            },
+            {
+                role: "tool",
+                content: [
+                    {
+                        type: "tool-result",
+                        toolCallId: "tool-1",
+                        toolName: "ask_clarifying_questions",
+                        output: { type: "json", value: { answers: ["EMEA"] } },
+                    },
+                ],
             },
         ]);
     });

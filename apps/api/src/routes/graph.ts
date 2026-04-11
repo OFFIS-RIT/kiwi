@@ -1,14 +1,16 @@
-import { and, asc, eq, inArray, isNotNull, isNull } from "@kiwi/db/drizzle";
+import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { auth } from "@kiwi/auth/server";
 import type { KiwiPermissions } from "@kiwi/auth/permissions";
 import { db } from "@kiwi/db";
 import { filesTable, graphTable, groupTable, groupUserTable } from "@kiwi/db/tables/graph";
-import { deleteFile, listFiles, putFile } from "@kiwi/files";
+import { deleteFile, getPresignedDownloadUrl, listFiles, putFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
-import { patchGraphFilesSpec } from "@kiwi/worker/patch-graph-files-spec";
+import { deleteGraphFilesSpec } from "@kiwi/worker/delete-graph-files-spec";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
 import { env } from "../env";
+import { chunk } from "../lib/array";
+import { collectGraphClosure } from "../lib/graph";
 import { type AuthUser, authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { ow } from "../openworkflow";
@@ -75,9 +77,6 @@ type ProjectDetailFileRecord = {
     updated_at: string | null;
 };
 type StatusFn = (code: number, body: unknown) => unknown;
-type GraphClosureQueryRunner = {
-    select: typeof db.select;
-};
 
 const selectGraphFields = {
     id: graphTable.id,
@@ -122,16 +121,6 @@ const mapProjectDetailFileRecord = (file: ProjectDetailFileRow): ProjectDetailFi
     updated_at: file.updated_at?.toISOString() ?? null,
 });
 
-const chunkItems = <T>(items: T[], chunkSize: number) => {
-    const chunks: T[][] = [];
-
-    for (let index = 0; index < items.length; index += chunkSize) {
-        chunks.push(items.slice(index, index + chunkSize));
-    }
-
-    return chunks;
-};
-
 const normalizeFiles = (files?: File | File[]) => {
     if (!files) {
         return [];
@@ -157,14 +146,10 @@ const normalizeHidden = (hidden?: boolean | "true" | "false") => {
     return hidden === true || hidden === "true";
 };
 
-const getExtension = (name: string) => {
-    const extension = name.split(".").pop()?.trim().toLowerCase();
-    return extension && extension !== name.toLowerCase() ? extension : "";
-};
-
 const normalizeFileType = (name: string, mimeType?: string): GraphFileType => {
     const normalizedMimeType = mimeType?.trim().toLowerCase() ?? "";
-    const extension = getExtension(name);
+    const rawExtension = name.split(".").pop()?.trim().toLowerCase();
+    const extension = rawExtension && rawExtension !== name.toLowerCase() ? rawExtension : "";
 
     if (normalizedMimeType === "application/pdf" || extension === "pdf") {
         return "pdf";
@@ -210,17 +195,6 @@ const normalizeFileType = (name: string, mimeType?: string): GraphFileType => {
     return "text";
 };
 
-const hasPermission = async (headers: Headers, permissions: KiwiPermissions) => {
-    const result = await auth.api.userHasPermission({
-        headers,
-        body: {
-            permissions,
-        },
-    });
-
-    return result.success;
-};
-
 const getGraphById = async (graphId: string): Promise<GraphRecord | null> => {
     const [graph] = await db.select(selectGraphFields).from(graphTable).where(eq(graphTable.id, graphId)).limit(1);
     return graph ?? null;
@@ -255,11 +229,16 @@ const requireGroupUpdateAccess = async (
         throw new Error(FORBIDDEN);
     }
 
-    const permitted = await hasPermission(headers, {
-        group: ["update"],
+    const permissionCheck = await auth.api.userHasPermission({
+        headers,
+        body: {
+            permissions: {
+                group: ["update"],
+            } satisfies KiwiPermissions,
+        },
     });
 
-    if (!permitted) {
+    if (!permissionCheck.success) {
         throw new Error(FORBIDDEN);
     }
 
@@ -446,7 +425,7 @@ const cleanupFailedGraphCreation = async (
     }
 };
 
-const restoreGraphPatchFailure = async (
+const restoreGraphFileChangeFailure = async (
     graphId: string,
     previousGraph: GraphRecord,
     addedFileIds: string[],
@@ -471,7 +450,7 @@ const restoreGraphPatchFailure = async (
         });
     } catch (cleanupError) {
         logError(
-            "failed to rollback graph patch after enqueue failure",
+            "failed to rollback graph file change after enqueue failure",
             "graphId",
             graphId,
             "addedFileCount",
@@ -488,7 +467,7 @@ const restoreGraphPatchFailure = async (
 
     if (failedDeletes > 0) {
         logError(
-            "graph patch rollback left orphaned s3 files",
+            "graph file change rollback left orphaned s3 files",
             "graphId",
             graphId,
             "addedFileCount",
@@ -501,33 +480,7 @@ const restoreGraphPatchFailure = async (
     }
 };
 
-const collectGraphClosure = async (queryRunner: GraphClosureQueryRunner, graphId: string): Promise<string[]> => {
-    const graphIds = new Set<string>([graphId]);
-    let frontier = [graphId];
-
-    while (frontier.length > 0) {
-        const childRows = await queryRunner
-            .select({ id: graphTable.id })
-            .from(graphTable)
-            .where(inArray(graphTable.graphId, frontier));
-
-        const nextFrontier: string[] = [];
-        for (const child of childRows) {
-            if (graphIds.has(child.id)) {
-                continue;
-            }
-
-            graphIds.add(child.id);
-            nextFrontier.push(child.id);
-        }
-
-        frontier = nextFrontier;
-    }
-
-    return [...graphIds];
-};
-
-const mapGraphErrorResponse = (statusFn: StatusFn) => (error: unknown) => {
+function mapGraphError(statusFn: StatusFn, error: unknown) {
     if (!(error instanceof Error)) {
         return statusFn(500, {
             status: "error",
@@ -573,7 +526,7 @@ const mapGraphErrorResponse = (statusFn: StatusFn) => (error: unknown) => {
         message: "Internal server error",
         code: "INTERNAL_SERVER_ERROR",
     });
-};
+}
 
 const mapGraphListItem = (graph: {
     graph_id: string;
@@ -638,7 +591,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
                 return status(200, successResponse(graphs.map(mapGraphListItem)));
             } catch (error) {
-                return mapGraphErrorResponse(status)(error);
+                return mapGraphError(status, error);
             }
         },
         {
@@ -665,7 +618,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
                 return status(200, successResponse(fileRows.map(mapProjectDetailFileRecord)));
             } catch (error) {
-                return mapGraphErrorResponse(status)(error);
+                return mapGraphError(status, error);
             }
         },
         {
@@ -674,6 +627,49 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }),
             beforeHandle: requirePermissions({
                 graph: ["list:file"],
+            }),
+        }
+    )
+    .post(
+        "/:id/file",
+        async ({ body, params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            try {
+                await assertCanViewGraph(user, params.id);
+
+                const [file] = await db
+                    .select({ key: filesTable.key })
+                    .from(filesTable)
+                    .where(
+                        and(
+                            eq(filesTable.graphId, params.id),
+                            eq(filesTable.key, body.file_key),
+                            eq(filesTable.deleted, false)
+                        )
+                    )
+                    .limit(1);
+
+                if (!file) {
+                    return status(400, errorResponse("Invalid file IDs", API_ERROR_CODES.INVALID_FILE_IDS));
+                }
+
+                return status(200, successResponse({ url: getPresignedDownloadUrl(file.key, env.S3_BUCKET) }));
+            } catch (error) {
+                return mapGraphError(status, error);
+            }
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+            }),
+            body: t.Object({
+                file_key: t.String(),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["view"],
             }),
         }
     )
@@ -692,7 +688,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             try {
                 graph = await assertCanViewGraph(user, params.id);
             } catch (error) {
-                return mapGraphErrorResponse(status)(error);
+                return mapGraphError(status, error);
             }
 
             let groupId: string | null = null;
@@ -757,7 +753,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     },
                 });
             } catch (error) {
-                return mapGraphErrorResponse(status)(error);
+                return mapGraphError(status, error);
             }
         },
         {
@@ -798,7 +794,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     await assertCanCreateUnderParentGraph(request.headers, user, body.graphId);
                 }
             } catch (error) {
-                return mapGraphErrorResponse(status)(error);
+                return mapGraphError(status, error);
             }
 
             const persistedHidden = body.groupId ? (normalizeHidden(body.hidden) ?? false) : true;
@@ -989,11 +985,9 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             try {
                 existingGraph = await assertCanPatchGraph(request.headers, user, params.id);
             } catch (error) {
-                return mapGraphErrorResponse(status)(error);
+                return mapGraphError(status, error);
             }
 
-            const files = normalizeFiles(body.files);
-            const removedFileIds = normalizeStringList(body.removedFileIds);
             const normalizedName = body.name === undefined ? undefined : body.name.trim();
             const normalizedDescription =
                 body.description === undefined ? undefined : body.description === "" ? null : body.description;
@@ -1006,25 +1000,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            const existingFiles = await db
-                .select({
-                    id: filesTable.id,
-                })
-                .from(filesTable)
-                .where(eq(filesTable.graphId, existingGraph.id));
-
-            const existingFileIds = new Set(existingFiles.map((file) => file.id));
-            const hasInvalidRemovedFileIds = removedFileIds.some((fileId) => !existingFileIds.has(fileId));
-
-            if (hasInvalidRemovedFileIds) {
-                return status(400, {
-                    status: "error",
-                    message: "Invalid file IDs",
-                    code: INVALID_FILE_IDS,
-                });
-            }
-
-            const updateData: Partial<Pick<GraphRecord, "name" | "description" | "state">> = {};
+            const updateData: Partial<Pick<GraphRecord, "name" | "description">> = {};
 
             if (normalizedName !== undefined && normalizedName !== existingGraph.name) {
                 updateData.name = normalizedName;
@@ -1034,12 +1010,76 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 updateData.description = normalizedDescription;
             }
 
-            const hasFileChanges = files.length > 0 || removedFileIds.length > 0;
-            if (hasFileChanges) {
-                updateData.state = "updating";
+            if (Object.keys(updateData).length === 0) {
+                return status(400, {
+                    status: "error",
+                    message: "No changes requested",
+                    code: NO_CHANGES,
+                });
             }
 
-            if (Object.keys(updateData).length === 0 && !hasFileChanges) {
+            try {
+                const [graph] = await db
+                    .update(graphTable)
+                    .set(updateData)
+                    .where(eq(graphTable.id, existingGraph.id))
+                    .returning(selectGraphFields);
+
+                return status(200, {
+                    status: "success",
+                    data: {
+                        graph: graph ?? existingGraph,
+                    },
+                });
+            } catch (dbPatchError) {
+                logError(
+                    "graph patch failed during database update",
+                    "graphId",
+                    existingGraph.id,
+                    "error",
+                    dbPatchError
+                );
+
+                return status(500, {
+                    status: "error",
+                    message: "Internal server error",
+                    code: "INTERNAL_SERVER_ERROR",
+                });
+            }
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+            }),
+            body: t.Object({
+                name: t.Optional(t.String()),
+                description: t.Optional(t.String()),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["update"],
+            }),
+        }
+    )
+    .post(
+        "/:id/files",
+        async ({ body, params, request, user, status }) => {
+            if (!user) {
+                return status(401, {
+                    status: "error",
+                    message: "Unauthorized",
+                    code: "UNAUTHORIZED",
+                });
+            }
+
+            let existingGraph: GraphRecord;
+            try {
+                existingGraph = await assertCanPatchGraph(request.headers, user, params.id);
+            } catch (error) {
+                return mapGraphError(status, error);
+            }
+
+            const files = normalizeFiles(body.files);
+            if (files.length === 0) {
                 return status(400, {
                     status: "error",
                     message: "No changes requested",
@@ -1064,13 +1104,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 const failedDeletes = await cleanupUploadedKeys(uploadedFiles.map((file) => file.key));
 
                 logError(
-                    "graph patch failed during file upload",
+                    "graph file add failed during file upload",
                     "graphId",
                     existingGraph.id,
                     "uploadedKeyCount",
                     uploadedFiles.length,
-                    "removedFileCount",
-                    removedFileIds.length,
                     "failedS3CleanupCount",
                     failedDeletes,
                     "error",
@@ -1084,58 +1122,48 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            let patchGraph = existingGraph;
+            let graph = existingGraph;
             let addedFiles: CreatedFileRecord[] = [];
 
             try {
-                const patchResult = await db.transaction(async (tx) => {
-                    const nextGraph =
-                        Object.keys(updateData).length > 0
-                            ? (
-                                  await tx
-                                      .update(graphTable)
-                                      .set(updateData)
-                                      .where(eq(graphTable.id, existingGraph.id))
-                                      .returning(selectGraphFields)
-                              )[0]!
-                            : existingGraph;
+                const result = await db.transaction(async (tx) => {
+                    const [updatedGraph] = await tx
+                        .update(graphTable)
+                        .set({ state: "updating" })
+                        .where(eq(graphTable.id, existingGraph.id))
+                        .returning(selectGraphFields);
 
-                    const insertedFiles =
-                        uploadedFiles.length > 0
-                            ? await tx
-                                  .insert(filesTable)
-                                  .values(
-                                      uploadedFiles.map((file) => ({
-                                          graphId: existingGraph.id,
-                                          name: file.name,
-                                          size: file.size,
-                                          type: file.type,
-                                          mimeType: file.mimeType,
-                                          key: file.key,
-                                      }))
-                                  )
-                                  .returning(selectFileFields)
-                            : [];
+                    const insertedFiles = await tx
+                        .insert(filesTable)
+                        .values(
+                            uploadedFiles.map((file) => ({
+                                graphId: existingGraph.id,
+                                name: file.name,
+                                size: file.size,
+                                type: file.type,
+                                mimeType: file.mimeType,
+                                key: file.key,
+                            }))
+                        )
+                        .returning(selectFileFields);
 
                     return {
-                        graph: nextGraph,
+                        graph: updatedGraph ?? existingGraph,
                         addedFiles: insertedFiles,
                     };
                 });
 
-                patchGraph = patchResult.graph;
-                addedFiles = patchResult.addedFiles;
+                graph = result.graph;
+                addedFiles = result.addedFiles;
             } catch (dbPatchError) {
                 const failedDeletes = await cleanupUploadedKeys(uploadedFiles.map((file) => file.key));
 
                 logError(
-                    "graph patch failed during database update",
+                    "graph file add failed during database update",
                     "graphId",
                     existingGraph.id,
                     "uploadedKeyCount",
                     uploadedFiles.length,
-                    "removedFileCount",
-                    removedFileIds.length,
                     "failedS3CleanupCount",
                     failedDeletes,
                     "error",
@@ -1149,36 +1177,22 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            if (!hasFileChanges) {
-                return status(200, {
-                    status: "success",
-                    data: {
-                        graph: patchGraph,
-                        addedFiles: [],
-                        removedFileIds: [],
-                        workflowRunId: null,
-                    },
-                });
-            }
-
             try {
-                const handle = await ow.runWorkflow(patchGraphFilesSpec, {
+                const handle = await ow.runWorkflow(processFilesSpec, {
                     graphId: existingGraph.id,
-                    removedFileIds,
-                    addedFileIds: addedFiles.map((file) => file.id),
+                    fileIds: addedFiles.map((file) => file.id),
                 });
 
                 return status(200, {
                     status: "success",
                     data: {
-                        graph: patchGraph,
+                        graph,
                         addedFiles,
-                        removedFileIds,
                         workflowRunId: handle.workflowRun.id,
                     },
                 });
             } catch (enqueueError) {
-                await restoreGraphPatchFailure(
+                await restoreGraphFileChangeFailure(
                     existingGraph.id,
                     existingGraph,
                     addedFiles.map((file) => file.id),
@@ -1186,15 +1200,13 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 );
 
                 logError(
-                    "graph patch failed during workflow enqueue",
+                    "graph file add failed during workflow enqueue",
                     "graphId",
                     existingGraph.id,
                     "uploadedKeyCount",
                     uploadedFiles.length,
                     "addedFileCount",
                     addedFiles.length,
-                    "removedFileCount",
-                    removedFileIds.length,
                     "error",
                     enqueueError
                 );
@@ -1211,13 +1223,141 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 id: t.String(),
             }),
             body: t.Object({
-                name: t.Optional(t.String()),
-                description: t.Optional(t.String()),
                 files: t.Optional(t.Files()),
-                removedFileIds: t.Optional(t.Union([t.String(), t.Array(t.String())])),
             }),
             beforeHandle: requirePermissions({
-                graph: ["update"],
+                graph: ["add:file"],
+            }),
+        }
+    )
+    .delete(
+        "/:id/files",
+        async ({ body, params, request, user, status }) => {
+            if (!user) {
+                return status(401, {
+                    status: "error",
+                    message: "Unauthorized",
+                    code: "UNAUTHORIZED",
+                });
+            }
+
+            let existingGraph: GraphRecord;
+            try {
+                existingGraph = await assertCanPatchGraph(request.headers, user, params.id);
+            } catch (error) {
+                return mapGraphError(status, error);
+            }
+
+            const fileKeys = normalizeStringList(body.fileKeys);
+            if (fileKeys.length === 0) {
+                return status(400, {
+                    status: "error",
+                    message: "No changes requested",
+                    code: NO_CHANGES,
+                });
+            }
+
+            const existingFiles = await db
+                .select({
+                    id: filesTable.id,
+                    key: filesTable.key,
+                })
+                .from(filesTable)
+                .where(and(eq(filesTable.graphId, existingGraph.id), eq(filesTable.deleted, false)));
+
+            const fileIdByKey = new Map(existingFiles.map((file) => [file.key, file.id]));
+            const hasInvalidFileKeys = fileKeys.some((fileKey) => !fileIdByKey.has(fileKey));
+
+            if (hasInvalidFileKeys) {
+                return status(400, {
+                    status: "error",
+                    message: "Invalid file IDs",
+                    code: INVALID_FILE_IDS,
+                });
+            }
+
+            let graph = existingGraph;
+            try {
+                const [updatedGraph] = await db
+                    .update(graphTable)
+                    .set({ state: "updating" })
+                    .where(eq(graphTable.id, existingGraph.id))
+                    .returning(selectGraphFields);
+
+                graph = updatedGraph ?? existingGraph;
+            } catch (dbPatchError) {
+                logError(
+                    "graph file delete failed during database update",
+                    "graphId",
+                    existingGraph.id,
+                    "removedFileCount",
+                    fileKeys.length,
+                    "error",
+                    dbPatchError
+                );
+
+                return status(500, {
+                    status: "error",
+                    message: "Internal server error",
+                    code: "INTERNAL_SERVER_ERROR",
+                });
+            }
+
+            try {
+                const handle = await ow.runWorkflow(deleteGraphFilesSpec, {
+                    graphId: existingGraph.id,
+                    fileIds: fileKeys.map((fileKey) => fileIdByKey.get(fileKey)!),
+                });
+
+                return status(200, {
+                    status: "success",
+                    data: {
+                        graph,
+                        removedFileKeys: fileKeys,
+                        workflowRunId: handle.workflowRun.id,
+                    },
+                });
+            } catch (enqueueError) {
+                try {
+                    await db.update(graphTable).set({ state: existingGraph.state }).where(eq(graphTable.id, existingGraph.id));
+                } catch (restoreError) {
+                    logError(
+                        "failed to restore graph state after file delete enqueue failure",
+                        "graphId",
+                        existingGraph.id,
+                        "removedFileCount",
+                        fileKeys.length,
+                        "error",
+                        restoreError
+                    );
+                }
+
+                logError(
+                    "graph file delete failed during workflow enqueue",
+                    "graphId",
+                    existingGraph.id,
+                    "removedFileCount",
+                    fileKeys.length,
+                    "error",
+                    enqueueError
+                );
+
+                return status(500, {
+                    status: "error",
+                    message: "Internal server error",
+                    code: "INTERNAL_SERVER_ERROR",
+                });
+            }
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+            }),
+            body: t.Object({
+                fileKeys: t.Optional(t.Union([t.String(), t.Array(t.String())])),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["delete:file"],
             }),
         }
     )
@@ -1235,7 +1375,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             try {
                 await assertCanPatchGraph(request.headers, user, params.id);
             } catch (error) {
-                return mapGraphErrorResponse(status)(error);
+                return mapGraphError(status, error);
             }
 
             let deleteResult: {
@@ -1260,7 +1400,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         throw new Error(GRAPH_NOT_FOUND);
                     }
 
-                    const graphIds = await collectGraphClosure(tx, params.id);
+                    const graphIds = await collectGraphClosure(tx, [params.id]);
                     const fileRows = await tx
                         .select({
                             id: filesTable.id,
@@ -1312,8 +1452,8 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }
 
             let deleteFailureCount = 0;
-            for (const chunk of chunkItems([...s3Keys], 25)) {
-                const deleteResults = await Promise.allSettled(chunk.map((key) => deleteFile(key, env.S3_BUCKET)));
+            for (const keys of chunk([...s3Keys], 25)) {
+                const deleteResults = await Promise.allSettled(keys.map((key) => deleteFile(key, env.S3_BUCKET)));
 
                 for (const result of deleteResults) {
                     if (result.status === "rejected") {

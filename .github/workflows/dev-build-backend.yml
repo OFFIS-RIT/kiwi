@@ -1,4 +1,4 @@
-name: Dev Backend Build
+name: Dev Server Build
 
 on:
     workflow_dispatch:
@@ -6,7 +6,19 @@ on:
         branches:
             - dev
         paths:
-            - "backend/**"
+            - ".dockerignore"
+            - "package.json"
+            - "bun.lock"
+            - "apps/api/**"
+            - "apps/frontend/package.json"
+            - "apps/worker/**"
+            - "packages/ai/**"
+            - "packages/auth/**"
+            - "packages/db/**"
+            - "packages/files/**"
+            - "packages/graph/**"
+            - "packages/logger/**"
+            - ".github/workflows/dev-build-backend.yml"
 
 env:
     REGISTRY: ghcr.io
@@ -26,13 +38,13 @@ jobs:
                 include:
                     - name: server
                       image: server
-                      context: ./backend
-                      file: ./backend/Dockerfile.server
+                      context: .
+                      file: ./apps/api/Dockerfile
                       cache: server
                     - name: worker
                       image: worker
-                      context: ./backend
-                      file: ./backend/Dockerfile.worker
+                      context: .
+                      file: ./apps/worker/Dockerfile
                       cache: worker
 
         steps:

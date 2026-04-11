@@ -362,24 +362,6 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
 
             return messages;
         }
-        case "tool": {
-            const content: ToolContent = [];
-
-            for (const part of message.parts) {
-                if (part.type !== "tool" || (part.status !== "completed" && part.status !== "failed")) {
-                    continue;
-                }
-
-                content.push({
-                    type: "tool-result",
-                    toolCallId: part.toolCallId,
-                    toolName: part.toolName,
-                    output: toToolResultOutput(part.toolName, part.status, part.result),
-                });
-            }
-
-            return content.length > 0 ? [{ role: "tool", content }] : [];
-        }
     }
 }
 

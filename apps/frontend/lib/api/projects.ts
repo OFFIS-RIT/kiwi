@@ -4,12 +4,17 @@
  */
 
 import type {
+    GraphAddFilesResponse,
+    GraphAddFilesSuccessData,
     GraphCreateResponse,
     GraphCreateSuccessData,
     GraphDeleteResponse,
+    GraphDeleteFilesResponse,
+    GraphDeleteFilesSuccessData,
     GraphDeleteSuccessData,
     GraphDetailResponse,
     GraphDetailSuccessData,
+    GraphFileDownloadResponse,
     GraphFilesResponse,
     GraphPatchResponse,
     GraphPatchSuccessData,
@@ -100,12 +105,12 @@ export async function addFilesToProject(
     projectId: string,
     files: File[],
     onProgress?: (progress: number, loaded: number, total: number) => void
-): Promise<GraphPatchSuccessData> {
+): Promise<GraphAddFilesSuccessData> {
     const formData = new FormData();
     files.forEach((file) => formData.append("files", file));
 
-    const response = await apiClient.patchFormDataWithProgress<GraphPatchResponse>(
-        `/graphs/${projectId}`,
+    const response = await apiClient.postFormDataWithProgress<GraphAddFilesResponse>(
+        `/graphs/${projectId}/files`,
         formData,
         onProgress
     );
@@ -118,15 +123,22 @@ export async function addFilesToProject(
  * @param projectId - Project containing the files
  * @param fileKeys - Array of file keys to delete
  */
-export async function deleteProjectFiles(projectId: string, fileKeys: string[]): Promise<GraphPatchSuccessData> {
-    const response = await apiClient.patch<GraphPatchResponse>(`/graphs/${projectId}`, {
-        removedFileIds: fileKeys,
+export async function deleteProjectFiles(projectId: string, fileKeys: string[]): Promise<GraphDeleteFilesSuccessData> {
+    const response = await apiClient.delete<GraphDeleteFilesResponse>(`/graphs/${projectId}/files`, {
+        fileKeys,
     });
 
     return unwrapApiResponse(response);
 }
 
-export type { GraphCreateSuccessData, GraphDeleteSuccessData, GraphDetailSuccessData, GraphPatchSuccessData };
+export type {
+    GraphAddFilesSuccessData,
+    GraphCreateSuccessData,
+    GraphDeleteFilesSuccessData,
+    GraphDeleteSuccessData,
+    GraphDetailSuccessData,
+    GraphPatchSuccessData,
+};
 
 /**
  * Fetches the list of conversations for a project.
@@ -169,6 +181,6 @@ export async function fetchTextUnit(unitId: string): Promise<ApiTextUnit> {
  * @returns Presigned download URL
  */
 export async function downloadProjectFile(projectId: string, fileKey: string): Promise<string> {
-    const response = await apiClient.post<{ message: string }>(`/projects/${projectId}/file`, { file_key: fileKey });
-    return response.message;
+    const response = await apiClient.post<GraphFileDownloadResponse>(`/graphs/${projectId}/file`, { file_key: fileKey });
+    return unwrapApiResponse(response).url;
 }

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Go" src="https://img.shields.io/badge/go-1.25-00ADD8?style=flat-square&logo=go" />
+  <img alt="Bun" src="https://img.shields.io/badge/bun-1.x-black?style=flat-square&logo=bun" />
   <img alt="Next.js" src="https://img.shields.io/badge/next.js-16-black?style=flat-square&logo=next.js" />
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" /></a>
 </p>
@@ -17,9 +17,11 @@
 <p align="center">
   <a href="#features">Features</a> •
   <a href="#quick-start">Quick Start</a> •
+  <a href="#production">Production</a> •
   <a href="#architecture">Architecture</a> •
   <a href="#library-usage">Library Usage</a> •
   <a href="#configuration">Configuration</a> •
+  <a href="#development">Development</a> •
   <a href="#agentsmd">Documentation</a>
 </p>
 
@@ -87,8 +89,8 @@ The application will be available at:
 - **API**: http://localhost:4321
 - **Auth Routes**: http://localhost:4321/auth
 
-Database migrations are now applied automatically on startup by the
-`db-migration` container when the Compose infrastructure starts.
+Database migrations are run manually in local development after the
+infrastructure is up.
 
 ### First Time Setup
 
@@ -102,48 +104,6 @@ docker exec -it ollama ollama pull <model-name>
 
 ---
 
-## Development
-
-```bash
-docker compose up -d  # Start PostgreSQL, PgBouncer, and RustFS
-bun run dev           # Start frontend, API, and worker
-docker compose down   # Stop infrastructure
-make migrate          # Run database migrations manually
-```
-
-When `MASTER_USER_ID` is configured, `make migrate` and the Compose migration
-container also bootstrap the matching row in `users`.
-
-### Services
-
-| Service    | Port       | Description                    |
-| ---------- | ---------- | ------------------------------ |
-| frontend   | 3000       | Next.js dev server             |
-| api        | 4321       | Bun API server with `/auth`    |
-| worker     | -          | Durable workflow worker        |
-| db         | internal   | PostgreSQL + pgvector          |
-| db-bouncer | 5432       | PostgreSQL connection pool     |
-| rustfs     | 9000, 9001 | S3-compatible storage          |
-
-### Worker Runtime
-
-The background worker (`apps/worker`) executes durable workflow runs stored in PostgreSQL.
-
-- API requests enqueue `process`, `delete`, and `description` workflow runs transactionally.
-- The worker polls pending runs, claims a lease, heartbeats while executing, and retries failures with backoff.
-- File indexing fans out to one `process` workflow per file; once all file workflows in a correlation finish, description workflows are enqueued automatically.
-- Delete operations use `delete` workflows and refresh affected descriptions before the project returns to `ready`.
-
-```bash
-# Start the full local stack
-bun run dev
-
-# Start only the worker
-bun --cwd apps/worker run dev
-```
-
----
-
 ## Production
 
 ```bash
@@ -151,13 +111,27 @@ docker compose -f compose.prod.yml up -d  # Start production
 docker compose -f compose.prod.yml down   # Stop production
 ```
 
-`compose.prod.yml` also runs the `db-migration` startup container automatically,
+`compose.prod.yml` also runs the `migrations` startup container automatically,
 which applies pending migrations before app services connect to the database.
 
 ### SSL/TLS
 
-Place certificates in `./certs/` – they are mounted to `/etc/nginx/certs/` in
-the Nginx container.
+Production uses Caddy as the edge proxy. The checked-in `compose.prod.yml`
+mounts `./caddy/Caddyfile`, reads `APP_DOMAIN`, and does not require
+certificate files in `./certs`.
+
+### Production Services
+
+| Service    | Description                    |
+| ---------- | ------------------------------ |
+| caddy      | Edge proxy with HTTPS          |
+| frontend   | Frontend static site           |
+| server     | Bun API server with `/auth`    |
+| worker     | Durable workflow worker        |
+| migrations | Startup migration job          |
+| postgres   | PostgreSQL + pgvector          |
+| bouncer    | PostgreSQL connection pool     |
+| rustfs     | S3-compatible storage          |
 
 ---
 
@@ -165,14 +139,14 @@ the Nginx container.
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
-│   Frontend   │────▶│    Nginx     │────▶│   Backend   │
-│  (Next.js)   │     │   (prod)     │     │   (Echo)    │
+│   Frontend   │────▶│    Caddy     │────▶│   Server    │
+│  (Next.js)   │     │   (prod)     │     │    (Bun)    │
 └──────────────┘     └──────────────┘     └─────────────┘
        │                                         │
        ▼                                         ▼
 ┌──────────────┐                          ┌─────────────┐
-│     Auth     │                          │  PostgreSQL │
-│   (Service)  │                          │  + pgvector │
+│    Auth      │                          │  PostgreSQL │
+│  (/auth)     │                          │  + pgvector │
 └──────────────┘                          └─────────────┘
                                                  ▲
                                                  │
@@ -282,8 +256,10 @@ Copy `.env.sample` to `.env` and configure:
 | Variable                           | Description                                                           |
 | ---------------------------------- | --------------------------------------------------------------------- |
 | `LOG_LEVEL`                        | API log level                                                         |
+| `APP_DOMAIN`                       | Public domain used by Caddy for HTTPS and `/s3` proxying              |
 | `AUTH_SECRET`                      | Secret key for authentication                                         |
 | `AUTH_URL`                         | Public auth base URL                                                  |
+| `WORKER_CONCURRENCY`               | Maximum number of workflow runs processed in parallel by the worker   |
 | `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                 |
 | `NEXT_PUBLIC_AUTH_URL`             | Frontend auth service base URL                                        |
 | `NEXT_PUBLIC_AUTH_MODE`            | Frontend auth UI mode (see below)                                     |
@@ -315,7 +291,7 @@ Copy `.env.sample` to `.env` and configure:
 | `S3_REGION`                        | S3 region                                                             |
 | `S3_ENDPOINT`                      | Host RustFS endpoint                                                  |
 | `S3_ENDPOINT_INTERNAL`             | Internal RustFS endpoint for Compose containers                       |
-| `S3_PUBLIC_ENDPOINT`               | Public S3 endpoint used behind nginx                                  |
+| `TLS_EMAIL`                        | Optional ACME contact email used by Caddy                             |
 | `S3_ACCESS_KEY_ID`                 | S3 access key                                                         |
 | `S3_SECRET_ACCESS_KEY`             | S3 secret key                                                         |
 | `S3_BUCKET`                        | S3 bucket name                                                        |
@@ -351,30 +327,51 @@ If the two sides disagree (e.g., backend has LDAP enabled but frontend is set to
 `credentials`), login will fail. Always set `NEXT_PUBLIC_AUTH_MODE=ldap` when
 LDAP env vars are configured, and leave it as `credentials` (or unset) otherwise.
 
-### Optional: Clarifying Questions (Agentic Queries)
-
-Agentic queries can optionally ask clarifying questions when a user request is
-ambiguous or underspecified.
-
-- `AI_ENABLE_QUERY_CLARIFICATION` (default: `false`): when enabled, agentic mode
-  exposes a client tool (`ask_clarifying_questions`). If called, the backend
-  returns the tool call metadata and waits for a follow-up request. In that
-  follow-up request, set `tool_id` and send the tool answer in `prompt`.
-
-### Optional: Large PDF OCR Rendering
-
-For large-format documents (for example A1/A0 technical drawings), the backend
-can switch from full-page rendering to adaptive tiled rendering.
-
-- `PDF_RENDER_MODE=auto` enables adaptive behavior per page.
-- `PDF_ENABLE_PANEL_SPLIT=true` enables region-aware splitting (left/right text
-  strips, bottom legend blocks) before tile generation.
-- Increase `PDF_DPI_LARGE_PAGE` to improve tiny text extraction, and reduce
-  `PDF_TILE_MAX_EDGE_PX` if your vision model downscales large images heavily.
-
 Note: When all LDAP variables are set, LDAP sign-in is enabled and email/password auth is disabled.
 
 </details>
+
+---
+
+## Development
+
+```bash
+docker compose up -d  # Start PostgreSQL, PgBouncer, and RustFS
+bun run dev           # Start frontend, API, and worker
+docker compose down   # Stop infrastructure
+```
+
+Run database migrations manually after the infrastructure is up and before
+starting the app processes. When `MASTER_USER_ID` is configured, the API also
+ensures the matching user exists with the configured role and profile fields.
+
+### Development Services
+
+| Service    | Port       | Description                    |
+| ---------- | ---------- | ------------------------------ |
+| frontend   | 3000       | Next.js dev server             |
+| server     | 4321       | Bun API server with `/auth`    |
+| worker     | -          | Durable workflow worker        |
+| postgres   | internal   | PostgreSQL + pgvector          |
+| bouncer    | 5432       | PostgreSQL connection pool     |
+| rustfs     | 9000, 9001 | S3-compatible storage          |
+
+### Worker Runtime
+
+The background worker (`apps/worker`) executes durable workflow runs stored in PostgreSQL.
+
+- API requests enqueue `process`, `delete`, and `description` workflow runs transactionally.
+- The worker polls pending runs, claims a lease, heartbeats while executing, and retries failures with backoff.
+- File indexing fans out to one `process` workflow per file; once all file workflows in a correlation finish, description workflows are enqueued automatically.
+- Delete operations use `delete` workflows and refresh affected descriptions before the project returns to `ready`.
+
+```bash
+# Start the full local stack
+bun run dev
+
+# Start only the worker
+bun --cwd apps/worker run dev
+```
 
 ---
 

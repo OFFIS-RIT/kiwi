@@ -1,25 +1,22 @@
 services:
-    nginx:
-        container_name: nginx
-        image: nginx:alpine
+    caddy:
+        container_name: caddy
+        image: caddy:2-alpine
         restart: unless-stopped
         ports:
+            - "80:80"
             - "443:443"
         environment:
-            S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+            APP_DOMAIN: ${APP_DOMAIN:-localhost}
+            TLS_EMAIL: ${TLS_EMAIL:-}
         volumes:
-            - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
-            - ./certs:/etc/nginx/certs:ro
-        command: >
-            /bin/sh -c "
-              export S3_PUBLIC_HOST=$$(echo $$S3_PUBLIC_ENDPOINT | sed -E 's|^https?://([^/:]+).*|\\1|');
-              envsubst '$${S3_PUBLIC_HOST}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf &&
-              nginx -g 'daemon off;'
-            "
+            - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
         depends_on:
             frontend:
                 condition: service_started
-            api:
+            server:
                 condition: service_healthy
 
     frontend:
@@ -27,15 +24,15 @@ services:
         image: ghcr.io/offis-rit/kiwi/frontend:latest
         restart: unless-stopped
 
-    api:
-        container_name: api
-        image: ghcr.io/offis-rit/kiwi/api:latest
+    server:
+        container_name: server
+        image: ghcr.io/offis-rit/kiwi/server:latest
         restart: unless-stopped
         environment:
             NODE_ENV: production
             LOG_LEVEL: ${LOG_LEVEL:-info}
-            DATABASE_URL: ${DATABASE_URL_INTERNAL:-postgresql://kiwi:kiwi@db-bouncer:5432/kiwi?sslmode=disable}
-            OPENWORKFLOW_POSTGRES_URL: ${OPENWORKFLOW_POSTGRES_URL_INTERNAL:-postgresql://kiwi:kiwi@db-bouncer:5432/kiwi?sslmode=disable}
+            DATABASE_URL: ${DATABASE_URL_INTERNAL:-postgresql://kiwi:kiwi@bouncer:5432/kiwi?sslmode=disable}
+            OPENWORKFLOW_POSTGRES_URL: ${OPENWORKFLOW_POSTGRES_URL_INTERNAL:-postgresql://kiwi:kiwi@bouncer:5432/kiwi?sslmode=disable}
             S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
             S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
             S3_ENDPOINT: ${S3_ENDPOINT_INTERNAL:-http://rustfs:9000}
@@ -87,9 +84,9 @@ services:
             retries: 5
             start_period: 10s
         depends_on:
-            db-bouncer:
+            bouncer:
                 condition: service_healthy
-            db-migration:
+            migrations:
                 condition: service_completed_successfully
             rustfs:
                 condition: service_healthy
@@ -100,7 +97,7 @@ services:
         restart: unless-stopped
         environment:
             NODE_ENV: production
-            DATABASE_URL: ${DATABASE_URL_INTERNAL:-postgresql://kiwi:kiwi@db-bouncer:5432/kiwi?sslmode=disable}
+            DATABASE_URL: ${DATABASE_URL_INTERNAL:-postgresql://kiwi:kiwi@bouncer:5432/kiwi?sslmode=disable}
             S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
             S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
             S3_ENDPOINT: ${S3_ENDPOINT_INTERNAL:-http://rustfs:9000}
@@ -127,15 +124,15 @@ services:
             AI_AUDIO_URL: ${AI_AUDIO_URL:-}
             AI_AUDIO_RESOURCE_NAME: ${AI_AUDIO_RESOURCE_NAME:-}
         depends_on:
-            db-bouncer:
+            bouncer:
                 condition: service_healthy
-            db-migration:
+            migrations:
                 condition: service_completed_successfully
             rustfs:
                 condition: service_healthy
 
-    db:
-        container_name: db
+    postgres:
+        container_name: postgres
         image: ghcr.io/offis-rit/kiwi/postgres:latest
         restart: unless-stopped
         environment:
@@ -151,37 +148,32 @@ services:
             retries: 5
             start_period: 10s
 
-    db-migration:
-        container_name: db-migration
-        image: ghcr.io/offis-rit/kiwi/postgres-migration:latest
+    migrations:
+        container_name: migrations
+        image: ghcr.io/offis-rit/kiwi/migrations:latest
         restart: "no"
         environment:
-            DATABASE_URL: ${DATABASE_DIRECT_URL_INTERNAL:-postgresql://kiwi:kiwi@db:5432/kiwi?sslmode=disable}
-            AI_EMBED_DIM: ${AI_EMBED_DIM:-1536}
-            MASTER_USER_ID: ${MASTER_USER_ID:-}
-            MASTER_USER_ROLE: ${MASTER_USER_ROLE:-admin}
-            MASTER_USER_NAME: ${MASTER_USER_NAME:-Master User}
-            MASTER_USER_EMAIL: ${MASTER_USER_EMAIL:-}
+            DATABASE_URL: ${DATABASE_DIRECT_URL_INTERNAL:-postgresql://kiwi:kiwi@postgres:5432/kiwi?sslmode=disable}
         depends_on:
-            db:
+            postgres:
                 condition: service_healthy
 
-    db-bouncer:
-        container_name: db-bouncer
+    bouncer:
+        container_name: bouncer
         image: edoburu/pgbouncer:latest
         restart: unless-stopped
         environment:
             DB_USER: kiwi
             DB_PASSWORD: kiwi
             DB_NAME: kiwi
-            DB_HOST: db
+            DB_HOST: postgres
             AUTH_TYPE: scram-sha-256
             POOL_MODE: transaction
             MAX_CLIENT_CONN: 1200
             DEFAULT_POOL_SIZE: 20
             ADMIN_USERS: kiwi
         depends_on:
-            db:
+            postgres:
                 condition: service_healthy
         healthcheck:
             test: ["CMD", "pg_isready", "-h", "localhost", "-U", "kiwi", "-d", "kiwi"]
@@ -235,6 +227,8 @@ services:
             "
 
 volumes:
+    caddy_config:
+    caddy_data:
     postgres_data:
     rustfs_data:
 
