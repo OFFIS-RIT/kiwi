@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
 
-export const userTable = pgTable.withRLS("users", {
+export const userTable = pgTable.withRLS("user", {
     id: text("id")
         .primaryKey()
         .$default(() => ulid()),
@@ -21,7 +21,7 @@ export const userTable = pgTable.withRLS("users", {
         .$onUpdate(() => sql`NOW()`),
 });
 
-export const sessionTable = pgTable.withRLS("sessions", {
+export const sessionTable = pgTable.withRLS("session", {
     id: text("id")
         .primaryKey()
         .$default(() => ulid()),
@@ -40,7 +40,7 @@ export const sessionTable = pgTable.withRLS("sessions", {
     imposonatedBy: text("imposonatedBy").references(() => userTable.id, { onDelete: "set null" }),
 });
 
-export const accountTable = pgTable.withRLS("accounts", {
+export const accountTable = pgTable.withRLS("account", {
     id: text("id")
         .primaryKey()
         .$default(() => ulid()),

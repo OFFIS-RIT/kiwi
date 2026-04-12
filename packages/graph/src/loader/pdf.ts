@@ -1,5 +1,6 @@
 import { PDF } from "@libpdf/core";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
+import { withAiSlot } from "@kiwi/ai";
 import { transcribePrompt } from "@kiwi/ai/prompts/transcribe.prompt";
 import { generateText } from "ai";
 import { pdf } from "pdf-to-img";
@@ -519,16 +520,9 @@ export async function extractFullOCRTextFromPDF(
     const rasterizePages = deps.rasterizePages ?? defaultRasterizePages;
     const transcribePage = deps.transcribePage ?? defaultTranscribePage;
     const pageImages = await rasterizePages(new Uint8Array(content));
-    const pageTexts: string[] = [];
+    const pageTexts = await Promise.all(pageImages.map(async (pageImage) => (await transcribePage(pageImage, model)).trim()));
 
-    for (const pageImage of pageImages) {
-        const pageText = (await transcribePage(pageImage, model)).trim();
-        if (pageText.length > 0) {
-            pageTexts.push(pageText);
-        }
-    }
-
-    return pageTexts.join("\n\n");
+    return pageTexts.filter((pageText) => pageText.length > 0).join("\n\n");
 }
 
 async function defaultRasterizePages(content: Uint8Array): Promise<Uint8Array[]> {
@@ -544,22 +538,24 @@ async function defaultRasterizePages(content: Uint8Array): Promise<Uint8Array[]>
 
 async function defaultTranscribePage(image: Uint8Array, model: LanguageModelV3): Promise<string> {
     const base64 = Buffer.from(image).toString("base64");
-    const { text } = await generateText({
-        model,
-        system: transcribePrompt,
-        temperature: 0.1,
-        messages: [
-            {
-                role: "user",
-                content: [
-                    {
-                        type: "image",
-                        image: `data:${PNG_MIME_TYPE};base64,${base64}`,
-                    },
-                ],
-            },
-        ],
-    });
+    const { text } = await withAiSlot("image", () =>
+        generateText({
+            model,
+            system: transcribePrompt,
+            temperature: 0.1,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image",
+                            image: `data:${PNG_MIME_TYPE};base64,${base64}`,
+                        },
+                    ],
+                },
+            ],
+        })
+    );
 
     return text;
 }

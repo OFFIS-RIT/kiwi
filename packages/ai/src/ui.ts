@@ -1,4 +1,4 @@
-import type { UIMessage } from "ai";
+import type { UIMessage, UITools } from "ai";
 
 export type ChatMessageMetadata = {
     createdAt?: string;
@@ -13,8 +13,7 @@ export type ChatMessageMetadata = {
     usedFileCount?: number;
 };
 
-export type CitationData = {
-    id: string;
+export type CitationPartData = {
     sourceId: string;
     textUnitId: string;
     fileId: string;
@@ -25,22 +24,10 @@ export type CitationData = {
 };
 
 export type ChatDataParts = {
-    citation: CitationData;
+    citation: CitationPartData;
     step: {
         name: string;
     };
 };
 
-export type ChatMessage = UIMessage<ChatMessageMetadata, ChatDataParts>;
-
-export type ChatSessionSummary = {
-    id: string;
-    title: string;
-    updatedAt: string | null;
-};
-
-export type ChatHistoryResponse = {
-    id: string;
-    title: string;
-    messages: ChatMessage[];
-};
+export type ChatUIMessage = UIMessage<ChatMessageMetadata, ChatDataParts, UITools>;

@@ -17,6 +17,22 @@ import { ulid } from "ulid";
 import { userTable } from "./auth";
 import { tsvector, weightedTsvectorGenerated } from "./tsvector";
 
+export const FILE_PROCESS_STATUS_VALUES = ["processing", "processed", "failed"] as const;
+export type FileProcessStatus = (typeof FILE_PROCESS_STATUS_VALUES)[number];
+
+export const FILE_PROCESS_STEP_VALUES = [
+    "pending",
+    "preprocessing",
+    "metadata",
+    "chunking",
+    "extracting",
+    "deduplicating",
+    "saving",
+    "completed",
+    "failed",
+] as const;
+export type FileProcessStep = (typeof FILE_PROCESS_STEP_VALUES)[number];
+
 export const groupTable = pgTable.withRLS("groups", {
     id: text("id")
         .primaryKey()
@@ -127,6 +143,8 @@ export const filesTable = pgTable.withRLS("files", {
     mimeType: text("mime_type").notNull(),
     key: text("file_key").notNull(),
     deleted: boolean("deleted").default(false),
+    status: text("status", { enum: FILE_PROCESS_STATUS_VALUES }).notNull().default("processing"),
+    processStep: text("process_step", { enum: FILE_PROCESS_STEP_VALUES }).notNull().default("pending"),
     tokenCount: integer("token_count").notNull().default(0),
     metadata: text("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),

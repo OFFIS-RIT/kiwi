@@ -10,32 +10,8 @@ import z from "zod";
 import { env } from "../env";
 import { chunk } from "../lib/array";
 import { collectGraphClosure } from "../lib/graph";
+import { groupUserRoleSchema, normalizeGroupUsers } from "../lib/group";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
-
-const groupUserRoleSchema = z.enum(["admin", "user", "moderator"]);
-type GroupUserRole = z.infer<typeof groupUserRoleSchema>;
-type NormalizedGroupUser = {
-    userId: string;
-    role: GroupUserRole;
-};
-
-const normalizeGroupUsers = (
-    users: Array<{ user_id: string; role: GroupUserRole }>,
-    excludeUserId?: string
-): NormalizedGroupUser[] =>
-    Array.from(
-        new Map(
-            users
-                .filter(({ user_id }) => user_id !== excludeUserId)
-                .map(({ user_id, role }) => [
-                    user_id,
-                    {
-                        userId: user_id,
-                        role,
-                    } satisfies NormalizedGroupUser,
-                ])
-        ).values()
-    );
 
 export const groupRoute = new Elysia({ prefix: "/groups" })
     .use(authMiddleware)

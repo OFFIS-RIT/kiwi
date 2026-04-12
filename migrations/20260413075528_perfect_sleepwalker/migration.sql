@@ -1,4 +1,14 @@
-CREATE TABLE "accounts" (
+CREATE EXTENSION IF NOT EXISTS postgis;
+--> statement-breakpoint
+CREATE EXTENSION IF NOT EXISTS pgrouting;
+--> statement-breakpoint
+CREATE EXTENSION IF NOT EXISTS vector;
+--> statement-breakpoint
+CREATE EXTENSION IF NOT EXISTS vectorscale;
+--> statement-breakpoint
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+--> statement-breakpoint
+CREATE TABLE "account" (
 	"id" text PRIMARY KEY,
 	"userId" text NOT NULL,
 	"accountId" text NOT NULL,
@@ -14,8 +24,8 @@ CREATE TABLE "accounts" (
 	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "accounts" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
-CREATE TABLE "sessions" (
+ALTER TABLE "account" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE TABLE "session" (
 	"id" text PRIMARY KEY,
 	"userId" text NOT NULL,
 	"token" text NOT NULL UNIQUE,
@@ -27,8 +37,8 @@ CREATE TABLE "sessions" (
 	"imposonatedBy" text
 );
 --> statement-breakpoint
-ALTER TABLE "sessions" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
-CREATE TABLE "users" (
+ALTER TABLE "session" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE TABLE "user" (
 	"id" text PRIMARY KEY,
 	"name" text NOT NULL,
 	"email" text NOT NULL UNIQUE,
@@ -42,7 +52,7 @@ CREATE TABLE "users" (
 	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "users" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "user" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE TABLE "verification" (
 	"id" text PRIMARY KEY,
 	"identifier" text NOT NULL,
@@ -216,20 +226,20 @@ CREATE INDEX "idx_chat_messages_chat_role_status_id" ON "messages" ("chat_id","r
 CREATE INDEX "graphs_group_type_idx" ON "graphs" ("group_id","type");--> statement-breakpoint
 CREATE INDEX "graphs_user_type_idx" ON "graphs" ("user_id","type");--> statement-breakpoint
 CREATE INDEX "graphs_graph_type_idx" ON "graphs" ("graph_id","type");--> statement-breakpoint
-ALTER TABLE "accounts" ADD CONSTRAINT "accounts_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "sessions" ADD CONSTRAINT "sessions_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "sessions" ADD CONSTRAINT "sessions_imposonatedBy_users_id_fkey" FOREIGN KEY ("imposonatedBy") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint
-ALTER TABLE "chats" ADD CONSTRAINT "chats_user_id_users_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "account" ADD CONSTRAINT "account_userId_user_id_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "session" ADD CONSTRAINT "session_userId_user_id_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "session" ADD CONSTRAINT "session_imposonatedBy_user_id_fkey" FOREIGN KEY ("imposonatedBy") REFERENCES "user"("id") ON DELETE SET NULL;--> statement-breakpoint
+ALTER TABLE "chats" ADD CONSTRAINT "chats_user_id_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "user"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "chats" ADD CONSTRAINT "chats_project_id_graphs_id_fkey" FOREIGN KEY ("project_id") REFERENCES "graphs"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "messages" ADD CONSTRAINT "messages_chat_id_chats_id_fkey" FOREIGN KEY ("chat_id") REFERENCES "chats"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "entities" ADD CONSTRAINT "entities_graph_id_graphs_id_fkey" FOREIGN KEY ("graph_id") REFERENCES "graphs"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "files" ADD CONSTRAINT "files_graph_id_graphs_id_fkey" FOREIGN KEY ("graph_id") REFERENCES "graphs"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "graphs" ADD CONSTRAINT "graphs_group_id_groups_id_fkey" FOREIGN KEY ("group_id") REFERENCES "groups"("id") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "graphs" ADD CONSTRAINT "graphs_user_id_users_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "graphs" ADD CONSTRAINT "graphs_user_id_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "user"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "graphs" ADD CONSTRAINT "graphs_graph_id_graphs_id_fkey" FOREIGN KEY ("graph_id") REFERENCES "graphs"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "graph_updates" ADD CONSTRAINT "graph_updates_graph_id_graphs_id_fkey" FOREIGN KEY ("graph_id") REFERENCES "graphs"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "group_users" ADD CONSTRAINT "group_users_group_id_groups_id_fkey" FOREIGN KEY ("group_id") REFERENCES "groups"("id") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "group_users" ADD CONSTRAINT "group_users_user_id_users_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "group_users" ADD CONSTRAINT "group_users_user_id_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "user"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "relationships" ADD CONSTRAINT "relationships_source_id_entities_id_fkey" FOREIGN KEY ("source_id") REFERENCES "entities"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "relationships" ADD CONSTRAINT "relationships_target_id_entities_id_fkey" FOREIGN KEY ("target_id") REFERENCES "entities"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "relationships" ADD CONSTRAINT "relationships_graph_id_graphs_id_fkey" FOREIGN KEY ("graph_id") REFERENCES "graphs"("id") ON DELETE CASCADE;--> statement-breakpoint

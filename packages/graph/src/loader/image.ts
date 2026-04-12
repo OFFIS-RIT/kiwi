@@ -1,4 +1,5 @@
 import type { GraphBinaryLoader, GraphLoader } from "..";
+import { withAiSlot } from "@kiwi/ai";
 import { generateText } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 
@@ -15,22 +16,24 @@ export class ImageLoader implements GraphLoader {
         const mimeType = getImageMimeType(content);
         const base64 = Buffer.from(content).toString("base64");
 
-        const { text } = await generateText({
-            model: this.options.model,
-            system: "",
-            temperature: 0.1,
-            messages: [
-                {
-                    role: "user",
-                    content: [
-                        {
-                            type: "image",
-                            image: `data:${mimeType};base64,${base64}`,
-                        },
-                    ],
-                },
-            ],
-        });
+        const { text } = await withAiSlot("image", () =>
+            generateText({
+                model: this.options.model,
+                system: "",
+                temperature: 0.1,
+                messages: [
+                    {
+                        role: "user",
+                        content: [
+                            {
+                                type: "image",
+                                image: `data:${mimeType};base64,${base64}`,
+                            },
+                        ],
+                    },
+                ],
+            })
+        );
 
         return text;
     }

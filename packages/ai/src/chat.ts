@@ -1,5 +1,4 @@
 import type { ModelMessage } from "ai";
-import type { UIDataTypes, UIMessage, UITools } from "ai";
 import type { ChatMessage, MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
 import { jsonrepair } from "jsonrepair";
 import { toModelMessage } from "./index";
@@ -14,44 +13,13 @@ import {
 import { getSourcesTool } from "./tools/source";
 import { askQuestionTool } from "./tools/user";
 import type { Adapter, EmbeddingAdapter } from "./index";
+import type { ChatMessageMetadata, ChatUIMessage } from "./ui";
+export type { ChatDataParts, ChatMessageMetadata, ChatUIMessage, CitationPartData } from "./ui";
 
 const CLIENT_TOOL_NAMES = new Set(["ask_clarifying_questions"]);
 const CITATION_OPEN = ":::{";
 const CITATION_CLOSE = ":::";
 const STREAM_TOKEN_GUARD_LENGTH = CITATION_OPEN.length - 1;
-
-export type ChatMessageMetadata = {
-    createdAt?: string;
-    modelId?: string;
-    totalTokens?: number;
-    inputTokens?: number;
-    outputTokens?: number;
-    tokensPerSecond?: number;
-    timeToFirstToken?: number;
-    durationMs?: number;
-    consideredFileCount?: number;
-    usedFileCount?: number;
-};
-
-export type CitationPartData = {
-    id: string;
-    sourceId: string;
-    textUnitId: string;
-    fileId: string;
-    fileName: string;
-    fileKey: string;
-    excerpt?: string;
-    description?: string;
-};
-
-export type ChatDataParts = {
-    citation: CitationPartData;
-    step: {
-        name: string;
-    };
-};
-
-export type ChatUIMessage = UIMessage<ChatMessageMetadata, ChatDataParts, UITools>;
 
 export type CitationFence = {
     type: "cite";
@@ -184,14 +152,15 @@ function toMessageToolPart(part: {
 }
 
 function toMessageMetadataPart(metadata: ChatMessageMetadata): MessagePart | null {
-    const hasMetadata = Object.values(metadata).some((value) => value !== undefined);
+    const { createdAt: _, ...storedMetadata } = metadata;
+    const hasMetadata = Object.values(storedMetadata).some((value) => value !== undefined);
     if (!hasMetadata) {
         return null;
     }
 
     return {
         type: "metadata",
-        metadata,
+        metadata: storedMetadata,
     };
 }
 
@@ -306,7 +275,7 @@ export function messagePartsToUIMessage(
                 uiParts.push({ type: "reasoning", text: part.text });
                 break;
             case "citation":
-                uiParts.push({ type: "data-citation", id: part.citation.id, data: part.citation });
+                uiParts.push({ type: "data-citation", id: part.citation.sourceId, data: part.citation });
                 break;
             case "tool":
                 uiParts.push(toToolUIPart(part) as ChatUIMessage["parts"][number]);

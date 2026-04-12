@@ -1,14 +1,14 @@
 import { vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { ChatMessage } from "@/types/chat";
 import { LanguageProvider } from "@/providers/LanguageProvider";
+import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { MessageContent } from "../MessageContent";
 
 vi.mock("@/lib/api/projects", () => ({
     downloadProjectFile: vi.fn(async () => "https://example.com/download"),
 }));
 
-function renderMessageContent(parts: ChatMessage["parts"]) {
+function renderMessageContent(parts: ChatUIMessage["parts"]) {
     localStorage.setItem("language", "en");
 
     return render(
@@ -26,7 +26,6 @@ describe("MessageContent", () => {
                 type: "data-citation",
                 id: "src-1",
                 data: {
-                    id: "src-1",
                     sourceId: "src-1",
                     textUnitId: "unit-1",
                     fileId: "file-1",
@@ -51,7 +50,6 @@ describe("MessageContent", () => {
                 type: "data-citation",
                 id: "src-1",
                 data: {
-                    id: "src-1",
                     sourceId: "src-1",
                     textUnitId: "unit-1",
                     fileId: "file-1",
@@ -65,7 +63,6 @@ describe("MessageContent", () => {
                 type: "data-citation",
                 id: "src-1-repeat",
                 data: {
-                    id: "src-1-repeat",
                     sourceId: "src-1",
                     textUnitId: "unit-1",
                     fileId: "file-1",

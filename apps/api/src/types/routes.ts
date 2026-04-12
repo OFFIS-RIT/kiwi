@@ -1,4 +1,5 @@
 import type { ApiResponse } from "./responses";
+import type { ChatUIMessage } from "@kiwi/ai/ui";
 
 export type GroupUserRole = "admin" | "user" | "moderator";
 export type GraphState = "ready" | "updating";
@@ -39,14 +40,27 @@ export type GraphFileRecord = {
     key: string;
 };
 
-export type GraphDetailFileRecord = {
+export type GraphFileListItem = {
     id: string;
     project_id: string;
     name: string;
     file_key: string;
+    status: "processing" | "processed" | "failed";
+    process_step:
+        | "pending"
+        | "preprocessing"
+        | "metadata"
+        | "chunking"
+        | "extracting"
+        | "deduplicating"
+        | "saving"
+        | "completed"
+        | "failed";
     created_at: string | null;
     updated_at: string | null;
 };
+
+export type GraphDetailFileRecord = GraphFileListItem;
 
 export type ApiBatchStepProgressLike = {
     pending?: string;
@@ -89,21 +103,34 @@ export type GraphListItem = {
     process_eta_sample_count?: number;
 };
 
-export type GraphFileListItem = {
-    id: string;
-    project_id: string;
-    name: string;
-    file_key: string;
-    created_at: string | null;
-    updated_at: string | null;
-};
-
 export type TextUnitRecord = {
     id: string;
     project_file_id: string;
     text: string;
     created_at: string | null;
     updated_at: string | null;
+};
+
+export type ChatRequestBody = {
+    id: string;
+    messages: ChatUIMessage[];
+};
+
+export type ChatSummaryItem = {
+    id: string;
+    title: string;
+    updatedAt: string | null;
+};
+
+export type ChatHistoryRecord = {
+    id: string;
+    title: string;
+    messages: ChatUIMessage[];
+};
+
+export type ChatCreateSuccessData = {
+    id: string;
+    message: ChatUIMessage;
 };
 
 export type DeleteS3Cleanup = {
@@ -137,7 +164,7 @@ export type GraphDetailSuccessData = {
     hidden: boolean;
     group_id: string | null;
     group_name: string | null;
-    files: GraphDetailFileRecord[];
+    files: GraphFileListItem[];
 };
 
 export type GraphCreateSuccessData = {
@@ -292,5 +319,38 @@ export type TextUnitResponse = ApiResponse<
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "TEXT_UNIT_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type ChatListResponse = ApiResponse<
+    ChatSummaryItem[],
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GROUP_NOT_FOUND"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "CHAT_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type ChatDetailResponse = ApiResponse<
+    ChatHistoryRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GROUP_NOT_FOUND"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "CHAT_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type ChatCreateResponse = ApiResponse<
+    ChatCreateSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GROUP_NOT_FOUND"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "CHAT_NOT_FOUND"
     | "INTERNAL_SERVER_ERROR"
 >;

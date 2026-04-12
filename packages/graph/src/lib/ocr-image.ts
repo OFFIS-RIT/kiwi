@@ -1,4 +1,5 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
+import { withAiSlot } from "@kiwi/ai";
 import { embeddedImagePrompt } from "@kiwi/ai/prompts/image.prompt";
 import { putNamedFile } from "@kiwi/files";
 import { generateText } from "ai";
@@ -39,7 +40,6 @@ export async function processOCRImages(
     const describeImage = deps.describeImage ?? defaultDescribeImage;
     const uploadImage = deps.uploadImage ?? defaultUploadImage;
     const seenIds = new Set<string>();
-    let output = text;
 
     for (const image of images) {
         if (seenIds.has(image.id)) {
@@ -48,17 +48,28 @@ export async function processOCRImages(
 
         seenIds.add(image.id);
         const fence = `:::IMG-${image.id}:::`;
-        const occurrences = countOccurrences(output, fence);
+        const occurrences = countOccurrences(text, fence);
         if (occurrences !== 1) {
             throw new Error(`Expected exactly one fence for OCR image ${image.id}, found ${occurrences}`);
         }
+    }
 
-        const description = (await describeImage(image, model)).trim();
-        const extension = getExtensionForMimeType(image.type);
-        const uploaded = await uploadImage(`${image.id}.${extension}`, image.content, storage);
-        const tag = renderImageTag(image.id, uploaded.key, description);
+    const replacements = await Promise.all(
+        images.map(async (image) => {
+            const description = (await describeImage(image, model)).trim();
+            const extension = getExtensionForMimeType(image.type);
+            const uploaded = await uploadImage(`${image.id}.${extension}`, image.content, storage);
 
-        output = output.replace(fence, tag);
+            return {
+                fence: `:::IMG-${image.id}:::`,
+                tag: renderImageTag(image.id, uploaded.key, description),
+            };
+        })
+    );
+
+    let output = text;
+    for (const replacement of replacements) {
+        output = output.replace(replacement.fence, replacement.tag);
     }
 
     const remainingFence = output.match(/:::IMG-[^:]+:::/);
@@ -72,22 +83,24 @@ export async function processOCRImages(
 async function defaultDescribeImage(image: OCRImageAsset, model: LanguageModelV3): Promise<string> {
     const mimeType = image.type || "application/octet-stream";
     const base64 = Buffer.from(image.content).toString("base64");
-    const { text } = await generateText({
-        model,
-        system: embeddedImagePrompt,
-        temperature: 0.1,
-        messages: [
-            {
-                role: "user",
-                content: [
-                    {
-                        type: "image",
-                        image: `data:${mimeType};base64,${base64}`,
-                    },
-                ],
-            },
-        ],
-    });
+    const { text } = await withAiSlot("image", () =>
+        generateText({
+            model,
+            system: embeddedImagePrompt,
+            temperature: 0.1,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image",
+                            image: `data:${mimeType};base64,${base64}`,
+                        },
+                    ],
+                },
+            ],
+        })
+    );
 
     return text;
 }

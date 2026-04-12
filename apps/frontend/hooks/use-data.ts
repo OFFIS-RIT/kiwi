@@ -89,6 +89,10 @@ function hasActiveProcessing(groups?: Group[]): boolean {
     );
 }
 
+function hasProcessingFiles(files?: ApiProjectFile[]): boolean {
+    return files?.some((file) => file.status === "processing") ?? false;
+}
+
 function transformGroupsWithGraphs(apiGroups: ApiGroup[], apiGraphs: ApiGraph[]): Group[] {
     return apiGroups.map((apiGroup) => {
         const projects = apiGraphs
@@ -152,7 +156,7 @@ export function useGroupsWithProjects() {
         queryKey: queryKeys.groupsWithProjects,
         refetchInterval: (query) => {
             const groups = query.state.data as Group[] | undefined;
-            return hasActiveProcessing(groups) ? 30000 : false;
+            return hasActiveProcessing(groups) ? 5000 : false;
         },
         refetchIntervalInBackground: false,
         queryFn: async () => {
@@ -175,7 +179,7 @@ export function useGroupsWithProjectsSuspense() {
         queryKey: queryKeys.groupsWithProjects,
         refetchInterval: (query) => {
             const groups = query.state.data as Group[] | undefined;
-            return hasActiveProcessing(groups) ? 30000 : false;
+            return hasActiveProcessing(groups) ? 5000 : false;
         },
         refetchIntervalInBackground: false,
         queryFn: async () => {
@@ -409,14 +413,18 @@ export function useDeleteProject() {
  * @param projectId - The project identifier
  * @returns Query result containing array of project files
  */
-export function useProjectFiles(projectId: string) {
+export function useProjectFiles(projectId: string, options?: { enabled?: boolean }) {
     return useQuery({
         queryKey: queryKeys.projectFiles(projectId),
         queryFn: async () => {
             const { fetchProjectFiles } = await import("@/lib/api");
             return fetchProjectFiles(projectId);
         },
-        enabled: !!projectId,
+        enabled: (options?.enabled ?? true) && !!projectId,
+        refetchInterval: (query) => {
+            const files = query.state.data as ApiProjectFile[] | undefined;
+            return hasProcessingFiles(files) ? 5000 : false;
+        },
     });
 }
 

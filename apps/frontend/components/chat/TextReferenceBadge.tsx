@@ -13,12 +13,12 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { downloadProjectFile } from "@/lib/api/projects";
 import { useLanguage } from "@/providers/LanguageProvider";
-import type { CitationData } from "@/types/chat";
+import type { CitationPartData } from "@kiwi/ai/ui";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
 import React, { useState } from "react";
 
 type TextReferenceBadgeProps = {
-    citation: CitationData;
+    citation: CitationPartData;
     index: number;
     projectId?: string;
 };

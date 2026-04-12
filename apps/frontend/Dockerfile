@@ -38,6 +38,8 @@ COPY apps/frontend/components.json apps/frontend/components.json
 COPY apps/frontend/postcss.config.mjs apps/frontend/postcss.config.mjs
 COPY apps/frontend/tsconfig.json apps/frontend/tsconfig.json
 COPY apps/api/src/types apps/api/src/types
+COPY packages/ai/src packages/ai/src
+COPY packages/ai/tsconfig.json packages/ai/tsconfig.json
 COPY packages/auth/src packages/auth/src
 COPY packages/auth/tsconfig.json packages/auth/tsconfig.json
 

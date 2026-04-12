@@ -29,33 +29,30 @@
 
 ## Features
 
-- **Document Processing** – Upload PDFs, images, audio, CSV, and Excel files
-- **Adaptive PDF OCR Rendering** – Automatically switches to high-resolution tiled rendering with optional panel splitting for large technical drawings (A1/A0)
-- **Knowledge Graph Extraction** – AI-powered entity and relationship extraction
-- **Graph Storage** – Entities and relations stored as queryable knowledge graph
-- **Vector Search** – Semantic search using pgvector embeddings
-- **Graph Exploration Tools** – AI-powered tools for relationship traversal,
-  multi-hop path finding, and autonomous knowledge exploration
-- **Authentication & Authorization** – better-auth with JWT, role-based access
-  control (admin/manager/user), LDAP and email/password modes
-- **User Management** – Admin panel for managing users, roles, and bans
-- **Chat Interface** – Ask questions about your documents with streaming AI
-  responses (normal and agentic modes)
-- **Multi-Model Support** – Works with OpenAI API or local Ollama models
-    - **Note:** When using OpenAI API with reasoning enabled, temperature is fixed
-      to 1.0 (required by o-series and gpt-5+ models)
+- **Document Processing** – Upload and process PDFs, images, audio, CSV, and Excel files
+- **Adaptive PDF OCR Rendering** – Automatically switches to high-resolution tiled rendering, with optional panel splitting for large technical drawings such as A1 and A0 sheets
+- **Knowledge Graph Extraction** – Uses AI to extract entities, relationships, and supporting evidence from uploaded documents
+- **Graph Storage** – Stores entities and relationships in a queryable knowledge graph backed by PostgreSQL and pgvector
+- **Vector Search** – Supports semantic retrieval over extracted document content
+- **Graph Exploration Tools** – Provides AI-assisted traversal, multi-hop path finding, and source-grounded exploration of graph data
+- **Authentication & Authorization** – Uses Better Auth for sessions, roles, LDAP, and email/password sign-in
+- **User Management** – Includes an admin UI for managing users, roles, and bans
+- **Chat Interface** – Lets users ask questions about their documents with streaming responses in both normal and agentic modes
+- **Multi-Model Support** – Works with OpenAI-compatible providers, OpenAI, Azure, Anthropic, and local inference backends where available
+
+When using OpenAI reasoning models, temperature is fixed to `1.0`, as required by the provider.
 
 ## Tech Stack
 
-| Layer    | Technology                                              |
-| -------- | ------------------------------------------------------- |
-| Frontend | Next.js 16, React 19, TanStack Query, Tailwind CSS, Bun |
-| Backend  | Go 1.25, Echo Framework, sqlc                           |
-| Auth     | better-auth (Elysia, JWT, Admin plugin, LDAP)           |
-| Database | PostgreSQL + pgvector                                   |
-| Workflow | PostgreSQL-backed durable workflow runtime              |
-| Storage  | RustFS (S3-compatible)                                  |
-| AI       | OpenAI API / Ollama                                     |
+| Layer    | Technology                                                  |
+| -------- | ----------------------------------------------------------- |
+| Frontend | Next.js 16, React 19, TanStack Query, Tailwind CSS, Bun     |
+| Backend  | Bun, Elysia, Drizzle ORM                                    |
+| Auth     | Better Auth with admin roles, LDAP, and email/password      |
+| Database | PostgreSQL + pgvector                                        |
+| Workflow | OpenWorkflow with PostgreSQL-backed durable workflow storage |
+| Storage  | RustFS (S3-compatible)                                      |
+| AI       | Vercel AI SDK with OpenAI, Azure, Anthropic, and compatible APIs |
 
 ---
 
@@ -74,7 +71,7 @@ cd kiwi
 
 # Configure environment
 cp .env.sample .env
-# Edit .env with your AI API keys
+# Edit .env with your AI credentials and local settings
 
 # Start development infrastructure
 docker compose up -d
@@ -96,7 +93,9 @@ infrastructure is up.
 
 The `rustfs-setup` container automatically creates the S3 bucket on first start.
 
-For local AI with Ollama:
+If you want to use a local OpenAI-compatible model backend such as Ollama, point the AI settings in `.env` to that endpoint.
+
+For example, with Ollama:
 
 ```bash
 docker exec -it ollama ollama pull <model-name>
@@ -125,7 +124,7 @@ certificate files in `./certs`.
 | Service    | Description                    |
 | ---------- | ------------------------------ |
 | caddy      | Edge proxy with HTTPS          |
-| frontend   | Frontend static site           |
+| frontend   | Next.js frontend               |
 | server     | Bun API server with `/auth`    |
 | worker     | Durable workflow worker        |
 | migrations | Startup migration job          |
@@ -180,69 +179,37 @@ certificate files in `./certs`.
 
 #### Graph Exploration Tools (Agentic Mode)
 
-| Tool                           | Capability                                                          |
-| ------------------------------ | ------------------------------------------------------------------- |
-| `search_entities`              | Semantic vector search to find entities matching a query            |
-| `search_entities_by_type`      | Search entities filtered by type (e.g., Person, Organization)       |
-| `get_entity_types`             | List all entity types with counts                                   |
-| `get_entity_neighbours`        | Relationship traversal: get directly connected entities             |
-| `get_entity_details`           | Retrieve full entity descriptions by ID                             |
-| `path_between_entities`        | Multi-hop traversal: find shortest path between entities (Dijkstra) |
-| `get_entity_sources`           | Retrieve source text chunks for entities (citations)                |
-| `get_relationship_sources`     | Retrieve source text chunks for relationships                       |
-| `get_source_document_metadata` | Get document metadata for source context                            |
+| Tool                        | Capability                                                                    |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `list_files`                | List files in the current graph and return file IDs for follow-up tool calls  |
+| `search_entities`           | Find entities by name, alias, type, or short topical query                    |
+| `list_entities`             | Scan entities broadly, optionally scoped to specific files                     |
+| `search_relationships`      | Search relationships relevant to a query and return relationship IDs           |
+| `get_relationships`         | Retrieve relationships for known entity IDs                                    |
+| `get_entity_neighbours`     | Traverse directly connected entities from a selected entity                    |
+| `get_path_between_entities` | Find multi-hop paths between two entities                                      |
+| `get_sources`               | Retrieve source evidence and citation IDs for entities or relationships        |
+| `ask_clarifying_questions`  | Ask the user for missing information when the graph and prior context are insufficient |
 
 ---
 
 ## Library Usage
 
-KIWI can be used as a standalone platform or as a Go library with pluggable
-adapters. Implement these interfaces to integrate with your own infrastructure:
+KIWI is organized as a Bun workspace monorepo. The main applications and shared packages are:
 
-| Interface          | Package      | Purpose                                                            |
-| ------------------ | ------------ | ------------------------------------------------------------------ |
-| `GraphAIClient`    | `pkg/ai`     | AI operations (completions, embeddings, image/audio transcription) |
-| `GraphStorage`     | `pkg/store`  | Graph persistence and querying                                     |
-| `WorkflowStorage`  | `pkg/store`  | Durable workflow run and step persistence                          |
-| `GraphFileLoader`  | `pkg/loader` | File content loading from any source                               |
-| `GraphQueryClient` | `pkg/query`  | Query execution with local/global/tool modes                       |
-| `LoggerInstance`   | `pkg/logger` | Logging backend                                                    |
+| Package             | Purpose                                                                    |
+| ------------------- | -------------------------------------------------------------------------- |
+| `apps/frontend`     | Next.js frontend for document upload, graph browsing, admin flows, and chat |
+| `apps/api`          | Elysia API server, auth bridge, route handlers, and OpenWorkflow integration |
+| `apps/worker`       | Background worker that executes durable workflows for file processing        |
+| `packages/ai`       | Shared AI adapters, prompt helpers, chat message types, and tool wiring     |
+| `packages/auth`     | Better Auth server and client setup, permissions, and auth helpers          |
+| `packages/db`       | Drizzle schema, tables, and database access                                 |
+| `packages/files`    | Shared RustFS and S3 file utilities                                          |
+| `packages/graph`    | Graph extraction, chunking, loaders, and processing logic                   |
+| `packages/logger`   | Shared logging and OpenTelemetry helpers                                    |
 
-The durable workflow runtime lives in `pkg/workflow` and provides replayable
-workflow execution, memoized steps, durable sleep, child workflows, and a
-standalone worker that uses `WorkflowStorage` for persistence.
-
-### Built-in Adapters
-
-| Adapter    | Package              | Description                                    |
-| ---------- | -------------------- | ---------------------------------------------- |
-| OpenAI     | `pkg/ai/openai`      | OpenAI API for chat, embeddings, vision, audio |
-| Ollama     | `pkg/ai/ollama`      | Local LLM inference via Ollama                 |
-| PostgreSQL | `pkg/store/pgx`      | Graph storage with pgvector                    |
-| Console    | `pkg/logger/console` | Structured console logging                     |
-
-### Built-in File Loaders
-
-Base loaders (implement `GraphFileLoader`):
-
-| Loader | Package         | Description                  |
-| ------ | --------------- | ---------------------------- |
-| S3     | `pkg/loader/s3` | S3-compatible object storage |
-| IO     | `pkg/loader/io` | Local filesystem             |
-
-Processing loaders (wrap base loaders to transform content):
-
-| Loader | Package            | Description                               |
-| ------ | ------------------ | ----------------------------------------- |
-| PDF    | `pkg/loader/pdf`   | PDF text extraction with optional OCR     |
-| Doc    | `pkg/loader/doc`   | Word document extraction (.docx, .doc)    |
-| PPTX   | `pkg/loader/pptx`  | PowerPoint extraction via OCR             |
-| Excel  | `pkg/loader/excel` | Excel to CSV conversion                   |
-| CSV    | `pkg/loader/csv`   | CSV parsing to text                       |
-| Image  | `pkg/loader/image` | AI vision description                     |
-| Audio  | `pkg/loader/audio` | AI audio transcription                    |
-| OCR    | `pkg/loader/ocr`   | AI-powered text extraction from images    |
-| Web    | `pkg/loader/web`   | Web page content extraction (readability) |
+This structure keeps frontend, API, worker, and shared business logic aligned while still allowing each app to ship independently.
 
 ---
 
@@ -259,6 +226,9 @@ Copy `.env.sample` to `.env` and configure:
 | `APP_DOMAIN`                       | Public domain used by Caddy for HTTPS and `/s3` proxying              |
 | `AUTH_SECRET`                      | Secret key for authentication                                         |
 | `AUTH_URL`                         | Public auth base URL                                                  |
+| `TRUSTED_ORIGINS`                  | Comma-separated origins allowed to call auth/API with credentials     |
+| `AUTH_CROSS_SUBDOMAIN_COOKIES`     | Enable Better Auth cross-subdomain cookies                            |
+| `AUTH_COOKIE_DOMAIN`               | Optional cookie domain for shared auth sessions across subdomains     |
 | `WORKER_CONCURRENCY`               | Maximum number of workflow runs processed in parallel by the worker   |
 | `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                 |
 | `NEXT_PUBLIC_AUTH_URL`             | Frontend auth service base URL                                        |
@@ -279,18 +249,13 @@ Copy `.env.sample` to `.env` and configure:
 | `LDAP_BASE_DN`                     | LDAP base DN                                                          |
 | `LDAP_SEARCH_ATTR`                 | LDAP search attribute                                                 |
 | `MASTER_USER_ID`                   | Master user ID (string)                                               |
-| `MASTER_USER_ROLE`                 | Master user role (e.g., admin)                                        |
 | `MASTER_USER_NAME`                 | Optional display name for the bootstrapped master user                |
 | `MASTER_USER_EMAIL`                | Optional email for the bootstrapped master user                       |
+| `MASTER_USER_PASSWORD`             | Optional password for bootstrapping a credential login for master user |
 | `DATABASE_URL`                     | Host PgBouncer PostgreSQL connection string                           |
-| `OPENWORKFLOW_POSTGRES_URL`        | Host OpenWorkflow PostgreSQL connection string                        |
 | `DATABASE_DIRECT_URL`              | Host direct PostgreSQL connection string                              |
-| `DATABASE_URL_INTERNAL`            | Internal PgBouncer URL for Compose containers                         |
-| `OPENWORKFLOW_POSTGRES_URL_INTERNAL` | Internal OpenWorkflow URL for Compose containers                    |
-| `DATABASE_DIRECT_URL_INTERNAL`     | Internal direct PostgreSQL URL for migrations                         |
 | `S3_REGION`                        | S3 region                                                             |
 | `S3_ENDPOINT`                      | Host RustFS endpoint                                                  |
-| `S3_ENDPOINT_INTERNAL`             | Internal RustFS endpoint for Compose containers                       |
 | `TLS_EMAIL`                        | Optional ACME contact email used by Caddy                             |
 | `S3_ACCESS_KEY_ID`                 | S3 access key                                                         |
 | `S3_SECRET_ACCESS_KEY`             | S3 secret key                                                         |
@@ -329,6 +294,56 @@ LDAP env vars are configured, and leave it as `credentials` (or unset) otherwise
 
 Note: When all LDAP variables are set, LDAP sign-in is enabled and email/password auth is disabled.
 
+### Cross-Subdomain Cookies
+
+To share auth sessions across subdomains, configure the backend with:
+
+- `TRUSTED_ORIGINS` set to a comma-separated list of frontend origins, for example `https://app.example.com,https://admin.example.com`
+- `AUTH_CROSS_SUBDOMAIN_COOKIES=true`
+- `AUTH_COOKIE_DOMAIN=.example.com` (or the most specific shared domain you need)
+
+Example:
+
+```env
+AUTH_URL=https://auth.example.com/auth
+TRUSTED_ORIGINS=https://app.example.com,https://admin.example.com
+AUTH_CROSS_SUBDOMAIN_COOKIES=true
+AUTH_COOKIE_DOMAIN=.example.com
+```
+
+When you deploy behind Caddy on one host, keep the frontend build args on relative paths:
+
+- `NEXT_PUBLIC_API_URL=/api`
+- `NEXT_PUBLIC_AUTH_URL=/auth`
+
+Example:
+
+```env
+AUTH_URL=https://kiwi.example.com/auth
+TRUSTED_ORIGINS=https://kiwi.example.com
+NEXT_PUBLIC_API_URL=/api
+NEXT_PUBLIC_AUTH_URL=/auth
+```
+
+For local Bun development without Caddy, point the frontend directly at the API/auth server:
+
+```env
+AUTH_URL=http://localhost:4321/auth
+NEXT_PUBLIC_API_URL=http://localhost:4321
+NEXT_PUBLIC_AUTH_URL=http://localhost:4321/auth
+```
+
+OpenWorkflow uses `DATABASE_DIRECT_URL` instead of a separate workflow-specific connection variable.
+Use `DATABASE_URL` for pooled application queries and `DATABASE_DIRECT_URL` for migrations and workflow storage.
+
+For production, set these variables to the container-network endpoints used inside the Compose stack:
+
+```env
+DATABASE_URL=postgresql://kiwi:kiwi@bouncer:5432/kiwi?sslmode=disable
+DATABASE_DIRECT_URL=postgresql://kiwi:kiwi@postgres:5432/kiwi?sslmode=disable
+S3_ENDPOINT=http://rustfs:9000
+```
+
 </details>
 
 ---
@@ -343,7 +358,7 @@ docker compose down   # Stop infrastructure
 
 Run database migrations manually after the infrastructure is up and before
 starting the app processes. When `MASTER_USER_ID` is configured, the API also
-ensures the matching user exists with the configured role and profile fields.
+ensures the matching user exists as an admin with the configured profile fields.
 
 ### Development Services
 
@@ -352,17 +367,17 @@ ensures the matching user exists with the configured role and profile fields.
 | frontend   | 3000       | Next.js dev server             |
 | server     | 4321       | Bun API server with `/auth`    |
 | worker     | -          | Durable workflow worker        |
-| postgres   | internal   | PostgreSQL + pgvector          |
-| bouncer    | 5432       | PostgreSQL connection pool     |
+| postgres   | 5433       | Direct PostgreSQL connection   |
+| bouncer    | 5432       | PgBouncer pooled connection    |
 | rustfs     | 9000, 9001 | S3-compatible storage          |
 
 ### Worker Runtime
 
-The background worker (`apps/worker`) executes durable workflow runs stored in PostgreSQL.
+The background worker in `apps/worker` executes durable workflow runs stored in PostgreSQL.
 
 - API requests enqueue `process`, `delete`, and `description` workflow runs transactionally.
-- The worker polls pending runs, claims a lease, heartbeats while executing, and retries failures with backoff.
-- File indexing fans out to one `process` workflow per file; once all file workflows in a correlation finish, description workflows are enqueued automatically.
+- The worker polls pending runs, claims a lease, heartbeats while work is in progress, and retries failures with backoff.
+- File indexing fans out to one `process` workflow per file. Once all file workflows in a correlation finish, description workflows are enqueued automatically.
 - Delete operations use `delete` workflows and refresh affected descriptions before the project returns to `ready`.
 
 ```bash

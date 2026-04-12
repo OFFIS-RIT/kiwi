@@ -7,9 +7,11 @@ describe("extractFullOCRTextFromPDF", () => {
         const rasterizePages = mock(async () => [new Uint8Array([1]), new Uint8Array([2]), new Uint8Array([3])]);
         const transcribePage = mock(async (image: Uint8Array) => {
             if (image[0] === 1) {
+                await new Promise((resolve) => setTimeout(resolve, 20));
                 return "  # Page 1\nAlpha  ";
             }
             if (image[0] === 2) {
+                await new Promise((resolve) => setTimeout(resolve, 1));
                 return "## Page 2\nBeta";
             }
 

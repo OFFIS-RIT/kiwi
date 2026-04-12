@@ -11,6 +11,7 @@
     },
     "dependencies": {
         "@ai-sdk/react": "catalog:",
+        "@kiwi/ai": "workspace:*",
         "@kiwi/api": "workspace:*",
         "@kiwi/auth": "workspace:*",
         "@radix-ui/react-avatar": "^1.1.11",

@@ -10,18 +10,18 @@ export const deleteGraphFiles = defineWorkflow(deleteGraphFilesSpec, async ({ in
         await db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId));
     });
 
-    try {
-        for (const fileId of input.fileIds) {
-            await step.runWorkflow(deleteFileSpec, {
+    await Promise.all(
+        input.fileIds.map((fileId) =>
+            step.runWorkflow(deleteFileSpec, {
                 graphId: input.graphId,
                 fileId,
-            });
-        }
-    } finally {
-        await step.run({ name: "finalize-project-status" }, async () => {
-            await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
-        });
-    }
+            })
+        )
+    );
+
+    await step.run({ name: "finalize-project-status" }, async () => {
+        await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
+    });
 
     return {
         fileIds: input.fileIds,

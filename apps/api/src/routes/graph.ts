@@ -1,7 +1,5 @@
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { Elysia, t } from "elysia";
-import { auth } from "@kiwi/auth/server";
-import type { KiwiPermissions } from "@kiwi/auth/permissions";
 import { db } from "@kiwi/db";
 import { filesTable, graphTable, groupTable, groupUserTable } from "@kiwi/db/tables/graph";
 import { deleteFile, getPresignedDownloadUrl, listFiles, putFile } from "@kiwi/files";
@@ -11,547 +9,38 @@ import { processFilesSpec } from "@kiwi/worker/process-files-spec";
 import { env } from "../env";
 import { chunk } from "../lib/array";
 import { collectGraphClosure } from "../lib/graph";
-import { type AuthUser, authMiddleware } from "../middleware/auth";
+import {
+    assertCanCreateUnderParentGraph,
+    assertCanPatchGraph,
+    assertCanViewGraph,
+    resolveGraphOwnerRoot,
+    requireGroupUpdateAccess,
+    type GraphRecord,
+    selectGraphFields,
+} from "../lib/graph-access";
+import {
+    cleanupUploadedKeys,
+    cleanupFailedGraphCreation,
+    mapGraphError,
+    mapGraphListItemsWithProcessing,
+    toGraphFileRecord,
+    normalizeFiles,
+    normalizeFileType,
+    normalizeHidden,
+    normalizeStringList,
+    restoreGraphFileChangeFailure,
+    selectFileFields,
+    selectGraphListFields,
+    selectGraphDetailFileFields,
+    type CreatedFileRecord,
+    type GraphFileRow,
+    type UploadedFile,
+} from "../lib/graph-route";
+import type { GraphDetailFileRecord } from "../types/routes";
+import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { ow } from "../openworkflow";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
-
-const INVALID_GRAPH_OWNER = "INVALID_GRAPH_OWNER";
-const GROUP_NOT_FOUND = "GROUP_NOT_FOUND";
-const GRAPH_NOT_FOUND = "GRAPH_NOT_FOUND";
-const FORBIDDEN = "FORBIDDEN";
-const INVALID_FILE_IDS = "INVALID_FILE_IDS";
-const INVALID_NAME = "INVALID_NAME";
-const NO_CHANGES = "NO_CHANGES";
-
-type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "text";
-type GroupAccessResult = { groupId: string };
-type RootOwner =
-    | {
-          mode: "user";
-          userId: string;
-      }
-    | {
-          mode: "group";
-          groupId: string;
-      };
-type UploadedFile = {
-    name: string;
-    size: number;
-    type: GraphFileType;
-    mimeType: string;
-    key: string;
-};
-type GraphRecord = {
-    id: string;
-    name: string;
-    description: string | null;
-    groupId: string | null;
-    userId: string | null;
-    graphId: string | null;
-    hidden: boolean;
-    state: "ready" | "updating";
-};
-type CreatedFileRecord = {
-    id: string;
-    name: string;
-    type: string;
-    mimeType: string;
-    size: number;
-    key: string;
-};
-type ProjectDetailFileRow = {
-    id: string;
-    project_id: string;
-    name: string;
-    file_key: string;
-    created_at: Date | null;
-    updated_at: Date | null;
-};
-type ProjectDetailFileRecord = {
-    id: string;
-    project_id: string;
-    name: string;
-    file_key: string;
-    created_at: string | null;
-    updated_at: string | null;
-};
-type StatusFn = (code: number, body: unknown) => unknown;
-
-const selectGraphFields = {
-    id: graphTable.id,
-    name: graphTable.name,
-    description: graphTable.description,
-    groupId: graphTable.groupId,
-    userId: graphTable.userId,
-    graphId: graphTable.graphId,
-    hidden: graphTable.hidden,
-    state: graphTable.state,
-};
-
-const selectFileFields = {
-    id: filesTable.id,
-    name: filesTable.name,
-    type: filesTable.type,
-    mimeType: filesTable.mimeType,
-    size: filesTable.size,
-    key: filesTable.key,
-};
-
-const selectProjectDetailFileFields = {
-    id: filesTable.id,
-    project_id: filesTable.graphId,
-    name: filesTable.name,
-    file_key: filesTable.key,
-    created_at: filesTable.createdAt,
-    updated_at: filesTable.updatedAt,
-};
-
-const selectGraphListFields = {
-    graph_id: graphTable.id,
-    graph_name: graphTable.name,
-    graph_state: graphTable.state,
-    group_id: graphTable.groupId,
-    hidden: graphTable.hidden,
-};
-
-const mapProjectDetailFileRecord = (file: ProjectDetailFileRow): ProjectDetailFileRecord => ({
-    ...file,
-    created_at: file.created_at?.toISOString() ?? null,
-    updated_at: file.updated_at?.toISOString() ?? null,
-});
-
-const normalizeFiles = (files?: File | File[]) => {
-    if (!files) {
-        return [];
-    }
-
-    return Array.isArray(files) ? files : [files];
-};
-
-const normalizeStringList = (value?: string | string[]) => {
-    if (!value) {
-        return [];
-    }
-
-    const values = Array.isArray(value) ? value : [value];
-    return [...new Set(values.filter((entry) => entry.length > 0))];
-};
-
-const normalizeHidden = (hidden?: boolean | "true" | "false") => {
-    if (hidden === undefined) {
-        return undefined;
-    }
-
-    return hidden === true || hidden === "true";
-};
-
-const normalizeFileType = (name: string, mimeType?: string): GraphFileType => {
-    const normalizedMimeType = mimeType?.trim().toLowerCase() ?? "";
-    const rawExtension = name.split(".").pop()?.trim().toLowerCase();
-    const extension = rawExtension && rawExtension !== name.toLowerCase() ? rawExtension : "";
-
-    if (normalizedMimeType === "application/pdf" || extension === "pdf") {
-        return "pdf";
-    }
-
-    if (
-        normalizedMimeType === "application/msword" ||
-        normalizedMimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-        extension === "doc" ||
-        extension === "docx"
-    ) {
-        return "doc";
-    }
-
-    if (
-        normalizedMimeType === "application/vnd.ms-excel" ||
-        normalizedMimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-        normalizedMimeType === "text/csv" ||
-        extension === "xls" ||
-        extension === "xlsx" ||
-        extension === "csv"
-    ) {
-        return "sheet";
-    }
-
-    if (
-        normalizedMimeType === "application/vnd.ms-powerpoint" ||
-        normalizedMimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
-        extension === "ppt" ||
-        extension === "pptx"
-    ) {
-        return "ppt";
-    }
-
-    if (normalizedMimeType.startsWith("image/")) {
-        return "image";
-    }
-
-    if (normalizedMimeType === "application/json" || extension === "json") {
-        return "json";
-    }
-
-    return "text";
-};
-
-const getGraphById = async (graphId: string): Promise<GraphRecord | null> => {
-    const [graph] = await db.select(selectGraphFields).from(graphTable).where(eq(graphTable.id, graphId)).limit(1);
-    return graph ?? null;
-};
-
-const requireGroupUpdateAccess = async (
-    headers: Headers,
-    user: AuthUser,
-    groupId: string
-): Promise<GroupAccessResult> => {
-    const [group] = await db.select({ id: groupTable.id }).from(groupTable).where(eq(groupTable.id, groupId)).limit(1);
-
-    if (!group) {
-        throw new Error(GROUP_NOT_FOUND);
-    }
-
-    if (user.role === "admin") {
-        return {
-            groupId,
-        };
-    }
-
-    const [membership] = await db
-        .select({
-            groupId: groupUserTable.groupId,
-        })
-        .from(groupUserTable)
-        .where(and(eq(groupUserTable.groupId, groupId), eq(groupUserTable.userId, user.id)))
-        .limit(1);
-
-    if (!membership) {
-        throw new Error(FORBIDDEN);
-    }
-
-    const permissionCheck = await auth.api.userHasPermission({
-        headers,
-        body: {
-            permissions: {
-                group: ["update"],
-            } satisfies KiwiPermissions,
-        },
-    });
-
-    if (!permissionCheck.success) {
-        throw new Error(FORBIDDEN);
-    }
-
-    return {
-        groupId,
-    };
-};
-
-const requireGroupViewAccess = async (user: AuthUser, groupId: string): Promise<GroupAccessResult> => {
-    const [group] = await db.select({ id: groupTable.id }).from(groupTable).where(eq(groupTable.id, groupId)).limit(1);
-
-    if (!group) {
-        throw new Error(GROUP_NOT_FOUND);
-    }
-
-    const [membership] = await db
-        .select({
-            groupId: groupUserTable.groupId,
-        })
-        .from(groupUserTable)
-        .where(and(eq(groupUserTable.groupId, groupId), eq(groupUserTable.userId, user.id)))
-        .limit(1);
-
-    if (!membership) {
-        throw new Error(FORBIDDEN);
-    }
-
-    return {
-        groupId,
-    };
-};
-
-const resolveGraphOwnerRoot = async (parentGraphId: string): Promise<RootOwner> => {
-    const visited = new Set<string>();
-    let currentGraphId = parentGraphId;
-    let isRootLookup = true;
-
-    while (true) {
-        if (visited.has(currentGraphId)) {
-            throw new Error(INVALID_GRAPH_OWNER);
-        }
-
-        visited.add(currentGraphId);
-
-        const graph = await getGraphById(currentGraphId);
-        if (!graph) {
-            throw new Error(isRootLookup ? GRAPH_NOT_FOUND : INVALID_GRAPH_OWNER);
-        }
-
-        if (graph.userId) {
-            return {
-                mode: "user",
-                userId: graph.userId,
-            };
-        }
-
-        if (graph.groupId) {
-            return {
-                mode: "group",
-                groupId: graph.groupId,
-            };
-        }
-
-        if (!graph.graphId) {
-            throw new Error(INVALID_GRAPH_OWNER);
-        }
-
-        currentGraphId = graph.graphId;
-        isRootLookup = false;
-    }
-};
-
-const assertCanCreateUnderParentGraph = async (headers: Headers, user: AuthUser, parentGraphId: string) => {
-    if (user.role === "admin") {
-        await resolveGraphOwnerRoot(parentGraphId);
-        return;
-    }
-
-    const rootOwner = await resolveGraphOwnerRoot(parentGraphId);
-    if (rootOwner.mode === "user") {
-        if (rootOwner.userId !== user.id) {
-            throw new Error(FORBIDDEN);
-        }
-        return;
-    }
-
-    await requireGroupUpdateAccess(headers, user, rootOwner.groupId);
-};
-
-const assertCanPatchGraph = async (headers: Headers, user: AuthUser, graphId: string): Promise<GraphRecord> => {
-    const graph = await getGraphById(graphId);
-    if (!graph) {
-        throw new Error(GRAPH_NOT_FOUND);
-    }
-
-    if (user.role === "admin") {
-        return graph;
-    }
-
-    const rootOwner = await resolveGraphOwnerRoot(graph.id);
-    if (rootOwner.mode === "user") {
-        if (rootOwner.userId !== user.id) {
-            throw new Error(FORBIDDEN);
-        }
-
-        return graph;
-    }
-
-    await requireGroupUpdateAccess(headers, user, rootOwner.groupId);
-    return graph;
-};
-
-export const assertCanViewGraph = async (user: AuthUser, graphId: string): Promise<GraphRecord> => {
-    const graph = await getGraphById(graphId);
-    if (!graph) {
-        throw new Error(GRAPH_NOT_FOUND);
-    }
-
-    if (user.role === "admin") {
-        return graph;
-    }
-
-    const rootOwner = await resolveGraphOwnerRoot(graph.id);
-    if (rootOwner.mode === "user") {
-        if (rootOwner.userId !== user.id) {
-            throw new Error(FORBIDDEN);
-        }
-
-        return graph;
-    }
-
-    await requireGroupViewAccess(user, rootOwner.groupId);
-    return graph;
-};
-
-const cleanupUploadedKeys = async (uploadedKeys: string[]) => {
-    const deleteResults = await Promise.allSettled(uploadedKeys.map((key) => deleteFile(key, env.S3_BUCKET)));
-    return deleteResults.filter((result) => result.status === "rejected").length;
-};
-
-const cleanupFailedGraphCreation = async (
-    graphId: string,
-    uploadedKeys: string[],
-    phase: "upload" | "db_insert_files" | "enqueue",
-    ownerMode: "group" | "user" | "graph"
-) => {
-    const failedDeletes = await cleanupUploadedKeys(uploadedKeys);
-
-    try {
-        await db.delete(graphTable).where(eq(graphTable.id, graphId));
-    } catch (cleanupError) {
-        logError(
-            "failed to cleanup graph after graph creation error",
-            "graphId",
-            graphId,
-            "ownerMode",
-            ownerMode,
-            "phase",
-            phase,
-            "uploadedKeyCount",
-            uploadedKeys.length,
-            "failedS3CleanupCount",
-            failedDeletes,
-            "error",
-            cleanupError
-        );
-        return;
-    }
-
-    if (failedDeletes > 0) {
-        logError(
-            "graph creation cleanup left orphaned s3 files",
-            "graphId",
-            graphId,
-            "ownerMode",
-            ownerMode,
-            "phase",
-            phase,
-            "uploadedKeyCount",
-            uploadedKeys.length,
-            "failedS3CleanupCount",
-            failedDeletes
-        );
-    }
-};
-
-const restoreGraphFileChangeFailure = async (
-    graphId: string,
-    previousGraph: GraphRecord,
-    addedFileIds: string[],
-    uploadedKeys: string[]
-) => {
-    const failedDeletes = await cleanupUploadedKeys(uploadedKeys);
-
-    try {
-        await db.transaction(async (tx) => {
-            if (addedFileIds.length > 0) {
-                await tx.delete(filesTable).where(inArray(filesTable.id, addedFileIds));
-            }
-
-            await tx
-                .update(graphTable)
-                .set({
-                    name: previousGraph.name,
-                    description: previousGraph.description,
-                    state: previousGraph.state,
-                })
-                .where(eq(graphTable.id, graphId));
-        });
-    } catch (cleanupError) {
-        logError(
-            "failed to rollback graph file change after enqueue failure",
-            "graphId",
-            graphId,
-            "addedFileCount",
-            addedFileIds.length,
-            "uploadedKeyCount",
-            uploadedKeys.length,
-            "failedS3CleanupCount",
-            failedDeletes,
-            "error",
-            cleanupError
-        );
-        return;
-    }
-
-    if (failedDeletes > 0) {
-        logError(
-            "graph file change rollback left orphaned s3 files",
-            "graphId",
-            graphId,
-            "addedFileCount",
-            addedFileIds.length,
-            "uploadedKeyCount",
-            uploadedKeys.length,
-            "failedS3CleanupCount",
-            failedDeletes
-        );
-    }
-};
-
-function mapGraphError(statusFn: StatusFn, error: unknown) {
-    if (!(error instanceof Error)) {
-        return statusFn(500, {
-            status: "error",
-            message: "Internal server error",
-            code: "INTERNAL_SERVER_ERROR",
-        });
-    }
-
-    if (error.message === GROUP_NOT_FOUND) {
-        return statusFn(404, {
-            status: "error",
-            message: "Group not found",
-            code: GROUP_NOT_FOUND,
-        });
-    }
-
-    if (error.message === GRAPH_NOT_FOUND) {
-        return statusFn(404, {
-            status: "error",
-            message: "Graph not found",
-            code: GRAPH_NOT_FOUND,
-        });
-    }
-
-    if (error.message === INVALID_GRAPH_OWNER) {
-        return statusFn(400, {
-            status: "error",
-            message: "Invalid graph owner chain",
-            code: INVALID_GRAPH_OWNER,
-        });
-    }
-
-    if (error.message === FORBIDDEN) {
-        return statusFn(403, {
-            status: "error",
-            message: "Forbidden",
-            code: FORBIDDEN,
-        });
-    }
-
-    return statusFn(500, {
-        status: "error",
-        message: "Internal server error",
-        code: "INTERNAL_SERVER_ERROR",
-    });
-}
-
-const mapGraphListItem = (graph: {
-    graph_id: string;
-    graph_name: string;
-    graph_state: "ready" | "updating";
-    group_id: string | null;
-    hidden: boolean;
-}) => {
-    if (!graph.group_id) {
-        throw new Error(INVALID_GRAPH_OWNER);
-    }
-
-    return {
-        graph_id: graph.graph_id,
-        graph_name: graph.graph_name,
-        graph_state: graph.graph_state === "updating" ? "update" : "ready",
-        group_id: graph.group_id,
-        hidden: graph.hidden,
-        ...(graph.graph_state === "updating"
-            ? {
-                  process_percentage: 0,
-              }
-            : {}),
-    };
-};
 
 export const graphRoute = new Elysia({ prefix: "/graphs" })
     .use(authMiddleware)
@@ -572,7 +61,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         )
                         .orderBy(asc(graphTable.groupId), asc(graphTable.name));
 
-                    return status(200, successResponse(graphs.map(mapGraphListItem)));
+                    return status(200, successResponse(await mapGraphListItemsWithProcessing(graphs)));
                 }
 
                 const graphs = await db
@@ -589,7 +78,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     )
                     .orderBy(asc(graphTable.groupId), asc(graphTable.name));
 
-                return status(200, successResponse(graphs.map(mapGraphListItem)));
+                return status(200, successResponse(await mapGraphListItemsWithProcessing(graphs)));
             } catch (error) {
                 return mapGraphError(status, error);
             }
@@ -610,13 +99,13 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             try {
                 await assertCanViewGraph(user, params.id);
 
-                const fileRows: ProjectDetailFileRow[] = await db
-                    .select(selectProjectDetailFileFields)
+                const fileRows: GraphFileRow[] = await db
+                    .select(selectGraphDetailFileFields)
                     .from(filesTable)
                     .where(and(eq(filesTable.graphId, params.id), eq(filesTable.deleted, false)))
                     .orderBy(asc(filesTable.createdAt), asc(filesTable.name));
 
-                return status(200, successResponse(fileRows.map(mapProjectDetailFileRecord)));
+                return status(200, successResponse(fileRows.map(toGraphFileRecord)));
             } catch (error) {
                 return mapGraphError(status, error);
             }
@@ -706,7 +195,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         .limit(1);
 
                     if (!group) {
-                        throw new Error(GROUP_NOT_FOUND);
+                        throw new Error(API_ERROR_CODES.GROUP_NOT_FOUND);
                     }
 
                     groupId = group.id;
@@ -725,7 +214,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                             .limit(1);
 
                         if (!group) {
-                            throw new Error(GROUP_NOT_FOUND);
+                            throw new Error(API_ERROR_CODES.GROUP_NOT_FOUND);
                         }
 
                         groupId = group.id;
@@ -733,11 +222,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     }
                 }
 
-                const fileRows: ProjectDetailFileRow[] = await db
-                    .select(selectProjectDetailFileFields)
+                const fileRows: GraphFileRow[] = await db
+                    .select(selectGraphDetailFileFields)
                     .from(filesTable)
                     .where(eq(filesTable.graphId, graph.id));
-                const files: ProjectDetailFileRecord[] = fileRows.map(mapProjectDetailFileRecord);
+                const files: GraphDetailFileRecord[] = fileRows.map(toGraphFileRecord);
 
                 return status(200, {
                     status: "success",
@@ -780,7 +269,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(400, {
                     status: "error",
                     message: "Only one owner may be specified",
-                    code: INVALID_GRAPH_OWNER,
+                    code: API_ERROR_CODES.INVALID_GRAPH_OWNER,
                 });
             }
 
@@ -996,7 +485,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(400, {
                     status: "error",
                     message: "Invalid name",
-                    code: INVALID_NAME,
+                    code: API_ERROR_CODES.INVALID_NAME,
                 });
             }
 
@@ -1014,7 +503,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(400, {
                     status: "error",
                     message: "No changes requested",
-                    code: NO_CHANGES,
+                    code: API_ERROR_CODES.NO_CHANGES,
                 });
             }
 
@@ -1083,7 +572,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(400, {
                     status: "error",
                     message: "No changes requested",
-                    code: NO_CHANGES,
+                    code: API_ERROR_CODES.NO_CHANGES,
                 });
             }
 
@@ -1253,7 +742,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(400, {
                     status: "error",
                     message: "No changes requested",
-                    code: NO_CHANGES,
+                    code: API_ERROR_CODES.NO_CHANGES,
                 });
             }
 
@@ -1272,7 +761,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(400, {
                     status: "error",
                     message: "Invalid file IDs",
-                    code: INVALID_FILE_IDS,
+                    code: API_ERROR_CODES.INVALID_FILE_IDS,
                 });
             }
 
@@ -1397,7 +886,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         .limit(1);
 
                     if (!graph) {
-                        throw new Error(GRAPH_NOT_FOUND);
+                        throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
                     }
 
                     const graphIds = await collectGraphClosure(tx, [params.id]);
@@ -1419,11 +908,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     };
                 });
             } catch (error) {
-                if (error instanceof Error && error.message === GRAPH_NOT_FOUND) {
+                if (error instanceof Error && error.message === API_ERROR_CODES.GRAPH_NOT_FOUND) {
                     return status(404, {
                         status: "error",
                         message: "Graph not found",
-                        code: GRAPH_NOT_FOUND,
+                        code: API_ERROR_CODES.GRAPH_NOT_FOUND,
                     });
                 }
 

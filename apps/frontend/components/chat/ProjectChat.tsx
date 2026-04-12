@@ -12,7 +12,7 @@ import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { API_BASE_URL } from "@/lib/api/client";
 import { deleteProjectChat, fetchProjectChat, fetchProjectChats } from "@/lib/api/projects";
 import { useLanguage } from "@/providers/LanguageProvider";
-import type { ChatMessage } from "@/types/chat";
+import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { Check, Copy, FileText, Loader2, Mic, MicOff, RotateCcw, SendIcon, Volume2, VolumeX } from "lucide-react";
@@ -37,7 +37,7 @@ type ProjectChatProps = {
 
 type ChatSessionState = {
     id: string;
-    messages: ChatMessage[];
+    messages: ChatUIMessage[];
 };
 
 type ClarificationState = {
@@ -49,19 +49,19 @@ type ClarificationState = {
 };
 
 function isToolPart(
-    part: ChatMessage["parts"][number]
-): part is Extract<ChatMessage["parts"][number], { toolCallId: string; state: string }> {
+    part: ChatUIMessage["parts"][number]
+): part is Extract<ChatUIMessage["parts"][number], { toolCallId: string; state: string }> {
     return "toolCallId" in part && "state" in part;
 }
 
-function getMessageText(message: ChatMessage): string {
+function getMessageText(message: ChatUIMessage): string {
     return message.parts
-        .filter((part): part is Extract<ChatMessage["parts"][number], { type: "text" }> => part.type === "text")
+        .filter((part): part is Extract<ChatUIMessage["parts"][number], { type: "text" }> => part.type === "text")
         .map((part) => part.text)
         .join("");
 }
 
-function getMessageTimestamp(message: ChatMessage): Date {
+function getMessageTimestamp(message: ChatUIMessage): Date {
     const createdAt = message.metadata?.createdAt;
     if (!createdAt) {
         return new Date();
@@ -109,13 +109,13 @@ function parseClarificationOutput(output: unknown, questions: string[]): string[
     });
 }
 
-function getClarificationState(message: ChatMessage): ClarificationState | null {
+function getClarificationState(message: ChatUIMessage): ClarificationState | null {
     if (message.role !== "assistant") {
         return null;
     }
 
-    const toolPart = message.parts.find(
-        (part): part is Extract<ChatMessage["parts"][number], { toolCallId: string; state: string }> =>
+        const toolPart = message.parts.find(
+        (part): part is Extract<ChatUIMessage["parts"][number], { toolCallId: string; state: string }> =>
             isToolPart(part) && part.type === "tool-ask_clarifying_questions"
     );
     if (!toolPart) {
@@ -263,7 +263,7 @@ function ProjectChatSession({
     } = useSpeechSynthesis(language);
     const [inputValue, setInputValue] = useState("");
 
-    const { messages, sendMessage, status, addToolOutput } = useChat<ChatMessage>({
+    const { messages, sendMessage, status, addToolOutput } = useChat<ChatUIMessage>({
         id: initialSession.id,
         messages: initialSession.messages,
         transport: new DefaultChatTransport({
@@ -438,7 +438,7 @@ function ProjectChatSession({
         [handleSendMessage]
     );
 
-    const handleCopyMessage = useCallback(async (message: ChatMessage) => {
+    const handleCopyMessage = useCallback(async (message: ChatUIMessage) => {
         try {
             const plainText = stripMarkdown(getMessageText(message));
             await navigator.clipboard.writeText(plainText);
@@ -450,7 +450,7 @@ function ProjectChatSession({
     }, []);
 
     const handlePlayMessage = useCallback(
-        (message: ChatMessage) => {
+        (message: ChatUIMessage) => {
             const plainText = stripMarkdown(getMessageText(message));
 
             if (speakingMessageId === message.id) {

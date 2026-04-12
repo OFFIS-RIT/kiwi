@@ -1,4 +1,5 @@
 import { ulid } from "ulid";
+import { withAiSlot } from "@kiwi/ai";
 import { extractPrompt } from "@kiwi/ai/prompts/extract.prompt";
 import { generateText, Output } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
@@ -43,16 +44,18 @@ export async function processUnit(
     const entities = ["ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"];
     const prompt = extractPrompt(entities, documentName, metadata);
 
-    const { output } = await generateText({
-        model,
-        system: prompt,
-        prompt: unit.content,
-        temperature: 0.1,
-        output: Output.object({
-            description: "The extracted entities and relationships from the text.",
-            schema: extractOutputSchema,
-        }),
-    });
+    const { output } = await withAiSlot("text", () =>
+        generateText({
+            model,
+            system: prompt,
+            prompt: unit.content,
+            temperature: 0.1,
+            output: Output.object({
+                description: "The extracted entities and relationships from the text.",
+                schema: extractOutputSchema,
+            }),
+        })
+    );
 
     const entityNameToId = new Map<string, string>();
     const graphEntities = output.entities.map((entity) => {

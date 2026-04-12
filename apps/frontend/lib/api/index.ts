@@ -8,6 +8,12 @@ export type { SSEFrame } from "./client";
 export type {
     ApiErrorCode,
     BaseResponse,
+    ChatCreateResponse,
+    ChatDetailResponse,
+    ChatHistoryRecord,
+    ChatListResponse,
+    ChatRequestBody,
+    ChatSummaryItem,
     ErrorResponse,
     GraphAddFilesResponse,
     GraphFilesResponse,
@@ -48,20 +54,10 @@ export {
 
 // Re-export types for convenience
 export type {
-    ApiChatHistoryMessage,
-    ApiChatHistoryResponse,
-    ApiClientToolCall,
     ApiGraph,
-    ApiConversationSummary,
     ApiGroup,
     ApiGroupUser,
-    ApiGroupWithProjects,
     ApiProjectFile,
-    ApiProjectQueryRequest,
-    ApiProjectQueryResponse,
-    ApiQueryMetrics,
-    ApiResponseData,
     ApiTextUnit,
     ApiTextUnitResponse,
-    QueryMode,
 } from "@/types/api";

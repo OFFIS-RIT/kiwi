@@ -6,6 +6,23 @@ import { z } from "zod";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@kiwi/db";
 import { ac, admin, manager, user as userRole } from "./permissions";
+import * as authTables from "@kiwi/db/tables/auth";
+
+function parseBooleanEnv(value?: string) {
+    if (!value) {
+        return false;
+    }
+
+    return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function parseOriginList(value?: string) {
+    if (!value) {
+        return [];
+    }
+
+    return [...new Set(value.split(",").map((origin) => origin.trim()).filter(Boolean))];
+}
 
 const ldapEnabled = Boolean(
     process.env.LDAP_URL &&
@@ -14,6 +31,9 @@ const ldapEnabled = Boolean(
     process.env.LDAP_BASE_DN &&
     process.env.LDAP_SEARCH_ATTR
 );
+const trustedOrigins = parseOriginList(process.env.TRUSTED_ORIGINS);
+const crossSubDomainCookiesEnabled = parseBooleanEnv(process.env.AUTH_CROSS_SUBDOMAIN_COOKIES);
+const crossSubDomainCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined;
 
 const ldapCredentialsSchema = z.object({
     credential: z.string().min(1),
@@ -34,10 +54,23 @@ export const auth = betterAuth({
     baseURL: process.env.AUTH_URL as string,
     database: drizzleAdapter(db, {
         provider: "pg",
+        schema: {
+            user: authTables.userTable,
+            account: authTables.accountTable,
+            verification: authTables.verificationTable,
+            session: authTables.sessionTable,
+        },
     }),
-    user: {
-        modelName: "users",
-    },
+    trustedOrigins: trustedOrigins.length > 0 ? trustedOrigins : undefined,
+    advanced:
+        crossSubDomainCookiesEnabled || crossSubDomainCookieDomain
+            ? {
+                  crossSubDomainCookies: {
+                      enabled: true,
+                      ...(crossSubDomainCookieDomain ? { domain: crossSubDomainCookieDomain } : {}),
+                  },
+              }
+            : undefined,
     emailAndPassword: {
         enabled: !ldapEnabled,
     },

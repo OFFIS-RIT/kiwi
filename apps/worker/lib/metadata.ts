@@ -1,5 +1,6 @@
 import type { LanguageModel } from "ai";
 import { generateText } from "ai";
+import { withAiSlot } from "@kiwi/ai";
 import { metadataPrompt } from "@kiwi/ai/prompts/metadata.prompt";
 
 const METADATA_WORD_LIMIT = 250;
@@ -51,11 +52,13 @@ export async function buildMetadata(
         return "";
     }
 
-    const { text } = await generateText({
-        model,
-        prompt: metadataPrompt(documentName, excerpt),
-        temperature: 0.1,
-    });
+    const { text } = await withAiSlot("text", () =>
+        generateText({
+            model,
+            prompt: metadataPrompt(documentName, excerpt),
+            temperature: 0.1,
+        })
+    );
 
     return normalizeMetadata(text);
 }

@@ -4,6 +4,7 @@ import { getExtensionForMimeType, processOCRImages } from "../ocr-image";
 
 describe("processOCRImages", () => {
     test("uploads extracted images and replaces fences with escaped image tags", async () => {
+        const uploadedNames: string[] = [];
         const describeImage = mock(async (image: { id: string }) => {
             if (image.id === "img-1") {
                 return 'Chart <A> & "B"';
@@ -11,9 +12,12 @@ describe("processOCRImages", () => {
 
             return "Diagram 2";
         });
-        const uploadImage = mock(async (name: string, _content: Uint8Array, storage: { imagePrefix: string }) => ({
-            key: `${storage.imagePrefix}/${name}`,
-        }));
+        const uploadImage = mock(async (name: string, _content: Uint8Array, storage: { imagePrefix: string }) => {
+            uploadedNames.push(name);
+            return {
+                key: `${storage.imagePrefix}/${name}`,
+            };
+        });
 
         const text = ["Before", ":::IMG-img-1:::", "Middle", ":::IMG-img-2:::", "After"].join("\n");
 
@@ -33,11 +37,9 @@ describe("processOCRImages", () => {
         );
         expect(output).toContain('<image id="img-2" key="graphs/g-1/derived/f-1/images/img-2.webp">Diagram 2</image>');
         expect(output).not.toMatch(/:::IMG-img-/);
-        expect(uploadImage).toHaveBeenNthCalledWith(1, "img-1.png", expect.any(Uint8Array), {
-            bucket: "bucket",
-            imagePrefix: "graphs/g-1/derived/f-1/images",
-        });
-        expect(uploadImage).toHaveBeenNthCalledWith(2, "img-2.webp", expect.any(Uint8Array), {
+        expect(uploadImage).toHaveBeenCalledTimes(2);
+        expect(uploadedNames.sort()).toEqual(["img-1.png", "img-2.webp"]);
+        expect(uploadImage).toHaveBeenCalledWith(expect.any(String), expect.any(Uint8Array), {
             bucket: "bucket",
             imagePrefix: "graphs/g-1/derived/f-1/images",
         });

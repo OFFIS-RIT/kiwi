@@ -1,26 +1,26 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "cb6dba1e-597b-4fe6-9623-499ece9d6c55",
+  "id": "69d7a0b6-1e2d-4b6f-a406-a37a57da3177",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
   "ddl": [
     {
       "isRlsEnabled": true,
-      "name": "accounts",
+      "name": "account",
       "entityType": "tables",
       "schema": "public"
     },
     {
       "isRlsEnabled": true,
-      "name": "sessions",
+      "name": "session",
       "entityType": "tables",
       "schema": "public"
     },
     {
       "isRlsEnabled": true,
-      "name": "users",
+      "name": "user",
       "entityType": "tables",
       "schema": "public"
     },
@@ -119,7 +119,7 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "text",
@@ -132,7 +132,7 @@
       "name": "userId",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "text",
@@ -145,7 +145,7 @@
       "name": "accountId",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "text",
@@ -158,7 +158,7 @@
       "name": "providerId",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "text",
@@ -171,7 +171,7 @@
       "name": "accessToken",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "text",
@@ -184,7 +184,7 @@
       "name": "refreshToken",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "timestamp with time zone",
@@ -197,7 +197,7 @@
       "name": "accessTokenExpiresAt",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "timestamp with time zone",
@@ -210,7 +210,7 @@
       "name": "refreshTokenExpiresAt",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "text",
@@ -223,7 +223,7 @@
       "name": "scope",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "text",
@@ -236,7 +236,7 @@
       "name": "idToken",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "text",
@@ -249,7 +249,7 @@
       "name": "password",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "timestamp with time zone",
@@ -262,7 +262,7 @@
       "name": "createdAt",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "timestamp with time zone",
@@ -275,7 +275,7 @@
       "name": "updatedAt",
       "entityType": "columns",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "type": "text",
@@ -288,7 +288,7 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "type": "text",
@@ -301,7 +301,7 @@
       "name": "userId",
       "entityType": "columns",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "type": "text",
@@ -314,7 +314,7 @@
       "name": "token",
       "entityType": "columns",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "type": "timestamp with time zone",
@@ -327,7 +327,7 @@
       "name": "expiresAt",
       "entityType": "columns",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "type": "text",
@@ -340,7 +340,7 @@
       "name": "ipAddress",
       "entityType": "columns",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "type": "text",
@@ -353,7 +353,7 @@
       "name": "userAgent",
       "entityType": "columns",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "type": "timestamp with time zone",
@@ -366,7 +366,7 @@
       "name": "createdAt",
       "entityType": "columns",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "type": "timestamp with time zone",
@@ -379,7 +379,7 @@
       "name": "updatedAt",
       "entityType": "columns",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "type": "text",
@@ -392,7 +392,7 @@
       "name": "imposonatedBy",
       "entityType": "columns",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "type": "text",
@@ -405,7 +405,7 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "text",
@@ -418,7 +418,7 @@
       "name": "name",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "text",
@@ -431,7 +431,7 @@
       "name": "email",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "boolean",
@@ -444,7 +444,7 @@
       "name": "emailVerified",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "text",
@@ -457,7 +457,7 @@
       "name": "image",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "text",
@@ -470,7 +470,7 @@
       "name": "role",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "boolean",
@@ -483,7 +483,7 @@
       "name": "banned",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "text",
@@ -496,7 +496,7 @@
       "name": "banReason",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "text",
@@ -509,7 +509,7 @@
       "name": "banExpires",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "timestamp with time zone",
@@ -522,7 +522,7 @@
       "name": "createdAt",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "timestamp with time zone",
@@ -535,7 +535,7 @@
       "name": "updatedAt",
       "entityType": "columns",
       "schema": "public",
-      "table": "users"
+      "table": "user"
     },
     {
       "type": "text",
@@ -2172,16 +2172,16 @@
         "userId"
       ],
       "schemaTo": "public",
-      "tableTo": "users",
+      "tableTo": "user",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "accounts_userId_users_id_fkey",
+      "name": "account_userId_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "accounts"
+      "table": "account"
     },
     {
       "nameExplicit": false,
@@ -2189,16 +2189,16 @@
         "userId"
       ],
       "schemaTo": "public",
-      "tableTo": "users",
+      "tableTo": "user",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "sessions_userId_users_id_fkey",
+      "name": "session_userId_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "nameExplicit": false,
@@ -2206,16 +2206,16 @@
         "imposonatedBy"
       ],
       "schemaTo": "public",
-      "tableTo": "users",
+      "tableTo": "user",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
-      "name": "sessions_imposonatedBy_users_id_fkey",
+      "name": "session_imposonatedBy_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "sessions"
+      "table": "session"
     },
     {
       "nameExplicit": false,
@@ -2223,13 +2223,13 @@
         "user_id"
       ],
       "schemaTo": "public",
-      "tableTo": "users",
+      "tableTo": "user",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "chats_user_id_users_id_fkey",
+      "name": "chats_user_id_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "chats"
@@ -2325,13 +2325,13 @@
         "user_id"
       ],
       "schemaTo": "public",
-      "tableTo": "users",
+      "tableTo": "user",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "graphs_user_id_users_id_fkey",
+      "name": "graphs_user_id_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "graphs"
@@ -2393,13 +2393,13 @@
         "user_id"
       ],
       "schemaTo": "public",
-      "tableTo": "users",
+      "tableTo": "user",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "group_users_user_id_users_id_fkey",
+      "name": "group_users_user_id_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "group_users"
@@ -2545,9 +2545,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "accounts_pkey",
+      "name": "account_pkey",
       "schema": "public",
-      "table": "accounts",
+      "table": "account",
       "entityType": "pks"
     },
     {
@@ -2555,9 +2555,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "sessions_pkey",
+      "name": "session_pkey",
       "schema": "public",
-      "table": "sessions",
+      "table": "session",
       "entityType": "pks"
     },
     {
@@ -2565,9 +2565,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "users_pkey",
+      "name": "user_pkey",
       "schema": "public",
-      "table": "users",
+      "table": "user",
       "entityType": "pks"
     },
     {
@@ -2706,9 +2706,9 @@
         "token"
       ],
       "nullsNotDistinct": false,
-      "name": "sessions_token_key",
+      "name": "session_token_key",
       "schema": "public",
-      "table": "sessions",
+      "table": "session",
       "entityType": "uniques"
     },
     {
@@ -2717,9 +2717,9 @@
         "email"
       ],
       "nullsNotDistinct": false,
-      "name": "users_email_key",
+      "name": "user_email_key",
       "schema": "public",
-      "table": "users",
+      "table": "user",
       "entityType": "uniques"
     },
     {

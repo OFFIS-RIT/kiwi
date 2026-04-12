@@ -5,6 +5,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./lock": "./src/lock.ts",
+        "./ui": "./src/ui.ts",
         "./prompts/*": "./src/prompts/*.ts"
     },
     "scripts": {

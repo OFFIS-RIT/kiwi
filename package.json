@@ -11,6 +11,7 @@
         "test": "dotenv -- turbo test",
         "lint": "oxlint",
         "format": "oxfmt",
+        "worker:dash": "dotenv -- bun run --filter @kiwi/worker dashboard",
         "db:generate": "dotenv -- drizzle-kit generate",
         "db:migrate": "dotenv -- drizzle-kit migrate",
         "db:studio": "dotenv -- drizzle-kit studio"

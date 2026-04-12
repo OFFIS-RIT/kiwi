@@ -9,7 +9,8 @@
         "build": "bunx tsc --noEmit",
         "test": "bun test",
         "worker": "npx @openworkflow/cli worker start",
-        "dev": "bunx @openworkflow/cli worker start"
+        "dev": "bunx --bun @openworkflow/cli worker start",
+        "dashboard": "npx @openworkflow/cli dashboard  --port 4000"
     },
     "dependencies": {
         "@kiwi/ai": "workspace:*",
@@ -25,6 +26,7 @@
     },
     "devDependencies": {
         "@openworkflow/cli": "^0.4.3",
+        "@openworkflow/dashboard": "^0.1.9",
         "@types/bun": "catalog:"
     },
     "peerDependencies": {

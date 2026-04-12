@@ -48,7 +48,6 @@ export type MessageToolPart = {
 export type MessageCitationPart = {
     type: "citation";
     citation: {
-        id: string;
         sourceId: string;
         textUnitId: string;
         fileId: string;
@@ -62,7 +61,6 @@ export type MessageCitationPart = {
 export type MessageMetadataPart = {
     type: "metadata";
     metadata: {
-        createdAt?: string;
         modelId?: string;
         totalTokens?: number;
         inputTokens?: number;

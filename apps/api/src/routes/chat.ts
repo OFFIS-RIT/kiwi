@@ -1,364 +1,38 @@
 import {
-    buildAdapter,
-    buildChatTools,
     createChatSystemPrompt,
     createCitationFenceStreamParser,
-    getClient,
     getProviderOptions,
-    messagePartsToUIMessage,
-    toUIMessage,
-    type ChatMessageMetadata,
     type ChatUIMessage,
-    type CitationPartData,
-    uiMessageToMessageParts,
     uiMessagesToModelMessages,
 } from "@kiwi/ai";
 import { db } from "@kiwi/db";
-import { and, asc, desc, eq } from "drizzle-orm";
-import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats";
-import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { eq } from "drizzle-orm";
+import { chatTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { Elysia, t } from "elysia";
 import { createUIMessageStream, createUIMessageStreamResponse, generateText, smoothStream, stepCountIs, streamText } from "ai";
 import { env } from "../env";
+import {
+    enrichCitation,
+    getFinishMetadata,
+    listChats,
+    loadChatHistory,
+    mapChatError,
+    startReply,
+    toolPart,
+    toAssistantReply,
+    touchChat,
+    updateAssistantMessage,
+    type ChatRequest,
+} from "../lib/chat";
+import { assertCanViewGraph } from "../lib/graph-access";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
-import { assertCanViewGraph } from "./graph";
-
-type RouteStatus = (code: number, body: unknown) => unknown;
-type ChatRequest = {
-    id: string;
-    messages: ChatUIMessage[];
-};
-
-type ChatSummary = {
-    id: string;
-    title: string;
-    updatedAt: string | null;
-};
-
-type ChatHistory = {
-    id: string;
-    title: string;
-    messages: ChatUIMessage[];
-};
 
 const requestBodySchema = t.Object({
     id: t.String(),
     messages: t.Array(t.Any()),
 });
-
-function normalizeWhitespace(value: string) {
-    return value.replace(/\s+/g, " ").trim();
-}
-
-function createChatTitle(messages: ChatUIMessage[]) {
-    const firstUserMessage = messages.find((message) => message.role === "user");
-    const text = firstUserMessage
-        ? firstUserMessage.parts
-              .filter((part): part is Extract<ChatUIMessage["parts"][number], { type: "text" }> => part.type === "text")
-              .map((part) => part.text)
-              .join("")
-        : "";
-    const normalized = normalizeWhitespace(text);
-
-    if (normalized.length === 0) {
-        return "New chat";
-    }
-
-    return normalized.length > 80 ? `${normalized.slice(0, 77).trimEnd()}...` : normalized;
-}
-
-function parseCreatedAt(value?: string) {
-    if (!value) {
-        return undefined;
-    }
-
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
-}
-
-function getMetrics(metadata?: ChatMessageMetadata) {
-    return {
-        tokensPerSecond: metadata?.tokensPerSecond ?? null,
-        timeToFirstToken: metadata?.timeToFirstToken ?? null,
-        inputTokens: metadata?.inputTokens ?? null,
-        outputTokens: metadata?.outputTokens ?? null,
-        totalTokens: metadata?.totalTokens ?? null,
-    };
-}
-
-function toolPart<T extends { toolCallId: string; toolName: string; providerExecuted?: boolean; input: unknown }>(
-    part: T,
-    status: "pending" | "completed" | "failed",
-    result?: { value: unknown }
-): Extract<MessagePart, { type: "tool" }> {
-    return {
-        type: "tool",
-        toolCallId: part.toolCallId,
-        toolName: part.toolName,
-        execution: part.providerExecuted ? "server" : "client",
-        status,
-        args: part.input,
-        ...(result ? { result: result.value } : {}),
-    };
-}
-
-async function ensureChat(userId: string, graphId: string, request: ChatRequest) {
-    const [existingChat] = await db
-        .select({
-            id: chatTable.id,
-            userId: chatTable.userId,
-            graphId: chatTable.graphId,
-            title: chatTable.title,
-        })
-        .from(chatTable)
-        .where(eq(chatTable.id, request.id))
-        .limit(1);
-
-    if (!existingChat) {
-        await db.insert(chatTable).values({
-            id: request.id,
-            userId,
-            graphId,
-            title: createChatTitle(request.messages),
-        });
-        return;
-    }
-
-    if (existingChat.userId !== userId || existingChat.graphId !== graphId) {
-        throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
-    }
-}
-
-async function touchChat(chatId: string) {
-    await db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId));
-}
-
-async function syncMessages(chatId: string, messages: ChatUIMessage[]) {
-    for (const message of messages) {
-        const parts = uiMessageToMessageParts(message);
-        const createdAt = parseCreatedAt(message.metadata?.createdAt);
-        const metrics = getMetrics(message.metadata);
-        const [existing] = await db
-            .select({ id: messageTable.id })
-            .from(messageTable)
-            .where(and(eq(messageTable.chatId, chatId), eq(messageTable.id, message.id)))
-            .limit(1);
-
-        if (existing) {
-            await db
-                .update(messageTable)
-                .set({
-                    role: message.role,
-                    status: "completed",
-                    parts,
-                    ...metrics,
-                })
-                .where(eq(messageTable.id, message.id));
-            continue;
-        }
-
-        await db.insert(messageTable).values({
-            id: message.id,
-            chatId,
-            role: message.role,
-            status: "completed",
-            parts,
-            createdAt,
-            ...metrics,
-        });
-    }
-}
-
-async function startReply(userId: string, graphId: string, request: ChatRequest) {
-    await ensureChat(userId, graphId, request);
-    await syncMessages(request.id, request.messages);
-
-    const assistantId = crypto.randomUUID();
-    await db.insert(messageTable).values({
-        id: assistantId,
-        chatId: request.id,
-        role: "assistant",
-        status: "pending",
-        parts: [],
-    });
-    await touchChat(request.id);
-
-    const [promptRow] = await db
-        .select({ prompt: systemPromptsTable.prompt })
-        .from(systemPromptsTable)
-        .where(eq(systemPromptsTable.graphId, graphId))
-        .orderBy(desc(systemPromptsTable.updatedAt), desc(systemPromptsTable.createdAt))
-        .limit(1);
-
-    return {
-        assistantId,
-        client: getClient({
-            text: buildAdapter(
-                env.AI_TEXT_ADAPTER,
-                env.AI_TEXT_MODEL,
-                env.AI_TEXT_KEY,
-                env.AI_TEXT_URL,
-                env.AI_TEXT_RESOURCE_NAME
-            ),
-        }),
-        tools: buildChatTools(graphId),
-        prompt: promptRow?.prompt ?? undefined,
-    };
-}
-
-async function enrichCitation(graphId: string, sourceId: string): Promise<CitationPartData | null> {
-    const [row] = await db
-        .select({
-            sourceId: sourcesTable.id,
-            description: sourcesTable.description,
-            textUnitId: textUnitTable.id,
-            excerpt: textUnitTable.text,
-            fileId: filesTable.id,
-            fileName: filesTable.name,
-            fileKey: filesTable.key,
-        })
-        .from(sourcesTable)
-        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(and(eq(sourcesTable.id, sourceId), eq(filesTable.graphId, graphId)))
-        .limit(1);
-
-    if (!row) {
-        return null;
-    }
-
-    const excerpt = normalizeWhitespace(row.excerpt);
-
-    return {
-        id: row.sourceId,
-        sourceId: row.sourceId,
-        textUnitId: row.textUnitId,
-        fileId: row.fileId,
-        fileName: row.fileName,
-        fileKey: row.fileKey,
-        description: normalizeWhitespace(row.description),
-        excerpt: excerpt.length > 260 ? `${excerpt.slice(0, 257).trimEnd()}...` : excerpt,
-    };
-}
-
-async function loadChatHistory(userId: string, graphId: string, chatId: string): Promise<ChatHistory> {
-    const [chat] = await db
-        .select({
-            id: chatTable.id,
-            title: chatTable.title,
-            userId: chatTable.userId,
-            graphId: chatTable.graphId,
-        })
-        .from(chatTable)
-        .where(eq(chatTable.id, chatId))
-        .limit(1);
-
-    if (!chat || chat.userId !== userId || chat.graphId !== graphId) {
-        throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
-    }
-
-    const rows = await db
-        .select()
-        .from(messageTable)
-        .where(eq(messageTable.chatId, chatId))
-        .orderBy(asc(messageTable.createdAt), asc(messageTable.id));
-
-    return {
-        id: chat.id,
-        title: chat.title,
-        messages: rows.map((message) => toUIMessage(message)),
-    };
-}
-
-async function listChats(userId: string, graphId: string): Promise<ChatSummary[]> {
-    const rows = await db
-        .select({
-            id: chatTable.id,
-            title: chatTable.title,
-            updatedAt: chatTable.updatedAt,
-        })
-        .from(chatTable)
-        .where(and(eq(chatTable.userId, userId), eq(chatTable.graphId, graphId)))
-        .orderBy(desc(chatTable.updatedAt), desc(chatTable.createdAt));
-
-    return rows.map((row) => ({
-        id: row.id,
-        title: row.title,
-        updatedAt: row.updatedAt?.toISOString() ?? null,
-    }));
-}
-
-function getFinishMetadata(options: {
-    startedAt: number;
-    firstOutputAt: number | null;
-    totalTokens?: number;
-    inputTokens?: number;
-    outputTokens?: number;
-    modelId: string;
-    usedFileCount?: number;
-}): ChatMessageMetadata {
-    const durationMs = Math.max(1, Date.now() - options.startedAt);
-    const outputTokens = options.outputTokens;
-
-    return {
-        modelId: options.modelId,
-        totalTokens: options.totalTokens,
-        inputTokens: options.inputTokens,
-        outputTokens,
-        durationMs,
-        timeToFirstToken: options.firstOutputAt ? options.firstOutputAt - options.startedAt : undefined,
-        tokensPerSecond: outputTokens && durationMs > 0 ? outputTokens / Math.max(durationMs / 1000, 0.001) : undefined,
-        usedFileCount: options.usedFileCount,
-    };
-}
-
-async function updateAssistantMessage(
-    assistantMessageId: string,
-    parts: MessagePart[],
-    status: "pending" | "completed" | "failed",
-    metadata?: ChatMessageMetadata
-) {
-    const metrics = getMetrics(metadata);
-
-    await db
-        .update(messageTable)
-        .set({
-            parts,
-            status,
-            ...metrics,
-        })
-        .where(eq(messageTable.id, assistantMessageId));
-}
-
-function mapChatError(status: RouteStatus, error: unknown) {
-    if (!(error instanceof Error)) {
-        return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
-    }
-
-    if (error.message === API_ERROR_CODES.GRAPH_NOT_FOUND) {
-        return status(404, errorResponse("Graph not found", API_ERROR_CODES.GRAPH_NOT_FOUND));
-    }
-
-    if (error.message === API_ERROR_CODES.GROUP_NOT_FOUND) {
-        return status(404, errorResponse("Group not found", API_ERROR_CODES.GROUP_NOT_FOUND));
-    }
-
-    if (error.message === API_ERROR_CODES.INVALID_GRAPH_OWNER) {
-        return status(400, errorResponse("Invalid graph owner chain", API_ERROR_CODES.INVALID_GRAPH_OWNER));
-    }
-
-    if (error.message === API_ERROR_CODES.FORBIDDEN) {
-        return status(403, errorResponse("Forbidden", API_ERROR_CODES.FORBIDDEN));
-    }
-
-    if (error.message === API_ERROR_CODES.CHAT_NOT_FOUND) {
-        return status(404, errorResponse("Chat not found", API_ERROR_CODES.CHAT_NOT_FOUND));
-    }
-
-    return status(500, errorResponse(error.message || "Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
-}
 
 export const chatRoute = new Elysia()
     .use(authMiddleware)
@@ -521,15 +195,7 @@ export const chatRoute = new Elysia()
                     200,
                     successResponse({
                         id: request.id,
-                        message: messagePartsToUIMessage(
-                            {
-                                id: assistantId,
-                                role: "assistant",
-                                parts,
-                                createdAt: new Date(),
-                            },
-                            finishMetadata
-                        ),
+                        message: toAssistantReply(assistantId, parts, finishMetadata),
                     })
                 );
             } catch (error) {
@@ -638,7 +304,7 @@ export const chatRoute = new Elysia()
                                             citationFileIds.add(citation.fileId);
                                             assistantParts.push({ type: "citation", citation });
                                             await updateAssistantMessage(assistantId, assistantParts, "pending");
-                                            writer.write({ type: "data-citation", id: citation.id, data: citation });
+                                            writer.write({ type: "data-citation", id: citation.sourceId, data: citation });
                                         }
                                         break;
                                     }
@@ -667,7 +333,7 @@ export const chatRoute = new Elysia()
                                                         await updateAssistantMessage(assistantId, assistantParts, "pending");
                                                         writer.write({
                                                             type: "data-citation",
-                                                            id: citation.id,
+                                                            id: citation.sourceId,
                                                             data: citation,
                                                         });
                                                     } else {

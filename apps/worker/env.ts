@@ -42,9 +42,14 @@ export const env = createEnv({
 
         // DB
         DATABASE_URL: z.string(),
-        
+        DATABASE_DIRECT_URL: z.string(),
+
         // Settings
-        WORKER_CONCURRENCY: z.coerce.number().optional(),
+        WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
+        AI_TEXT_CONCURRENCY: z.coerce.number().int().positive().default(64),
+        AI_IMAGE_CONCURRENCY: z.coerce.number().int().positive().default(64),
+        AI_EMBEDDING_CONCURRENCY: z.coerce.number().int().positive().default(64),
+        AI_AUDIO_CONCURRENCY: z.coerce.number().int().positive().default(64),
     },
     runtimeEnv: process.env,
 });

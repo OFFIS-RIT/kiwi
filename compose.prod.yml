@@ -31,11 +31,11 @@ services:
         environment:
             NODE_ENV: production
             LOG_LEVEL: ${LOG_LEVEL:-info}
-            DATABASE_URL: ${DATABASE_URL_INTERNAL:-postgresql://kiwi:kiwi@bouncer:5432/kiwi?sslmode=disable}
-            OPENWORKFLOW_POSTGRES_URL: ${OPENWORKFLOW_POSTGRES_URL_INTERNAL:-postgresql://kiwi:kiwi@bouncer:5432/kiwi?sslmode=disable}
+            DATABASE_URL: ${DATABASE_URL:-postgresql://kiwi:kiwi@bouncer:5432/kiwi?sslmode=disable}
+            DATABASE_DIRECT_URL: ${DATABASE_DIRECT_URL:-postgresql://kiwi:kiwi@postgres:5432/kiwi?sslmode=disable}
             S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
             S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
-            S3_ENDPOINT: ${S3_ENDPOINT_INTERNAL:-http://rustfs:9000}
+            S3_ENDPOINT: ${S3_ENDPOINT:-http://rustfs:9000}
             S3_REGION: ${S3_REGION}
             S3_BUCKET: ${S3_BUCKET}
             AI_TEXT_ADAPTER: ${AI_TEXT_ADAPTER}
@@ -60,6 +60,9 @@ services:
             AI_AUDIO_RESOURCE_NAME: ${AI_AUDIO_RESOURCE_NAME:-}
             AUTH_SECRET: ${AUTH_SECRET}
             AUTH_URL: ${AUTH_URL}
+            TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:-}
+            AUTH_CROSS_SUBDOMAIN_COOKIES: ${AUTH_CROSS_SUBDOMAIN_COOKIES:-}
+            AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
             LDAP_URL: ${LDAP_URL:-}
             LDAP_BIND_DN: ${LDAP_BIND_DN:-}
             LDAP_PASSW: ${LDAP_PASSW:-}
@@ -97,12 +100,14 @@ services:
         restart: unless-stopped
         environment:
             NODE_ENV: production
-            DATABASE_URL: ${DATABASE_URL_INTERNAL:-postgresql://kiwi:kiwi@bouncer:5432/kiwi?sslmode=disable}
+            DATABASE_URL: ${DATABASE_URL:-postgresql://kiwi:kiwi@bouncer:5432/kiwi?sslmode=disable}
+            DATABASE_DIRECT_URL: ${DATABASE_DIRECT_URL:-postgresql://kiwi:kiwi@postgres:5432/kiwi?sslmode=disable}
             S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
             S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
-            S3_ENDPOINT: ${S3_ENDPOINT_INTERNAL:-http://rustfs:9000}
+            S3_ENDPOINT: ${S3_ENDPOINT:-http://rustfs:9000}
             S3_REGION: ${S3_REGION}
             S3_BUCKET: ${S3_BUCKET}
+            WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
             AI_TEXT_ADAPTER: ${AI_TEXT_ADAPTER}
             AI_TEXT_MODEL: ${AI_TEXT_MODEL}
             AI_TEXT_KEY: ${AI_TEXT_KEY}
@@ -153,7 +158,7 @@ services:
         image: ghcr.io/offis-rit/kiwi/migrations:latest
         restart: "no"
         environment:
-            DATABASE_URL: ${DATABASE_DIRECT_URL_INTERNAL:-postgresql://kiwi:kiwi@postgres:5432/kiwi?sslmode=disable}
+            DATABASE_URL: ${DATABASE_DIRECT_URL:-postgresql://kiwi:kiwi@postgres:5432/kiwi?sslmode=disable}
         depends_on:
             postgres:
                 condition: service_healthy
@@ -212,7 +217,7 @@ services:
             AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
             AWS_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
             AWS_DEFAULT_REGION: ${S3_REGION}
-            S3_ENDPOINT: ${S3_ENDPOINT_INTERNAL:-http://rustfs:9000}
+            S3_ENDPOINT: ${S3_ENDPOINT:-http://rustfs:9000}
             S3_BUCKET: ${S3_BUCKET}
         entrypoint: >
             sh -c "

@@ -16,14 +16,14 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { addFilesToProject, deleteProjectFiles, fetchProjectFiles, updateProject } from "@/lib/api/projects";
+import { useProjectFiles } from "@/hooks/use-data";
+import { addFilesToProject, deleteProjectFiles, updateProject } from "@/lib/api/projects";
 import { cn, formatBytes } from "@/lib/utils";
 import { useAuth } from "@/providers/AuthProvider";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
-import type { ApiProjectFile } from "@/types";
 import { Calendar, Loader2, XIcon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { FileStatusIcon } from "./FileStatusIcon";
 import { FileUploader } from "./FileUploader";
 
@@ -44,10 +44,8 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
     const canEdit = hasPermission("graph.update");
     const canDeleteFiles = hasPermission("graph.delete:file");
     const canAddFiles = hasPermission("graph.add:file");
-    const [isLoading, setIsLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [projectFiles, setProjectFiles] = useState<ApiProjectFile[]>([]);
     const [newFiles, setNewFiles] = useState<File[]>([]);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadedBytes, setUploadedBytes] = useState(0);
@@ -55,29 +53,18 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
     const [uploadSpeed, setUploadSpeed] = useState(0);
     const [editedName, setEditedName] = useState("");
     const [filesToDelete, setFilesToDelete] = useState<string[]>([]);
-
-    const loadProjectFiles = useCallback(async () => {
-        if (!project) return;
-        setIsLoading(true);
-        setError(null);
-        try {
-            const files = await fetchProjectFiles(project.id);
-            setProjectFiles(files);
-        } catch (err) {
-            console.error("Error loading project files:", err);
-            setError(err instanceof Error ? err.message : t("error.load.project.files.unknown"));
-        } finally {
-            setIsLoading(false);
-        }
-    }, [project, t]);
+    const {
+        data: projectFiles = [],
+        isLoading,
+        error: projectFilesError,
+        refetch: refetchProjectFiles,
+    } = useProjectFiles(project?.id ?? "", { enabled: open && !!project });
 
     useEffect(() => {
         if (project && open) {
             setEditedName(project.name);
-            loadProjectFiles();
             setFilesToDelete([]);
         } else {
-            setProjectFiles([]);
             setNewFiles([]);
             setError(null);
             setEditedName("");
@@ -87,7 +74,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
             setTotalBytes(0);
             setUploadSpeed(0);
         }
-    }, [project, open, loadProjectFiles]);
+    }, [project, open]);
 
     const handleToggleFileForDeletion = (fileKey: string) => {
         setFilesToDelete((prev) =>
@@ -178,7 +165,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
 
             if (overallSuccess && (nameChanged || filesAdded || filesMarkedForDeletion)) {
                 await refreshData();
-                await loadProjectFiles();
+                await refetchProjectFiles();
             }
 
             if (overallSuccess) {
@@ -230,6 +217,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
         (project && editedName.trim() !== "" && editedName !== project.name) ||
         newFiles.length > 0 ||
         filesToDelete.length > 0;
+    const displayError = error || (projectFilesError instanceof Error ? projectFilesError.message : null);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -242,9 +230,9 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                 <div className="flex-1 min-h-0">
                     <ScrollArea className="h-full">
                         <div className="space-y-6 pr-4">
-                            {error && (
+                            {displayError && (
                                 <div className="bg-destructive/15 text-destructive px-4 py-2 rounded-md text-sm whitespace-pre-line">
-                                    {error}
+                                    {displayError}
                                 </div>
                             )}
 

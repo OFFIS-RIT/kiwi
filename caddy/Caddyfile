@@ -20,14 +20,6 @@
 
 	@api path /api /api/*
 	handle @api {
-		header Access-Control-Allow-Origin "*"
-		header Access-Control-Allow-Methods "GET, POST, OPTIONS"
-		header Access-Control-Allow-Headers "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
-		header Access-Control-Expose-Headers "Content-Length,Content-Range"
-
-		@options method OPTIONS
-		respond @options 204
-
 		uri strip_prefix /api
 		reverse_proxy server:4321 {
 			flush_interval -1

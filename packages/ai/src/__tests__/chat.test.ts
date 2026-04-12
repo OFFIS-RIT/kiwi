@@ -127,7 +127,6 @@ describe("citation fences", () => {
                     {
                         type: "citation",
                         citation: {
-                            id: "src-1",
                             sourceId: "src-1",
                             textUnitId: "unit-1",
                             fileId: "file-1",
@@ -165,7 +164,6 @@ describe("citation fences", () => {
                 type: "data-citation",
                 id: "src-1",
                 data: {
-                    id: "src-1",
                     sourceId: "src-1",
                     textUnitId: "unit-1",
                     fileId: "file-1",
@@ -189,7 +187,6 @@ describe("citation fences", () => {
             {
                 type: "citation",
                 citation: {
-                    id: "src-1",
                     sourceId: "src-1",
                     textUnitId: "unit-1",
                     fileId: "file-1",
@@ -210,7 +207,6 @@ describe("citation fences", () => {
             {
                 type: "metadata",
                 metadata: {
-                    createdAt: "2026-01-01T00:00:00.000Z",
                     modelId: "gpt-test",
                     totalTokens: 42,
                     durationMs: 900,

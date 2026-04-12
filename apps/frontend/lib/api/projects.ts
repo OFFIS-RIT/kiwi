@@ -4,6 +4,10 @@
  */
 
 import type {
+    ChatDetailResponse,
+    ChatHistoryRecord,
+    ChatListResponse,
+    ChatSummaryItem,
     GraphAddFilesResponse,
     GraphAddFilesSuccessData,
     GraphCreateResponse,
@@ -20,7 +24,6 @@ import type {
     GraphPatchSuccessData,
     TextUnitResponse,
 } from "@kiwi/api/types";
-import type { ChatHistoryResponse, ChatSessionSummary } from "@/types/chat";
 import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
 import { apiClient, unwrapApiResponse } from "./client";
 
@@ -83,16 +86,7 @@ export async function fetchProjectDetail(projectId: string): Promise<GraphDetail
  */
 export async function fetchProjectFiles(projectId: string): Promise<ApiProjectFile[]> {
     const response = await apiClient.get<GraphFilesResponse>(`/graphs/${projectId}/files`);
-    const files = unwrapApiResponse(response);
-
-    return files.map((file) => ({
-        id: file.id,
-        project_id: file.project_id,
-        name: file.name,
-        file_key: file.file_key,
-        created_at: file.created_at,
-        updated_at: file.updated_at,
-    }));
+    return unwrapApiResponse(response);
 }
 
 /**
@@ -143,18 +137,16 @@ export type {
 /**
  * Fetches the list of conversations for a project.
  */
-export async function fetchProjectChats(projectId: string): Promise<ChatSessionSummary[]> {
-    const response = await apiClient.get<{ status: "success"; data: ChatSessionSummary[] }>(`/chat/${projectId}`);
+export async function fetchProjectChats(projectId: string): Promise<ChatSummaryItem[]> {
+    const response = await apiClient.get<ChatListResponse>(`/chat/${projectId}`);
     return unwrapApiResponse(response);
 }
 
 /**
  * Fetches the full chat transcript for a specific conversation.
  */
-export async function fetchProjectChat(projectId: string, conversationId: string): Promise<ChatHistoryResponse> {
-    const response = await apiClient.get<{ status: "success"; data: ChatHistoryResponse }>(
-        `/chat/${projectId}/${conversationId}`
-    );
+export async function fetchProjectChat(projectId: string, conversationId: string): Promise<ChatHistoryRecord> {
+    const response = await apiClient.get<ChatDetailResponse>(`/chat/${projectId}/${conversationId}`);
     return unwrapApiResponse(response);
 }
 

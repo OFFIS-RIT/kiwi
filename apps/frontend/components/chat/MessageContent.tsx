@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { downloadProjectFile } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
-import type { ChatMessage, CitationData } from "@/types/chat";
+import type { ChatUIMessage, CitationPartData } from "@kiwi/ai/ui";
 import { FileText } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
@@ -14,7 +14,7 @@ import { TextReferenceBadge } from "./TextReferenceBadge";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
 type MessageContentProps = {
-    parts: ChatMessage["parts"];
+    parts: ChatUIMessage["parts"];
     projectId?: string;
 };
 
@@ -22,7 +22,7 @@ export function MessageContent({ parts, projectId }: MessageContentProps) {
     const referencePattern = React.useMemo(() => /\[\[cite:([a-zA-Z0-9_-]+)\]\]/g, []);
 
     const { markdownContent, reasoning, citations } = React.useMemo(() => {
-        const citationOrder: CitationData[] = [];
+        const citationOrder: CitationPartData[] = [];
         const citationMap = new Map<string, number>();
         let markdown = "";
         let reasoningText = "";
@@ -129,7 +129,7 @@ export function MessageContent({ parts, projectId }: MessageContentProps) {
         return React.Children.map(children, processNode);
     };
 
-    const handleFileDownload = async (fileName: string, fileKey: string) => {
+    const handleFileDownload = async (fileKey: string) => {
         if (!projectId) return;
 
         try {
@@ -146,7 +146,7 @@ export function MessageContent({ parts, projectId }: MessageContentProps) {
             unique.push(citation);
         }
         return unique;
-    }, [] as CitationData[]);
+    }, [] as CitationPartData[]);
 
     return (
         <div className="leading-relaxed">
@@ -234,7 +234,7 @@ export function MessageContent({ parts, projectId }: MessageContentProps) {
                                 variant="outline"
                                 size="sm"
                                 className="h-7 px-2 py-1 text-xs"
-                                onClick={() => handleFileDownload(citation.fileName, citation.fileKey)}
+                                onClick={() => handleFileDownload(citation.fileKey)}
                             >
                                 <FileText className="mr-1 h-3 w-3" />
                                 {citation.fileName}

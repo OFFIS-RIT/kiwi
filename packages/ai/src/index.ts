@@ -6,6 +6,7 @@ import type { EmbeddingModelV3, JSONValue, LanguageModelV3 } from "@ai-sdk/provi
 import type { ChatMessage, MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
 import type { ModelMessage } from "ai";
 import { get_encoding, type TiktokenEncoding } from "tiktoken";
+export * from "./concurrency";
 
 type OpenAICredentials = {
     apiKey: string;
@@ -74,6 +75,7 @@ function createProvider(adapter: Adapter) {
                 apiKey: adapter.credentials?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
                 baseURL: adapter.credentials?.url ?? process.env.OPENAI_API_URL ?? "https://api.openai.com/v1",
                 includeUsage: true,
+                supportsStructuredOutputs: true,
             });
         case "anthropic":
             return createAnthropic({
@@ -365,4 +367,5 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
     }
 }
 
+export * from "./ui";
 export * from "./chat";

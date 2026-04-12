@@ -1,14 +1,16 @@
 import Elysia from "elysia";
+import { and, eq } from "drizzle-orm";
+import { hashPassword } from "better-auth/crypto";
 import { auth } from "@kiwi/auth/server";
 import { db } from "@kiwi/db";
-import { userTable } from "@kiwi/db/tables/auth";
+import { accountTable, userTable } from "@kiwi/db/tables/auth";
 import { error as logError, info as logInfo } from "@kiwi/logger";
 import { env } from "../env";
 
 const masterUserId = env.MASTER_USER_ID?.trim() || undefined;
-const masterUserRole = env.MASTER_USER_ROLE?.trim() || "admin";
 const masterUserName = env.MASTER_USER_NAME?.trim() || "Master User";
 const masterUserEmail = env.MASTER_USER_EMAIL?.trim() || undefined;
+const masterUserPassword = env.MASTER_USER_PASSWORD?.trim() || undefined;
 
 let ensureMasterUserPromise: Promise<void> | null = null;
 
@@ -31,7 +33,7 @@ async function ensureMasterUser() {
                     name: masterUserName,
                     email,
                     emailVerified: true,
-                    role: masterUserRole,
+                    role: "admin",
                     banned: false,
                     banReason: null,
                     banExpires: null,
@@ -42,14 +44,48 @@ async function ensureMasterUser() {
                         name: masterUserName,
                         email,
                         emailVerified: true,
-                        role: masterUserRole,
+                        role: "admin",
                         banned: false,
                         banReason: null,
                         banExpires: null,
                     },
                 });
 
-            logInfo("ensured master user", "userId", masterUserId, "role", masterUserRole);
+            if (masterUserPassword) {
+                const password = await hashPassword(masterUserPassword);
+                const existingCredentialAccount = await db
+                    .select({ id: accountTable.id })
+                    .from(accountTable)
+                    .where(and(eq(accountTable.userId, masterUserId), eq(accountTable.providerId, "credential")))
+                    .limit(1);
+
+                if (existingCredentialAccount.length > 0) {
+                    await db
+                        .update(accountTable)
+                        .set({
+                            accountId: masterUserId,
+                            password,
+                        })
+                        .where(and(eq(accountTable.userId, masterUserId), eq(accountTable.providerId, "credential")));
+                } else {
+                    await db.insert(accountTable).values({
+                        userId: masterUserId,
+                        accountId: masterUserId,
+                        providerId: "credential",
+                        password,
+                    });
+                }
+            } else if (masterUserEmail) {
+                logInfo(
+                    "master user password not configured; skipping credential account bootstrap",
+                    "userId",
+                    masterUserId,
+                    "email",
+                    email,
+                );
+            }
+
+            logInfo("ensured master user", "userId", masterUserId, "role", "admin");
         })().catch((error) => {
             ensureMasterUserPromise = null;
 
