@@ -1,5 +1,6 @@
 import {
     buildAdapter,
+    buildEmbeddingAdapter,
     buildChatTools,
     getClient,
     messagePartsToUIMessage,
@@ -176,18 +177,31 @@ export async function startReply(userId: string, graphId: string, request: ChatR
         .orderBy(desc(systemPromptsTable.updatedAt), desc(systemPromptsTable.createdAt))
         .limit(1);
 
+    const client = getClient({
+        text: buildAdapter(
+            env.AI_TEXT_ADAPTER,
+            env.AI_TEXT_MODEL,
+            env.AI_TEXT_KEY,
+            env.AI_TEXT_URL,
+            env.AI_TEXT_RESOURCE_NAME
+        ),
+        embedding: buildEmbeddingAdapter(
+            env.AI_EMBEDDING_ADAPTER,
+            env.AI_EMBEDDING_MODEL,
+            env.AI_EMBEDDING_KEY,
+            env.AI_EMBEDDING_URL,
+            env.AI_EMBEDDING_RESOURCE_NAME
+        ),
+    });
+
+    if (!client.text || !client.embedding) {
+        throw new Error("Text and embedding models are required for chat");
+    }
+
     return {
         assistantId,
-        client: getClient({
-            text: buildAdapter(
-                env.AI_TEXT_ADAPTER,
-                env.AI_TEXT_MODEL,
-                env.AI_TEXT_KEY,
-                env.AI_TEXT_URL,
-                env.AI_TEXT_RESOURCE_NAME
-            ),
-        }),
-        tools: buildChatTools(graphId),
+        client,
+        tools: buildChatTools(graphId, client.embedding),
         prompt: promptRow?.prompt ?? undefined,
     };
 }

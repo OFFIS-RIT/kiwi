@@ -252,6 +252,7 @@ Copy `.env.sample` to `.env` and configure:
 | `MASTER_USER_NAME`                 | Optional display name for the bootstrapped master user                |
 | `MASTER_USER_EMAIL`                | Optional email for the bootstrapped master user                       |
 | `MASTER_USER_PASSWORD`             | Optional password for bootstrapping a credential login for master user |
+| `MASTER_USER_API_BYPASS`           | Optional API bearer token that authenticates requests as the master user |
 | `DATABASE_URL`                     | Host PgBouncer PostgreSQL connection string                           |
 | `DATABASE_DIRECT_URL`              | Host direct PostgreSQL connection string                              |
 | `S3_REGION`                        | S3 region                                                             |
@@ -270,10 +271,24 @@ Copy `.env.sample` to `.env` and configure:
 | `AI_EMBEDDING_KEY`                 | Embedding API key                                                     |
 | `AI_EMBEDDING_URL`                 | Optional OpenAI-compatible embedding endpoint                         |
 | `AI_EMBEDDING_RESOURCE_NAME`       | Azure resource name for embeddings                                    |
-| `AI_IMAGE_*`                       | Optional image / vision model configuration                           |
-| `AI_AUDIO_*`                       | Optional audio model configuration                                    |
+| `AI_IMAGE_ADAPTER`                 | Optional image / vision model adapter                                 |
+| `AI_IMAGE_MODEL`                   | Optional image / vision model name                                    |
+| `AI_IMAGE_KEY`                     | Optional image / vision model API key                                 |
+| `AI_IMAGE_URL`                     | Optional OpenAI-compatible image / vision endpoint                    |
+| `AI_IMAGE_RESOURCE_NAME`           | Optional Azure resource name for image / vision models                |
+| `AI_AUDIO_ADAPTER`                 | Optional audio model adapter                                          |
+| `AI_AUDIO_MODEL`                   | Optional audio model name                                             |
+| `AI_AUDIO_KEY`                     | Optional audio model API key                                          |
+| `AI_AUDIO_URL`                     | Optional OpenAI-compatible audio endpoint                             |
+| `AI_AUDIO_RESOURCE_NAME`           | Optional Azure resource name for audio models                         |
+| `AI_TEXT_CONCURRENCY`              | Worker-local maximum concurrent text requests                         |
+| `AI_IMAGE_CONCURRENCY`             | Worker-local maximum concurrent image requests                        |
+| `AI_EMBEDDING_CONCURRENCY`         | Worker-local maximum concurrent embedding requests                    |
+| `AI_AUDIO_CONCURRENCY`             | Worker-local maximum concurrent audio requests                        |
 | `AI_EMBED_DIM`                     | Embedding dimension used by migrations                                |
-| `OTEL_EXPORTER_OTLP_*`             | Optional OpenTelemetry log export configuration                       |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`      | Optional OTLP endpoint fallback for log export                        |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Optional OTLP logs endpoint                                           |
+| `OTEL_EXPORTER_OTLP_HEADERS`       | Optional OTLP export headers                                          |
 
 ### Authentication Mode (Credentials vs LDAP)
 

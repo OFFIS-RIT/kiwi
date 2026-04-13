@@ -1,8 +1,100 @@
 import { db } from "@kiwi/db";
-import { entityTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
-import { and, asc, eq, exists, gt, ilike, inArray, or } from "drizzle-orm";
-import { tool } from "ai";
+import type { EmbeddingModelV3 } from "@ai-sdk/provider";
+import { entityTable, relationshipTable } from "@kiwi/db/tables/graph";
+import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { embed, tool } from "ai";
+import { withAiSlot } from "../concurrency";
+import {
+    decodeCursor,
+    encodeCursor,
+    EXACT_BOOST,
+    greatest,
+    KEYWORD_WEIGHT,
+    MIN_KEYWORD_BOOST,
+    MIN_SEMANTIC_SCORE,
+    normalizeTerms,
+    PREFIX_BOOST,
+    truncateWords,
+    type RankCursor,
+} from "./lib/search";
 import { z } from "zod";
+
+type SearchRelationshipRow = {
+    id: string;
+    sourceId: string;
+    targetId: string;
+    sourceName: string;
+    targetName: string;
+    description: string;
+    rank: number;
+    score: number;
+};
+
+function buildRelationshipKeywordBoostExpression(terms: string[]) {
+    return greatest(
+        terms.flatMap((term) => [
+            sql`similarity(r.description, ${term})`,
+            sql`similarity(coalesce(source_entity.name, ''), ${term})`,
+            sql`similarity(coalesce(target_entity.name, ''), ${term})`,
+        ])
+    );
+}
+
+function buildRelationshipExactBoostExpression(terms: string[]) {
+    return greatest(
+        terms.map(
+            (term) =>
+                sql`case
+                    when lower(coalesce(source_entity.name, '')) = lower(${term}) then ${EXACT_BOOST}
+                    when lower(coalesce(target_entity.name, '')) = lower(${term}) then ${EXACT_BOOST}
+                    when coalesce(source_entity.name, '') ilike ${`${term}%`} then ${PREFIX_BOOST}
+                    when coalesce(target_entity.name, '') ilike ${`${term}%`} then ${PREFIX_BOOST}
+                    else 0
+                end`
+        )
+    );
+}
+
+function buildRelationshipFileScopeExpression(fileIds: string[]) {
+    if (fileIds.length === 0) {
+        return sql``;
+    }
+
+    return sql`
+        and exists (
+            select 1
+            from sources source
+            inner join text_units text_unit on text_unit.id = source.text_unit_id
+            where source.relationship_id = r.id
+              and text_unit.file_id in (${sql.join(
+                  fileIds.map((fileId) => sql`${fileId}`),
+                  sql`, `
+              )})
+        )
+    `;
+}
+
+function toSearchRelationshipRows(rows: Record<string, unknown>[]): SearchRelationshipRow[] {
+    return rows.map((row) => ({
+        id: String(row.id ?? ""),
+        sourceId: String(row.sourceId ?? ""),
+        targetId: String(row.targetId ?? ""),
+        sourceName: String(row.sourceName ?? "Unknown"),
+        targetName: String(row.targetName ?? "Unknown"),
+        description: String(row.description ?? ""),
+        rank: Number(row.rank ?? 0),
+        score: Number(row.score ?? 0),
+    }));
+}
+
+function formatRelationshipList(
+    rows: Array<Pick<SearchRelationshipRow, "id" | "sourceId" | "targetId" | "sourceName" | "targetName" | "description" | "rank">>
+) {
+    return rows.map(
+        (row) =>
+            `- ${row.id}, ${row.sourceId} ${row.sourceName} -> ${row.targetId} ${row.targetName}, ${truncateWords(row.description) || "No description"}, rank ${row.rank}`
+    );
+}
 
 const searchRelationshipsSchema = z.object({
     query: z
@@ -22,151 +114,93 @@ const searchRelationshipsSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-export const searchRelationshipsTool = (graphId: string) =>
+export const searchRelationshipsTool = (graphId: string, embeddingModel: EmbeddingModelV3) =>
     tool({
         description:
-            "Use when you need relationship IDs before calling the source tool, or when the important fact is the connection itself rather than a single entity.",
+            "Use when you need relationship IDs before calling the source tool, or when the important fact is the connection itself rather than a single entity. Semantic search is primary, with keyword terms boosting connected entity names and relation labels.",
         inputSchema: searchRelationshipsSchema,
         execute: async ({ query, keywords, files, limit, cursor }) => {
-            const terms = [...new Set([query, ...(keywords ?? [])].map((value) => value.trim()).filter(Boolean))];
-            const fileIds = [...new Set((files ?? []).map((value) => value.trim()).filter(Boolean))];
-            const clauses = [eq(relationshipTable.graphId, graphId), eq(relationshipTable.active, true)];
-
-            if (cursor) {
-                clauses.push(gt(relationshipTable.id, cursor));
-            }
-
-            if (terms.length > 0) {
-                const descriptionClauses = terms.map((term) => ilike(relationshipTable.description, `%${term}%`));
-                const sourceEntityClauses = terms.flatMap((term) => [
-                    ilike(entityTable.name, `%${term}%`),
-                    ilike(entityTable.type, `%${term}%`),
-                    ilike(entityTable.description, `%${term}%`),
-                ]);
-                const targetEntityClauses = terms.flatMap((term) => [
-                    ilike(entityTable.name, `%${term}%`),
-                    ilike(entityTable.type, `%${term}%`),
-                    ilike(entityTable.description, `%${term}%`),
-                ]);
-                const sourceEntityMatch =
-                    sourceEntityClauses.length === 1
-                        ? sourceEntityClauses[0]
-                        : sourceEntityClauses.length > 1
-                          ? or(...sourceEntityClauses)
-                          : undefined;
-                const targetEntityMatch =
-                    targetEntityClauses.length === 1
-                        ? targetEntityClauses[0]
-                        : targetEntityClauses.length > 1
-                          ? or(...targetEntityClauses)
-                          : undefined;
-                const searchClauses = [...descriptionClauses];
-
-                if (sourceEntityMatch) {
-                    searchClauses.push(
-                        exists(
-                            db
-                                .select({ id: entityTable.id })
-                                .from(entityTable)
-                                .where(
-                                    and(
-                                        eq(entityTable.id, relationshipTable.sourceId),
-                                        eq(entityTable.graphId, graphId),
-                                        sourceEntityMatch
-                                    )
-                                )
-                        )
-                    );
-                }
-
-                if (targetEntityMatch) {
-                    searchClauses.push(
-                        exists(
-                            db
-                                .select({ id: entityTable.id })
-                                .from(entityTable)
-                                .where(
-                                    and(
-                                        eq(entityTable.id, relationshipTable.targetId),
-                                        eq(entityTable.graphId, graphId),
-                                        targetEntityMatch
-                                    )
-                                )
-                        )
-                    );
-                }
-
-                if (searchClauses.length === 1) {
-                    clauses.push(searchClauses[0]!);
-                } else {
-                    const combinedSearchClause = or(...searchClauses);
-
-                    if (combinedSearchClause) {
-                        clauses.push(combinedSearchClause);
-                    }
-                }
-            }
-
-            if (fileIds.length > 0) {
-                clauses.push(
-                    exists(
-                        db
-                            .select({ id: sourcesTable.id })
-                            .from(sourcesTable)
-                            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                            .where(
-                                and(
-                                    eq(sourcesTable.relationshipId, relationshipTable.id),
-                                    inArray(textUnitTable.fileId, fileIds)
-                                )
-                            )
-                    )
-                );
-            }
-
-            const relationships = await db
-                .select({
-                    id: relationshipTable.id,
-                    sourceId: relationshipTable.sourceId,
-                    targetId: relationshipTable.targetId,
-                    description: relationshipTable.description,
-                    rank: relationshipTable.rank,
+            const text = query.trim();
+            const terms = normalizeTerms([...(keywords ?? []), text]);
+            const fileIds = normalizeTerms(files ?? []);
+            const next = decodeCursor(cursor, "relationship search");
+            const { embedding } = await withAiSlot("embedding", () =>
+                embed({
+                    model: embeddingModel,
+                    value: text,
                 })
-                .from(relationshipTable)
-                .where(and(...clauses))
-                .orderBy(asc(relationshipTable.id))
-                .limit(limit + 1);
+            );
+            const queryVector = JSON.stringify(embedding);
+            const fileScope = buildRelationshipFileScopeExpression(fileIds);
+            const keywordBoost = buildRelationshipKeywordBoostExpression(terms);
+            const exactBoost = buildRelationshipExactBoostExpression(terms);
+            const semanticScore = sql`greatest(0::double precision, 1 - (r.embedding <=> ${queryVector}::vector))`;
+            const score = sql`${semanticScore} + (${keywordBoost} * ${KEYWORD_WEIGHT}) + ${exactBoost}`;
+            const cursorFilter = next
+                ? sql`
+                    and (
+                        ranked.score < ${next.score}
+                        or (ranked.score = ${next.score} and ranked.id > ${next.id})
+                    )
+                `
+                : sql``;
+            const result = await db.execute(sql<SearchRelationshipRow>`
+                with ranked as (
+                    select
+                        r.id,
+                        r.source_id as "sourceId",
+                        r.target_id as "targetId",
+                        coalesce(source_entity.name, 'Unknown') as "sourceName",
+                        coalesce(target_entity.name, 'Unknown') as "targetName",
+                        r.description,
+                        r.rank,
+                        ${semanticScore} as semantic_score,
+                        ${keywordBoost} as keyword_boost,
+                        ${exactBoost} as exact_boost,
+                        ${score} as score
+                    from relationships r
+                    left join entities source_entity on source_entity.id = r.source_id
+                    left join entities target_entity on target_entity.id = r.target_id
+                    where r.graph_id = ${graphId}
+                      and r.active = true
+                      ${fileScope}
+                )
+                select
+                    ranked.id,
+                    ranked."sourceId",
+                    ranked."targetId",
+                    ranked."sourceName",
+                    ranked."targetName",
+                    ranked.description,
+                    ranked.rank,
+                    ranked.score
+                from ranked
+                where (
+                    ranked.semantic_score >= ${MIN_SEMANTIC_SCORE}
+                    or ranked.keyword_boost >= ${MIN_KEYWORD_BOOST}
+                    or ranked.exact_boost > 0
+                )
+                ${cursorFilter}
+                order by ranked.score desc, ranked.id asc
+                limit ${limit + 1}
+            `);
+            const relationships = toSearchRelationshipRows(result.rows);
 
             const hasMore = relationships.length > limit;
             const items = hasMore ? relationships.slice(0, limit) : relationships;
-            const entityLookupIds = [...new Set(items.flatMap((row) => [row.sourceId, row.targetId]))];
-            const entities = entityLookupIds.length
-                ? await db
-                      .select({
-                          id: entityTable.id,
-                          name: entityTable.name,
-                          type: entityTable.type,
-                      })
-                      .from(entityTable)
-                      .where(inArray(entityTable.id, entityLookupIds))
-                : [];
-            const entityMap = new Map(entities.map((row) => [row.id, row]));
 
             return [
                 "## Relationships",
-                ...(items.length > 0
-                    ? items.map((row) => {
-                          const normalized = row.description.replace(/\s+/g, " ").trim();
-                          const words = normalized.length > 0 ? normalized.split(" ") : [];
-                          const shortDescription =
-                              words.length > 40 ? `${words.slice(0, 40).join(" ")}...` : normalized;
-                          const source = entityMap.get(row.sourceId);
-                          const target = entityMap.get(row.targetId);
-
-                          return `- ${row.id}, ${row.sourceId} ${source?.name ?? "Unknown"} -> ${row.targetId} ${target?.name ?? "Unknown"}, ${shortDescription || "No description"}, rank ${row.rank}`;
-                      })
-                    : ["- none"]),
-                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
+                ...(items.length > 0 ? formatRelationshipList(items) : ["- none"]),
+                ...(hasMore && items.length > 0
+                    ? [
+                          ``,
+                          `Next cursor: ${encodeCursor({
+                              id: items[items.length - 1]!.id,
+                              score: items[items.length - 1]!.score,
+                          } satisfies RankCursor)}`,
+                      ]
+                    : []),
             ].join("\n");
         },
     });

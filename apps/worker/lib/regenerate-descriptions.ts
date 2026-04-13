@@ -7,6 +7,7 @@ import { buildDescription } from "./description";
 import { buildAdapter, buildEmbeddingAdapter } from "./ai";
 import { env } from "../env";
 import { chunkItems } from "./chunk";
+import { DESCRIPTION_BATCH_SIZE } from "./description-workflow";
 
 type SourceEmbeddingUpdate = {
     id: string;
@@ -109,7 +110,7 @@ async function regenerateDescriptions(
     client: ReturnType<typeof createDescriptionClient>,
     update: (args: { id: string; description: string; embedding: number[]; sourceEmbeddings: SourceEmbeddingUpdate[] }) => Promise<void>
 ) {
-    for (const chunk of chunkItems(items, 100)) {
+    for (const chunk of chunkItems(items, DESCRIPTION_BATCH_SIZE)) {
         await Promise.all(
             chunk.map(async (item) => {
                 if (item.sources.length === 0) {

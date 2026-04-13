@@ -10,6 +10,7 @@ export const env = createEnv({
         MASTER_USER_NAME: z.string().optional(),
         MASTER_USER_EMAIL: z.string().optional(),
         MASTER_USER_PASSWORD: z.string().optional(),
+        MASTER_USER_API_BYPASS: z.string().optional(),
         TRUSTED_ORIGINS: z.string().optional(),
         AUTH_CROSS_SUBDOMAIN_COOKIES: z.string().optional(),
         AUTH_COOKIE_DOMAIN: z.string().optional(),

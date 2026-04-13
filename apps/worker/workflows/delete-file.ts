@@ -11,6 +11,7 @@ import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import { env } from "../env";
 import { chunkItems } from "../lib/chunk";
+import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { textArray } from "../lib/sql";
 import { deleteFileSpec } from "./delete-file-spec";
 import { deleteDerivedFileArtifacts } from "../lib/derived-files";
@@ -115,10 +116,10 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
 
     if (cleanup.entityIds.length > 0 || cleanup.relationshipIds.length > 0) {
         const descriptionWorkflowRuns = [
-            ...chunkItems(cleanup.entityIds, 100).map((entityIds) =>
+            ...chunkItems(cleanup.entityIds, DESCRIPTION_BATCH_SIZE).map((entityIds) =>
                 step.runWorkflow(updateDescriptionsSpec, { graphId: input.graphId, entityIds })
             ),
-            ...chunkItems(cleanup.relationshipIds, 100).map((relationshipIds) =>
+            ...chunkItems(cleanup.relationshipIds, DESCRIPTION_BATCH_SIZE).map((relationshipIds) =>
                 step.runWorkflow(updateDescriptionsSpec, { graphId: input.graphId, relationshipIds })
             ),
         ];

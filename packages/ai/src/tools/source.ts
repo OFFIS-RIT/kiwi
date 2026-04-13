@@ -1,8 +1,118 @@
 import { db } from "@kiwi/db";
+import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
-import { and, asc, eq, gt, ilike, inArray, or } from "drizzle-orm";
-import { tool } from "ai";
+import { and, asc, eq, gt, inArray, or, sql, type SQL } from "drizzle-orm";
+import { embed, tool } from "ai";
+import { withAiSlot } from "../concurrency";
+import {
+    decodeCursor,
+    encodeCursor,
+    EXACT_BOOST,
+    greatest,
+    KEYWORD_WEIGHT,
+    MIN_KEYWORD_BOOST,
+    MIN_SEMANTIC_SCORE,
+    normalizeTerms,
+    PREFIX_BOOST,
+    truncateWords,
+    type RankCursor,
+} from "./lib/search";
 import { z } from "zod";
+
+type SearchSourceRow = {
+    id: string;
+    entityId: string;
+    relationshipId: string;
+    description: string;
+    text: string;
+    fileId: string;
+    fileName: string;
+    score: number;
+};
+
+function buildSourceKeywordBoostExpression(terms: string[]) {
+    return greatest(
+        terms.flatMap((term) => [sql`similarity(source.description, ${term})`, sql`similarity(file.name, ${term})`])
+    );
+}
+
+function buildSourceExactBoostExpression(terms: string[]) {
+    return greatest(
+        terms.map(
+            (term) =>
+                sql`case
+                    when lower(file.name) = lower(${term}) then ${EXACT_BOOST}
+                    when file.name ilike ${`${term}%`} then ${PREFIX_BOOST}
+                    else 0
+                end`
+        )
+    );
+}
+
+function buildFileScopeExpression(fileIds: string[]) {
+    if (fileIds.length === 0) {
+        return sql``;
+    }
+
+    return sql`
+        and text_unit.file_id in (${sql.join(
+            fileIds.map((fileId) => sql`${fileId}`),
+            sql`, `
+        )})
+    `;
+}
+
+function buildSubjectScopeExpression(entityIds: string[], relationshipIds: string[]) {
+    const scopes: SQL[] = [];
+
+    if (entityIds.length > 0) {
+        scopes.push(sql`source.entity_id in (${sql.join(entityIds.map((entityId) => sql`${entityId}`), sql`, `)})`);
+    }
+
+    if (relationshipIds.length > 0) {
+        scopes.push(
+            sql`source.relationship_id in (${sql.join(relationshipIds.map((relationshipId) => sql`${relationshipId}`), sql`, `)})`
+        );
+    }
+
+    if (scopes.length === 1) {
+        return sql`and ${scopes[0]!}`;
+    }
+
+    return sql`and (${sql.join(scopes, sql` or `)})`;
+}
+
+function toSearchSourceRows(rows: Record<string, unknown>[]): SearchSourceRow[] {
+    return rows.map((row) => ({
+        id: String(row.id ?? ""),
+        entityId: String(row.entityId ?? ""),
+        relationshipId: String(row.relationshipId ?? ""),
+        description: String(row.description ?? ""),
+        text: String(row.text ?? ""),
+        fileId: String(row.fileId ?? ""),
+        fileName: String(row.fileName ?? ""),
+        score: Number(row.score ?? 0),
+    }));
+}
+
+function formatSourceList(
+    rows: Array<{
+        id: string;
+        entityId: string | null;
+        relationshipId: string | null;
+        description: string;
+        text: string;
+        fileId: string;
+        fileName: string;
+    }>
+) {
+    return rows.map((row) => {
+        const shortExcerpt = truncateWords(row.text);
+        const subject = row.entityId ? `entity ${row.entityId}` : row.relationshipId ? `relationship ${row.relationshipId}` : "unlinked";
+
+        return `- ${row.id}, ${subject}, file ${row.fileId} ${row.fileName}, ${truncateWords(row.description) || "No description"}, excerpt: ${shortExcerpt || "No excerpt"}`;
+    });
+}
 
 const getSourcesSchema = z.object({
     query: z
@@ -28,20 +138,19 @@ const getSourcesSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-export const getSourcesTool = (graphId: string) =>
+export const getSourcesTool = (graphId: string, embeddingModel: EmbeddingModelV3) =>
     tool({
         description:
-            "Final grounding tool. Use only after researching entities or relationships first. The returned source IDs are the citation IDs that the final answer must cite.",
+            "Final grounding tool. Use only after researching entities or relationships first. When you provide a refinement query, semantic search is primary and keywords boost exact file or source text matches. The returned source IDs are the citation IDs that the final answer must cite.",
         inputSchema: getSourcesSchema,
         execute: async ({ query, keywords, files, entityIds, relationshipIds, limit, cursor }) => {
-            const fileIds = [...new Set((files ?? []).map((value) => value.trim()).filter(Boolean))];
-            const scopedEntityIds = [...new Set((entityIds ?? []).map((value) => value.trim()).filter(Boolean))];
-            const scopedRelationshipIds = [
-                ...new Set((relationshipIds ?? []).map((value) => value.trim()).filter(Boolean)),
-            ];
-            const terms = [...new Set([query ?? "", ...(keywords ?? [])].map((value) => value.trim()).filter(Boolean))];
+            const fileIds = normalizeTerms(files ?? []);
+            const entityIdsInScope = normalizeTerms(entityIds ?? []);
+            const relationshipIdsInScope = normalizeTerms(relationshipIds ?? []);
+            const text = query?.trim() ?? "";
+            const terms = normalizeTerms([text, ...(keywords ?? [])]);
 
-            if (scopedEntityIds.length === 0 && scopedRelationshipIds.length === 0) {
+            if (entityIdsInScope.length === 0 && relationshipIdsInScope.length === 0) {
                 return [
                     "## Sources",
                     "Use source IDs from this tool as citations in the final answer.",
@@ -49,98 +158,154 @@ export const getSourcesTool = (graphId: string) =>
                 ].join("\n");
             }
 
-            const clauses = [eq(sourcesTable.active, true), eq(filesTable.graphId, graphId)];
+            if (terms.length === 0) {
+                const clauses = [eq(sourcesTable.active, true), eq(filesTable.graphId, graphId)];
 
-            if (cursor) {
-                clauses.push(gt(sourcesTable.id, cursor));
-            }
-
-            if (fileIds.length > 0) {
-                clauses.push(inArray(textUnitTable.fileId, fileIds));
-            }
-
-            if (scopedEntityIds.length > 0 || scopedRelationshipIds.length > 0) {
-                const idClauses = [];
-
-                if (scopedEntityIds.length > 0) {
-                    idClauses.push(inArray(sourcesTable.entityId, scopedEntityIds));
+                if (cursor) {
+                    clauses.push(gt(sourcesTable.id, cursor));
                 }
 
-                if (scopedRelationshipIds.length > 0) {
-                    idClauses.push(inArray(sourcesTable.relationshipId, scopedRelationshipIds));
+                if (fileIds.length > 0) {
+                    clauses.push(inArray(textUnitTable.fileId, fileIds));
                 }
 
-                if (idClauses.length === 1) {
-                    clauses.push(idClauses[0]!);
-                } else {
-                    const combinedIdClause = or(...idClauses);
+                if (entityIdsInScope.length > 0 || relationshipIdsInScope.length > 0) {
+                    const idClauses = [];
 
-                    if (combinedIdClause) {
-                        clauses.push(combinedIdClause);
+                    if (entityIdsInScope.length > 0) {
+                        idClauses.push(inArray(sourcesTable.entityId, entityIdsInScope));
+                    }
+
+                    if (relationshipIdsInScope.length > 0) {
+                        idClauses.push(inArray(sourcesTable.relationshipId, relationshipIdsInScope));
+                    }
+
+                    if (idClauses.length === 1) {
+                        clauses.push(idClauses[0]!);
+                    } else {
+                        const combinedIdClause = or(...idClauses);
+
+                        if (combinedIdClause) {
+                            clauses.push(combinedIdClause);
+                        }
                     }
                 }
+
+                const rows = await db
+                    .select({
+                        id: sourcesTable.id,
+                        entityId: sourcesTable.entityId,
+                        relationshipId: sourcesTable.relationshipId,
+                        description: sourcesTable.description,
+                        text: textUnitTable.text,
+                        fileId: filesTable.id,
+                        fileName: filesTable.name,
+                    })
+                    .from(sourcesTable)
+                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                    .where(and(...clauses))
+                    .orderBy(asc(sourcesTable.id))
+                    .limit(limit + 1);
+
+                const hasMore = rows.length > limit;
+                const items = hasMore ? rows.slice(0, limit) : rows;
+
+                return [
+                    "## Sources",
+                    "Use source IDs below as citations in the final answer.",
+                    ...(items.length > 0 ? formatSourceList(items) : ["- none"]),
+                    ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
+                ].join("\n");
             }
 
-            if (terms.length > 0) {
-                const termClauses = terms.flatMap((term) => [
-                    ilike(sourcesTable.description, `%${term}%`),
-                    ilike(textUnitTable.text, `%${term}%`),
-                    ilike(filesTable.name, `%${term}%`),
-                ]);
-
-                if (termClauses.length === 1) {
-                    clauses.push(termClauses[0]!);
-                } else {
-                    const combinedTermClause = or(...termClauses);
-
-                    if (combinedTermClause) {
-                        clauses.push(combinedTermClause);
-                    }
-                }
-            }
-
-            const rows = await db
-                .select({
-                    id: sourcesTable.id,
-                    entityId: sourcesTable.entityId,
-                    relationshipId: sourcesTable.relationshipId,
-                    description: sourcesTable.description,
-                    text: textUnitTable.text,
-                    fileId: filesTable.id,
-                    fileName: filesTable.name,
-                })
-                .from(sourcesTable)
-                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                .where(and(...clauses))
-                .orderBy(asc(sourcesTable.id))
-                .limit(limit + 1);
-
+            const next = decodeCursor(cursor, "source search");
+            const fileScope = buildFileScopeExpression(fileIds);
+            const subjectScope = buildSubjectScopeExpression(entityIdsInScope, relationshipIdsInScope);
+            const keywordBoost = buildSourceKeywordBoostExpression(terms);
+            const exactBoost = buildSourceExactBoostExpression(terms);
+            const queryVector = text
+                ? JSON.stringify(
+                      (
+                          await withAiSlot("embedding", () =>
+                              embed({
+                                  model: embeddingModel,
+                                  value: text,
+                              })
+                          )
+                      ).embedding
+                  )
+                : undefined;
+            const semanticScoreExpression = queryVector
+                ? sql`greatest(0::double precision, 1 - (source.embedding <=> ${queryVector}::vector))`
+                : sql`0::double precision`;
+            const score = sql`${semanticScoreExpression} + (${keywordBoost} * ${KEYWORD_WEIGHT}) + ${exactBoost}`;
+            const cursorFilter = next
+                ? sql`
+                    and (
+                        ranked.score < ${next.score}
+                        or (ranked.score = ${next.score} and ranked.id > ${next.id})
+                    )
+                `
+                : sql``;
+            const result = await db.execute(sql<SearchSourceRow>`
+                with ranked as (
+                    select
+                        source.id,
+                        coalesce(source.entity_id, '') as "entityId",
+                        coalesce(source.relationship_id, '') as "relationshipId",
+                        source.description,
+                        text_unit.text,
+                        file.id as "fileId",
+                        file.name as "fileName",
+                        ${semanticScoreExpression} as semantic_score,
+                        ${keywordBoost} as keyword_boost,
+                        ${exactBoost} as exact_boost,
+                        ${score} as score
+                    from sources source
+                    inner join text_units text_unit on text_unit.id = source.text_unit_id
+                    inner join files file on file.id = text_unit.file_id
+                    where source.active = true
+                      and file.graph_id = ${graphId}
+                      ${fileScope}
+                      ${subjectScope}
+                )
+                select
+                    ranked.id,
+                    ranked."entityId",
+                    ranked."relationshipId",
+                    ranked.description,
+                    ranked.text,
+                    ranked."fileId",
+                    ranked."fileName",
+                    ranked.score
+                from ranked
+                where (
+                    ranked.semantic_score >= ${MIN_SEMANTIC_SCORE}
+                    or ranked.keyword_boost >= ${MIN_KEYWORD_BOOST}
+                    or ranked.exact_boost > 0
+                )
+                ${cursorFilter}
+                order by ranked.score desc, ranked.id asc
+                limit ${limit + 1}
+            `);
+            const rows = toSearchSourceRows(result.rows);
             const hasMore = rows.length > limit;
             const items = hasMore ? rows.slice(0, limit) : rows;
 
             return [
                 "## Sources",
                 "Use source IDs below as citations in the final answer.",
-                ...(items.length > 0
-                    ? items.map((row) => {
-                          const normalizedDescription = row.description.replace(/\s+/g, " ").trim();
-                          const normalizedExcerpt = row.text.replace(/\s+/g, " ").trim();
-                          const excerptWords = normalizedExcerpt.length > 0 ? normalizedExcerpt.split(" ") : [];
-                          const shortExcerpt =
-                              excerptWords.length > 40
-                                  ? `${excerptWords.slice(0, 40).join(" ")}...`
-                                  : normalizedExcerpt;
-                          const subject = row.entityId
-                              ? `entity ${row.entityId}`
-                              : row.relationshipId
-                                ? `relationship ${row.relationshipId}`
-                                : "unlinked";
-
-                          return `- ${row.id}, ${subject}, file ${row.fileId} ${row.fileName}, ${normalizedDescription || "No description"}, excerpt: ${shortExcerpt || "No excerpt"}`;
-                      })
-                    : ["- none"]),
-                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
+                ...(items.length > 0 ? formatSourceList(items) : ["- none"]),
+                ...(hasMore && items.length > 0
+                    ? [
+                          ``,
+                          `Next cursor: ${encodeCursor({
+                              id: items[items.length - 1]!.id,
+                              score: items[items.length - 1]!.score,
+                          } satisfies RankCursor)}`,
+                      ]
+                    : []),
             ].join("\n");
         },
     });

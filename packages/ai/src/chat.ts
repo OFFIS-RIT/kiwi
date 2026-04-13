@@ -1,7 +1,9 @@
 import type { ModelMessage } from "ai";
+import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import type { ChatMessage, MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
 import { jsonrepair } from "jsonrepair";
 import { toModelMessage } from "./index";
+import { createChatPrompt } from "./prompts/chat.prompt";
 import { listEntitiesTool, searchEntityTool } from "./tools/entity";
 import { listFilesTool } from "./tools/file";
 import {
@@ -73,36 +75,22 @@ export function buildEmbeddingAdapter(
     }
 }
 
-export function buildChatTools(graphId: string) {
+export function buildChatTools(graphId: string, embeddingModel: EmbeddingModelV3) {
     return {
         list_files: listFilesTool(graphId),
-        search_entities: searchEntityTool(graphId),
+        search_entities: searchEntityTool(graphId, embeddingModel),
         list_entities: listEntitiesTool(graphId),
-        search_relationships: searchRelationshipsTool(graphId),
+        search_relationships: searchRelationshipsTool(graphId, embeddingModel),
         get_relationships: getRelationshipsTool(graphId),
         get_entity_neighbours: getNeighboursTool(graphId),
         get_path_between_entities: getPathBetweenTool(graphId),
-        get_sources: getSourcesTool(graphId),
+        get_sources: getSourcesTool(graphId, embeddingModel),
         ask_clarifying_questions: askQuestionTool(),
     };
 }
 
 export function createChatSystemPrompt(graphPrompt?: string) {
-    const sections = [
-        "You are Kiwi, an AI assistant for exploring one graph-backed project.",
-        "Ground claims in the available tools before answering.",
-        'When evidence supports a claim, cite it inline using only this exact fence format: :::{"type":"cite","id":"<source-id>"}:::',
-        "Use source IDs returned by the get_sources tool for citations.",
-        "Do not use legacy citation formats such as [[id]] or markdown footnotes.",
-        "If required information is missing and cannot be inferred from prior messages or tool results, call ask_clarifying_questions.",
-        "Keep answers concise, factual, and directly tied to the available evidence.",
-    ];
-
-    if (graphPrompt?.trim()) {
-        sections.push("Project-specific guidance:", graphPrompt.trim());
-    }
-
-    return sections.join("\n\n");
+    return createChatPrompt(graphPrompt);
 }
 
 function normalizeToolName(part: { type: string; toolName?: string }) {

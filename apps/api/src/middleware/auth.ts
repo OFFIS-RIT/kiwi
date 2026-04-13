@@ -11,6 +11,7 @@ const masterUserId = env.MASTER_USER_ID?.trim() || undefined;
 const masterUserName = env.MASTER_USER_NAME?.trim() || "Master User";
 const masterUserEmail = env.MASTER_USER_EMAIL?.trim() || undefined;
 const masterUserPassword = env.MASTER_USER_PASSWORD?.trim() || undefined;
+const masterUserBypassToken = env.MASTER_USER_API_BYPASS?.trim() || undefined;
 
 let ensureMasterUserPromise: Promise<void> | null = null;
 
@@ -104,12 +105,53 @@ export const getAuthSession = (headers: Headers) =>
 export type AuthSession = Awaited<ReturnType<typeof getAuthSession>>;
 export type AuthUser = NonNullable<AuthSession>["user"];
 
+function getAuthorizationToken(headers: Headers) {
+    const authorization = headers.get("authorization")?.trim();
+    if (!authorization) {
+        return undefined;
+    }
+
+    const bearerMatch = /^Bearer\s+(.+)$/i.exec(authorization);
+    return bearerMatch?.[1]?.trim() || authorization;
+}
+
+function isMasterBypass(headers: Headers) {
+    const token = getAuthorizationToken(headers);
+
+    return Boolean(masterUserId && masterUserBypassToken && token && token === masterUserBypassToken);
+}
+
+async function getBypassSession(): Promise<AuthSession> {
+    if (!masterUserId) {
+        return null;
+    }
+
+    const [user] = await db.select().from(userTable).where(eq(userTable.id, masterUserId)).limit(1);
+    if (!user) {
+        return null;
+    }
+
+    return {
+        session: {
+            id: "master-user-api-bypass",
+            userId: user.id,
+            expiresAt: new Date("9999-12-31T23:59:59.999Z"),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            token: "master-user-api-bypass",
+        },
+        user,
+    } as AuthSession;
+}
+
 export const authMiddleware = new Elysia({ name: "auth-middleware" }).derive({ as: "scoped" }, async ({ request }) => {
     await ensureMasterUser();
 
-    const session = await getAuthSession(request.headers);
+    const isMasterBypassRequest = isMasterBypass(request.headers);
+    const session = isMasterBypassRequest ? await getBypassSession() : await getAuthSession(request.headers);
 
     return {
+        isMasterBypass: isMasterBypassRequest,
         session,
         user: session?.user ?? null,
     };

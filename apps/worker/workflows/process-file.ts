@@ -37,6 +37,7 @@ import { getDerivedFilePrefix, getDerivedImagePrefix } from "../lib/derived-file
 import { buildPDFLoaderOptions } from "../lib/pdf-loader";
 import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
+import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 
 const WORKFLOW_STORAGE_VERSION = "v1";
 
@@ -110,10 +111,10 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
     });
 
     await Promise.all([
-        ...chunkItems(descriptionJobs.entityIdsToProcess, 100).map((entityIds) =>
+        ...chunkItems(descriptionJobs.entityIdsToProcess, DESCRIPTION_BATCH_SIZE).map((entityIds) =>
             step.runWorkflow(updateDescriptionsSpec, { graphId: input.graphId, entityIds })
         ),
-        ...chunkItems(descriptionJobs.relIdsToProcess, 100).map((relationshipIds) =>
+        ...chunkItems(descriptionJobs.relIdsToProcess, DESCRIPTION_BATCH_SIZE).map((relationshipIds) =>
             step.runWorkflow(updateDescriptionsSpec, { graphId: input.graphId, relationshipIds })
         ),
     ]);

@@ -5,14 +5,19 @@ import { API_ERROR_CODES, errorResponse } from "../types";
 import type { AuthSession, AuthUser } from "./auth";
 
 type PermissionContext = Context & {
+    isMasterBypass?: boolean;
     session: AuthSession;
     user: AuthUser | null;
 };
 
 export function requirePermissions(permissions: KiwiPermissions) {
-    return async ({ request, session, status }: PermissionContext) => {
+    return async ({ request, session, status, isMasterBypass }: PermissionContext) => {
         if (!session) {
             return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+        }
+
+        if (isMasterBypass) {
+            return;
         }
 
         const result = await auth.api.userHasPermission({
