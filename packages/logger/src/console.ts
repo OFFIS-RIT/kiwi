@@ -1,5 +1,5 @@
-import { normalizeKeyvals } from "./normalize";
-import type { LogLevel, LoggerInstance } from "./types";
+import { normalizeFields } from "./normalize";
+import type { LogFields, LogLevel, LoggerInstance } from "./types";
 
 export type ConsoleLoggerOptions = {
     level?: LogLevel;
@@ -40,12 +40,12 @@ class ConsoleLogger implements LoggerInstance {
         this.console = options.console ?? console;
     }
 
-    private write(level: LogLevel, message: string, keyvals: unknown[]) {
+    private write(level: LogLevel, message: string, fields?: LogFields) {
         if (!shouldLog(level, this.level)) {
             return;
         }
 
-        const { attributes } = normalizeKeyvals(keyvals);
+        const { attributes } = normalizeFields(fields);
         const line = formatLine(level, message, this.timestamps);
         const hasAttributes = Object.keys(attributes).length > 0;
         const method = this.getMethod(level);
@@ -75,28 +75,28 @@ class ConsoleLogger implements LoggerInstance {
         }
     }
 
-    log(message: string, ...keyvals: unknown[]) {
-        this.write("log", message, keyvals);
+    log(message: string, fields?: LogFields) {
+        this.write("log", message, fields);
     }
 
-    debug(message: string, ...keyvals: unknown[]) {
-        this.write("debug", message, keyvals);
+    debug(message: string, fields?: LogFields) {
+        this.write("debug", message, fields);
     }
 
-    info(message: string, ...keyvals: unknown[]) {
-        this.write("info", message, keyvals);
+    info(message: string, fields?: LogFields) {
+        this.write("info", message, fields);
     }
 
-    warn(message: string, ...keyvals: unknown[]) {
-        this.write("warn", message, keyvals);
+    warn(message: string, fields?: LogFields) {
+        this.write("warn", message, fields);
     }
 
-    error(message: string, ...keyvals: unknown[]) {
-        this.write("error", message, keyvals);
+    error(message: string, fields?: LogFields) {
+        this.write("error", message, fields);
     }
 
-    fatal(message: string, ...keyvals: unknown[]) {
-        this.write("fatal", message, keyvals);
+    fatal(message: string, fields?: LogFields) {
+        this.write("fatal", message, fields);
     }
 }
 

@@ -38,7 +38,7 @@ describe("createOpenTelemetryLogger", () => {
             exporter,
         });
 
-        logger.error("request failed", "statusCode", 500, "retryable", false);
+        logger.error("request failed", { statusCode: 500, retryable: false });
         await logger.flush?.();
 
         expect(exporter.exportedRecords).toHaveLength(1);

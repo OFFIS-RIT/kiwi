@@ -1,4 +1,5 @@
 import Elysia from "elysia";
+import { error as logError } from "@kiwi/logger";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
@@ -454,7 +455,7 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
 
             const failedKeyCount = listFailureCount + deleteFailureCount;
             if (failedKeyCount > 0) {
-                console.error("Group deleted with incomplete S3 cleanup", {
+                logError("Group deleted with incomplete S3 cleanup", {
                     groupId: deleteResult.value.groupId,
                     graphCount: deleteResult.value.graphIds.length,
                     attemptedKeyCount: s3Keys.size,

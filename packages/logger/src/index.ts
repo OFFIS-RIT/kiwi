@@ -1,45 +1,75 @@
-import type { LoggerInstance } from "./types";
+import type { LogFields, LoggerInstance } from "./types";
 
 export { createConsoleLogger } from "./console";
-export { normalizeKeyvals } from "./normalize";
-export type { LogAttributes, LogLevel, LoggerInstance, LogValue, NormalizedLogPayload } from "./types";
+export { normalizeFields } from "./normalize";
+export type { LogAttributes, LogFields, LogLevel, LoggerInstance, LogValue, NormalizedLogPayload } from "./types";
 
 export class Logger {
     constructor(private readonly instances: LoggerInstance[]) {}
 
-    log(message: string, ...keyvals: unknown[]) {
+    log(message: string, fields?: LogFields) {
         for (const instance of this.instances) {
-            instance.log(message, ...keyvals);
+            if (fields === undefined) {
+                instance.log(message);
+                continue;
+            }
+
+            instance.log(message, fields);
         }
     }
 
-    debug(message: string, ...keyvals: unknown[]) {
+    debug(message: string, fields?: LogFields) {
         for (const instance of this.instances) {
-            instance.debug(message, ...keyvals);
+            if (fields === undefined) {
+                instance.debug(message);
+                continue;
+            }
+
+            instance.debug(message, fields);
         }
     }
 
-    info(message: string, ...keyvals: unknown[]) {
+    info(message: string, fields?: LogFields) {
         for (const instance of this.instances) {
-            instance.info(message, ...keyvals);
+            if (fields === undefined) {
+                instance.info(message);
+                continue;
+            }
+
+            instance.info(message, fields);
         }
     }
 
-    warn(message: string, ...keyvals: unknown[]) {
+    warn(message: string, fields?: LogFields) {
         for (const instance of this.instances) {
-            instance.warn(message, ...keyvals);
+            if (fields === undefined) {
+                instance.warn(message);
+                continue;
+            }
+
+            instance.warn(message, fields);
         }
     }
 
-    error(message: string, ...keyvals: unknown[]) {
+    error(message: string, fields?: LogFields) {
         for (const instance of this.instances) {
-            instance.error(message, ...keyvals);
+            if (fields === undefined) {
+                instance.error(message);
+                continue;
+            }
+
+            instance.error(message, fields);
         }
     }
 
-    fatal(message: string, ...keyvals: unknown[]) {
+    fatal(message: string, fields?: LogFields) {
         for (const instance of this.instances) {
-            instance.fatal(message, ...keyvals);
+            if (fields === undefined) {
+                instance.fatal(message);
+                continue;
+            }
+
+            instance.fatal(message, fields);
         }
     }
 
@@ -66,28 +96,28 @@ export function getLogger() {
     return singleton;
 }
 
-export function log(message: string, ...keyvals: unknown[]) {
-    singleton?.log(message, ...keyvals);
+export function log(message: string, fields?: LogFields) {
+    singleton?.log(message, fields);
 }
 
-export function debug(message: string, ...keyvals: unknown[]) {
-    singleton?.debug(message, ...keyvals);
+export function debug(message: string, fields?: LogFields) {
+    singleton?.debug(message, fields);
 }
 
-export function info(message: string, ...keyvals: unknown[]) {
-    singleton?.info(message, ...keyvals);
+export function info(message: string, fields?: LogFields) {
+    singleton?.info(message, fields);
 }
 
-export function warn(message: string, ...keyvals: unknown[]) {
-    singleton?.warn(message, ...keyvals);
+export function warn(message: string, fields?: LogFields) {
+    singleton?.warn(message, fields);
 }
 
-export function error(message: string, ...keyvals: unknown[]) {
-    singleton?.error(message, ...keyvals);
+export function error(message: string, fields?: LogFields) {
+    singleton?.error(message, fields);
 }
 
-export function fatal(message: string, ...keyvals: unknown[]) {
-    singleton?.fatal(message, ...keyvals);
+export function fatal(message: string, fields?: LogFields) {
+    singleton?.fatal(message, fields);
 }
 
 export async function flush() {

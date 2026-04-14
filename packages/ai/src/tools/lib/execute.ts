@@ -31,7 +31,7 @@ export async function runToolSafely(
     const result = await Result.tryPromise(run);
 
     if (result.isErr()) {
-        logError("ai tool execution failed", "toolName", options.name, "error", result.error);
+        logError("ai tool execution failed", { toolName: options.name, error: result.error });
 
         const failure = describeFailure(result.error);
         const hints = [...failure.hints, ...options.hints].filter(

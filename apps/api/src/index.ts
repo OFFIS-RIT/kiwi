@@ -37,10 +37,13 @@ const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
     .listen(4321);
 
-info("api server started", "host", app.server?.hostname ?? "unknown", "port", app.server?.port ?? 4321);
+info("api server started", {
+    host: app.server?.hostname ?? "unknown",
+    port: app.server?.port ?? 4321,
+});
 
 async function handleShutdown(signal: string) {
-    info("api server shutting down", "signal", signal);
+    info("api server shutting down", { signal });
     await shutdownLogger();
     process.exit(0);
 }

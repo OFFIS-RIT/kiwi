@@ -1,4 +1,4 @@
-import type { LogAttributes, LogValue, NormalizedLogPayload } from "./types";
+import type { LogAttributes, LogFields, LogValue, NormalizedLogPayload } from "./types";
 
 function normalizeScalar(value: unknown): LogValue | undefined {
     if (value === undefined) {
@@ -48,28 +48,20 @@ function setAttribute(attributes: LogAttributes, key: string, value: unknown) {
     }
 }
 
-export function normalizeKeyvals(keyvals: unknown[]): NormalizedLogPayload {
+export function normalizeFields(fields?: LogFields): NormalizedLogPayload {
     const attributes: LogAttributes = {};
-    const pairLength = keyvals.length - (keyvals.length % 2);
 
-    for (let index = 0; index < pairLength; index += 2) {
-        const rawKey = keyvals[index];
-        const rawValue = keyvals[index + 1];
-        const key = String(rawKey);
-        setAttribute(attributes, key, rawValue);
+    if (!fields) {
+        return {
+            attributes,
+        };
     }
 
-    const invalidKeyvals = keyvals.length % 2 === 1;
-    if (invalidKeyvals) {
-        attributes["log.invalid_keyvals"] = true;
-        const trailingValue = normalizeScalar(keyvals[keyvals.length - 1]);
-        if (trailingValue !== undefined) {
-            attributes["log.unpaired_value"] = trailingValue;
-        }
+    for (const [key, value] of Object.entries(fields)) {
+        setAttribute(attributes, key, value);
     }
 
     return {
         attributes,
-        invalidKeyvals,
     };
 }

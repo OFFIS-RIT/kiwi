@@ -14,8 +14,8 @@ import {
     ATTR_SERVICE_VERSION,
     SEMRESATTRS_DEPLOYMENT_ENVIRONMENT,
 } from "@opentelemetry/semantic-conventions";
-import { normalizeKeyvals } from "./normalize";
-import type { LogLevel, LoggerInstance } from "./types";
+import { normalizeFields } from "./normalize";
+import type { LogFields, LogLevel, LoggerInstance } from "./types";
 
 export type OpenTelemetryLoggerOptions = {
     serviceName: string;
@@ -110,12 +110,12 @@ class OpenTelemetryLogger implements LoggerInstance {
         this.logger = provider.getLogger(options.scopeName ?? options.serviceName);
     }
 
-    private emit(level: LogLevel, message: string, keyvals: unknown[]) {
+    private emit(level: LogLevel, message: string, fields?: LogFields) {
         if (!shouldLog(level, this.level)) {
             return;
         }
 
-        const { attributes } = normalizeKeyvals(keyvals);
+        const { attributes } = normalizeFields(fields);
         this.logger.emit({
             body: message,
             severityNumber: severityMap[level],
@@ -124,28 +124,28 @@ class OpenTelemetryLogger implements LoggerInstance {
         });
     }
 
-    log(message: string, ...keyvals: unknown[]) {
-        this.emit("log", message, keyvals);
+    log(message: string, fields?: LogFields) {
+        this.emit("log", message, fields);
     }
 
-    debug(message: string, ...keyvals: unknown[]) {
-        this.emit("debug", message, keyvals);
+    debug(message: string, fields?: LogFields) {
+        this.emit("debug", message, fields);
     }
 
-    info(message: string, ...keyvals: unknown[]) {
-        this.emit("info", message, keyvals);
+    info(message: string, fields?: LogFields) {
+        this.emit("info", message, fields);
     }
 
-    warn(message: string, ...keyvals: unknown[]) {
-        this.emit("warn", message, keyvals);
+    warn(message: string, fields?: LogFields) {
+        this.emit("warn", message, fields);
     }
 
-    error(message: string, ...keyvals: unknown[]) {
-        this.emit("error", message, keyvals);
+    error(message: string, fields?: LogFields) {
+        this.emit("error", message, fields);
     }
 
-    fatal(message: string, ...keyvals: unknown[]) {
-        this.emit("fatal", message, keyvals);
+    fatal(message: string, fields?: LogFields) {
+        this.emit("fatal", message, fields);
     }
 
     async flush() {

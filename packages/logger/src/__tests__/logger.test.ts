@@ -36,10 +36,10 @@ describe("logger singleton", () => {
         const right = createMockInstance();
 
         init(left, right);
-        info("started", "port", 4321);
+        info("started", { port: 4321 });
 
-        expect(left.info).toHaveBeenCalledWith("started", "port", 4321);
-        expect(right.info).toHaveBeenCalledWith("started", "port", 4321);
+        expect(left.info).toHaveBeenCalledWith("started", { port: 4321 });
+        expect(right.info).toHaveBeenCalledWith("started", { port: 4321 });
     });
 
     test("re-init replaces existing instances", () => {

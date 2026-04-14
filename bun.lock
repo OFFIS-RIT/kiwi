@@ -150,6 +150,7 @@
       "name": "@kiwi/auth",
       "dependencies": {
         "@kiwi/db": "workspace:*",
+        "@kiwi/logger": "workspace:*",
         "better-auth": "catalog:",
         "better-auth-credentials-plugin": "catalog:",
         "better-result": "catalog:",

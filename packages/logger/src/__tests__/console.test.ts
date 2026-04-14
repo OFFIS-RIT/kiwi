@@ -59,7 +59,7 @@ describe("createConsoleLogger", () => {
             console: consoleMock,
         });
 
-        logger.info("api started", "port", 4321, "healthy", true);
+        logger.info("api started", { port: 4321, healthy: true });
 
         expect(consoleMock.info).toHaveBeenCalledWith("INFO api started", {
             port: 4321,

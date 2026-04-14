@@ -1,3 +1,4 @@
+import { error as logError } from "@kiwi/logger";
 import { betterAuth } from "better-auth";
 import { credentials } from "better-auth-credentials-plugin";
 import { admin as adminPlugin } from "better-auth/plugins";
@@ -168,7 +169,7 @@ export const auth = betterAuth({
                           });
 
                           if (ldapAuthResult.isErr()) {
-                              console.error("LDAP authentication failed", ldapAuthResult.error);
+                              logError("LDAP authentication failed", { error: ldapAuthResult.error });
                               throw new Error("Invalid credentials");
                           }
 

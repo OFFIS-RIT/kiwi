@@ -79,18 +79,18 @@ async function ensureMasterUser() {
             } else if (masterUserEmail) {
                 logInfo(
                     "master user password not configured; skipping credential account bootstrap",
-                    "userId",
-                    masterUserId,
-                    "email",
-                    email,
+                    {
+                        userId: masterUserId,
+                        email,
+                    }
                 );
             }
 
-            logInfo("ensured master user", "userId", masterUserId, "role", "admin");
+            logInfo("ensured master user", { userId: masterUserId, role: "admin" });
         })().catch((error) => {
             ensureMasterUserPromise = null;
 
-            logError("failed to ensure master user", "userId", masterUserId, "error", error);
+            logError("failed to ensure master user", { userId: masterUserId, error });
         });
     }
 

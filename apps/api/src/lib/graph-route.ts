@@ -256,18 +256,14 @@ export const cleanupFailedGraphCreation = async (
     } catch (cleanupError) {
         logError(
             "failed to cleanup graph after graph creation error",
-            "graphId",
-            graphId,
-            "ownerMode",
-            ownerMode,
-            "phase",
-            phase,
-            "uploadedKeyCount",
-            uploadedKeys.length,
-            "failedS3CleanupCount",
-            failedDeletes,
-            "error",
-            cleanupError
+            {
+                graphId,
+                ownerMode,
+                phase,
+                uploadedKeyCount: uploadedKeys.length,
+                failedS3CleanupCount: failedDeletes,
+                error: cleanupError,
+            }
         );
         return;
     }
@@ -275,16 +271,13 @@ export const cleanupFailedGraphCreation = async (
     if (failedDeletes > 0) {
         logError(
             "graph creation cleanup left orphaned s3 files",
-            "graphId",
-            graphId,
-            "ownerMode",
-            ownerMode,
-            "phase",
-            phase,
-            "uploadedKeyCount",
-            uploadedKeys.length,
-            "failedS3CleanupCount",
-            failedDeletes
+            {
+                graphId,
+                ownerMode,
+                phase,
+                uploadedKeyCount: uploadedKeys.length,
+                failedS3CleanupCount: failedDeletes,
+            }
         );
     }
 };
@@ -315,16 +308,13 @@ export const restoreGraphFileChangeFailure = async (
     } catch (cleanupError) {
         logError(
             "failed to rollback graph file change after enqueue failure",
-            "graphId",
-            graphId,
-            "addedFileCount",
-            addedFileIds.length,
-            "uploadedKeyCount",
-            uploadedKeys.length,
-            "failedS3CleanupCount",
-            failedDeletes,
-            "error",
-            cleanupError
+            {
+                graphId,
+                addedFileCount: addedFileIds.length,
+                uploadedKeyCount: uploadedKeys.length,
+                failedS3CleanupCount: failedDeletes,
+                error: cleanupError,
+            }
         );
         return;
     }
@@ -332,14 +322,12 @@ export const restoreGraphFileChangeFailure = async (
     if (failedDeletes > 0) {
         logError(
             "graph file change rollback left orphaned s3 files",
-            "graphId",
-            graphId,
-            "addedFileCount",
-            addedFileIds.length,
-            "uploadedKeyCount",
-            uploadedKeys.length,
-            "failedS3CleanupCount",
-            failedDeletes
+            {
+                graphId,
+                addedFileCount: addedFileIds.length,
+                uploadedKeyCount: uploadedKeys.length,
+                failedS3CleanupCount: failedDeletes,
+            }
         );
     }
 };

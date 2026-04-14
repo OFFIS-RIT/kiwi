@@ -362,14 +362,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
                 logError(
                     "graph creation failed during file upload",
-                    "graphId",
-                    graph.id,
-                    "ownerMode",
-                    ownerMode,
-                    "uploadedKeyCount",
-                    uploadedFiles.length,
-                    "error",
-                    uploadError
+                    {
+                        graphId: graph.id,
+                        ownerMode,
+                        uploadedKeyCount: uploadedFiles.length,
+                        error: uploadError,
+                    }
                 );
 
                 return status(500, {
@@ -405,14 +403,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
                 logError(
                     "graph creation failed during file row insert",
-                    "graphId",
-                    graph.id,
-                    "ownerMode",
-                    ownerMode,
-                    "uploadedKeyCount",
-                    uploadedFiles.length,
-                    "error",
-                    dbInsertError
+                    {
+                        graphId: graph.id,
+                        ownerMode,
+                        uploadedKeyCount: uploadedFiles.length,
+                        error: dbInsertError,
+                    }
                 );
 
                 return status(500, {
@@ -446,14 +442,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
                 logError(
                     "graph creation failed during workflow enqueue",
-                    "graphId",
-                    graph.id,
-                    "ownerMode",
-                    ownerMode,
-                    "uploadedKeyCount",
-                    uploadedFiles.length,
-                    "error",
-                    enqueueError
+                    {
+                        graphId: graph.id,
+                        ownerMode,
+                        uploadedKeyCount: uploadedFiles.length,
+                        error: enqueueError,
+                    }
                 );
 
                 return status(500, {
@@ -542,10 +536,10 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             } catch (dbPatchError) {
                 logError(
                     "graph patch failed during database update",
-                    "graphId",
-                    existingGraph.id,
-                    "error",
-                    dbPatchError
+                    {
+                        graphId: existingGraph.id,
+                        error: dbPatchError,
+                    }
                 );
 
                 return status(500, {
@@ -614,14 +608,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
                 logError(
                     "graph file add failed during file upload",
-                    "graphId",
-                    existingGraph.id,
-                    "uploadedKeyCount",
-                    uploadedFiles.length,
-                    "failedS3CleanupCount",
-                    failedDeletes,
-                    "error",
-                    uploadError
+                    {
+                        graphId: existingGraph.id,
+                        uploadedKeyCount: uploadedFiles.length,
+                        failedS3CleanupCount: failedDeletes,
+                        error: uploadError,
+                    }
                 );
 
                 return status(500, {
@@ -669,14 +661,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
                 logError(
                     "graph file add failed during database update",
-                    "graphId",
-                    existingGraph.id,
-                    "uploadedKeyCount",
-                    uploadedFiles.length,
-                    "failedS3CleanupCount",
-                    failedDeletes,
-                    "error",
-                    dbPatchError
+                    {
+                        graphId: existingGraph.id,
+                        uploadedKeyCount: uploadedFiles.length,
+                        failedS3CleanupCount: failedDeletes,
+                        error: dbPatchError,
+                    }
                 );
 
                 return status(500, {
@@ -710,14 +700,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
                 logError(
                     "graph file add failed during workflow enqueue",
-                    "graphId",
-                    existingGraph.id,
-                    "uploadedKeyCount",
-                    uploadedFiles.length,
-                    "addedFileCount",
-                    addedFiles.length,
-                    "error",
-                    enqueueError
+                    {
+                        graphId: existingGraph.id,
+                        uploadedKeyCount: uploadedFiles.length,
+                        addedFileCount: addedFiles.length,
+                        error: enqueueError,
+                    }
                 );
 
                 return status(500, {
@@ -798,12 +786,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             } catch (dbPatchError) {
                 logError(
                     "graph file delete failed during database update",
-                    "graphId",
-                    existingGraph.id,
-                    "removedFileCount",
-                    fileKeys.length,
-                    "error",
-                    dbPatchError
+                    {
+                        graphId: existingGraph.id,
+                        removedFileCount: fileKeys.length,
+                        error: dbPatchError,
+                    }
                 );
 
                 return status(500, {
@@ -833,23 +820,21 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 } catch (restoreError) {
                     logError(
                         "failed to restore graph state after file delete enqueue failure",
-                        "graphId",
-                        existingGraph.id,
-                        "removedFileCount",
-                        fileKeys.length,
-                        "error",
-                        restoreError
+                        {
+                            graphId: existingGraph.id,
+                            removedFileCount: fileKeys.length,
+                            error: restoreError,
+                        }
                     );
                 }
 
                 logError(
                     "graph file delete failed during workflow enqueue",
-                    "graphId",
-                    existingGraph.id,
-                    "removedFileCount",
-                    fileKeys.length,
-                    "error",
-                    enqueueError
+                    {
+                        graphId: existingGraph.id,
+                        removedFileCount: fileKeys.length,
+                        error: enqueueError,
+                    }
                 );
 
                 return status(500, {
@@ -980,14 +965,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             if (failedKeyCount > 0) {
                 logError(
                     "Graph deleted with incomplete S3 cleanup",
-                    "graphId",
-                    deleteResult.graphId,
-                    "graphCount",
-                    deleteResult.graphIds.length,
-                    "attemptedKeyCount",
-                    s3Keys.size,
-                    "failedKeyCount",
-                    failedKeyCount
+                    {
+                        graphId: deleteResult.graphId,
+                        graphCount: deleteResult.graphIds.length,
+                        attemptedKeyCount: s3Keys.size,
+                        failedKeyCount,
+                    }
                 );
             }
 
