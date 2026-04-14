@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { credentials } from "better-auth-credentials-plugin";
 import { admin as adminPlugin } from "better-auth/plugins";
+import { Result } from "better-result";
 import { authenticate } from "ldap-authentication";
 import { z } from "zod";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -121,7 +122,7 @@ export const auth = betterAuth({
                       providerId: "ldap",
                       inputSchema: ldapCredentialsSchema,
                       async callback(_ctx, parsed) {
-                          try {
+                          const ldapAuthResult = await Result.tryPromise(async () => {
                               const ldapUrl = process.env.LDAP_URL as string;
                               const bindDn = process.env.LDAP_BIND_DN as string;
                               const bindPassword = process.env.LDAP_PASSW as string;
@@ -164,10 +165,14 @@ export const auth = betterAuth({
                                   description: ldapResult.description ? String(ldapResult.description) : "",
                                   groups,
                               };
-                          } catch (error) {
-                              console.error("LDAP authentication failed", error);
+                          });
+
+                          if (ldapAuthResult.isErr()) {
+                              console.error("LDAP authentication failed", ldapAuthResult.error);
                               throw new Error("Invalid credentials");
                           }
+
+                          return ldapAuthResult.value;
                       },
                   }),
               ]

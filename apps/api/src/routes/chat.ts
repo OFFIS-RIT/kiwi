@@ -6,6 +6,7 @@ import {
     uiMessagesToModelMessages,
 } from "@kiwi/ai";
 import { db } from "@kiwi/db";
+import { Result } from "better-result";
 import { eq } from "drizzle-orm";
 import { chatTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { Elysia, t } from "elysia";
@@ -43,12 +44,16 @@ export const chatRoute = new Elysia()
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            try {
+            const chatsResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
-                return status(200, successResponse(await listChats(user.id, params.id)));
-            } catch (error) {
-                return mapChatError(status, error);
+                return listChats(user.id, params.id);
+            });
+
+            if (chatsResult.isErr()) {
+                return mapChatError(status, chatsResult.error);
             }
+
+            return status(200, successResponse(chatsResult.value));
         },
         {
             beforeHandle: requirePermissions({ graph: ["view"] }),
@@ -64,12 +69,16 @@ export const chatRoute = new Elysia()
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            try {
+            const historyResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
-                return status(200, successResponse(await loadChatHistory(user.id, params.id, params.chatId)));
-            } catch (error) {
-                return mapChatError(status, error);
+                return loadChatHistory(user.id, params.id, params.chatId);
+            });
+
+            if (historyResult.isErr()) {
+                return mapChatError(status, historyResult.error);
             }
+
+            return status(200, successResponse(historyResult.value));
         },
         {
             beforeHandle: requirePermissions({ graph: ["view"] }),
@@ -86,14 +95,17 @@ export const chatRoute = new Elysia()
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            try {
+            const deleteResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
                 const history = await loadChatHistory(user.id, params.id, params.chatId);
                 await db.delete(chatTable).where(eq(chatTable.id, history.id));
-                return status(204, null);
-            } catch (error) {
-                return mapChatError(status, error);
+            });
+
+            if (deleteResult.isErr()) {
+                return mapChatError(status, deleteResult.error);
             }
+
+            return status(204, null);
         },
         {
             beforeHandle: requirePermissions({ graph: ["view"] }),
@@ -110,7 +122,7 @@ export const chatRoute = new Elysia()
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            try {
+            const replyResult = await Result.tryPromise(async () => {
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
                 const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request);
@@ -191,16 +203,17 @@ export const chatRoute = new Elysia()
                 await updateAssistantMessage(assistantId, parts, "completed", finishMetadata);
                 await touchChat(request.id);
 
-                return status(
-                    200,
-                    successResponse({
-                        id: request.id,
-                        message: toAssistantReply(assistantId, parts, finishMetadata),
-                    })
-                );
-            } catch (error) {
-                return mapChatError(status, error);
+                return {
+                    id: request.id,
+                    message: toAssistantReply(assistantId, parts, finishMetadata),
+                };
+            });
+
+            if (replyResult.isErr()) {
+                return mapChatError(status, replyResult.error);
             }
+
+            return status(200, successResponse(replyResult.value));
         },
         {
             beforeHandle: requirePermissions({ graph: ["view"] }),
@@ -217,7 +230,7 @@ export const chatRoute = new Elysia()
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            try {
+            const streamResult = await Result.tryPromise(async () => {
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
                 const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request);
@@ -507,9 +520,13 @@ export const chatRoute = new Elysia()
                 });
 
                 return createUIMessageStreamResponse({ stream });
-            } catch (error) {
-                return mapChatError(status, error);
+            });
+
+            if (streamResult.isErr()) {
+                return mapChatError(status, streamResult.error);
             }
+
+            return streamResult.value;
         },
         {
             beforeHandle: requirePermissions({ graph: ["view"] }),

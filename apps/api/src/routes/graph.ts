@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { Result } from "better-result";
 import { Elysia, t } from "elysia";
 import { db } from "@kiwi/db";
 import { filesTable, graphTable, groupTable, groupUserTable } from "@kiwi/db/tables/graph";
@@ -51,7 +52,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            try {
+            const graphsResult = await Result.tryPromise(async () => {
                 if (user.role === "admin") {
                     const graphs = await db
                         .select(selectGraphListFields)
@@ -61,7 +62,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         )
                         .orderBy(asc(graphTable.groupId), asc(graphTable.name));
 
-                    return status(200, successResponse(await mapGraphListItemsWithProcessing(graphs)));
+                    return mapGraphListItemsWithProcessing(graphs);
                 }
 
                 const graphs = await db
@@ -78,10 +79,14 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     )
                     .orderBy(asc(graphTable.groupId), asc(graphTable.name));
 
-                return status(200, successResponse(await mapGraphListItemsWithProcessing(graphs)));
-            } catch (error) {
-                return mapGraphError(status, error);
+                return mapGraphListItemsWithProcessing(graphs);
+            });
+
+            if (graphsResult.isErr()) {
+                return mapGraphError(status, graphsResult.error);
             }
+
+            return status(200, successResponse(graphsResult.value));
         },
         {
             beforeHandle: requirePermissions({
@@ -96,7 +101,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            try {
+            const filesResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
 
                 const fileRows: GraphFileRow[] = await db
@@ -105,10 +110,14 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     .where(and(eq(filesTable.graphId, params.id), eq(filesTable.deleted, false)))
                     .orderBy(asc(filesTable.createdAt), asc(filesTable.name));
 
-                return status(200, successResponse(fileRows.map(toGraphFileRecord)));
-            } catch (error) {
-                return mapGraphError(status, error);
+                return fileRows.map(toGraphFileRecord);
+            });
+
+            if (filesResult.isErr()) {
+                return mapGraphError(status, filesResult.error);
             }
+
+            return status(200, successResponse(filesResult.value));
         },
         {
             params: t.Object({
@@ -126,7 +135,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            try {
+            const fileResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
 
                 const [file] = await db
@@ -146,9 +155,13 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 }
 
                 return status(200, successResponse({ url: getPresignedDownloadUrl(file.key, env.S3_BUCKET) }));
-            } catch (error) {
-                return mapGraphError(status, error);
+            });
+
+            if (fileResult.isErr()) {
+                return mapGraphError(status, fileResult.error);
             }
+
+            return fileResult.value;
         },
         {
             params: t.Object({
@@ -173,17 +186,16 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            let graph: GraphRecord;
-            try {
-                graph = await assertCanViewGraph(user, params.id);
-            } catch (error) {
-                return mapGraphError(status, error);
+            const graphResult = await Result.tryPromise(async () => assertCanViewGraph(user, params.id));
+            if (graphResult.isErr()) {
+                return mapGraphError(status, graphResult.error);
             }
+            const graph = graphResult.value;
 
             let groupId: string | null = null;
             let groupName: string | null = null;
 
-            try {
+            const detailResult = await Result.tryPromise(async () => {
                 if (graph.groupId) {
                     const [group] = await db
                         .select({
@@ -228,22 +240,26 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     .where(eq(filesTable.graphId, graph.id));
                 const files: GraphDetailFileRecord[] = fileRows.map(toGraphFileRecord);
 
-                return status(200, {
-                    status: "success",
-                    data: {
-                        project_id: graph.id,
-                        project_name: graph.name,
-                        project_state: graph.state === "updating" ? "update" : "ready",
-                        description: graph.description,
-                        hidden: graph.hidden,
-                        group_id: groupId,
-                        group_name: groupName,
-                        files,
-                    },
-                });
-            } catch (error) {
-                return mapGraphError(status, error);
+                return {
+                    project_id: graph.id,
+                    project_name: graph.name,
+                    project_state: graph.state === "updating" ? "update" : "ready",
+                    description: graph.description,
+                    hidden: graph.hidden,
+                    group_id: groupId,
+                    group_name: groupName,
+                    files,
+                };
+            });
+
+            if (detailResult.isErr()) {
+                return mapGraphError(status, detailResult.error);
             }
+
+            return status(200, {
+                status: "success",
+                data: detailResult.value,
+            });
         },
         {
             params: t.Object({
@@ -276,14 +292,16 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             const files = normalizeFiles(body.files);
             const ownerMode = body.groupId ? "group" : body.graphId ? "graph" : "user";
 
-            try {
+            const accessResult = await Result.tryPromise(async () => {
                 if (body.groupId) {
                     await requireGroupUpdateAccess(request.headers, user, body.groupId);
                 } else if (body.graphId) {
                     await assertCanCreateUnderParentGraph(request.headers, user, body.graphId);
                 }
-            } catch (error) {
-                return mapGraphError(status, error);
+            });
+
+            if (accessResult.isErr()) {
+                return mapGraphError(status, accessResult.error);
             }
 
             const persistedHidden = body.groupId ? (normalizeHidden(body.hidden) ?? false) : true;
@@ -470,12 +488,13 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            let existingGraph: GraphRecord;
-            try {
-                existingGraph = await assertCanPatchGraph(request.headers, user, params.id);
-            } catch (error) {
-                return mapGraphError(status, error);
+            const accessResult = await Result.tryPromise(async () =>
+                assertCanPatchGraph(request.headers, user, params.id)
+            );
+            if (accessResult.isErr()) {
+                return mapGraphError(status, accessResult.error);
             }
+            const existingGraph = accessResult.value;
 
             const normalizedName = body.name === undefined ? undefined : body.name.trim();
             const normalizedDescription =
@@ -560,12 +579,13 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            let existingGraph: GraphRecord;
-            try {
-                existingGraph = await assertCanPatchGraph(request.headers, user, params.id);
-            } catch (error) {
-                return mapGraphError(status, error);
+            const accessResult = await Result.tryPromise(async () =>
+                assertCanPatchGraph(request.headers, user, params.id)
+            );
+            if (accessResult.isErr()) {
+                return mapGraphError(status, accessResult.error);
             }
+            const existingGraph = accessResult.value;
 
             const files = normalizeFiles(body.files);
             if (files.length === 0) {
@@ -730,12 +750,13 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            let existingGraph: GraphRecord;
-            try {
-                existingGraph = await assertCanPatchGraph(request.headers, user, params.id);
-            } catch (error) {
-                return mapGraphError(status, error);
+            const accessResult = await Result.tryPromise(async () =>
+                assertCanPatchGraph(request.headers, user, params.id)
+            );
+            if (accessResult.isErr()) {
+                return mapGraphError(status, accessResult.error);
             }
+            const existingGraph = accessResult.value;
 
             const fileKeys = normalizeStringList(body.fileKeys);
             if (fileKeys.length === 0) {
@@ -861,10 +882,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            try {
-                await assertCanPatchGraph(request.headers, user, params.id);
-            } catch (error) {
-                return mapGraphError(status, error);
+            const accessResult = await Result.tryPromise(async () =>
+                assertCanPatchGraph(request.headers, user, params.id)
+            );
+            if (accessResult.isErr()) {
+                return mapGraphError(status, accessResult.error);
             }
 
             let deleteResult: {
@@ -877,8 +899,8 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 }>;
             };
 
-            try {
-                deleteResult = await db.transaction(async (tx) => {
+            const deleteGraphResult = await Result.tryPromise(async () =>
+                db.transaction(async (tx) => {
                     const [graph] = await tx
                         .select({ id: graphTable.id })
                         .from(graphTable)
@@ -906,9 +928,10 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         graphIds,
                         fileRows,
                     };
-                });
-            } catch (error) {
-                if (error instanceof Error && error.message === API_ERROR_CODES.GRAPH_NOT_FOUND) {
+                })
+            );
+            if (deleteGraphResult.isErr()) {
+                if (deleteGraphResult.error instanceof Error && deleteGraphResult.error.message === API_ERROR_CODES.GRAPH_NOT_FOUND) {
                     return status(404, {
                         status: "error",
                         message: "Graph not found",
@@ -922,6 +945,8 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     code: "INTERNAL_SERVER_ERROR",
                 });
             }
+
+            deleteResult = deleteGraphResult.value;
 
             const s3Keys = new Set(deleteResult.fileRows.map((file) => file.key));
             const listedKeyResults = await Promise.allSettled(

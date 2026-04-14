@@ -1,5 +1,6 @@
 import { db } from "@kiwi/db";
 import { filesTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { Result } from "better-result";
 import { eq } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { assertCanViewGraph } from "../lib/graph-access";
@@ -15,7 +16,7 @@ export const unitRoute = new Elysia({ prefix: "/units" }).use(authMiddleware).ge
             return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
         }
 
-        try {
+        const unitResult = await Result.tryPromise(async () => {
             const [unit] = await db
                 .select({
                     id: textUnitTable.id,
@@ -36,19 +37,20 @@ export const unitRoute = new Elysia({ prefix: "/units" }).use(authMiddleware).ge
 
             await assertCanViewGraph(user, unit.graph_id);
 
-            return status(
-                200,
-                successResponse({
-                    id: unit.id,
-                    project_file_id: unit.project_file_id,
-                    text: unit.text,
-                    created_at: unit.created_at?.toISOString() ?? null,
-                    updated_at: unit.updated_at?.toISOString() ?? null,
-                })
-            );
-        } catch (error) {
-            return mapUnitError(status, error);
+            return {
+                id: unit.id,
+                project_file_id: unit.project_file_id,
+                text: unit.text,
+                created_at: unit.created_at?.toISOString() ?? null,
+                updated_at: unit.updated_at?.toISOString() ?? null,
+            };
+        });
+
+        if (unitResult.isErr()) {
+            return mapUnitError(status, unitResult.error);
         }
+
+        return status(200, successResponse(unitResult.value));
     },
     {
         params: t.Object({

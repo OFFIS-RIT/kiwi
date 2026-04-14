@@ -22,7 +22,7 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            try {
+            const groupsResult = await Result.tryPromise(async () => {
                 if (user.role === "admin") {
                     const groups = await db
                         .select({
@@ -32,18 +32,13 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
                         .from(groupTable)
                         .orderBy(asc(groupTable.name));
 
-                    return status(
-                        200,
-                        successResponse(
-                            groups.map((group) => ({
-                                ...group,
-                                role: "admin" as const,
-                            }))
-                        )
-                    );
+                    return groups.map((group) => ({
+                        ...group,
+                        role: "admin" as const,
+                    }));
                 }
 
-                const groups = await db
+                return db
                     .select({
                         group_id: groupTable.id,
                         group_name: groupTable.name,
@@ -53,11 +48,13 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
                     .innerJoin(groupTable, eq(groupTable.id, groupUserTable.groupId))
                     .where(eq(groupUserTable.userId, user.id))
                     .orderBy(asc(groupTable.name));
+            });
 
-                return status(200, successResponse(groups));
-            } catch {
+            if (groupsResult.isErr()) {
                 return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
             }
+
+            return status(200, successResponse(groupsResult.value));
         },
         {
             beforeHandle: requirePermissions({
@@ -159,7 +156,7 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            try {
+            const usersResult = await Result.tryPromise(async () => {
                 const [group] = await db
                     .select({ id: groupTable.id })
                     .from(groupTable)
@@ -206,9 +203,13 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
                         }))
                     )
                 );
-            } catch {
+            });
+
+            if (usersResult.isErr()) {
                 return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
             }
+
+            return usersResult.value;
         },
         {
             params: z.object({

@@ -17,6 +17,7 @@ import {
     truncateWords,
     type RankCursor,
 } from "./lib/search";
+import { runToolSafely } from "./lib/execute";
 import z from "zod";
 
 type SearchEntityRow = {
@@ -98,83 +99,94 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
         description:
             "Use when you need entity IDs before calling relationship or source tools. Semantic search is primary, with keyword terms used to boost exact or near-exact name matches.",
         inputSchema: searchEntitiesSchema,
-        execute: async ({ query, keywords, files, limit, cursor }) => {
-            const text = query.trim();
-            const terms = normalizeTerms([...(keywords ?? []), text]);
-            const fileIds = normalizeTerms(files ?? []);
-            const next = decodeCursor(cursor, "entity search");
-            const { embedding } = await withAiSlot("embedding", () =>
-                embed({
-                    model: embeddingModel,
-                    value: text,
-                })
-            );
-            const queryVector = JSON.stringify(embedding);
-            const fileScope = buildFileScopeExpression(fileIds);
-            const keywordBoost = buildKeywordBoostExpression(terms);
-            const exactBoost = buildExactBoostExpression(terms);
-            const semanticScore = sql`greatest(0::double precision, 1 - (e.embedding <=> ${queryVector}::vector))`;
-            const score = sql`${semanticScore} + (${keywordBoost} * ${KEYWORD_WEIGHT}) + ${exactBoost}`;
-            const cursorFilter = next
-                ? sql`
-                    and (
-                        ranked.score < ${next.score}
-                        or (ranked.score = ${next.score} and ranked.id > ${next.id})
-                    )
-                `
-                : sql``;
-            const result = await db.execute(sql<SearchEntityRow>`
-                with ranked as (
-                    select
-                        e.id,
-                        e.name,
-                        e.type,
-                        e.description,
-                        ${semanticScore} as semantic_score,
-                        ${keywordBoost} as keyword_boost,
-                        ${exactBoost} as exact_boost,
-                        ${score} as score
-                    from entities e
-                    where e.graph_id = ${graphId}
-                      and e.active = true
-                      ${fileScope}
-                )
-                select
-                    ranked.id,
-                    ranked.name,
-                    ranked.type,
-                    ranked.description,
-                    ranked.score
-                from ranked
-                where (
-                    ranked.semantic_score >= ${MIN_SEMANTIC_SCORE}
-                    or ranked.keyword_boost >= ${MIN_KEYWORD_BOOST}
-                    or ranked.exact_boost > 0
-                )
-                ${cursorFilter}
-                order by ranked.score desc, ranked.id asc
-                limit ${limit + 1}
-            `);
-            const rows = toSearchEntityRows(result.rows);
+        execute: ({ query, keywords, files, limit, cursor }) =>
+            runToolSafely(
+                {
+                    title: "Entities",
+                    name: "search_entities",
+                    hints: [
+                        "retry with a shorter query or fewer keywords",
+                        "if you only need a broad scan, use list_entities instead",
+                    ],
+                },
+                async () => {
+                    const text = query.trim();
+                    const terms = normalizeTerms([...(keywords ?? []), text]);
+                    const fileIds = normalizeTerms(files ?? []);
+                    const next = decodeCursor(cursor, "entity search");
+                    const { embedding } = await withAiSlot("embedding", () =>
+                        embed({
+                            model: embeddingModel,
+                            value: text,
+                        })
+                    );
+                    const queryVector = JSON.stringify(embedding);
+                    const fileScope = buildFileScopeExpression(fileIds);
+                    const keywordBoost = buildKeywordBoostExpression(terms);
+                    const exactBoost = buildExactBoostExpression(terms);
+                    const semanticScore = sql`greatest(0::double precision, 1 - (e.embedding <=> ${queryVector}::vector))`;
+                    const score = sql`${semanticScore} + (${keywordBoost} * ${KEYWORD_WEIGHT}) + ${exactBoost}`;
+                    const cursorFilter = next
+                        ? sql`
+                              and (
+                                  ranked.score < ${next.score}
+                                  or (ranked.score = ${next.score} and ranked.id > ${next.id})
+                              )
+                          `
+                        : sql``;
+                    const result = await db.execute(sql<SearchEntityRow>`
+                        with ranked as (
+                            select
+                                e.id,
+                                e.name,
+                                e.type,
+                                e.description,
+                                ${semanticScore} as semantic_score,
+                                ${keywordBoost} as keyword_boost,
+                                ${exactBoost} as exact_boost,
+                                ${score} as score
+                            from entities e
+                            where e.graph_id = ${graphId}
+                              and e.active = true
+                              ${fileScope}
+                        )
+                        select
+                            ranked.id,
+                            ranked.name,
+                            ranked.type,
+                            ranked.description,
+                            ranked.score
+                        from ranked
+                        where (
+                            ranked.semantic_score >= ${MIN_SEMANTIC_SCORE}
+                            or ranked.keyword_boost >= ${MIN_KEYWORD_BOOST}
+                            or ranked.exact_boost > 0
+                        )
+                        ${cursorFilter}
+                        order by ranked.score desc, ranked.id asc
+                        limit ${limit + 1}
+                    `);
+                    const rows = toSearchEntityRows(result.rows);
 
-            const hasMore = rows.length > limit;
-            const items = hasMore ? rows.slice(0, limit) : rows;
-            const lines = formatEntityList(items);
+                    const hasMore = rows.length > limit;
+                    const items = hasMore ? rows.slice(0, limit) : rows;
+                    const lines = formatEntityList(items);
 
-            return [
-                "## Entities",
-                ...(lines.length > 0 ? lines : ["- none"]),
-                ...(hasMore && items.length > 0
-                    ? [
-                          ``,
-                          `Next cursor: ${encodeCursor({
-                              id: items[items.length - 1]!.id,
-                              score: items[items.length - 1]!.score,
-                          } satisfies RankCursor)}`,
-                      ]
-                    : []),
-            ].join("\n");
-        },
+                    return [
+                        "## Entities",
+                        ...(lines.length > 0 ? lines : ["- none"]),
+                        ...(hasMore && items.length > 0
+                            ? [
+                                  ``,
+                                  `Next cursor: ${encodeCursor({
+                                      id: items[items.length - 1]!.id,
+                                      score: items[items.length - 1]!.score,
+                                  } satisfies RankCursor)}`,
+                              ]
+                            : []),
+                    ].join("\n");
+                }
+            ),
     });
 
 const listEntitiesSchema = z.object({
@@ -191,50 +203,64 @@ export const listEntitiesTool = (graphId: string) =>
         description:
             "Use when you want a broad unranked scan of entity IDs in the graph or inside specific files and do not yet know which entities matter.",
         inputSchema: listEntitiesSchema,
-        execute: async ({ files, limit, cursor }) => {
-            const fileIds = normalizeTerms(files ?? []);
-            const clauses = [eq(entityTable.graphId, graphId), eq(entityTable.active, true)];
+        execute: ({ files, limit, cursor }) =>
+            runToolSafely(
+                {
+                    title: "Entities",
+                    name: "list_entities",
+                    hints: [
+                        "retry without a cursor to restart the listing",
+                        "reduce file filters if you only need a broad entity scan",
+                    ],
+                },
+                async () => {
+                    const fileIds = normalizeTerms(files ?? []);
+                    const clauses = [eq(entityTable.graphId, graphId), eq(entityTable.active, true)];
 
-            if (cursor) {
-                clauses.push(gt(entityTable.id, cursor));
-            }
+                    if (cursor) {
+                        clauses.push(gt(entityTable.id, cursor));
+                    }
 
-            if (fileIds.length > 0) {
-                clauses.push(
-                    exists(
-                        db
-                            .select({ id: sourcesTable.id })
-                            .from(sourcesTable)
-                            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                            .where(
-                                and(eq(sourcesTable.entityId, entityTable.id), inArray(textUnitTable.fileId, fileIds))
+                    if (fileIds.length > 0) {
+                        clauses.push(
+                            exists(
+                                db
+                                    .select({ id: sourcesTable.id })
+                                    .from(sourcesTable)
+                                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                                    .where(
+                                        and(
+                                            eq(sourcesTable.entityId, entityTable.id),
+                                            inArray(textUnitTable.fileId, fileIds)
+                                        )
+                                    )
                             )
-                    )
-                );
-            }
+                        );
+                    }
 
-            const rows = await db
-                .select({
-                    id: entityTable.id,
-                    name: entityTable.name,
-                    type: entityTable.type,
-                    description: entityTable.description,
-                })
-                .from(entityTable)
-                .where(and(...clauses))
-                .orderBy(asc(entityTable.id))
-                .limit(limit + 1);
+                    const rows = await db
+                        .select({
+                            id: entityTable.id,
+                            name: entityTable.name,
+                            type: entityTable.type,
+                            description: entityTable.description,
+                        })
+                        .from(entityTable)
+                        .where(and(...clauses))
+                        .orderBy(asc(entityTable.id))
+                        .limit(limit + 1);
 
-            const hasMore = rows.length > limit;
-            const items = hasMore ? rows.slice(0, limit) : rows;
-            const lines = formatEntityList(items);
+                    const hasMore = rows.length > limit;
+                    const items = hasMore ? rows.slice(0, limit) : rows;
+                    const lines = formatEntityList(items);
 
-            return [
-                "## Entities",
-                ...(lines.length > 0 ? lines : ["- none"]),
-                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
-            ].join("\n");
-        },
+                    return [
+                        "## Entities",
+                        ...(lines.length > 0 ? lines : ["- none"]),
+                        ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
+                    ].join("\n");
+                }
+            ),
     });
 
 const tools = {

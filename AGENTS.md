@@ -47,6 +47,7 @@ Rules:
 - Follow existing workspace patterns instead of introducing new abstractions.
 - Use TypeScript throughout; keep types explicit when they improve clarity.
 - Prefer shared packages over duplicating logic across apps.
+- Use `better-result` where possible for async error handling. Prefer `const result = await Result.tryPromise(async () => ...); if (result.isErr()) { ... } const value = result.value` over route-local `try/catch` wrappers when no cleanup, rollback, or fallback behavior is needed.
 - In frontend code, use existing path aliases and established component/provider patterns.
 - Do not edit generated output unless the workflow explicitly requires it.
 - Keep comments rare and only add them when the code is not self-evident.
