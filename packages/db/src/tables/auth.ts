@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
 
 export const userTable = pgTable.withRLS("user", {
@@ -75,4 +75,29 @@ export const verificationTable = pgTable.withRLS("verification", {
         .notNull()
         .defaultNow()
         .$onUpdate(() => sql`NOW()`),
+});
+
+export const apikey = pgTable("apikey", {
+	id: text("id").primaryKey().unique(),
+	configId: text("config_id").notNull(),
+	name: text("name"),
+	start: text("start"),
+	prefix: text("prefix"),
+	key: text("key").notNull(),
+	referenceId: text("reference_id").notNull(),
+	refillInterval: integer("refill_interval"),
+	refillAmount: integer("refill_amount"),
+	lastRefillAt: timestamp("last_refill_at", { precision: 6, withTimezone: true }),
+	enabled: boolean("enabled"),
+	rateLimitEnabled: boolean("rate_limit_enabled"),
+	rateLimitTimeWindow: integer("rate_limit_time_window"),
+	rateLimitMax: integer("rate_limit_max"),
+	requestCount: integer("request_count"),
+	remaining: integer("remaining"),
+	lastRequest: timestamp("last_request", { precision: 6, withTimezone: true }),
+	expiresAt: timestamp("expires_at", { precision: 6, withTimezone: true }),
+	createdAt: timestamp("created_at", { precision: 6, withTimezone: true }).notNull(),
+	updatedAt: timestamp("updated_at", { precision: 6, withTimezone: true }).notNull(),
+	permissions: text("permissions"),
+	metadata: text("metadata"),
 });

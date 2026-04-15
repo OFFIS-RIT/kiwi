@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import { withAiSlot } from "@kiwi/ai";
+import { withAiSlot } from "@kiwi/ai/lock";
 import { extractPrompt } from "@kiwi/ai/prompts/extract.prompt";
 import { generateText, Output } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";

@@ -1,5 +1,5 @@
 import type { GraphBinaryLoader, GraphLoader } from "..";
-import { withAiSlot } from "@kiwi/ai";
+import { withAiSlot } from "@kiwi/ai/lock";
 import { generateText } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 

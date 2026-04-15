@@ -252,7 +252,7 @@ Copy `.env.sample` to `.env` and configure:
 | `MASTER_USER_NAME`                 | Optional display name for the bootstrapped master user                |
 | `MASTER_USER_EMAIL`                | Optional email for the bootstrapped master user                       |
 | `MASTER_USER_PASSWORD`             | Optional password for bootstrapping a credential login for master user |
-| `MASTER_USER_API_BYPASS`           | Optional API bearer token that authenticates requests as the master user |
+| `MASTER_USER_API_KEY`              | Optional Better Auth API key bound to the master user |
 | `DATABASE_URL`                     | Host PgBouncer PostgreSQL connection string                           |
 | `DATABASE_DIRECT_URL`              | Host direct PostgreSQL connection string                              |
 | `S3_REGION`                        | S3 region                                                             |
@@ -374,6 +374,8 @@ docker compose down   # Stop infrastructure
 Run database migrations manually after the infrastructure is up and before
 starting the app processes. When `MASTER_USER_ID` is configured, the API also
 ensures the matching user exists as an admin with the configured profile fields.
+If `MASTER_USER_API_KEY` is also configured, the API bootstraps that value as a
+managed Better Auth API key for the master user.
 
 ### Development Services
 

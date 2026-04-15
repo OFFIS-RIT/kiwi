@@ -1,3 +1,4 @@
+import { hasRole } from "@kiwi/auth/permissions";
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
@@ -53,7 +54,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }
 
             const graphsResult = await Result.tryPromise(async () => {
-                if (user.role === "admin") {
+                if (hasRole(user.role, "admin")) {
                     const graphs = await db
                         .select(selectGraphListFields)
                         .from(graphTable)

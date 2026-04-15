@@ -8,6 +8,7 @@ import { z } from "zod";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@kiwi/db";
 import { ac, admin, manager, user as userRole } from "./permissions";
+import { apiKey } from "@better-auth/api-key"
 import * as authTables from "@kiwi/db/tables/auth";
 
 function parseBooleanEnv(value?: string) {
@@ -107,6 +108,10 @@ export const auth = betterAuth({
             : {}),
     },
     plugins: [
+        apiKey({
+            defaultPrefix: "kiwi_",
+            enableSessionForAPIKeys: true,
+        }),
         adminPlugin({
             ac: ac,
             roles: {

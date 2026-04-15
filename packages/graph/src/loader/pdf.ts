@@ -1,6 +1,6 @@
 import { PDF } from "@libpdf/core";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { withAiSlot } from "@kiwi/ai";
+import { withAiSlot } from "@kiwi/ai/lock";
 import { transcribePrompt } from "@kiwi/ai/prompts/transcribe.prompt";
 import { generateText } from "ai";
 import { pdf } from "pdf-to-img";

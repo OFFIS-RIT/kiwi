@@ -1,9 +1,9 @@
 import { auth } from "@kiwi/auth/server";
-import type { KiwiPermissions } from "@kiwi/auth/permissions";
+import { hasRole, type KiwiPermissions } from "@kiwi/auth/permissions";
 import { db } from "@kiwi/db";
 import { graphTable, groupTable, groupUserTable } from "@kiwi/db/tables/graph";
 import { and, eq } from "drizzle-orm";
-import type { AuthUser } from "../middleware/auth";
+import { getAuthHeaders, type AuthUser } from "../middleware/auth";
 import { API_ERROR_CODES } from "../types";
 import type { GraphRecord } from "../types/routes";
 
@@ -50,7 +50,7 @@ const requireGroupAccess = async (
         throw new Error(API_ERROR_CODES.GROUP_NOT_FOUND);
     }
 
-    if (options?.allowAdmin && user.role === "admin") {
+    if (options?.allowAdmin && hasRole(user.role, "admin")) {
         return;
     }
 
@@ -68,7 +68,7 @@ const requireGroupAccess = async (
 
     if (options?.needsUpdate) {
         const permissionCheck = await auth.api.userHasPermission({
-            headers: options.headers!,
+            headers: getAuthHeaders(options.headers!),
             body: {
                 permissions: {
                     group: ["update"],
@@ -134,7 +134,7 @@ export const resolveGraphOwnerRoot = async (parentGraphId: string): Promise<Root
 };
 
 export const assertCanCreateUnderParentGraph = async (headers: Headers, user: AuthUser, parentGraphId: string) => {
-    if (user.role === "admin") {
+    if (hasRole(user.role, "admin")) {
         await resolveGraphOwnerRoot(parentGraphId);
         return;
     }
@@ -163,7 +163,7 @@ const assertGraphAccess = async (
         throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
     }
 
-    if (user.role === "admin") {
+    if (hasRole(user.role, "admin")) {
         return graph;
     }
 

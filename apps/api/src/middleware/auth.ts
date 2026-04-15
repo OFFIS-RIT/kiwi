@@ -1,9 +1,10 @@
 import Elysia from "elysia";
+import { defaultKeyHasher } from "@better-auth/api-key";
 import { and, eq } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { auth } from "@kiwi/auth/server";
 import { db } from "@kiwi/db";
-import { accountTable, userTable } from "@kiwi/db/tables/auth";
+import { accountTable, apikey as apiKeyTable, userTable } from "@kiwi/db/tables/auth";
 import { error as logError, info as logInfo } from "@kiwi/logger";
 import { env } from "../env";
 
@@ -11,7 +12,8 @@ const masterUserId = env.MASTER_USER_ID?.trim() || undefined;
 const masterUserName = env.MASTER_USER_NAME?.trim() || "Master User";
 const masterUserEmail = env.MASTER_USER_EMAIL?.trim() || undefined;
 const masterUserPassword = env.MASTER_USER_PASSWORD?.trim() || undefined;
-const masterUserBypassToken = env.MASTER_USER_API_BYPASS?.trim() || undefined;
+const masterUserApiKey = env.MASTER_USER_API_KEY?.trim() || undefined;
+const masterUserApiKeyRecordId = masterUserId ? `master-user-api-key:${masterUserId}` : undefined;
 
 let ensureMasterUserPromise: Promise<void> | null = null;
 
@@ -86,6 +88,67 @@ async function ensureMasterUser() {
                 );
             }
 
+            if (masterUserApiKeyRecordId) {
+                if (!masterUserApiKey) {
+                    await db.delete(apiKeyTable).where(eq(apiKeyTable.id, masterUserApiKeyRecordId));
+                } else {
+                    const hashedApiKey = await defaultKeyHasher(masterUserApiKey);
+                    const now = new Date();
+
+                    await db
+                        .insert(apiKeyTable)
+                        .values({
+                            id: masterUserApiKeyRecordId,
+                            configId: "default",
+                            name: "Master User API Key",
+                            start: masterUserApiKey.slice(0, 6) || null,
+                            prefix: null,
+                            key: hashedApiKey,
+                            referenceId: masterUserId,
+                            refillInterval: null,
+                            refillAmount: null,
+                            lastRefillAt: null,
+                            enabled: true,
+                            rateLimitEnabled: false,
+                            rateLimitTimeWindow: null,
+                            rateLimitMax: null,
+                            requestCount: 0,
+                            remaining: null,
+                            lastRequest: null,
+                            expiresAt: null,
+                            createdAt: now,
+                            updatedAt: now,
+                            permissions: null,
+                            metadata: null,
+                        })
+                        .onConflictDoUpdate({
+                            target: apiKeyTable.id,
+                            set: {
+                                configId: "default",
+                                name: "Master User API Key",
+                                start: masterUserApiKey.slice(0, 6) || null,
+                                prefix: null,
+                                key: hashedApiKey,
+                                referenceId: masterUserId,
+                                refillInterval: null,
+                                refillAmount: null,
+                                lastRefillAt: null,
+                                enabled: true,
+                                rateLimitEnabled: false,
+                                rateLimitTimeWindow: null,
+                                rateLimitMax: null,
+                                requestCount: 0,
+                                remaining: null,
+                                lastRequest: null,
+                                expiresAt: null,
+                                updatedAt: now,
+                                permissions: null,
+                                metadata: null,
+                            },
+                        });
+                }
+            }
+
             logInfo("ensured master user", { userId: masterUserId, role: "admin" });
         })().catch((error) => {
             ensureMasterUserPromise = null;
@@ -99,7 +162,7 @@ async function ensureMasterUser() {
 
 export const getAuthSession = (headers: Headers) =>
     auth.api.getSession({
-        headers,
+        headers: getAuthHeaders(headers),
     });
 
 export type AuthSession = Awaited<ReturnType<typeof getAuthSession>>;
@@ -112,46 +175,33 @@ function getAuthorizationToken(headers: Headers) {
     }
 
     const bearerMatch = /^Bearer\s+(.+)$/i.exec(authorization);
-    return bearerMatch?.[1]?.trim() || authorization;
-}
-
-function isMasterBypass(headers: Headers) {
-    const token = getAuthorizationToken(headers);
-
-    return Boolean(masterUserId && masterUserBypassToken && token && token === masterUserBypassToken);
-}
-
-async function getBypassSession(): Promise<AuthSession> {
-    if (!masterUserId) {
-        return null;
+    if (bearerMatch?.[1]) {
+        return bearerMatch[1].trim();
     }
 
-    const [user] = await db.select().from(userTable).where(eq(userTable.id, masterUserId)).limit(1);
-    if (!user) {
-        return null;
+    return authorization.includes(" ") ? undefined : authorization;
+}
+
+export function getAuthHeaders(headers: Headers) {
+    const normalizedHeaders = new Headers(headers);
+
+    if (!normalizedHeaders.has("x-api-key")) {
+        const token = getAuthorizationToken(normalizedHeaders);
+
+        if (token) {
+            normalizedHeaders.set("x-api-key", token);
+        }
     }
 
-    return {
-        session: {
-            id: "master-user-api-bypass",
-            userId: user.id,
-            expiresAt: new Date("9999-12-31T23:59:59.999Z"),
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            token: "master-user-api-bypass",
-        },
-        user,
-    } as AuthSession;
+    return normalizedHeaders;
 }
 
 export const authMiddleware = new Elysia({ name: "auth-middleware" }).derive({ as: "scoped" }, async ({ request }) => {
     await ensureMasterUser();
 
-    const isMasterBypassRequest = isMasterBypass(request.headers);
-    const session = isMasterBypassRequest ? await getBypassSession() : await getAuthSession(request.headers);
+    const session = await getAuthSession(request.headers);
 
     return {
-        isMasterBypass: isMasterBypassRequest,
         session,
         user: session?.user ?? null,
     };

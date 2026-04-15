@@ -1,4 +1,5 @@
 import Elysia from "elysia";
+import { hasRole } from "@kiwi/auth/permissions";
 import { error as logError } from "@kiwi/logger";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth";
@@ -24,7 +25,7 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
             }
 
             const groupsResult = await Result.tryPromise(async () => {
-                if (user.role === "admin") {
+                if (hasRole(user.role, "admin")) {
                     const groups = await db
                         .select({
                             group_id: groupTable.id,
@@ -168,7 +169,7 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
                     return status(404, errorResponse("Group not found", API_ERROR_CODES.GROUP_NOT_FOUND));
                 }
 
-                if (user.role !== "admin") {
+                if (!hasRole(user.role, "admin")) {
                     const [membership] = await db
                         .select({ groupId: groupUserTable.groupId })
                         .from(groupUserTable)

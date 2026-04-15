@@ -4,7 +4,7 @@ import type React from "react";
 
 import { AuthPage } from "@/components/auth";
 import { authClient } from "@kiwi/auth/client";
-import { admin as adminRole, manager as managerRole, user as userRole } from "@kiwi/auth/permissions";
+import { admin as adminRole, getUserRoles, hasRole, manager as managerRole, user as userRole } from "@kiwi/auth/permissions";
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
@@ -33,7 +33,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [authView, setAuthView] = useState<"login" | "register">("login");
 
     const user = session?.user ?? null;
-    const role = (user as { role?: string } | null)?.role ?? null;
+    const roles = getUserRoles(user?.role ?? null);
+    const role = roles[0] ?? null;
 
     const prevUserIdRef = useRef<string | null>(null);
 
@@ -45,8 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         prevUserIdRef.current = user?.id ?? null;
     }, [user?.id]);
 
-    const isAdmin = role === "admin";
-    const isManager = role === "manager";
+    const isAdmin = hasRole(user?.role ?? null, "admin");
+    const isManager = hasRole(user?.role ?? null, "manager");
 
     const roleMap: Record<string, { statements: Record<string, readonly string[]> }> = {
         admin: adminRole,
@@ -60,8 +61,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const [resource, action] = permission.split(".");
-        const roleObj = roleMap[role ?? "user"];
-        return roleObj?.statements[resource]?.includes(action) ?? false;
+        if (!resource || !action) {
+            return false;
+        }
+
+        return roles.some((currentRole) => roleMap[currentRole]?.statements[resource]?.includes(action) ?? false);
     };
 
     const handleSignOut = async () => {
@@ -76,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   id: user.id,
                   name: user.name,
                   email: user.email,
-                  role: (user as { role?: string }).role ?? "user",
+                  role: role ?? "user",
               }
             : null,
         role,

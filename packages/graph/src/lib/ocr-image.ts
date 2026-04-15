@@ -1,5 +1,5 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { withAiSlot } from "@kiwi/ai";
+import { withAiSlot } from "@kiwi/ai/lock";
 import { embeddedImagePrompt } from "@kiwi/ai/prompts/image.prompt";
 import { putNamedFile } from "@kiwi/files";
 import { generateText } from "ai";

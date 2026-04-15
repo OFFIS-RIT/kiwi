@@ -12,6 +12,7 @@
         "dev": "bun run --watch src/index.ts"
     },
     "dependencies": {
+        "@better-auth/api-key": "catalog:",
         "@elysiajs/cors": "^1.4.1",
         "@kiwi/ai": "workspace:*",
         "@kiwi/auth": "workspace:*",
@@ -26,7 +27,7 @@
         "better-result": "catalog:",
         "drizzle-orm": "catalog:",
         "elysia": "latest",
-        "ldap-authentication": "4.0.3",
+        "ldap-authentication": "4.0.4",
         "openworkflow": "catalog:",
         "zod": "catalog:"
     },

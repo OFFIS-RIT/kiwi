@@ -30,3 +30,15 @@ export const user = ac.newRole({
     group: ["view"],
     ...userAc.statements,
 });
+
+export function getUserRoles(role?: string | null) {
+    if (!role) {
+        return [];
+    }
+
+    return [...new Set(role.split(",").map((value) => value.trim()).filter(Boolean))];
+}
+
+export function hasRole(role: string | null | undefined, expectedRole: string) {
+    return getUserRoles(role).includes(expectedRole);
+}
