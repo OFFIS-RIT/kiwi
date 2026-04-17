@@ -84,6 +84,7 @@ export type GroupListItem = {
 export type GroupUserListItem = {
     group_id: string;
     user_id: string;
+    user_name: string | null;
     role: GroupUserRole;
     created_at: string | null;
     updated_at: string | null;

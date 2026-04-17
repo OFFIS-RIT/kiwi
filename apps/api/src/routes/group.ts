@@ -6,6 +6,7 @@ import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { Result } from "better-result";
 import { db } from "@kiwi/db";
+import { userTable } from "@kiwi/db/tables/auth";
 import { filesTable, graphTable, groupTable, groupUserTable } from "@kiwi/db/tables/graph";
 import { deleteFile, listFiles } from "@kiwi/files";
 import z from "zod";
@@ -185,11 +186,13 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
                     .select({
                         group_id: groupUserTable.groupId,
                         user_id: groupUserTable.userId,
+                        user_name: userTable.name,
                         role: groupUserTable.role,
                         created_at: groupUserTable.createdAt,
                         updated_at: groupUserTable.updatedAt,
                     })
                     .from(groupUserTable)
+                    .innerJoin(userTable, eq(userTable.id, groupUserTable.userId))
                     .where(eq(groupUserTable.groupId, params.id))
                     .orderBy(asc(groupUserTable.userId));
 
@@ -199,6 +202,7 @@ export const groupRoute = new Elysia({ prefix: "/groups" })
                         users.map((user) => ({
                             group_id: user.group_id,
                             user_id: user.user_id,
+                            user_name: user.user_name,
                             role: user.role,
                             created_at: user.created_at?.toISOString() ?? null,
                             updated_at: user.updated_at?.toISOString() ?? null,
