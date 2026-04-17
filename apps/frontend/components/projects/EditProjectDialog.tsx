@@ -246,15 +246,6 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                                         disabled={!canEdit}
                                     />
                                 </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="project-id">{t("project.id")}</Label>
-                                    <Input
-                                        id="project-id"
-                                        value={project.id}
-                                        disabled
-                                        className="bg-muted font-mono text-sm"
-                                    />
-                                </div>
                             </div>
 
                             <Separator />

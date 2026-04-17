@@ -334,15 +334,6 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                         disabled={!canEdit}
                                     />
                                 </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="group-id">{t("group.id")}</Label>
-                                    <Input
-                                        id="group-id"
-                                        value={group?.id || ""}
-                                        disabled
-                                        className="bg-muted font-mono text-sm"
-                                    />
-                                </div>
                             </div>
 
                             <Separator />
