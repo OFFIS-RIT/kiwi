@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { API_BASE_URL } from "@/lib/api/client";
 import { deleteProjectChat, fetchProjectChat, fetchProjectChats } from "@/lib/api/projects";
+import { useAuth } from "@/providers/AuthProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { DefaultChatTransport, type UIMessage } from "ai";
@@ -356,7 +357,16 @@ function ProjectChatSession({
     isHydrating: boolean;
     onReset: (chatId: string) => Promise<void>;
 }) {
+    const { user } = useAuth();
     const { t, language } = useLanguage();
+    const userInitials = user?.name
+        ? user.name
+              .split(" ")
+              .map((name) => name[0])
+              .join("")
+              .toUpperCase()
+              .slice(0, 2)
+        : "?";
     const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -713,7 +723,7 @@ function ProjectChatSession({
                                                     {message.role === "assistant" ? (
                                                         <AvatarFallback>AI</AvatarFallback>
                                                     ) : (
-                                                        <AvatarFallback>JD</AvatarFallback>
+                                                        <AvatarFallback>{userInitials}</AvatarFallback>
                                                     )}
                                                 </Avatar>
                                                 <div>
