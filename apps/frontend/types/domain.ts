@@ -9,7 +9,7 @@ import type { ApiBatchStepProgress, ProcessStep } from "./api";
 /**
  * Project lifecycle states.
  */
-export type ProjectState = "ready" | "create" | "update";
+export type ProjectState = "ready" | "update";
 
 export type { ProcessStep };
 

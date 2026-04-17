@@ -38,7 +38,6 @@ export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCar
             buttonText={t("open")}
             onSelect={onSelect}
             onEdit={canEditProject || canViewFiles ? onEdit : undefined}
-            disabled={project.state === "create" && !isProcessing}
         >
             {isProcessing ? (
                 <div className="space-y-3 pt-1">

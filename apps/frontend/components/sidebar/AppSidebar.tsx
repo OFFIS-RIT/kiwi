@@ -558,7 +558,6 @@ function GroupItem({
                                         <SidebarMenuButton
                                             className="min-w-0 pr-8"
                                             isActive={selectedProject?.id === project.id}
-                                            disabled={project.state === "create"}
                                             onClick={() => {
                                                 onSelectProject(group.id);
                                                 selectItem(group, project);
