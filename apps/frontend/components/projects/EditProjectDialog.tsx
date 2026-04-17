@@ -271,7 +271,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                                                         isMarkedForDeletion && "opacity-50 ring-2 ring-destructive"
                                                     )}
                                                 >
-                                                    <div className="flex items-start gap-2">
+                                                    <div className={cn("flex items-start gap-2", canDeleteFiles && "pr-6")}>
                                                         <FileStatusIcon status={file.status} className="mt-0.5" />
                                                         <div className="min-w-0 flex-1">
                                                             <p
@@ -279,6 +279,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                                                                     "truncate text-xs font-medium leading-tight",
                                                                     isMarkedForDeletion && "line-through"
                                                                 )}
+                                                                title={file.name}
                                                             >
                                                                 {file.name}
                                                             </p>

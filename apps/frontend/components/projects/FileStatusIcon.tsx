@@ -1,6 +1,5 @@
 "use client";
 
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { FileStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -11,13 +10,6 @@ type FileStatusIconProps = {
     className?: string;
 };
 
-/**
- * Displays a status icon with tooltip for file processing state.
- * - processing: spinning loader
- * - processed: green checkmark
- * - failed: red error icon
- * - no_status/undefined: gray question mark
- */
 export function FileStatusIcon({ status, className }: FileStatusIconProps) {
     const { t } = useLanguage();
 
@@ -45,13 +37,8 @@ export function FileStatusIcon({ status, className }: FileStatusIconProps) {
     const { icon, tooltipKey } = config[normalizedStatus];
 
     return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <span className="inline-flex cursor-default">{icon}</span>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-                <span>{t(tooltipKey)}</span>
-            </TooltipContent>
-        </Tooltip>
+        <span title={t(tooltipKey)} className="inline-flex cursor-default">
+            {icon}
+        </span>
     );
 }
