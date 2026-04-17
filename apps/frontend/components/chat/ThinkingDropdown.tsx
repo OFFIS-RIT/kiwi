@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Brain, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -8,13 +8,21 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/providers/LanguageProvider";
 
 type ThinkingDropdownProps = {
-    reasoning: string;
+    children: React.ReactNode;
     thinkingDuration?: number;
     isLive?: boolean;
     startTime?: number;
+    /** Overrides the default "Thought for Xs" / "Show reasoning" label. */
+    label?: string;
 };
 
-export function ThinkingDropdown({ reasoning, thinkingDuration, isLive = false, startTime }: ThinkingDropdownProps) {
+export function ThinkingDropdown({
+    children,
+    thinkingDuration,
+    isLive = false,
+    startTime,
+    label,
+}: ThinkingDropdownProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const { t } = useLanguage();
@@ -39,7 +47,21 @@ export function ThinkingDropdown({ reasoning, thinkingDuration, isLive = false, 
           ? (thinkingDuration / 1000).toFixed(1)
           : undefined;
 
-    const labelText = displaySeconds ? t("thinking.collapsed", { seconds: displaySeconds }) : t("thinking.show");
+    const labelText =
+        label ?? (displaySeconds ? t("thinking.collapsed", { seconds: displaySeconds }) : t("thinking.show"));
+    const hasBody = React.Children.count(children) > 0;
+
+    if (!hasBody) {
+        // Render a non-interactive header (same visual rhythm as the expanded
+        // version) so the UI doesn't lie about being expandable when there is
+        // nothing to reveal yet.
+        return (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {isLive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
+                <span>{labelText}</span>
+            </div>
+        );
+    }
 
     return (
         <Collapsible open={isOpen} onOpenChange={setIsOpen} className="w-full">
@@ -62,8 +84,8 @@ export function ThinkingDropdown({ reasoning, thinkingDuration, isLive = false, 
                 </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-                <div className="mt-2 p-3 rounded-md bg-muted/20 border border-border/30 text-sm text-muted-foreground italic whitespace-pre-wrap">
-                    {reasoning || t("thinking.processing")}
+                <div className="mt-2 space-y-2 rounded-md border border-border/30 bg-muted/20 p-3 text-sm text-muted-foreground">
+                    {children}
                 </div>
             </CollapsibleContent>
         </Collapsible>

@@ -10,7 +10,14 @@ import { Result } from "better-result";
 import { eq } from "drizzle-orm";
 import { chatTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { Elysia, t } from "elysia";
-import { createUIMessageStream, createUIMessageStreamResponse, generateText, smoothStream, stepCountIs, streamText } from "ai";
+import {
+    createUIMessageStream,
+    createUIMessageStreamResponse,
+    generateText,
+    smoothStream,
+    stepCountIs,
+    streamText,
+} from "ai";
 import { env } from "../env";
 import {
     enrichCitation,
@@ -34,6 +41,27 @@ const requestBodySchema = t.Object({
     id: t.String(),
     messages: t.Array(t.Any()),
 });
+
+/**
+ * Replace the existing tool entry that shares `toolCallId` in-place, or append
+ * when no prior entry exists. The AI SDK collapses `tool-call` →
+ * `tool-result`/`tool-error` events into a single UI part keyed by
+ * `toolCallId`, so the persisted `MessagePart[]` has to mirror that contract.
+ * Without this, reloading a chat would resurrect each tool twice (pending →
+ * spinner AND completed/failed → check/cross).
+ */
+function upsertToolPart(parts: MessagePart[], next: MessagePart) {
+    if (next.type !== "tool") {
+        parts.push(next);
+        return;
+    }
+    const idx = parts.findIndex((p) => p.type === "tool" && p.toolCallId === next.toolCallId);
+    if (idx === -1) {
+        parts.push(next);
+        return;
+    }
+    parts[idx] = next;
+}
 
 export const chatRoute = new Elysia()
     .use(authMiddleware)
@@ -165,13 +193,14 @@ export const chatRoute = new Elysia()
                             parts.push({ type: "reasoning", text: contentPart.text });
                             break;
                         case "tool-call":
-                            parts.push(toolPart(contentPart, "pending"));
+                            upsertToolPart(parts, toolPart(contentPart, "pending"));
                             break;
                         case "tool-result":
-                            parts.push(toolPart(contentPart, "completed", { value: contentPart.output }));
+                            upsertToolPart(parts, toolPart(contentPart, "completed", { value: contentPart.output }));
                             break;
                         case "tool-error":
-                            parts.push(
+                            upsertToolPart(
+                                parts,
                                 toolPart(contentPart, "failed", {
                                     value:
                                         typeof contentPart.error === "string"
@@ -239,8 +268,30 @@ export const chatRoute = new Elysia()
                 let firstOutputAt: number | null = null;
                 const assistantParts: MessagePart[] = [];
                 const citationFileIds = new Set<string>();
-                const textBuffers = new Map<string, string>();
                 const reasoningBuffers = new Map<string, string>();
+                // The AI SDK flips the `dynamic` flag between `tool-input-*`
+                // and `tool-output-*` events when a tool input fails schema
+                // validation: input events are emitted with `dynamic: false`
+                // (the tool is statically resolved by name), but output events
+                // come in as `dynamic: true` because the SDK falls back to its
+                // generic dynamic-tool branch. On the client, the `dynamic`
+                // flag decides whether a part is keyed as `tool-<name>` or
+                // `dynamic-tool`, so the mid-lifecycle flip produces *two*
+                // separate parts for a single `toolCallId` – a stale
+                // `tool-<name>` part stuck in `input-available` AND a
+                // `dynamic-tool` part with the error. We pin the flag to the
+                // value seen on the first lifecycle event per call and reuse
+                // it for all subsequent events so the UI SDK only ever builds
+                // one part per tool call.
+                const toolDynamicFlags = new Map<string, boolean>();
+
+                const pinToolDynamic = (toolCallId: string, incoming: boolean | undefined): boolean => {
+                    const existing = toolDynamicFlags.get(toolCallId);
+                    if (existing !== undefined) return existing;
+                    const value = Boolean(incoming);
+                    toolDynamicFlags.set(toolCallId, value);
+                    return value;
+                };
 
                 const result = streamText({
                     model: client.text!,
@@ -257,7 +308,6 @@ export const chatRoute = new Elysia()
                 });
 
                 const stream = createUIMessageStream<ChatUIMessage>({
-                    originalMessages: request.messages,
                     execute: async ({ writer }) => {
                         writer.write({
                             type: "start",
@@ -268,9 +318,48 @@ export const chatRoute = new Elysia()
                             },
                         });
 
-                        try {
-                            const textParsers = new Map<string, ReturnType<typeof createCitationFenceStreamParser>>();
+                        const textParsers = new Map<string, ReturnType<typeof createCitationFenceStreamParser>>();
 
+                        // Each model text block is split into one or more UI text blocks so
+                        // that a `{type: "citation"}` part always lives BETWEEN the text
+                        // parts that surround it. Without this split the AI SDK would
+                        // accumulate every `text-delta` for a single text id into one big
+                        // text part and push all citations as separate parts behind it –
+                        // which is exactly the "references at end / references at start
+                        // after reload" bug users were seeing.
+                        type ActiveUIText = { uiId: string; buffer: string };
+                        const activeUITexts = new Map<string, ActiveUIText>();
+                        let uiTextBlockCounter = 0;
+
+                        const openUIText = (modelPartId: string): ActiveUIText => {
+                            const existing = activeUITexts.get(modelPartId);
+                            if (existing) return existing;
+                            const uiId = `${modelPartId}::${uiTextBlockCounter++}`;
+                            const active: ActiveUIText = { uiId, buffer: "" };
+                            activeUITexts.set(modelPartId, active);
+                            writer.write({ type: "text-start", id: uiId });
+                            return active;
+                        };
+
+                        const closeUIText = async (modelPartId: string) => {
+                            const active = activeUITexts.get(modelPartId);
+                            if (!active) return;
+                            if (active.buffer.length > 0) {
+                                assistantParts.push({ type: "text", text: active.buffer });
+                                await updateAssistantMessage(assistantId, assistantParts, "pending");
+                            }
+                            writer.write({ type: "text-end", id: active.uiId });
+                            activeUITexts.delete(modelPartId);
+                        };
+
+                        const appendText = (modelPartId: string, text: string) => {
+                            if (text.length === 0) return;
+                            const active = openUIText(modelPartId);
+                            active.buffer += text;
+                            writer.write({ type: "text-delta", id: active.uiId, delta: text });
+                        };
+
+                        try {
                             for await (const part of result.fullStream) {
                                 if (part.type !== "start" && part.type !== "start-step" && firstOutputAt === null) {
                                     firstOutputAt = Date.now();
@@ -278,46 +367,41 @@ export const chatRoute = new Elysia()
 
                                 switch (part.type) {
                                     case "text-start":
+                                        // Parser is created eagerly, but the UI text block is
+                                        // opened lazily on the first text segment so blocks
+                                        // that start with a citation don't emit an empty one.
                                         textParsers.set(part.id, createCitationFenceStreamParser());
-                                        textBuffers.set(part.id, "");
-                                        writer.write({ type: "text-start", id: part.id });
                                         break;
                                     case "text-delta": {
                                         const parser = textParsers.get(part.id);
-                                        if (!parser) {
-                                            break;
-                                        }
+                                        if (!parser) break;
 
                                         for (const segment of parser.push(part.text)) {
                                             if (segment.type === "text") {
-                                                if (segment.text.length > 0) {
-                                                    textBuffers.set(
-                                                        part.id,
-                                                        `${textBuffers.get(part.id) ?? ""}${segment.text}`
-                                                    );
-                                                    writer.write({
-                                                        type: "text-delta",
-                                                        id: part.id,
-                                                        delta: segment.text,
-                                                    });
-                                                }
+                                                appendText(part.id, segment.text);
                                                 continue;
                                             }
 
                                             const citation = await enrichCitation(params.id, segment.citation.id);
                                             if (!citation) {
-                                                textBuffers.set(
-                                                    part.id,
-                                                    `${textBuffers.get(part.id) ?? ""}${segment.raw}`
-                                                );
-                                                writer.write({ type: "text-delta", id: part.id, delta: segment.raw });
+                                                // Unknown citation – preserve the raw fence as
+                                                // text so the model's original output isn't lost.
+                                                appendText(part.id, segment.raw);
                                                 continue;
                                             }
 
+                                            // Close the current UI text block first so the
+                                            // citation sits between this text chunk and the
+                                            // next one in the persisted parts array.
+                                            await closeUIText(part.id);
                                             citationFileIds.add(citation.fileId);
                                             assistantParts.push({ type: "citation", citation });
                                             await updateAssistantMessage(assistantId, assistantParts, "pending");
-                                            writer.write({ type: "data-citation", id: citation.sourceId, data: citation });
+                                            writer.write({
+                                                type: "data-citation",
+                                                id: citation.sourceId,
+                                                data: citation,
+                                            });
                                         }
                                         break;
                                     }
@@ -326,51 +410,32 @@ export const chatRoute = new Elysia()
                                         if (parser) {
                                             for (const segment of parser.flush()) {
                                                 if (segment.type === "text") {
-                                                    textBuffers.set(
-                                                        part.id,
-                                                        `${textBuffers.get(part.id) ?? ""}${segment.text}`
-                                                    );
-                                                    writer.write({
-                                                        type: "text-delta",
-                                                        id: part.id,
-                                                        delta: segment.text,
-                                                    });
-                                                } else {
-                                                    const citation = await enrichCitation(
-                                                        params.id,
-                                                        segment.citation.id
-                                                    );
-                                                    if (citation) {
-                                                        citationFileIds.add(citation.fileId);
-                                                        assistantParts.push({ type: "citation", citation });
-                                                        await updateAssistantMessage(assistantId, assistantParts, "pending");
-                                                        writer.write({
-                                                            type: "data-citation",
-                                                            id: citation.sourceId,
-                                                            data: citation,
-                                                        });
-                                                    } else {
-                                                        textBuffers.set(
-                                                            part.id,
-                                                            `${textBuffers.get(part.id) ?? ""}${segment.raw}`
-                                                        );
-                                                        writer.write({
-                                                            type: "text-delta",
-                                                            id: part.id,
-                                                            delta: segment.raw,
-                                                        });
-                                                    }
+                                                    appendText(part.id, segment.text);
+                                                    continue;
                                                 }
+
+                                                const citation = await enrichCitation(
+                                                    params.id,
+                                                    segment.citation.id
+                                                );
+                                                if (!citation) {
+                                                    appendText(part.id, segment.raw);
+                                                    continue;
+                                                }
+
+                                                await closeUIText(part.id);
+                                                citationFileIds.add(citation.fileId);
+                                                assistantParts.push({ type: "citation", citation });
+                                                await updateAssistantMessage(assistantId, assistantParts, "pending");
+                                                writer.write({
+                                                    type: "data-citation",
+                                                    id: citation.sourceId,
+                                                    data: citation,
+                                                });
                                             }
                                         }
 
-                                        const text = textBuffers.get(part.id) ?? "";
-                                        if (text.length > 0) {
-                                            assistantParts.push({ type: "text", text });
-                                            await updateAssistantMessage(assistantId, assistantParts, "pending");
-                                        }
-                                        writer.write({ type: "text-end", id: part.id });
-                                        textBuffers.delete(part.id);
+                                        await closeUIText(part.id);
                                         textParsers.delete(part.id);
                                         break;
                                     }
@@ -401,7 +466,7 @@ export const chatRoute = new Elysia()
                                             toolCallId: part.id,
                                             toolName: part.toolName,
                                             providerExecuted: part.providerExecuted,
-                                            dynamic: part.dynamic,
+                                            dynamic: pinToolDynamic(part.id, part.dynamic),
                                             title: part.title,
                                         });
                                         break;
@@ -414,7 +479,7 @@ export const chatRoute = new Elysia()
                                         break;
                                     }
                                     case "tool-call": {
-                                        assistantParts.push(toolPart(part, "pending"));
+                                        upsertToolPart(assistantParts, toolPart(part, "pending"));
                                         await updateAssistantMessage(assistantId, assistantParts, "pending");
                                         writer.write({
                                             type: "tool-input-available",
@@ -422,20 +487,20 @@ export const chatRoute = new Elysia()
                                             toolName: part.toolName,
                                             input: part.input,
                                             providerExecuted: part.providerExecuted,
-                                            dynamic: part.dynamic,
+                                            dynamic: pinToolDynamic(part.toolCallId, part.dynamic),
                                             title: part.title,
                                         });
                                         break;
                                     }
                                     case "tool-result": {
-                                        assistantParts.push(toolPart(part, "completed", { value: part.output }));
+                                        upsertToolPart(assistantParts, toolPart(part, "completed", { value: part.output }));
                                         await updateAssistantMessage(assistantId, assistantParts, "pending");
                                         writer.write({
                                             type: "tool-output-available",
                                             toolCallId: part.toolCallId,
                                             output: part.output,
                                             providerExecuted: part.providerExecuted,
-                                            dynamic: part.dynamic,
+                                            dynamic: pinToolDynamic(part.toolCallId, part.dynamic),
                                             preliminary: part.preliminary,
                                         });
                                         break;
@@ -445,14 +510,14 @@ export const chatRoute = new Elysia()
                                             typeof part.error === "string"
                                                 ? part.error
                                                 : JSON.stringify(part.error ?? null);
-                                        assistantParts.push(toolPart(part, "failed", { value: errorText }));
+                                        upsertToolPart(assistantParts, toolPart(part, "failed", { value: errorText }));
                                         await updateAssistantMessage(assistantId, assistantParts, "pending");
                                         writer.write({
                                             type: "tool-output-error",
                                             toolCallId: part.toolCallId,
                                             errorText,
                                             providerExecuted: part.providerExecuted,
-                                            dynamic: part.dynamic,
+                                            dynamic: pinToolDynamic(part.toolCallId, part.dynamic),
                                         });
                                         break;
                                     }
@@ -511,6 +576,12 @@ export const chatRoute = new Elysia()
                                 }
                             }
                         } catch (error) {
+                            // Flush any still-open UI text block so partial content
+                            // survives in the persisted message even when the stream
+                            // aborts mid-way.
+                            for (const modelPartId of [...activeUITexts.keys()]) {
+                                await closeUIText(modelPartId);
+                            }
                             const errorText = error instanceof Error ? error.message : "Unknown stream error";
                             await updateAssistantMessage(assistantId, assistantParts, "failed");
                             writer.write({ type: "error", errorText });

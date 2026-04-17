@@ -3,8 +3,7 @@
  */
 
 // Re-export client utilities
-export { apiClient, ApiError, streamSSERequest } from "./client";
-export type { SSEFrame } from "./client";
+export { apiClient, ApiError } from "./client";
 export type {
     ApiErrorCode,
     BaseResponse,
@@ -53,11 +52,4 @@ export {
 } from "./projects";
 
 // Re-export types for convenience
-export type {
-    ApiGraph,
-    ApiGroup,
-    ApiGroupUser,
-    ApiProjectFile,
-    ApiTextUnit,
-    ApiTextUnitResponse,
-} from "@/types/api";
+export type { ApiGraph, ApiGroup, ApiGroupUser, ApiProjectFile, ApiTextUnit, ApiTextUnitResponse } from "@/types/api";

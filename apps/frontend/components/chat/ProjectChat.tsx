@@ -13,13 +13,25 @@ import { API_BASE_URL } from "@/lib/api/client";
 import { deleteProjectChat, fetchProjectChat, fetchProjectChats } from "@/lib/api/projects";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai";
+import { DefaultChatTransport, type UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
-import { Check, Copy, FileText, Loader2, Mic, MicOff, RotateCcw, SendIcon, Volume2, VolumeX } from "lucide-react";
+import {
+    AlertCircle,
+    Check,
+    Copy,
+    FileText,
+    Loader2,
+    Mic,
+    MicOff,
+    RotateCcw,
+    SendIcon,
+    Volume2,
+    VolumeX,
+    X,
+} from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { MessageContent } from "./MessageContent";
-import { ThinkingDropdown } from "./ThinkingDropdown";
 
 const ResetChatDialog = lazy(() =>
     import("./ResetChatDialog").then((mod) => ({
@@ -44,14 +56,114 @@ type ClarificationState = {
     toolCallId: string;
     questions: string[];
     reason?: string;
-    submittedAnswers?: string[];
     submitted: boolean;
+    submittedAnswers?: string[];
 };
 
-function isToolPart(
-    part: ChatUIMessage["parts"][number]
-): part is Extract<ChatUIMessage["parts"][number], { toolCallId: string; state: string }> {
+type ToolPart = Extract<ChatUIMessage["parts"][number], { toolCallId: string; state: string }>;
+
+function isToolPart(part: ChatUIMessage["parts"][number]): part is ToolPart {
     return "toolCallId" in part && "state" in part;
+}
+
+function getToolName(part: ToolPart): string {
+    return part.type.startsWith("tool-") ? part.type.slice("tool-".length) : part.type;
+}
+
+/**
+ * Returns the most recent tool name from the assistant's latest message,
+ * ignoring the clarification tool (rendered separately). The label sticks to
+ * the most recent tool – even after it has completed – so the live indicator
+ * remains anchored on that step until the next tool starts, instead of
+ * flickering back to a generic "thinking" label between calls.
+ */
+function getLiveToolName(messages: ChatUIMessage[]): string | null {
+    for (let m = messages.length - 1; m >= 0; m--) {
+        const message = messages[m];
+        if (!message || message.role !== "assistant") continue;
+
+        for (let p = message.parts.length - 1; p >= 0; p--) {
+            const part = message.parts[p];
+            if (!part || !isToolPart(part)) continue;
+            const name = getToolName(part);
+            if (name === "ask_clarifying_questions") continue;
+            return name;
+        }
+        break;
+    }
+    return null;
+}
+
+/**
+ * Auto-send trigger predicate for `useChat`.
+ *
+ * We only want to auto-continue when the user has JUST answered a client-side
+ * clarification and the LLM has not responded to it yet. The AI SDK mutates
+ * the last assistant message in place when a response streams in, appending
+ * new parts after the existing ones. That means the answered clarification
+ * tool part stays exactly where it was – as long as it is the very last part
+ * of the message we know no follow-up response exists yet.
+ *
+ * Checking `.some()` (or the SDK built-in) instead fires repeatedly for every
+ * completed tool result in the same message and causes an infinite loop of
+ * assistant continuations.
+ */
+function shouldAutoContinue({ messages }: { messages: UIMessage[] }): boolean {
+    const last = messages.at(-1);
+    if (!last || last.role !== "assistant") return false;
+
+    const lastPart = last.parts.at(-1);
+    if (!lastPart || !("type" in lastPart)) return false;
+    if (lastPart.type !== "tool-ask_clarifying_questions") return false;
+    if (!("state" in lastPart)) return false;
+    return lastPart.state === "output-available";
+}
+
+/**
+ * When `shouldAutoContinue` triggers a follow-up turn after the user has
+ * answered a client-side tool call (e.g. `ask_clarifying_questions`), the AI
+ * SDK seeds the streaming state of the new assistant bubble with a
+ * `structuredClone` of the previous assistant message's parts (see
+ * `createStreamingUIMessageState` in `ai/src/ui/process-ui-message-stream.ts`
+ * together with `AbstractChat.makeRequest`). When the backend emits a fresh
+ * `messageId` in its `start` event, the SDK pushes that cloned-and-renamed
+ * object as a separate bubble — carrying the previous message's parts as a
+ * phantom prefix.
+ *
+ * The SDK has no hook to reset those phantom parts, so we strip them at the
+ * data boundary: only the very last message can ever carry a phantom prefix
+ * (earlier messages either come from the DB or have already been finalized),
+ * and only when its predecessor is an assistant message whose `finish` event
+ * has already landed (`metadata` is populated).
+ *
+ * Result: upstream consumers (render loop, clarification detection, live tool
+ * detection) see the stream the same way we persist it server-side – two
+ * distinct bubbles with their own parts – without touching the SDK's internal
+ * state.
+ */
+function stripPhantomPrefix(messages: ChatUIMessage[]): ChatUIMessage[] {
+    if (messages.length < 2) return messages;
+
+    const last = messages[messages.length - 1];
+    const prev = messages[messages.length - 2];
+
+    if (!last || !prev || last.role !== "assistant" || prev.role !== "assistant") {
+        return messages;
+    }
+
+    if (!prev.metadata) return messages;
+
+    const prefixLen = prev.parts.length;
+    if (prefixLen === 0 || last.parts.length < prefixLen) return messages;
+
+    for (let i = 0; i < prefixLen; i++) {
+        if (JSON.stringify(last.parts[i]) !== JSON.stringify(prev.parts[i])) {
+            return messages;
+        }
+    }
+
+    const stripped: ChatUIMessage = { ...last, parts: last.parts.slice(prefixLen) };
+    return [...messages.slice(0, -1), stripped];
 }
 
 function getMessageText(message: ChatUIMessage): string {
@@ -114,11 +226,15 @@ function getClarificationState(message: ChatUIMessage): ClarificationState | nul
         return null;
     }
 
-        const toolPart = message.parts.find(
-        (part): part is Extract<ChatUIMessage["parts"][number], { toolCallId: string; state: string }> =>
-            isToolPart(part) && part.type === "tool-ask_clarifying_questions"
-    );
+    const toolPart = message.parts.findLast(
+        (part) => isToolPart(part) && part.type === "tool-ask_clarifying_questions"
+    ) as ToolPart | undefined;
     if (!toolPart) {
+        return null;
+    }
+
+    // Ignore terminal error states – there's nothing meaningful to render.
+    if (toolPart.state === "output-error") {
         return null;
     }
 
@@ -173,7 +289,6 @@ function stripMarkdown(text: string): string {
 }
 
 export function ProjectChat({ projectName, groupName, projectId }: ProjectChatProps) {
-    const { t } = useLanguage();
     const [session, setSession] = useState<ChatSessionState | null>(null);
     const [isHydrating, setIsHydrating] = useState(false);
 
@@ -254,6 +369,7 @@ function ProjectChatSession({
     const [interimTranscript, setInterimTranscript] = useState("");
     const [isTemplateSidebarOpen, setIsTemplateSidebarOpen] = useState(false);
     const [currentStep, setCurrentStep] = useState<string | null>(null);
+    const [streamError, setStreamError] = useState<string | null>(null);
 
     const {
         isSupported: ttsSupported,
@@ -270,7 +386,7 @@ function ProjectChatSession({
             api: `${API_BASE_URL}/stream/${projectId}`,
             credentials: "include",
         }),
-        sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+        sendAutomaticallyWhen: shouldAutoContinue,
         onData: (part) => {
             if (part.type === "data-step") {
                 const name = part.data && typeof part.data === "object" && "name" in part.data ? part.data.name : null;
@@ -279,11 +395,15 @@ function ProjectChatSession({
         },
         onError: (error) => {
             console.error("Chat stream error:", error);
+            setStreamError(error.message || t("error.chat.api"));
         },
     });
 
     const isAssistantTyping = status === "submitted" || status === "streaming";
-    const displayedMessages = useMemo(() => messages.filter((message) => message.role !== "system"), [messages]);
+    const displayedMessages = useMemo(() => {
+        const visible = messages.filter((message) => message.role !== "system");
+        return stripPhantomPrefix(visible);
+    }, [messages]);
     const pendingClarification = useMemo(
         () =>
             displayedMessages
@@ -291,6 +411,16 @@ function ProjectChatSession({
                 .find((state): state is ClarificationState => !!state && !state.submitted) ?? null,
         [displayedMessages]
     );
+
+    const liveToolName = useMemo(
+        () => (isAssistantTyping ? getLiveToolName(displayedMessages) : null),
+        [displayedMessages, isAssistantTyping]
+    );
+    const liveStepLabel = useMemo(() => {
+        if (liveToolName) return t(`step.${liveToolName}`);
+        if (currentStep) return t(`step.${currentStep}`);
+        return t("thinking.processing");
+    }, [liveToolName, currentStep, t]);
 
     useEffect(() => {
         stopSpeaking();
@@ -403,9 +533,15 @@ function ProjectChatSession({
     }, [clearSilenceTimeout, isRecording, resetSilenceTimeout]);
 
     const handleSendMessage = useCallback(async () => {
-        if (!inputValue.trim() || isRecording || pendingClarification) return;
-        await sendMessage({ text: inputValue });
+        const text = inputValue;
+        if (!text.trim() || isRecording || pendingClarification) return;
+        setStreamError(null);
+        // Clear the input synchronously before awaiting sendMessage: the AI
+        // SDK's promise only resolves once the stream is done, so leaving the
+        // reset after the await leaves the original text visible for the whole
+        // response.
         setInputValue("");
+        await sendMessage({ text });
     }, [inputValue, isRecording, pendingClarification, sendMessage]);
 
     const handleClarificationSubmit = useCallback(
@@ -556,9 +692,12 @@ function ProjectChatSession({
                             )}
 
                             {!isHydrating &&
-                                displayedMessages.map((message) => {
+                                displayedMessages.map((message, index) => {
                                     const clarification = getClarificationState(message);
                                     const timestamp = getMessageTimestamp(message);
+                                    const isLastMessage = index === displayedMessages.length - 1;
+                                    const isStreamingMessage =
+                                        isAssistantTyping && isLastMessage && message.role === "assistant";
 
                                     return (
                                         <div
@@ -590,6 +729,7 @@ function ProjectChatSession({
                                                                 <MessageContent
                                                                     parts={message.parts}
                                                                     projectId={projectId}
+                                                                    isStreaming={isStreamingMessage}
                                                                 />
                                                                 {clarification && (
                                                                     <ClarificationBlock
@@ -746,12 +886,33 @@ function ProjectChatSession({
                                             <div className="w-full min-w-[200px] rounded-lg bg-muted p-3">
                                                 <div className="flex w-full items-center gap-2 text-sm text-muted-foreground">
                                                     <Loader2 className="h-4 w-4 animate-spin" />
-                                                    <span>{currentStep ? t(`step.${currentStep}`) : t("loading")}</span>
+                                                    <span>{liveStepLabel}</span>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                 )}
+
+                            {streamError && (
+                                <div className="flex justify-center">
+                                    <div className="flex max-w-[80%] items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                        <div className="flex-1">
+                                            <p className="font-medium">{t("error.chat.api")}</p>
+                                            <p className="mt-0.5 break-words text-xs opacity-80">{streamError}</p>
+                                        </div>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6 shrink-0"
+                                            onClick={() => setStreamError(null)}
+                                            aria-label="Dismiss error"
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
 
                             <div ref={messagesEndRef} />
                         </div>

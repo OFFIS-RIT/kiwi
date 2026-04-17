@@ -3,8 +3,9 @@
 import { Button } from "@/components/ui/button";
 import { downloadProjectFile } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
+import { useLanguage } from "@/providers/LanguageProvider";
 import type { ChatUIMessage, CitationPartData } from "@kiwi/ai/ui";
-import { FileText } from "lucide-react";
+import { AlertTriangle, Check, FileText, Loader2, Wrench } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
@@ -16,24 +17,83 @@ import { ThinkingDropdown } from "./ThinkingDropdown";
 type MessageContentProps = {
     parts: ChatUIMessage["parts"];
     projectId?: string;
+    /** Set to true for the currently-streaming assistant message to enable
+     *  the pre-text UI phases (inline "thinking..." label, tool-call label). */
+    isStreaming?: boolean;
 };
 
-export function MessageContent({ parts, projectId }: MessageContentProps) {
+type ChatMessagePart = ChatUIMessage["parts"][number];
+type ToolPart = ChatMessagePart & { toolCallId: string; state: string };
+
+function isToolPart(part: ChatMessagePart): part is ToolPart {
+    return "toolCallId" in part && "state" in part;
+}
+
+function toolNameOf(part: ToolPart): string {
+    return part.type.startsWith("tool-") ? part.type.slice("tool-".length) : part.type;
+}
+
+function ToolCallChip({ part }: { part: ToolPart }) {
+    const { t } = useLanguage();
+    const name = toolNameOf(part);
+    const label = t(`step.${name}`);
+
+    const isRunning = part.state === "input-streaming" || part.state === "input-available";
+    const isError = part.state === "output-error";
+    const isDone = part.state === "output-available";
+
+    const tone = isError
+        ? "border-destructive/40 bg-destructive/10 text-destructive"
+        : "border-border/60 bg-muted/30 text-muted-foreground";
+
+    return (
+        <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs ${tone}`} title={name}>
+            {isError ? (
+                <AlertTriangle className="h-3 w-3" />
+            ) : isRunning ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+            ) : isDone ? (
+                <Check className="h-3 w-3" />
+            ) : (
+                <Wrench className="h-3 w-3" />
+            )}
+            <span>{label}</span>
+        </span>
+    );
+}
+
+type ThinkingItem = { kind: "reasoning"; key: string; text: string } | { kind: "tool"; key: string; part: ToolPart };
+
+export function MessageContent({ parts, projectId, isStreaming = false }: MessageContentProps) {
+    const { t } = useLanguage();
     const referencePattern = React.useMemo(() => /\[\[cite:([a-zA-Z0-9_-]+)\]\]/g, []);
 
-    const { markdownContent, reasoning, citations } = React.useMemo(() => {
+    const { markdownContent, citations, thinkingItems } = React.useMemo(() => {
         const citationOrder: CitationPartData[] = [];
         const citationMap = new Map<string, number>();
+        const items: ThinkingItem[] = [];
         let markdown = "";
-        let reasoningText = "";
+        let reasoningIndex = 0;
 
         for (const part of parts) {
+            if (isToolPart(part)) {
+                // Clarification tool parts are rendered by ClarificationBlock
+                // outside of the thinking dropdown, so skip them here.
+                if (toolNameOf(part) === "ask_clarifying_questions") continue;
+                items.push({ kind: "tool", key: part.toolCallId, part });
+                continue;
+            }
+
             switch (part.type) {
                 case "text":
                     markdown += part.text;
                     break;
                 case "reasoning":
-                    reasoningText += part.text;
+                    items.push({
+                        kind: "reasoning",
+                        key: `reasoning-${reasoningIndex++}`,
+                        text: part.text,
+                    });
                     break;
                 case "data-citation": {
                     const existingIndex = citationMap.get(part.data.sourceId);
@@ -49,8 +109,8 @@ export function MessageContent({ parts, projectId }: MessageContentProps) {
 
         return {
             markdownContent: normalizeLatexDelimitersForMarkdown(markdown),
-            reasoning: reasoningText || undefined,
             citations: citationOrder,
+            thinkingItems: items,
         };
     }, [parts]);
 
@@ -148,84 +208,124 @@ export function MessageContent({ parts, projectId }: MessageContentProps) {
         return unique;
     }, [] as CitationPartData[]);
 
+    const hasText = markdownContent.trim().length > 0;
+    const toolThinkingItems = thinkingItems.filter(
+        (item): item is Extract<ThinkingItem, { kind: "tool" }> => item.kind === "tool"
+    );
+    // Surface the most recent tool as the live label – even once it has
+    // completed – so the indicator stays anchored on that tool until the next
+    // one starts instead of flickering back to a generic "thinking" label
+    // between calls. While the model is deciding the next step, the spinner
+    // still correctly conveys "working", and the label names the most recent
+    // concrete action.
+    const liveToolItem = toolThinkingItems.at(-1);
+    const liveToolLabel = liveToolItem ? t(`step.${toolNameOf(liveToolItem.part)}`) : undefined;
+
+    const renderThinkingBody = () =>
+        thinkingItems.map((item) =>
+            item.kind === "reasoning" ? (
+                <p key={item.key} className="whitespace-pre-wrap italic">
+                    {item.text}
+                </p>
+            ) : (
+                <div key={item.key}>
+                    <ToolCallChip part={item.part} />
+                </div>
+            )
+        );
+
+    // Live phase: still streaming, no assistant text yet → collapsible dropdown.
+    //   Label falls back from the running tool's name to a generic "thinking"
+    //   message so the control is present from the first frame after send.
+    // Settled phase: message has text OR is historical → default reasoning dropdown.
+    //   Only rendered when there's actually something to reveal.
+    let thinkingSlot: React.ReactNode = null;
+    if (isStreaming && !hasText) {
+        thinkingSlot = (
+            <ThinkingDropdown isLive label={liveToolLabel ?? t("thinking.processing")}>
+                {renderThinkingBody()}
+            </ThinkingDropdown>
+        );
+    } else if (thinkingItems.length > 0) {
+        thinkingSlot = <ThinkingDropdown>{renderThinkingBody()}</ThinkingDropdown>;
+    }
+
     return (
-        <div className="leading-relaxed">
-            {reasoning && (
-                <div className="mb-3">
-                    <ThinkingDropdown reasoning={reasoning} />
+        <div className="flex flex-col gap-3 leading-relaxed">
+            {thinkingSlot}
+            {hasText && (
+                <div className="max-w-none overflow-x-auto prose prose-sm dark:prose-invert [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden">
+                    <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[
+                            [
+                                rehypeKatex,
+                                {
+                                    strict: false,
+                                    throwOnError: false,
+                                },
+                            ],
+                        ]}
+                        components={{
+                            p: ({ children }) => <p>{injectBadges(children)}</p>,
+                            ul: ({ children }) => <ul className="my-2 list-disc pl-6">{injectBadges(children)}</ul>,
+                            ol: ({ children }) => <ol className="my-2 list-decimal pl-6">{injectBadges(children)}</ol>,
+                            li: ({ children }) => <li className="my-1">{injectBadges(children)}</li>,
+                            blockquote: ({ children }) => (
+                                <blockquote className="my-3 border-l-4 pl-3 text-muted-foreground">
+                                    {injectBadges(children)}
+                                </blockquote>
+                            ),
+                            strong: ({ children }) => <strong>{injectBadges(children)}</strong>,
+                            em: ({ children }) => <em className="italic">{injectBadges(children)}</em>,
+                            del: ({ children }) => <del>{injectBadges(children)}</del>,
+                            a: ({ children }) => <>{injectBadges(children)}</>,
+                            h1: ({ children }) => (
+                                <h1 className="mb-2 mt-4 text-2xl font-semibold">{injectBadges(children)}</h1>
+                            ),
+                            h2: ({ children }) => (
+                                <h2 className="mb-2 mt-4 text-xl font-semibold">{injectBadges(children)}</h2>
+                            ),
+                            h3: ({ children }) => (
+                                <h3 className="mb-1.5 mt-3 text-lg font-medium">{injectBadges(children)}</h3>
+                            ),
+                            h4: ({ children }) => (
+                                <h4 className="mb-1.5 mt-3 text-base font-medium">{injectBadges(children)}</h4>
+                            ),
+                            h5: ({ children }) => (
+                                <h5 className="mb-1 mt-2 text-sm font-medium">{injectBadges(children)}</h5>
+                            ),
+                            h6: ({ children }) => (
+                                <h6 className="mb-1 mt-2 text-xs font-medium uppercase tracking-wide">
+                                    {injectBadges(children)}
+                                </h6>
+                            ),
+                            hr: () => null,
+                            table: ({ children }) => (
+                                <table className="not-prose w-full table-fixed border-collapse">{children}</table>
+                            ),
+                            thead: ({ children }) => <thead className="bg-muted/30">{children}</thead>,
+                            tbody: ({ children }) => <tbody>{children}</tbody>,
+                            tr: ({ children }) => <tr>{children}</tr>,
+                            td: ({ children }) => (
+                                <td className="border border-border px-3 py-2 align-top">{injectBadges(children)}</td>
+                            ),
+                            th: ({ children }) => (
+                                <th className="border border-border px-3 py-2 text-left font-medium">
+                                    {injectBadges(children)}
+                                </th>
+                            ),
+                            code: ({ children }) => <code>{children}</code>,
+                            pre: ({ children }) => <pre>{children}</pre>,
+                        }}
+                    >
+                        {markdownContent}
+                    </ReactMarkdown>
                 </div>
             )}
-            <div className="mb-3 max-w-none overflow-x-auto prose prose-sm dark:prose-invert [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden">
-                <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath]}
-                    rehypePlugins={[
-                        [
-                            rehypeKatex,
-                            {
-                                strict: false,
-                                throwOnError: false,
-                            },
-                        ],
-                    ]}
-                    components={{
-                        p: ({ children }) => <p>{injectBadges(children)}</p>,
-                        ul: ({ children }) => <ul className="my-2 list-disc pl-6">{injectBadges(children)}</ul>,
-                        ol: ({ children }) => <ol className="my-2 list-decimal pl-6">{injectBadges(children)}</ol>,
-                        li: ({ children }) => <li className="my-1">{injectBadges(children)}</li>,
-                        blockquote: ({ children }) => (
-                            <blockquote className="my-3 border-l-4 pl-3 text-muted-foreground">
-                                {injectBadges(children)}
-                            </blockquote>
-                        ),
-                        strong: ({ children }) => <strong>{injectBadges(children)}</strong>,
-                        em: ({ children }) => <em className="italic">{injectBadges(children)}</em>,
-                        del: ({ children }) => <del>{injectBadges(children)}</del>,
-                        a: ({ children }) => <>{injectBadges(children)}</>,
-                        h1: ({ children }) => (
-                            <h1 className="mb-2 mt-4 text-2xl font-semibold">{injectBadges(children)}</h1>
-                        ),
-                        h2: ({ children }) => (
-                            <h2 className="mb-2 mt-4 text-xl font-semibold">{injectBadges(children)}</h2>
-                        ),
-                        h3: ({ children }) => (
-                            <h3 className="mb-1.5 mt-3 text-lg font-medium">{injectBadges(children)}</h3>
-                        ),
-                        h4: ({ children }) => (
-                            <h4 className="mb-1.5 mt-3 text-base font-medium">{injectBadges(children)}</h4>
-                        ),
-                        h5: ({ children }) => (
-                            <h5 className="mb-1 mt-2 text-sm font-medium">{injectBadges(children)}</h5>
-                        ),
-                        h6: ({ children }) => (
-                            <h6 className="mb-1 mt-2 text-xs font-medium uppercase tracking-wide">
-                                {injectBadges(children)}
-                            </h6>
-                        ),
-                        hr: () => null,
-                        table: ({ children }) => (
-                            <table className="not-prose w-full table-fixed border-collapse">{children}</table>
-                        ),
-                        thead: ({ children }) => <thead className="bg-muted/30">{children}</thead>,
-                        tbody: ({ children }) => <tbody>{children}</tbody>,
-                        tr: ({ children }) => <tr>{children}</tr>,
-                        td: ({ children }) => (
-                            <td className="border border-border px-3 py-2 align-top">{injectBadges(children)}</td>
-                        ),
-                        th: ({ children }) => (
-                            <th className="border border-border px-3 py-2 text-left font-medium">
-                                {injectBadges(children)}
-                            </th>
-                        ),
-                        code: ({ children }) => <code>{children}</code>,
-                        pre: ({ children }) => <pre>{children}</pre>,
-                    }}
-                >
-                    {markdownContent}
-                </ReactMarkdown>
-            </div>
 
             {uniqueSourceFiles.length > 0 && (
-                <div className="mt-3 border-t border-border/50 pt-3">
+                <div className="border-t border-border/50 pt-3">
                     <div className="mb-2 text-sm text-muted-foreground">Quellen:</div>
                     <div className="flex flex-wrap gap-2">
                         {uniqueSourceFiles.map((citation) => (

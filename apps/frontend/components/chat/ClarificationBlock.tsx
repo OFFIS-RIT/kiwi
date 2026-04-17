@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { Check, SendIcon } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type ClarificationBlockProps = {
     questions: string[];
@@ -43,20 +43,21 @@ export function ClarificationBlock({
     }, [answers, questions, onSubmit]);
 
     const handleKeyDown = useCallback(
-        (e: React.KeyboardEvent, index: number) => {
+        (e: React.KeyboardEvent) => {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                if (index < questions.length - 1) {
-                    inputRefs.current[index + 1]?.focus();
-                } else {
-                    handleSubmit();
-                }
+                handleSubmit();
             }
         },
-        [questions.length, handleSubmit]
+        [handleSubmit]
     );
 
     const isDisabled = disabled || submitted;
+
+    useEffect(() => {
+        if (isDisabled) return;
+        inputRefs.current[0]?.focus();
+    }, [isDisabled]);
 
     return (
         <div className="mt-3 space-y-3">
@@ -81,7 +82,7 @@ export function ClarificationBlock({
                                 return next;
                             })
                         }
-                        onKeyDown={(e) => handleKeyDown(e, i)}
+                        onKeyDown={handleKeyDown}
                         disabled={isDisabled}
                         placeholder={t("clarification.placeholder")}
                     />
