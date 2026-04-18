@@ -11,14 +11,14 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { downloadProjectFile } from "@/lib/api/projects";
+import { downloadProjectFile, fetchTextUnit } from "@/lib/api/projects";
 import { useLanguage } from "@/providers/LanguageProvider";
-import type { CitationPartData } from "@kiwi/ai/ui";
+import type { ResolvedCitationFence } from "@kiwi/ai/citation";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 type TextReferenceBadgeProps = {
-    citation: CitationPartData;
+    citation: ResolvedCitationFence;
     index: number;
     projectId?: string;
 };
@@ -26,21 +26,54 @@ type TextReferenceBadgeProps = {
 export function TextReferenceBadge({ citation, index, projectId }: TextReferenceBadgeProps) {
     const { t } = useLanguage();
     const [isOpen, setIsOpen] = useState(false);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingUnit, setIsLoadingUnit] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [unitText, setUnitText] = useState<string | null>(null);
 
-    const excerpt = (citation.excerpt ?? citation.description ?? "").replace(/\s+/g, " ").trim();
+    useEffect(() => {
+        if (!isOpen || !projectId || unitText !== null) {
+            return;
+        }
+
+        let isCancelled = false;
+
+        const loadUnit = async () => {
+            setIsLoadingUnit(true);
+            setError(null);
+            try {
+                const unit = await fetchTextUnit(projectId, citation.unitId);
+                if (!isCancelled) {
+                    setUnitText(unit.text);
+                }
+            } catch (err) {
+                if (!isCancelled) {
+                    setError(err instanceof Error ? err.message : t("error.unknown"));
+                }
+            } finally {
+                if (!isCancelled) {
+                    setIsLoadingUnit(false);
+                }
+            }
+        };
+
+        void loadUnit();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [citation.unitId, isOpen, projectId, t, unitText]);
 
     const copyToClipboard = () => {
-        if (excerpt) {
-            navigator.clipboard.writeText(excerpt);
+        if (unitText) {
+            navigator.clipboard.writeText(unitText);
         }
     };
 
     const handleDownload = async () => {
         if (!projectId) return;
 
-        setIsLoading(true);
+        setIsDownloading(true);
         setError(null);
         try {
             const downloadUrl = await downloadProjectFile(projectId, citation.fileKey);
@@ -48,7 +81,7 @@ export function TextReferenceBadge({ citation, index, projectId }: TextReference
         } catch (err) {
             setError(err instanceof Error ? err.message : t("error.unknown"));
         } finally {
-            setIsLoading(false);
+            setIsDownloading(false);
         }
     };
 
@@ -91,6 +124,7 @@ export function TextReferenceBadge({ citation, index, projectId }: TextReference
                                         variant="outline"
                                         size="sm"
                                         onClick={copyToClipboard}
+                                        disabled={!unitText}
                                         className="flex items-center gap-2"
                                     >
                                         <Copy className="h-3 w-3" />
@@ -100,15 +134,16 @@ export function TextReferenceBadge({ citation, index, projectId }: TextReference
 
                                 <div className="max-h-[50vh] w-full overflow-auto rounded-md border">
                                     <div className="whitespace-pre-wrap break-words p-4 text-sm leading-relaxed">
-                                        {excerpt}
+                                        {isLoadingUnit ? (
+                                            <div className="flex items-center gap-2 text-muted-foreground">
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                {t("loading")}
+                                            </div>
+                                        ) : (
+                                            unitText ?? ""
+                                        )}
                                     </div>
                                 </div>
-
-                                {citation.description && citation.description !== excerpt && (
-                                    <div className="space-y-1 text-sm text-muted-foreground">
-                                        <p>{citation.description}</p>
-                                    </div>
-                                )}
 
                                 <div className="space-y-1 text-xs text-muted-foreground">
                                     <p>
@@ -123,9 +158,9 @@ export function TextReferenceBadge({ citation, index, projectId }: TextReference
                                             variant="outline"
                                             size="sm"
                                             onClick={handleDownload}
-                                            disabled={isLoading}
+                                            disabled={isDownloading}
                                         >
-                                            {isLoading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : null}
+                                            {isDownloading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : null}
                                             {citation.fileName}
                                         </Button>
                                     </div>

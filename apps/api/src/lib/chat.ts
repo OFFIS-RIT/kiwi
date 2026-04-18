@@ -7,7 +7,7 @@ import {
     toUIMessage,
     type ChatMessageMetadata,
     type ChatUIMessage,
-    type CitationPartData,
+    type ResolvedCitationFence,
     uiMessageToMessageParts,
 } from "@kiwi/ai";
 import { db } from "@kiwi/db";
@@ -34,10 +34,6 @@ export function toAssistantReply(assistantId: string, parts: MessagePart[], meta
     );
 }
 
-function normalizeWhitespace(value: string) {
-    return value.replace(/\s+/g, " ").trim();
-}
-
 function createChatTitle(messages: ChatUIMessage[]) {
     const firstUserMessage = messages.find((message) => message.role === "user");
     const text = firstUserMessage
@@ -46,13 +42,13 @@ function createChatTitle(messages: ChatUIMessage[]) {
               .map((part) => part.text)
               .join("")
         : "";
-    const normalized = normalizeWhitespace(text);
+    const title = text.replace(/\s+/g, " ").trim();
 
-    if (normalized.length === 0) {
+    if (title.length === 0) {
         return "New chat";
     }
 
-    return normalized.length > 80 ? `${normalized.slice(0, 77).trimEnd()}...` : normalized;
+    return title.length > 80 ? `${title.slice(0, 77).trimEnd()}...` : title;
 }
 
 function parseCreatedAt(value?: string) {
@@ -206,14 +202,11 @@ export async function startReply(userId: string, graphId: string, request: ChatR
     };
 }
 
-export async function enrichCitation(graphId: string, sourceId: string): Promise<CitationPartData | null> {
+export async function enrichCitation(graphId: string, sourceId: string): Promise<ResolvedCitationFence | null> {
     const [row] = await db
         .select({
             sourceId: sourcesTable.id,
-            description: sourcesTable.description,
-            textUnitId: textUnitTable.id,
-            excerpt: textUnitTable.text,
-            fileId: filesTable.id,
+            unitId: textUnitTable.id,
             fileName: filesTable.name,
             fileKey: filesTable.key,
         })
@@ -227,16 +220,12 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
         return null;
     }
 
-    const excerpt = normalizeWhitespace(row.excerpt);
-
     return {
+        type: "cite",
         sourceId: row.sourceId,
-        textUnitId: row.textUnitId,
-        fileId: row.fileId,
+        unitId: row.unitId,
         fileName: row.fileName,
         fileKey: row.fileKey,
-        description: normalizeWhitespace(row.description),
-        excerpt: excerpt.length > 260 ? `${excerpt.slice(0, 257).trimEnd()}...` : excerpt,
     };
 }
 

@@ -45,19 +45,6 @@ export type MessageToolPart = {
     result?: any;
 };
 
-export type MessageCitationPart = {
-    type: "citation";
-    citation: {
-        sourceId: string;
-        textUnitId: string;
-        fileId: string;
-        fileName: string;
-        fileKey: string;
-        excerpt?: string;
-        description?: string;
-    };
-};
-
 export type MessageMetadataPart = {
     type: "metadata";
     metadata: {
@@ -77,7 +64,6 @@ export type MessagePart =
     | MessageTextPart
     | MessageReasoningPart
     | MessageToolPart
-    | MessageCitationPart
     | MessageMetadataPart;
 
 export const messageTable = pgTable.withRLS(

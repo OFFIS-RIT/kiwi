@@ -164,31 +164,6 @@ function buildTimeEstimate(fileRows: GraphProcessFileRow[], averageFileDuration:
     };
 }
 
-export const normalizeFiles = (files?: File | File[]) => {
-    if (!files) {
-        return [];
-    }
-
-    return Array.isArray(files) ? files : [files];
-};
-
-export const normalizeStringList = (value?: string | string[]) => {
-    if (!value) {
-        return [];
-    }
-
-    const values = Array.isArray(value) ? value : [value];
-    return [...new Set(values.filter((entry) => entry.length > 0))];
-};
-
-export const normalizeHidden = (hidden?: boolean | "true" | "false") => {
-    if (hidden === undefined) {
-        return undefined;
-    }
-
-    return hidden === true || hidden === "true";
-};
-
 export const normalizeFileType = (name: string, mimeType?: string): GraphFileType => {
     const normalizedMimeType = mimeType?.trim().toLowerCase() ?? "";
     const rawExtension = name.split(".").pop()?.trim().toLowerCase();

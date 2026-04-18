@@ -10,6 +10,7 @@ const {
     messagePartsToUIMessage,
     parseCitationFence,
     splitTextWithCitationFences,
+    stringifyCitationFence,
     toUIMessage,
     uiMessageToMessageParts,
 } = await import("../chat");
@@ -33,7 +34,10 @@ function mergeTextSegments<T extends { type: string } & Record<string, unknown>>
 
 describe("citation fences", () => {
     test("repairs malformed citation JSON", () => {
-        expect(parseCitationFence(":::{ type: 'cite', id: 'src_1' }:::")).toEqual({ type: "cite", id: "src_1" });
+        expect(parseCitationFence(":::{ type: 'cite', id: 'src_1' }:::")).toEqual({
+            type: "cite",
+            sourceId: "src_1",
+        });
     });
 
     test("splits complete text into text and citation segments", () => {
@@ -41,8 +45,8 @@ describe("citation fences", () => {
             { type: "text", text: "Alpha " },
             {
                 type: "citation",
-                citation: { type: "cite", id: "src_1" },
-                raw: ":::{\"type\": \"cite\", \"id\":\"src_1\"}:::",
+                citation: { type: "cite", sourceId: "src_1" },
+                raw: ':::{"type":"cite","id":"src_1"}:::',
             },
             { type: "text", text: " Omega" },
         ]);
@@ -80,8 +84,8 @@ describe("citation fences", () => {
             { type: "text", text: "Alpha " },
             {
                 type: "citation",
-                citation: { type: "cite", id: "src_1" },
-                raw: ":::{\"type\": \"cite\", \"id\":\"src_1\"}:::",
+                citation: { type: "cite", sourceId: "src_1" },
+                raw: ':::{"type":"cite","id":"src_1"}:::',
             },
             { type: "text", text: " Omega" },
         ]);
@@ -105,36 +109,33 @@ describe("citation fences", () => {
         expect(segments).toEqual([
             {
                 type: "citation",
-                citation: { type: "cite", id: "src_1" },
-                raw: ":::{\"type\": \"cite\", \"id\":\"src_1\"}:::",
+                citation: { type: "cite", sourceId: "src_1" },
+                raw: ':::{"type":"cite","id":"src_1"}:::',
             },
             {
                 type: "citation",
-                citation: { type: "cite", id: "src_2" },
-                raw: ":::{\"type\": \"cite\", \"id\":\"src_2\"}:::",
+                citation: { type: "cite", sourceId: "src_2" },
+                raw: ':::{"type":"cite","id":"src_2"}:::',
             },
         ]);
     });
 
-    test("round-trips citation and tool parts between DB and UI messages", () => {
+    test("keeps enriched citation fences inline while round-tripping tool parts", () => {
+        const citationFence = stringifyCitationFence({
+            type: "cite",
+            sourceId: "src-1",
+            unitId: "unit-1",
+            fileName: "document.pdf",
+            fileKey: "graphs/g1/document.pdf",
+        });
+
         const uiMessage = messagePartsToUIMessage(
             {
                 id: "msg-1",
                 role: "assistant",
                 createdAt: new Date("2026-01-01T00:00:00.000Z"),
                 parts: [
-                    { type: "text", text: "Answer " },
-                    {
-                        type: "citation",
-                        citation: {
-                            sourceId: "src-1",
-                            textUnitId: "unit-1",
-                            fileId: "file-1",
-                            fileName: "document.pdf",
-                            fileKey: "graphs/g1/document.pdf",
-                            excerpt: "Evidence excerpt",
-                        },
-                    },
+                    { type: "text", text: `Answer ${citationFence}` },
                     {
                         type: "tool",
                         toolCallId: "tool-1",
@@ -159,19 +160,7 @@ describe("citation fences", () => {
         expect(uiMessage.metadata?.createdAt).toBe("2026-01-01T00:00:00.000Z");
         expect(uiMessage.metadata?.totalTokens).toBe(42);
         expect(uiMessage.parts).toEqual([
-            { type: "text", text: "Answer " },
-            {
-                type: "data-citation",
-                id: "src-1",
-                data: {
-                    sourceId: "src-1",
-                    textUnitId: "unit-1",
-                    fileId: "file-1",
-                    fileName: "document.pdf",
-                    fileKey: "graphs/g1/document.pdf",
-                    excerpt: "Evidence excerpt",
-                },
-            },
+            { type: "text", text: `Answer ${citationFence}` },
             {
                 type: "tool-ask_clarifying_questions",
                 toolCallId: "tool-1",
@@ -183,18 +172,7 @@ describe("citation fences", () => {
         ]);
 
         expect(uiMessageToMessageParts(uiMessage)).toEqual([
-            { type: "text", text: "Answer " },
-            {
-                type: "citation",
-                citation: {
-                    sourceId: "src-1",
-                    textUnitId: "unit-1",
-                    fileId: "file-1",
-                    fileName: "document.pdf",
-                    fileKey: "graphs/g1/document.pdf",
-                    excerpt: "Evidence excerpt",
-                },
-            },
+            { type: "text", text: `Answer ${citationFence}` },
             {
                 type: "tool",
                 toolCallId: "tool-1",
@@ -256,6 +234,16 @@ describe("citation fences", () => {
                 parts: [
                     { type: "text", text: "Checking" },
                     {
+                        type: "text",
+                        text: stringifyCitationFence({
+                            type: "cite",
+                            sourceId: "src-1",
+                            unitId: "unit-1",
+                            fileName: "document.pdf",
+                            fileKey: "graphs/g1/document.pdf",
+                        }),
+                    },
+                    {
                         type: "tool",
                         toolCallId: "tool-1",
                         toolName: "ask_clarifying_questions",
@@ -278,6 +266,7 @@ describe("citation fences", () => {
                 role: "assistant",
                 content: [
                     { type: "text", text: "Checking" },
+                    { type: "text", text: ':::{"type":"cite","id":"src-1"}:::' },
                     {
                         type: "tool-call",
                         toolCallId: "tool-1",
