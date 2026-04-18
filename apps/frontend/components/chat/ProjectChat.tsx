@@ -317,11 +317,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     }, [loadChat]);
 
     if (!session) {
-        return (
-            <div className="flex h-[calc(100vh-6rem)] items-center justify-center">
-                <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
-        );
+        return null;
     }
 
     return (
