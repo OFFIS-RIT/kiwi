@@ -5,6 +5,7 @@ import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { useNavigation } from "@/providers/NavigationProvider";
 import type { Group } from "@/types";
+import { useEffect, useState } from "react";
 import { GroupCard } from "./GroupCard";
 
 type GroupListProps = {
@@ -15,15 +16,27 @@ export function GroupList({ onEditGroup }: GroupListProps) {
     const { selectItem } = useNavigation();
     const { t } = useLanguage();
     const { groups, isLoading, error } = useData();
+    const [ready, setReady] = useState(false);
 
-    if (isLoading || error || groups.length === 0) {
+    useEffect(() => {
+        if (!isLoading && !error) {
+            requestAnimationFrame(() => setReady(true));
+        }
+    }, [isLoading, error]);
+
+    if (error) {
         return (
             <StateDisplay
-                isLoading={isLoading}
                 error={error}
-                isEmpty={groups.length === 0}
-                loadingMessage={t("loading")}
                 errorMessage={t("error")}
+            />
+        );
+    }
+
+    if (!isLoading && groups.length === 0) {
+        return (
+            <StateDisplay
+                isEmpty
                 emptyMessage={t("no.groups")}
                 emptyDescription={t("create.first.group")}
             />
@@ -31,7 +44,7 @@ export function GroupList({ onEditGroup }: GroupListProps) {
     }
 
     return (
-        <div className="space-y-6">
+        <div className={`space-y-6 transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}>
             <div>
                 <h1 className="text-2xl font-bold">KIWI</h1>
                 <p className="text-muted-foreground">{t("select.group")}</p>

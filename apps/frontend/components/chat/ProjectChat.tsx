@@ -644,7 +644,7 @@ function ProjectChatSession({
     }, [adjustTextareaHeight, displayedInputValue]);
 
     return (
-        <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">
+        <div className={`flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden transition-opacity duration-300 ${chatReady ? "opacity-100" : "opacity-0"}`}>
             <div className="mb-4 min-w-0 shrink-0">
                 <div className="flex min-w-0 items-start justify-between gap-4">
                     <div className="min-w-0 flex-1 overflow-hidden">
@@ -684,11 +684,7 @@ function ProjectChatSession({
             <div className={`flex flex-1 overflow-hidden ${isTemplateSidebarOpen ? "lg:gap-4" : ""}`}>
                 <Card className="flex min-w-0 flex-1 flex-col gap-0 overflow-hidden py-0">
                     <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-                        <div
-                            className={`space-y-4 p-4 transition-opacity duration-300 ${
-                                chatReady ? "opacity-100" : "opacity-0"
-                            }`}
-                        >
+                        <div className="space-y-4 p-4">
                             {!isHydrating && displayedMessages.length === 0 && (
                                 <div className="flex justify-start">
                                     <div className="flex max-w-[80%] items-start gap-3">

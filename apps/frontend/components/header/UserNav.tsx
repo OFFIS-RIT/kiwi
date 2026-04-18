@@ -6,6 +6,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -39,14 +40,15 @@ export function UserNav() {
         <>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="gap-2 px-2">
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
                         <Avatar className="h-8 w-8">
                             <AvatarFallback>{initials}</AvatarFallback>
                         </Avatar>
-                        <span className="hidden md:inline">{user?.name ?? ""}</span>
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>{user?.name}</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
                     <ThemeToggle />
                     {isAdmin && (
                         <>

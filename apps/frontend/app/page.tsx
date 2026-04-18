@@ -43,6 +43,13 @@ function DashboardContent() {
     const { selectedGroup, selectedProject, showAllGroups, showGroups, selectItem } = useNavigation();
     const { t } = useLanguage();
     const { groups, isLoading } = useData();
+    const [headerReady, setHeaderReady] = useState(false);
+
+    useEffect(() => {
+        if (!isLoading) {
+            requestAnimationFrame(() => setHeaderReady(true));
+        }
+    }, [isLoading]);
 
     // Redirect when selected group/project was deleted
     useEffect(() => {
@@ -85,7 +92,7 @@ function DashboardContent() {
                     <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                         <SidebarTrigger className="-ml-1" />
                         <Separator orientation="vertical" className="mr-2 h-4 shrink-0" />
-                        <BreadcrumbNav />
+                        <BreadcrumbNav ready={headerReady} />
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                         <LanguageSwitcher />
