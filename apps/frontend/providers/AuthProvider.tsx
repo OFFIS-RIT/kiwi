@@ -94,9 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isPending) {
         return (
             <AuthContext.Provider value={value}>
-                <div className="flex min-h-screen items-center justify-center">
-                    <div className="animate-pulse text-muted-foreground">Loading...</div>
-                </div>
+                <div className="min-h-screen bg-background" />
             </AuthContext.Provider>
         );
     }
