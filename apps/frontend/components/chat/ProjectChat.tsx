@@ -689,15 +689,6 @@ function ProjectChatSession({
                                 chatReady ? "opacity-100" : "opacity-0"
                             }`}
                         >
-                            {isHydrating && (
-                                <div className="flex justify-center py-8">
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                        <span>{t("loading")}</span>
-                                    </div>
-                                </div>
-                            )}
-
                             {!isHydrating && displayedMessages.length === 0 && (
                                 <div className="flex justify-start">
                                     <div className="flex max-w-[80%] items-start gap-3">
