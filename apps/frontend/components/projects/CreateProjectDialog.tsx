@@ -31,6 +31,8 @@ type CreateProjectDialogProps = {
     onProjectCreated?: (projectId: string, groupId: string, projectName: string) => void;
 };
 
+const MAX_NAME_LENGTH = 40;
+
 export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCreated }: CreateProjectDialogProps) {
     const { t } = useLanguage();
     const { groups, isLoading, error, refreshData } = useData();
@@ -45,6 +47,8 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
     const [uploadSpeed, setUploadSpeed] = useState(0); // Bytes per second
     const [submitError, setSubmitError] = useState<string | null>(null);
     const [groupError, setGroupError] = useState(false);
+
+    const nameTooLong = projectName.length > MAX_NAME_LENGTH;
 
     useEffect(() => {
         if (open && groupId && groups.some((group) => group.id === groupId)) {
@@ -150,6 +154,11 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
                                 placeholder={t("project.name.placeholder")}
                                 required
                             />
+                            {nameTooLong && (
+                                <p className="text-sm text-destructive">
+                                    {t("error.name.too.long", { max: String(MAX_NAME_LENGTH) })}
+                                </p>
+                            )}
                         </div>
                         <div className="grid gap-2">
                             <Label htmlFor="group">{t("select.group")}</Label>
@@ -213,7 +222,7 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
                         >
                             {t("cancel")}
                         </Button>
-                        <Button type="submit" disabled={isSubmitting}>
+                        <Button type="submit" disabled={isSubmitting || nameTooLong}>
                             {isSubmitting ? t("creating") : t("create")}
                         </Button>
                     </DialogFooter>

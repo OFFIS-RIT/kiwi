@@ -98,6 +98,8 @@ type EditGroupDialogProps = {
     } | null;
 };
 
+const MAX_NAME_LENGTH = 40;
+
 export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogProps) {
     const { t } = useLanguage();
     const { hasPermission } = useAuth();
@@ -111,6 +113,8 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
 
     const [editedName, setEditedName] = useState("");
     const [editableUsers, setEditableUsers] = useState<EditableUser[]>([]);
+
+    const nameTooLong = editedName.length > MAX_NAME_LENGTH;
 
     const [newUserSearch, setNewUserSearch] = useState("");
     const [selectedUser, setSelectedUser] = useState<UserSuggestion | null>(null);
@@ -309,7 +313,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[800px] h-[80vh] flex flex-col">
+            <DialogContent className="sm:max-w-[800px] h-[80vh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DialogHeader className="flex-shrink-0">
                     <DialogTitle>{t("edit.group")}</DialogTitle>
                     <DialogDescription>{t("edit.group.description")}</DialogDescription>
@@ -331,8 +335,19 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                         id="group-name"
                                         value={editedName}
                                         onChange={(e) => setEditedName(e.target.value)}
+                                        onFocus={(e) => {
+                                            const input = e.target;
+                                            requestAnimationFrame(() => {
+                                                input.selectionStart = input.selectionEnd = input.value.length;
+                                            });
+                                        }}
                                         disabled={!canEdit}
                                     />
+                                    {nameTooLong && (
+                                        <p className="text-sm text-destructive">
+                                            {t("error.name.too.long", { max: String(MAX_NAME_LENGTH) })}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
@@ -541,7 +556,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                         {canEdit || canAddUser || canRemoveUser ? t("cancel") : t("close")}
                     </Button>
                     {(canEdit || canAddUser || canRemoveUser) && (
-                        <Button onClick={handleSubmit} disabled={isSubmitting}>
+                        <Button onClick={handleSubmit} disabled={isSubmitting || nameTooLong}>
                             {t("save.changes")}
                         </Button>
                     )}

@@ -22,11 +22,15 @@ type CreateGroupDialogProps = {
     onOpenChange: (open: boolean) => void;
 };
 
+const MAX_NAME_LENGTH = 40;
+
 export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
     const { t } = useLanguage();
     const { addGroup } = useData();
     const [groupName, setGroupName] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const nameTooLong = groupName.length > MAX_NAME_LENGTH;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -62,13 +66,18 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
                                 required
                                 autoFocus
                             />
+                            {nameTooLong && (
+                                <p className="text-sm text-destructive">
+                                    {t("error.name.too.long", { max: String(MAX_NAME_LENGTH) })}
+                                </p>
+                            )}
                         </div>
                     </div>
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                             {t("cancel")}
                         </Button>
-                        <Button type="submit" disabled={isSubmitting}>
+                        <Button type="submit" disabled={isSubmitting || nameTooLong}>
                             {isSubmitting ? t("creating") : t("create")}
                         </Button>
                     </DialogFooter>

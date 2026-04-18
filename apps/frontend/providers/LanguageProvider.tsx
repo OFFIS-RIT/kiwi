@@ -211,6 +211,7 @@ const translations = {
         "user.id.placeholder": "User ID...",
         "error.invalid.userid": "Please enter a valid user ID.",
         "error.duplicate.userid": "This user ID already exists in the group.",
+        "error.name.too.long": "Name must be at most {max} characters.",
 
         // File Status
         "file.status.processing": "Processing...",
@@ -494,6 +495,7 @@ const translations = {
         "user.id.placeholder": "Benutzer-ID...",
         "error.invalid.userid": "Bitte eine gültige Benutzer-ID eingeben.",
         "error.duplicate.userid": "Diese Benutzer-ID existiert bereits in der Gruppe.",
+        "error.name.too.long": "Name darf maximal {max} Zeichen lang sein.",
 
         // File Status
         "file.status.processing": "Wird verarbeitet...",

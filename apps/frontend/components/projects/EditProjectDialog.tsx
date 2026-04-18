@@ -37,6 +37,8 @@ type EditProjectDialogProps = {
     groupId: string | null;
 };
 
+const MAX_NAME_LENGTH = 40;
+
 export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDialogProps) {
     const { t } = useLanguage();
     const { hasPermission } = useAuth();
@@ -53,6 +55,8 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
     const [uploadSpeed, setUploadSpeed] = useState(0);
     const [editedName, setEditedName] = useState("");
     const [filesToDelete, setFilesToDelete] = useState<string[]>([]);
+
+    const nameTooLong = editedName.length > MAX_NAME_LENGTH;
     const {
         data: projectFiles = [],
         isLoading,
@@ -221,7 +225,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[800px] h-[80vh] flex flex-col">
+            <DialogContent className="sm:max-w-[800px] h-[80vh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DialogHeader className="flex-shrink-0">
                     <DialogTitle>{t("edit.project")}</DialogTitle>
                     <DialogDescription>{t("edit.project.description")}</DialogDescription>
@@ -243,8 +247,19 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                                         id="project-name-edit"
                                         value={editedName}
                                         onChange={(e) => setEditedName(e.target.value)}
+                                        onFocus={(e) => {
+                                            const input = e.target;
+                                            requestAnimationFrame(() => {
+                                                input.selectionStart = input.selectionEnd = input.value.length;
+                                            });
+                                        }}
                                         disabled={!canEdit}
                                     />
+                                    {nameTooLong && (
+                                        <p className="text-sm text-destructive">
+                                            {t("error.name.too.long", { max: String(MAX_NAME_LENGTH) })}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
@@ -356,7 +371,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                         {canEdit || canDeleteFiles || canAddFiles ? t("cancel") : t("close")}
                     </Button>
                     {(canEdit || canDeleteFiles || canAddFiles) && (
-                        <Button onClick={handleSubmit} disabled={isSubmitting || !hasChanges}>
+                        <Button onClick={handleSubmit} disabled={isSubmitting || !hasChanges || nameTooLong}>
                             {isSubmitting ? (
                                 <>
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
