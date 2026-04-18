@@ -6,6 +6,7 @@ import type { EmbeddingModelV3, JSONValue, LanguageModelV3 } from "@ai-sdk/provi
 import type { ChatMessage, MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
 import type { ModelMessage } from "ai";
 import { get_encoding, type TiktokenEncoding } from "tiktoken";
+import { normalizeCitationFencesForModel } from "./citation";
 export * from "./concurrency";
 
 type OpenAICredentials = {
@@ -321,7 +322,10 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
                 switch (part.type) {
                     case "text":
                         if (part.text) {
-                            content.push({ type: "text", text: part.text });
+                            content.push({
+                                type: "text",
+                                text: normalizeCitationFencesForModel(part.text),
+                            });
                         }
                         break;
                     case "reasoning":
@@ -348,7 +352,6 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
 
                         break;
                     }
-                    case "citation":
                     case "metadata":
                         break;
                 }
@@ -369,3 +372,4 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
 
 export * from "./ui";
 export * from "./chat";
+export * from "./citation";

@@ -159,10 +159,11 @@ export async function deleteProjectChat(projectId: string, conversationId: strin
 
 /**
  * Fetches a specific text unit by ID.
+ * @param projectId - Graph containing the text unit
  * @param unitId - Text unit identifier
  */
-export async function fetchTextUnit(unitId: string): Promise<ApiTextUnit> {
-    const response = await apiClient.get<TextUnitResponse>(`/units/${unitId}`);
+export async function fetchTextUnit(projectId: string, unitId: string): Promise<ApiTextUnit> {
+    const response = await apiClient.get<TextUnitResponse>(`/graphs/${projectId}/units/${unitId}`);
     return unwrapApiResponse(response);
 }
 

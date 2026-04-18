@@ -3,7 +3,7 @@ import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
 import { db } from "@kiwi/db";
-import { filesTable, graphTable, groupTable, groupUserTable } from "@kiwi/db/tables/graph";
+import { filesTable, graphTable, groupTable, groupUserTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { deleteFile, getPresignedDownloadUrl, listFiles, putFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { deleteGraphFilesSpec } from "@kiwi/worker/delete-graph-files-spec";
@@ -11,6 +11,7 @@ import { processFilesSpec } from "@kiwi/worker/process-files-spec";
 import { env } from "../env";
 import { chunk } from "../lib/array";
 import { collectGraphClosure } from "../lib/graph";
+import { mapUnitError } from "../lib/unit";
 import {
     assertCanCreateUnderParentGraph,
     assertCanPatchGraph,
@@ -26,10 +27,7 @@ import {
     mapGraphError,
     mapGraphListItemsWithProcessing,
     toGraphFileRecord,
-    normalizeFiles,
     normalizeFileType,
-    normalizeHidden,
-    normalizeStringList,
     restoreGraphFileChangeFailure,
     selectFileFields,
     selectGraphListFields,
@@ -177,6 +175,58 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
         }
     )
     .get(
+        "/:id/units/:unitId",
+        async ({ params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const unitResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+
+                const [unit] = await db
+                    .select({
+                        id: textUnitTable.id,
+                        project_file_id: textUnitTable.fileId,
+                        text: textUnitTable.text,
+                        created_at: textUnitTable.createdAt,
+                        updated_at: textUnitTable.updatedAt,
+                    })
+                    .from(textUnitTable)
+                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                    .where(and(eq(textUnitTable.id, params.unitId), eq(filesTable.graphId, params.id)))
+                    .limit(1);
+
+                if (!unit) {
+                    throw new Error(API_ERROR_CODES.TEXT_UNIT_NOT_FOUND);
+                }
+
+                return {
+                    id: unit.id,
+                    project_file_id: unit.project_file_id,
+                    text: unit.text,
+                    created_at: unit.created_at?.toISOString() ?? null,
+                    updated_at: unit.updated_at?.toISOString() ?? null,
+                };
+            });
+
+            if (unitResult.isErr()) {
+                return mapUnitError(status, unitResult.error);
+            }
+
+            return status(200, successResponse(unitResult.value));
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+                unitId: t.String(),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["view"],
+            }),
+        }
+    )
+    .get(
         "/:id",
         async ({ params, user, status }) => {
             if (!user) {
@@ -290,7 +340,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            const files = normalizeFiles(body.files);
+            const files = body.files ? (Array.isArray(body.files) ? body.files : [body.files]) : [];
             const ownerMode = body.groupId ? "group" : body.graphId ? "graph" : "user";
 
             const accessResult = await Result.tryPromise(async () => {
@@ -305,7 +355,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return mapGraphError(status, accessResult.error);
             }
 
-            const persistedHidden = body.groupId ? (normalizeHidden(body.hidden) ?? false) : true;
+            const hidden = body.groupId ? body.hidden === true || body.hidden === "true" : true;
             const initialState = files.length > 0 ? "updating" : "ready";
 
             const [graph] = await db
@@ -313,7 +363,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 .values({
                     name: body.name,
                     description: body.description,
-                    hidden: persistedHidden,
+                    hidden,
                     state: initialState,
                     groupId: body.groupId,
                     graphId: body.graphId,
@@ -491,11 +541,10 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }
             const existingGraph = accessResult.value;
 
-            const normalizedName = body.name === undefined ? undefined : body.name.trim();
-            const normalizedDescription =
-                body.description === undefined ? undefined : body.description === "" ? null : body.description;
+            const name = body.name?.trim();
+            const description = body.description === undefined ? undefined : body.description || null;
 
-            if (normalizedName !== undefined && normalizedName.length === 0) {
+            if (body.name !== undefined && !name) {
                 return status(400, {
                     status: "error",
                     message: "Invalid name",
@@ -505,12 +554,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
             const updateData: Partial<Pick<GraphRecord, "name" | "description">> = {};
 
-            if (normalizedName !== undefined && normalizedName !== existingGraph.name) {
-                updateData.name = normalizedName;
+            if (name !== undefined && name !== existingGraph.name) {
+                updateData.name = name;
             }
 
-            if (normalizedDescription !== undefined && normalizedDescription !== existingGraph.description) {
-                updateData.description = normalizedDescription;
+            if (description !== undefined && description !== existingGraph.description) {
+                updateData.description = description;
             }
 
             if (Object.keys(updateData).length === 0) {
@@ -582,7 +631,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }
             const existingGraph = accessResult.value;
 
-            const files = normalizeFiles(body.files);
+            const files = body.files ? (Array.isArray(body.files) ? body.files : [body.files]) : [];
             if (files.length === 0) {
                 return status(400, {
                     status: "error",
@@ -747,7 +796,15 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }
             const existingGraph = accessResult.value;
 
-            const fileKeys = normalizeStringList(body.fileKeys);
+            const fileKeys = body.fileKeys
+                ? [
+                      ...new Set(
+                          (Array.isArray(body.fileKeys) ? body.fileKeys : [body.fileKeys]).filter(
+                              (fileKey) => fileKey.length > 0
+                          )
+                      ),
+                  ]
+                : [];
             if (fileKeys.length === 0) {
                 return status(400, {
                     status: "error",

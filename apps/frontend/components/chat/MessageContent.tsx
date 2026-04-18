@@ -4,7 +4,12 @@ import { Button } from "@/components/ui/button";
 import { downloadProjectFile } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
 import { useLanguage } from "@/providers/LanguageProvider";
-import type { ChatUIMessage, CitationPartData } from "@kiwi/ai/ui";
+import {
+    isResolvedCitationFence,
+    splitTextWithCitationFences,
+    type ResolvedCitationFence,
+} from "@kiwi/ai/citation";
+import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { AlertTriangle, Check, FileText, Loader2, Wrench } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
@@ -24,6 +29,8 @@ type MessageContentProps = {
 
 type ChatMessagePart = ChatUIMessage["parts"][number];
 type ToolPart = ChatMessagePart & { toolCallId: string; state: string };
+
+const REFERENCE_PATTERN = /\[\[cite:([a-zA-Z0-9_-]+)\]\]/g;
 
 function isToolPart(part: ChatMessagePart): part is ToolPart {
     return "toolCallId" in part && "state" in part;
@@ -66,11 +73,10 @@ type ThinkingItem = { kind: "reasoning"; key: string; text: string } | { kind: "
 
 export function MessageContent({ parts, projectId, isStreaming = false }: MessageContentProps) {
     const { t } = useLanguage();
-    const referencePattern = React.useMemo(() => /\[\[cite:([a-zA-Z0-9_-]+)\]\]/g, []);
 
     const { markdownContent, citations, thinkingItems } = React.useMemo(() => {
-        const citationOrder: CitationPartData[] = [];
-        const citationMap = new Map<string, number>();
+        const citationOrder: ResolvedCitationFence[] = [];
+        const seenCitationIds = new Set<string>();
         const items: ThinkingItem[] = [];
         let markdown = "";
         let reasoningIndex = 0;
@@ -85,9 +91,26 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
             }
 
             switch (part.type) {
-                case "text":
-                    markdown += part.text;
+                case "text": {
+                    for (const segment of splitTextWithCitationFences(part.text)) {
+                        if (segment.type === "text") {
+                            markdown += segment.text;
+                            continue;
+                        }
+
+                        if (!isResolvedCitationFence(segment.citation)) {
+                            markdown += segment.raw;
+                            continue;
+                        }
+
+                        if (!seenCitationIds.has(segment.citation.sourceId)) {
+                            seenCitationIds.add(segment.citation.sourceId);
+                            citationOrder.push(segment.citation);
+                        }
+                        markdown += `[[cite:${segment.citation.sourceId}]]`;
+                    }
                     break;
+                }
                 case "reasoning":
                     items.push({
                         kind: "reasoning",
@@ -95,15 +118,6 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
                         text: part.text,
                     });
                     break;
-                case "data-citation": {
-                    const existingIndex = citationMap.get(part.data.sourceId);
-                    if (existingIndex === undefined) {
-                        citationMap.set(part.data.sourceId, citationOrder.length);
-                        citationOrder.push(part.data);
-                    }
-                    markdown += `[[cite:${part.data.sourceId}]]`;
-                    break;
-                }
             }
         }
 
@@ -119,7 +133,7 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
     }, [citations]);
 
     const shouldSkipBadgeRecursion = (node: React.ReactElement): boolean => {
-        const type = node.type as unknown as string;
+        const type = typeof node.type === "string" ? node.type : undefined;
         if (type === "code" || type === "pre") return true;
         const props = node.props as { className?: string };
         const className = props.className;
@@ -134,7 +148,7 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
                 const parts: React.ReactNode[] = [];
                 let lastIndex = 0;
                 let match: RegExpExecArray | null;
-                const regex = new RegExp(referencePattern);
+                const regex = new RegExp(REFERENCE_PATTERN);
 
                 while ((match = regex.exec(node)) !== null) {
                     if (match.index > lastIndex) {
@@ -206,7 +220,7 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
             unique.push(citation);
         }
         return unique;
-    }, [] as CitationPartData[]);
+    }, [] as ResolvedCitationFence[]);
 
     const hasText = markdownContent.trim().length > 0;
     const toolThinkingItems = thinkingItems.filter(

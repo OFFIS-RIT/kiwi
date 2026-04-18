@@ -13,18 +13,7 @@ export type ChatMessageMetadata = {
     usedFileCount?: number;
 };
 
-export type CitationPartData = {
-    sourceId: string;
-    textUnitId: string;
-    fileId: string;
-    fileName: string;
-    fileKey: string;
-    excerpt?: string;
-    description?: string;
-};
-
 export type ChatDataParts = {
-    citation: CitationPartData;
     step: {
         name: string;
     };

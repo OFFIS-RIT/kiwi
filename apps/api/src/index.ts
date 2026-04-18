@@ -8,7 +8,6 @@ import { authRoute } from "./routes/auth";
 import { chatRoute } from "./routes/chat";
 import { graphRoute } from "./routes/graph";
 import { groupRoute } from "./routes/group";
-import { unitRoute } from "./routes/unit";
 
 initLogger();
 
@@ -33,7 +32,6 @@ const app = new Elysia()
     .use(chatRoute)
     .use(graphRoute)
     .use(groupRoute)
-    .use(unitRoute)
     .get("/health", () => ({ status: "ok" }))
     .listen(4321);
 

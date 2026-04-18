@@ -2,6 +2,7 @@ import {
   createChatSystemPrompt,
   createCitationFenceStreamParser,
   getProviderOptions,
+  stringifyCitationFence,
   type ChatUIMessage,
   uiMessagesToModelMessages,
 } from "@kiwi/ai";
@@ -178,6 +179,7 @@ export const chatRoute = new Elysia()
         );
 
         const startedAt = Date.now();
+        const citationFileKeys = new Set<string>();
         const result = await generateText({
           model: client.text!,
           messages: uiMessagesToModelMessages(request.messages),
@@ -197,23 +199,26 @@ export const chatRoute = new Elysia()
                 ...parser.push(contentPart.text),
                 ...parser.flush(),
               ];
+              let text = "";
               for (const segment of segments) {
                 if (segment.type === "text") {
-                  if (segment.text.length > 0) {
-                    parts.push({ type: "text", text: segment.text });
-                  }
+                  text += segment.text;
                   continue;
                 }
 
                 const citation = await enrichCitation(
                   params.id,
-                  segment.citation.id,
+                  segment.citation.sourceId,
                 );
                 if (citation) {
-                  parts.push({ type: "citation", citation });
+                  citationFileKeys.add(citation.fileKey);
+                  text += stringifyCitationFence(citation);
                 } else {
-                  parts.push({ type: "text", text: segment.raw });
+                  text += segment.raw;
                 }
+              }
+              if (text.length > 0) {
+                parts.push({ type: "text", text });
               }
               break;
             }
@@ -252,14 +257,7 @@ export const chatRoute = new Elysia()
           inputTokens: result.totalUsage.inputTokens,
           outputTokens: result.totalUsage.outputTokens,
           modelId: env.AI_TEXT_MODEL,
-          usedFileCount: new Set(
-            parts
-              .filter(
-                (part): part is Extract<MessagePart, { type: "citation" }> =>
-                  part.type === "citation",
-              )
-              .map((part) => part.citation.fileId),
-          ).size,
+          usedFileCount: citationFileKeys.size,
         });
         parts.push({ type: "metadata", metadata: finishMetadata });
 
@@ -313,7 +311,7 @@ export const chatRoute = new Elysia()
         const startedAt = Date.now();
         let firstOutputAt: number | null = null;
         const assistantParts: MessagePart[] = [];
-        const citationFileIds = new Set<string>();
+        const citationFileKeys = new Set<string>();
         const reasoningBuffers = new Map<string, string>();
         // The AI SDK flips the `dynamic` flag between `tool-input-*`
         // and `tool-output-*` events when a tool input fails schema
@@ -372,13 +370,9 @@ export const chatRoute = new Elysia()
               ReturnType<typeof createCitationFenceStreamParser>
             >();
 
-            // Each model text block is split into one or more UI text blocks so
-            // completed citation fences can be emitted as their own raw-text
-            // chunks while persisted citation parts still stay BETWEEN the text
-            // parts that surround them. Without this split the AI SDK would
-            // accumulate every `text-delta` for a single text id into one big
-            // text part and the client would not see citation fences at the
-            // right inline position.
+            // Each model text block keeps a single persisted text part. We still
+            // stream deltas to the frontend immediately, but only persist the
+            // accumulated text once the model closes the block.
             type ActiveUIText = { uiId: string; buffer: string };
             const activeUITexts = new Map<string, ActiveUIText>();
             let uiTextBlockCounter = 0;
@@ -427,31 +421,17 @@ export const chatRoute = new Elysia()
               rawFence: string,
               citationId: string,
             ) => {
-              await closeUIText(modelPartId);
-
-              const uiId = createUITextId(modelPartId);
-              writer.write({ type: "text-start", id: uiId });
-              writer.write({ type: "text-delta", id: uiId, delta: rawFence });
-              writer.write({ type: "text-end", id: uiId });
-
               const citation = await enrichCitation(params.id, citationId);
+              const emittedFence = citation
+                ? stringifyCitationFence(citation)
+                : rawFence;
+              appendText(modelPartId, emittedFence);
+
               if (!citation) {
-                assistantParts.push({ type: "text", text: rawFence });
-                await updateAssistantMessage(
-                  assistantId,
-                  assistantParts,
-                  "pending",
-                );
                 return;
               }
 
-              citationFileIds.add(citation.fileId);
-              assistantParts.push({ type: "citation", citation });
-              await updateAssistantMessage(
-                assistantId,
-                assistantParts,
-                "pending",
-              );
+              citationFileKeys.add(citation.fileKey);
             };
 
             try {
@@ -484,7 +464,7 @@ export const chatRoute = new Elysia()
                       await emitCitationFence(
                         part.id,
                         segment.raw,
-                        segment.citation.id,
+                        segment.citation.sourceId,
                       );
                     }
                     break;
@@ -501,7 +481,7 @@ export const chatRoute = new Elysia()
                         await emitCitationFence(
                           part.id,
                           segment.raw,
-                          segment.citation.id,
+                          segment.citation.sourceId,
                         );
                       }
                     }
@@ -652,7 +632,7 @@ export const chatRoute = new Elysia()
                       inputTokens: part.totalUsage.inputTokens,
                       outputTokens: part.totalUsage.outputTokens,
                       modelId: env.AI_TEXT_MODEL,
-                      usedFileCount: citationFileIds.size,
+                      usedFileCount: citationFileKeys.size,
                     });
                     assistantParts.push({
                       type: "metadata",

@@ -4,6 +4,7 @@
     "type": "module",
     "exports": {
         ".": "./src/index.ts",
+        "./citation": "./src/citation.ts",
         "./lock": "./src/lock.ts",
         "./ui": "./src/ui.ts",
         "./prompts/*": "./src/prompts/*.ts"
