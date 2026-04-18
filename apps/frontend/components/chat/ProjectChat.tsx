@@ -369,6 +369,8 @@ function ProjectChatSession({
         : "?";
     const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const hasHydrated = useRef(false);
+    const [chatReady, setChatReady] = useState(false);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -437,8 +439,16 @@ function ProjectChatSession({
     }, [stopSpeaking, initialSession.id]);
 
     useEffect(() => {
+        if (hasHydrated.current || isHydrating) return;
+        hasHydrated.current = true;
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+        requestAnimationFrame(() => setChatReady(true));
+    }, [isHydrating]);
+
+    useEffect(() => {
+        if (!chatReady) return;
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [displayedMessages, status]);
+    }, [displayedMessages, status, chatReady]);
 
     useEffect(() => {
         if (status === "ready") {
@@ -678,7 +688,11 @@ function ProjectChatSession({
             <div className={`flex flex-1 overflow-hidden ${isTemplateSidebarOpen ? "lg:gap-4" : ""}`}>
                 <Card className="flex min-w-0 flex-1 flex-col gap-0 overflow-hidden py-0">
                     <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-                        <div className="space-y-4 p-4">
+                        <div
+                            className={`space-y-4 p-4 transition-opacity duration-300 ${
+                                chatReady ? "opacity-100" : "opacity-0"
+                            }`}
+                        >
                             {isHydrating && (
                                 <div className="flex justify-center py-8">
                                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
