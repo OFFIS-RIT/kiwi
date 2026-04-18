@@ -1,6 +1,5 @@
 "use client";
 
-import Fuse from "fuse.js";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +17,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { fetchGroupUsers, updateGroup } from "@/lib/api/groups";
+import {
+    type SearchableFields,
+    compactUserSearch,
+    createSearchIndex,
+    fuzzySearchUsers,
+    normalizeUserSearch,
+} from "@/lib/user-search";
 import { authClient } from "@kiwi/auth/client";
 import { useAuth } from "@/providers/AuthProvider";
 import { useData } from "@/providers/DataProvider";
@@ -37,10 +43,7 @@ type UserSuggestion = {
     email: string;
 };
 
-type SearchableUserSuggestion = UserSuggestion & {
-    normalizedName: string;
-    compactName: string;
-};
+type SearchableUserSuggestion = UserSuggestion & SearchableFields;
 
 function getInitials(name: string): string {
     return name
@@ -50,43 +53,6 @@ function getInitials(name: string): string {
         .slice(0, 2)
         .join("")
         .toUpperCase();
-}
-
-function normalizeUserSearch(value: string): string {
-    return value
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .replace(/[-_/]+/g, " ")
-        .replace(/[^\p{L}\p{N}\s]/gu, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-}
-
-function compactUserSearch(value: string): string {
-    return normalizeUserSearch(value).replace(/\s+/g, "");
-}
-
-function matchesNormalizedTokens(query: string, normalizedName: string): boolean {
-    if (!query) {
-        return false;
-    }
-
-    const parts = query.split(" ").filter(Boolean);
-    if (parts.length === 0) {
-        return false;
-    }
-
-    let searchStartIndex = 0;
-    for (const part of parts) {
-        const matchIndex = normalizedName.indexOf(part, searchStartIndex);
-        if (matchIndex === -1) {
-            return false;
-        }
-        searchStartIndex = matchIndex + part.length;
-    }
-
-    return true;
 }
 
 type EditGroupDialogProps = {
@@ -252,8 +218,6 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
 
     const showUserSuggestions =
         newUserSearch.trim().length > 0 && (!selectedUser || newUserSearch.trim() !== selectedUser.name);
-    const normalizedQuery = useMemo(() => normalizeUserSearch(newUserSearch), [newUserSearch]);
-    const compactQuery = useMemo(() => compactUserSearch(newUserSearch), [newUserSearch]);
 
     const searchableUsers = useMemo<SearchableUserSuggestion[]>(
         () =>
@@ -267,49 +231,17 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         [availableUsers, editableUsers]
     );
 
-    const userSearchIndex = useMemo(
-        () =>
-            new Fuse(searchableUsers, {
-                keys: ["name", "normalizedName", "compactName", "email"],
-                threshold: 0.4,
-                distance: 100,
-                ignoreLocation: true,
-                minMatchCharLength: 1,
-            }),
-        [searchableUsers]
-    );
+    const userSearchIndex = useMemo(() => createSearchIndex(searchableUsers), [searchableUsers]);
 
     const userSuggestions = useMemo(() => {
-        if (!showUserSuggestions || !normalizedQuery) {
+        if (!showUserSuggestions || !newUserSearch.trim()) {
             return [];
         }
 
-        const sequentialMatches = searchableUsers.filter(
-            (user) =>
-                user.normalizedName.includes(normalizedQuery) ||
-                user.compactName.includes(compactQuery) ||
-                matchesNormalizedTokens(normalizedQuery, user.normalizedName)
-        );
-
-        const fuzzyMatches = userSearchIndex.search(normalizedQuery).map((result) => result.item);
-        const compactMatches =
-            compactQuery && compactQuery !== normalizedQuery
-                ? userSearchIndex.search(compactQuery).map((result) => result.item)
-                : [];
-
-        return Array.from(
-            new Map(
-                [...sequentialMatches, ...fuzzyMatches, ...compactMatches].map((user) => [
-                    user.id,
-                    {
-                        id: user.id,
-                        name: user.name,
-                        email: user.email,
-                    } satisfies UserSuggestion,
-                ])
-            ).values()
-        ).slice(0, 5);
-    }, [compactQuery, normalizedQuery, searchableUsers, showUserSuggestions, userSearchIndex]);
+        return fuzzySearchUsers(searchableUsers, userSearchIndex, newUserSearch)
+            .map((user) => ({ id: user.id, name: user.name, email: user.email }) satisfies UserSuggestion)
+            .slice(0, 5);
+    }, [newUserSearch, searchableUsers, showUserSuggestions, userSearchIndex]);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
