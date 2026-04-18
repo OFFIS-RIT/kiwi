@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { AppProviders, useData, useLanguage, useNavigation } from "@/providers";
 import type { Group, Project } from "@/types";
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 
 const DeleteGroupDialog = lazy(() =>
     import("@/components/groups").then((mod) => ({
@@ -40,8 +40,24 @@ type DeletingProjectState = {
 };
 
 function DashboardContent() {
-    const { selectedGroup, selectedProject, showAllGroups } = useNavigation();
+    const { selectedGroup, selectedProject, showAllGroups, showGroups, selectItem } = useNavigation();
     const { t } = useLanguage();
+    const { groups, isLoading } = useData();
+
+    // Redirect when selected group/project was deleted
+    useEffect(() => {
+        if (isLoading) return;
+        if (selectedGroup) {
+            const group = groups.find((g) => g.id === selectedGroup.id);
+            if (!group) {
+                showGroups();
+                return;
+            }
+            if (selectedProject && !group.projects.some((p) => p.id === selectedProject.id)) {
+                selectItem(group);
+            }
+        }
+    }, [selectedGroup, selectedProject, groups, isLoading, showGroups, selectItem]);
 
     const [editProjectDialogOpen, setEditProjectDialogOpen] = useState(false);
     const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);

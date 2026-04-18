@@ -73,18 +73,20 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
         return meta;
     }, [group?.projects, projectFilesQueries]);
 
-    if (isLoading || error || !group) {
+    if (isLoading || error) {
         return (
             <StateDisplay
                 isLoading={isLoading}
                 error={error}
-                isEmpty={!group && !isLoading && !error}
+                isEmpty={false}
                 loadingMessage={t("loading")}
                 errorMessage={t("error")}
-                emptyMessage={t("group.not.found")}
-                emptyDescription={t("select.another.group")}
             />
         );
+    }
+
+    if (!group) {
+        return null;
     }
 
     if (group.projects.length === 0) {
