@@ -42,23 +42,23 @@ describe("citation fences", () => {
             {
                 type: "citation",
                 citation: { type: "cite", id: "src_1" },
-                raw: ":::{type:'cite',id:'src_1'}:::",
+                raw: ":::{\"type\": \"cite\", \"id\":\"src_1\"}:::",
             },
             { type: "text", text: " Omega" },
         ]);
     });
 
-    test("keeps invalid fences as plain text", () => {
+    test("drops invalid fences", () => {
         expect(
             mergeTextSegments(splitTextWithCitationFences("Alpha :::{ type: 'note', id: 'src_1' }::: Omega"))
-        ).toEqual([{ type: "text", text: "Alpha :::{ type: 'note', id: 'src_1' }::: Omega" }]);
+        ).toEqual([{ type: "text", text: "Alpha  Omega" }]);
     });
 
-    test("flushes unfinished fences as plain text", () => {
+    test("drops unfinished fences on flush", () => {
         const parser = createCitationFenceStreamParser();
 
         expect(parser.push("Alpha :::{ type: 'cite'")).toEqual([{ type: "text", text: "Alpha " }]);
-        expect(parser.flush()).toEqual([{ type: "text", text: ":::{ type: 'cite'" }]);
+        expect(parser.flush()).toEqual([]);
     });
 
     test("parses citation fences across streamed chunks", async () => {
@@ -81,7 +81,7 @@ describe("citation fences", () => {
             {
                 type: "citation",
                 citation: { type: "cite", id: "src_1" },
-                raw: ":::{ type: 'cite', id: 'src_1' }:::",
+                raw: ":::{\"type\": \"cite\", \"id\":\"src_1\"}:::",
             },
             { type: "text", text: " Omega" },
         ]);
@@ -106,12 +106,12 @@ describe("citation fences", () => {
             {
                 type: "citation",
                 citation: { type: "cite", id: "src_1" },
-                raw: ":::{ type: 'cite', id: 'src_1' }:::",
+                raw: ":::{\"type\": \"cite\", \"id\":\"src_1\"}:::",
             },
             {
                 type: "citation",
                 citation: { type: "cite", id: "src_2" },
-                raw: ":::{ type: 'cite', id: 'src_2' }:::",
+                raw: ":::{\"type\": \"cite\", \"id\":\"src_2\"}:::",
             },
         ]);
     });

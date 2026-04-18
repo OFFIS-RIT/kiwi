@@ -37,7 +37,7 @@ export const sessionTable = pgTable.withRLS("session", {
         .notNull()
         .defaultNow()
         .$onUpdate(() => sql`NOW()`),
-    imposonatedBy: text("imposonatedBy").references(() => userTable.id, { onDelete: "set null" }),
+    impersonatedBy: text("impersonatedBy").references(() => userTable.id, { onDelete: "set null" }),
 });
 
 export const accountTable = pgTable.withRLS("account", {
