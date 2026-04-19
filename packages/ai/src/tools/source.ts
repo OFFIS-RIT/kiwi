@@ -12,7 +12,7 @@ import {
     KEYWORD_WEIGHT,
     MIN_KEYWORD_BOOST,
     MIN_SEMANTIC_SCORE,
-    normalizeTerms,
+    uniqueTerms,
     PREFIX_BOOST,
     truncateWords,
     type RankCursor,
@@ -144,7 +144,7 @@ export const getSourcesTool = (graphId: string, embeddingModel: EmbeddingModelV3
         description:
             "Final grounding tool. Use only after researching entities or relationships first. When you provide a refinement query, semantic search is primary and keywords boost exact file or source text matches. The returned source IDs are the citation IDs that the final answer must cite.",
         inputSchema: getSourcesSchema,
-        execute: ({ query, keywords, files, entityIds: rawEntityIds, relationshipIds: rawRelationshipIds, limit, cursor }) =>
+        execute: ({ query, keywords, files, entityIds: entities, relationshipIds: relationships, limit, cursor }) =>
             runToolSafely(
                 {
                     title: "Sources",
@@ -155,11 +155,11 @@ export const getSourcesTool = (graphId: string, embeddingModel: EmbeddingModelV3
                     ],
                 },
                 async () => {
-                    const fileIds = normalizeTerms(files ?? []);
-                    const entityIds = normalizeTerms(rawEntityIds ?? []);
-                    const relationshipIds = normalizeTerms(rawRelationshipIds ?? []);
+                    const fileIds = uniqueTerms(files ?? []);
+                    const entityIds = uniqueTerms(entities ?? []);
+                    const relationshipIds = uniqueTerms(relationships ?? []);
                     const text = query?.trim() ?? "";
-                    const terms = normalizeTerms([text, ...(keywords ?? [])]);
+                    const terms = uniqueTerms([text, ...(keywords ?? [])]);
 
                     if (entityIds.length === 0 && relationshipIds.length === 0) {
                         return [

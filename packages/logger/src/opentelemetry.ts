@@ -14,7 +14,7 @@ import {
     ATTR_SERVICE_VERSION,
     SEMRESATTRS_DEPLOYMENT_ENVIRONMENT,
 } from "@opentelemetry/semantic-conventions";
-import { normalizeFields } from "./normalize";
+import { shapeFields } from "./normalize";
 import type { LogFields, LogLevel, LoggerInstance } from "./types";
 
 export type OpenTelemetryLoggerOptions = {
@@ -115,7 +115,7 @@ class OpenTelemetryLogger implements LoggerInstance {
             return;
         }
 
-        const { attributes } = normalizeFields(fields);
+        const { attributes } = shapeFields(fields);
         this.logger.emit({
             body: message,
             severityNumber: severityMap[level],

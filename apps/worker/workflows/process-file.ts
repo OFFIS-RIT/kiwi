@@ -30,7 +30,7 @@ import { ExcelLoader } from "@kiwi/graph/loader/excel";
 import { PPTXLoader } from "@kiwi/graph/loader/ppt";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { buildAdapter, buildEmbeddingAdapter } from "../lib/ai";
-import { EMPTY_VECTOR_SQL, normalizedEntityName, textArray } from "../lib/sql";
+import { EMPTY_VECTOR_SQL, entityNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
 import { getDerivedFilePrefix, getDerivedImagePrefix } from "../lib/derived-files";
@@ -462,12 +462,12 @@ export const processFile = defineWorkflow(
                 const dedupeEntitiesStart = performance.now();
                 if (insertedEntityIds.length > 0) {
                     const entityIds = textArray(insertedEntityIds);
-                    const candidateNameSql = sql.raw(normalizedEntityName("candidate.name"));
-                    const seededNameSql = sql.raw(normalizedEntityName("seed.name"));
+                    const candidateNameKeySql = sql.raw(entityNameKey("candidate.name"));
+                    const seededNameKeySql = sql.raw(entityNameKey("seed.name"));
 
                     await tx.execute(sql`
                         WITH seeded_keys AS (
-                            SELECT DISTINCT seed.type, ${seededNameSql} AS normalized_name
+                            SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                             FROM entities seed
                             WHERE seed.graph_id = ${input.graphId}
                               AND seed.id = ANY(${entityIds})
@@ -475,13 +475,13 @@ export const processFile = defineWorkflow(
                             SELECT
                                 candidate.id,
                                 first_value(candidate.id) OVER (
-                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameSql}
+                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameKeySql}
                                     ORDER BY candidate.active DESC, candidate.id ASC
                                 ) AS canonical_id
                             FROM entities candidate
                             JOIN seeded_keys seeded
                               ON seeded.type = candidate.type
-                             AND seeded.normalized_name = ${candidateNameSql}
+                             AND seeded.normalized_name = ${candidateNameKeySql}
                             WHERE candidate.graph_id = ${input.graphId}
                         )
                         UPDATE sources source
@@ -493,7 +493,7 @@ export const processFile = defineWorkflow(
 
                     await tx.execute(sql`
                         WITH seeded_keys AS (
-                            SELECT DISTINCT seed.type, ${seededNameSql} AS normalized_name
+                            SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                             FROM entities seed
                             WHERE seed.graph_id = ${input.graphId}
                               AND seed.id = ANY(${entityIds})
@@ -501,13 +501,13 @@ export const processFile = defineWorkflow(
                             SELECT
                                 candidate.id,
                                 first_value(candidate.id) OVER (
-                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameSql}
+                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameKeySql}
                                     ORDER BY candidate.active DESC, candidate.id ASC
                                 ) AS canonical_id
                             FROM entities candidate
                             JOIN seeded_keys seeded
                               ON seeded.type = candidate.type
-                             AND seeded.normalized_name = ${candidateNameSql}
+                             AND seeded.normalized_name = ${candidateNameKeySql}
                             WHERE candidate.graph_id = ${input.graphId}
                         )
                         UPDATE relationships relationship
@@ -520,7 +520,7 @@ export const processFile = defineWorkflow(
 
                     await tx.execute(sql`
                         WITH seeded_keys AS (
-                            SELECT DISTINCT seed.type, ${seededNameSql} AS normalized_name
+                            SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                             FROM entities seed
                             WHERE seed.graph_id = ${input.graphId}
                               AND seed.id = ANY(${entityIds})
@@ -528,13 +528,13 @@ export const processFile = defineWorkflow(
                             SELECT
                                 candidate.id,
                                 first_value(candidate.id) OVER (
-                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameSql}
+                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameKeySql}
                                     ORDER BY candidate.active DESC, candidate.id ASC
                                 ) AS canonical_id
                             FROM entities candidate
                             JOIN seeded_keys seeded
                               ON seeded.type = candidate.type
-                             AND seeded.normalized_name = ${candidateNameSql}
+                             AND seeded.normalized_name = ${candidateNameKeySql}
                             WHERE candidate.graph_id = ${input.graphId}
                         )
                         UPDATE relationships relationship
@@ -547,7 +547,7 @@ export const processFile = defineWorkflow(
 
                     await tx.execute(sql`
                         WITH seeded_keys AS (
-                            SELECT DISTINCT seed.type, ${seededNameSql} AS normalized_name
+                            SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                             FROM entities seed
                             WHERE seed.graph_id = ${input.graphId}
                               AND seed.id = ANY(${entityIds})
@@ -555,13 +555,13 @@ export const processFile = defineWorkflow(
                             SELECT
                                 candidate.id,
                                 first_value(candidate.id) OVER (
-                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameSql}
+                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameKeySql}
                                     ORDER BY candidate.active DESC, candidate.id ASC
                                 ) AS canonical_id
                             FROM entities candidate
                             JOIN seeded_keys seeded
                               ON seeded.type = candidate.type
-                             AND seeded.normalized_name = ${candidateNameSql}
+                             AND seeded.normalized_name = ${candidateNameKeySql}
                             WHERE candidate.graph_id = ${input.graphId}
                         )
                         DELETE FROM entities entity

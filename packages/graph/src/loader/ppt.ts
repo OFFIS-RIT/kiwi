@@ -267,7 +267,7 @@ function parseShape(shape: XMLNodeLike): SlideBlock[] {
     const paragraphs = getChildElements(textBody)
         .filter((node) => getLocalName(node) === "p")
         .map((paragraph) => ({
-            text: normalizeWhitespace(extractParagraphText(paragraph).replace(/\s*\n\s*/g, " ")),
+            text: squashWhitespace(extractParagraphText(paragraph).replace(/\s*\n\s*/g, " ")),
             isBullet: isBulletParagraph(paragraph),
         }))
         .filter((paragraph) => paragraph.text.length > 0);
@@ -280,7 +280,7 @@ function parseShape(shape: XMLNodeLike): SlideBlock[] {
         return [
             {
                 kind: "heading",
-                text: normalizeWhitespace(paragraphs.map((paragraph) => paragraph.text).join(" ")),
+                text: squashWhitespace(paragraphs.map((paragraph) => paragraph.text).join(" ")),
             },
         ];
     }
@@ -357,10 +357,10 @@ function extractTableCellText(cell: XMLNodeLike): string {
 
     const parts = getChildElements(textBody)
         .filter((node) => getLocalName(node) === "p")
-        .map((paragraph) => normalizeWhitespace(extractParagraphText(paragraph).replace(/\s*\n\s*/g, " ")))
+        .map((paragraph) => squashWhitespace(extractParagraphText(paragraph).replace(/\s*\n\s*/g, " ")))
         .filter(Boolean);
 
-    return normalizeWhitespace(parts.join(" "));
+    return squashWhitespace(parts.join(" "));
 }
 
 function extractParagraphText(paragraph: XMLNodeLike): string {
@@ -464,7 +464,7 @@ function rowsToMarkdown(rows: string[][]): string {
     }
 
     const normalizedRows = rows.map((row) => {
-        const nextRow = row.map((cell) => escapeMarkdownTableCell(normalizeWhitespace(cell)));
+        const nextRow = row.map((cell) => escapeMarkdownTableCell(squashWhitespace(cell)));
         while (nextRow.length < columnCount) {
             nextRow.push("");
         }
@@ -508,7 +508,7 @@ function parseContentTypes(xml: string | null): ContentTypes {
         const partName = getAttribute(node, "PartName");
         const contentType = getAttribute(node, "ContentType");
         if (partName && contentType) {
-            overrides.set(normalizeZipPath(partName), contentType);
+            overrides.set(cleanZipPath(partName), contentType);
         }
     }
 
@@ -516,7 +516,7 @@ function parseContentTypes(xml: string | null): ContentTypes {
 }
 
 function getMimeTypeForPath(contentTypes: ContentTypes, path: string): string {
-    const normalizedPath = normalizeZipPath(path);
+    const normalizedPath = cleanZipPath(path);
     const override = contentTypes.overrides.get(normalizedPath);
     if (override) {
         return override;
@@ -680,7 +680,7 @@ function resolveZipPath(basePath: string, target: string): string {
     return parts.join("/");
 }
 
-function normalizeZipPath(path: string): string {
+function cleanZipPath(path: string): string {
     return path.replace(/^\/+/, "").replace(/\\/g, "/");
 }
 
@@ -693,7 +693,7 @@ function getSlideIndex(path: string): number {
     return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
 }
 
-function normalizeWhitespace(value: string): string {
+function squashWhitespace(value: string): string {
     return value.replace(/\s+/g, " ").trim();
 }
 

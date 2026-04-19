@@ -115,7 +115,7 @@ export function splitTextWithCitationFences(
   return [...segments, ...parser.flush()];
 }
 
-export function normalizeCitationFencesForModel(text: string) {
+export function prepareCitationFencesForModel(text: string) {
   return splitTextWithCitationFences(text)
     .map((segment) =>
       segment.type === "text"

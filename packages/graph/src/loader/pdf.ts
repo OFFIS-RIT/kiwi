@@ -456,7 +456,7 @@ function extractPDFHybridFromDocument(pdf: PDFDocumentLike): PDFHybridResult {
             imageCounter += 1;
             return `img-${imageCounter}`;
         });
-        const pageText = normalizePageText(applyActualTextToPageText(page.extractText(), content.actualTextSpans));
+        const pageText = tidyPageText(applyActualTextToPageText(page.extractText(), content.actualTextSpans));
 
         preparedPages.push({ pageText, content });
     }
@@ -504,7 +504,7 @@ function extractPlainTextFromDocument(pdf: PDFDocumentLike): string {
         .getPages()
         .map((page) => {
             const content = analyzePageContent(pdf, page, () => "ignored-image");
-            return normalizePageText(
+            return tidyPageText(
                 applyActualTextToPageText(page.extractText(), content.actualTextSpans)
             ).text.trim();
         })
@@ -560,7 +560,7 @@ async function defaultTranscribePage(image: Uint8Array, model: LanguageModelV3):
     return text;
 }
 
-function normalizePageText(pageText: PageText): PageText {
+function tidyPageText(pageText: PageText): PageText {
     const horizontalLines: TextLine[] = [];
     const verticalChars: TextChar[] = [];
 
@@ -614,7 +614,7 @@ function normalizePageText(pageText: PageText): PageText {
         ...pageText,
         lines,
         text: lines
-            .map((line) => getNormalizedLineText(line))
+            .map((line) => getLineText(line))
             .filter(Boolean)
             .join("\n"),
     };
@@ -846,7 +846,7 @@ function splitHorizontalTextLine(chars: TextChar[]): TextChar[][] {
     }
 
     const proseLikeGroups = visibleGroups.filter((group) => {
-        const text = normalizeWhitespace(reconstructTextFromChars(group));
+        const text = squashWhitespace(reconstructTextFromChars(group));
         return text.length >= 20 && /\s/.test(text);
     });
     return proseLikeGroups.length === 2 ? visibleGroups : [ordered];
@@ -936,7 +936,7 @@ function createSyntheticTextLine(chars: TextChar[], direction: TextDirection): T
         direction === "vertical"
             ? reconstructVerticalTextFromChars(orderedChars)
             : cleanupExtractedTextSpacing(reconstructTextFromChars(orderedChars));
-    const normalized = normalizeWhitespace(text);
+    const normalized = squashWhitespace(text);
     if (!normalized) {
         return null;
     }
@@ -1279,7 +1279,7 @@ function renderPageMarkdown(
             return false;
         }
 
-        return getNormalizedLineText(line).length > 0;
+        return getLineText(line).length > 0;
     });
 
     const blocks: RenderBlock[] = [];
@@ -1342,7 +1342,7 @@ function isRepeatedEdgeLine(line: TextLine, pageHeight: number, repeatedEdgePatt
 }
 
 function canonicalizeEdgeLine(line: TextLine, pageHeight: number): string | null {
-    const text = getNormalizedLineText(line);
+    const text = getLineText(line);
     if (!text || !isNearPageEdge(line.bbox, pageHeight)) {
         return null;
     }
@@ -1360,7 +1360,7 @@ function buildTextBlocks(lines: TextLine[], bodyFontSize: number): RenderBlock[]
     let previousLine: TextLine | null = null;
 
     for (const line of lines) {
-        const normalized = getNormalizedLineText(line);
+        const normalized = getLineText(line);
         if (!normalized) {
             flushParagraph(blocks, paragraph);
             paragraph = null;
@@ -1459,7 +1459,7 @@ function getHeadingLevel(line: TextLine, bodyFontSize: number): number {
     }
 
     const size = getLineFontSize(line);
-    const normalized = getNormalizedLineText(line);
+    const normalized = getLineText(line);
     const length = normalized.length;
     if (length === 0 || length > 120) {
         return 0;
@@ -1558,7 +1558,7 @@ function looksLikeMultiColumnProseLayout(lines: TextLine[], pageWidth: number): 
         .filter((line) => inferLineDirection(line) === "horizontal")
         .map((line) => ({
             line,
-            text: getNormalizedLineText(line),
+            text: getLineText(line),
         }))
         .filter(({ text }) => text.length > 0);
     if (candidates.length < 4) {
@@ -1609,7 +1609,7 @@ function buildTableBlocksFromModels(
     const tables: TableBlock[] = [];
 
     for (const model of models) {
-        const rows = normalizeExtractedTableRows(tableExtractRows(model, TABLE_DEFAULT_TEXT_TOLERANCE));
+        const rows = tidyExtractedTableRows(tableExtractRows(model, TABLE_DEFAULT_TEXT_TOLERANCE));
         if (!tableIsLikelyTabular(rows)) {
             continue;
         }
@@ -1624,7 +1624,7 @@ function buildTableBlocksFromModels(
         }
 
         const bbox = tableBBoxToBoundingBox(tableModelBBox(model), page.bbox.bottom);
-        const normalized = normalizeTableCells(tableModelToCells(model, page.bbox.bottom));
+        const normalized = tidyTableCells(tableModelToCells(model, page.bbox.bottom));
         if (!normalized) {
             continue;
         }
@@ -1668,7 +1668,7 @@ function detectTablesLegacy(pageText: PageText, explicitEdges: Edge[]): TableBlo
     for (const tableCells of grouped) {
         const markdown = buildMarkdownTable(tableCells);
         const bbox = unionBoxes(tableCells.map((cell) => cell.bbox));
-        const normalized = normalizeTableCells(tableCells);
+        const normalized = tidyTableCells(tableCells);
         if (!markdown || !bbox || !normalized) {
             continue;
         }
@@ -1805,7 +1805,7 @@ function reconstructTableCellText(chars: TextChar[]): string {
     }
 
     return reconstructTextLinesFromChars(chars, TABLE_DEFAULT_TEXT_TOLERANCE)
-        .map((line) => normalizeTableCellText(reconstructLogicalLineText(line)))
+        .map((line) => cleanTableCellText(reconstructLogicalLineText(line)))
         .filter(Boolean)
         .join("\n")
         .trim();
@@ -2001,7 +2001,7 @@ function buildMarkdownTable(cells: TableCell[]): string | null {
     ].join("\n");
 }
 
-function normalizeTableCells(cells: TableCell[]): { cells: TableCell[]; rowCount: number; colCount: number } | null {
+function tidyTableCells(cells: TableCell[]): { cells: TableCell[]; rowCount: number; colCount: number } | null {
     if (cells.length === 0) {
         return null;
     }
@@ -2049,7 +2049,7 @@ function extractWords(pageText: PageText): Word[] {
 
         const chars = getPreparedLineChars(line);
         if (chars.length === 0) {
-            const text = getNormalizedLineText(line);
+            const text = getLineText(line);
             if (text) {
                 words.push({ text, bbox: line.bbox, lineIndex });
             }
@@ -2057,7 +2057,7 @@ function extractWords(pageText: PageText): Word[] {
         }
 
         if (inferLineDirection(line, chars) === "vertical") {
-            const text = getNormalizedLineText(line);
+            const text = getLineText(line);
             if (text) {
                 words.push({ text, bbox: line.bbox, lineIndex });
             }
@@ -2110,7 +2110,7 @@ function pushWord(words: Word[], chars: TextChar[], lineIndex: number): void {
         return;
     }
 
-    const text = normalizeWhitespace(reconstructTextFromChars(chars));
+    const text = squashWhitespace(reconstructTextFromChars(chars));
     if (!text) {
         return;
     }
@@ -2123,17 +2123,17 @@ function pushWord(words: Word[], chars: TextChar[], lineIndex: number): void {
     words.push({ text, bbox, lineIndex });
 }
 
-function getNormalizedLineText(line: TextLine): string {
+function getLineText(line: TextLine): string {
     const chars = getPreparedLineChars(line);
     if (chars.length === 0) {
-        return normalizeWhitespace(line.text);
+        return squashWhitespace(line.text);
     }
 
     if (inferLineDirection(line, chars) === "vertical") {
         return reconstructVerticalTextFromChars(chars);
     }
 
-    return normalizeWhitespace(cleanupExtractedTextSpacing(reconstructTextFromChars(chars)));
+    return squashWhitespace(cleanupExtractedTextSpacing(reconstructTextFromChars(chars)));
 }
 
 function getPreparedLineChars(line: TextLine): TextChar[] {
@@ -2668,7 +2668,7 @@ function resolveMarkedContentProperties(
 function extractActualTextFromMarkedContent(properties: OperandDictionary | null): string | null {
     const raw = properties?.ActualText;
     const text = decodePDFTextOperand(raw);
-    return text ? normalizeWhitespace(text) : null;
+    return text ? squashWhitespace(text) : null;
 }
 
 function registerTextSequenceAdvance(state: MarkedContentState, count: number): void {
@@ -3425,7 +3425,7 @@ function average(values: number[]): number {
     return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function normalizeWhitespace(value: string): string {
+function squashWhitespace(value: string): string {
     return value.replace(/\s+/g, " ").trim();
 }
 
@@ -4202,7 +4202,7 @@ function tableExtractCharsText(chars: TableChar[], tolerance: number): string {
 
     const lines = reconstructTextLinesFromChars(chars.map(tableCharToTextChar), tolerance);
     return lines
-        .map((line) => normalizeTableCellText(reconstructLogicalLineText(line)))
+        .map((line) => cleanTableCellText(reconstructLogicalLineText(line)))
         .filter(Boolean)
         .join("\n")
         .trim();
@@ -4440,7 +4440,7 @@ function tableIsLikelyTabular(rows: Array<Array<string | null>>): boolean {
 
     for (const row of rows) {
         for (let column = 0; column < columnCount; column += 1) {
-            const text = normalizeWhitespace(row[column] ?? "");
+            const text = squashWhitespace(row[column] ?? "");
             if (!text) {
                 continue;
             }
@@ -4470,7 +4470,7 @@ function tablePassesTextOnlyHeuristics(rows: Array<Array<string | null>>): boole
     }
 
     const colCount = Math.max(...rows.map((row) => row.length));
-    const flattened = rows.flatMap((row) => row.map((cell) => normalizeWhitespace(cell ?? "")).filter(Boolean));
+    const flattened = rows.flatMap((row) => row.map((cell) => squashWhitespace(cell ?? "")).filter(Boolean));
     if (flattened.length < Math.max(4, colCount + 1)) {
         return false;
     }
@@ -4499,8 +4499,8 @@ function tablePassesTextOnlyHeuristics(rows: Array<Array<string | null>>): boole
     return true;
 }
 
-function normalizeExtractedTableRows(rows: Array<Array<string | null>>): Array<Array<string | null>> {
-    let normalized = rows.map((row) => row.map((cell) => normalizeTableCellText(cell ?? "") || null));
+function tidyExtractedTableRows(rows: Array<Array<string | null>>): Array<Array<string | null>> {
+    let normalized = rows.map((row) => row.map((cell) => cleanTableCellText(cell ?? "") || null));
     normalized = normalized.filter((row) => row.some(Boolean));
     if (normalized.length === 0) {
         return normalized;
@@ -4534,7 +4534,7 @@ function normalizeExtractedTableRows(rows: Array<Array<string | null>>): Array<A
             const only = secondNonEmpty[0];
             if (only) {
                 const current = header[only.index] ?? null;
-                header[only.index] = normalizeWhitespace([current, only.cell].filter(Boolean).join(" ")) || current;
+                header[only.index] = squashWhitespace([current, only.cell].filter(Boolean).join(" ")) || current;
                 normalized.splice(1, 1);
             }
         }
@@ -4543,8 +4543,8 @@ function normalizeExtractedTableRows(rows: Array<Array<string | null>>): Array<A
     return normalized;
 }
 
-function normalizeTableCellText(value: string): string {
-    return normalizeWhitespace(value)
+function cleanTableCellText(value: string): string {
+    return squashWhitespace(value)
         .replace(/([A-Za-zÄÖÜäöüß])-\s+(?=[a-zäöüß])/g, "$1")
         .trim();
 }
@@ -4639,7 +4639,7 @@ function textCharsToSegment(chars: TextChar[]): LineSegmentBlock | null {
     }
 
     const bbox = unionBoxes(chars.map((char) => char.bbox));
-    const text = normalizeTableCellText(reconstructTextFromChars(chars));
+    const text = cleanTableCellText(reconstructTextFromChars(chars));
     if (!bbox || !text) {
         return null;
     }
@@ -4775,12 +4775,12 @@ function segmentedLinesToTable(group: SegmentedLine[]): TableBlock | null {
                 continue;
             }
             const current = row[index] ?? null;
-            row[index] = normalizeTableCellText(joinUniqueTableParts(current ?? "", segment.text)) || current;
+            row[index] = cleanTableCellText(joinUniqueTableParts(current ?? "", segment.text)) || current;
         }
         return row;
     });
 
-    const normalizedRows = normalizeExtractedTableRows(rows);
+    const normalizedRows = tidyExtractedTableRows(rows);
     if (!tableIsLikelyTabular(normalizedRows) || !tablePassesWhitespaceTableHeuristics(normalizedRows)) {
         return null;
     }
@@ -4902,7 +4902,7 @@ function tableCountStableColumns(rows: Array<Array<string | null>>): number {
     let stable = 0;
 
     for (let columnIndex = 0; columnIndex < colCount; columnIndex += 1) {
-        const values = rows.map((row) => normalizeWhitespace(row[columnIndex] ?? "")).filter(Boolean);
+        const values = rows.map((row) => squashWhitespace(row[columnIndex] ?? "")).filter(Boolean);
 
         if (values.length < 2) {
             continue;
@@ -4949,13 +4949,13 @@ function tableLooksLikeReferenceList(rows: Array<Array<string | null>>): boolean
     }
 
     const dataRows = rows.slice(1);
-    const citationRows = dataRows.filter((row) => isReferenceMarker(normalizeWhitespace(row[0] ?? ""))).length;
+    const citationRows = dataRows.filter((row) => isReferenceMarker(squashWhitespace(row[0] ?? ""))).length;
     if (citationRows < Math.ceil(dataRows.length * 0.6)) {
         return false;
     }
 
     const descriptiveRows = dataRows.filter((row) => {
-        const trailing = normalizeWhitespace(row.slice(1).filter(Boolean).join(" "));
+        const trailing = squashWhitespace(row.slice(1).filter(Boolean).join(" "));
         return trailing.length > 24;
     }).length;
 
@@ -4979,7 +4979,7 @@ function mergeHeaderRows(rows: Array<Array<string | null>>): Array<Array<string 
     let headerCount = 1;
     for (let index = 1; index < Math.min(3, rows.length); index += 1) {
         const row = rows[index] ?? [];
-        const values = row.map((cell) => normalizeWhitespace(cell ?? "")).filter(Boolean);
+        const values = row.map((cell) => squashWhitespace(cell ?? "")).filter(Boolean);
         const numericValues = values.filter((value) => /\d/.test(value) && !/^\[[^\]]+\]$/.test(value)).length;
         const unitValues = values.filter((value) => /^\[[^\]]+\]$/.test(value)).length;
         const maxValueLength = Math.max(0, ...values.map((value) => value.length));
@@ -4999,7 +4999,7 @@ function mergeHeaderRows(rows: Array<Array<string | null>>): Array<Array<string 
 
     const mergedHeader = Array.from({ length: Math.max(...rows.map((row) => row.length)) }, (_, columnIndex) => {
         return (
-            normalizeTableCellText(
+            cleanTableCellText(
                 rows
                     .slice(0, headerCount)
                     .map((row) => row[columnIndex] ?? "")
@@ -5034,8 +5034,8 @@ function findMergeableColumnIndex(rows: Array<Array<string | null>>): number | n
         let overlapCount = 0;
 
         for (const row of rows) {
-            const left = normalizeWhitespace(row[index] ?? "");
-            const right = normalizeWhitespace(row[index + 1] ?? "");
+            const left = squashWhitespace(row[index] ?? "");
+            const right = squashWhitespace(row[index + 1] ?? "");
             if (left) {
                 leftCount += 1;
             }
@@ -5058,9 +5058,9 @@ function findMergeableColumnIndex(rows: Array<Array<string | null>>): number | n
 
 function mergeAdjacentTableColumns(rows: Array<Array<string | null>>, index: number): Array<Array<string | null>> {
     return rows.map((row) => {
-        const left = normalizeWhitespace(row[index] ?? "");
-        const right = normalizeWhitespace(row[index + 1] ?? "");
-        const merged = normalizeWhitespace(joinUniqueTableParts(left, right));
+        const left = squashWhitespace(row[index] ?? "");
+        const right = squashWhitespace(row[index + 1] ?? "");
+        const merged = squashWhitespace(joinUniqueTableParts(left, right));
         return row.flatMap((cell, cellIndex) => {
             if (cellIndex === index) {
                 return [merged || null];
@@ -5117,25 +5117,25 @@ function mergeWrappedTableRows(rows: Array<Array<string | null>>): Array<Array<s
         const nextHasValue = next ? next.slice(1).some(Boolean) : false;
 
         if (text.endsWith("-") && next?.[0]) {
-            next[0] = normalizeWhitespace(`${text.slice(0, -1)}${next[0]}`) || next[0];
+            next[0] = squashWhitespace(`${text.slice(0, -1)}${next[0]}`) || next[0];
             merged[index] = row.map(() => null);
             continue;
         }
 
         if ((/^[a-zäöü]/.test(text) || /^und\b/i.test(text)) && previous?.[0]) {
-            previous[0] = normalizeWhitespace(`${previous[0]} ${text}`) || previous[0];
+            previous[0] = squashWhitespace(`${previous[0]} ${text}`) || previous[0];
             merged[index] = row.map(() => null);
             continue;
         }
 
         if (nextHasValue && next?.[0]) {
-            next[0] = normalizeWhitespace(`${text} ${next[0]}`) || next[0];
+            next[0] = squashWhitespace(`${text} ${next[0]}`) || next[0];
             merged[index] = row.map(() => null);
             continue;
         }
 
         if (previousHasValue && previous?.[0]) {
-            previous[0] = normalizeWhitespace(`${previous[0]} ${text}`) || previous[0];
+            previous[0] = squashWhitespace(`${previous[0]} ${text}`) || previous[0];
             merged[index] = row.map(() => null);
         }
     }

@@ -201,7 +201,7 @@ async function parseParagraphNode(
     let textBuffer = "";
 
     const flushText = () => {
-        const text = normalizeInlineText(textBuffer);
+        const text = cleanInlineText(textBuffer);
         textBuffer = "";
         if (!text) {
             return;
@@ -352,7 +352,7 @@ async function extractTableCellText(cell: XMLNodeLike, context: ODTParseContext)
         switch (getLocalName(child)) {
             case "p":
             case "h": {
-                const text = normalizeInlineText(await extractInlineText(child, context));
+                const text = cleanInlineText(await extractInlineText(child, context));
                 if (text) {
                     parts.push(text.replace(/\s*\n\s*/g, " "));
                 }
@@ -370,7 +370,7 @@ async function extractTableCellText(cell: XMLNodeLike, context: ODTParseContext)
         }
     }
 
-    return normalizeInlineText(parts.join(" "));
+    return cleanInlineText(parts.join(" "));
 }
 
 async function extractListTexts(list: XMLNodeLike, context: ODTParseContext): Promise<string[]> {
@@ -385,7 +385,7 @@ async function extractListTexts(list: XMLNodeLike, context: ODTParseContext): Pr
             switch (getLocalName(itemChild)) {
                 case "p":
                 case "h": {
-                    const text = normalizeInlineText(await extractInlineText(itemChild, context));
+                    const text = cleanInlineText(await extractInlineText(itemChild, context));
                     if (text) {
                         parts.push(text.replace(/\s*\n\s*/g, " "));
                     }
@@ -489,7 +489,7 @@ async function extractImageId(node: XMLNodeLike, context: ODTParseContext): Prom
         return null;
     }
 
-    const path = normalizeZipPath(href);
+    const path = cleanZipPath(href);
     const file = context.zip.file(path);
     if (!file) {
         return null;
@@ -659,14 +659,14 @@ function parseODTManifest(xml: string | null): ODTManifest {
             continue;
         }
 
-        manifest.set(normalizeZipPath(path), mediaType);
+        manifest.set(cleanZipPath(path), mediaType);
     }
 
     return manifest;
 }
 
 function getMimeTypeForPath(manifest: ODTManifest, path: string): string {
-    const normalizedPath = normalizeZipPath(path);
+    const normalizedPath = cleanZipPath(path);
     const manifestType = manifest.get(normalizedPath);
     if (manifestType) {
         return manifestType;
@@ -716,7 +716,7 @@ function renderMarkdown(blocks: ODTBlock[]): string {
         })
         .filter(Boolean);
 
-    return normalizeMarkdownText(rendered.join("\n\n"));
+    return cleanMarkdownText(rendered.join("\n\n"));
 }
 
 function rowsToMarkdown(rows: string[][]): string {
@@ -730,7 +730,7 @@ function rowsToMarkdown(rows: string[][]): string {
     }
 
     const normalizedRows = rows.map((row) => {
-        const nextRow = row.map((cell) => escapeMarkdownTableCell(normalizeInlineText(cell).replace(/\s*\n\s*/g, " ")));
+        const nextRow = row.map((cell) => escapeMarkdownTableCell(cleanInlineText(cell).replace(/\s*\n\s*/g, " ")));
         while (nextRow.length < columnCount) {
             nextRow.push("");
         }
@@ -798,7 +798,7 @@ function mergeInlineTextPieces(pieces: InlinePiece[]): InlinePiece[] {
     }, []);
 }
 
-function normalizeInlineText(value: string): string {
+function cleanInlineText(value: string): string {
     const lines = value
         .replace(/\r/g, "")
         .split("\n")
@@ -808,11 +808,11 @@ function normalizeInlineText(value: string): string {
     return lines.join("\n");
 }
 
-function normalizeMarkdownText(text: string): string {
+function cleanMarkdownText(text: string): string {
     const lines = text
         .replace(/\r/g, "")
         .split("\n")
-        .map((line) => normalizeMarkdownLine(line))
+        .map((line) => cleanMarkdownLine(line))
         .reduce<string[]>((acc, line) => {
             if (!line) {
                 if (acc.at(-1) !== "") {
@@ -837,7 +837,7 @@ function normalizeMarkdownText(text: string): string {
     return lines.join("\n");
 }
 
-function normalizeMarkdownLine(line: string): string {
+function cleanMarkdownLine(line: string): string {
     const trimmed = line.trim();
     if (!trimmed) {
         return "";
@@ -849,7 +849,7 @@ function normalizeMarkdownLine(line: string): string {
 
     if (/^#+\s/.test(trimmed)) {
         const hashes = trimmed.match(/^#+/)?.[0] ?? "#";
-        return `${hashes} ${normalizeWhitespace(trimmed.slice(hashes.length))}`;
+        return `${hashes} ${squashWhitespace(trimmed.slice(hashes.length))}`;
     }
 
     const bulletMatch = line.match(/^(\s*)(- |\d+\. )(.*)$/);
@@ -857,17 +857,17 @@ function normalizeMarkdownLine(line: string): string {
         const indent = bulletMatch[1] ?? "";
         const marker = bulletMatch[2] ?? "-";
         const value = bulletMatch[3] ?? "";
-        return `${indent}${marker.trim()} ${normalizeWhitespace(value)}`;
+        return `${indent}${marker.trim()} ${squashWhitespace(value)}`;
     }
 
     if (/^\|.*\|$/.test(trimmed)) {
         return trimmed;
     }
 
-    return normalizeWhitespace(trimmed);
+    return squashWhitespace(trimmed);
 }
 
-function normalizeWhitespace(value: string): string {
+function squashWhitespace(value: string): string {
     return value.replace(/\s+/g, " ").trim();
 }
 
@@ -986,6 +986,6 @@ async function readZipText(zip: JSZip, path: string): Promise<string | null> {
     return file ? file.async("text") : null;
 }
 
-function normalizeZipPath(path: string): string {
+function cleanZipPath(path: string): string {
     return path.replace(/^\/+/, "").replace(/\\/g, "/");
 }

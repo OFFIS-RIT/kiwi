@@ -60,7 +60,36 @@ function renderSheet(workbook: WorkBook, sheetName: string, index: number): Exce
         skipHidden: true,
     }) as unknown[][];
 
-    const normalized = normalizeRows(rows);
+    const stringRows = rows.map((row) =>
+        row.map((cell) => {
+            if (cell === null || cell === undefined) {
+                return "";
+            }
+
+            if (cell instanceof Date) {
+                return cell.toISOString();
+            }
+
+            return String(cell).replace(/\r/g, "").replace(/\s+/g, " ").trim();
+        })
+    );
+    const trimmedRows = stringRows.map(trimTrailingEmptyCells).filter((row) => row.some((cell) => cell.length > 0));
+    const colCount = Math.max(0, ...trimmedRows.map((row) => row.length));
+    const normalized = {
+        rows:
+            colCount === 0
+                ? []
+                : trimmedRows.map((row) => {
+                      const nextRow = [...row];
+                      while (nextRow.length < colCount) {
+                          nextRow.push("");
+                      }
+
+                      return nextRow;
+                  }),
+        colCount,
+    };
+
     if (normalized.rows.length === 0) {
         return null;
     }
@@ -79,42 +108,6 @@ function renderSheet(workbook: WorkBook, sheetName: string, index: number): Exce
 function isHiddenSheet(workbook: WorkBook, index: number): boolean {
     const sheet = workbook.Workbook?.Sheets?.[index];
     return sheet?.Hidden === 1 || sheet?.Hidden === 2;
-}
-
-function normalizeRows(rows: unknown[][]): { rows: string[][]; colCount: number } {
-    const stringRows = rows.map((row) => row.map((cell) => normalizeCellValue(cell)));
-    const trimmedRows = stringRows.map(trimTrailingEmptyCells).filter((row) => row.some((cell) => cell.length > 0));
-
-    const colCount = Math.max(0, ...trimmedRows.map((row) => row.length));
-    if (colCount === 0) {
-        return { rows: [], colCount: 0 };
-    }
-
-    const normalizedRows = trimmedRows.map((row) => {
-        const nextRow = [...row];
-        while (nextRow.length < colCount) {
-            nextRow.push("");
-        }
-
-        return nextRow;
-    });
-
-    return {
-        rows: normalizedRows,
-        colCount,
-    };
-}
-
-function normalizeCellValue(value: unknown): string {
-    if (value === null || value === undefined) {
-        return "";
-    }
-
-    if (value instanceof Date) {
-        return value.toISOString();
-    }
-
-    return String(value).replace(/\r/g, "").replace(/\s+/g, " ").trim();
 }
 
 function trimTrailingEmptyCells(row: string[]): string[] {

@@ -22,14 +22,11 @@ const organizationSuffixes = new Set([
 ]);
 const connectorTokens = new Set(["A", "AN", "AND", "AT", "BY", "FOR", "FROM", "IN", "OF", "ON", "THE", "TO", "WITH"]);
 
-const normalizeWhitespace = (value: string) =>
-    value
+const tokenize = (value: string) => {
+    const normalized = value
         .trim()
         .replace(/[\r\n]+/g, " ")
-        .replace(/\s+/g, " ");
-
-const tokenize = (value: string) => {
-    const normalized = normalizeWhitespace(value)
+        .replace(/\s+/g, " ")
         .normalize("NFKD")
         .replace(/[\u0300-\u036f]/g, "")
         .toUpperCase()
@@ -39,8 +36,6 @@ const tokenize = (value: string) => {
 
     return normalized ? normalized.split(/\s+/) : [];
 };
-
-const normalizeName = (value: string) => tokenize(value).join(" ");
 
 const stripOrganizationSuffixes = (tokens: string[]) => {
     const stripped = [...tokens];
@@ -109,8 +104,8 @@ const areEntitiesDuplicates = (left: Entity, right: Entity) => {
         return false;
     }
 
-    const leftNormalized = normalizeName(left.name);
-    const rightNormalized = normalizeName(right.name);
+    const leftNormalized = tokenize(left.name).join(" ");
+    const rightNormalized = tokenize(right.name).join(" ");
 
     if (!leftNormalized || !rightNormalized) {
         return false;
@@ -144,15 +139,21 @@ const chooseCanonicalEntity = (entities: Entity[]) =>
             return current.sources.length > best.sources.length ? current : best;
         }
 
-        const currentDescriptionLength = normalizeWhitespace(current.description ?? "").length;
-        const bestDescriptionLength = normalizeWhitespace(best.description ?? "").length;
+        const currentDescriptionLength = (current.description ?? "")
+            .trim()
+            .replace(/[\r\n]+/g, " ")
+            .replace(/\s+/g, " ").length;
+        const bestDescriptionLength = (best.description ?? "")
+            .trim()
+            .replace(/[\r\n]+/g, " ")
+            .replace(/\s+/g, " ").length;
 
         if (currentDescriptionLength !== bestDescriptionLength) {
             return currentDescriptionLength > bestDescriptionLength ? current : best;
         }
 
-        const currentNameLength = normalizeName(current.name).length;
-        const bestNameLength = normalizeName(best.name).length;
+        const currentNameLength = tokenize(current.name).join(" ").length;
+        const bestNameLength = tokenize(best.name).join(" ").length;
 
         if (currentNameLength !== bestNameLength) {
             return currentNameLength > bestNameLength ? current : best;
@@ -162,7 +163,13 @@ const chooseCanonicalEntity = (entities: Entity[]) =>
     });
 
 const chooseCanonicalName = (entities: Entity[]) => {
-    const uniqueNames = [...new Set(entities.map((entity) => normalizeWhitespace(entity.name)).filter(Boolean))];
+    const uniqueNames = [
+        ...new Set(
+            entities
+                .map((entity) => entity.name.trim().replace(/[\r\n]+/g, " ").replace(/\s+/g, " "))
+                .filter(Boolean)
+        ),
+    ];
 
     return uniqueNames.reduce((best, current) => {
         if (!best) {
@@ -176,8 +183,8 @@ const chooseCanonicalName = (entities: Entity[]) => {
             return currentTokens.length > bestTokens.length ? current : best;
         }
 
-        const bestLength = normalizeName(best).length;
-        const currentLength = normalizeName(current).length;
+        const bestLength = tokenize(best).join(" ").length;
+        const currentLength = tokenize(current).join(" ").length;
 
         if (currentLength !== bestLength) {
             return currentLength > bestLength ? current : best;
@@ -189,7 +196,7 @@ const chooseCanonicalName = (entities: Entity[]) => {
 
 const chooseCanonicalDescription = (entities: Entity[]) =>
     entities.reduce((best, current) => {
-        const description = normalizeWhitespace(current.description ?? "");
+        const description = (current.description ?? "").trim().replace(/[\r\n]+/g, " ").replace(/\s+/g, " ");
         return description.length > best.length ? description : best;
     }, "");
 
@@ -217,18 +224,11 @@ const mergeUnits = (units: Unit[]) => {
     return [...merged.values()];
 };
 
-const normalizeRelationshipPair = (sourceId: string, targetId: string) => {
-    if (sourceId <= targetId) {
-        return { sourceId, targetId };
-    }
-
-    return { sourceId: targetId, targetId: sourceId };
-};
-
 const buildRelationshipKey = (sourceId: string, targetId: string) => {
-    const normalized = normalizeRelationshipPair(sourceId, targetId);
+    const normalizedSourceId = sourceId <= targetId ? sourceId : targetId;
+    const normalizedTargetId = sourceId <= targetId ? targetId : sourceId;
 
-    return `${normalized.sourceId}::${normalized.targetId}`;
+    return `${normalizedSourceId}::${normalizedTargetId}`;
 };
 
 export function dedupe(graph: Graph): Graph {
@@ -302,16 +302,23 @@ export function dedupe(graph: Graph): Graph {
             continue;
         }
 
-        const normalizedPair = normalizeRelationshipPair(sourceId, targetId);
-        const key = buildRelationshipKey(normalizedPair.sourceId, normalizedPair.targetId);
+        const normalizedSourceId = sourceId <= targetId ? sourceId : targetId;
+        const normalizedTargetId = sourceId <= targetId ? targetId : sourceId;
+        const key = buildRelationshipKey(normalizedSourceId, normalizedTargetId);
         const existingRelationship = relationshipMap.get(key);
 
         if (existingRelationship) {
             existingRelationship.sources = mergeSources([...existingRelationship.sources, ...relationship.sources]);
             existingRelationship.strength = Math.max(existingRelationship.strength, relationship.strength);
 
-            const existingDescription = normalizeWhitespace(existingRelationship.description ?? "");
-            const relationshipDescription = normalizeWhitespace(relationship.description ?? "");
+            const existingDescription = (existingRelationship.description ?? "")
+                .trim()
+                .replace(/[\r\n]+/g, " ")
+                .replace(/\s+/g, " ");
+            const relationshipDescription = (relationship.description ?? "")
+                .trim()
+                .replace(/[\r\n]+/g, " ")
+                .replace(/\s+/g, " ");
             if (relationshipDescription.length > existingDescription.length) {
                 existingRelationship.description = relationshipDescription;
             }
@@ -321,9 +328,9 @@ export function dedupe(graph: Graph): Graph {
 
         relationshipMap.set(key, {
             ...relationship,
-            sourceId: normalizedPair.sourceId,
-            targetId: normalizedPair.targetId,
-            description: normalizeWhitespace(relationship.description ?? ""),
+            sourceId: normalizedSourceId,
+            targetId: normalizedTargetId,
+            description: (relationship.description ?? "").trim().replace(/[\r\n]+/g, " ").replace(/\s+/g, " "),
             sources: mergeSources([...relationship.sources]),
         });
     }

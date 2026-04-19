@@ -26,7 +26,7 @@ export type {
 } from "./ui";
 export {
   createCitationFenceStreamParser,
-  normalizeCitationFencesForModel,
+  prepareCitationFencesForModel,
   parseCitationFence,
   splitTextWithCitationFences,
   stringifyCitationFence,

@@ -13,6 +13,6 @@ export function textArray(values: string[]) {
     )}]::text[]`;
 }
 
-export function normalizedEntityName(column: string) {
+export function entityNameKey(column: string) {
     return `upper(trim(regexp_replace(regexp_replace(regexp_replace(${column}, '&', ' AND ', 'g'), '[^[:alnum:]]+', ' ', 'g'), '\\s+', ' ', 'g')))`;
 }

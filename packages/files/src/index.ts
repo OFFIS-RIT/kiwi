@@ -29,12 +29,6 @@ const joinPath = (path: string, name: string) => {
     return normalizedPath === "" ? normalizedName : `${normalizedPath}/${normalizedName}`;
 };
 
-const normalizePrefix = (path: string) => {
-    const normalizedPath = path.replace(/^\/+/u, "").replace(/\/+$/u, "");
-
-    return normalizedPath === "" ? "" : `${normalizedPath}/`;
-};
-
 async function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket: string): Promise<StoredFile> {
     const client = getClient(bucket);
     const s3File = client.file(key);
@@ -125,7 +119,8 @@ export async function deleteFile(key: string, bucket: string) {
 
 export async function listFiles(path: string, bucket: string): Promise<string[]> {
     const client = getClient(bucket);
-    const prefix = normalizePrefix(path);
+    const trimmedPath = path.replace(/^\/+/u, "").replace(/\/+$/u, "");
+    const prefix = trimmedPath === "" ? "" : `${trimmedPath}/`;
     const keys = new Set<string>();
     let startAfter: string | undefined;
 

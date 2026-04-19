@@ -3,16 +3,9 @@ import type { Entity, Graph, Relationship } from ".";
 
 const getEntityKey = (entity: Pick<Entity, "name" | "type">) => `${entity.name}::${entity.type}`;
 
-const normalizeRelationshipPair = (sourceId: string, targetId: string) => {
-    if (sourceId <= targetId) {
-        return { sourceId, targetId };
-    }
-
-    return { sourceId: targetId, targetId: sourceId };
-};
-
 const getRelationshipKey = (relationship: Pick<Relationship, "sourceId" | "targetId">) => {
-    const { sourceId, targetId } = normalizeRelationshipPair(relationship.sourceId, relationship.targetId);
+    const sourceId = relationship.sourceId <= relationship.targetId ? relationship.sourceId : relationship.targetId;
+    const targetId = relationship.sourceId <= relationship.targetId ? relationship.targetId : relationship.sourceId;
 
     return `${sourceId}::${targetId}`;
 };
@@ -59,8 +52,9 @@ export function mergeGraphs(input: Graph[] | Graph, right?: Graph): Graph {
                 continue;
             }
 
-            const normalizedRelationship = normalizeRelationshipPair(sourceId, targetId);
-            const key = getRelationshipKey(normalizedRelationship);
+            const normalizedSourceId = sourceId <= targetId ? sourceId : targetId;
+            const normalizedTargetId = sourceId <= targetId ? targetId : sourceId;
+            const key = getRelationshipKey({ sourceId: normalizedSourceId, targetId: normalizedTargetId });
             const existingRelationship = mergedRelationships.get(key);
 
             if (existingRelationship) {
@@ -76,8 +70,8 @@ export function mergeGraphs(input: Graph[] | Graph, right?: Graph): Graph {
 
             mergedRelationships.set(key, {
                 ...relationship,
-                sourceId: normalizedRelationship.sourceId,
-                targetId: normalizedRelationship.targetId,
+                sourceId: normalizedSourceId,
+                targetId: normalizedTargetId,
                 sources: [...relationship.sources],
             });
         }
