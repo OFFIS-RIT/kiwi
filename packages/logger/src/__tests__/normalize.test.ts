@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeFields } from "../normalize";
+import { shapeFields } from "../normalize";
 
-describe("normalizeFields", () => {
+describe("shapeFields", () => {
     test("normalizes scalar values", () => {
-        const payload = normalizeFields({ userId: "123", attempt: 2, ok: true, value: null });
+        const payload = shapeFields({ userId: "123", attempt: 2, ok: true, value: null });
 
         expect(payload.attributes).toEqual({
             userId: "123",
@@ -15,7 +15,7 @@ describe("normalizeFields", () => {
 
     test("normalizes dates and structured values", () => {
         const date = new Date("2026-04-07T10:00:00.000Z");
-        const payload = normalizeFields({ at: date, meta: { source: "api" }, tags: ["a", "b"] });
+        const payload = shapeFields({ at: date, meta: { source: "api" }, tags: ["a", "b"] });
 
         expect(payload.attributes).toEqual({
             at: "2026-04-07T10:00:00.000Z",
@@ -28,7 +28,7 @@ describe("normalizeFields", () => {
         const error = new Error("boom");
         error.name = "BoomError";
 
-        const payload = normalizeFields({ error });
+        const payload = shapeFields({ error });
 
         expect(payload.attributes["error.name"]).toBe("BoomError");
         expect(payload.attributes["error.message"]).toBe("boom");
@@ -36,7 +36,7 @@ describe("normalizeFields", () => {
     });
 
     test("drops undefined values", () => {
-        const payload = normalizeFields({ optional: undefined, required: "ok" });
+        const payload = shapeFields({ optional: undefined, required: "ok" });
 
         expect(payload.attributes).toEqual({
             required: "ok",
@@ -44,7 +44,7 @@ describe("normalizeFields", () => {
     });
 
     test("returns empty attributes for missing fields", () => {
-        const payload = normalizeFields();
+        const payload = shapeFields();
 
         expect(payload.attributes).toEqual({});
     });

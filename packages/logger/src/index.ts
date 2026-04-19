@@ -1,7 +1,7 @@
 import type { LogFields, LoggerInstance } from "./types";
 
 export { createConsoleLogger } from "./console";
-export { normalizeFields } from "./normalize";
+export { shapeFields } from "./normalize";
 export type { LogAttributes, LogFields, LogLevel, LoggerInstance, LogValue, NormalizedLogPayload } from "./types";
 
 export class Logger {

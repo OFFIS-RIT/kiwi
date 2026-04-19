@@ -12,7 +12,7 @@ import {
     KEYWORD_WEIGHT,
     MIN_KEYWORD_BOOST,
     MIN_SEMANTIC_SCORE,
-    normalizeTerms,
+    uniqueTerms,
     PREFIX_BOOST,
     truncateWords,
     type RankCursor,
@@ -111,8 +111,8 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
                 },
                 async () => {
                     const text = query.trim();
-                    const terms = normalizeTerms([...(keywords ?? []), text]);
-                    const fileIds = normalizeTerms(files ?? []);
+                    const terms = uniqueTerms([...(keywords ?? []), text]);
+                    const fileIds = uniqueTerms(files ?? []);
                     const next = decodeCursor(cursor, "entity search");
                     const { embedding } = await withAiSlot("embedding", () =>
                         embed({
@@ -214,7 +214,7 @@ export const listEntitiesTool = (graphId: string) =>
                     ],
                 },
                 async () => {
-                    const fileIds = normalizeTerms(files ?? []);
+                    const fileIds = uniqueTerms(files ?? []);
                     const clauses = [eq(entityTable.graphId, graphId), eq(entityTable.active, true)];
 
                     if (cursor) {

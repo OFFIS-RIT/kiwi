@@ -5,6 +5,12 @@ import { metadataPrompt } from "@kiwi/ai/prompts/metadata.prompt";
 
 const METADATA_WORD_LIMIT = 250;
 
+type MetadataGenerator = (args: {
+    model: LanguageModel;
+    prompt: string;
+    temperature: number;
+}) => Promise<{ text: string }>;
+
 function getWords(text: string): string[] {
     return text.trim().split(/\s+/).filter(Boolean);
 }
@@ -36,29 +42,29 @@ export function buildMetadataExcerpt(text: string): string | undefined {
     ].join("\n");
 }
 
-export function normalizeMetadata(text: string): string {
-    return text
-        .replace(/[\r\n]+/g, " ")
-        .trim()
-        .replace(/\s+/g, " ");
-}
-
 export async function buildMetadata(
     model: LanguageModel,
     documentName: string,
-    excerpt: string | undefined
+    excerpt: string | undefined,
+    deps: {
+        generate?: MetadataGenerator;
+    } = {}
 ): Promise<string> {
     if (!excerpt) {
         return "";
     }
 
+    const generate = deps.generate ?? generateText;
     const { text } = await withAiSlot("text", () =>
-        generateText({
+        generate({
             model,
             prompt: metadataPrompt(documentName, excerpt),
             temperature: 0.1,
         })
     );
 
-    return normalizeMetadata(text);
+    return text
+        .replace(/[\r\n]+/g, " ")
+        .trim()
+        .replace(/\s+/g, " ");
 }

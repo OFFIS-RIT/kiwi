@@ -12,7 +12,7 @@ import {
     KEYWORD_WEIGHT,
     MIN_KEYWORD_BOOST,
     MIN_SEMANTIC_SCORE,
-    normalizeTerms,
+    uniqueTerms,
     PREFIX_BOOST,
     truncateWords,
     type RankCursor,
@@ -132,8 +132,8 @@ export const searchRelationshipsTool = (graphId: string, embeddingModel: Embeddi
                 },
                 async () => {
                     const text = query.trim();
-                    const terms = normalizeTerms([...(keywords ?? []), text]);
-                    const fileIds = normalizeTerms(files ?? []);
+                    const terms = uniqueTerms([...(keywords ?? []), text]);
+                    const fileIds = uniqueTerms(files ?? []);
                     const next = decodeCursor(cursor, "relationship search");
                     const { embedding } = await withAiSlot("embedding", () =>
                         embed({
@@ -241,7 +241,7 @@ export const getRelationshipsTool = (graphId: string) =>
                     ],
                 },
                 async () => {
-                    const ids = [...new Set(entityIds.map((value) => value.trim()).filter(Boolean))];
+                    const ids = uniqueTerms(entityIds);
 
                     if (ids.length === 0) {
                         return "## Relationships\n- none";

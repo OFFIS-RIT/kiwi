@@ -27,7 +27,6 @@ import {
     mapGraphError,
     mapGraphListItemsWithProcessing,
     toGraphFileRecord,
-    normalizeFileType,
     restoreGraphFileChangeFailure,
     selectFileFields,
     selectGraphListFields,
@@ -394,11 +393,59 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             try {
                 for (const file of files) {
                     const upload = await putFile(file.name, file, `graphs/${graph.id}`, env.S3_BUCKET);
+                    const type: UploadedFile["type"] = (() => {
+                        const normalizedMimeType = file.type?.trim().toLowerCase() ?? "";
+                        const rawExtension = file.name.split(".").pop()?.trim().toLowerCase();
+                        const extension = rawExtension && rawExtension !== file.name.toLowerCase() ? rawExtension : "";
+
+                        if (normalizedMimeType === "application/pdf" || extension === "pdf") {
+                            return "pdf";
+                        }
+
+                        if (
+                            normalizedMimeType === "application/msword" ||
+                            normalizedMimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+                            extension === "doc" ||
+                            extension === "docx"
+                        ) {
+                            return "doc";
+                        }
+
+                        if (
+                            normalizedMimeType === "application/vnd.ms-excel" ||
+                            normalizedMimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+                            normalizedMimeType === "text/csv" ||
+                            extension === "xls" ||
+                            extension === "xlsx" ||
+                            extension === "csv"
+                        ) {
+                            return "sheet";
+                        }
+
+                        if (
+                            normalizedMimeType === "application/vnd.ms-powerpoint" ||
+                            normalizedMimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+                            extension === "ppt" ||
+                            extension === "pptx"
+                        ) {
+                            return "ppt";
+                        }
+
+                        if (normalizedMimeType.startsWith("image/")) {
+                            return "image";
+                        }
+
+                        if (normalizedMimeType === "application/json" || extension === "json") {
+                            return "json";
+                        }
+
+                        return "text";
+                    })();
 
                     uploadedFiles.push({
                         name: file.name,
                         size: file.size,
-                        type: normalizeFileType(file.name, file.type),
+                        type,
                         mimeType: file.type || upload.type,
                         key: upload.key,
                     });
@@ -644,11 +691,59 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             try {
                 for (const file of files) {
                     const upload = await putFile(file.name, file, `graphs/${existingGraph.id}`, env.S3_BUCKET);
+                    const type: UploadedFile["type"] = (() => {
+                        const normalizedMimeType = file.type?.trim().toLowerCase() ?? "";
+                        const rawExtension = file.name.split(".").pop()?.trim().toLowerCase();
+                        const extension = rawExtension && rawExtension !== file.name.toLowerCase() ? rawExtension : "";
+
+                        if (normalizedMimeType === "application/pdf" || extension === "pdf") {
+                            return "pdf";
+                        }
+
+                        if (
+                            normalizedMimeType === "application/msword" ||
+                            normalizedMimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+                            extension === "doc" ||
+                            extension === "docx"
+                        ) {
+                            return "doc";
+                        }
+
+                        if (
+                            normalizedMimeType === "application/vnd.ms-excel" ||
+                            normalizedMimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+                            normalizedMimeType === "text/csv" ||
+                            extension === "xls" ||
+                            extension === "xlsx" ||
+                            extension === "csv"
+                        ) {
+                            return "sheet";
+                        }
+
+                        if (
+                            normalizedMimeType === "application/vnd.ms-powerpoint" ||
+                            normalizedMimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+                            extension === "ppt" ||
+                            extension === "pptx"
+                        ) {
+                            return "ppt";
+                        }
+
+                        if (normalizedMimeType.startsWith("image/")) {
+                            return "image";
+                        }
+
+                        if (normalizedMimeType === "application/json" || extension === "json") {
+                            return "json";
+                        }
+
+                        return "text";
+                    })();
 
                     uploadedFiles.push({
                         name: file.name,
                         size: file.size,
-                        type: normalizeFileType(file.name, file.type),
+                        type,
                         mimeType: file.type || upload.type,
                         key: upload.key,
                     });

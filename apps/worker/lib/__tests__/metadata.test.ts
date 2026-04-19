@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import { buildMetadataExcerpt, normalizeMetadata } from "../metadata";
+import { buildMetadata, buildMetadataExcerpt } from "../metadata";
 
 describe("buildMetadataExcerpt", () => {
     test("returns full text when document is short enough", () => {
@@ -30,8 +30,18 @@ describe("buildMetadataExcerpt", () => {
     });
 });
 
-describe("normalizeMetadata", () => {
-    test("collapses line breaks and repeated whitespace", () => {
-        expect(normalizeMetadata("  First line\n\nSecond   line\tthird  ")).toBe("First line Second line third");
+describe("buildMetadata", () => {
+    test("collapses line breaks and repeated whitespace in generated output", async () => {
+        const generateTextMock = mock(async () => ({
+            text: "  First line\n\nSecond   line\tthird  ",
+        }));
+
+        await expect(
+            buildMetadata({} as never, "Document", "<text>excerpt</text>", {
+                generate: generateTextMock as typeof generateTextMock,
+            })
+        ).resolves.toBe("First line Second line third");
+
+        expect(generateTextMock).toHaveBeenCalledTimes(1);
     });
 });

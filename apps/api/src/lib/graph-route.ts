@@ -164,55 +164,6 @@ function buildTimeEstimate(fileRows: GraphProcessFileRow[], averageFileDuration:
     };
 }
 
-export const normalizeFileType = (name: string, mimeType?: string): GraphFileType => {
-    const normalizedMimeType = mimeType?.trim().toLowerCase() ?? "";
-    const rawExtension = name.split(".").pop()?.trim().toLowerCase();
-    const extension = rawExtension && rawExtension !== name.toLowerCase() ? rawExtension : "";
-
-    if (normalizedMimeType === "application/pdf" || extension === "pdf") {
-        return "pdf";
-    }
-
-    if (
-        normalizedMimeType === "application/msword" ||
-        normalizedMimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-        extension === "doc" ||
-        extension === "docx"
-    ) {
-        return "doc";
-    }
-
-    if (
-        normalizedMimeType === "application/vnd.ms-excel" ||
-        normalizedMimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-        normalizedMimeType === "text/csv" ||
-        extension === "xls" ||
-        extension === "xlsx" ||
-        extension === "csv"
-    ) {
-        return "sheet";
-    }
-
-    if (
-        normalizedMimeType === "application/vnd.ms-powerpoint" ||
-        normalizedMimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
-        extension === "ppt" ||
-        extension === "pptx"
-    ) {
-        return "ppt";
-    }
-
-    if (normalizedMimeType.startsWith("image/")) {
-        return "image";
-    }
-
-    if (normalizedMimeType === "application/json" || extension === "json") {
-        return "json";
-    }
-
-    return "text";
-};
-
 export const cleanupUploadedKeys = async (uploadedKeys: string[]) => {
     const deleteResults = await Promise.allSettled(uploadedKeys.map((key) => deleteFile(key, env.S3_BUCKET)));
     return deleteResults.filter((result) => result.status === "rejected").length;

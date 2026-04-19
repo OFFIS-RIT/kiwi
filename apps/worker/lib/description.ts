@@ -12,13 +12,6 @@ type DescriptionGenerator = (args: {
     temperature: number;
 }) => Promise<{ text: string }>;
 
-export function normalizeDescription(text: string): string {
-    return text
-        .replace(/[\r\n]+/g, " ")
-        .trim()
-        .replace(/\s+/g, " ");
-}
-
 export function chunkDescriptionSources(sourceDescriptions: string[]): string[][] {
     if (sourceDescriptions.length === 0) {
         return [];
@@ -61,7 +54,10 @@ export async function buildDescription(
             : descriptionPromp(name, sourceChunk);
 
         const { text } = await withAiSlot("text", () => generate({ model, prompt, temperature: 0.1 }));
-        nextDescription = normalizeDescription(text);
+        nextDescription = text
+            .replace(/[\r\n]+/g, " ")
+            .trim()
+            .replace(/\s+/g, " ");
     }
 
     return nextDescription || "";

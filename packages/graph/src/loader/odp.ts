@@ -276,11 +276,11 @@ async function parseTextBox(
                 const name = getLocalName(node);
                 return name === "p" || name === "h";
             })
-            .map((paragraph) => normalizeWhitespace(extractNodeText(paragraph).replace(/\s*\n\s*/g, " ")))
+            .map((paragraph) => squashWhitespace(extractNodeText(paragraph).replace(/\s*\n\s*/g, " ")))
             .filter(Boolean);
 
         if (titleParts.length > 0) {
-            return [{ kind: "heading", text: normalizeWhitespace(titleParts.join(" ")) }];
+            return [{ kind: "heading", text: squashWhitespace(titleParts.join(" ")) }];
         }
     }
 
@@ -297,14 +297,14 @@ async function parseTextContainer(
     for (const child of getChildElements(container)) {
         switch (getLocalName(child)) {
             case "h": {
-                const text = normalizeWhitespace(extractNodeText(child).replace(/\s*\n\s*/g, " "));
+                const text = squashWhitespace(extractNodeText(child).replace(/\s*\n\s*/g, " "));
                 if (text) {
                     blocks.push({ kind: "heading", text });
                 }
                 break;
             }
             case "p": {
-                const text = normalizeWhitespace(extractNodeText(child).replace(/\s*\n\s*/g, " "));
+                const text = squashWhitespace(extractNodeText(child).replace(/\s*\n\s*/g, " "));
                 if (!text) {
                     break;
                 }
@@ -364,7 +364,7 @@ async function parseListItem(
         switch (getLocalName(child)) {
             case "p":
             case "h": {
-                const text = normalizeWhitespace(extractNodeText(child).replace(/\s*\n\s*/g, " "));
+                const text = squashWhitespace(extractNodeText(child).replace(/\s*\n\s*/g, " "));
                 if (text) {
                     blocks.push({ kind: "bullet", text, level, ordered });
                 }
@@ -452,7 +452,7 @@ async function extractTableCellText(cell: XMLNodeLike, _context: ODPParseContext
         switch (getLocalName(child)) {
             case "p":
             case "h": {
-                const text = normalizeWhitespace(extractNodeText(child).replace(/\s*\n\s*/g, " "));
+                const text = squashWhitespace(extractNodeText(child).replace(/\s*\n\s*/g, " "));
                 if (text) {
                     parts.push(text);
                 }
@@ -477,7 +477,7 @@ async function extractTableCellText(cell: XMLNodeLike, _context: ODPParseContext
         }
     }
 
-    return normalizeWhitespace(parts.join(" "));
+    return squashWhitespace(parts.join(" "));
 }
 
 async function extractListTexts(list: XMLNodeLike): Promise<string[]> {
@@ -492,7 +492,7 @@ async function extractListTexts(list: XMLNodeLike): Promise<string[]> {
             switch (getLocalName(itemChild)) {
                 case "p":
                 case "h": {
-                    const text = normalizeWhitespace(extractNodeText(itemChild).replace(/\s*\n\s*/g, " "));
+                    const text = squashWhitespace(extractNodeText(itemChild).replace(/\s*\n\s*/g, " "));
                     if (text) {
                         values.push(text);
                     }
@@ -517,7 +517,7 @@ async function extractSectionTexts(section: XMLNodeLike): Promise<string[]> {
         switch (getLocalName(child)) {
             case "p":
             case "h": {
-                const text = normalizeWhitespace(extractNodeText(child).replace(/\s*\n\s*/g, " "));
+                const text = squashWhitespace(extractNodeText(child).replace(/\s*\n\s*/g, " "));
                 if (text) {
                     values.push(text);
                 }
@@ -540,7 +540,7 @@ async function extractImageId(node: XMLNodeLike, context: ODPParseContext): Prom
         return null;
     }
 
-    const path = normalizeZipPath(href);
+    const path = cleanZipPath(href);
     const file = context.zip.file(path);
     if (!file) {
         return null;
@@ -651,7 +651,7 @@ function parseODPManifest(xml: string | null): ODPManifest {
             continue;
         }
 
-        manifest.set(normalizeZipPath(path), mediaType);
+        manifest.set(cleanZipPath(path), mediaType);
     }
 
     return manifest;
@@ -673,7 +673,7 @@ function getRepeatedCount(node: XMLNodeLike, ...attributeNames: string[]): numbe
 }
 
 function getMimeTypeForPath(manifest: ODPManifest, path: string): string {
-    const normalizedPath = normalizeZipPath(path);
+    const normalizedPath = cleanZipPath(path);
     const manifestType = manifest.get(normalizedPath);
     if (manifestType) {
         return manifestType;
@@ -758,7 +758,7 @@ function rowsToMarkdown(rows: string[][]): string {
     }
 
     const normalizedRows = rows.map((row) => {
-        const nextRow = row.map((cell) => escapeMarkdownTableCell(normalizeWhitespace(cell)));
+        const nextRow = row.map((cell) => escapeMarkdownTableCell(squashWhitespace(cell)));
         while (nextRow.length < columnCount) {
             nextRow.push("");
         }
@@ -880,11 +880,11 @@ async function readZipText(zip: JSZip, path: string): Promise<string | null> {
     return file ? file.async("text") : null;
 }
 
-function normalizeZipPath(path: string): string {
+function cleanZipPath(path: string): string {
     return path.replace(/^\/+/, "").replace(/\\/g, "/");
 }
 
-function normalizeWhitespace(value: string): string {
+function squashWhitespace(value: string): string {
     return value.replace(/\s+/g, " ").trim();
 }
 

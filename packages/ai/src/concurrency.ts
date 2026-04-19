@@ -1,15 +1,10 @@
-export type AICapability = "text" | "image" | "embedding" | "audio";
+const capabilities = ["text", "image", "embedding", "audio"] as const;
+
+export type AICapability = (typeof capabilities)[number];
 
 export type AIConcurrencyLimits = Record<AICapability, number>;
 
 const DEFAULT_AI_CONCURRENCY_LIMIT = 64;
-
-const defaultLimits: AIConcurrencyLimits = {
-    text: DEFAULT_AI_CONCURRENCY_LIMIT,
-    image: DEFAULT_AI_CONCURRENCY_LIMIT,
-    embedding: DEFAULT_AI_CONCURRENCY_LIMIT,
-    audio: DEFAULT_AI_CONCURRENCY_LIMIT,
-};
 
 class Semaphore {
     private active = 0;
@@ -43,27 +38,27 @@ class Semaphore {
     }
 }
 
-function normalizeLimit(limit: number | undefined): number {
-    if (!Number.isFinite(limit) || !limit || limit < 1) {
-        return DEFAULT_AI_CONCURRENCY_LIMIT;
-    }
-
-    return Math.floor(limit);
-}
-
 function createSemaphores(limits: Partial<AIConcurrencyLimits>): Record<AICapability, Semaphore> {
-    return {
-        text: new Semaphore(normalizeLimit(limits.text)),
-        image: new Semaphore(normalizeLimit(limits.image)),
-        embedding: new Semaphore(normalizeLimit(limits.embedding)),
-        audio: new Semaphore(normalizeLimit(limits.audio)),
-    };
+    return Object.fromEntries(
+        capabilities.map((capability) => {
+            const limit = limits[capability];
+
+            return [
+                capability,
+                new Semaphore(
+                    !Number.isFinite(limit) || !limit || limit < 1
+                        ? DEFAULT_AI_CONCURRENCY_LIMIT
+                        : Math.floor(limit)
+                ),
+            ];
+        })
+    ) as Record<AICapability, Semaphore>;
 }
 
 let semaphores: Record<AICapability, Semaphore> | null = null;
 
 export function configureAIConcurrency(limits: Partial<AIConcurrencyLimits>) {
-    semaphores = createSemaphores({ ...defaultLimits, ...limits });
+    semaphores = createSemaphores(limits);
 }
 
 export async function withAiSlot<T>(capability: AICapability, task: () => Promise<T>): Promise<T> {

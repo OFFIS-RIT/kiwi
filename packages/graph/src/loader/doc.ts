@@ -180,7 +180,7 @@ async function parseParagraph(paragraph: XMLNodeLike, context: DOCParseContext):
     let textBuffer = "";
 
     const flushText = () => {
-        const text = normalizeInlineText(textBuffer);
+        const text = cleanInlineText(textBuffer);
         textBuffer = "";
         if (!text) {
             return;
@@ -249,7 +249,7 @@ async function extractTableCellText(cell: XMLNodeLike, context: DOCParseContext)
         }
 
         const pieces = await collectParagraphPieces(node, context);
-        const text = normalizeInlineText(
+        const text = cleanInlineText(
             pieces
                 .filter((piece): piece is Extract<InlinePiece, { kind: "text" }> => piece.kind === "text")
                 .map((piece) => piece.text)
@@ -261,7 +261,7 @@ async function extractTableCellText(cell: XMLNodeLike, context: DOCParseContext)
         }
     }
 
-    return normalizeInlineText(parts.join(" "));
+    return cleanInlineText(parts.join(" "));
 }
 
 async function collectParagraphPieces(paragraph: XMLNodeLike, context: DOCParseContext): Promise<InlinePiece[]> {
@@ -543,7 +543,7 @@ function mergeInlineTextPieces(pieces: InlinePiece[]): InlinePiece[] {
     }, []);
 }
 
-function normalizeInlineText(value: string): string {
+function cleanInlineText(value: string): string {
     const lines = value
         .replace(/\r/g, "")
         .split("\n")
@@ -574,7 +574,7 @@ function renderMarkdown(blocks: DOCBlock[]): string {
         })
         .filter(Boolean);
 
-    return normalizeMarkdownText(rendered.join("\n\n"));
+    return cleanMarkdownText(rendered.join("\n\n"));
 }
 
 function rowsToMarkdown(rows: string[][]): string {
@@ -588,7 +588,7 @@ function rowsToMarkdown(rows: string[][]): string {
     }
 
     const normalizedRows = rows.map((row) => {
-        const nextRow = row.map((cell) => escapeMarkdownTableCell(normalizeInlineText(cell).replace(/\s*\n\s*/g, " ")));
+        const nextRow = row.map((cell) => escapeMarkdownTableCell(cleanInlineText(cell).replace(/\s*\n\s*/g, " ")));
         while (nextRow.length < columnCount) {
             nextRow.push("");
         }
@@ -607,11 +607,11 @@ function rowsToMarkdown(rows: string[][]): string {
     ].join("\n");
 }
 
-function normalizeMarkdownText(text: string): string {
+function cleanMarkdownText(text: string): string {
     const lines = text
         .replace(/\r/g, "")
         .split("\n")
-        .map((line) => normalizeMarkdownLine(line))
+        .map((line) => cleanMarkdownLine(line))
         .reduce<string[]>((acc, line) => {
             if (!line) {
                 if (acc.at(-1) !== "") {
@@ -636,7 +636,7 @@ function normalizeMarkdownText(text: string): string {
     return lines.join("\n");
 }
 
-function normalizeMarkdownLine(line: string): string {
+function cleanMarkdownLine(line: string): string {
     const trimmed = line.trim();
     if (!trimmed) {
         return "";
@@ -648,7 +648,7 @@ function normalizeMarkdownLine(line: string): string {
 
     if (/^#+\s/.test(trimmed)) {
         const hashes = trimmed.match(/^#+/)?.[0] ?? "#";
-        return `${hashes} ${normalizeWhitespace(trimmed.slice(hashes.length))}`;
+        return `${hashes} ${squashWhitespace(trimmed.slice(hashes.length))}`;
     }
 
     const bulletMatch = line.match(/^(\s*)(- |\d+\. )(.*)$/);
@@ -656,17 +656,17 @@ function normalizeMarkdownLine(line: string): string {
         const indent = bulletMatch[1] ?? "";
         const marker = bulletMatch[2] ?? "-";
         const value = bulletMatch[3] ?? "";
-        return `${indent}${marker.trim()} ${normalizeWhitespace(value)}`;
+        return `${indent}${marker.trim()} ${squashWhitespace(value)}`;
     }
 
     if (/^\|.*\|$/.test(trimmed)) {
         return trimmed;
     }
 
-    return normalizeWhitespace(trimmed);
+    return squashWhitespace(trimmed);
 }
 
-function normalizeWhitespace(value: string): string {
+function squashWhitespace(value: string): string {
     return value.replace(/\s+/g, " ").trim();
 }
 
@@ -782,7 +782,7 @@ function parseContentTypes(xml: string | null): ContentTypes {
         const partName = getAttribute(node, "PartName");
         const contentType = getAttribute(node, "ContentType");
         if (partName && contentType) {
-            overrides.set(normalizeZipPath(partName), contentType);
+            overrides.set(cleanZipPath(partName), contentType);
         }
     }
 
@@ -790,7 +790,7 @@ function parseContentTypes(xml: string | null): ContentTypes {
 }
 
 function getMimeTypeForPath(contentTypes: ContentTypes, path: string): string {
-    const normalizedPath = normalizeZipPath(path);
+    const normalizedPath = cleanZipPath(path);
     const override = contentTypes.overrides.get(normalizedPath);
     if (override) {
         return override;
@@ -963,7 +963,7 @@ function getDirectoryPath(path: string): string {
 
 function resolveZipPath(basePath: string, target: string): string {
     if (target.startsWith("/")) {
-        return normalizeZipPath(target);
+        return cleanZipPath(target);
     }
 
     const initialParts = basePath ? basePath.split("/").filter(Boolean) : [];
@@ -986,6 +986,6 @@ function resolveZipPath(basePath: string, target: string): string {
     return parts.join("/");
 }
 
-function normalizeZipPath(path: string): string {
+function cleanZipPath(path: string): string {
     return path.replace(/^\/+/, "").replace(/\\/g, "/");
 }

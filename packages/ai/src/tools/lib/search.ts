@@ -11,7 +11,7 @@ export type RankCursor = {
     id: string;
 };
 
-export function normalizeTerms(values: string[]) {
+export function uniqueTerms(values: string[]) {
     return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 

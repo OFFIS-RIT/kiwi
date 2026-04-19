@@ -1,4 +1,4 @@
-import { normalizeFields } from "./normalize";
+import { shapeFields } from "./normalize";
 import type { LogFields, LogLevel, LoggerInstance } from "./types";
 
 export type ConsoleLoggerOptions = {
@@ -45,7 +45,7 @@ class ConsoleLogger implements LoggerInstance {
             return;
         }
 
-        const { attributes } = normalizeFields(fields);
+        const { attributes } = shapeFields(fields);
         const line = formatLine(level, message, this.timestamps);
         const hasAttributes = Object.keys(attributes).length > 0;
         const method = this.getMethod(level);

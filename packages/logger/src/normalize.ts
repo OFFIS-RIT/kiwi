@@ -1,6 +1,6 @@
 import type { LogAttributes, LogFields, LogValue, NormalizedLogPayload } from "./types";
 
-function normalizeScalar(value: unknown): LogValue | undefined {
+function coerceScalar(value: unknown): LogValue | undefined {
     if (value === undefined) {
         return undefined;
     }
@@ -42,13 +42,13 @@ function setAttribute(attributes: LogAttributes, key: string, value: unknown) {
         return;
     }
 
-    const normalized = normalizeScalar(value);
-    if (normalized !== undefined) {
-        attributes[key] = normalized;
+    const scalar = coerceScalar(value);
+    if (scalar !== undefined) {
+        attributes[key] = scalar;
     }
 }
 
-export function normalizeFields(fields?: LogFields): NormalizedLogPayload {
+export function shapeFields(fields?: LogFields): NormalizedLogPayload {
     const attributes: LogAttributes = {};
 
     if (!fields) {

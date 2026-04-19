@@ -6,8 +6,12 @@ import type { EmbeddingModelV3, JSONValue, LanguageModelV3 } from "@ai-sdk/provi
 import type { ChatMessage, MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
 import type { ModelMessage } from "ai";
 import { get_encoding, type TiktokenEncoding } from "tiktoken";
-import { normalizeCitationFencesForModel } from "./citation";
+import { prepareCitationFencesForModel } from "./citation";
 export * from "./concurrency";
+
+type BunRequestInit = RequestInit & {
+    timeout?: false;
+};
 
 type OpenAICredentials = {
     apiKey: string;
@@ -64,11 +68,45 @@ type ToolResultOutput = ToolResultPart["output"];
 
 const CLIENT_TOOL_NAMES = new Set(["ask_clarifying_questions"]);
 
+export const AI_REQUEST_TIMEOUT_MS = 90 * 60 * 1000;
+
+function getRequestSignal(signal: AbortSignal | undefined): AbortSignal {
+    const timeoutSignal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS);
+
+    if (!signal) {
+        return timeoutSignal;
+    }
+
+    if (signal.aborted) {
+        return signal;
+    }
+
+    return AbortSignal.any([signal, timeoutSignal]);
+}
+
+export function createProviderFetch(fetchFn: typeof globalThis.fetch = globalThis.fetch): typeof globalThis.fetch {
+    return (input, init) => {
+        const nextInit: BunRequestInit = {
+            ...init,
+            signal: getRequestSignal(init?.signal),
+        };
+
+        if (typeof Bun !== "undefined") {
+            nextInit.timeout = false;
+        }
+
+        return fetchFn(input, nextInit);
+    };
+}
+
+const providerFetch = createProviderFetch();
+
 function createProvider(adapter: Adapter) {
     switch (adapter.type) {
         case "openai":
             return createOpenAI({
                 apiKey: adapter.credentials?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
+                fetch: providerFetch,
             });
         case "openaiAPI":
             return createOpenAICompatible({
@@ -77,15 +115,18 @@ function createProvider(adapter: Adapter) {
                 baseURL: adapter.credentials?.url ?? process.env.OPENAI_API_URL ?? "https://api.openai.com/v1",
                 includeUsage: true,
                 supportsStructuredOutputs: true,
+                fetch: providerFetch,
             });
         case "anthropic":
             return createAnthropic({
                 apiKey: adapter.credentials?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
+                fetch: providerFetch,
             });
         case "azure":
             return createAzure({
                 resourceName: adapter.credentials?.resourceName ?? process.env.AZURE_RESOURCE_NAME ?? "",
                 apiKey: adapter.credentials?.apiKey ?? process.env.AZURE_API_KEY ?? "",
+                fetch: providerFetch,
             });
     }
 }
@@ -324,7 +365,7 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
                         if (part.text) {
                             content.push({
                                 type: "text",
-                                text: normalizeCitationFencesForModel(part.text),
+                                text: prepareCitationFencesForModel(part.text),
                             });
                         }
                         break;
