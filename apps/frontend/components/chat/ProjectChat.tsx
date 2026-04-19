@@ -292,6 +292,7 @@ function stripMarkdown(text: string): string {
 export function ProjectChat({ projectName, groupName, projectId }: ProjectChatProps) {
     const [session, setSession] = useState<ChatSessionState | null>(null);
     const [isHydrating, setIsHydrating] = useState(false);
+    const [hasLoadedInitialSession, setHasLoadedInitialSession] = useState(false);
 
     const loadChat = useCallback(async () => {
         setIsHydrating(true);
@@ -316,6 +317,11 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
         void loadChat();
     }, [loadChat]);
 
+    useEffect(() => {
+        if (!session || isHydrating || hasLoadedInitialSession) return;
+        setHasLoadedInitialSession(true);
+    }, [hasLoadedInitialSession, isHydrating, session]);
+
     if (!session) {
         return null;
     }
@@ -328,6 +334,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
             projectId={projectId}
             initialSession={session}
             isHydrating={isHydrating}
+            animateOnMount={!hasLoadedInitialSession}
             onReset={async (chatId) => {
                 try {
                     await deleteProjectChat(projectId, chatId);
@@ -347,10 +354,12 @@ function ProjectChatSession({
     projectId,
     initialSession,
     isHydrating,
+    animateOnMount,
     onReset,
 }: ProjectChatProps & {
     initialSession: ChatSessionState;
     isHydrating: boolean;
+    animateOnMount: boolean;
     onReset: (chatId: string) => Promise<void>;
 }) {
     const { user } = useAuth();
@@ -366,7 +375,7 @@ function ProjectChatSession({
     const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const hasHydrated = useRef(false);
-    const [chatReady, setChatReady] = useState(false);
+    const [chatReady, setChatReady] = useState(() => !animateOnMount);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -438,8 +447,13 @@ function ProjectChatSession({
         if (hasHydrated.current || isHydrating) return;
         hasHydrated.current = true;
         messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+        if (!animateOnMount) {
+            setChatReady(true);
+            return;
+        }
+
         requestAnimationFrame(() => setChatReady(true));
-    }, [isHydrating]);
+    }, [animateOnMount, isHydrating]);
 
     useEffect(() => {
         if (!chatReady) return;
