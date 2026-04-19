@@ -13,7 +13,7 @@ import {
 import { useAuth } from "@/providers/AuthProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { LogOut, Shield } from "lucide-react";
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { ThemeToggle } from "./ThemeToggle";
 
 const UserManagementSheet = lazy(() =>
@@ -26,6 +26,13 @@ export function UserNav() {
     const { t } = useLanguage();
     const { user, isAdmin, signOut } = useAuth();
     const [showUserManagement, setShowUserManagement] = useState(false);
+    const [ready, setReady] = useState(false);
+
+    useEffect(() => {
+        if (user) {
+            requestAnimationFrame(() => setReady(true));
+        }
+    }, [user]);
 
     const initials = user?.name
         ? user.name
@@ -42,7 +49,11 @@ export function UserNav() {
                 <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-8 w-8">
                         <Avatar className="h-8 w-8">
-                            <AvatarFallback>{initials}</AvatarFallback>
+                            <AvatarFallback>
+                                <span className={`transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}>
+                                    {initials}
+                                </span>
+                            </AvatarFallback>
                         </Avatar>
                     </Button>
                 </DropdownMenuTrigger>
