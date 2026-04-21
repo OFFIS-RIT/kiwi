@@ -1,0 +1,37 @@
+{
+    "name": "@kiwi/graph",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./loader/*": "./src/loader/*.ts",
+        "./chunker/*": "./src/chunking/*.ts",
+        "./unit": "./src/unit.ts",
+        "./merge": "./src/merge.ts",
+        "./dedupe": "./src/dedupe.ts"
+    },
+    "scripts": {
+        "test": "bun test"
+    },
+    "dependencies": {
+        "@ai-sdk/provider": "catalog:",
+        "@kiwi/ai": "workspace:*",
+        "@kiwi/files": "workspace:*",
+        "@libpdf/core": "^0.3.4",
+        "@platformatic/vfs": "^0.3.0",
+        "@xmldom/xmldom": "^0.8.11",
+        "ai": "catalog:",
+        "jszip": "^3.10.1",
+        "pdf-to-img": "^6.0.0",
+        "tiktoken": "^1.0.22",
+        "ulid": "^3.0.2",
+        "xlsx": "^0.18.5",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

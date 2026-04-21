@@ -1,0 +1,27 @@
+{
+    "name": "@kiwi/logger",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./console": "./src/console.ts",
+        "./opentelemetry": "./src/opentelemetry.ts"
+    },
+    "scripts": {
+        "test": "bun test"
+    },
+    "dependencies": {
+        "@opentelemetry/api": "^1.9.0",
+        "@opentelemetry/api-logs": "^0.214.0",
+        "@opentelemetry/exporter-logs-otlp-proto": "^0.214.0",
+        "@opentelemetry/resources": "^2.6.0",
+        "@opentelemetry/sdk-logs": "^0.214.0",
+        "@opentelemetry/semantic-conventions": "^1.40.0"
+    },
+    "devDependencies": {
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

@@ -1,0 +1,30 @@
+{
+    "$schema": "./node_modules/oxfmt/configuration_schema.json",
+    "semi": true,
+    "trailingComma": "es5",
+    "singleQuote": false,
+    "printWidth": 120,
+    "tabWidth": 4,
+    "useTabs": false,
+    "arrowParens": "always",
+    "endOfLine": "lf",
+    "ignorePatterns": [
+        "node_modules",
+        ".pnp",
+        ".pnp.js",
+        ".next",
+        "out",
+        "dist",
+        "build",
+        ".agents",
+        ".claude",
+        ".DS_Store",
+        "*.pem",
+        "bun-debug.log*",
+        ".env*.local",
+        ".vercel",
+        "*.tsbuildinfo",
+        "next-env.d.ts",
+        "bun.lock"
+    ]
+}

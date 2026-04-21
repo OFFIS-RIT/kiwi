@@ -1,9 +1,47 @@
-# Keep root build context minimal for postgres migration image.
+# Keep root build context minimal for monorepo Docker builds.
 *
+
+!package.json
+!bun.lock
+!drizzle.config.ts
+
+!apps/
+!apps/api/
+!apps/api/**
+!apps/frontend/
+!apps/frontend/Dockerfile
+!apps/frontend/package.json
+!apps/frontend/next-env.d.ts
+!apps/frontend/next.config.ts
+!apps/frontend/components.json
+!apps/frontend/postcss.config.mjs
+!apps/frontend/tsconfig.json
+!apps/frontend/app/**
+!apps/frontend/components/**
+!apps/frontend/hooks/**
+!apps/frontend/lib/**
+!apps/frontend/providers/**
+!apps/frontend/public/**
+!apps/frontend/types/**
+!apps/worker/
+!apps/worker/**
+
+!packages/
+!packages/ai/
+!packages/ai/**
+!packages/auth/
+!packages/auth/**
+!packages/db/
+!packages/db/**
+!packages/files/
+!packages/files/**
+!packages/graph/
+!packages/graph/**
+!packages/logger/
+!packages/logger/**
 
 !migrations/
 !migrations/**
 
 !postgres/
-!postgres/Dockerfile.migration
-!postgres/run-migrations.sh
+!postgres/**

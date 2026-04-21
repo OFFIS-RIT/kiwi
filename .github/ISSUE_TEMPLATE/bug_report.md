@@ -3,7 +3,7 @@ name: Bug Report
 about: Report a bug to help us improve
 title: "[Bug]: "
 labels: bug
-assignees: ''
+assignees: ""
 ---
 
 ## Description
@@ -31,8 +31,8 @@ If applicable, add screenshots to help explain your problem.
 ## Environment
 
 - **Component**: Frontend / Backend / Worker
-- **Browser** (if frontend): 
-- **OS**: 
+- **Browser** (if frontend):
+- **OS**:
 
 ## Additional Context
 

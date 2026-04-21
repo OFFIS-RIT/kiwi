@@ -44,11 +44,10 @@ be used.
 ### Recommended (Safe): Dump + Restore
 
 ```bash
-# 1) While still running the old stack, create a backup
-make db-dump
+# 1) While still running the old stack, create a backup with pg_dump/pg_dumpall
 
 # 2) Stop the stack
-make stop
+docker compose -f compose.prod.yml down
 
 # 3) Remove ONLY the Postgres volume (after verifying your backup)
 #    Find it first (usually something like "kiwi_postgres_data")
@@ -57,17 +56,16 @@ docker volume ls | grep postgres_data
 #    Then remove it
 docker volume rm <your_postgres_volume>
 
-# 4) Build (or pull) the upgraded images
-make build
+# 4) Pull the upgraded images
+docker compose -f compose.prod.yml pull
 
-# 5) Start the upgraded stack (creates a fresh Postgres 18 cluster)
-make start
+# 5) Start only PostgreSQL first (creates a fresh Postgres 18 cluster)
+docker compose -f compose.prod.yml up -d postgres
 
-# 6) Restore the dump
-make db-restore DUMP_FILE=.backup/<your_dump_file>.dump
+# 6) Restore the dump with psql/pg_restore
 
-# 7) Apply migrations
-make migrate
+# 7) Start the full stack (this also runs the migrations container)
+docker compose -f compose.prod.yml up -d
 ```
 
 ### Advanced: pg_upgrade (Large Datasets)

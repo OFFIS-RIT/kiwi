@@ -1,0 +1,29 @@
+{
+    "name": "@kiwi/auth",
+    "private": true,
+    "type": "module",
+    "exports": {
+        "./server": "./src/server.ts",
+        "./client": "./src/client.ts",
+        "./permissions": "./src/permissions.ts"
+    },
+    "scripts": {
+        "test": "bun test --pass-with-no-tests"
+    },
+    "dependencies": {
+        "@better-auth/api-key": "catalog:",
+        "@kiwi/db": "workspace:*",
+        "@kiwi/logger": "workspace:*",
+        "better-auth": "catalog:",
+        "better-auth-credentials-plugin": "catalog:",
+        "better-result": "catalog:",
+        "ldap-authentication": "4.0.4",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

@@ -1,0 +1,48 @@
+{
+	auto_https disable_redirects
+}
+
+(app) {
+	request_body {
+		max_size 4GB
+	}
+
+	@next_static path /_next/static/*
+	handle @next_static {
+		header Cache-Control "public, immutable"
+		reverse_proxy frontend:3000
+	}
+
+	@auth path /auth /auth/*
+	handle @auth {
+		reverse_proxy server:4321
+	}
+
+	@api path /api /api/*
+	handle @api {
+		uri strip_prefix /api
+		reverse_proxy server:4321 {
+			flush_interval -1
+		}
+	}
+
+	@s3 path /s3 /s3/*
+	handle @s3 {
+		uri strip_prefix /s3
+		reverse_proxy rustfs:9000 {
+			header_up Host {$APP_DOMAIN:localhost}
+			header_up Range {header.Range}
+			header_up If-Range {header.If-Range}
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
+
+{$APP_DOMAIN:localhost} {
+	tls {$TLS_EMAIL}
+
+	import app
+}

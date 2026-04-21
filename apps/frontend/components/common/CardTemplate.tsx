@@ -1,0 +1,107 @@
+"use client";
+
+import type React from "react";
+import { useId } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import { useLanguage } from "@/providers/LanguageProvider";
+import type { LucideIcon } from "lucide-react";
+import { Edit } from "lucide-react";
+
+type CardTemplateProps = {
+    title: string;
+    description?: string;
+    badgeIcon: LucideIcon;
+    badgeText: string;
+    buttonText: string;
+    onSelect: () => void;
+    onEdit?: () => void;
+    children?: React.ReactNode;
+    disabled?: boolean;
+};
+
+export function CardTemplate({
+    title,
+    description,
+    badgeIcon: BadgeIcon,
+    badgeText,
+    buttonText,
+    onSelect,
+    onEdit,
+    children,
+    disabled = false,
+}: CardTemplateProps) {
+    const { t } = useLanguage();
+    const titleId = useId();
+
+    return (
+        <Card
+            role="group"
+            aria-labelledby={titleId}
+            tabIndex={disabled ? undefined : 0}
+            className={cn(
+                "flex h-full min-h-[255px] min-w-0 flex-col gap-0 overflow-hidden pb-0 transition-all",
+                !disabled &&
+                    "cursor-pointer hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                disabled && "pointer-events-none opacity-50"
+            )}
+            onClick={disabled ? undefined : onSelect}
+            onKeyDown={
+                disabled
+                    ? undefined
+                    : (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              onSelect();
+                          }
+                      }
+            }
+        >
+            <CardHeader className="min-w-0 px-6 pb-4 min-h-[76px]">
+                <CardTitle id={titleId} className="min-w-0 truncate text-lg font-semibold" title={title}>
+                    {title}
+                </CardTitle>
+                {description && (
+                    <CardDescription className="min-w-0 truncate" title={description}>
+                        {description}
+                    </CardDescription>
+                )}
+            </CardHeader>
+            <CardContent className="flex-1 px-6 pb-6 min-h-[80px]">{children}</CardContent>
+            <CardFooter className="flex items-center justify-between border-t bg-muted/50 px-6 py-3 pt-3!">
+                <Badge variant="outline" className="bg-background">
+                    <BadgeIcon className="mr-1 h-3 w-3" />
+                    {badgeText}
+                </Badge>
+                <div className="flex gap-2">
+                    {onEdit && (
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onEdit();
+                            }}
+                        >
+                            <Edit className="mr-1 h-3 w-3" />
+                            {t("edit")}
+                        </Button>
+                    )}
+                    <Button
+                        size="sm"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onSelect();
+                        }}
+                        disabled={disabled}
+                    >
+                        {buttonText}
+                    </Button>
+                </div>
+            </CardFooter>
+        </Card>
+    );
+}

@@ -8,6 +8,11 @@ on:
         paths:
             - "postgres/**"
             - "migrations/**"
+            - "drizzle.config.ts"
+            - "package.json"
+            - "bun.lock"
+            - "packages/db/src/tables/**"
+            - ".github/workflows/dev-build-postgres.yml"
 
 env:
     REGISTRY: ghcr.io
@@ -30,11 +35,11 @@ jobs:
                       context: ./postgres
                       file: ./postgres/Dockerfile
                       cache: postgres
-                    - name: postgres migration
-                      image: postgres-migration
+                    - name: migrations
+                      image: migrations
                       context: .
-                      file: ./postgres/Dockerfile.migration
-                      cache: postgres-migration
+                      file: ./migrations/Dockerfile
+                      cache: migrations
 
         steps:
             - name: Checkout code
