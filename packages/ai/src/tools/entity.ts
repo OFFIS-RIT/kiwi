@@ -1,11 +1,12 @@
 import { db } from "@kiwi/db";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { entityTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
-import { and, asc, eq, exists, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, cosineDistance, eq, exists, gt, inArray, sql } from "drizzle-orm";
 import { embed, tool } from "ai";
 import { withAiSlot } from "../concurrency";
 import {
     decodeCursor,
+    doubleLiteral,
     encodeCursor,
     EXACT_BOOST,
     greatest,
@@ -47,9 +48,9 @@ function buildExactBoostExpression(terms: string[]) {
         terms.map(
             (term) =>
                 sql`case
-                    when lower(e.name) = lower(${term}) then ${EXACT_BOOST}
-                    when e.name ilike ${`${term}%`} then ${PREFIX_BOOST}
-                    else 0
+                    when lower(e.name) = lower(${term}) then ${doubleLiteral(EXACT_BOOST)}
+                    when e.name ilike ${`${term}%`} then ${doubleLiteral(PREFIX_BOOST)}
+                    else 0::double precision
                 end`
         )
     );
@@ -109,6 +110,7 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
                         "if you only need a broad scan, use list_entities instead",
                     ],
                 },
+                { query, keywords, files, limit, cursor },
                 async () => {
                     const text = query.trim();
                     const terms = uniqueTerms([...(keywords ?? []), text]);
@@ -120,12 +122,11 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
                             value: text,
                         })
                     );
-                    const queryVector = JSON.stringify(embedding);
                     const fileScope = buildFileScopeExpression(fileIds);
                     const keywordBoost = buildKeywordBoostExpression(terms);
                     const exactBoost = buildExactBoostExpression(terms);
-                    const semanticScore = sql`greatest(0::double precision, 1 - (e.embedding <=> ${queryVector}::vector))`;
-                    const score = sql`${semanticScore} + (${keywordBoost} * ${KEYWORD_WEIGHT}) + ${exactBoost}`;
+                    const semanticScore = sql<number>`greatest(0::double precision, 1 - (${cosineDistance(sql`e.embedding`, embedding)}))`;
+                    const score = sql`${semanticScore} + (${keywordBoost} * ${doubleLiteral(KEYWORD_WEIGHT)}) + ${exactBoost}`;
                     const cursorFilter = next
                         ? sql`
                               and (
@@ -158,8 +159,8 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
                             ranked.score
                         from ranked
                         where (
-                            ranked.semantic_score >= ${MIN_SEMANTIC_SCORE}
-                            or ranked.keyword_boost >= ${MIN_KEYWORD_BOOST}
+                            ranked.semantic_score >= ${doubleLiteral(MIN_SEMANTIC_SCORE)}
+                            or ranked.keyword_boost >= ${doubleLiteral(MIN_KEYWORD_BOOST)}
                             or ranked.exact_boost > 0
                         )
                         ${cursorFilter}
@@ -213,6 +214,7 @@ export const listEntitiesTool = (graphId: string) =>
                         "reduce file filters if you only need a broad entity scan",
                     ],
                 },
+                { files, limit, cursor },
                 async () => {
                     const fileIds = uniqueTerms(files ?? []);
                     const clauses = [eq(entityTable.graphId, graphId), eq(entityTable.active, true)];

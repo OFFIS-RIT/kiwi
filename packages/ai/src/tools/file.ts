@@ -26,6 +26,7 @@ export const listFilesTool = (graphId: string) =>
                         "use a shorter partial file name or omit the name filter",
                     ],
                 },
+                { name, limit, cursor },
                 async () => {
                     const clauses = [eq(filesTable.graphId, graphId), eq(filesTable.deleted, false)];
 

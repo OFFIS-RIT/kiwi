@@ -15,7 +15,7 @@ import {
   getRelationshipsTool,
   searchRelationshipsTool,
 } from "./tools/relationship";
-import { getSourcesTool } from "./tools/source";
+import { getEntitySourcesTool, getRelationshipSourcesTool } from "./tools/source";
 import { askQuestionTool } from "./tools/user";
 import type { Adapter, EmbeddingAdapter } from "./index";
 import type { ChatMessageMetadata, ChatUIMessage } from "./ui";
@@ -96,7 +96,8 @@ export function buildChatTools(
     get_relationships: getRelationshipsTool(graphId),
     get_entity_neighbours: getNeighboursTool(graphId),
     get_path_between_entities: getPathBetweenTool(graphId),
-    get_sources: getSourcesTool(graphId, embeddingModel),
+    get_entity_sources: getEntitySourcesTool(graphId, embeddingModel),
+    get_relationship_sources: getRelationshipSourcesTool(graphId, embeddingModel),
     ask_clarifying_questions: askQuestionTool(),
   };
 }
