@@ -10,7 +10,7 @@ import {
     sourcesTable,
     textUnitTable,
 } from "@kiwi/db/tables/graph";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import z from "zod";
 import { S3Loader } from "@kiwi/graph/loader/s3";
@@ -52,12 +52,28 @@ async function updateFileProcessingState(fileId: string, processStep: FileProces
 }
 
 export const processFiles = defineWorkflow(processFilesSpec, async ({ input, step }) => {
+    await step.run({ name: "mark-files-pending" }, async () => {
+        if (input.fileIds.length === 0) {
+            return;
+        }
+
+        await db
+            .update(filesTable)
+            .set({
+                processStep: "pending",
+                status: "processing",
+            })
+            .where(and(eq(filesTable.graphId, input.graphId), inArray(filesTable.id, input.fileIds)));
+    });
+
     // Update project status
     await step.run({ name: "update-project-status" }, async () => {
         await db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId));
     });
 
-    await Promise.all(input.fileIds.map((fileId) => step.runWorkflow(processFile.spec, { graphId: input.graphId, fileId })));
+    await Promise.all(
+        input.fileIds.map((fileId) => step.runWorkflow(processFile.spec, { graphId: input.graphId, fileId }))
+    );
 
     const descriptionJobs = await step.run({ name: "generate-descriptions" }, async () => {
         const newEntities = await db
@@ -69,11 +85,20 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             .selectDistinct({ id: entityTable.id, name: entityTable.name, description: entityTable.description })
             .from(entityTable)
             .innerJoin(sourcesTable, eq(sourcesTable.entityId, entityTable.id))
-            .where(and(eq(entityTable.graphId, input.graphId), eq(entityTable.active, true), eq(sourcesTable.active, false)));
+            .where(
+                and(
+                    eq(entityTable.graphId, input.graphId),
+                    eq(entityTable.active, true),
+                    eq(sourcesTable.active, false)
+                )
+            );
         const updatedEntitiesMap = new Map(updatedEntitiesRaw.map((entity) => [entity.id, entity]));
         const updatedEntities = Array.from(updatedEntitiesMap.values());
 
-        const entityIdsToProcess = [...newEntities.map((entity) => entity.id), ...updatedEntities.map((entity) => entity.id)];
+        const entityIdsToProcess = [
+            ...newEntities.map((entity) => entity.id),
+            ...updatedEntities.map((entity) => entity.id),
+        ];
 
         const newRelationships = await db
             .select({
@@ -94,7 +119,11 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             .from(relationshipTable)
             .innerJoin(sourcesTable, eq(sourcesTable.relationshipId, relationshipTable.id))
             .where(
-                and(eq(relationshipTable.graphId, input.graphId), eq(relationshipTable.active, true), eq(sourcesTable.active, false))
+                and(
+                    eq(relationshipTable.graphId, input.graphId),
+                    eq(relationshipTable.active, true),
+                    eq(sourcesTable.active, false)
+                )
             );
         const updatedRelsMap = new Map(updatedRelsRaw.map((relationship) => [relationship.id, relationship]));
         const updatedRelationships = Array.from(updatedRelsMap.values());
@@ -139,50 +168,54 @@ export const processFile = defineWorkflow(
         }),
     },
     async ({ input, step }) => {
-        await step.run({ name: "mark-file-pending" }, async () => {
-            await updateFileProcessingState(input.fileId, "pending", "processing");
-        });
-
+        let fileData;
         try {
-            const [fileData] = await step.run({ name: "get-file-data" }, async () => {
+            [fileData] = await step.run({ name: "get-file-data" }, async () => {
                 return db
                     .select()
                     .from(filesTable)
                     .where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.id, input.fileId)))
                     .limit(1);
             });
-            if (!fileData) {
-                return;
-            }
+        } catch (error) {
+            await updateFileProcessingState(input.fileId, "failed", "failed");
+            throw error;
+        }
 
-            const client = getClient({
-                text: buildAdapter(
-                    env.AI_TEXT_ADAPTER,
-                    env.AI_TEXT_MODEL,
-                    env.AI_TEXT_KEY,
-                    env.AI_TEXT_URL,
-                    env.AI_TEXT_RESOURCE_NAME
-                ),
-                embedding: buildEmbeddingAdapter(
-                    env.AI_EMBEDDING_ADAPTER,
-                    env.AI_EMBEDDING_MODEL,
-                    env.AI_EMBEDDING_KEY,
-                    env.AI_EMBEDDING_URL,
-                    env.AI_EMBEDDING_RESOURCE_NAME
-                ),
-                image:
-                    env.AI_IMAGE_ADAPTER && env.AI_IMAGE_MODEL && env.AI_IMAGE_KEY
-                        ? buildAdapter(
-                              env.AI_IMAGE_ADAPTER,
-                              env.AI_IMAGE_MODEL,
-                              env.AI_IMAGE_KEY,
-                              env.AI_IMAGE_URL,
-                              env.AI_IMAGE_RESOURCE_NAME
-                          )
-                        : undefined,
-            });
+        if (!fileData) {
+            return;
+        }
 
-            const baseFile = await step.run({ name: "preprocess-file" }, async () => {
+        const client = getClient({
+            text: buildAdapter(
+                env.AI_TEXT_ADAPTER,
+                env.AI_TEXT_MODEL,
+                env.AI_TEXT_KEY,
+                env.AI_TEXT_URL,
+                env.AI_TEXT_RESOURCE_NAME
+            ),
+            embedding: buildEmbeddingAdapter(
+                env.AI_EMBEDDING_ADAPTER,
+                env.AI_EMBEDDING_MODEL,
+                env.AI_EMBEDDING_KEY,
+                env.AI_EMBEDDING_URL,
+                env.AI_EMBEDDING_RESOURCE_NAME
+            ),
+            image:
+                env.AI_IMAGE_ADAPTER && env.AI_IMAGE_MODEL && env.AI_IMAGE_KEY
+                    ? buildAdapter(
+                          env.AI_IMAGE_ADAPTER,
+                          env.AI_IMAGE_MODEL,
+                          env.AI_IMAGE_KEY,
+                          env.AI_IMAGE_URL,
+                          env.AI_IMAGE_RESOURCE_NAME
+                      )
+                    : undefined,
+        });
+
+        let baseFile;
+        try {
+            baseFile = await step.run({ name: "preprocess-file" }, async () => {
                 await updateFileProcessingState(input.fileId, "preprocessing", "processing");
                 const start = performance.now();
                 const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
@@ -285,8 +318,14 @@ export const processFile = defineWorkflow(
                     metadataExcerpt: buildMetadataExcerpt(text),
                 };
             });
+        } catch (error) {
+            await updateFileProcessingState(input.fileId, "failed", "failed");
+            throw error;
+        }
 
-            const metadataResult = await step.run({ name: "metadata" }, async () => {
+        let metadataResult;
+        try {
+            metadataResult = await step.run({ name: "metadata" }, async () => {
                 await updateFileProcessingState(input.fileId, "metadata", "processing");
                 const metadata = await buildMetadata(client.text!, fileData.name, baseFile.metadataExcerpt);
 
@@ -299,8 +338,14 @@ export const processFile = defineWorkflow(
                     metadata,
                 };
             });
+        } catch (error) {
+            await updateFileProcessingState(input.fileId, "failed", "failed");
+            throw error;
+        }
 
-            const unitsResult = await step.run({ name: "build-units" }, async () => {
+        let unitsResult;
+        try {
+            unitsResult = await step.run({ name: "build-units" }, async () => {
                 await updateFileProcessingState(input.fileId, "chunking", "processing");
                 const start = performance.now();
 
@@ -325,7 +370,12 @@ export const processFile = defineWorkflow(
                 const units = await createUnits(unitsFile);
 
                 const unitsPath = `graphs/${input.graphId}/workflows/${WORKFLOW_STORAGE_VERSION}/${input.fileId}`;
-                const uploadedUnitsFile = await putNamedFile("units.json", JSON.stringify(units), unitsPath, env.S3_BUCKET);
+                const uploadedUnitsFile = await putNamedFile(
+                    "units.json",
+                    JSON.stringify(units),
+                    unitsPath,
+                    env.S3_BUCKET
+                );
 
                 const duration = performance.now() - start;
 
@@ -334,8 +384,14 @@ export const processFile = defineWorkflow(
                     duration,
                 };
             });
+        } catch (error) {
+            await updateFileProcessingState(input.fileId, "failed", "failed");
+            throw error;
+        }
 
-            const graphResult = await step.run({ name: "build-graph" }, async () => {
+        let graphResult;
+        try {
+            graphResult = await step.run({ name: "build-graph" }, async () => {
                 await updateFileProcessingState(input.fileId, "extracting", "processing");
                 const start = performance.now();
 
@@ -353,7 +409,12 @@ export const processFile = defineWorkflow(
                 const graph = dedupe(mergedGraph);
 
                 const graphPath = `graphs/${input.graphId}/workflows/${WORKFLOW_STORAGE_VERSION}/${input.fileId}`;
-                const uploadedGraphFile = await putNamedFile("graph.json", JSON.stringify(graph), graphPath, env.S3_BUCKET);
+                const uploadedGraphFile = await putNamedFile(
+                    "graph.json",
+                    JSON.stringify(graph),
+                    graphPath,
+                    env.S3_BUCKET
+                );
 
                 const duration = performance.now() - start;
 
@@ -362,8 +423,14 @@ export const processFile = defineWorkflow(
                     duration,
                 };
             });
+        } catch (error) {
+            await updateFileProcessingState(input.fileId, "failed", "failed");
+            throw error;
+        }
 
-            const saveGraphResult = await step.run({ name: "save-graph" }, async () => {
+        let saveGraphResult;
+        try {
+            saveGraphResult = await step.run({ name: "save-graph" }, async () => {
                 await updateFileProcessingState(input.fileId, "deduplicating", "processing");
                 const start = performance.now();
 
@@ -428,44 +495,44 @@ export const processFile = defineWorkflow(
                 const insertedRelationshipIds = relationshipRows.map((relationship) => relationship.id);
 
                 const metrics = await db.transaction(async (tx) => {
-                const insertUnitsStart = performance.now();
-                for (const chunk of chunkItems(unitRows)) {
-                    await tx
-                        .insert(textUnitTable)
-                        .values(chunk)
-                        .onConflictDoUpdate({
-                            target: textUnitTable.id,
-                            set: {
-                                fileId: sql`excluded.file_id`,
-                                text: sql`excluded.text`,
-                                updatedAt: sql`NOW()`,
-                            },
-                        });
-                }
-                const insertUnitsDuration = performance.now() - insertUnitsStart;
+                    const insertUnitsStart = performance.now();
+                    for (const chunk of chunkItems(unitRows)) {
+                        await tx
+                            .insert(textUnitTable)
+                            .values(chunk)
+                            .onConflictDoUpdate({
+                                target: textUnitTable.id,
+                                set: {
+                                    fileId: sql`excluded.file_id`,
+                                    text: sql`excluded.text`,
+                                    updatedAt: sql`NOW()`,
+                                },
+                            });
+                    }
+                    const insertUnitsDuration = performance.now() - insertUnitsStart;
 
-                const insertEntitiesStart = performance.now();
-                for (const chunk of chunkItems(entityRows)) {
-                    await tx.insert(entityTable).values(chunk).onConflictDoNothing();
-                }
-                const insertEntitiesDuration = performance.now() - insertEntitiesStart;
+                    const insertEntitiesStart = performance.now();
+                    for (const chunk of chunkItems(entityRows)) {
+                        await tx.insert(entityTable).values(chunk).onConflictDoNothing();
+                    }
+                    const insertEntitiesDuration = performance.now() - insertEntitiesStart;
 
-                const insertRelationshipsStart = performance.now();
-                for (const chunk of chunkItems(relationshipRows)) {
-                    await tx.insert(relationshipTable).values(chunk).onConflictDoNothing();
-                }
-                for (const chunk of chunkItems(sourceRows)) {
-                    await tx.insert(sourcesTable).values(chunk).onConflictDoNothing();
-                }
-                const insertRelationshipsDuration = performance.now() - insertRelationshipsStart;
+                    const insertRelationshipsStart = performance.now();
+                    for (const chunk of chunkItems(relationshipRows)) {
+                        await tx.insert(relationshipTable).values(chunk).onConflictDoNothing();
+                    }
+                    for (const chunk of chunkItems(sourceRows)) {
+                        await tx.insert(sourcesTable).values(chunk).onConflictDoNothing();
+                    }
+                    const insertRelationshipsDuration = performance.now() - insertRelationshipsStart;
 
-                const dedupeEntitiesStart = performance.now();
-                if (insertedEntityIds.length > 0) {
-                    const entityIds = textArray(insertedEntityIds);
-                    const candidateNameKeySql = sql.raw(entityNameKey("candidate.name"));
-                    const seededNameKeySql = sql.raw(entityNameKey("seed.name"));
+                    const dedupeEntitiesStart = performance.now();
+                    if (insertedEntityIds.length > 0) {
+                        const entityIds = textArray(insertedEntityIds);
+                        const candidateNameKeySql = sql.raw(entityNameKey("candidate.name"));
+                        const seededNameKeySql = sql.raw(entityNameKey("seed.name"));
 
-                    await tx.execute(sql`
+                        await tx.execute(sql`
                         WITH seeded_keys AS (
                             SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                             FROM entities seed
@@ -491,7 +558,7 @@ export const processFile = defineWorkflow(
                           AND duplicates.id <> duplicates.canonical_id
                     `);
 
-                    await tx.execute(sql`
+                        await tx.execute(sql`
                         WITH seeded_keys AS (
                             SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                             FROM entities seed
@@ -518,7 +585,7 @@ export const processFile = defineWorkflow(
                           AND duplicates.id <> duplicates.canonical_id
                     `);
 
-                    await tx.execute(sql`
+                        await tx.execute(sql`
                         WITH seeded_keys AS (
                             SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                             FROM entities seed
@@ -545,7 +612,7 @@ export const processFile = defineWorkflow(
                           AND duplicates.id <> duplicates.canonical_id
                     `);
 
-                    await tx.execute(sql`
+                        await tx.execute(sql`
                         WITH seeded_keys AS (
                             SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                             FROM entities seed
@@ -569,20 +636,20 @@ export const processFile = defineWorkflow(
                         WHERE entity.id = duplicates.id
                           AND duplicates.id <> duplicates.canonical_id
                     `);
-                }
-                const dedupeEntitiesDuration = performance.now() - dedupeEntitiesStart;
+                    }
+                    const dedupeEntitiesDuration = performance.now() - dedupeEntitiesStart;
 
-                const dedupeRelationshipsStart = performance.now();
-                await tx.execute(sql`
+                    const dedupeRelationshipsStart = performance.now();
+                    await tx.execute(sql`
                     DELETE FROM relationships
                     WHERE graph_id = ${input.graphId}
                       AND source_id = target_id
                 `);
 
-                if (insertedRelationshipIds.length > 0) {
-                    const relationshipIds = textArray(insertedRelationshipIds);
+                    if (insertedRelationshipIds.length > 0) {
+                        const relationshipIds = textArray(insertedRelationshipIds);
 
-                    await tx.execute(sql`
+                        await tx.execute(sql`
                         WITH seeded_pairs AS (
                             SELECT DISTINCT
                                 least(relationship.source_id, relationship.target_id) AS pair_source_id,
@@ -628,7 +695,7 @@ export const processFile = defineWorkflow(
                           )
                     `);
 
-                    await tx.execute(sql`
+                        await tx.execute(sql`
                         WITH seeded_pairs AS (
                             SELECT DISTINCT
                                 least(relationship.source_id, relationship.target_id) AS pair_source_id,
@@ -656,7 +723,7 @@ export const processFile = defineWorkflow(
                           AND duplicates.id <> duplicates.canonical_id
                     `);
 
-                    await tx.execute(sql`
+                        await tx.execute(sql`
                         WITH seeded_pairs AS (
                             SELECT DISTINCT
                                 least(relationship.source_id, relationship.target_id) AS pair_source_id,
@@ -682,16 +749,16 @@ export const processFile = defineWorkflow(
                         WHERE relationship.id = duplicates.id
                           AND duplicates.id <> duplicates.canonical_id
                     `);
-                }
-                const dedupeRelationshipsDuration = performance.now() - dedupeRelationshipsStart;
+                    }
+                    const dedupeRelationshipsDuration = performance.now() - dedupeRelationshipsStart;
 
-                return {
-                    insertUnitsDuration,
-                    insertEntitiesDuration,
-                    insertRelationshipsDuration,
-                    dedupeEntitiesDuration,
-                    dedupeRelationshipsDuration,
-                };
+                    return {
+                        insertUnitsDuration,
+                        insertEntitiesDuration,
+                        insertRelationshipsDuration,
+                        dedupeEntitiesDuration,
+                        dedupeRelationshipsDuration,
+                    };
                 });
 
                 const duration = performance.now() - start;
@@ -702,27 +769,35 @@ export const processFile = defineWorkflow(
                     metrics,
                 };
             });
+        } catch (error) {
+            await updateFileProcessingState(input.fileId, "failed", "failed");
+            throw error;
+        }
 
+        try {
             await step.run({ name: "store-process-stats" }, async () => {
                 await db.insert(processStatsTable).values({
-                    totalTime: baseFile.duration + unitsResult.duration + graphResult.duration + saveGraphResult.duration,
+                    totalTime:
+                        baseFile.duration + unitsResult.duration + graphResult.duration + saveGraphResult.duration,
                     files: 1,
                     fileSizes: fileData.size,
                     tokenCount: baseFile.tokenCount,
                 });
             });
+        } catch (error) {
+            await updateFileProcessingState(input.fileId, "failed", "failed");
+            throw error;
+        }
 
+        try {
             await step.run({ name: "mark-file-complete" }, async () => {
                 await updateFileProcessingState(input.fileId, "completed", "processed");
             });
-
-            return saveGraphResult.graphKey;
         } catch (error) {
-            await step.run({ name: "mark-file-failed" }, async () => {
-                await updateFileProcessingState(input.fileId, "failed", "failed");
-            });
-
+            await updateFileProcessingState(input.fileId, "failed", "failed");
             throw error;
         }
+
+        return saveGraphResult.graphKey;
     }
 );
