@@ -22,7 +22,7 @@
         "@xmldom/xmldom": "^0.8.11",
         "ai": "catalog:",
         "jszip": "^3.10.1",
-        "pdf-to-img": "^5.0.0",
+        "pdf-to-img": "^6.0.0",
         "tiktoken": "^1.0.22",
         "ulid": "^3.0.2",
         "xlsx": "^0.18.5",
