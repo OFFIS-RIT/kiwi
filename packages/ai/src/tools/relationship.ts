@@ -1,11 +1,12 @@
 import { db } from "@kiwi/db";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { entityTable, relationshipTable } from "@kiwi/db/tables/graph";
-import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, cosineDistance, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { embed, tool } from "ai";
 import { withAiSlot } from "../concurrency";
 import {
     decodeCursor,
+    doubleLiteral,
     encodeCursor,
     EXACT_BOOST,
     greatest,
@@ -46,11 +47,11 @@ function buildRelationshipExactBoostExpression(terms: string[]) {
         terms.map(
             (term) =>
                 sql`case
-                    when lower(coalesce(source_entity.name, '')) = lower(${term}) then ${EXACT_BOOST}
-                    when lower(coalesce(target_entity.name, '')) = lower(${term}) then ${EXACT_BOOST}
-                    when coalesce(source_entity.name, '') ilike ${`${term}%`} then ${PREFIX_BOOST}
-                    when coalesce(target_entity.name, '') ilike ${`${term}%`} then ${PREFIX_BOOST}
-                    else 0
+                    when lower(coalesce(source_entity.name, '')) = lower(${term}) then ${doubleLiteral(EXACT_BOOST)}
+                    when lower(coalesce(target_entity.name, '')) = lower(${term}) then ${doubleLiteral(EXACT_BOOST)}
+                    when coalesce(source_entity.name, '') ilike ${`${term}%`} then ${doubleLiteral(PREFIX_BOOST)}
+                    when coalesce(target_entity.name, '') ilike ${`${term}%`} then ${doubleLiteral(PREFIX_BOOST)}
+                    else 0::double precision
                 end`
         )
     );
@@ -130,6 +131,7 @@ export const searchRelationshipsTool = (graphId: string, embeddingModel: Embeddi
                         "if you already know entity IDs, use get_relationships instead",
                     ],
                 },
+                { query, keywords, files, limit, cursor },
                 async () => {
                     const text = query.trim();
                     const terms = uniqueTerms([...(keywords ?? []), text]);
@@ -141,12 +143,11 @@ export const searchRelationshipsTool = (graphId: string, embeddingModel: Embeddi
                             value: text,
                         })
                     );
-                    const queryVector = JSON.stringify(embedding);
                     const fileScope = buildRelationshipFileScopeExpression(fileIds);
                     const keywordBoost = buildRelationshipKeywordBoostExpression(terms);
                     const exactBoost = buildRelationshipExactBoostExpression(terms);
-                    const semanticScore = sql`greatest(0::double precision, 1 - (r.embedding <=> ${queryVector}::vector))`;
-                    const score = sql`${semanticScore} + (${keywordBoost} * ${KEYWORD_WEIGHT}) + ${exactBoost}`;
+                    const semanticScore = sql<number>`greatest(0::double precision, 1 - (${cosineDistance(sql`r.embedding`, embedding)}))`;
+                    const score = sql`${semanticScore} + (${keywordBoost} * ${doubleLiteral(KEYWORD_WEIGHT)}) + ${exactBoost}`;
                     const cursorFilter = next
                         ? sql`
                               and (
@@ -187,8 +188,8 @@ export const searchRelationshipsTool = (graphId: string, embeddingModel: Embeddi
                             ranked.score
                         from ranked
                         where (
-                            ranked.semantic_score >= ${MIN_SEMANTIC_SCORE}
-                            or ranked.keyword_boost >= ${MIN_KEYWORD_BOOST}
+                            ranked.semantic_score >= ${doubleLiteral(MIN_SEMANTIC_SCORE)}
+                            or ranked.keyword_boost >= ${doubleLiteral(MIN_KEYWORD_BOOST)}
                             or ranked.exact_boost > 0
                         )
                         ${cursorFilter}
@@ -240,6 +241,7 @@ export const getRelationshipsTool = (graphId: string) =>
                         "if you need a broader lookup first, use search_relationships",
                     ],
                 },
+                { entityIds, limit, cursor },
                 async () => {
                     const ids = uniqueTerms(entityIds);
 
@@ -323,6 +325,7 @@ export const getNeighboursTool = (graphId: string) =>
                         "if the entity is unknown, search_entities first",
                     ],
                 },
+                { entityId, limit, cursor },
                 async () => {
                     const clauses = [
                         eq(relationshipTable.graphId, graphId),
@@ -403,6 +406,7 @@ export const getPathBetweenTool = (graphId: string) =>
                         "if either entity is uncertain, search_entities first",
                     ],
                 },
+                { sourceEntityId, targetEntityId },
                 async () => {
                     if (sourceEntityId === targetEntityId) {
                         const [entity] = await db

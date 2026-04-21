@@ -61,3 +61,7 @@ export function greatest(expressions: SQL[]) {
 
     return sql`greatest(${sql.join(expressions, sql`, `)})`;
 }
+
+export function doubleLiteral(value: number) {
+    return sql`${value}::double precision`;
+}
