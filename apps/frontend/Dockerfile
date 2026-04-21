@@ -32,7 +32,6 @@ COPY apps/frontend/lib apps/frontend/lib
 COPY apps/frontend/providers apps/frontend/providers
 COPY apps/frontend/public apps/frontend/public
 COPY apps/frontend/types apps/frontend/types
-COPY apps/frontend/next-env.d.ts apps/frontend/next-env.d.ts
 COPY apps/frontend/next.config.ts apps/frontend/next.config.ts
 COPY apps/frontend/components.json apps/frontend/components.json
 COPY apps/frontend/postcss.config.mjs apps/frontend/postcss.config.mjs
