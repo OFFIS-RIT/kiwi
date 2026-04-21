@@ -70,7 +70,7 @@ const CLIENT_TOOL_NAMES = new Set(["ask_clarifying_questions"]);
 
 export const AI_REQUEST_TIMEOUT_MS = 90 * 60 * 1000;
 
-function getRequestSignal(signal: AbortSignal | undefined): AbortSignal {
+function getRequestSignal(signal: AbortSignal | null | undefined): AbortSignal {
     const timeoutSignal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS);
 
     if (!signal) {
@@ -85,18 +85,21 @@ function getRequestSignal(signal: AbortSignal | undefined): AbortSignal {
 }
 
 export function createProviderFetch(fetchFn: typeof globalThis.fetch = globalThis.fetch): typeof globalThis.fetch {
-    return (input, init) => {
-        const nextInit: BunRequestInit = {
-            ...init,
-            signal: getRequestSignal(init?.signal),
-        };
+    return Object.assign(
+        (input: RequestInfo | URL, init?: BunRequestInit) => {
+            const nextInit: BunRequestInit = {
+                ...init,
+                signal: getRequestSignal(init?.signal),
+            };
 
-        if (typeof Bun !== "undefined") {
-            nextInit.timeout = false;
-        }
+            if (typeof Bun !== "undefined") {
+                nextInit.timeout = false;
+            }
 
-        return fetchFn(input, nextInit);
-    };
+            return fetchFn(input, nextInit);
+        },
+        fetchFn
+    );
 }
 
 const providerFetch = createProviderFetch();
