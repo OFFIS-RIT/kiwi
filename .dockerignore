@@ -11,6 +11,7 @@
 !apps/frontend/
 !apps/frontend/Dockerfile
 !apps/frontend/package.json
+!apps/frontend/next-env.d.ts
 !apps/frontend/next.config.ts
 !apps/frontend/components.json
 !apps/frontend/postcss.config.mjs

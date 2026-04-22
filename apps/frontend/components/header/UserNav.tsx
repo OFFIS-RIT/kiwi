@@ -6,13 +6,14 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { LogOut, Shield } from "lucide-react";
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { ThemeToggle } from "./ThemeToggle";
 
 const UserManagementSheet = lazy(() =>
@@ -25,6 +26,13 @@ export function UserNav() {
     const { t } = useLanguage();
     const { user, isAdmin, signOut } = useAuth();
     const [showUserManagement, setShowUserManagement] = useState(false);
+    const [ready, setReady] = useState(false);
+
+    useEffect(() => {
+        if (user) {
+            requestAnimationFrame(() => setReady(true));
+        }
+    }, [user]);
 
     const initials = user?.name
         ? user.name
@@ -39,14 +47,19 @@ export function UserNav() {
         <>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="gap-2 px-2">
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
                         <Avatar className="h-8 w-8">
-                            <AvatarFallback>{initials}</AvatarFallback>
+                            <AvatarFallback>
+                                <span className={`transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}>
+                                    {initials}
+                                </span>
+                            </AvatarFallback>
                         </Avatar>
-                        <span className="hidden md:inline">{user?.name ?? ""}</span>
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>{user?.name}</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
                     <ThemeToggle />
                     {isAdmin && (
                         <>

@@ -161,6 +161,7 @@ const translations = {
         clear: "Clear",
 
         // Theme
+        theme: "Theme",
         "theme.dark": "Dark mode",
         "theme.light": "Light mode",
 
@@ -446,6 +447,7 @@ const translations = {
         clear: "Löschen",
 
         // Theme
+        theme: "Design",
         "theme.dark": "Dunkelmodus",
         "theme.light": "Hellmodus",
 

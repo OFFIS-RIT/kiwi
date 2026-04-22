@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AuthProvider } from "@/providers/AuthProvider";
+import { ChatSessionsProvider } from "@/providers/ChatSessionsProvider";
 import { DataProvider } from "@/providers/DataProvider";
 import { LanguageProvider } from "@/providers/LanguageProvider";
 import { NavigationProvider } from "@/providers/NavigationProvider";
@@ -27,11 +28,13 @@ export function AppProviders({ children, defaultTheme = "light" }: AppProvidersP
                     <AuthProvider>
                         <QueryErrorBoundary>
                             <DataProvider>
-                                <SidebarExpansionProvider>
-                                    <NavigationProvider>
-                                        <SidebarProvider>{children}</SidebarProvider>
-                                    </NavigationProvider>
-                                </SidebarExpansionProvider>
+                                <ChatSessionsProvider>
+                                    <SidebarExpansionProvider>
+                                        <NavigationProvider>
+                                            <SidebarProvider>{children}</SidebarProvider>
+                                        </NavigationProvider>
+                                    </SidebarExpansionProvider>
+                                </ChatSessionsProvider>
                             </DataProvider>
                         </QueryErrorBoundary>
                     </AuthProvider>

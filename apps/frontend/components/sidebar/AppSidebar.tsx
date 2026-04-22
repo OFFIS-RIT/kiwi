@@ -83,6 +83,7 @@ export function AppSidebar({
 
     const [showSearch, setShowSearch] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [ready, setReady] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
 
     const originalExpandedStateRef = useRef<Record<string, boolean>>({});
@@ -168,6 +169,12 @@ export function AppSidebar({
     useEffect(() => {
         expandedGroupsRef.current = expandedGroups;
     }, [expandedGroups]);
+
+    useEffect(() => {
+        if (!isLoading && !error) {
+            requestAnimationFrame(() => setReady(true));
+        }
+    }, [isLoading, error]);
 
     useEffect(() => {
         if (groups.length > 0) {
@@ -325,9 +332,7 @@ export function AppSidebar({
                 <SidebarGroup>
                     <SidebarGroupLabel>{t("knowledge.groups")}</SidebarGroupLabel>
                     <SidebarGroupContent>
-                        {isLoading ? (
-                            <div className="px-2 py-4 text-center text-sm text-muted-foreground">{t("loading")}</div>
-                        ) : error ? (
+                        {error ? (
                             <div className="px-2 py-4 text-center text-sm text-destructive">{error}</div>
                         ) : isSearching && searchResults.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
@@ -335,10 +340,10 @@ export function AppSidebar({
                                 <p className="text-sm font-medium text-muted-foreground">{t("no.search.results")}</p>
                                 <p className="text-xs text-muted-foreground/70 mt-1">{t("search.try.different")}</p>
                             </div>
-                        ) : groups.length === 0 ? (
+                        ) : !isLoading && groups.length === 0 ? (
                             <div className="px-2 py-4 text-center text-sm text-muted-foreground">{t("no.groups")}</div>
-                        ) : (
-                            <ScrollArea className="h-[calc(100vh-12rem)]">
+                        ) : groups.length > 0 ? (
+                            <ScrollArea className={`h-[calc(100vh-12rem)] transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}>
                                 <SidebarMenu>
                                     {displayGroups.map((group) => (
                                         <GroupItem
@@ -367,7 +372,7 @@ export function AppSidebar({
                                     ))}
                                 </SidebarMenu>
                             </ScrollArea>
-                        )}
+                        ) : null}
                     </SidebarGroupContent>
                 </SidebarGroup>
             </SidebarContent>

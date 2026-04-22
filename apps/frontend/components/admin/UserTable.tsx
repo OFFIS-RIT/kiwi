@@ -6,11 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+    type SearchableFields,
+    compactUserSearch,
+    createSearchIndex,
+    fuzzySearchUsers,
+    normalizeUserSearch,
+} from "@/lib/user-search";
 import { authClient } from "@kiwi/auth/client";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { Ban, ChevronLeft, ChevronRight, Loader2, Pencil, Search, ShieldCheck } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { EditUserDialog } from "./EditUserDialog";
 
@@ -22,6 +29,8 @@ export type User = {
     banned: boolean;
     banReason?: string;
 };
+
+type SearchableUser = User & SearchableFields;
 
 function getInitials(name: string): string {
     return name
@@ -36,64 +45,85 @@ function getInitials(name: string): string {
 export function UserTable() {
     const { t } = useLanguage();
     const { user: currentUser } = useAuth();
-    const [users, setUsers] = useState<User[]>([]);
+    const [allUsers, setAllUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchValue, setSearchValue] = useState("");
-    const [debouncedSearch, setDebouncedSearch] = useState("");
-    const [total, setTotal] = useState(0);
     const [offset, setOffset] = useState(0);
     const [editingUser, setEditingUser] = useState<User | null>(null);
 
     const limit = 20;
 
-    useEffect(() => {
-        const id = setTimeout(() => setDebouncedSearch(searchValue), 300);
-        return () => clearTimeout(id);
-    }, [searchValue]);
-
-    const fetchUsers = useCallback(async () => {
+    const loadAllUsers = useCallback(async () => {
         setLoading(true);
 
         try {
-            const { data, error } = await authClient.admin.listUsers({
-                query: {
-                    limit,
-                    offset,
-                    ...(debouncedSearch
-                        ? {
-                              searchValue: debouncedSearch,
-                              searchField: "name" as const,
-                              searchOperator: "contains" as const,
-                          }
-                        : {}),
-                },
-            });
+            const pageSize = 100;
+            let fetchOffset = 0;
+            let total = Number.POSITIVE_INFINITY;
+            const users: User[] = [];
 
-            if (error) {
-                throw error;
+            while (fetchOffset < total) {
+                const { data, error } = await authClient.admin.listUsers({
+                    query: {
+                        limit: pageSize,
+                        offset: fetchOffset,
+                    },
+                });
+
+                if (error) {
+                    throw error;
+                }
+
+                users.push(
+                    ...(data?.users ?? []).map((user) => ({
+                        id: user.id,
+                        name: user.name ?? "",
+                        email: user.email ?? "",
+                        role: user.role ?? "user",
+                        banned: user.banned ?? false,
+                        banReason: (user as { banReason?: string }).banReason,
+                    }))
+                );
+
+                total = data?.total ?? users.length;
+                if ((data?.users ?? []).length < pageSize) {
+                    break;
+                }
+
+                fetchOffset += pageSize;
             }
 
-            setUsers(
-                (data?.users ?? []).map((user) => ({
-                    id: user.id,
-                    name: user.name ?? "",
-                    email: user.email ?? "",
-                    role: user.role ?? "user",
-                    banned: user.banned ?? false,
-                    banReason: (user as { banReason?: string }).banReason,
-                }))
-            );
-            setTotal(data?.total ?? 0);
+            setAllUsers(users);
         } catch {
             toast.error(t("error.loading.users"));
         } finally {
             setLoading(false);
         }
-    }, [debouncedSearch, offset, t]);
+    }, [t]);
 
     useEffect(() => {
-        void fetchUsers();
-    }, [fetchUsers]);
+        void loadAllUsers();
+    }, [loadAllUsers]);
+
+    const searchableUsers = useMemo<SearchableUser[]>(
+        () =>
+            allUsers.map((user) => ({
+                ...user,
+                normalizedName: normalizeUserSearch(user.name),
+                compactName: compactUserSearch(user.name),
+            })),
+        [allUsers]
+    );
+
+    const searchIndex = useMemo(() => createSearchIndex(searchableUsers), [searchableUsers]);
+
+    const filteredUsers = useMemo(
+        () => fuzzySearchUsers(searchableUsers, searchIndex, searchValue),
+        [searchableUsers, searchIndex, searchValue]
+    );
+
+    const displayedUsers = filteredUsers.slice(offset, offset + limit);
+    const totalFiltered = filteredUsers.length;
 
     const handleRoleChange = async (userId: string, newRole: string) => {
         if (userId === currentUser?.id) {
@@ -111,7 +141,7 @@ export function UserTable() {
                 throw error;
             }
 
-            await fetchUsers();
+            await loadAllUsers();
         } catch {
             toast.error(t("error.saving"));
         }
@@ -132,14 +162,14 @@ export function UserTable() {
                 throw error;
             }
 
-            await fetchUsers();
+            await loadAllUsers();
         } catch {
             toast.error(t("error.saving"));
         }
     };
 
     const currentPage = Math.floor(offset / limit) + 1;
-    const totalPages = Math.ceil(total / limit);
+    const totalPages = Math.max(1, Math.ceil(totalFiltered / limit));
 
     return (
         <div className="space-y-3">
@@ -160,11 +190,11 @@ export function UserTable() {
                 <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
-            ) : users.length === 0 ? (
+            ) : displayedUsers.length === 0 ? (
                 <p className="py-12 text-center text-sm text-muted-foreground">{t("admin.no.users")}</p>
             ) : (
                 <div className="space-y-1">
-                    {users.map((user, index) => (
+                    {displayedUsers.map((user, index) => (
                         <div key={user.id}>
                             <div className="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50">
                                 <Avatar className="h-9 w-9 shrink-0">
@@ -233,13 +263,13 @@ export function UserTable() {
                                     </Button>
                                 </div>
                             </div>
-                            {index < users.length - 1 && <Separator className="mx-3" />}
+                            {index < displayedUsers.length - 1 && <Separator className="mx-3" />}
                         </div>
                     ))}
                 </div>
             )}
 
-            {total > limit && (
+            {totalFiltered > limit && (
                 <div className="flex items-center justify-between pt-1">
                     <Button
                         variant="ghost"
@@ -256,7 +286,7 @@ export function UserTable() {
                     <Button
                         variant="ghost"
                         size="sm"
-                        disabled={offset + limit >= total}
+                        disabled={offset + limit >= totalFiltered}
                         onClick={() => setOffset((value) => value + limit)}
                     >
                         {t("admin.next")}
@@ -272,7 +302,7 @@ export function UserTable() {
                         setEditingUser(null);
                     }
                 }}
-                onUpdated={() => void fetchUsers()}
+                onUpdated={() => void loadAllUsers()}
             />
         </div>
     );

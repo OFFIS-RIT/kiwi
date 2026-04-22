@@ -8,12 +8,16 @@ import {
     BreadcrumbPage,
     BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useLanguage } from "@/providers/LanguageProvider";
 import { useNavigation } from "@/providers/NavigationProvider";
 
-export function BreadcrumbNav() {
+type BreadcrumbNavProps = {
+    ready?: boolean;
+};
+
+export function BreadcrumbNav({ ready = true }: BreadcrumbNavProps) {
     const { selectedGroup, selectedProject, selectItem, showAllGroups, showGroups } = useNavigation();
-    const { t } = useLanguage();
+
+    const fadeClass = `transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`;
 
     return (
         <Breadcrumb className="min-w-0 w-full overflow-hidden">
@@ -36,8 +40,8 @@ export function BreadcrumbNav() {
                                 KIWI
                             </BreadcrumbLink>
                         </BreadcrumbItem>
-                        <BreadcrumbSeparator className="shrink-0" />
-                        <BreadcrumbItem className="min-w-0 shrink">
+                        <BreadcrumbSeparator className={`shrink-0 ${fadeClass}`} />
+                        <BreadcrumbItem className={`min-w-0 shrink ${fadeClass}`}>
                             <BreadcrumbLink
                                 className="block max-w-full truncate"
                                 href="#"
@@ -52,8 +56,8 @@ export function BreadcrumbNav() {
                         </BreadcrumbItem>
                         {selectedProject && (
                             <>
-                                <BreadcrumbSeparator className="shrink-0" />
-                                <BreadcrumbItem className="min-w-0 shrink">
+                                <BreadcrumbSeparator className={`shrink-0 ${fadeClass}`} />
+                                <BreadcrumbItem className={`min-w-0 shrink ${fadeClass}`}>
                                     <BreadcrumbPage className="block max-w-full truncate" title={selectedProject.name}>
                                         {selectedProject.name}
                                     </BreadcrumbPage>
@@ -62,8 +66,8 @@ export function BreadcrumbNav() {
                         )}
                     </>
                 ) : (
-                    <BreadcrumbItem className="min-w-0">
-                        <BreadcrumbPage className="block max-w-full truncate">{t("select.group")}</BreadcrumbPage>
+                    <BreadcrumbItem className="shrink-0">
+                        <BreadcrumbLink href="#">KIWI</BreadcrumbLink>
                     </BreadcrumbItem>
                 )}
             </BreadcrumbList>
