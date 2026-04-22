@@ -1,5 +1,4 @@
-import { hasRole } from "@kiwi/auth/permissions";
-import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
 import { db } from "@kiwi/db";
@@ -7,7 +6,6 @@ import {
     filesTable,
     graphTable,
     groupTable,
-    groupUserTable,
     processRunFilesTable,
     processRunsTable,
     textUnitTable,
@@ -19,6 +17,7 @@ import { processFilesSpec } from "@kiwi/worker/process-files-spec";
 import { env } from "../env";
 import { chunk } from "../lib/array";
 import { collectGraphClosure } from "../lib/graph";
+import { listAccessibleGraphs } from "../lib/graph-list";
 import { mapUnitError } from "../lib/unit";
 import {
     assertCanCreateUnderParentGraph,
@@ -33,11 +32,9 @@ import {
     cleanupUploadedKeys,
     cleanupFailedGraphCreation,
     mapGraphError,
-    mapGraphListItemsWithProcessing,
     toGraphFileRecord,
     restoreGraphFileChangeFailure,
     selectFileFields,
-    selectGraphListFields,
     selectGraphDetailFileFields,
     uniqueFilesByChecksum,
     type CreatedFileRecord,
@@ -59,35 +56,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            const graphsResult = await Result.tryPromise(async () => {
-                if (hasRole(user.role, "admin")) {
-                    const graphs = await db
-                        .select(selectGraphListFields)
-                        .from(graphTable)
-                        .where(
-                            and(isNotNull(graphTable.groupId), isNull(graphTable.graphId), eq(graphTable.hidden, false))
-                        )
-                        .orderBy(asc(graphTable.groupId), asc(graphTable.name));
-
-                    return mapGraphListItemsWithProcessing(graphs);
-                }
-
-                const graphs = await db
-                    .select(selectGraphListFields)
-                    .from(graphTable)
-                    .innerJoin(groupUserTable, eq(groupUserTable.groupId, graphTable.groupId))
-                    .where(
-                        and(
-                            eq(groupUserTable.userId, user.id),
-                            isNotNull(graphTable.groupId),
-                            isNull(graphTable.graphId),
-                            eq(graphTable.hidden, false)
-                        )
-                    )
-                    .orderBy(asc(graphTable.groupId), asc(graphTable.name));
-
-                return mapGraphListItemsWithProcessing(graphs);
-            });
+            const graphsResult = await Result.tryPromise(async () => listAccessibleGraphs(user));
 
             if (graphsResult.isErr()) {
                 return mapGraphError(status, graphsResult.error);
