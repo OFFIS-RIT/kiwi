@@ -388,7 +388,7 @@ function ProjectChatShellSkeleton({ projectName, groupName }: { projectName: str
                         >
                             <RotateCcw className="h-4 w-4" />
                         </Button>
-                        <Button variant="outline" disabled className="h-8 w-9 px-0" aria-label="Vorlagen">
+                        <Button variant="outline" disabled className="h-8 w-9 px-0" aria-label={t("chat.templates")}>
                             <FileText className="h-4 w-4" />
                         </Button>
                     </div>
@@ -739,7 +739,7 @@ function ProjectChatSession({
                             onClick={() => setIsTemplateSidebarOpen((previous) => !previous)}
                             aria-pressed={isTemplateSidebarOpen}
                             className="h-8 w-9 px-0"
-                            aria-label="Vorlagen"
+                            aria-label={t("chat.templates")}
                         >
                             <FileText className="h-4 w-4" />
                         </Button>

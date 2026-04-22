@@ -120,6 +120,9 @@ const translations = {
         "thinking.collapsed": "Thought for {seconds} seconds",
         "thinking.show": "Show reasoning",
         "thinking.processing": "Thinking...",
+        "chat.templates": "Templates",
+        "chat.templates.description": "Insert a prompt into the input field and adjust it.",
+        "chat.template.insert": "Insert template \"{title}\"",
 
         // Process Steps
         "process.queued": "Queued",
@@ -406,6 +409,9 @@ const translations = {
         "thinking.collapsed": "Gedacht für {seconds} Sekunden",
         "thinking.show": "Reasoning anzeigen",
         "thinking.processing": "Denkt nach...",
+        "chat.templates": "Vorlagen",
+        "chat.templates.description": "Füge einen Vorschlag in das Eingabefeld ein und passe ihn an.",
+        "chat.template.insert": "Vorlage \"{title}\" einfügen",
 
         // Process Steps
         "process.queued": "In Warteschlange",
