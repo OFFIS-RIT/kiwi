@@ -9,6 +9,7 @@ import { Tiktoken } from "js-tiktoken/lite";
 import o200k_base from "js-tiktoken/ranks/o200k_base";
 import { prepareCitationFencesForModel } from "./citation";
 export * from "./concurrency";
+export * from "./mcp";
 
 type BunRequestInit = RequestInit & {
     timeout?: false;

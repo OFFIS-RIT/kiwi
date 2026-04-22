@@ -69,6 +69,7 @@ export const auth = betterAuth({
             account: authTables.accountTable,
             verification: authTables.verificationTable,
             session: authTables.sessionTable,
+            apikey: authTables.apikey,
         },
     }),
     trustedOrigins: trustedOrigins.length > 0 ? trustedOrigins : undefined,
@@ -118,6 +119,9 @@ export const auth = betterAuth({
         apiKey({
             defaultPrefix: "kiwi_",
             enableSessionForAPIKeys: true,
+            rateLimit: {
+                enabled: false,
+            },
         }),
         adminPlugin({
             ac: ac,

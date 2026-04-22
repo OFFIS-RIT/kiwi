@@ -8,6 +8,7 @@ import { authRoute } from "./routes/auth";
 import { chatRoute } from "./routes/chat";
 import { graphRoute } from "./routes/graph";
 import { groupRoute } from "./routes/group";
+import { mcpRoute } from "./routes/mcp";
 
 initLogger();
 
@@ -34,6 +35,7 @@ const app = new Elysia({
                 : undefined
         )
     )
+    .use(mcpRoute)
     .use(authMiddleware)
     .use(authRoute)
     .use(chatRoute)

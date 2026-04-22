@@ -1,20 +1,25 @@
 import {
     buildAdapter,
     buildEmbeddingAdapter,
+    buildMcpResearchToolset,
     buildServerAndClientToolset,
     buildServerToolset,
     buildSubagentToolset,
     getClient,
+    isResolvedCitationFence,
     messagePartsToUIMessage,
     toUIMessage,
     type ChatMessageMetadata,
     type ChatUIMessage,
+    type CitationFence,
+    type GraphToolsetOptions,
     type ResolvedCitationFence,
     uiMessageToMessageParts,
 } from "@kiwi/ai";
 import { db } from "@kiwi/db";
 import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { getPresignedDownloadUrl } from "@kiwi/files";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { env } from "../env";
 import { API_ERROR_CODES, errorResponse } from "../types";
@@ -25,9 +30,20 @@ type RouteStatus = (code: number, body: unknown) => unknown;
 export type ChatRequest = ChatRequestBody;
 
 type StartReplyOptions = {
-    includeClientTools: boolean;
+    toolset: "server" | "server-and-client" | "mcp";
     deep?: boolean;
 };
+
+function buildBaseToolset(options: GraphToolsetOptions, toolset: StartReplyOptions["toolset"]) {
+    switch (toolset) {
+        case "server-and-client":
+            return buildServerAndClientToolset(options);
+        case "mcp":
+            return buildMcpResearchToolset(options);
+        case "server":
+            return buildServerToolset(options);
+    }
+}
 
 export function toAssistantReply(assistantId: string, parts: MessagePart[], metadata: ChatMessageMetadata) {
     return messagePartsToUIMessage(
@@ -161,20 +177,10 @@ async function syncMessages(chatId: string, messages: ChatUIMessage[]) {
     }
 }
 
-export async function startReply(userId: string, graphId: string, request: ChatRequest, options: StartReplyOptions) {
-    await ensureChat(userId, graphId, request);
-    await syncMessages(request.id, request.messages);
-
-    const assistantId = crypto.randomUUID();
-    await db.insert(messageTable).values({
-        id: assistantId,
-        chatId: request.id,
-        role: "assistant",
-        status: "pending",
-        parts: [],
-    });
-    await touchChat(request.id);
-
+export async function getGraphResearchRuntime(
+    graphId: string,
+    options: StartReplyOptions = { toolset: "server-and-client" }
+) {
     const [promptRow] = await db
         .select({ prompt: systemPromptsTable.prompt })
         .from(systemPromptsTable)
@@ -211,9 +217,7 @@ export async function startReply(userId: string, graphId: string, request: ChatR
     }
 
     const toolsetOptions = { graphId, embeddingModel: client.embedding };
-    const baseToolset = options.includeClientTools
-        ? buildServerAndClientToolset(toolsetOptions)
-        : buildServerToolset(toolsetOptions);
+    const baseToolset = buildBaseToolset(toolsetOptions, options.toolset);
     const tools = options.deep
         ? {
               ...baseToolset,
@@ -226,10 +230,31 @@ export async function startReply(userId: string, graphId: string, request: ChatR
         : baseToolset;
 
     return {
-        assistantId,
         client,
         tools,
         prompt: promptRow?.prompt ?? undefined,
+    };
+}
+
+export async function startReply(userId: string, graphId: string, request: ChatRequest, options: StartReplyOptions) {
+    await ensureChat(userId, graphId, request);
+    await syncMessages(request.id, request.messages);
+
+    const assistantId = crypto.randomUUID();
+    await db.insert(messageTable).values({
+        id: assistantId,
+        chatId: request.id,
+        role: "assistant",
+        status: "pending",
+        parts: [],
+    });
+    await touchChat(request.id);
+
+    const runtime = await getGraphResearchRuntime(graphId, options);
+
+    return {
+        assistantId,
+        ...runtime,
     };
 }
 
@@ -258,6 +283,21 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
         fileName: row.fileName,
         fileKey: row.fileKey,
     };
+}
+
+export async function resolveCitationDocumentLink(graphId: string, citation: CitationFence) {
+    const resolvedCitation = isResolvedCitationFence(citation)
+        ? citation
+        : await enrichCitation(graphId, citation.sourceId);
+
+    if (!resolvedCitation) {
+        return "[source unavailable]";
+    }
+
+    const url = getPresignedDownloadUrl(resolvedCitation.fileKey, env.S3_BUCKET);
+    const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
+
+    return `[${label}](${url})`;
 }
 
 export async function loadChatHistory(userId: string, graphId: string, chatId: string) {
