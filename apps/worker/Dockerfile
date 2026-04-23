@@ -3,6 +3,8 @@ FROM oven/bun:1
 WORKDIR /app
 
 COPY package.json bun.lock ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/frontend/package.json apps/frontend/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/ai/package.json packages/ai/package.json
 COPY packages/auth/package.json packages/auth/package.json
