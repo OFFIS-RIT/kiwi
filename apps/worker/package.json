@@ -22,10 +22,10 @@
         "drizzle-orm": "catalog:",
         "openworkflow": "catalog:",
         "postgres": "catalog:",
-        "zod": "catalog:"
+        "zod": "catalog:",
+        "@openworkflow/cli": "^0.4.3"
     },
     "devDependencies": {
-        "@openworkflow/cli": "^0.4.3",
         "@openworkflow/dashboard": "^0.1.9",
         "@types/bun": "catalog:"
     },
