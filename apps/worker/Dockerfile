@@ -11,7 +11,7 @@ COPY packages/files/package.json packages/files/package.json
 COPY packages/graph/package.json packages/graph/package.json
 COPY packages/logger/package.json packages/logger/package.json
 
-RUN bun install
+RUN bun install --frozen-lockfile
 
 COPY apps/worker/index.ts apps/worker/index.ts
 COPY apps/worker/env.ts apps/worker/env.ts
