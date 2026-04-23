@@ -158,7 +158,7 @@ services:
         image: ghcr.io/offis-rit/kiwi/migrations:latest
         restart: "no"
         environment:
-            DATABASE_URL: ${DATABASE_DIRECT_URL:-postgresql://kiwi:kiwi@postgres:5432/kiwi?sslmode=disable}
+            DATABASE_URL: "postgresql://kiwi:kiwi@postgres:5432/kiwi?sslmode=disable"
         depends_on:
             postgres:
                 condition: service_healthy

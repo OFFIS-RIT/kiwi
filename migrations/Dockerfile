@@ -8,4 +8,4 @@ COPY drizzle.config.ts ./
 COPY migrations migrations
 COPY packages/db/src/tables packages/db/src/tables
 
-CMD ["bun", "node_modules/.bin/drizzle-kit", "migrate"]
+CMD ["bunx", "drizzle-kit", "migrate"]
