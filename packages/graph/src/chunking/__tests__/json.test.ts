@@ -48,12 +48,4 @@ describe("JSONChunker", () => {
         expect(chunks).toEqual([input]);
     });
 
-    test("throws for an invalid encoder", async () => {
-        const chunker = new JSONChunker({
-            maxChunkSize: 10,
-            encoder: "invalid_encoder",
-        });
-
-        expect(chunker.getChunks('{"key":"value"}')).rejects.toThrow();
-    });
 });

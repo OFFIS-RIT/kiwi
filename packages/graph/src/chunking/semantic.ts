@@ -1,5 +1,6 @@
 import type { GraphChunker } from "..";
-import { get_encoding } from "tiktoken";
+import { Tiktoken } from "js-tiktoken/lite";
+import o200k_base from "js-tiktoken/ranks/o200k_base";
 
 const MARKDOWN_TABLE_DELIMITER_PATTERN = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
 const MARKDOWN_HEADING_PATTERN = /^\s{0,3}#{1,6}\s*\S+/;
@@ -42,7 +43,7 @@ type Segment = {
     tableId: number;
 };
 
-type TokenEncoder = ReturnType<typeof get_encoding>;
+type TokenEncoder = Tiktoken;
 
 class TokenCounter {
     private readonly cache = new Map<string, number>();
@@ -67,10 +68,7 @@ class TokenCounter {
 }
 
 export class SemanticChunker implements GraphChunker {
-    constructor(
-        private readonly maxChunkSize: number,
-        private readonly encoderName = "o200k_base"
-    ) {}
+    constructor(private readonly maxChunkSize: number) {}
 
     async getChunks(input: string): Promise<string[]> {
         const text = input.trim();
@@ -78,17 +76,13 @@ export class SemanticChunker implements GraphChunker {
             return [];
         }
 
-        const encoder = get_encoding(this.encoderName as Parameters<typeof get_encoding>[0]);
+        const encoder = new Tiktoken(o200k_base);
 
-        try {
-            const counter = new TokenCounter(encoder);
-            let chunks = chunkTextRecursively(text, counter, this.maxChunkSize, SemanticSplitLevel.DoubleEmpty);
-            chunks = mergeTinyChunks(chunks, counter, this.maxChunkSize);
+        const counter = new TokenCounter(encoder);
+        let chunks = chunkTextRecursively(text, counter, this.maxChunkSize, SemanticSplitLevel.DoubleEmpty);
+        chunks = mergeTinyChunks(chunks, counter, this.maxChunkSize);
 
-            return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk !== "");
-        } finally {
-            encoder.free();
-        }
+        return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk !== "");
     }
 }
 

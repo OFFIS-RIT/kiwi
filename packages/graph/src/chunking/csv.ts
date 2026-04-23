@@ -1,18 +1,16 @@
 import type { GraphChunker } from "..";
-import { get_encoding } from "tiktoken";
+import { Tiktoken } from "js-tiktoken/lite";
+import o200k_base from "js-tiktoken/ranks/o200k_base";
 
 type CSVChunkerOptions = {
     maxChunkSize: number;
-    encoder?: string;
 };
 
 export class CSVChunker implements GraphChunker {
     private readonly maxChunkSize: number;
-    private readonly encoderName: string;
 
     constructor(options: CSVChunkerOptions) {
         this.maxChunkSize = options.maxChunkSize;
-        this.encoderName = options.encoder ?? "o200k_base";
     }
 
     async getChunks(input: string): Promise<string[]> {
@@ -21,53 +19,49 @@ export class CSVChunker implements GraphChunker {
             return [];
         }
 
-        const encoder = get_encoding(this.encoderName as Parameters<typeof get_encoding>[0]);
+        const encoder = new Tiktoken(o200k_base);
 
-        try {
-            const rows = text.split("\n");
-            if (rows.length === 0) {
-                return [];
-            }
-
-            const hasHeader = isCSVHeader(rows);
-            if (rows.length === 1) {
-                return [rows[0]!];
-            }
-
-            const headerRow = hasHeader ? rows[0]! : "";
-            const dataRows = hasHeader ? rows.slice(1) : rows;
-            const chunks: string[] = [];
-            let currentRows: string[] = [];
-            let currentTokens = 0;
-
-            const flushChunk = () => {
-                if (currentRows.length === 0) {
-                    return;
-                }
-
-                const chunk = hasHeader ? `${headerRow}\n${currentRows.join("\n")}` : currentRows.join("\n");
-
-                chunks.push(chunk);
-                currentRows = [];
-                currentTokens = 0;
-            };
-
-            for (const row of dataRows) {
-                const rowTokens = encoder.encode(row).length + 1;
-
-                if (currentTokens + rowTokens > this.maxChunkSize && currentRows.length > 0) {
-                    flushChunk();
-                }
-
-                currentRows.push(row);
-                currentTokens += rowTokens;
-            }
-
-            flushChunk();
-            return chunks;
-        } finally {
-            encoder.free();
+        const rows = text.split("\n");
+        if (rows.length === 0) {
+            return [];
         }
+
+        const hasHeader = isCSVHeader(rows);
+        if (rows.length === 1) {
+            return [rows[0]!];
+        }
+
+        const headerRow = hasHeader ? rows[0]! : "";
+        const dataRows = hasHeader ? rows.slice(1) : rows;
+        const chunks: string[] = [];
+        let currentRows: string[] = [];
+        let currentTokens = 0;
+
+        const flushChunk = () => {
+            if (currentRows.length === 0) {
+                return;
+            }
+
+            const chunk = hasHeader ? `${headerRow}\n${currentRows.join("\n")}` : currentRows.join("\n");
+
+            chunks.push(chunk);
+            currentRows = [];
+            currentTokens = 0;
+        };
+
+        for (const row of dataRows) {
+            const rowTokens = encoder.encode(row).length + 1;
+
+            if (currentTokens + rowTokens > this.maxChunkSize && currentRows.length > 0) {
+                flushChunk();
+            }
+
+            currentRows.push(row);
+            currentTokens += rowTokens;
+        }
+
+        flushChunk();
+        return chunks;
     }
 }
 

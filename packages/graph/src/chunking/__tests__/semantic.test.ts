@@ -54,9 +54,4 @@ describe("SemanticChunker", () => {
         expect(chunks.some((chunk) => chunk.includes("01.01.2024."))).toBe(true);
     });
 
-    test("throws for an invalid encoder", async () => {
-        const chunker = new SemanticChunker(10, "invalid_encoder");
-
-        expect(chunker.getChunks("Hello world.")).rejects.toThrow();
-    });
 });

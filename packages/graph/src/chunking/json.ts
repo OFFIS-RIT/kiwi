@@ -1,20 +1,18 @@
 import type { GraphChunker } from "..";
-import { get_encoding } from "tiktoken";
+import { Tiktoken } from "js-tiktoken/lite";
+import o200k_base from "js-tiktoken/ranks/o200k_base";
 
 type JSONChunkerOptions = {
     maxChunkSize: number;
-    encoder?: string;
 };
 
 type JSONValue = null | boolean | number | string | JSONValue[] | { [key: string]: JSONValue };
 
 export class JSONChunker implements GraphChunker {
     private readonly maxChunkSize: number;
-    private readonly encoderName: string;
 
     constructor(options: JSONChunkerOptions) {
         this.maxChunkSize = options.maxChunkSize;
-        this.encoderName = options.encoder ?? "o200k_base";
     }
 
     async getChunks(input: string): Promise<string[]> {
@@ -23,34 +21,30 @@ export class JSONChunker implements GraphChunker {
             return [];
         }
 
-        const encoder = get_encoding(this.encoderName as Parameters<typeof get_encoding>[0]);
+        const encoder = new Tiktoken(o200k_base);
 
-        try {
-            const tokenCount = (value: string) => encoder.encode(value).length;
+        const tokenCount = (value: string) => encoder.encode(value).length;
 
-            if (tokenCount(text) <= this.maxChunkSize) {
-                return [text];
-            }
-
-            let raw: JSONValue;
-            try {
-                raw = JSON.parse(text) as JSONValue;
-            } catch {
-                return [text];
-            }
-
-            if (isJSONObject(raw)) {
-                return this.chunkObject(raw, "$", orderedKeys(text), tokenCount);
-            }
-
-            if (Array.isArray(raw)) {
-                return this.chunkArray(raw, "$", tokenCount);
-            }
-
+        if (tokenCount(text) <= this.maxChunkSize) {
             return [text];
-        } finally {
-            encoder.free();
         }
+
+        let raw: JSONValue;
+        try {
+            raw = JSON.parse(text) as JSONValue;
+        } catch {
+            return [text];
+        }
+
+        if (isJSONObject(raw)) {
+            return this.chunkObject(raw, "$", orderedKeys(text), tokenCount);
+        }
+
+        if (Array.isArray(raw)) {
+            return this.chunkArray(raw, "$", tokenCount);
+        }
+
+        return [text];
     }
 
     private chunkObject(

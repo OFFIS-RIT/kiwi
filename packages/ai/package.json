@@ -24,7 +24,7 @@
         "better-result": "catalog:",
         "drizzle-orm": "catalog:",
         "jsonrepair": "^3.13.1",
-        "tiktoken": "^1.0.22",
+        "js-tiktoken": "^1.0.21",
         "zod": "catalog:"
     },
     "devDependencies": {

@@ -39,12 +39,4 @@ describe("CSVChunker", () => {
         expect(chunks).toEqual(["1,Alice", "2,Bob", "3,Charlie"]);
     });
 
-    test("throws for an invalid encoder", async () => {
-        const chunker = new CSVChunker({
-            maxChunkSize: 10,
-            encoder: "invalid_encoder",
-        });
-
-        expect(chunker.getChunks("id,name\n1,Alice")).rejects.toThrow();
-    });
 });

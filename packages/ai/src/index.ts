@@ -5,7 +5,8 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { EmbeddingModelV3, JSONValue, LanguageModelV3 } from "@ai-sdk/provider";
 import type { ChatMessage, MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
 import type { ModelMessage } from "ai";
-import { get_encoding, type TiktokenEncoding } from "tiktoken";
+import { Tiktoken } from "js-tiktoken/lite";
+import o200k_base from "js-tiktoken/ranks/o200k_base";
 import { prepareCitationFencesForModel } from "./citation";
 export * from "./concurrency";
 
@@ -207,10 +208,9 @@ export function getProviderOptions(options: ProviderOptions) {
     };
 }
 
-export function estimateToken(text: string, encoding?: TiktokenEncoding): number {
-    const encoder = get_encoding(encoding || "o200k_base");
+export function estimateToken(text: string): number {
+    const encoder = new Tiktoken(o200k_base);
     const tokens = encoder.encode(text);
-    encoder.free();
 
     return tokens.length;
 }
