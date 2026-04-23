@@ -18,8 +18,6 @@ const themeScript = `
     var theme = localStorage.getItem('ui-theme');
     if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
       document.documentElement.classList.add('dark');
-    } else if (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      document.documentElement.classList.add('dark');
     }
   } catch (e) {}
 })();

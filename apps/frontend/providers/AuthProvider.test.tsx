@@ -45,7 +45,8 @@ function renderWithAuth(sessionData: unknown) {
 describe("AuthProvider", () => {
     test("shows loading when isPending", () => {
         renderWithAuth({ data: null, isPending: true, error: null });
-        expect(screen.getByText("Loading...")).toBeInTheDocument();
+        expect(screen.getByRole("img", { name: "KIWI" })).toBeInTheDocument();
+        expect(screen.queryByText("no-session")).not.toBeInTheDocument();
     });
 
     test("renders children when session exists", () => {

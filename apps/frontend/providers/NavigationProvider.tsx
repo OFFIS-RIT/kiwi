@@ -39,7 +39,7 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
     const [navigationState, setNavigationState] = useLocalStorage<NavigationState>("kiwi-navigation-state", {
         selectedGroup: null,
         selectedProject: null,
-        showAllGroups: false,
+        showAllGroups: true,
     });
 
     const setSelectedGroup = (group: { id: string; name: string } | null) => {

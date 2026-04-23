@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useLanguage } from "@/providers/LanguageProvider";
 import { FileText, Plus } from "lucide-react";
 import type { ChatTemplate } from "./chat-templates";
 
@@ -23,6 +24,8 @@ function TemplateList({
     templates: ChatTemplate[];
     onInsert: (templateBody: string) => void;
 }) {
+    const { t } = useLanguage();
+
     return (
         <ScrollArea className="h-full">
             <div className="space-y-4 pb-2">
@@ -35,13 +38,13 @@ function TemplateList({
                                     <p className="text-muted-foreground text-sm">{template.description}</p>
                                 ) : null}
                             </div>
-                            <Button
-                                size="icon"
-                                variant="outline"
-                                className="h-8 w-8"
-                                onClick={() => onInsert(template.body)}
-                                aria-label={`Vorlage "${template.title}" einfügen`}
-                            >
+                                <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className="h-8 w-8"
+                                    onClick={() => onInsert(template.body)}
+                                    aria-label={t("chat.template.insert", { title: template.title })}
+                                >
                                 <Plus className="h-4 w-4" />
                             </Button>
                         </div>
@@ -61,17 +64,17 @@ function SidebarPanel({
     onInsert: (templateBody: string) => void;
     showHeading?: boolean;
 }) {
+    const { t } = useLanguage();
+
     return (
         <div className="flex h-full flex-col gap-4">
             {showHeading ? (
                 <div className="space-y-1">
                     <div className="flex items-center gap-2">
                         <FileText className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-semibold">Vorlagen</span>
+                        <span className="font-semibold">{t("chat.templates")}</span>
                     </div>
-                    <p className="text-muted-foreground text-sm">
-                        Füge einen Vorschlag in das Eingabefeld ein und passe ihn an.
-                    </p>
+                    <p className="text-muted-foreground text-sm">{t("chat.templates.description")}</p>
                 </div>
             ) : null}
             <TemplateList templates={templates} onInsert={onInsert} />
@@ -80,6 +83,7 @@ function SidebarPanel({
 }
 
 export function ChatTemplateSidebar({ templates, onInsert, open, onOpenChange }: ChatTemplateSidebarProps) {
+    const { t } = useLanguage();
     const [isMobile, setIsMobile] = useState(false);
 
     useEffect(() => {
@@ -107,7 +111,7 @@ export function ChatTemplateSidebar({ templates, onInsert, open, onOpenChange }:
             </div>
 
             <Sheet open={showSheet} onOpenChange={onOpenChange}>
-                <SheetContent side="right" className="p-4 lg:hidden" aria-label="Vorlagen">
+                <SheetContent side="right" className="p-4 lg:hidden" aria-label={t("chat.templates")}>
                     <SidebarPanel templates={templates} onInsert={onInsert} />
                 </SheetContent>
             </Sheet>

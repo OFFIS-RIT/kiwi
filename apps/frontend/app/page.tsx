@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { AppProviders, useData, useLanguage, useNavigation } from "@/providers";
 import type { Group, Project } from "@/types";
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 
 const DeleteGroupDialog = lazy(() =>
     import("@/components/groups").then((mod) => ({
@@ -40,8 +40,31 @@ type DeletingProjectState = {
 };
 
 function DashboardContent() {
-    const { selectedGroup, selectedProject, showAllGroups } = useNavigation();
+    const { selectedGroup, selectedProject, showAllGroups, showGroups, selectItem } = useNavigation();
     const { t } = useLanguage();
+    const { groups, isLoading } = useData();
+    const [headerReady, setHeaderReady] = useState(false);
+
+    useEffect(() => {
+        if (!isLoading) {
+            requestAnimationFrame(() => setHeaderReady(true));
+        }
+    }, [isLoading]);
+
+    // Redirect when selected group/project was deleted
+    useEffect(() => {
+        if (isLoading) return;
+        if (selectedGroup) {
+            const group = groups.find((g) => g.id === selectedGroup.id);
+            if (!group) {
+                showGroups();
+                return;
+            }
+            if (selectedProject && !group.projects.some((p) => p.id === selectedProject.id)) {
+                selectItem(group);
+            }
+        }
+    }, [selectedGroup, selectedProject, groups, isLoading, showGroups, selectItem]);
 
     const [editProjectDialogOpen, setEditProjectDialogOpen] = useState(false);
     const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
@@ -69,7 +92,7 @@ function DashboardContent() {
                     <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                         <SidebarTrigger className="-ml-1" />
                         <Separator orientation="vertical" className="mr-2 h-4 shrink-0" />
-                        <BreadcrumbNav />
+                        <BreadcrumbNav ready={headerReady} />
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                         <LanguageSwitcher />

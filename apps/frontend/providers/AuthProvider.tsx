@@ -3,8 +3,16 @@
 import type React from "react";
 
 import { AuthPage } from "@/components/auth";
+import { DashboardSkeleton } from "@/components/common";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { authClient } from "@kiwi/auth/client";
-import { admin as adminRole, getUserRoles, hasRole, manager as managerRole, user as userRole } from "@kiwi/auth/permissions";
+import {
+    admin as adminRole,
+    getUserRoles,
+    hasRole,
+    manager as managerRole,
+    user as userRole,
+} from "@kiwi/auth/permissions";
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
@@ -94,9 +102,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isPending) {
         return (
             <AuthContext.Provider value={value}>
-                <div className="flex min-h-screen items-center justify-center">
-                    <div className="animate-pulse text-muted-foreground">Loading...</div>
-                </div>
+                <SidebarProvider>
+                    <DashboardSkeleton />
+                </SidebarProvider>
             </AuthContext.Provider>
         );
     }

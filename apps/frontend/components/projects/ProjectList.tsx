@@ -7,7 +7,7 @@ import { useLanguage } from "@/providers/LanguageProvider";
 import { useNavigation } from "@/providers/NavigationProvider";
 import type { ApiProjectFile, Project } from "@/types";
 import { useQueries } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ProjectCard } from "./ProjectCard";
 
 type ProjectListProps = {
@@ -18,6 +18,13 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     const { selectedGroup, selectItem } = useNavigation();
     const { t } = useLanguage();
     const { groups, isLoading, error } = useData();
+    const [ready, setReady] = useState(false);
+
+    useEffect(() => {
+        if (!isLoading && !error) {
+            requestAnimationFrame(() => setReady(true));
+        }
+    }, [isLoading, error]);
 
     function parseApiTimestamp(input: unknown): Date | undefined {
         if (!input) return undefined;
@@ -73,21 +80,20 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
         return meta;
     }, [group?.projects, projectFilesQueries]);
 
-    if (isLoading || error || !group) {
+    if (error) {
         return (
             <StateDisplay
-                isLoading={isLoading}
                 error={error}
-                isEmpty={!group && !isLoading && !error}
-                loadingMessage={t("loading")}
                 errorMessage={t("error")}
-                emptyMessage={t("group.not.found")}
-                emptyDescription={t("select.another.group")}
             />
         );
     }
 
-    if (group.projects.length === 0) {
+    if (!group) {
+        return null;
+    }
+
+    if (!isLoading && group.projects.length === 0) {
         return (
             <div className="space-y-6">
                 <div>
@@ -99,7 +105,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     }
 
     return (
-        <div className="space-y-6">
+        <div className={`space-y-6 transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}>
             <div>
                 <h1 className="text-2xl font-bold">{group.name}</h1>
                 <p className="text-muted-foreground">{t("select.knowledge.project")}</p>

@@ -5,6 +5,7 @@ export { AppProviders } from "./AppProviders";
 export { AuthProvider, useAuth } from "./AuthProvider";
 
 // Individual Providers
+export { ChatSessionsProvider, useProjectChatSession } from "./ChatSessionsProvider";
 export { DataProvider, useData } from "./DataProvider";
 export { LanguageProvider, useLanguage } from "./LanguageProvider";
 export { NavigationProvider, useNavigation } from "./NavigationProvider";
