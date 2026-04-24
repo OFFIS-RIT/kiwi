@@ -3,13 +3,12 @@
     "version": "0.2.0",
     "module": "src/index.js",
     "exports": {
-        ".": "./src/index.ts",
         "./types": "./src/types/index.ts"
     },
     "scripts": {
         "build": "bunx tsc --noEmit",
         "test": "bun test --pass-with-no-tests",
-        "dev": "bun run --watch src/index.ts"
+        "dev": "bun run --watch src/server.ts"
     },
     "dependencies": {
         "@better-auth/api-key": "catalog:",
