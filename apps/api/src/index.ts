@@ -13,7 +13,11 @@ initLogger();
 
 const trustedOrigins = env.TRUSTED_ORIGINS?.split(",").map((origin: string) => origin.trim()).filter(Boolean) ?? [];
 
-const app = new Elysia()
+const app = new Elysia({
+    serve: {
+        maxRequestBodySize: 4 * 1024 * 1024 * 1024, // 4 GB, matches Caddy `request_body max_size`
+    },
+})
     .use(
         cors(
             trustedOrigins.length > 0
