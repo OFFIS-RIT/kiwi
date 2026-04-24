@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "files_graph_checksum_active_unique" ON "files" ("graph_id","checksum") WHERE "deleted" = false AND "checksum" IS NOT NULL;

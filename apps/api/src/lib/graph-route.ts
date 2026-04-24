@@ -21,6 +21,11 @@ export type UploadedFile = {
     type: GraphFileType;
     mimeType: string;
     key: string;
+    checksum?: string;
+};
+export type FileWithChecksum = {
+    file: File;
+    checksum: string;
 };
 export type CreatedFileRecord = GraphFileRecord;
 export type GraphFileRow = Omit<GraphDetailFileRecord, "created_at" | "updated_at"> & {
@@ -168,6 +173,28 @@ export const cleanupUploadedKeys = async (uploadedKeys: string[]) => {
     const deleteResults = await Promise.allSettled(uploadedKeys.map((key) => deleteFile(key, env.S3_BUCKET)));
     return deleteResults.filter((result) => result.status === "rejected").length;
 };
+
+export async function uniqueFilesByChecksum(
+    files: File[],
+    existingChecksums = new Set<string>()
+): Promise<FileWithChecksum[]> {
+    const seenChecksums = new Set(existingChecksums);
+    const uniqueFiles: FileWithChecksum[] = [];
+
+    for (const file of files) {
+        const hashBuffer = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+        const checksum = [...new Uint8Array(hashBuffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+        if (seenChecksums.has(checksum)) {
+            continue;
+        }
+
+        seenChecksums.add(checksum);
+        uniqueFiles.push({ file, checksum });
+    }
+
+    return uniqueFiles;
+}
 
 export const cleanupFailedGraphCreation = async (
     graphId: string,
