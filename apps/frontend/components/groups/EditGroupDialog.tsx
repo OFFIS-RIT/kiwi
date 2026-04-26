@@ -87,24 +87,26 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
     const [availableUsers, setAvailableUsers] = useState<UserSuggestion[]>([]);
     const [isSearchingUsers, setIsSearchingUsers] = useState(false);
     const [newUserRole, setNewUserRole] = useState("user");
+    const groupId = group?.id;
+    const groupName = group?.name;
 
     const loadGroupUsers = useCallback(async () => {
-        if (!group) return;
+        if (!groupId) return;
         setIsLoading(true);
         setError(null);
         try {
-            const users = await fetchGroupUsers(group.id);
+            const users = await fetchGroupUsers(groupId);
             setEditableUsers(users.map((u) => ({ user_id: u.user_id, user_name: u.user_name, role: u.role })));
         } catch (err) {
             setError(err instanceof Error ? err.message : t("error.loading.users"));
         } finally {
             setIsLoading(false);
         }
-    }, [group, t]);
+    }, [groupId, t]);
 
     useEffect(() => {
-        if (group && open) {
-            setEditedName(group.name);
+        if (groupId && groupName !== undefined && open) {
+            setEditedName(groupName);
             loadGroupUsers();
         } else {
             setError(null);
@@ -112,7 +114,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
             setSelectedUser(null);
             setNewUserRole("user");
         }
-    }, [group, open, loadGroupUsers]);
+    }, [groupId, groupName, open, loadGroupUsers]);
 
     const loadAvailableUsers = useCallback(async () => {
         if (!canAddUser || !open) {

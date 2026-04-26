@@ -55,6 +55,8 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
     const [uploadSpeed, setUploadSpeed] = useState(0);
     const [editedName, setEditedName] = useState("");
     const [filesToDelete, setFilesToDelete] = useState<string[]>([]);
+    const projectId = project?.id;
+    const projectName = project?.name;
 
     const nameTooLong = editedName.length > MAX_NAME_LENGTH;
     const {
@@ -65,8 +67,8 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
     } = useProjectFiles(project?.id ?? "", { enabled: open && !!project });
 
     useEffect(() => {
-        if (project && open) {
-            setEditedName(project.name);
+        if (projectId && projectName !== undefined && open) {
+            setEditedName(projectName);
             setFilesToDelete([]);
         } else {
             setNewFiles([]);
@@ -78,7 +80,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
             setTotalBytes(0);
             setUploadSpeed(0);
         }
-    }, [project, open]);
+    }, [projectId, projectName, open]);
 
     const handleToggleFileForDeletion = (fileKey: string) => {
         setFilesToDelete((prev) =>

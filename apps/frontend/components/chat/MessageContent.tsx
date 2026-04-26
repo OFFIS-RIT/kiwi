@@ -16,7 +16,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
-import { TextReferenceBadge } from "./TextReferenceBadge";
+import { TextReferenceBadge, TextReferenceDialog } from "./TextReferenceBadge";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
 type MessageContentProps = {
@@ -73,6 +73,7 @@ type ThinkingItem = { kind: "reasoning"; key: string; text: string } | { kind: "
 
 export function MessageContent({ parts, projectId, isStreaming = false }: MessageContentProps) {
     const { t } = useLanguage();
+    const [activeCitationSourceId, setActiveCitationSourceId] = React.useState<string | null>(null);
 
     const { markdownContent, citations, thinkingItems } = React.useMemo(() => {
         const citationOrder: ResolvedCitationFence[] = [];
@@ -132,6 +133,15 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
         return new Map(citations.map((citation, index) => [citation.sourceId, index]));
     }, [citations]);
 
+    const activeCitationIndex = activeCitationSourceId ? citationIndexMap.get(activeCitationSourceId) : undefined;
+    const activeCitation = activeCitationIndex === undefined ? undefined : citations[activeCitationIndex];
+
+    React.useEffect(() => {
+        if (activeCitationSourceId && activeCitationIndex === undefined) {
+            setActiveCitationSourceId(null);
+        }
+    }, [activeCitationIndex, activeCitationSourceId]);
+
     const shouldSkipBadgeRecursion = (node: React.ReactElement): boolean => {
         const type = typeof node.type === "string" ? node.type : undefined;
         if (type === "code" || type === "pre") return true;
@@ -165,7 +175,7 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
                                 key={`ref-${sourceId}-${matchCounter++}`}
                                 citation={citation}
                                 index={citationIndex}
-                                projectId={projectId}
+                                onSelect={() => setActiveCitationSourceId(sourceId)}
                             />
                         );
                     } else {
@@ -356,6 +366,20 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
                         ))}
                     </div>
                 </div>
+            )}
+
+            {activeCitation && activeCitationIndex !== undefined && (
+                <TextReferenceDialog
+                    citation={activeCitation}
+                    index={activeCitationIndex}
+                    projectId={projectId}
+                    open
+                    onOpenChange={(open) => {
+                        if (!open) {
+                            setActiveCitationSourceId(null);
+                        }
+                    }}
+                />
             )}
         </div>
     );
