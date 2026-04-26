@@ -49,9 +49,10 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
     const [groupError, setGroupError] = useState(false);
 
     const nameTooLong = projectName.length > MAX_NAME_LENGTH;
+    const groupIdExists = groupId ? groups.some((group) => group.id === groupId) : false;
 
     useEffect(() => {
-        if (open && groupId && groups.some((group) => group.id === groupId)) {
+        if (open && groupId && groupIdExists) {
             setSelectedGroup(groupId);
         } else if (!open) {
             setProjectName("");
@@ -64,7 +65,7 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
             setTotalBytes(0);
             setUploadSpeed(0);
         }
-    }, [open, groupId, groups]);
+    }, [open, groupId, groupIdExists]);
 
     const handleGroupChange = (value: string) => {
         setSelectedGroup(value);

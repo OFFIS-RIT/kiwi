@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { LanguageProvider } from "@/providers/LanguageProvider";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { MessageContent } from "../MessageContent";
@@ -49,5 +50,28 @@ describe("MessageContent", () => {
 
         expect(screen.getAllByText("1")).toHaveLength(2);
         expect(screen.getAllByRole("button", { name: /document.pdf/i })).toHaveLength(1);
+    });
+
+    test("keeps text reference dialog open across parent rerenders", async () => {
+        const parts: ChatUIMessage["parts"] = [{ type: "text", text: `Alpha ${citationFence("src-1")} Omega` }];
+        localStorage.setItem("language", "en");
+
+        const { rerender } = render(
+            <LanguageProvider>
+                <MessageContent parts={parts} projectId="graph-1" />
+            </LanguageProvider>
+        );
+
+        await userEvent.click(screen.getByRole("button", { name: "1" }));
+        expect(await screen.findByText("Alpha evidence")).toBeInTheDocument();
+
+        rerender(
+            <LanguageProvider>
+                <MessageContent parts={parts} projectId="graph-1" />
+            </LanguageProvider>
+        );
+
+        expect(screen.getByRole("dialog")).toBeInTheDocument();
+        expect(screen.getByText("Alpha evidence")).toBeInTheDocument();
     });
 });

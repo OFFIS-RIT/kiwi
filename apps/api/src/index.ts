@@ -1,59 +1,79 @@
-import { cors } from "@elysiajs/cors";
+import cluster from "node:cluster";
+import { availableParallelism } from "node:os";
 import { info } from "@kiwi/logger";
-import { Elysia } from "elysia";
-import { env } from "./env";
 import { initLogger, shutdownLogger } from "./logger";
-import { authMiddleware } from "./middleware/auth";
-import { authRoute } from "./routes/auth";
-import { chatRoute } from "./routes/chat";
-import { graphRoute } from "./routes/graph";
-import { groupRoute } from "./routes/group";
 
 initLogger();
 
-const trustedOrigins = env.TRUSTED_ORIGINS?.split(",").map((origin: string) => origin.trim()).filter(Boolean) ?? [];
+let isShuttingDown = false;
 
-const app = new Elysia({
-    serve: {
-        maxRequestBodySize: 4 * 1024 * 1024 * 1024, // 4 GB, matches Caddy `request_body max_size`
-    },
-})
-    .use(
-        cors(
-            trustedOrigins.length > 0
-                ? {
-                      origin: trustedOrigins,
-                      methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-                      allowedHeaders: ["Content-Type", "Authorization"],
-                      exposeHeaders: ["Content-Length", "Content-Range"],
-                      credentials: true,
-                  }
-                : undefined
-        )
-    )
-    .use(authMiddleware)
-    .use(authRoute)
-    .use(chatRoute)
-    .use(graphRoute)
-    .use(groupRoute)
-    .get("/health", () => ({ status: "ok" }))
-    .listen(4321);
+if (cluster.isPrimary) {
+    for (let i = 0; i < availableParallelism(); i++) {
+        cluster.fork();
+    }
 
-info("api server started", {
-    host: app.server?.hostname ?? "unknown",
-    port: app.server?.port ?? 4321,
-});
+    cluster.on("exit", (worker, code, signal) => {
+        info("api worker exited", {
+            pid: worker.process.pid,
+            code,
+            signal,
+        });
 
-async function handleShutdown(signal: string) {
-    info("api server shutting down", { signal });
+        if (!isShuttingDown) {
+            setTimeout(() => {
+                cluster.fork();
+            }, 1000);
+        }
+    });
+
+    process.once("SIGINT", () => {
+        void handlePrimaryShutdown("SIGINT");
+    });
+
+    process.once("SIGTERM", () => {
+        void handlePrimaryShutdown("SIGTERM");
+    });
+} else {
+    await import("./server");
+}
+
+async function handlePrimaryShutdown(signal: NodeJS.Signals) {
+    isShuttingDown = true;
+    info("api primary shutting down", { signal, pid: process.pid });
+
+    const workers = Object.values(cluster.workers ?? {}).filter(
+        (worker): worker is NonNullable<typeof worker> => worker !== undefined
+    );
+
+    const workerExits = workers.map(
+        (worker) =>
+            new Promise<void>((resolve) => {
+                if (worker.isDead()) {
+                    resolve();
+                    return;
+                }
+
+                worker.once("exit", () => {
+                    resolve();
+                });
+            })
+    );
+
+    for (const worker of workers) {
+        worker.kill(signal);
+    }
+
+    const forceKillTimeout = setTimeout(() => {
+        for (const worker of workers) {
+            if (!worker.isDead()) {
+                worker.kill("SIGKILL");
+            }
+        }
+    }, 25_000);
+
+    await Promise.allSettled(workerExits);
+
+    clearTimeout(forceKillTimeout);
     await shutdownLogger();
     process.exit(0);
 }
-
-process.once("SIGINT", () => {
-    void handleShutdown("SIGINT");
-});
-
-process.once("SIGTERM", () => {
-    void handleShutdown("SIGTERM");
-});
