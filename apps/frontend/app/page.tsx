@@ -40,10 +40,7 @@ type DeletingProjectState = {
 };
 
 function isProjectProcessing(project: Project): boolean {
-    return (
-        project.state !== "ready" ||
-        (project.processPercentage !== undefined && project.processPercentage >= 0 && project.processPercentage < 100)
-    );
+    return project.state !== "ready";
 }
 
 function DashboardContent() {
