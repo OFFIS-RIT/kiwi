@@ -175,10 +175,17 @@ function getMessageText(message: ChatUIMessage): string {
         .join("");
 }
 
+const fallbackTimestamps = new WeakMap<ChatUIMessage, Date>();
+
 function getMessageTimestamp(message: ChatUIMessage): Date {
     const createdAt = message.metadata?.createdAt;
     if (!createdAt) {
-        return new Date();
+        let fallback = fallbackTimestamps.get(message);
+        if (!fallback) {
+            fallback = new Date();
+            fallbackTimestamps.set(message, fallback);
+        }
+        return fallback;
     }
 
     const parsed = new Date(createdAt);
