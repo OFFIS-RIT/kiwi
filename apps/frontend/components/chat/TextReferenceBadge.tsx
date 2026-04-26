@@ -8,31 +8,54 @@ import {
     DialogDescription,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { downloadProjectFile, fetchTextUnit } from "@/lib/api/projects";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { ResolvedCitationFence } from "@kiwi/ai/citation";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
-import React, { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 type TextReferenceBadgeProps = {
     citation: ResolvedCitationFence;
     index: number;
-    projectId?: string;
+    onSelect: () => void;
 };
 
-export function TextReferenceBadge({ citation, index, projectId }: TextReferenceBadgeProps) {
+type TextReferenceDialogProps = {
+    citation: ResolvedCitationFence;
+    index: number;
+    projectId?: string;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+};
+
+export function TextReferenceBadge({ citation, index, onSelect }: TextReferenceBadgeProps) {
     const { t } = useLanguage();
-    const [isOpen, setIsOpen] = useState(false);
+
+    return (
+        <Badge
+            variant="outline"
+            asChild
+            className="mx-0.5 inline-flex cursor-pointer items-center border-2 text-xs transition-colors hover:border-primary/40 hover:bg-primary/10"
+        >
+            <button type="button" title={`${t("text.reference")} ${index + 1}: ${citation.sourceId}`} onClick={onSelect}>
+                {index + 1}
+            </button>
+        </Badge>
+    );
+}
+
+export function TextReferenceDialog({ citation, index, projectId, open, onOpenChange }: TextReferenceDialogProps) {
+    const { t } = useLanguage();
+    const getUnknownErrorLabel = useEffectEvent(() => t("error.unknown"));
     const [isLoadingUnit, setIsLoadingUnit] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [unitText, setUnitText] = useState<string | null>(null);
 
     useEffect(() => {
-        if (!isOpen || !projectId || unitText !== null) {
+        if (!open || !projectId) {
             return;
         }
 
@@ -41,6 +64,7 @@ export function TextReferenceBadge({ citation, index, projectId }: TextReference
         const loadUnit = async () => {
             setIsLoadingUnit(true);
             setError(null);
+            setUnitText(null);
             try {
                 const unit = await fetchTextUnit(projectId, citation.unitId);
                 if (!isCancelled) {
@@ -48,7 +72,7 @@ export function TextReferenceBadge({ citation, index, projectId }: TextReference
                 }
             } catch (err) {
                 if (!isCancelled) {
-                    setError(err instanceof Error ? err.message : t("error.unknown"));
+                    setError(err instanceof Error ? err.message : getUnknownErrorLabel());
                 }
             } finally {
                 if (!isCancelled) {
@@ -62,7 +86,7 @@ export function TextReferenceBadge({ citation, index, projectId }: TextReference
         return () => {
             isCancelled = true;
         };
-    }, [citation.unitId, isOpen, projectId, t, unitText]);
+    }, [citation.unitId, open, projectId]);
 
     const copyToClipboard = () => {
         if (unitText) {
@@ -86,16 +110,7 @@ export function TextReferenceBadge({ citation, index, projectId }: TextReference
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-            <DialogTrigger asChild>
-                <Badge
-                    variant="outline"
-                    className="mx-0.5 inline-flex cursor-pointer items-center border-2 text-xs transition-colors hover:border-primary/40 hover:bg-primary/10"
-                    title={`${t("text.reference")} ${index + 1}: ${citation.sourceId}`}
-                >
-                    {index + 1}
-                </Badge>
-            </DialogTrigger>
+        <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-h-[80vh] w-full max-w-6xl overflow-hidden sm:max-w-[60vw]">
                 <div className="flex h-full flex-col overflow-hidden">
                     <DialogHeader className="shrink-0">

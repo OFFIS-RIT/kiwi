@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { AppProviders, useData, useLanguage, useNavigation } from "@/providers";
 import type { Group, Project } from "@/types";
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 
 const DeleteGroupDialog = lazy(() =>
     import("@/components/groups").then((mod) => ({
@@ -39,11 +39,20 @@ type DeletingProjectState = {
     groupName: string;
 };
 
+function isProjectProcessing(project: Project): boolean {
+    return (
+        project.state !== "ready" ||
+        (project.processPercentage !== undefined && project.processPercentage >= 0 && project.processPercentage < 100)
+    );
+}
+
 function DashboardContent() {
     const { selectedGroup, selectedProject, showAllGroups, showGroups, selectItem } = useNavigation();
     const { t } = useLanguage();
     const { groups, isLoading } = useData();
     const [headerReady, setHeaderReady] = useState(false);
+    const processingGroupIdsRef = useRef<Set<string>>(new Set());
+    const processingProjectIdsRef = useRef<Set<string>>(new Set());
 
     useEffect(() => {
         if (!isLoading) {
@@ -51,16 +60,43 @@ function DashboardContent() {
         }
     }, [isLoading]);
 
-    // Redirect when selected group/project was deleted
+    // Processing graphs can be temporarily absent during polling; avoid treating that as deletion.
+    useEffect(() => {
+        const processingGroupIds = processingGroupIdsRef.current;
+        const processingProjectIds = processingProjectIdsRef.current;
+
+        for (const group of groups) {
+            let groupHasProcessingProject = false;
+
+            for (const project of group.projects) {
+                if (isProjectProcessing(project)) {
+                    processingProjectIds.add(project.id);
+                    groupHasProcessingProject = true;
+                } else {
+                    processingProjectIds.delete(project.id);
+                }
+            }
+
+            if (groupHasProcessingProject) {
+                processingGroupIds.add(group.id);
+            } else {
+                processingGroupIds.delete(group.id);
+            }
+        }
+    }, [groups]);
+
+    // Redirect when selected group/project was deleted.
     useEffect(() => {
         if (isLoading) return;
         if (selectedGroup) {
             const group = groups.find((g) => g.id === selectedGroup.id);
             if (!group) {
+                if (processingGroupIdsRef.current.has(selectedGroup.id)) return;
                 showGroups();
                 return;
             }
             if (selectedProject && !group.projects.some((p) => p.id === selectedProject.id)) {
+                if (processingProjectIdsRef.current.has(selectedProject.id)) return;
                 selectItem(group);
             }
         }
@@ -132,7 +168,7 @@ function DashboardContent() {
                 <EditProjectDialog
                     open={editProjectDialogOpen}
                     onOpenChange={setEditProjectDialogOpen}
-                    project={editingProject ? { id: editingProject.id, name: editingProject.name } : null}
+                    project={editingProject}
                     groupId={editingProject?.groupId || null}
                 />
             </Suspense>
@@ -226,7 +262,7 @@ function Dashboard() {
                 <EditProjectDialog
                     open={editProjectDialogOpen}
                     onOpenChange={setEditProjectDialogOpen}
-                    project={editingProject ? { id: editingProject.id, name: editingProject.name } : null}
+                    project={editingProject}
                     groupId={editingProject?.groupId || null}
                 />
             </Suspense>
