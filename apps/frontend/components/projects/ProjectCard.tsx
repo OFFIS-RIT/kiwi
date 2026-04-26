@@ -3,7 +3,7 @@
 import { CardTemplate } from "@/components/common/CardTemplate";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatDuration } from "@/lib/utils";
+import { getApproximateMinutes } from "@/lib/utils";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { Project } from "@/types";
@@ -24,7 +24,10 @@ export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCar
     const lastUpdated = project.lastUpdated;
     const sourcesCount = project.sourcesCount ?? 0;
     const isProcessing = project.processPercentage !== undefined;
-    const timeRemaining = project.processTimeRemaining;
+    const approximateMinutes =
+        project.processTimeRemaining !== undefined && project.processTimeRemaining > 0
+            ? getApproximateMinutes(project.processTimeRemaining)
+            : undefined;
 
     return (
         <CardTemplate
@@ -89,11 +92,16 @@ export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCar
                         <span className="font-medium text-xs">{project.processPercentage}%</span>
                     </div>
                     <Progress value={project.processPercentage} className="h-2" />
-                    {timeRemaining !== undefined && timeRemaining > 0 && (
+                    {approximateMinutes !== undefined && (
                         <div className="text-xs text-muted-foreground text-right">
-                            {t("process.remaining", {
-                                time: formatDuration(timeRemaining),
-                            })}
+                            {t(
+                                approximateMinutes === 1
+                                    ? "process.remaining_approx_one"
+                                    : "process.remaining_approx_many",
+                                {
+                                    minutes: String(approximateMinutes),
+                                }
+                            )}
                         </div>
                     )}
                 </div>

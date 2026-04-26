@@ -26,3 +26,7 @@ export function formatDuration(ms: number): string {
     const remainingMinutes = minutes % 60;
     return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
+
+export function getApproximateMinutes(ms: number): number {
+    return Math.max(1, Math.round(ms / 60_000));
+}

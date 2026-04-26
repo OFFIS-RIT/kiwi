@@ -2,7 +2,7 @@
 
 import { ChartConfig, ChartContainer } from "@/components/ui/chart";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatDuration } from "@/lib/utils";
+import { getApproximateMinutes } from "@/lib/utils";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { Project } from "@/types";
 import { PolarAngleAxis, RadialBar, RadialBarChart } from "recharts";
@@ -21,7 +21,10 @@ export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
     const { t } = useLanguage();
     const percentage = project.processPercentage ?? 0;
     const step = project.processStep ?? "";
-    const timeRemaining = project.processTimeRemaining;
+    const approximateMinutes =
+        project.processTimeRemaining !== undefined && project.processTimeRemaining > 0
+            ? getApproximateMinutes(project.processTimeRemaining)
+            : undefined;
 
     const chartData = [{ name: "progress", value: percentage, fill: "var(--foreground)" }];
 
@@ -51,9 +54,14 @@ export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
                 <div className="flex flex-col gap-1 text-xs text-center">
                     <div className="font-medium">{percentage}%</div>
                     {step && <div className="text-muted-foreground">{t(`process.${step}`) || step}</div>}
-                    {timeRemaining !== undefined && timeRemaining > 0 && (
+                    {approximateMinutes !== undefined && (
                         <div className="text-muted-foreground">
-                            {t("process.remaining", { time: formatDuration(timeRemaining) })}
+                            {t(
+                                approximateMinutes === 1
+                                    ? "process.remaining_approx_one"
+                                    : "process.remaining_approx_many",
+                                { minutes: String(approximateMinutes) }
+                            )}
                         </div>
                     )}
                     {project.processEtaConfidence && (

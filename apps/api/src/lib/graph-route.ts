@@ -4,11 +4,14 @@ import {
     type FileProcessStep,
     filesTable,
     graphTable,
+    type ProcessRunStatus,
+    processRunFilesTable,
+    processRunsTable,
     processStatsTable,
 } from "@kiwi/db/tables/graph";
 import { deleteFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { env } from "../env";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { ApiBatchStepProgressLike, GraphDetailFileRecord, GraphFileRecord, GraphListItem } from "../types/routes";
@@ -41,9 +44,25 @@ type GraphListRow = {
     hidden: boolean;
 };
 
-type GraphProcessFileRow = {
+type ProcessRunRow = {
+    id: string;
     graph_id: string;
+    status: ProcessRunStatus;
+};
+
+type SizeBucket = "tiny" | "small" | "medium" | "large" | "huge";
+type EstimateSource = "bucket" | "type" | "global";
+
+type RunFileRow = {
+    process_run_id: string;
     process_step: FileProcessStep;
+    size: number;
+    type: string;
+};
+
+type Average = {
+    averageDuration: number;
+    sampleCount: number;
 };
 
 const FILE_STEP_PROGRESS: Record<FileProcessStep, number> = {
@@ -57,6 +76,10 @@ const FILE_STEP_PROGRESS: Record<FileProcessStep, number> = {
     completed: 100,
     failed: 100,
 };
+
+const ETA_BUFFER_MULTIPLIER = 1.15;
+const MIN_BUCKET_SAMPLE_COUNT = 3;
+const MIN_TYPE_SAMPLE_COUNT = 5;
 
 type StatusFn = (code: number, body: unknown) => unknown;
 
@@ -94,77 +117,140 @@ export const toGraphFileRecord = (file: GraphFileRow): GraphDetailFileRecord => 
     updated_at: file.updated_at?.toISOString() ?? null,
 });
 
-function buildEtaConfidence(sampleCount: number): "low" | "medium" | "high" {
-    if (sampleCount >= 50) {
+function buildProcessStepProgress(runFiles: RunFileRow[]): ApiBatchStepProgressLike | undefined {
+    if (runFiles.length === 0) {
+        return undefined;
+    }
+
+    const total = runFiles.length;
+    const counts = Object.fromEntries(FILE_PROCESS_STEP_VALUES.map((step) => [step, 0])) as Record<
+        FileProcessStep,
+        number
+    >;
+    const progress: ApiBatchStepProgressLike = {};
+
+    for (const file of runFiles) {
+        counts[file.process_step] += 1;
+    }
+
+    for (const step of FILE_PROCESS_STEP_VALUES) {
+        if (counts[step] > 0) {
+            progress[step] = `${counts[step]}/${total}`;
+        }
+    }
+
+    return Object.keys(progress).length > 0 ? progress : undefined;
+}
+
+function buildProcessPercentage(runFiles: RunFileRow[]): number {
+    if (runFiles.length === 0) {
+        return 0;
+    }
+
+    const totalProgress = runFiles.reduce((sum, file) => sum + FILE_STEP_PROGRESS[file.process_step], 0);
+
+    return Math.max(0, Math.min(99, Math.round(totalProgress / runFiles.length)));
+}
+
+function getFileSizeBucket(bytes: number): SizeBucket {
+    if (bytes < 100_000) return "tiny";
+    if (bytes < 1_000_000) return "small";
+    if (bytes < 10_000_000) return "medium";
+    if (bytes < 50_000_000) return "large";
+    return "huge";
+}
+
+function getSizeBucketSql() {
+    return sql<SizeBucket>`CASE
+        WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 100000 THEN 'tiny'
+        WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 1000000 THEN 'small'
+        WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 10000000 THEN 'medium'
+        WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 50000000 THEN 'large'
+        ELSE 'huge'
+    END`;
+}
+
+function buildEtaConfidence(sourceCounts: Record<EstimateSource, number>): "low" | "medium" | "high" {
+    const total = sourceCounts.bucket + sourceCounts.type + sourceCounts.global;
+    if (total === 0) {
+        return "low";
+    }
+
+    if (sourceCounts.bucket / total >= 0.5) {
         return "high";
     }
 
-    if (sampleCount >= 10) {
+    if ((sourceCounts.bucket + sourceCounts.type) / total >= 0.5) {
         return "medium";
     }
 
     return "low";
 }
 
-function buildProcessStepProgress(fileRows: GraphProcessFileRow[]): ApiBatchStepProgressLike | undefined {
-    if (fileRows.length === 0) {
-        return undefined;
+function pickAverage(
+    file: RunFileRow,
+    bucketAverages: Map<string, Average>,
+    typeAverages: Map<string, Average>,
+    globalAverage?: Average
+): { average: Average; source: EstimateSource } | undefined {
+    const bucketAverage = bucketAverages.get(`${file.type}:${getFileSizeBucket(file.size)}`);
+    if (bucketAverage && bucketAverage.sampleCount >= MIN_BUCKET_SAMPLE_COUNT) {
+        return { average: bucketAverage, source: "bucket" };
     }
 
-    const counts = new Map<FileProcessStep, number>();
-    for (const row of fileRows) {
-        counts.set(row.process_step, (counts.get(row.process_step) ?? 0) + 1);
+    const typeAverage = typeAverages.get(file.type);
+    if (typeAverage && typeAverage.sampleCount >= MIN_TYPE_SAMPLE_COUNT) {
+        return { average: typeAverage, source: "type" };
     }
 
-    const allFilesComplete = fileRows.every((row) => row.process_step === "completed");
-    const progress: ApiBatchStepProgressLike = {};
-
-    for (const step of FILE_PROCESS_STEP_VALUES) {
-        const count = counts.get(step);
-        if (count) {
-            progress[step] = String(count);
-        }
+    if (globalAverage && globalAverage.sampleCount > 0) {
+        return { average: globalAverage, source: "global" };
     }
 
-    if (allFilesComplete) {
-        delete progress.completed;
-        progress.describing = String(fileRows.length);
-    }
-
-    return Object.keys(progress).length > 0 ? progress : undefined;
+    return undefined;
 }
 
-function buildProcessPercentage(fileRows: GraphProcessFileRow[]): number {
-    if (fileRows.length === 0) {
-        return 0;
-    }
-
-    const allFilesComplete = fileRows.every((row) => row.process_step === "completed");
-    if (allFilesComplete) {
-        return 95;
-    }
-
-    const totalProgress = fileRows.reduce((sum, row) => sum + FILE_STEP_PROGRESS[row.process_step], 0);
-    return Math.max(0, Math.min(99, Math.round(totalProgress / fileRows.length)));
-}
-
-function buildTimeEstimate(fileRows: GraphProcessFileRow[], averageFileDuration: number | null, sampleCount: number): Pick<
+function buildTimeEstimate(
+    run: ProcessRunRow,
+    runFiles: RunFileRow[],
+    bucketAverages: Map<string, Average>,
+    typeAverages: Map<string, Average>,
+    globalAverage?: Average
+): Pick<
     GraphListItem,
     "process_estimated_duration" | "process_time_remaining" | "process_eta_confidence" | "process_eta_sample_count"
 > {
-    if (!averageFileDuration || fileRows.length === 0 || sampleCount <= 0) {
+    if (run.status !== "started" || runFiles.length === 0) {
         return {};
     }
 
-    const allFilesComplete = fileRows.every((row) => row.process_step === "completed");
-    const describingWeight = allFilesComplete ? 1 : 0;
-    const remainingEquivalentFiles =
-        fileRows.reduce((sum, row) => sum + (1 - FILE_STEP_PROGRESS[row.process_step] / 100), 0) + describingWeight;
+    let estimatedDuration = 0;
+    let timeRemaining = 0;
+    let sampleCount = 0;
+    const sourceCounts: Record<EstimateSource, number> = {
+        bucket: 0,
+        type: 0,
+        global: 0,
+    };
+
+    for (const file of runFiles) {
+        const estimate = pickAverage(file, bucketAverages, typeAverages, globalAverage);
+        if (!estimate) {
+            return {};
+        }
+
+        const fileDuration = estimate.average.averageDuration;
+        const progress = FILE_STEP_PROGRESS[file.process_step];
+        estimatedDuration += fileDuration;
+        timeRemaining += fileDuration * (1 - progress / 100);
+        sampleCount += estimate.average.sampleCount;
+        sourceCounts[estimate.source] += 1;
+    }
 
     return {
-        process_estimated_duration: Math.round(averageFileDuration * (fileRows.length + describingWeight)),
-        process_time_remaining: Math.round(averageFileDuration * remainingEquivalentFiles),
-        process_eta_confidence: buildEtaConfidence(sampleCount),
+        process_estimated_duration: Math.ceil(estimatedDuration * ETA_BUFFER_MULTIPLIER),
+        process_time_remaining: Math.ceil(timeRemaining * ETA_BUFFER_MULTIPLIER),
+        process_eta_confidence: buildEtaConfidence(sourceCounts),
         process_eta_sample_count: sampleCount,
     };
 }
@@ -207,31 +293,25 @@ export const cleanupFailedGraphCreation = async (
     try {
         await db.delete(graphTable).where(eq(graphTable.id, graphId));
     } catch (cleanupError) {
-        logError(
-            "failed to cleanup graph after graph creation error",
-            {
-                graphId,
-                ownerMode,
-                phase,
-                uploadedKeyCount: uploadedKeys.length,
-                failedS3CleanupCount: failedDeletes,
-                error: cleanupError,
-            }
-        );
+        logError("failed to cleanup graph after graph creation error", {
+            graphId,
+            ownerMode,
+            phase,
+            uploadedKeyCount: uploadedKeys.length,
+            failedS3CleanupCount: failedDeletes,
+            error: cleanupError,
+        });
         return;
     }
 
     if (failedDeletes > 0) {
-        logError(
-            "graph creation cleanup left orphaned s3 files",
-            {
-                graphId,
-                ownerMode,
-                phase,
-                uploadedKeyCount: uploadedKeys.length,
-                failedS3CleanupCount: failedDeletes,
-            }
-        );
+        logError("graph creation cleanup left orphaned s3 files", {
+            graphId,
+            ownerMode,
+            phase,
+            uploadedKeyCount: uploadedKeys.length,
+            failedS3CleanupCount: failedDeletes,
+        });
     }
 };
 
@@ -239,12 +319,17 @@ export const restoreGraphFileChangeFailure = async (
     graphId: string,
     previousGraph: GraphRecord,
     addedFileIds: string[],
-    uploadedKeys: string[]
+    uploadedKeys: string[],
+    processRunId?: string
 ) => {
     const failedDeletes = await cleanupUploadedKeys(uploadedKeys);
 
     try {
         await db.transaction(async (tx) => {
+            if (processRunId) {
+                await tx.delete(processRunsTable).where(eq(processRunsTable.id, processRunId));
+            }
+
             if (addedFileIds.length > 0) {
                 await tx.delete(filesTable).where(inArray(filesTable.id, addedFileIds));
             }
@@ -259,29 +344,23 @@ export const restoreGraphFileChangeFailure = async (
                 .where(eq(graphTable.id, graphId));
         });
     } catch (cleanupError) {
-        logError(
-            "failed to rollback graph file change after enqueue failure",
-            {
-                graphId,
-                addedFileCount: addedFileIds.length,
-                uploadedKeyCount: uploadedKeys.length,
-                failedS3CleanupCount: failedDeletes,
-                error: cleanupError,
-            }
-        );
+        logError("failed to rollback graph file change after enqueue failure", {
+            graphId,
+            addedFileCount: addedFileIds.length,
+            uploadedKeyCount: uploadedKeys.length,
+            failedS3CleanupCount: failedDeletes,
+            error: cleanupError,
+        });
         return;
     }
 
     if (failedDeletes > 0) {
-        logError(
-            "graph file change rollback left orphaned s3 files",
-            {
-                graphId,
-                addedFileCount: addedFileIds.length,
-                uploadedKeyCount: uploadedKeys.length,
-                failedS3CleanupCount: failedDeletes,
-            }
-        );
+        logError("graph file change rollback left orphaned s3 files", {
+            graphId,
+            addedFileCount: addedFileIds.length,
+            uploadedKeyCount: uploadedKeys.length,
+            failedS3CleanupCount: failedDeletes,
+        });
     }
 };
 
@@ -330,51 +409,123 @@ export const mapGraphListItem = (graph: GraphListRow, processing?: Partial<Graph
 };
 
 export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): Promise<GraphListItem[]> {
-    const updatingGraphs = graphs.filter((graph) => graph.graph_state === "updating");
-
-    if (updatingGraphs.length === 0) {
+    if (graphs.length === 0) {
         return graphs.map((graph) => mapGraphListItem(graph));
     }
 
-    const updatingGraphIds = updatingGraphs.map((graph) => graph.graph_id);
-    const [fileRows, [processStats]] = await Promise.all([
+    const graphIds = graphs.map((graph) => graph.graph_id);
+    const sizeBucketSql = getSizeBucketSql();
+    const [processRuns, bucketStats, typeStats, [globalStats]] = await Promise.all([
         db
             .select({
-                graph_id: filesTable.graphId,
-                process_step: filesTable.processStep,
+                id: processRunsTable.id,
+                graph_id: processRunsTable.graphId,
+                status: processRunsTable.status,
             })
-            .from(filesTable)
-            .where(and(inArray(filesTable.graphId, updatingGraphIds), eq(filesTable.deleted, false))),
+            .from(processRunsTable)
+            .where(and(inArray(processRunsTable.graphId, graphIds), sql`${processRunsTable.status} <> 'completed'`))
+            .orderBy(asc(processRunsTable.graphId), asc(processRunsTable.createdAt)),
         db
             .select({
-                average_file_duration: sql<number | null>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
+                file_type: processStatsTable.fileType,
+                size_bucket: sizeBucketSql,
+                average_duration: sql<number>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
+                sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
+            })
+            .from(processStatsTable)
+            .groupBy(processStatsTable.fileType, sizeBucketSql),
+        db
+            .select({
+                file_type: processStatsTable.fileType,
+                average_duration: sql<number>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
+                sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
+            })
+            .from(processStatsTable)
+            .groupBy(processStatsTable.fileType),
+        db
+            .select({
+                average_duration: sql<
+                    number | null
+                >`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
                 sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
             })
             .from(processStatsTable),
     ]);
 
-    const fileRowsByGraphId = new Map<string, GraphProcessFileRow[]>();
-    for (const fileRow of fileRows) {
-        const existingRows = fileRowsByGraphId.get(fileRow.graph_id) ?? [];
-        existingRows.push(fileRow);
-        fileRowsByGraphId.set(fileRow.graph_id, existingRows);
+    const currentRunByGraphId = new Map<string, ProcessRunRow>();
+    for (const processRun of processRuns) {
+        if (!currentRunByGraphId.has(processRun.graph_id)) {
+            currentRunByGraphId.set(processRun.graph_id, processRun);
+        }
     }
 
-    return graphs.map((graph) => {
-        const graphFileRows = fileRowsByGraphId.get(graph.graph_id) ?? [];
-        const processing: Partial<GraphListItem> =
-            graph.graph_state === "updating"
-                ? {
-                      process_step: buildProcessStepProgress(graphFileRows),
-                      process_percentage: buildProcessPercentage(graphFileRows),
-                      ...buildTimeEstimate(
-                          graphFileRows,
-                          processStats?.average_file_duration ?? null,
-                          processStats?.sample_count ?? 0
-                      ),
-                  }
-                : {};
+    const currentRunIds = Array.from(currentRunByGraphId.values()).map((run) => run.id);
+    const runFiles =
+        currentRunIds.length > 0
+            ? await db
+                  .select({
+                      process_run_id: processRunFilesTable.processRunId,
+                      process_step: filesTable.processStep,
+                      size: filesTable.size,
+                      type: filesTable.type,
+                  })
+                  .from(processRunFilesTable)
+                  .innerJoin(filesTable, eq(filesTable.id, processRunFilesTable.fileId))
+                  .where(inArray(processRunFilesTable.processRunId, currentRunIds))
+            : [];
 
-        return mapGraphListItem(graph, processing);
+    const runFilesByRunId = new Map<string, RunFileRow[]>();
+    for (const runFile of runFiles) {
+        const existingFiles = runFilesByRunId.get(runFile.process_run_id) ?? [];
+        existingFiles.push(runFile);
+        runFilesByRunId.set(runFile.process_run_id, existingFiles);
+    }
+
+    const bucketAverages = new Map<string, Average>();
+    for (const stat of bucketStats) {
+        if (stat.average_duration) {
+            bucketAverages.set(`${stat.file_type}:${stat.size_bucket}`, {
+                averageDuration: stat.average_duration,
+                sampleCount: stat.sample_count,
+            });
+        }
+    }
+
+    const typeAverages = new Map<string, Average>();
+    for (const stat of typeStats) {
+        if (stat.average_duration) {
+            typeAverages.set(stat.file_type, {
+                averageDuration: stat.average_duration,
+                sampleCount: stat.sample_count,
+            });
+        }
+    }
+
+    const globalAverage =
+        globalStats?.average_duration && globalStats.sample_count > 0
+            ? {
+                  averageDuration: globalStats.average_duration,
+                  sampleCount: globalStats.sample_count,
+              }
+            : undefined;
+
+    return graphs.map((graph) => {
+        const currentRun = currentRunByGraphId.get(graph.graph_id);
+        if (!currentRun) {
+            return mapGraphListItem(graph);
+        }
+        const currentRunFiles = runFilesByRunId.get(currentRun.id) ?? [];
+
+        return mapGraphListItem(
+            {
+                ...graph,
+                graph_state: "updating",
+            },
+            {
+                process_step: buildProcessStepProgress(currentRunFiles),
+                process_percentage: buildProcessPercentage(currentRunFiles),
+                ...buildTimeEstimate(currentRun, currentRunFiles, bucketAverages, typeAverages, globalAverage),
+            }
+        );
     });
 }

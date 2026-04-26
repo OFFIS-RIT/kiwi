@@ -16,7 +16,7 @@ function parseCount(value?: string): number {
 /**
  * Determines the current process step based on the step with the highest file count.
  * Steps are aggregated as follows:
- * - pending → queued (shown if no active processing steps)
+ * - pending → waiting_to_start (shown if no active processing steps)
  * - preprocessing + metadata + chunking → processing_files
  * - extracting + deduplicating → graph_creation
  * - saving → saving
@@ -62,9 +62,9 @@ function determineProcessStep(progress?: ApiBatchStepProgress): ProcessStep | un
         return maxStep;
     }
 
-    // Show "queued" if files are waiting and no active processing
+    // Show waiting state if files are queued and no active processing has started.
     if (queuedCount > 0) {
-        return "queued";
+        return "waiting_to_start";
     }
 
     // If only completed files remain, show "saving" as fallback

@@ -5,6 +5,7 @@ import {
     entityTable,
     filesTable,
     graphTable,
+    processRunsTable,
     processStatsTable,
     relationshipTable,
     sourcesTable,
@@ -40,6 +41,7 @@ import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 
 const WORKFLOW_STORAGE_VERSION = "v1";
+const FILE_DELETED = "__file_deleted__" as const;
 
 async function updateFileProcessingState(fileId: string, processStep: FileProcessStep, status: FileProcessStatus) {
     await db
@@ -49,6 +51,21 @@ async function updateFileProcessingState(fileId: string, processStep: FileProces
             status,
         })
         .where(eq(filesTable.id, fileId));
+}
+
+async function stopIfFileDeleted(fileId: string) {
+    const [file] = await db
+        .select({ deleted: filesTable.deleted })
+        .from(filesTable)
+        .where(eq(filesTable.id, fileId))
+        .limit(1);
+
+    if (file?.deleted) {
+        await updateFileProcessingState(fileId, "completed", "processed");
+        return true;
+    }
+
+    return false;
 }
 
 export const processFiles = defineWorkflow(processFilesSpec, async ({ input, step }) => {
@@ -68,7 +85,13 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
 
     // Update project status
     await step.run({ name: "update-project-status" }, async () => {
-        await db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId));
+        await Promise.all([
+            db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId)),
+            db
+                .update(processRunsTable)
+                .set({ status: "started", startedAt: sql`NOW()` })
+                .where(eq(processRunsTable.id, input.processRunId)),
+        ]);
     });
 
     await Promise.all(
@@ -149,7 +172,13 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
     ]);
 
     await step.run({ name: "finalize-project-status" }, async () => {
-        await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
+        await Promise.all([
+            db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId)),
+            db
+                .update(processRunsTable)
+                .set({ status: "completed", completedAt: sql`NOW()` })
+                .where(eq(processRunsTable.id, input.processRunId)),
+        ]);
     });
 });
 
@@ -186,6 +215,11 @@ export const processFile = defineWorkflow(
             return;
         }
 
+        if (fileData.deleted) {
+            await updateFileProcessingState(input.fileId, "completed", "processed");
+            return;
+        }
+
         const client = getClient({
             text: buildAdapter(
                 env.AI_TEXT_ADAPTER,
@@ -216,6 +250,10 @@ export const processFile = defineWorkflow(
         let baseFile;
         try {
             baseFile = await step.run({ name: "preprocess-file" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await updateFileProcessingState(input.fileId, "preprocessing", "processing");
                 const start = performance.now();
                 const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
@@ -322,10 +360,17 @@ export const processFile = defineWorkflow(
             await updateFileProcessingState(input.fileId, "failed", "failed");
             throw error;
         }
+        if (baseFile === FILE_DELETED) {
+            return;
+        }
 
         let metadataResult;
         try {
             metadataResult = await step.run({ name: "metadata" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await updateFileProcessingState(input.fileId, "metadata", "processing");
                 const metadata = await buildMetadata(client.text!, fileData.name, baseFile.metadataExcerpt);
 
@@ -342,10 +387,17 @@ export const processFile = defineWorkflow(
             await updateFileProcessingState(input.fileId, "failed", "failed");
             throw error;
         }
+        if (metadataResult === FILE_DELETED) {
+            return;
+        }
 
         let unitsResult;
         try {
             unitsResult = await step.run({ name: "build-units" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await updateFileProcessingState(input.fileId, "chunking", "processing");
                 const start = performance.now();
 
@@ -388,10 +440,17 @@ export const processFile = defineWorkflow(
             await updateFileProcessingState(input.fileId, "failed", "failed");
             throw error;
         }
+        if (unitsResult === FILE_DELETED) {
+            return;
+        }
 
         let graphResult;
         try {
             graphResult = await step.run({ name: "build-graph" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await updateFileProcessingState(input.fileId, "extracting", "processing");
                 const start = performance.now();
 
@@ -427,10 +486,17 @@ export const processFile = defineWorkflow(
             await updateFileProcessingState(input.fileId, "failed", "failed");
             throw error;
         }
+        if (graphResult === FILE_DELETED) {
+            return;
+        }
 
         let saveGraphResult;
         try {
             saveGraphResult = await step.run({ name: "save-graph" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await updateFileProcessingState(input.fileId, "deduplicating", "processing");
                 const start = performance.now();
 
@@ -773,14 +839,22 @@ export const processFile = defineWorkflow(
             await updateFileProcessingState(input.fileId, "failed", "failed");
             throw error;
         }
+        if (saveGraphResult === FILE_DELETED) {
+            return;
+        }
 
         try {
             await step.run({ name: "store-process-stats" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return;
+                }
+
                 await db.insert(processStatsTable).values({
                     totalTime:
                         baseFile.duration + unitsResult.duration + graphResult.duration + saveGraphResult.duration,
                     files: 1,
                     fileSizes: fileData.size,
+                    fileType: fileData.type,
                     tokenCount: baseFile.tokenCount,
                 });
             });
@@ -791,6 +865,10 @@ export const processFile = defineWorkflow(
 
         try {
             await step.run({ name: "mark-file-complete" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return;
+                }
+
                 await updateFileProcessingState(input.fileId, "completed", "processed");
             });
         } catch (error) {

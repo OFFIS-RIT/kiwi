@@ -122,10 +122,11 @@ const translations = {
         "thinking.processing": "Thinking...",
         "chat.templates": "Templates",
         "chat.templates.description": "Insert a prompt into the input field and adjust it.",
-        "chat.template.insert": "Insert template \"{title}\"",
+        "chat.template.insert": 'Insert template "{title}"',
 
         // Process Steps
         "process.queued": "Queued",
+        "process.waiting_to_start": "Waiting to be picked up",
         "process.processing_files": "Processing Files",
         "process.graph_creation": "Creating Graph",
         "process.generating_descriptions": "Generating Descriptions",
@@ -140,6 +141,8 @@ const translations = {
         "process.completed": "Completed",
         "process.failed": "Failed",
         "process.remaining": "~{time} remaining",
+        "process.remaining_approx_one": "ca. 1 minute remaining",
+        "process.remaining_approx_many": "ca. {minutes} minutes remaining",
         "process.eta_confidence": "ETA confidence",
         "process.eta_samples": "Samples",
         "process.eta.low": "Learning",
@@ -411,10 +414,11 @@ const translations = {
         "thinking.processing": "Denkt nach...",
         "chat.templates": "Vorlagen",
         "chat.templates.description": "Füge einen Vorschlag in das Eingabefeld ein und passe ihn an.",
-        "chat.template.insert": "Vorlage \"{title}\" einfügen",
+        "chat.template.insert": 'Vorlage "{title}" einfügen',
 
         // Process Steps
         "process.queued": "In Warteschlange",
+        "process.waiting_to_start": "Wartet auf Verarbeitung",
         "process.processing_files": "Verarbeite Dateien",
         "process.graph_creation": "Erstelle Graph",
         "process.generating_descriptions": "Generiere Beschreibungen",
@@ -429,6 +433,8 @@ const translations = {
         "process.completed": "Abgeschlossen",
         "process.failed": "Fehlgeschlagen",
         "process.remaining": "~{time} verbleibend",
+        "process.remaining_approx_one": "ca. 1 Minute verbleibend",
+        "process.remaining_approx_many": "ca. {minutes} Minuten verbleibend",
         "process.eta_confidence": "ETA-Vertrauen",
         "process.eta_samples": "Beispiele",
         "process.eta.low": "Lernt noch",

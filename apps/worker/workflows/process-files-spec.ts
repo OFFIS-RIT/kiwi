@@ -12,5 +12,6 @@ export const processFilesSpec = defineWorkflowSpec({
     schema: z.object({
         graphId: z.string(),
         fileIds: z.array(z.string()),
+        processRunId: z.string(),
     }),
 });
