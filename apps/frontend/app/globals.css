@@ -121,3 +121,18 @@
         @apply bg-background text-foreground overscroll-none;
     }
 }
+
+/* TipTap chat input: ProseMirror layout reset so the editor visually matches
+   the previous <textarea>, plus the empty-state placeholder rendered by
+   @tiptap/extension-placeholder (which adds `is-editor-empty` and
+   `data-placeholder` to empty paragraphs). */
+.tiptap-chat-input p {
+    margin: 0;
+}
+.tiptap-chat-input p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    color: var(--color-muted-foreground);
+    pointer-events: none;
+    float: left;
+    height: 0;
+}
