@@ -53,6 +53,7 @@ function DashboardContent() {
     const [headerReady, setHeaderReady] = useState(false);
     const processingGroupIdsRef = useRef<Set<string>>(new Set());
     const processingProjectIdsRef = useRef<Set<string>>(new Set());
+    const processingProjectGroupIdsRef = useRef<Map<string, string>>(new Map());
 
     useEffect(() => {
         if (!isLoading) {
@@ -64,24 +65,23 @@ function DashboardContent() {
     useEffect(() => {
         const processingGroupIds = processingGroupIdsRef.current;
         const processingProjectIds = processingProjectIdsRef.current;
+        const processingProjectGroupIds = processingProjectGroupIdsRef.current;
 
         for (const group of groups) {
-            let groupHasProcessingProject = false;
-
             for (const project of group.projects) {
                 if (isProjectProcessing(project)) {
                     processingProjectIds.add(project.id);
-                    groupHasProcessingProject = true;
+                    processingProjectGroupIds.set(project.id, group.id);
                 } else {
                     processingProjectIds.delete(project.id);
+                    processingProjectGroupIds.delete(project.id);
                 }
             }
+        }
 
-            if (groupHasProcessingProject) {
-                processingGroupIds.add(group.id);
-            } else {
-                processingGroupIds.delete(group.id);
-            }
+        processingGroupIds.clear();
+        for (const groupId of processingProjectGroupIds.values()) {
+            processingGroupIds.add(groupId);
         }
     }, [groups]);
 
