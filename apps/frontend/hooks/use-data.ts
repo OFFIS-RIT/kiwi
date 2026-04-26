@@ -152,6 +152,8 @@ export function useGroups() {
  * @returns Query result containing transformed Group array with nested Project objects
  */
 export function useGroupsWithProjects() {
+    const queryClient = useQueryClient();
+
     return useQuery({
         queryKey: queryKeys.groupsWithProjects,
         refetchInterval: (query) => {
@@ -160,7 +162,11 @@ export function useGroupsWithProjects() {
         },
         refetchIntervalInBackground: false,
         queryFn: async () => {
-            const [apiGroups, apiGraphs] = await Promise.all([fetchGroups(), fetchGraphs()]);
+            const cachedGroups = queryClient.getQueryData<ApiGroup[]>(queryKeys.groups);
+            const [apiGroups, apiGraphs] = await Promise.all([
+                cachedGroups ?? fetchGroups(),
+                fetchGraphs(),
+            ]);
 
             return transformGroupsWithGraphs(apiGroups, apiGraphs);
         },
@@ -175,6 +181,8 @@ export function useGroupsWithProjects() {
  * @returns Query result (never in loading state due to suspense behavior)
  */
 export function useGroupsWithProjectsSuspense() {
+    const queryClient = useQueryClient();
+
     return useSuspenseQuery({
         queryKey: queryKeys.groupsWithProjects,
         refetchInterval: (query) => {
@@ -183,7 +191,11 @@ export function useGroupsWithProjectsSuspense() {
         },
         refetchIntervalInBackground: false,
         queryFn: async () => {
-            const [apiGroups, apiGraphs] = await Promise.all([fetchGroups(), fetchGraphs()]);
+            const cachedGroups = queryClient.getQueryData<ApiGroup[]>(queryKeys.groups);
+            const [apiGroups, apiGraphs] = await Promise.all([
+                cachedGroups ?? fetchGroups(),
+                fetchGraphs(),
+            ]);
 
             return transformGroupsWithGraphs(apiGroups, apiGraphs);
         },

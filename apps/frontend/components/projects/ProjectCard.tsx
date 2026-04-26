@@ -3,10 +3,8 @@
 import { CardTemplate } from "@/components/common/CardTemplate";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useCountdown } from "@/hooks/use-countdown";
 import { formatDuration } from "@/lib/utils";
 import { useAuth } from "@/providers/AuthProvider";
-import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { Project } from "@/types";
 import { BookOpen, Calendar, Loader2 } from "lucide-react";
@@ -23,11 +21,10 @@ export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCar
     const { hasPermission } = useAuth();
     const canEditProject = hasPermission("graph.update");
     const canViewFiles = hasPermission("graph.list:file");
-    const { dataUpdatedAt } = useData();
     const lastUpdated = project.lastUpdated;
     const sourcesCount = project.sourcesCount ?? 0;
     const isProcessing = project.processPercentage !== undefined;
-    const timeRemaining = useCountdown(project.processTimeRemaining, dataUpdatedAt);
+    const timeRemaining = project.processTimeRemaining;
 
     return (
         <CardTemplate
