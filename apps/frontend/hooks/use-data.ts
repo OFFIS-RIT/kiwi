@@ -168,6 +168,10 @@ export function useGroupsWithProjects() {
                 fetchGraphs(),
             ]);
 
+            if (!cachedGroups) {
+                queryClient.setQueryData(queryKeys.groups, apiGroups);
+            }
+
             return transformGroupsWithGraphs(apiGroups, apiGraphs);
         },
     });
@@ -196,6 +200,10 @@ export function useGroupsWithProjectsSuspense() {
                 cachedGroups ?? fetchGroups(),
                 fetchGraphs(),
             ]);
+
+            if (!cachedGroups) {
+                queryClient.setQueryData(queryKeys.groups, apiGroups);
+            }
 
             return transformGroupsWithGraphs(apiGroups, apiGraphs);
         },
