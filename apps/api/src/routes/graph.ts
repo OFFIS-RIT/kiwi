@@ -31,6 +31,7 @@ import {
     selectFileFields,
     selectGraphListFields,
     selectGraphDetailFileFields,
+    uniqueFilesByChecksum,
     type CreatedFileRecord,
     type GraphFileRow,
     type UploadedFile,
@@ -354,8 +355,9 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return mapGraphError(status, accessResult.error);
             }
 
+            const filesWithChecksums = await uniqueFilesByChecksum(files);
             const hidden = body.groupId ? body.hidden === true || body.hidden === "true" : true;
-            const initialState = files.length > 0 ? "updating" : "ready";
+            const initialState = filesWithChecksums.length > 0 ? "updating" : "ready";
 
             const [graph] = await db
                 .insert(graphTable)
@@ -378,7 +380,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            if (files.length === 0) {
+            if (filesWithChecksums.length === 0) {
                 return status(201, {
                     status: "success",
                     data: {
@@ -391,7 +393,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
             const uploadedFiles: UploadedFile[] = [];
             try {
-                for (const file of files) {
+                for (const { file, checksum } of filesWithChecksums) {
                     const upload = await putFile(file.name, file, `graphs/${graph.id}`, env.S3_BUCKET);
                     const type: UploadedFile["type"] = (() => {
                         const normalizedMimeType = file.type?.trim().toLowerCase() ?? "";
@@ -448,6 +450,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         type,
                         mimeType: file.type || upload.type,
                         key: upload.key,
+                        checksum,
                     });
                 }
             } catch (uploadError) {
@@ -488,6 +491,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                             type: file.type,
                             mimeType: file.mimeType,
                             key: file.key,
+                            checksum: file.checksum,
                         }))
                     )
                     .returning(selectFileFields);
@@ -687,9 +691,45 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
+            const uniqueUploadedFiles = await uniqueFilesByChecksum(files);
+            if (uniqueUploadedFiles.length === 0) {
+                return status(200, {
+                    status: "success",
+                    data: {
+                        graph: existingGraph,
+                        addedFiles: [],
+                        workflowRunId: null,
+                    },
+                });
+            }
+
+            const existingFiles = await db
+                .select({ checksum: filesTable.checksum })
+                .from(filesTable)
+                .where(
+                    and(
+                        eq(filesTable.graphId, existingGraph.id),
+                        eq(filesTable.deleted, false),
+                        isNotNull(filesTable.checksum)
+                    )
+                );
+            const existingChecksums = new Set(existingFiles.map((file) => file.checksum).filter((checksum) => checksum !== null));
+            const filesWithChecksums = uniqueUploadedFiles.filter((file) => !existingChecksums.has(file.checksum));
+
+            if (filesWithChecksums.length === 0) {
+                return status(200, {
+                    status: "success",
+                    data: {
+                        graph: existingGraph,
+                        addedFiles: [],
+                        workflowRunId: null,
+                    },
+                });
+            }
+
             const uploadedFiles: UploadedFile[] = [];
             try {
-                for (const file of files) {
+                for (const { file, checksum } of filesWithChecksums) {
                     const upload = await putFile(file.name, file, `graphs/${existingGraph.id}`, env.S3_BUCKET);
                     const type: UploadedFile["type"] = (() => {
                         const normalizedMimeType = file.type?.trim().toLowerCase() ?? "";
@@ -746,6 +786,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         type,
                         mimeType: file.type || upload.type,
                         key: upload.key,
+                        checksum,
                     });
                 }
             } catch (uploadError) {
@@ -773,12 +814,6 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
             try {
                 const result = await db.transaction(async (tx) => {
-                    const [updatedGraph] = await tx
-                        .update(graphTable)
-                        .set({ state: "updating" })
-                        .where(eq(graphTable.id, existingGraph.id))
-                        .returning(selectGraphFields);
-
                     const insertedFiles = await tx
                         .insert(filesTable)
                         .values(
@@ -789,9 +824,23 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                                 type: file.type,
                                 mimeType: file.mimeType,
                                 key: file.key,
+                                checksum: file.checksum,
                             }))
                         )
                         .returning(selectFileFields);
+
+                    if (insertedFiles.length === 0) {
+                        return {
+                            graph: existingGraph,
+                            addedFiles: insertedFiles,
+                        };
+                    }
+
+                    const [updatedGraph] = await tx
+                        .update(graphTable)
+                        .set({ state: "updating" })
+                        .where(eq(graphTable.id, existingGraph.id))
+                        .returning(selectGraphFields);
 
                     return {
                         graph: updatedGraph ?? existingGraph,
@@ -801,6 +850,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
                 graph = result.graph;
                 addedFiles = result.addedFiles;
+
+                const addedKeys = new Set(addedFiles.map((file) => file.key));
+                const skippedKeys = uploadedFiles.map((file) => file.key).filter((key) => !addedKeys.has(key));
+                if (skippedKeys.length > 0) {
+                    await cleanupUploadedKeys(skippedKeys);
+                }
             } catch (dbPatchError) {
                 const failedDeletes = await cleanupUploadedKeys(uploadedFiles.map((file) => file.key));
 
@@ -818,6 +873,17 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     status: "error",
                     message: "Internal server error",
                     code: "INTERNAL_SERVER_ERROR",
+                });
+            }
+
+            if (addedFiles.length === 0) {
+                return status(200, {
+                    status: "success",
+                    data: {
+                        graph,
+                        addedFiles,
+                        workflowRunId: null,
+                    },
                 });
             }
 

@@ -10,6 +10,7 @@ import {
     primaryKey,
     text,
     timestamp,
+    uniqueIndex,
     vector,
 } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
@@ -130,28 +131,37 @@ export const systemPromptsTable = pgTable.withRLS("system_prompts", {
         .$onUpdate(() => sql`NOW()`),
 });
 
-export const filesTable = pgTable.withRLS("files", {
-    id: text("id")
-        .primaryKey()
-        .$default(() => ulid()),
-    graphId: text("graph_id")
-        .notNull()
-        .references(() => graphTable.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    size: integer("file_size").notNull(),
-    type: text("file_type").notNull(),
-    mimeType: text("mime_type").notNull(),
-    key: text("file_key").notNull(),
-    deleted: boolean("deleted").default(false),
-    status: text("status", { enum: FILE_PROCESS_STATUS_VALUES }).notNull().default("processing"),
-    processStep: text("process_step", { enum: FILE_PROCESS_STEP_VALUES }).notNull().default("pending"),
-    tokenCount: integer("token_count").notNull().default(0),
-    metadata: text("metadata"),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-        .defaultNow()
-        .$onUpdate(() => sql`NOW()`),
-});
+export const filesTable = pgTable.withRLS(
+    "files",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        graphId: text("graph_id")
+            .notNull()
+            .references(() => graphTable.id, { onDelete: "cascade" }),
+        name: text("name").notNull(),
+        size: integer("file_size").notNull(),
+        type: text("file_type").notNull(),
+        mimeType: text("mime_type").notNull(),
+        key: text("file_key").notNull(),
+        checksum: text("checksum"),
+        deleted: boolean("deleted").default(false),
+        status: text("status", { enum: FILE_PROCESS_STATUS_VALUES }).notNull().default("processing"),
+        processStep: text("process_step", { enum: FILE_PROCESS_STEP_VALUES }).notNull().default("pending"),
+        tokenCount: integer("token_count").notNull().default(0),
+        metadata: text("metadata"),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [
+        uniqueIndex("files_graph_checksum_active_unique")
+            .on(table.graphId, table.checksum)
+            .where(sql`${table.deleted} = false AND ${table.checksum} IS NOT NULL`),
+    ]
+);
 
 export const textUnitTable = pgTable.withRLS("text_units", {
     id: text("id")
