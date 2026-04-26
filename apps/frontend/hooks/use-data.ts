@@ -208,7 +208,7 @@ export function useCreateGroup() {
             return createGroup(name);
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+            queryClient.removeQueries({ queryKey: queryKeys.groups });
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
         },
     });
@@ -257,7 +257,7 @@ export function useUpdateGroup() {
             }
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+            queryClient.removeQueries({ queryKey: queryKeys.groups });
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
         },
     });
@@ -297,7 +297,7 @@ export function useDeleteGroup() {
             }
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+            queryClient.removeQueries({ queryKey: queryKeys.groups });
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
         },
     });
