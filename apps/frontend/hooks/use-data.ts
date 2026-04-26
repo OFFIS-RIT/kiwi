@@ -130,22 +130,6 @@ export const queryKeys = {
 };
 
 /**
- * Fetches all groups without their associated projects.
- * For groups with projects included, use {@link useGroupsWithProjects} instead.
- *
- * @returns Query result containing an array of groups
- */
-export function useGroups() {
-    return useQuery({
-        queryKey: queryKeys.groups,
-        queryFn: async () => {
-            const groups = await fetchGroups();
-            return groups;
-        },
-    });
-}
-
-/**
  * Fetches all groups with their associated projects, transforming API data to domain models.
  * Combines data from both groups and projects endpoints in parallel for efficiency.
  *
