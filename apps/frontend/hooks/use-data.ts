@@ -130,28 +130,14 @@ export const queryKeys = {
 };
 
 /**
- * Fetches all groups without their associated projects.
- * For groups with projects included, use {@link useGroupsWithProjects} instead.
- *
- * @returns Query result containing an array of groups
- */
-export function useGroups() {
-    return useQuery({
-        queryKey: queryKeys.groups,
-        queryFn: async () => {
-            const groups = await fetchGroups();
-            return groups;
-        },
-    });
-}
-
-/**
  * Fetches all groups with their associated projects, transforming API data to domain models.
  * Combines data from both groups and projects endpoints in parallel for efficiency.
  *
  * @returns Query result containing transformed Group array with nested Project objects
  */
 export function useGroupsWithProjects() {
+    const queryClient = useQueryClient();
+
     return useQuery({
         queryKey: queryKeys.groupsWithProjects,
         refetchInterval: (query) => {
@@ -160,7 +146,15 @@ export function useGroupsWithProjects() {
         },
         refetchIntervalInBackground: false,
         queryFn: async () => {
-            const [apiGroups, apiGraphs] = await Promise.all([fetchGroups(), fetchGraphs()]);
+            const cachedGroups = queryClient.getQueryData<ApiGroup[]>(queryKeys.groups);
+            const [apiGroups, apiGraphs] = await Promise.all([
+                cachedGroups ?? fetchGroups(),
+                fetchGraphs(),
+            ]);
+
+            if (!cachedGroups) {
+                queryClient.setQueryData(queryKeys.groups, apiGroups);
+            }
 
             return transformGroupsWithGraphs(apiGroups, apiGraphs);
         },
@@ -175,6 +169,8 @@ export function useGroupsWithProjects() {
  * @returns Query result (never in loading state due to suspense behavior)
  */
 export function useGroupsWithProjectsSuspense() {
+    const queryClient = useQueryClient();
+
     return useSuspenseQuery({
         queryKey: queryKeys.groupsWithProjects,
         refetchInterval: (query) => {
@@ -183,7 +179,15 @@ export function useGroupsWithProjectsSuspense() {
         },
         refetchIntervalInBackground: false,
         queryFn: async () => {
-            const [apiGroups, apiGraphs] = await Promise.all([fetchGroups(), fetchGraphs()]);
+            const cachedGroups = queryClient.getQueryData<ApiGroup[]>(queryKeys.groups);
+            const [apiGroups, apiGraphs] = await Promise.all([
+                cachedGroups ?? fetchGroups(),
+                fetchGraphs(),
+            ]);
+
+            if (!cachedGroups) {
+                queryClient.setQueryData(queryKeys.groups, apiGroups);
+            }
 
             return transformGroupsWithGraphs(apiGroups, apiGraphs);
         },
@@ -204,7 +208,7 @@ export function useCreateGroup() {
             return createGroup(name);
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+            queryClient.removeQueries({ queryKey: queryKeys.groups, exact: true });
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
         },
     });
@@ -253,7 +257,7 @@ export function useUpdateGroup() {
             }
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+            queryClient.removeQueries({ queryKey: queryKeys.groups, exact: true });
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
         },
     });
@@ -293,7 +297,7 @@ export function useDeleteGroup() {
             }
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+            queryClient.removeQueries({ queryKey: queryKeys.groups, exact: true });
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
         },
     });

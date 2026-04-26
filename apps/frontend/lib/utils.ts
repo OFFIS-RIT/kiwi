@@ -15,17 +15,13 @@ export function formatBytes(bytes: number) {
 
 /**
  * Formats a duration in milliseconds to a human-readable string.
- * Examples: "<1s", "45s", "2m 30s", "1h 15m"
+ * Shows only minutes (floor) — no local countdown, only server values.
+ * Examples: "<1m", "2m", "15m", "1h 15m"
  */
 export function formatDuration(ms: number): string {
-    if (ms < 1000) return "<1s";
-    const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    if (minutes < 60) {
-        return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
-    }
+    const minutes = Math.floor(ms / 60_000);
+    if (minutes < 1) return "<1m";
+    if (minutes < 60) return `${minutes}m`;
     const hours = Math.floor(minutes / 60);
     const remainingMinutes = minutes % 60;
     return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
