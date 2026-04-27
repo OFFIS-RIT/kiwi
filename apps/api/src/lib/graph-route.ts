@@ -423,7 +423,7 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
                 status: processRunsTable.status,
             })
             .from(processRunsTable)
-            .where(and(inArray(processRunsTable.graphId, graphIds), sql`${processRunsTable.status} <> 'completed'`))
+            .where(and(inArray(processRunsTable.graphId, graphIds), ne(processRunsTable.status, "completed")))
             .orderBy(asc(processRunsTable.graphId), asc(processRunsTable.createdAt)),
         db
             .select({
