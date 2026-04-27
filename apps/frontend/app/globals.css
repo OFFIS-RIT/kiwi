@@ -136,3 +136,13 @@
     float: left;
     height: 0;
 }
+/* Live speech-to-text preview: rendered as a ProseMirror widget decoration at
+   the end of the doc while recording. Italic and muted to distinguish from
+   committed text; leading space so it doesn't run into the previous word. */
+.tiptap-chat-input .interim-decoration {
+    color: var(--color-muted-foreground);
+    font-style: italic;
+    margin-left: 0.25rem;
+    user-select: none;
+    pointer-events: none;
+}

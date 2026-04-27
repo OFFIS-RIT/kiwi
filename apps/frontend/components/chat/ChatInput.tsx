@@ -11,10 +11,17 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import { createPortal } from "react-dom";
 import { FileMentionList, type FileMentionItem, type FileMentionListHandle } from "./FileMentionList";
 import { closedSuggestionData, createFileMention, type SuggestionData } from "./FileMentionNode";
+import { InterimDecoration, interimDecorationKey } from "./InterimDecorationExtension";
 
 export type ChatInputHandle = {
     /** Replace the editor content with `text`. By default this fires `onChange`; pass `silent` to skip. */
     setText: (text: string, options?: { silent?: boolean }) => void;
+    /**
+     * Append `text` to the end of the editor's content without touching any
+     * existing nodes. Use this to commit speech transcripts so file-mention
+     * badges aren't replaced by a plain-text re-parse.
+     */
+    appendText: (text: string, options?: { withSpace?: boolean }) => void;
     /** Move keyboard focus into the editor. */
     focus: () => void;
 };
@@ -32,6 +39,12 @@ export type ChatInputProps = {
     placeholder: string;
     /** Project whose files back the @-mention picker. */
     projectId: string;
+    /**
+     * Live (non-final) speech-to-text preview. Rendered as a muted overlay
+     * below the editor — the editor document itself is never mutated, so
+     * mention-badge nodes are preserved while recording.
+     */
+    interimTranscript?: string;
 };
 
 export const projectFilesQueryKey = (projectId: string) => ["projectFiles", projectId] as const;
@@ -48,7 +61,7 @@ export const projectFilesQueryKey = (projectId: string) => ["projectFiles", proj
  * surrounding providers — `LanguageProvider`, query client, theme, etc.
  */
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
-    { value, onChange, onSubmit, disabled = false, placeholder, projectId },
+    { value, onChange, onSubmit, disabled = false, placeholder, projectId, interimTranscript },
     ref
 ) {
     // Keep the latest file list and loading flag accessible to the mention
@@ -129,6 +142,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 hardBreak: false,
             }),
             Placeholder.configure({ placeholder }),
+            InterimDecoration,
             fileMention,
         ],
         editorProps: {
@@ -164,6 +178,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         if (editor.isEditable === !disabled) return;
         editor.setEditable(!disabled);
     }, [editor, disabled]);
+
+    // Push the live (non-final) speech transcript into the decoration plugin
+    // so it renders as a transient widget at the end of the doc — without
+    // mutating the document, so mention badges stay intact.
+    useEffect(() => {
+        if (!editor) return;
+        const text = interimTranscript ?? "";
+        editor.view.dispatch(editor.state.tr.setMeta(interimDecorationKey, text));
+    }, [editor, interimTranscript]);
 
     // Sync external `value` changes into the editor. We compare against the
     // last emission so the round-trip (editor → onChange → state → value prop)
@@ -209,6 +232,22 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 // change is detected correctly.
                 lastEmittedRef.current = text;
             }
+        },
+        appendText: (text, options) => {
+            if (!editor) return;
+            // Insert at the end of the last block so existing structure
+            // (paragraphs, mention atoms) stays untouched. content.size is the
+            // doc-end position; subtracting 1 lands inside the final block.
+            const docSize = editor.state.doc.content.size;
+            const insertPos = Math.max(docSize - 1, 0);
+            let insertion = text;
+            if (options?.withSpace) {
+                const current = editor.getText({ blockSeparator: "\n" });
+                if (current && !/\s$/.test(current)) {
+                    insertion = ` ${text}`;
+                }
+            }
+            editor.commands.insertContentAt(insertPos, insertion);
         },
         focus: () => {
             editor?.commands.focus();

@@ -576,7 +576,11 @@ function ProjectChatSession({
                 setInterimTranscript(currentInterim);
 
                 if (finalTranscript) {
-                    setInputValue((previous) => (previous ? `${previous} ${finalTranscript}` : finalTranscript));
+                    // Go through the editor's append API so file-mention atom
+                    // nodes are preserved — `setInputValue` would round-trip
+                    // through the value-sync effect and re-parse the doc as
+                    // plain text, destroying any badges.
+                    inputRef.current?.appendText(finalTranscript, { withSpace: true });
                     setInterimTranscript("");
                 }
             };
@@ -682,20 +686,6 @@ function ProjectChatSession({
         inputRef.current?.focus();
     }, []);
 
-    // While recording, mirror the merged "committed text + interim transcript"
-    // into the editor as a transient preview without committing it to
-    // `inputValue` (silent: true). When recording ends and the final
-    // transcript has been committed via `setInputValue`, the editor's normal
-    // `value` sync re-establishes the canonical content.
-    useEffect(() => {
-        if (!isRecording) return;
-        const merged = interimTranscript
-            ? inputValue
-                ? `${inputValue} ${interimTranscript}`
-                : interimTranscript
-            : inputValue;
-        inputRef.current?.setText(merged, { silent: true });
-    }, [isRecording, interimTranscript, inputValue]);
 
     return (
         <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">
@@ -994,6 +984,7 @@ function ProjectChatSession({
                                 disabled={isRecording || !!pendingClarification}
                                 placeholder={t("ask.question")}
                                 projectId={projectId}
+                                interimTranscript={isRecording ? interimTranscript : undefined}
                             />
                             {speechSupported && (
                                 <Button
