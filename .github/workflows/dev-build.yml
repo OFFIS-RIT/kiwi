@@ -1,27 +1,21 @@
-name: Dev Database Build
+name: Dev Build
 
 on:
-    workflow_dispatch:
     push:
-        branches:
-            - dev
-        paths:
-            - "postgres/**"
-            - "migrations/**"
-            - "drizzle.config.ts"
-            - "package.json"
-            - "bun.lock"
-            - "packages/db/src/tables/**"
-            - ".github/workflows/dev-build-postgres.yml"
+        tags:
+            - "v*-nightly*"
+
+concurrency:
+    group: dev-pipeline
+    cancel-in-progress: false
 
 env:
     REGISTRY: ghcr.io
     IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/kiwi
-    IMAGE_TAG: dev
 
 jobs:
     build-images:
-        name: Build and push ${{ matrix.name }} dev
+        name: Build and push ${{ matrix.name }}
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -35,11 +29,40 @@ jobs:
                       context: ./postgres
                       file: ./postgres/Dockerfile
                       cache: postgres
+                      target: ""
+                      build_args: ""
+                      tag_suffix: ""
+                      latest_suffix: ""
                     - name: migrations
                       image: migrations
                       context: .
                       file: ./migrations/Dockerfile
                       cache: migrations
+                      target: ""
+                      build_args: ""
+                    - name: server
+                      image: server
+                      context: .
+                      file: ./apps/api/Dockerfile
+                      cache: server
+                      target: ""
+                      build_args: ""
+                    - name: worker
+                      image: worker
+                      context: .
+                      file: ./apps/worker/Dockerfile
+                      cache: worker
+                      target: ""
+                      build_args: ""
+                    - name: frontend
+                      image: frontend
+                      context: .
+                      file: ./apps/frontend/Dockerfile
+                      cache: frontend
+                      target: ""
+                      build_args: |
+                          NEXT_PUBLIC_API_URL=/api
+                          NEXT_PUBLIC_APP_BUILD_LABEL=${{ github.ref_name }}
 
         steps:
             - name: Checkout code
@@ -72,6 +95,11 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            - name: Set image tag
+              id: meta
+              run: |
+                  echo "version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
             - name: Build and push image
               uses: docker/build-push-action@v7
               with:
@@ -79,7 +107,11 @@ jobs:
                   file: ${{ matrix.file }}
                   platforms: linux/amd64,linux/arm64
                   push: true
-                  tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ env.IMAGE_TAG }}
+                  tags: |
+                      ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
+                      ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:dev
+                  target: ${{ matrix.target }}
+                  build-args: ${{ matrix.build_args }}
                   cache-from: type=local,src=${{ runner.temp }}/.buildx-cache-${{ matrix.cache }}
                   cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-${{ matrix.cache }}-new,mode=max
 
