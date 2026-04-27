@@ -2,9 +2,6 @@
 
 import type React from "react";
 
-import { AuthPage } from "@/components/auth";
-import { DashboardSkeleton } from "@/components/common";
-import { SidebarProvider } from "@/components/ui/sidebar";
 import { authClient } from "@kiwi/auth/client";
 import {
     admin as adminRole,
@@ -14,7 +11,8 @@ import {
     user as userRole,
 } from "@kiwi/auth/permissions";
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createContext, useContext } from "react";
 
 type AuthUser = {
     id: string;
@@ -24,38 +22,35 @@ type AuthUser = {
 };
 
 type AuthContextType = {
-    user: AuthUser | null;
-    role: string | null;
+    user: AuthUser;
+    role: string;
+    authMode: string;
     isAdmin: boolean;
     isManager: boolean;
-    isPending: boolean;
     signOut: () => Promise<void>;
     hasPermission: (permission: string) => boolean;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-    const { data: session, isPending } = authClient.useSession();
+type AuthProviderProps = {
+    initialSession: {
+        user: { id: string; name: string; email: string; role: string };
+    };
+    authMode: string;
+    children: React.ReactNode;
+};
+
+export function AuthProvider({ initialSession, authMode, children }: AuthProviderProps) {
     const queryClient = useQueryClient();
-    const [authView, setAuthView] = useState<"login" | "register">("login");
+    const router = useRouter();
 
-    const user = session?.user ?? null;
-    const roles = getUserRoles(user?.role ?? null);
-    const role = roles[0] ?? null;
+    const user = initialSession.user;
+    const roles = getUserRoles(user.role ?? null);
+    const role = roles[0] ?? "user";
 
-    const prevUserIdRef = useRef<string | null>(null);
-
-    useEffect(() => {
-        if (user?.id && prevUserIdRef.current && user.id !== prevUserIdRef.current) {
-            localStorage.removeItem("kiwi-navigation-state");
-        }
-
-        prevUserIdRef.current = user?.id ?? null;
-    }, [user?.id]);
-
-    const isAdmin = hasRole(user?.role ?? null, "admin");
-    const isManager = hasRole(user?.role ?? null, "manager");
+    const isAdmin = hasRole(user.role ?? null, "admin");
+    const isManager = hasRole(user.role ?? null, "manager");
 
     const roleMap: Record<string, { statements: Record<string, readonly string[]> }> = {
         admin: adminRole,
@@ -64,14 +59,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const hasPermission = (permission: string): boolean => {
-        if (isAdmin) {
-            return true;
-        }
+        if (isAdmin) return true;
 
         const [resource, action] = permission.split(".");
-        if (!resource || !action) {
-            return false;
-        }
+        if (!resource || !action) return false;
 
         return roles.some((currentRole) => roleMap[currentRole]?.statements[resource]?.includes(action) ?? false);
     };
@@ -79,43 +70,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const handleSignOut = async () => {
         await authClient.signOut();
         queryClient.clear();
-        localStorage.removeItem("kiwi-navigation-state");
+        router.push("/login");
     };
 
     const value: AuthContextType = {
-        user: user
-            ? {
-                  id: user.id,
-                  name: user.name,
-                  email: user.email,
-                  role: role ?? "user",
-              }
-            : null,
+        user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role,
+        },
         role,
+        authMode,
         isAdmin,
         isManager,
-        isPending,
         signOut: handleSignOut,
         hasPermission,
     };
-
-    if (isPending) {
-        return (
-            <AuthContext.Provider value={value}>
-                <SidebarProvider>
-                    <DashboardSkeleton />
-                </SidebarProvider>
-            </AuthContext.Provider>
-        );
-    }
-
-    if (!session) {
-        return (
-            <AuthContext.Provider value={value}>
-                <AuthPage view={authView} onViewChange={setAuthView} />
-            </AuthContext.Provider>
-        );
-    }
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -125,6 +96,5 @@ export function useAuth() {
     if (context === undefined) {
         throw new Error("useAuth must be used within an AuthProvider");
     }
-
     return context;
 }

@@ -22,11 +22,12 @@ export const queryKeys = {
  *
  * @returns Query result containing transformed Group array with nested Project objects
  */
-export function useGroupsWithProjects() {
+export function useGroupsWithProjects(initialData?: Group[]) {
     const queryClient = useQueryClient();
 
     return useQuery({
         queryKey: queryKeys.groupsWithProjects,
+        initialData,
         refetchInterval: (query) => {
             const groups = query.state.data as Group[] | undefined;
             return hasActiveProcessing(groups) ? 5000 : false;
@@ -55,11 +56,12 @@ export function useGroupsWithProjects() {
  *
  * @returns Query result (never in loading state due to suspense behavior)
  */
-export function useGroupsWithProjectsSuspense() {
+export function useGroupsWithProjectsSuspense(initialData?: Group[]) {
     const queryClient = useQueryClient();
 
     return useSuspenseQuery({
         queryKey: queryKeys.groupsWithProjects,
+        initialData,
         refetchInterval: (query) => {
             const groups = query.state.data as Group[] | undefined;
             return hasActiveProcessing(groups) ? 5000 : false;
