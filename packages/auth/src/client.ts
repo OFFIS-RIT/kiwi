@@ -8,18 +8,8 @@ import { credentialsClient } from "better-auth-credentials-plugin";
 
 import { ac, admin, manager, user } from "./permissions";
 
-function getBaseURL() {
-    const url = process.env.NEXT_PUBLIC_AUTH_URL || "/auth";
-
-    if (!("window" in globalThis) && url.startsWith("/")) {
-        return `http://localhost:3000${url}`;
-    }
-
-    return url;
-}
-
 export const authClient = createAuthClient({
-    baseURL: getBaseURL(),
+    baseURL: typeof window !== "undefined" ? `${window.location.origin}/auth` : "http://localhost/auth",
     plugins: [
         inferAdditionalFields({
             user: {

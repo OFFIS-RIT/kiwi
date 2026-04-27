@@ -4,18 +4,19 @@ import { StateDisplay } from "@/components/common/StateDisplay";
 import { queryKeys } from "@/hooks/use-data";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
-import { useNavigation } from "@/providers/NavigationProvider";
 import type { ApiProjectFile, Project } from "@/types";
 import { useQueries } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ProjectCard } from "./ProjectCard";
 
 type ProjectListProps = {
+    groupName: string;
     onEditProject: (project: Project, groupId: string) => void;
 };
 
-export function ProjectList({ onEditProject }: ProjectListProps) {
-    const { selectedGroup, selectItem } = useNavigation();
+export function ProjectList({ groupName, onEditProject }: ProjectListProps) {
+    const router = useRouter();
     const { t } = useLanguage();
     const { groups, isLoading, error } = useData();
     const [ready, setReady] = useState(false);
@@ -42,7 +43,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
         return undefined;
     }
 
-    const group = groups.find((g) => g.id === selectedGroup?.id);
+    const group = groups.find((g) => g.name === groupName);
 
     const projectFilesQueries = useQueries({
         queries: (group?.projects || []).map((project) => ({
@@ -130,7 +131,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
                             processEtaSampleCount: project.processEtaSampleCount,
                         }}
                         groupName={group.name}
-                        onSelect={() => selectItem(group, project)}
+                        onSelect={() => router.push(`/${encodeURIComponent(group.name)}/${encodeURIComponent(project.name)}`)}
                         onEdit={() => onEditProject(project, group.id)}
                     />
                 ))}

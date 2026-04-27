@@ -5,3 +5,4 @@ export { FileStatusIcon } from "./FileStatusIcon";
 export { FileUploader } from "./FileUploader";
 export { ProjectCard } from "./ProjectCard";
 export { ProjectList } from "./ProjectList";
+export { ProjectListView } from "./ProjectListView";

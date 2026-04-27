@@ -29,18 +29,38 @@ import {
 } from "@/components/ui/sidebar";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
-import { useNavigation } from "@/providers/NavigationProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
 import Fuse from "fuse.js";
 import { BookOpen, ChevronRight, Edit, FolderSearch, MoreVertical, Plus, Search, Trash2, Users, X } from "lucide-react";
 import Image from "next/image";
+import { usePathname, useRouter } from "next/navigation";
 import type * as React from "react";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 
 const CreateProjectDialog = lazy(() =>
     import("@/components/projects").then((mod) => ({
         default: mod.CreateProjectDialog,
+    }))
+);
+const DeleteGroupDialog = lazy(() =>
+    import("@/components/groups/DeleteGroupDialog").then((mod) => ({
+        default: mod.DeleteGroupDialog,
+    }))
+);
+const DeleteProjectDialog = lazy(() =>
+    import("@/components/projects/DeleteProjectDialog").then((mod) => ({
+        default: mod.DeleteProjectDialog,
+    }))
+);
+const EditGroupDialog = lazy(() =>
+    import("@/components/groups/EditGroupDialog").then((mod) => ({
+        default: mod.EditGroupDialog,
+    }))
+);
+const EditProjectDialog = lazy(() =>
+    import("@/components/projects/EditProjectDialog").then((mod) => ({
+        default: mod.EditProjectDialog,
     }))
 );
 
@@ -52,27 +72,54 @@ type SearchResult = {
 };
 
 const MIN_SEARCH_LENGTH = 1;
-const APP_BUILD_LABEL = process.env.NEXT_PUBLIC_APP_BUILD_LABEL?.trim();
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
-    onEditGroup: (group: Group) => void;
-    onEditProject: (project: Project, groupId: string) => void;
-    onDeleteGroup: (group: Group) => void;
-    onDeleteProject: (project: Project, groupId: string, groupName: string) => void;
-    onProjectCreated?: (projectId: string, groupId: string, projectName: string) => void;
+    buildLabel?: string;
 };
 
-export function AppSidebar({
-    onEditGroup,
-    onEditProject,
-    onDeleteGroup,
-    onDeleteProject,
-    onProjectCreated,
-    ...props
-}: AppSidebarProps) {
+export function AppSidebar({ buildLabel, ...props }: AppSidebarProps) {
     const { t } = useLanguage();
     const { groups, isLoading, error } = useData();
-    const { showGroups, selectedGroup, selectedProject } = useNavigation();
+    const pathname = usePathname();
+    const router = useRouter();
+
+    const segments = pathname.split("/").filter(Boolean);
+    const activeGroupName = segments[0] ? decodeURIComponent(segments[0]) : null;
+    const activeProjectName = segments[1] ? decodeURIComponent(segments[1]) : null;
+
+    // Dialog state
+    const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
+    const [editingGroup, setEditingGroup] = useState<Group | null>(null);
+    const [editProjectDialogOpen, setEditProjectDialogOpen] = useState(false);
+    const [editingProject, setEditingProject] = useState<{ id: string; name: string; groupId: string } | null>(null);
+    const [deleteGroupDialogOpen, setDeleteGroupDialogOpen] = useState(false);
+    const [deletingGroup, setDeletingGroup] = useState<Group | null>(null);
+    const [deleteProjectDialogOpen, setDeleteProjectDialogOpen] = useState(false);
+    const [deletingProject, setDeletingProject] = useState<{ project: Project; groupId: string; groupName: string } | null>(null);
+
+    const handleEditGroup = (group: Group) => {
+        setEditingGroup(group);
+        setEditGroupDialogOpen(true);
+    };
+    const handleEditProject = (project: Project, groupId: string) => {
+        setEditingProject({ ...project, groupId });
+        setEditProjectDialogOpen(true);
+    };
+    const handleDeleteGroup = (group: Group) => {
+        setDeletingGroup(group);
+        setDeleteGroupDialogOpen(true);
+    };
+    const handleDeleteProject = (project: Project, groupId: string, groupName: string) => {
+        setDeletingProject({ project, groupId, groupName });
+        setDeleteProjectDialogOpen(true);
+    };
+    const handleProjectCreated = (_projectId: string, groupId: string) => {
+        const group = groups.find((g) => g.id === groupId);
+        if (group) {
+            router.push(`/${encodeURIComponent(group.name)}`);
+        }
+    };
+
     const {
         expandedGroups,
         toggleGroupExpanded,
@@ -213,11 +260,12 @@ export function AppSidebar({
     }, [isSearching, groupedResults, expandGroupsForSearch, restoreExpansionAfterSearch]);
 
     useEffect(() => {
-        if (isSearching && selectedProject && selectedGroup) {
+        if (isSearching && activeProjectName && activeGroupName) {
             projectSelectedDuringSearchRef.current = true;
-            selectedGroupIdDuringSearchRef.current = selectedGroup.id;
+            const activeGroup = groups.find((g) => g.name === activeGroupName);
+            selectedGroupIdDuringSearchRef.current = activeGroup?.id ?? null;
         }
-    }, [isSearching, selectedProject, selectedGroup]);
+    }, [isSearching, activeProjectName, activeGroupName, groups]);
 
     // Focus search input when opened
     useEffect(() => {
@@ -256,7 +304,7 @@ export function AppSidebar({
                 <div className="flex items-center justify-between p-2">
                     <SidebarMenu>
                         <SidebarMenuItem>
-                            <SidebarMenuButton size="lg" onClick={showGroups}>
+                            <SidebarMenuButton size="lg" onClick={() => router.push("/")}>
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
                                     <Image
                                         src="/KIWI.jpg"
@@ -349,7 +397,9 @@ export function AppSidebar({
                                         <GroupItem
                                             key={group.id}
                                             group={group}
-                                            isExpanded={expandedGroups[group.id]}
+                                            isExpanded={expandedGroups[group.id] ?? false}
+                                            activeGroupName={activeGroupName}
+                                            activeProjectName={activeProjectName}
                                             onToggleExpanded={() => toggleGroupExpanded(group.id)}
                                             highlightTerm={isSearching ? searchTerm : undefined}
                                             matchedProjectIds={
@@ -363,11 +413,11 @@ export function AppSidebar({
                                                     selectedGroupIdDuringSearchRef.current = groupId;
                                                 }
                                             }}
-                                            onEditProject={onEditProject}
-                                            onEditGroup={onEditGroup}
-                                            onDeleteGroup={onDeleteGroup}
-                                            onDeleteProject={onDeleteProject}
-                                            onProjectCreated={onProjectCreated}
+                                            onEditProject={handleEditProject}
+                                            onEditGroup={handleEditGroup}
+                                            onDeleteGroup={handleDeleteGroup}
+                                            onDeleteProject={handleDeleteProject}
+                                            onProjectCreated={handleProjectCreated}
                                         />
                                     ))}
                                 </SidebarMenu>
@@ -376,16 +426,30 @@ export function AppSidebar({
                     </SidebarGroupContent>
                 </SidebarGroup>
             </SidebarContent>
-            {APP_BUILD_LABEL ? (
+            {buildLabel ? (
                 <SidebarFooter className="gap-1 border-t border-sidebar-border group-data-[collapsible=icon]:hidden">
                     <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/40">
                         {t("app.build")}
                     </span>
-                    <span className="truncate font-mono text-xs text-sidebar-foreground/70" title={APP_BUILD_LABEL}>
-                        {APP_BUILD_LABEL}
+                    <span className="truncate font-mono text-xs text-sidebar-foreground/70" title={buildLabel}>
+                        {buildLabel}
                     </span>
                 </SidebarFooter>
             ) : null}
+
+            <Suspense fallback={null}>
+                <EditGroupDialog open={editGroupDialogOpen} onOpenChange={setEditGroupDialogOpen} group={editingGroup} />
+            </Suspense>
+            <Suspense fallback={null}>
+                <EditProjectDialog open={editProjectDialogOpen} onOpenChange={setEditProjectDialogOpen} project={editingProject} groupId={editingProject?.groupId || null} />
+            </Suspense>
+            <Suspense fallback={null}>
+                <DeleteGroupDialog open={deleteGroupDialogOpen} onOpenChange={setDeleteGroupDialogOpen} group={deletingGroup} />
+            </Suspense>
+            <Suspense fallback={null}>
+                <DeleteProjectDialog open={deleteProjectDialogOpen} onOpenChange={setDeleteProjectDialogOpen} project={deletingProject?.project || null} groupId={deletingProject?.groupId || null} groupName={deletingProject?.groupName || null} />
+            </Suspense>
+
             <SidebarRail />
         </Sidebar>
     );
@@ -394,6 +458,8 @@ export function AppSidebar({
 type GroupItemProps = {
     group: Group;
     isExpanded: boolean;
+    activeGroupName: string | null;
+    activeProjectName: string | null;
     onToggleExpanded: () => void;
     highlightTerm?: string;
     matchedProjectIds?: Set<string>;
@@ -473,6 +539,8 @@ function fuzzyHighlight(text: string, term: string): React.ReactNode {
 function GroupItem({
     group,
     isExpanded,
+    activeGroupName,
+    activeProjectName,
     onToggleExpanded,
     highlightTerm,
     matchedProjectIds,
@@ -483,8 +551,8 @@ function GroupItem({
     onDeleteProject,
     onProjectCreated,
 }: GroupItemProps) {
-    const { selectedGroup, selectedProject, selectItem } = useNavigation();
     const { t } = useLanguage();
+    const router = useRouter();
     const [showCreateProject, setShowCreateProject] = useState(false);
 
     const projectsToShow = group.projects;
@@ -505,8 +573,8 @@ function GroupItem({
                     </CollapsibleTrigger>
                     <SidebarMenuButton
                         className="min-w-0 flex-1 pr-8"
-                        isActive={selectedGroup?.id === group.id && !selectedProject}
-                        onClick={() => selectItem(group)}
+                        isActive={activeGroupName === group.name && !activeProjectName}
+                        onClick={() => router.push(`/${encodeURIComponent(group.name)}`)}
                         title={group.name}
                         tooltip={group.name}
                     >
@@ -562,10 +630,10 @@ function GroupItem({
                                     <div className="group/project-row relative">
                                         <SidebarMenuButton
                                             className="min-w-0 pr-8"
-                                            isActive={selectedProject?.id === project.id}
+                                            isActive={activeProjectName === project.name}
                                             onClick={() => {
                                                 onSelectProject(group.id);
-                                                selectItem(group, project);
+                                                router.push(`/${encodeURIComponent(group.name)}/${encodeURIComponent(project.name)}`);
                                             }}
                                             title={project.name}
                                             tooltip={project.name}

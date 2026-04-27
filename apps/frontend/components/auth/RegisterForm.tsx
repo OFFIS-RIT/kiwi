@@ -3,18 +3,21 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { authClient } from "@kiwi/auth/client";
 import { useLanguage } from "@/providers/LanguageProvider";
+import { authClient } from "@kiwi/auth/client";
 import { Loader2 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import { useState } from "react";
 
 type RegisterFormProps = {
-    onSwitchToLogin: () => void;
+    authMode: string;
 };
 
-export function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
+export function RegisterForm({ authMode: _authMode }: RegisterFormProps) {
     const { t } = useLanguage();
+    const router = useRouter();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -46,6 +49,8 @@ export function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
 
             if (signUpError) {
                 setError(signUpError.message ?? t("auth.error.sign.up"));
+            } else {
+                router.push("/");
             }
         } catch {
             setError(t("auth.error.sign.up"));
@@ -117,9 +122,9 @@ export function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
             </Button>
             <p className="text-center text-sm text-muted-foreground">
                 {t("auth.have.account")}{" "}
-                <button type="button" onClick={onSwitchToLogin} className="text-primary underline hover:no-underline">
+                <Link href="/login" className="text-primary underline hover:no-underline">
                     {t("auth.sign.in")}
-                </button>
+                </Link>
             </p>
         </form>
     );

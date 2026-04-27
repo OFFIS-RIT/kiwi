@@ -23,6 +23,10 @@ services:
         container_name: frontend
         image: ghcr.io/offis-rit/kiwi/frontend:latest
         restart: unless-stopped
+        environment:
+            API_INTERNAL_URL: ${API_INTERNAL_URL:-}
+            AUTH_MODE: ${AUTH_MODE:-credentials}
+            APP_BUILD_LABEL: ${APP_BUILD_LABEL:-}
 
     server:
         container_name: server

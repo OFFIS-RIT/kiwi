@@ -6,15 +6,13 @@ import { LoginForm } from "./LoginForm";
 import { RegisterForm } from "./RegisterForm";
 
 type AuthPageProps = {
-    view: "login" | "register";
-    onViewChange: (view: "login" | "register") => void;
+    authMode: string;
+    initialView: "login" | "register";
 };
 
-const authMode = process.env.NEXT_PUBLIC_AUTH_MODE ?? "credentials";
-
-export function AuthPage({ view, onViewChange }: AuthPageProps) {
+export function AuthPage({ authMode, initialView }: AuthPageProps) {
     const { t } = useLanguage();
-    const showRegister = authMode === "credentials" && view === "register";
+    const showRegister = authMode === "credentials" && initialView === "register";
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
@@ -31,11 +29,7 @@ export function AuthPage({ view, onViewChange }: AuthPageProps) {
                     <h1 className="text-xl font-semibold">{t("auth.welcome")}</h1>
                     <p className="text-sm text-muted-foreground">{t("auth.welcome.subtitle")}</p>
                 </div>
-                {showRegister ? (
-                    <RegisterForm onSwitchToLogin={() => onViewChange("login")} />
-                ) : (
-                    <LoginForm onSwitchToRegister={() => onViewChange("register")} />
-                )}
+                {showRegister ? <RegisterForm authMode={authMode} /> : <LoginForm authMode={authMode} />}
             </div>
         </div>
     );

@@ -1,15 +1,13 @@
-// Main App Provider
-export { AppProviders } from "./AppProviders";
-
 // Auth
 export { AuthProvider, useAuth } from "./AuthProvider";
+
+// Dashboard Providers
+export { DashboardProviders } from "./DashboardProviders";
 
 // Individual Providers
 export { ChatSessionsProvider, useProjectChatSession } from "./ChatSessionsProvider";
 export { DataProvider, useData } from "./DataProvider";
 export { LanguageProvider, useLanguage } from "./LanguageProvider";
-export { NavigationProvider, useNavigation } from "./NavigationProvider";
-export { QueryErrorBoundary } from "./QueryErrorBoundary";
 export { QueryProvider } from "./QueryProvider";
 export { SidebarExpansionProvider, useSidebarExpansion } from "./SidebarExpansionProvider";
 export { ThemeProvider, useTheme } from "./ThemeProvider";

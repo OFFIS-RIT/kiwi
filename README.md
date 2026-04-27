@@ -230,10 +230,9 @@ Copy `.env.sample` to `.env` and configure:
 | `AUTH_CROSS_SUBDOMAIN_COOKIES`     | Enable Better Auth cross-subdomain cookies                            |
 | `AUTH_COOKIE_DOMAIN`               | Optional cookie domain for shared auth sessions across subdomains     |
 | `WORKER_CONCURRENCY`               | Maximum number of workflow runs processed in parallel by the worker   |
-| `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                 |
-| `NEXT_PUBLIC_AUTH_URL`             | Frontend auth service base URL                                        |
-| `NEXT_PUBLIC_AUTH_MODE`            | Frontend auth UI mode (see below)                                     |
-| `NEXT_PUBLIC_APP_BUILD_LABEL`      | Optional frontend build label                                         |
+| `API_INTERNAL_URL`                 | URL the Next.js server uses for server-side API calls                 |
+| `AUTH_MODE`                        | Frontend auth UI mode (see below)                                     |
+| `APP_BUILD_LABEL`                  | Optional frontend build label                                         |
 | `APPLE_CLIENT_ID`                  | Apple OAuth client ID                                                 |
 | `APPLE_CLIENT_SECRET`              | Apple OAuth client secret                                             |
 | `APPLE_BUNDLE_ID`                  | Apple bundle identifier (optional)                                    |
@@ -298,13 +297,13 @@ Authentication mode is configured **independently** on the backend and frontend 
   present (`LDAP_URL`, `LDAP_BIND_DN`, `LDAP_PASSW`, `LDAP_BASE_DN`,
   `LDAP_SEARCH_ATTR`). When LDAP is active, email/password sign-up and sign-in
   are **disabled** automatically.
-- **Frontend:** `NEXT_PUBLIC_AUTH_MODE` controls which login form is shown.
+- **Frontend:** `AUTH_MODE` controls which login form is shown.
   Set to `credentials` (default) for email/password or `ldap` for
   username/password via LDAP. It also hides the "Create User" button in admin
   when set to `ldap` (since user creation happens through LDAP).
 
 If the two sides disagree (e.g., backend has LDAP enabled but frontend is set to
-`credentials`), login will fail. Always set `NEXT_PUBLIC_AUTH_MODE=ldap` when
+`credentials`), login will fail. Always set `AUTH_MODE=ldap` when
 LDAP env vars are configured, and leave it as `credentials` (or unset) otherwise.
 
 Note: When all LDAP variables are set, LDAP sign-in is enabled and email/password auth is disabled.
@@ -326,26 +325,20 @@ AUTH_CROSS_SUBDOMAIN_COOKIES=true
 AUTH_COOKIE_DOMAIN=.example.com
 ```
 
-When you deploy behind Caddy on one host, keep the frontend build args on relative paths:
-
-- `NEXT_PUBLIC_API_URL=/api`
-- `NEXT_PUBLIC_AUTH_URL=/auth`
-
-Example:
+When you deploy behind Caddy on one host, set `API_INTERNAL_URL` to the
+container-internal server address:
 
 ```env
 AUTH_URL=https://kiwi.example.com/auth
 TRUSTED_ORIGINS=https://kiwi.example.com
-NEXT_PUBLIC_API_URL=/api
-NEXT_PUBLIC_AUTH_URL=/auth
+API_INTERNAL_URL=http://server:4321
 ```
 
-For local Bun development without Caddy, point the frontend directly at the API/auth server:
+For local Bun development without Caddy, point the frontend at localhost:
 
 ```env
 AUTH_URL=http://localhost:4321/auth
-NEXT_PUBLIC_API_URL=http://localhost:4321
-NEXT_PUBLIC_AUTH_URL=http://localhost:4321/auth
+API_INTERNAL_URL=http://localhost:4321
 ```
 
 OpenWorkflow uses `DATABASE_DIRECT_URL` instead of a separate workflow-specific connection variable.

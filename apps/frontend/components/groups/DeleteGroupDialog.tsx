@@ -11,8 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { useDeleteGroup } from "@/hooks/use-data";
 import { useLanguage } from "@/providers/LanguageProvider";
-import { useNavigation } from "@/providers/NavigationProvider";
 import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 type DeleteGroupDialogProps = {
@@ -26,7 +26,7 @@ type DeleteGroupDialogProps = {
 
 export function DeleteGroupDialog({ open, onOpenChange, group }: DeleteGroupDialogProps) {
     const { t } = useLanguage();
-    const { showGroups, selectedGroup } = useNavigation();
+    const router = useRouter();
     const deleteGroupMutation = useDeleteGroup();
 
     useEffect(() => {
@@ -43,9 +43,7 @@ export function DeleteGroupDialog({ open, onOpenChange, group }: DeleteGroupDial
 
             onOpenChange(false);
 
-            if (selectedGroup?.id === group.id) {
-                showGroups();
-            }
+            router.push("/");
         } catch (err) {
             console.error("Failed to delete group:", err);
         }
