@@ -38,6 +38,11 @@ export const FileMentionList = forwardRef<FileMentionListHandle, FileMentionList
 
     useEffect(() => {
         setSelectedIndex(0);
+        // Trim trailing slots from the previous render so the array length
+        // tracks the current list length. React clears unmounted slots to
+        // null via the callback refs, so this is hygiene rather than a leak
+        // fix — but it makes the intent obvious to future readers.
+        itemRefs.current.length = items.length;
     }, [items]);
 
     useEffect(() => {
