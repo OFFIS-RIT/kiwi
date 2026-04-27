@@ -3,7 +3,7 @@
 import { CardTemplate } from "@/components/common/CardTemplate";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { getApproximateMinutes } from "@/lib/utils";
+import { formatDuration } from "@/lib/utils";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { Project } from "@/types";
@@ -16,6 +16,26 @@ type ProjectCardProps = {
     onEdit: () => void;
 };
 
+function formatRemaining(parts: ReturnType<typeof formatDuration>, t: (key: string) => string) {
+    if (parts.days > 0) {
+        return parts.hours > 0
+            ? `${parts.days}${t("duration.day.short")} ${parts.hours}${t("duration.hour.short")}`
+            : `${parts.days}${t("duration.day.short")}`;
+    }
+
+    if (parts.hours > 0) {
+        return parts.minutes > 0
+            ? `${parts.hours}${t("duration.hour.short")} ${parts.minutes}${t("duration.minute.short")}`
+            : `${parts.hours}${t("duration.hour.short")}`;
+    }
+
+    if (parts.minutes > 0) {
+        return `${parts.minutes}${t("duration.minute.short")}`;
+    }
+
+    return `${Math.max(1, parts.seconds)}${t("duration.second.short")}`;
+}
+
 export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCardProps) {
     const { t } = useLanguage();
     const { hasPermission } = useAuth();
@@ -24,9 +44,9 @@ export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCar
     const lastUpdated = project.lastUpdated;
     const sourcesCount = project.sourcesCount ?? 0;
     const isProcessing = project.processPercentage !== undefined;
-    const approximateMinutes =
+    const timeRemaining =
         project.processTimeRemaining !== undefined && project.processTimeRemaining > 0
-            ? getApproximateMinutes(project.processTimeRemaining)
+            ? formatRemaining(formatDuration(project.processTimeRemaining), t)
             : undefined;
 
     return (
@@ -92,16 +112,9 @@ export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCar
                         <span className="font-medium text-xs">{project.processPercentage}%</span>
                     </div>
                     <Progress value={project.processPercentage} className="h-2" />
-                    {approximateMinutes !== undefined && (
+                    {timeRemaining !== undefined && (
                         <div className="text-xs text-muted-foreground text-right">
-                            {t(
-                                approximateMinutes === 1
-                                    ? "process.remaining_approx_one"
-                                    : "process.remaining_approx_many",
-                                {
-                                    minutes: String(approximateMinutes),
-                                }
-                            )}
+                            {t("process.remaining", { time: timeRemaining })}
                         </div>
                     )}
                 </div>
