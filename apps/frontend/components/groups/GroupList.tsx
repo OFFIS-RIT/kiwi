@@ -55,7 +55,7 @@ export function GroupList({ onEditGroup }: GroupListProps) {
                     <GroupCard
                         key={group.id}
                         group={group}
-                        onSelect={() => router.push(`/${group.id}`)}
+                        onSelect={() => router.push(`/${encodeURIComponent(group.name)}`)}
                         onEdit={() => onEditGroup(group)}
                     />
                 ))}

@@ -65,9 +65,18 @@ const saveExpandedGroupsToStorage = (expandedGroups: Record<string, boolean>) =>
  * Provides utilities for search-related expansion (expand during search, restore after).
  */
 export function SidebarExpansionProvider({ children }: { children: React.ReactNode }) {
-    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(loadExpandedGroupsFromStorage);
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
     const originalExpandedStateRef = useRef<Record<string, boolean>>({});
     const isInitializedRef = useRef(false);
+
+    // Hydrate from localStorage after first render to avoid SSR mismatch
+    useEffect(() => {
+        const stored = loadExpandedGroupsFromStorage();
+        if (Object.keys(stored).length > 0) {
+            setExpandedGroups(stored);
+        }
+        isInitializedRef.current = true;
+    }, []);
 
     // Save to localStorage whenever expandedGroups changes (but not on initial load)
     useEffect(() => {
@@ -75,11 +84,6 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
             saveExpandedGroupsToStorage(expandedGroups);
         }
     }, [expandedGroups]);
-
-    // Mark as initialized after first render
-    useEffect(() => {
-        isInitializedRef.current = true;
-    }, []);
 
     // Initialize expanded groups with all groups collapsed by default
     const initializeExpandedGroups = useCallback((groupIds: string[]) => {

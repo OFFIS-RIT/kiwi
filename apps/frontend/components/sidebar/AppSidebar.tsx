@@ -84,8 +84,8 @@ export function AppSidebar({ buildLabel, ...props }: AppSidebarProps) {
     const router = useRouter();
 
     const segments = pathname.split("/").filter(Boolean);
-    const activeGroupId = segments[0] ?? null;
-    const activeProjectId = segments[1] ?? null;
+    const activeGroupName = segments[0] ? decodeURIComponent(segments[0]) : null;
+    const activeProjectName = segments[1] ? decodeURIComponent(segments[1]) : null;
 
     // Dialog state
     const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
@@ -114,7 +114,10 @@ export function AppSidebar({ buildLabel, ...props }: AppSidebarProps) {
         setDeleteProjectDialogOpen(true);
     };
     const handleProjectCreated = (_projectId: string, groupId: string) => {
-        router.push(`/${groupId}`);
+        const group = groups.find((g) => g.id === groupId);
+        if (group) {
+            router.push(`/${encodeURIComponent(group.name)}`);
+        }
     };
 
     const {
@@ -257,11 +260,12 @@ export function AppSidebar({ buildLabel, ...props }: AppSidebarProps) {
     }, [isSearching, groupedResults, expandGroupsForSearch, restoreExpansionAfterSearch]);
 
     useEffect(() => {
-        if (isSearching && activeProjectId && activeGroupId) {
+        if (isSearching && activeProjectName && activeGroupName) {
             projectSelectedDuringSearchRef.current = true;
-            selectedGroupIdDuringSearchRef.current = activeGroupId;
+            const activeGroup = groups.find((g) => g.name === activeGroupName);
+            selectedGroupIdDuringSearchRef.current = activeGroup?.id ?? null;
         }
-    }, [isSearching, activeProjectId, activeGroupId]);
+    }, [isSearching, activeProjectName, activeGroupName, groups]);
 
     // Focus search input when opened
     useEffect(() => {
@@ -393,9 +397,9 @@ export function AppSidebar({ buildLabel, ...props }: AppSidebarProps) {
                                         <GroupItem
                                             key={group.id}
                                             group={group}
-                                            isExpanded={expandedGroups[group.id]}
-                                            activeGroupId={activeGroupId}
-                                            activeProjectId={activeProjectId}
+                                            isExpanded={expandedGroups[group.id] ?? false}
+                                            activeGroupName={activeGroupName}
+                                            activeProjectName={activeProjectName}
                                             onToggleExpanded={() => toggleGroupExpanded(group.id)}
                                             highlightTerm={isSearching ? searchTerm : undefined}
                                             matchedProjectIds={
@@ -454,8 +458,8 @@ export function AppSidebar({ buildLabel, ...props }: AppSidebarProps) {
 type GroupItemProps = {
     group: Group;
     isExpanded: boolean;
-    activeGroupId: string | null;
-    activeProjectId: string | null;
+    activeGroupName: string | null;
+    activeProjectName: string | null;
     onToggleExpanded: () => void;
     highlightTerm?: string;
     matchedProjectIds?: Set<string>;
@@ -535,8 +539,8 @@ function fuzzyHighlight(text: string, term: string): React.ReactNode {
 function GroupItem({
     group,
     isExpanded,
-    activeGroupId,
-    activeProjectId,
+    activeGroupName,
+    activeProjectName,
     onToggleExpanded,
     highlightTerm,
     matchedProjectIds,
@@ -569,8 +573,8 @@ function GroupItem({
                     </CollapsibleTrigger>
                     <SidebarMenuButton
                         className="min-w-0 flex-1 pr-8"
-                        isActive={activeGroupId === group.id && !activeProjectId}
-                        onClick={() => router.push(`/${group.id}`)}
+                        isActive={activeGroupName === group.name && !activeProjectName}
+                        onClick={() => router.push(`/${encodeURIComponent(group.name)}`)}
                         title={group.name}
                         tooltip={group.name}
                     >
@@ -626,10 +630,10 @@ function GroupItem({
                                     <div className="group/project-row relative">
                                         <SidebarMenuButton
                                             className="min-w-0 pr-8"
-                                            isActive={activeProjectId === project.id}
+                                            isActive={activeProjectName === project.name}
                                             onClick={() => {
                                                 onSelectProject(group.id);
-                                                router.push(`/${group.id}/${project.id}`);
+                                                router.push(`/${encodeURIComponent(group.name)}/${encodeURIComponent(project.name)}`);
                                             }}
                                             title={project.name}
                                             tooltip={project.name}

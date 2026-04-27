@@ -11,11 +11,11 @@ import { useEffect, useMemo, useState } from "react";
 import { ProjectCard } from "./ProjectCard";
 
 type ProjectListProps = {
-    groupId: string;
+    groupName: string;
     onEditProject: (project: Project, groupId: string) => void;
 };
 
-export function ProjectList({ groupId, onEditProject }: ProjectListProps) {
+export function ProjectList({ groupName, onEditProject }: ProjectListProps) {
     const router = useRouter();
     const { t } = useLanguage();
     const { groups, isLoading, error } = useData();
@@ -43,7 +43,7 @@ export function ProjectList({ groupId, onEditProject }: ProjectListProps) {
         return undefined;
     }
 
-    const group = groups.find((g) => g.id === groupId);
+    const group = groups.find((g) => g.name === groupName);
 
     const projectFilesQueries = useQueries({
         queries: (group?.projects || []).map((project) => ({
@@ -131,7 +131,7 @@ export function ProjectList({ groupId, onEditProject }: ProjectListProps) {
                             processEtaSampleCount: project.processEtaSampleCount,
                         }}
                         groupName={group.name}
-                        onSelect={() => router.push(`/${groupId}/${project.id}`)}
+                        onSelect={() => router.push(`/${encodeURIComponent(group.name)}/${encodeURIComponent(project.name)}`)}
                         onEdit={() => onEditProject(project, group.id)}
                     />
                 ))}

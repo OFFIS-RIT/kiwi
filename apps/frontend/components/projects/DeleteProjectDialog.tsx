@@ -26,7 +26,7 @@ type DeleteProjectDialogProps = {
     groupName: string | null;
 };
 
-export function DeleteProjectDialog({ open, onOpenChange, project, groupId, groupName: _groupName }: DeleteProjectDialogProps) {
+export function DeleteProjectDialog({ open, onOpenChange, project, groupId: _groupId, groupName }: DeleteProjectDialogProps) {
     const { t } = useLanguage();
     const router = useRouter();
     const deleteProjectMutation = useDeleteProject();
@@ -45,8 +45,8 @@ export function DeleteProjectDialog({ open, onOpenChange, project, groupId, grou
 
             onOpenChange(false);
 
-            if (groupId) {
-                router.push(`/${groupId}`);
+            if (groupName) {
+                router.push(`/${encodeURIComponent(groupName)}`);
             } else {
                 router.push("/");
             }

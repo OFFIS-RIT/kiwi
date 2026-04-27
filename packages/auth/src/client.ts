@@ -9,7 +9,7 @@ import { credentialsClient } from "better-auth-credentials-plugin";
 import { ac, admin, manager, user } from "./permissions";
 
 export const authClient = createAuthClient({
-    baseURL: "/auth",
+    baseURL: typeof window !== "undefined" ? `${window.location.origin}/auth` : "http://localhost/auth",
     plugins: [
         inferAdditionalFields({
             user: {

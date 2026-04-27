@@ -36,7 +36,8 @@ export async function fetchSession(): Promise<AuthSession | null> {
     });
     if (!res.ok) return null;
     const json = await res.json();
-    return json?.session ?? json ?? null;
+    if (!json?.user) return null;
+    return json as AuthSession;
 }
 
 export async function fetchGroupsServer(): Promise<ApiGroup[]> {

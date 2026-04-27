@@ -16,10 +16,10 @@ const EditProjectDialog = lazy(() =>
 );
 
 type ProjectListViewProps = {
-    groupId: string;
+    groupName: string;
 };
 
-export function ProjectListView({ groupId }: ProjectListViewProps) {
+export function ProjectListView({ groupName }: ProjectListViewProps) {
     const [editProjectDialogOpen, setEditProjectDialogOpen] = useState(false);
     const [editingProject, setEditingProject] = useState<{
         id: string;
@@ -48,7 +48,7 @@ export function ProjectListView({ groupId }: ProjectListViewProps) {
             </header>
             <div className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4">
                 <div className="h-full overflow-y-auto">
-                    <ProjectList groupId={groupId} onEditProject={handleEditProject} />
+                    <ProjectList groupName={groupName} onEditProject={handleEditProject} />
                 </div>
             </div>
 

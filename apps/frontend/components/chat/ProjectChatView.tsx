@@ -11,14 +11,14 @@ import { useData } from "@/providers/DataProvider";
 import { ProjectChat } from "./ProjectChat";
 
 type ProjectChatViewProps = {
-    groupId: string;
-    projectId: string;
+    groupName: string;
+    projectName: string;
 };
 
-export function ProjectChatView({ groupId, projectId }: ProjectChatViewProps) {
+export function ProjectChatView({ groupName, projectName }: ProjectChatViewProps) {
     const { groups } = useData();
-    const group = groups.find((g) => g.id === groupId);
-    const project = group?.projects.find((p) => p.id === projectId);
+    const group = groups.find((g) => g.name === groupName);
+    const project = group?.projects.find((p) => p.name === projectName);
 
     return (
         <AppSidebarInset>
