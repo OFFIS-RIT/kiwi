@@ -9,6 +9,7 @@ import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { isMentionableFile } from "./FileBadge";
 import { FileMentionList, type FileMentionItem, type FileMentionListHandle } from "./FileMentionList";
 import { closedSuggestionData, createFileMention, type SuggestionData } from "./FileMentionNode";
 import { InterimDecoration, interimDecorationKey } from "./InterimDecorationExtension";
@@ -110,7 +111,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         () =>
             createFileMention({
                 getItems: (query) => {
-                    const haystack = filesRef.current.filter((file) => file.status === "processed");
+                    const haystack = filesRef.current.filter(isMentionableFile);
                     const trimmed = query.trim().toLowerCase();
                     const filtered = trimmed
                         ? haystack.filter((file) => file.name.toLowerCase().includes(trimmed))

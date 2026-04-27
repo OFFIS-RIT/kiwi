@@ -5,7 +5,7 @@ import type { ApiProjectFile } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import { Fragment, useMemo, type ReactNode } from "react";
 import { projectFilesQueryKey } from "./ChatInput";
-import { FileBadge } from "./FileBadge";
+import { FileBadge, isMentionableFile } from "./FileBadge";
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -39,7 +39,10 @@ export function UserMessageText({ projectId, text }: { projectId: string; text: 
         staleTime: 30_000,
     });
 
-    const segments = useMemo(() => buildSegments(text, files ?? []), [text, files]);
+    const segments = useMemo(
+        () => buildSegments(text, (files ?? []).filter(isMentionableFile)),
+        [text, files]
+    );
 
     return <p className="whitespace-pre-wrap">{segments}</p>;
 }

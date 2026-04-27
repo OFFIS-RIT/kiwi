@@ -1,6 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
+import type { ApiProjectFile } from "@/types/api";
 import { FileText } from "lucide-react";
 
 /**
@@ -15,4 +16,14 @@ export function FileBadge({ label }: { label: string }) {
             {label}
         </Badge>
     );
+}
+
+/**
+ * A file is eligible to be mentioned (and re-rendered as a badge) only once
+ * its content has finished processing — referencing pending or failed files
+ * doesn't help the LLM. Used both by the @-mention picker and by message
+ * rendering so the two stay in sync.
+ */
+export function isMentionableFile(file: ApiProjectFile): boolean {
+    return file.status === "processed";
 }
