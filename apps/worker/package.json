@@ -23,7 +23,7 @@
         "openworkflow": "catalog:",
         "postgres": "catalog:",
         "zod": "catalog:",
-        "@openworkflow/cli": "^0.4.3"
+        "@openworkflow/cli": "^0.4.4"
     },
     "devDependencies": {
         "@openworkflow/dashboard": "^0.1.9",

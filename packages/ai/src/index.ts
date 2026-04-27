@@ -86,21 +86,18 @@ function getRequestSignal(signal: AbortSignal | null | undefined): AbortSignal {
 }
 
 export function createProviderFetch(fetchFn: typeof globalThis.fetch = globalThis.fetch): typeof globalThis.fetch {
-    return Object.assign(
-        (input: RequestInfo | URL, init?: BunRequestInit) => {
-            const nextInit: BunRequestInit = {
-                ...init,
-                signal: getRequestSignal(init?.signal),
-            };
+    return Object.assign((input: Parameters<typeof globalThis.fetch>[0], init?: BunRequestInit) => {
+        const nextInit: BunRequestInit = {
+            ...init,
+            signal: getRequestSignal(init?.signal),
+        };
 
-            if (typeof Bun !== "undefined") {
-                nextInit.timeout = false;
-            }
+        if (typeof Bun !== "undefined") {
+            nextInit.timeout = false;
+        }
 
-            return fetchFn(input, nextInit);
-        },
-        fetchFn
-    );
+        return fetchFn(input, nextInit);
+    }, fetchFn);
 }
 
 const providerFetch = createProviderFetch();

@@ -64,11 +64,7 @@ type ParagraphKind =
     | { kind: "bullet"; level: number; ordered: boolean };
 
 const XML_MIME_TYPE = "application/xml";
-const XML_ERROR_HANDLER = {
-    warning: () => undefined,
-    error: () => undefined,
-    fatalError: () => undefined,
-};
+const XML_ERROR_HANDLER = () => undefined;
 const IMAGE_FENCE_PATTERN = /^:::IMG-[^:]+:::$/;
 const EMPTY_FORMAT: InlineFormat = {
     bold: false,

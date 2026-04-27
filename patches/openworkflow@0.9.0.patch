@@ -1,0 +1,83 @@
+diff --git a/dist/core/workflow-function.d.ts b/dist/core/workflow-function.d.ts
+index efd43528..7c8f94e5 100644
+--- a/dist/core/workflow-function.d.ts
++++ b/dist/core/workflow-function.d.ts
+@@ -68,7 +68,18 @@ export interface StepApi {
+ /**
+  * Read-only workflow run metadata exposed to workflow functions.
+  */
+-export type WorkflowRunMetadata = Pick<WorkflowRun, "id" | "workflowName" | "createdAt" | "startedAt">;
++/**
++ * Error metadata exposed when a workflow step fails and OpenWorkflow is about
++ * to decide whether the step should retry or terminally fail.
++ */
++export interface WorkflowRetryState {
++    readonly retryAttempt: number;
++    readonly retryMaxAttempts: number;
++    readonly retryTerminal: boolean;
++}
++export type WorkflowRunMetadata = Pick<WorkflowRun, "id" | "workflowName" | "createdAt" | "startedAt"> &
++    WorkflowRetryState;
++export interface WorkflowRetryError extends Error, WorkflowRetryState {}
+ /**
+  * Params passed to a workflow function for the user to use when defining
+  * steps.
+@@ -84,4 +95,4 @@ export interface WorkflowFunctionParams<Input> {
+  * to define the workflow's steps.
+  */
+ export type WorkflowFunction<Input, Output> = (params: Readonly<WorkflowFunctionParams<Input>>) => Promise<Output> | Output;
+-//# sourceMappingURL=workflow-function.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=workflow-function.d.ts.map
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 2d59da6f..9c13b56d 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1,8 +1,8 @@
+ export type { OpenWorkflowOptions } from "./client/client.js";
+ export { OpenWorkflow } from "./client/client.js";
+ export type { RetryPolicy, Workflow } from "./core/workflow-definition.js";
+-export type { WorkflowRunMetadata } from "./core/workflow-function.js";
++export type { WorkflowRetryError, WorkflowRetryState, WorkflowRunMetadata } from "./core/workflow-function.js";
+ export { defineWorkflowSpec, defineWorkflow, declareWorkflow, } from "./core/workflow-definition.js";
+ export type { WorkerOptions } from "./worker/worker.js";
+ export { Worker } from "./worker/worker.js";
+-//# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=index.d.ts.map
+diff --git a/dist/worker/execution.js b/dist/worker/execution.js
+index 32ce2991..23b6cd96 100644
+--- a/dist/worker/execution.js
++++ b/dist/worker/execution.js
+@@ -49,6 +49,9 @@ class StepError extends Error {
+     stepName;
+     stepFailedAttempts;
+     retryPolicy;
++    retryAttempt;
++    retryMaxAttempts;
++    retryTerminal;
+     originalError;
+     constructor(options) {
+         const serialized = serializeError(options.error);
+@@ -57,6 +60,10 @@ class StepError extends Error {
+         this.stepName = options.stepName;
+         this.stepFailedAttempts = options.stepFailedAttempts;
+         this.retryPolicy = options.retryPolicy;
++        this.retryAttempt = options.stepFailedAttempts;
++        this.retryMaxAttempts = options.retryPolicy.maximumAttempts;
++        this.retryTerminal =
++            options.retryPolicy.maximumAttempts > 0 && options.stepFailedAttempts >= options.retryPolicy.maximumAttempts;
+         this.originalError = options.error;
+     }
+ }
+@@ -885,6 +892,10 @@ export async function executeWorkflow(params) {
+             workflowName: workflowRun.workflowName,
+             createdAt: workflowRun.createdAt,
+             startedAt: workflowRun.startedAt,
++            retryAttempt: workflowRun.attempts,
++            retryMaxAttempts: params.retryPolicy.maximumAttempts,
++            retryTerminal:
++                params.retryPolicy.maximumAttempts > 0 && workflowRun.attempts >= params.retryPolicy.maximumAttempts,
+         });
+         // execute workflow
+         const output = await workflowFn({

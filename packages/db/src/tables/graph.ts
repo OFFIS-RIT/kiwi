@@ -34,6 +34,9 @@ export const FILE_PROCESS_STEP_VALUES = [
 ] as const;
 export type FileProcessStep = (typeof FILE_PROCESS_STEP_VALUES)[number];
 
+export const PROCESS_RUN_STATUS_VALUES = ["pending", "started", "completed", "failed"] as const;
+export type ProcessRunStatus = (typeof PROCESS_RUN_STATUS_VALUES)[number];
+
 export const groupTable = pgTable.withRLS("groups", {
     id: text("id")
         .primaryKey()
@@ -246,5 +249,43 @@ export const processStatsTable = pgTable.withRLS("process_stats", {
     totalTime: doublePrecision("total_time").notNull().default(0),
     files: integer("files").notNull().default(0),
     fileSizes: doublePrecision("file_sizes").notNull().default(0),
+    fileType: text("file_type").notNull().default("unknown"),
     tokenCount: integer("token_count").notNull().default(0),
 });
+
+export const processRunsTable = pgTable.withRLS(
+    "process_runs",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        graphId: text("graph_id")
+            .notNull()
+            .references(() => graphTable.id, { onDelete: "cascade" }),
+        status: text("status", { enum: PROCESS_RUN_STATUS_VALUES }).notNull().default("pending"),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+        startedAt: timestamp("started_at", { withTimezone: true, mode: "date" }),
+        completedAt: timestamp("completed_at", { withTimezone: true, mode: "date" }),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [index("process_runs_graph_status_created_idx").on(table.graphId, table.status, table.createdAt)]
+);
+
+export const processRunFilesTable = pgTable.withRLS(
+    "process_run_files",
+    {
+        processRunId: text("process_run_id")
+            .notNull()
+            .references(() => processRunsTable.id, { onDelete: "cascade" }),
+        fileId: text("file_id")
+            .notNull()
+            .references(() => filesTable.id, { onDelete: "cascade" }),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+    },
+    (table) => [
+        primaryKey({ name: "process_run_files_pk", columns: [table.processRunId, table.fileId] }),
+        index("process_run_files_file_idx").on(table.fileId),
+    ]
+);
