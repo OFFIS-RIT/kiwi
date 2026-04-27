@@ -1,10 +1,10 @@
 "use client";
 
-import type React from "react";
-
 import { chatTemplates } from "@/components/chat/chat-templates";
+import { ChatInput, type ChatInputHandle } from "@/components/chat/ChatInput";
 import { ChatTemplateSidebar } from "@/components/chat/ChatTemplateSidebar";
 import { ClarificationBlock } from "@/components/chat/ClarificationBlock";
+import { UserMessageText } from "@/components/chat/UserMessageText";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -452,7 +452,7 @@ function ProjectChatSession({
     const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [chatReady, setChatReady] = useState(false);
-    const inputRef = useRef<HTMLTextAreaElement>(null);
+    const inputRef = useRef<ChatInputHandle>(null);
     const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
     const [isRecording, setIsRecording] = useState(false);
@@ -576,7 +576,11 @@ function ProjectChatSession({
                 setInterimTranscript(currentInterim);
 
                 if (finalTranscript) {
-                    setInputValue((previous) => (previous ? `${previous} ${finalTranscript}` : finalTranscript));
+                    // Go through the editor's append API so file-mention atom
+                    // nodes are preserved — `setInputValue` would round-trip
+                    // through the value-sync effect and re-parse the doc as
+                    // plain text, destroying any badges.
+                    inputRef.current?.appendText(finalTranscript, { withSpace: true });
                     setInterimTranscript("");
                 }
             };
@@ -653,16 +657,6 @@ function ProjectChatSession({
         [addToolOutput]
     );
 
-    const handleKeyDown = useCallback(
-        (event: React.KeyboardEvent) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void handleSendMessage();
-            }
-        },
-        [handleSendMessage]
-    );
-
     const handleCopyMessage = useCallback(async (message: ChatUIMessage) => {
         try {
             const plainText = stripMarkdown(getMessageText(message));
@@ -688,33 +682,10 @@ function ProjectChatSession({
     );
 
     const handleInsertTemplate = useCallback((templateBody: string) => {
-        setInputValue(templateBody);
+        inputRef.current?.setText(templateBody);
         inputRef.current?.focus();
     }, []);
 
-    const displayedInputValue =
-        isRecording && interimTranscript
-            ? inputValue
-                ? `${inputValue} ${interimTranscript}`
-                : interimTranscript
-            : inputValue;
-
-    const adjustTextareaHeight = useCallback(() => {
-        const textarea = inputRef.current;
-        if (!textarea) return;
-
-        const lineHeight = parseFloat(window.getComputedStyle(textarea).lineHeight || "0") || 24;
-        const maxHeight = lineHeight * 15;
-
-        textarea.style.height = "auto";
-        const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
-        textarea.style.height = `${nextHeight}px`;
-        textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
-    }, []);
-
-    useEffect(() => {
-        adjustTextareaHeight();
-    }, [adjustTextareaHeight, displayedInputValue]);
 
     return (
         <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">
@@ -833,7 +804,10 @@ function ProjectChatSession({
                                                                 )}
                                                             </>
                                                         ) : (
-                                                            <p>{getMessageText(message)}</p>
+                                                            <UserMessageText
+                                                                projectId={projectId}
+                                                                text={getMessageText(message)}
+                                                            />
                                                         )}
                                                     </div>
                                                     <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
@@ -1002,17 +976,15 @@ function ProjectChatSession({
 
                     <div className="border-t p-4">
                         <div className="flex items-center gap-2">
-                            <textarea
+                            <ChatInput
                                 ref={inputRef}
-                                placeholder={t("ask.question")}
-                                value={displayedInputValue}
-                                onChange={(event) => setInputValue(event.target.value)}
-                                onKeyDown={handleKeyDown}
-                                className={`flex-1 resize-none overflow-hidden border-input min-h-10 w-full min-w-0 rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm ${
-                                    isRecording && interimTranscript ? "text-muted-foreground" : ""
-                                }`}
+                                value={inputValue}
+                                onChange={setInputValue}
+                                onSubmit={() => void handleSendMessage()}
                                 disabled={isRecording || !!pendingClarification}
-                                rows={1}
+                                placeholder={t("ask.question")}
+                                projectId={projectId}
+                                interimTranscript={isRecording ? interimTranscript : undefined}
                             />
                             {speechSupported && (
                                 <Button

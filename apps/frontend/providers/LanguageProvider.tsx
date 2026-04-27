@@ -244,6 +244,10 @@ const translations = {
         "clarification.placeholder": "Your answer...",
         "clarification.submitted": "Answers submitted",
 
+        // File mention
+        "mention.no.files": "No files match",
+        "mention.loading": "Loading files...",
+
         // Query Error Boundary
         "error.something.went.wrong": "Something went wrong",
         "error.unexpected.try.again": "An unexpected error occurred. Please try again.",
@@ -532,6 +536,10 @@ const translations = {
         // Clarification
         "clarification.placeholder": "Ihre Antwort...",
         "clarification.submitted": "Antworten gesendet",
+
+        // File mention
+        "mention.no.files": "Keine passenden Dateien",
+        "mention.loading": "Dateien werden geladen...",
 
         // Query Error Boundary
         "error.something.went.wrong": "Etwas ist schiefgelaufen",
