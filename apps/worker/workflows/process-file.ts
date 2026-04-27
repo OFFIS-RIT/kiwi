@@ -843,10 +843,11 @@ export const processFile = defineWorkflow(
             return;
         }
 
+        let statsResult;
         try {
-            await step.run({ name: "store-process-stats" }, async () => {
+            statsResult = await step.run({ name: "store-process-stats" }, async () => {
                 if (await stopIfFileDeleted(input.fileId)) {
-                    return;
+                    return FILE_DELETED;
                 }
 
                 await db.insert(processStatsTable).values({
@@ -862,13 +863,12 @@ export const processFile = defineWorkflow(
             await updateFileProcessingState(input.fileId, "failed", "failed");
             throw error;
         }
+        if (statsResult === FILE_DELETED) {
+            return;
+        }
 
         try {
             await step.run({ name: "mark-file-complete" }, async () => {
-                if (await stopIfFileDeleted(input.fileId)) {
-                    return;
-                }
-
                 await updateFileProcessingState(input.fileId, "completed", "processed");
             });
         } catch (error) {

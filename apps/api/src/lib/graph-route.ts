@@ -11,7 +11,7 @@ import {
 } from "@kiwi/db/tables/graph";
 import { deleteFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, ne } from "drizzle-orm";
 import { env } from "../env";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { ApiBatchStepProgressLike, GraphDetailFileRecord, GraphFileRecord, GraphListItem } from "../types/routes";
@@ -227,6 +227,7 @@ function buildTimeEstimate(
     let estimatedDuration = 0;
     let timeRemaining = 0;
     let sampleCount = 0;
+    let estimatedFiles = 0;
     const sourceCounts: Record<EstimateSource, number> = {
         bucket: 0,
         type: 0,
@@ -236,7 +237,7 @@ function buildTimeEstimate(
     for (const file of runFiles) {
         const estimate = pickAverage(file, bucketAverages, typeAverages, globalAverage);
         if (!estimate) {
-            return {};
+            continue;
         }
 
         const fileDuration = estimate.average.averageDuration;
@@ -244,7 +245,12 @@ function buildTimeEstimate(
         estimatedDuration += fileDuration;
         timeRemaining += fileDuration * (1 - progress / 100);
         sampleCount += estimate.average.sampleCount;
+        estimatedFiles += 1;
         sourceCounts[estimate.source] += 1;
+    }
+
+    if (estimatedFiles === 0) {
+        return {};
     }
 
     return {
