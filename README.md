@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/app/KIWI.jpg" alt="KIWI Logo" width="200" />
+  <img src="apps/frontend/public/KIWI.jpg" alt="KIWI Logo" width="200" />
 </p>
 
 <h1 align="center">KIWI</h1>
