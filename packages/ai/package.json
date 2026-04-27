@@ -23,7 +23,7 @@
         "ai": "catalog:",
         "better-result": "catalog:",
         "drizzle-orm": "catalog:",
-        "jsonrepair": "^3.13.1",
+        "jsonrepair": "^3.14.0",
         "js-tiktoken": "^1.0.21",
         "zod": "catalog:"
     },
