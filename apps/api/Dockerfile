@@ -44,7 +44,7 @@ RUN bun build \
     --outfile server \
     src/index.ts
 
-FROM busybox:1.36.1-uclibc AS busybox
+FROM busybox:1.37.0-uclibc AS busybox
 
 FROM gcr.io/distroless/base
 
