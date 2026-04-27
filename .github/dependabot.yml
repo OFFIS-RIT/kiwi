@@ -1,9 +1,19 @@
 version: 2
 
 updates:
-    # Frontend (Bun/Next.js)
+    # Bun workspace root and package manifests
     - package-ecosystem: "bun"
-      directory: "/frontend"
+      directories:
+          - "/"
+          - "/apps/api"
+          - "/apps/frontend"
+          - "/apps/worker"
+          - "/packages/ai"
+          - "/packages/auth"
+          - "/packages/db"
+          - "/packages/files"
+          - "/packages/graph"
+          - "/packages/logger"
       schedule:
           interval: "weekly"
           day: "monday"
@@ -11,47 +21,7 @@ updates:
           timezone: "Europe/Berlin"
       labels:
           - "dependencies"
-          - "frontend"
-      groups:
-          minor-and-patch:
-              patterns:
-                  - "*"
-              update-types:
-                  - "minor"
-                  - "patch"
-      open-pull-requests-limit: 10
-
-    # Auth Service (Bun/Elysia)
-    - package-ecosystem: "bun"
-      directory: "/auth"
-      schedule:
-          interval: "weekly"
-          day: "monday"
-          time: "06:00"
-          timezone: "Europe/Berlin"
-      labels:
-          - "dependencies"
-          - "auth"
-      groups:
-          minor-and-patch:
-              patterns:
-                  - "*"
-              update-types:
-                  - "minor"
-                  - "patch"
-      open-pull-requests-limit: 10
-
-    # Backend (Go modules)
-    - package-ecosystem: "gomod"
-      directory: "/backend"
-      schedule:
-          interval: "weekly"
-          day: "monday"
-          time: "06:00"
-          timezone: "Europe/Berlin"
-      labels:
-          - "dependencies"
-          - "backend"
+          - "bun"
       groups:
           minor-and-patch:
               patterns:
@@ -63,6 +33,27 @@ updates:
 
     # Docker base images
     - package-ecosystem: "docker"
+      directories:
+          - "/apps/api"
+          - "/apps/frontend"
+          - "/apps/worker"
+          - "/migrations"
+          - "/postgres"
+      schedule:
+          interval: "weekly"
+          day: "monday"
+          time: "06:00"
+          timezone: "Europe/Berlin"
+      labels:
+          - "dependencies"
+          - "docker"
+      groups:
+          docker:
+              patterns:
+                  - "*"
+
+    # Docker Compose services
+    - package-ecosystem: "docker-compose"
       directory: "/"
       schedule:
           interval: "weekly"
@@ -72,6 +63,10 @@ updates:
       labels:
           - "dependencies"
           - "docker"
+      groups:
+          compose:
+              patterns:
+                  - "*"
 
     # GitHub Actions
     - package-ecosystem: "github-actions"
