@@ -29,7 +29,7 @@
         "@tanstack/react-query-devtools": "^5.91.3",
         "@tiptap/extension-mention": "^2.10.3",
         "@tiptap/extension-placeholder": "^2.10.3",
-        "@tiptap/pm": "^2.10.3",
+        "@tiptap/pm": "^3.22.4",
         "@tiptap/react": "^2.10.3",
         "@tiptap/starter-kit": "^2.10.3",
         "@tiptap/suggestion": "^2.10.3",
