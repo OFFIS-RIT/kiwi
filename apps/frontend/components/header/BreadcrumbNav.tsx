@@ -8,67 +8,63 @@ import {
     BreadcrumbPage,
     BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useNavigation } from "@/providers/NavigationProvider";
+import { useData } from "@/providers/DataProvider";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
-type BreadcrumbNavProps = {
-    ready?: boolean;
-};
+export function BreadcrumbNav() {
+    const pathname = usePathname();
+    const { groups } = useData();
+    const segments = pathname.split("/").filter(Boolean);
+    const groupId = segments[0];
+    const projectId = segments[1];
 
-export function BreadcrumbNav({ ready = true }: BreadcrumbNavProps) {
-    const { selectedGroup, selectedProject, selectItem, showAllGroups, showGroups } = useNavigation();
-
-    const fadeClass = `transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`;
+    const group = groupId ? groups.find((g) => g.id === groupId) : null;
+    const project = projectId ? group?.projects.find((p) => p.id === projectId) : null;
 
     return (
         <Breadcrumb className="min-w-0 w-full overflow-hidden">
             <BreadcrumbList className="min-w-0 w-full flex-nowrap overflow-hidden">
-                {showAllGroups ? (
+                {!groupId ? (
                     <BreadcrumbItem className="shrink-0">
                         <BreadcrumbPage>KIWI</BreadcrumbPage>
                     </BreadcrumbItem>
-                ) : selectedGroup ? (
+                ) : (
                     <>
                         <BreadcrumbItem className="shrink-0">
-                            <BreadcrumbLink
-                                className="max-w-full truncate"
-                                href="#"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    showGroups();
-                                }}
-                            >
-                                KIWI
+                            <BreadcrumbLink asChild>
+                                <Link href="/">KIWI</Link>
                             </BreadcrumbLink>
                         </BreadcrumbItem>
-                        <BreadcrumbSeparator className={`shrink-0 ${fadeClass}`} />
-                        <BreadcrumbItem className={`min-w-0 shrink ${fadeClass}`}>
-                            <BreadcrumbLink
-                                className="block max-w-full truncate"
-                                href="#"
-                                title={selectedGroup.name}
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    selectItem(selectedGroup);
-                                }}
-                            >
-                                {selectedGroup.name}
-                            </BreadcrumbLink>
+                        <BreadcrumbSeparator className="shrink-0" />
+                        <BreadcrumbItem className="min-w-0 shrink">
+                            {project ? (
+                                <BreadcrumbLink asChild>
+                                    <Link
+                                        href={`/${groupId}`}
+                                        className="block max-w-full truncate"
+                                        title={group?.name}
+                                    >
+                                        {group?.name ?? groupId}
+                                    </Link>
+                                </BreadcrumbLink>
+                            ) : (
+                                <BreadcrumbPage className="block max-w-full truncate" title={group?.name}>
+                                    {group?.name ?? groupId}
+                                </BreadcrumbPage>
+                            )}
                         </BreadcrumbItem>
-                        {selectedProject && (
+                        {project && (
                             <>
-                                <BreadcrumbSeparator className={`shrink-0 ${fadeClass}`} />
-                                <BreadcrumbItem className={`min-w-0 shrink ${fadeClass}`}>
-                                    <BreadcrumbPage className="block max-w-full truncate" title={selectedProject.name}>
-                                        {selectedProject.name}
+                                <BreadcrumbSeparator className="shrink-0" />
+                                <BreadcrumbItem className="min-w-0 shrink">
+                                    <BreadcrumbPage className="block max-w-full truncate" title={project.name}>
+                                        {project.name}
                                     </BreadcrumbPage>
                                 </BreadcrumbItem>
                             </>
                         )}
                     </>
-                ) : (
-                    <BreadcrumbItem className="shrink-0">
-                        <BreadcrumbLink href="#">KIWI</BreadcrumbLink>
-                    </BreadcrumbItem>
                 )}
             </BreadcrumbList>
         </Breadcrumb>
