@@ -23,7 +23,6 @@
         "@kiwi/logger": "workspace:*",
         "ai": "catalog:",
         "better-result": "catalog:",
-        "drizzle-orm": "catalog:",
         "js-tiktoken": "^1.0.21",
         "jsonrepair": "^3.14.0",
         "zod": "catalog:"
@@ -32,6 +31,7 @@
         "@types/bun": "catalog:"
     },
     "peerDependencies": {
+        "drizzle-orm": "catalog:",
         "typescript": "catalog:"
     }
 }
