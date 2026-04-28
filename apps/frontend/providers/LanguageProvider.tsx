@@ -126,6 +126,7 @@ const translations = {
 
         // Process Steps
         "process.queued": "Queued",
+        "process.waiting_worker": "Waiting for worker",
         "process.processing_files": "Processing Files",
         "process.graph_creation": "Creating Graph",
         "process.generating_descriptions": "Generating Descriptions",
@@ -423,6 +424,7 @@ const translations = {
 
         // Process Steps
         "process.queued": "In Warteschlange",
+        "process.waiting_worker": "Wartet auf Worker",
         "process.processing_files": "Verarbeite Dateien",
         "process.graph_creation": "Erstelle Graph",
         "process.generating_descriptions": "Generiere Beschreibungen",

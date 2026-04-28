@@ -92,19 +92,6 @@ export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCar
                                                         </div>
                                                     );
                                                 })}
-                                        {project.processEtaConfidence && (
-                                            <div className="flex justify-between gap-4">
-                                                <span>{t("process.eta_confidence")}:</span>
-                                                <span>{t(`process.eta.${project.processEtaConfidence}`)}</span>
-                                            </div>
-                                        )}
-                                        {project.processEtaSampleCount !== undefined &&
-                                            project.processEtaSampleCount > 0 && (
-                                                <div className="flex justify-between gap-4">
-                                                    <span>{t("process.eta_samples")}:</span>
-                                                    <span className="font-mono">{project.processEtaSampleCount}</span>
-                                                </div>
-                                            )}
                                     </div>
                                 </TooltipContent>
                             </Tooltip>

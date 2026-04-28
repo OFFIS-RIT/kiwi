@@ -51,7 +51,6 @@ type RunRow = {
 };
 
 type SizeBucket = "tiny" | "small" | "medium" | "large" | "huge";
-type EstimateSource = "bucket" | "type" | "global";
 
 type RunFile = {
     process_run_id: string;
@@ -117,12 +116,18 @@ export const toGraphFileRecord = (file: GraphFileRow): GraphDetailFileRecord => 
     updated_at: file.updated_at?.toISOString() ?? null,
 });
 
-function buildProcessStepProgress(files: RunFile[]): ApiBatchStepProgressLike | undefined {
+function buildProcessStepProgress(run: RunRow, files: RunFile[]): ApiBatchStepProgressLike | undefined {
     if (files.length === 0) {
         return undefined;
     }
 
     const total = files.length;
+    if (run.status === "pending") {
+        return {
+            waiting_worker: `${total}/${total}`,
+        };
+    }
+
     const counts = Object.fromEntries(FILE_PROCESS_STEP_VALUES.map((step) => [step, 0])) as Record<
         FileProcessStep,
         number
@@ -160,41 +165,24 @@ function getFileSizeBucket(bytes: number): SizeBucket {
     return "huge";
 }
 
-function buildEtaConfidence(sources: Record<EstimateSource, number>): "low" | "medium" | "high" {
-    const total = sources.bucket + sources.type + sources.global;
-    if (total === 0) {
-        return "low";
-    }
-
-    if (sources.bucket / total >= 0.5) {
-        return "high";
-    }
-
-    if ((sources.bucket + sources.type) / total >= 0.5) {
-        return "medium";
-    }
-
-    return "low";
-}
-
 function pickAverage(
     file: RunFile,
     bucketAverages: Map<string, Average>,
     typeAverages: Map<string, Average>,
     globalAverage?: Average
-): { average: Average; source: EstimateSource } | undefined {
+): Average | undefined {
     const bucketAverage = bucketAverages.get(`${file.type}:${getFileSizeBucket(file.size)}`);
     if (bucketAverage && bucketAverage.samples >= MIN_BUCKET_SAMPLE_COUNT) {
-        return { average: bucketAverage, source: "bucket" };
+        return bucketAverage;
     }
 
     const typeAverage = typeAverages.get(file.type);
     if (typeAverage && typeAverage.samples >= MIN_TYPE_SAMPLE_COUNT) {
-        return { average: typeAverage, source: "type" };
+        return typeAverage;
     }
 
     if (globalAverage && globalAverage.samples > 0) {
-        return { average: globalAverage, source: "global" };
+        return globalAverage;
     }
 
     return undefined;
@@ -206,23 +194,14 @@ function buildTimeEstimate(
     bucketAverages: Map<string, Average>,
     typeAverages: Map<string, Average>,
     globalAverage?: Average
-): Pick<
-    GraphListItem,
-    "process_estimated_duration" | "process_time_remaining" | "process_eta_confidence" | "process_eta_sample_count"
-> {
+): Pick<GraphListItem, "process_estimated_duration" | "process_time_remaining"> {
     if (run.status !== "started" || files.length === 0) {
         return {};
     }
 
     let estimatedDuration = 0;
     let timeRemaining = 0;
-    let samples = 0;
     let filesWithEstimate = 0;
-    const sources: Record<EstimateSource, number> = {
-        bucket: 0,
-        type: 0,
-        global: 0,
-    };
 
     for (const file of files) {
         const estimate = pickAverage(file, bucketAverages, typeAverages, globalAverage);
@@ -230,13 +209,11 @@ function buildTimeEstimate(
             continue;
         }
 
-        const fileDuration = estimate.average.duration;
+        const fileDuration = estimate.duration;
         const progress = FILE_STEP_PROGRESS[file.process_step];
         estimatedDuration += fileDuration;
         timeRemaining += fileDuration * (1 - progress / 100);
-        samples += estimate.average.samples;
         filesWithEstimate += 1;
-        sources[estimate.source] += 1;
     }
 
     if (filesWithEstimate === 0) {
@@ -246,8 +223,6 @@ function buildTimeEstimate(
     return {
         process_estimated_duration: Math.ceil(estimatedDuration * ETA_BUFFER_MULTIPLIER),
         process_time_remaining: Math.ceil(timeRemaining * ETA_BUFFER_MULTIPLIER),
-        process_eta_confidence: buildEtaConfidence(sources),
-        process_eta_sample_count: samples,
     };
 }
 
@@ -529,7 +504,7 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
                 graph_state: "updating",
             },
             {
-                process_step: buildProcessStepProgress(files),
+                process_step: buildProcessStepProgress(run, files),
                 process_percentage: buildProcessPercentage(files),
                 ...buildTimeEstimate(run, files, bucketAverages, typeAverages, globalAverage),
             }

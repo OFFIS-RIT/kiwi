@@ -10,7 +10,7 @@
         "test": "bun test",
         "worker": "bun worker.ts",
         "dev": "KIWI_WORKER_WATCH_PARENT=1 bun worker.ts",
-        "dashboard": "dashboard --port 4000"
+        "dashboard": "bunx @openworkflow/cli dashboard --port 4000"
     },
     "dependencies": {
         "@kiwi/ai": "workspace:*",

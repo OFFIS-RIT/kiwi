@@ -43,6 +43,7 @@ import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 const WORKFLOW_STORAGE_VERSION = "v1";
 const FILE_DELETED = "__file_deleted__" as const;
 const NO_RETRY = { maximumAttempts: 1 } as const;
+const PROCESS_UNIT_BATCH_SIZE = 100;
 
 function workflowError(error: unknown) {
     if (error instanceof Error) {
@@ -95,13 +96,14 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
 
         // Update project status
         await step.run({ name: "update-project-status" }, async () => {
-            await Promise.all([
-                db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId)),
-                db
+            await db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId));
+
+            if (input.processRunId) {
+                await db
                     .update(processRunsTable)
                     .set({ status: "started", startedAt: sql`NOW()` })
-                    .where(eq(processRunsTable.id, input.processRunId)),
-            ]);
+                    .where(eq(processRunsTable.id, input.processRunId));
+            }
         });
 
         await Promise.allSettled(
@@ -199,24 +201,26 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
         ]);
 
         await step.run({ name: "finalize-project-status" }, async () => {
-            await Promise.all([
-                db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId)),
-                db
+            await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
+
+            if (input.processRunId) {
+                await db
                     .update(processRunsTable)
                     .set({ status: "completed", completedAt: sql`NOW()` })
-                    .where(eq(processRunsTable.id, input.processRunId)),
-            ]);
+                    .where(eq(processRunsTable.id, input.processRunId));
+            }
         });
     } catch (error) {
         if (run.retryTerminal) {
             await step.run({ name: "mark-project-failed", retryPolicy: NO_RETRY }, async () => {
-                await Promise.all([
-                    db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId)),
-                    db
+                await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
+
+                if (input.processRunId) {
+                    await db
                         .update(processRunsTable)
                         .set({ status: "failed", completedAt: sql`NOW()` })
-                        .where(eq(processRunsTable.id, input.processRunId)),
-                ]);
+                        .where(eq(processRunsTable.id, input.processRunId));
+                }
             });
         }
 
@@ -478,11 +482,16 @@ export const processFile = defineWorkflow(
                     throw new Error(`Failed to load units from ${unitsResult.key}`);
                 }
 
-                const graphs = await Promise.all(
-                    loadedUnits.content.map((unit) =>
-                        processUnit(unit, client.text!, fileData.name, metadataResult.metadata || undefined)
-                    )
-                );
+                const graphs: Graph[] = [];
+                for (const units of chunkItems(loadedUnits.content, PROCESS_UNIT_BATCH_SIZE)) {
+                    graphs.push(
+                        ...(await Promise.all(
+                            units.map((unit) =>
+                                processUnit(unit, client.text!, fileData.name, metadataResult.metadata || undefined)
+                            )
+                        ))
+                    );
+                }
                 const mergedGraph = mergeGraphs(graphs);
                 const graph = dedupe(mergedGraph);
 
@@ -878,6 +887,8 @@ export const processFile = defineWorkflow(
         } catch (error) {
             if (run.retryTerminal) {
                 await updateFileProcessingState(input.fileId, "failed", "failed");
+            } else {
+                await updateFileProcessingState(input.fileId, "pending", "processing");
             }
 
             throw workflowError(error);

@@ -1001,6 +1001,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             const [file] = await db
                 .select({
                     id: filesTable.id,
+                    processStep: filesTable.processStep,
                 })
                 .from(filesTable)
                 .where(
@@ -1016,6 +1017,14 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 return status(400, {
                     status: "error",
                     message: "Invalid file IDs",
+                    code: API_ERROR_CODES.INVALID_FILE_IDS,
+                });
+            }
+
+            if (file.processStep !== "failed") {
+                return status(400, {
+                    status: "error",
+                    message: "File is not in a failed state",
                     code: API_ERROR_CODES.INVALID_FILE_IDS,
                 });
             }

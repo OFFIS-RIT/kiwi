@@ -63,6 +63,7 @@ export type GraphFileListItem = {
 export type GraphDetailFileRecord = GraphFileListItem;
 
 export type ApiBatchStepProgressLike = {
+    waiting_worker?: string;
     pending?: string;
     preprocessing?: string;
     metadata?: string;
@@ -100,8 +101,6 @@ export type GraphListItem = {
     process_percentage?: number;
     process_estimated_duration?: number;
     process_time_remaining?: number;
-    process_eta_confidence?: "low" | "medium" | "high";
-    process_eta_sample_count?: number;
 };
 
 export type TextUnitRecord = {

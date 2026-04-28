@@ -22,7 +22,7 @@ const putNamedFileMock = mock(async (name: string, _file: Uint8Array, path: stri
     type: "image/png",
 }));
 
-const pdfToImgMock = mock(async () => {
+const pdfToImgMock = mock(async (_content: Buffer, _options?: { scale?: number }) => {
     const pages = rasterizedPages.map((page) => Buffer.from(page));
 
     return {
@@ -809,6 +809,48 @@ describe("PDFLoader", () => {
         expect(pdfToImgMock).toHaveBeenCalledTimes(1);
         expect(generateTextMock).toHaveBeenCalledTimes(2);
         expect(putNamedFileMock).not.toHaveBeenCalled();
+    });
+
+    test("downscales oversized pages before full OCR rasterization", async () => {
+        const bytes = await buildPDFBinary((pdf) => {
+            pdf.addPage({ width: 1190.56, height: 1683.78 });
+        });
+        const loader = {
+            getText: async () => "",
+            getBinary: async () => bytes.slice().buffer,
+        };
+        rasterizedPages = [new Uint8Array([1])];
+        fullOCRPageOutputs = ["# Oversized"];
+
+        await new PDFLoader({
+            loader,
+            mode: "ocr",
+            model: {} as never,
+        }).getText();
+
+        expect(pdfToImgMock).toHaveBeenCalledTimes(1);
+        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 0.5 });
+    });
+
+    test("keeps normal page sizes at default full OCR raster scale", async () => {
+        const bytes = await buildPDFBinary((pdf) => {
+            pdf.addPage({ size: "letter" });
+        });
+        const loader = {
+            getText: async () => "",
+            getBinary: async () => bytes.slice().buffer,
+        };
+        rasterizedPages = [new Uint8Array([1])];
+        fullOCRPageOutputs = ["# Letter"];
+
+        await new PDFLoader({
+            loader,
+            mode: "ocr",
+            model: {} as never,
+        }).getText();
+
+        expect(pdfToImgMock).toHaveBeenCalledTimes(1);
+        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 1 });
     });
 
     test("throws when full OCR mode is missing a model", async () => {

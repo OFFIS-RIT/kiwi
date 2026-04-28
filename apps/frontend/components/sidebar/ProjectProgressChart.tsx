@@ -79,11 +79,6 @@ export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
                             {t("process.remaining", { time: timeRemaining })}
                         </div>
                     )}
-                    {project.processEtaConfidence && (
-                        <div className="text-muted-foreground">
-                            {t("process.eta_confidence")}: {t(`process.eta.${project.processEtaConfidence}`)}
-                        </div>
-                    )}
                 </div>
             </TooltipContent>
         </Tooltip>

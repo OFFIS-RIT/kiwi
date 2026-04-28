@@ -372,7 +372,10 @@ const TEXT_DEFAULT_X_TOLERANCE_RATIO = 0.55;
 const TEXT_DEFAULT_Y_TOLERANCE_RATIO = 0.35;
 const TEXT_SEGMENT_MIN_GAP = 12;
 const TEXT_SEGMENT_GAP_RATIO = 4;
-const DEFAULT_RASTER_SCALE = 3;
+const DEFAULT_RASTER_SCALE = 1;
+const A4_WIDTH_POINTS = 595.28;
+const A4_HEIGHT_POINTS = 841.89;
+const A4_OVERSIZE_TOLERANCE = 1.1;
 const PNG_MIME_TYPE = "image/png";
 const LIGATURE_EXPANSIONS: Record<string, string> = {
     ﬀ: "ff",
@@ -526,7 +529,8 @@ export async function extractFullOCRTextFromPDF(
 }
 
 async function defaultRasterizePages(content: Uint8Array): Promise<Uint8Array[]> {
-    const document = await pdf(Buffer.from(content), { scale: DEFAULT_RASTER_SCALE });
+    const scale = await resolveRasterScale(content);
+    const document = await pdf(Buffer.from(content), { scale });
     const pageImages: Uint8Array[] = [];
 
     for await (const image of document) {
@@ -534,6 +538,33 @@ async function defaultRasterizePages(content: Uint8Array): Promise<Uint8Array[]>
     }
 
     return pageImages;
+}
+
+async function resolveRasterScale(content: Uint8Array): Promise<number> {
+    try {
+        const document = await PDF.load(content);
+        const pageScales = (document as unknown as PDFDocumentLike)
+            .getPages()
+            .map(getPageRasterScale)
+            .filter((scale) => Number.isFinite(scale) && scale > 0);
+
+        return Math.min(DEFAULT_RASTER_SCALE, ...pageScales);
+    } catch {
+        return DEFAULT_RASTER_SCALE;
+    }
+}
+
+function getPageRasterScale(page: Pick<PDFPageLike, "width" | "height">): number {
+    const pageShortEdge = Math.min(page.width, page.height);
+    const pageLongEdge = Math.max(page.width, page.height);
+    const a4ShortEdge = Math.min(A4_WIDTH_POINTS, A4_HEIGHT_POINTS);
+    const a4LongEdge = Math.max(A4_WIDTH_POINTS, A4_HEIGHT_POINTS);
+
+    if (pageShortEdge <= a4ShortEdge * A4_OVERSIZE_TOLERANCE && pageLongEdge <= a4LongEdge * A4_OVERSIZE_TOLERANCE) {
+        return DEFAULT_RASTER_SCALE;
+    }
+
+    return Math.min(DEFAULT_RASTER_SCALE, a4ShortEdge / pageShortEdge, a4LongEdge / pageLongEdge);
 }
 
 async function defaultTranscribePage(image: Uint8Array, model: LanguageModelV3): Promise<string> {
