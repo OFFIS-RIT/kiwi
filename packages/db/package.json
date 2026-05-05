@@ -12,6 +12,7 @@
         "test": "bun test --pass-with-no-tests"
     },
     "dependencies": {
+        "drizzle-orm": "catalog:",
         "pg": "catalog:",
         "ulid": "^3.0.2"
     },
@@ -19,7 +20,6 @@
         "@types/bun": "catalog:"
     },
     "peerDependencies": {
-        "drizzle-orm": "catalog:",
         "typescript": "catalog:"
     }
 }

@@ -20,6 +20,7 @@
         "@openworkflow/cli": "^0.4.4",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
+        "drizzle-orm": "catalog:",
         "openworkflow": "catalog:",
         "postgres": "catalog:",
         "zod": "catalog:"
@@ -29,7 +30,6 @@
         "@types/bun": "catalog:"
     },
     "peerDependencies": {
-        "drizzle-orm": "catalog:",
         "typescript": "catalog:"
     }
 }

@@ -24,6 +24,7 @@
         "better-auth": "catalog:",
         "better-auth-credentials-plugin": "catalog:",
         "better-result": "catalog:",
+        "drizzle-orm": "catalog:",
         "elysia": "latest",
         "ldap-authentication": "4.0.4",
         "openworkflow": "catalog:",
@@ -36,7 +37,6 @@
         "typescript": "catalog:"
     },
     "peerDependencies": {
-        "drizzle-orm": "catalog:",
         "typescript": "catalog:"
     }
 }

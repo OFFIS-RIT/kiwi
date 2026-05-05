@@ -33,6 +33,7 @@
         "better-auth": "catalog:",
         "better-auth-credentials-plugin": "catalog:",
         "better-result": "catalog:",
+        "drizzle-orm": "catalog:",
         "elysia": "latest",
         "ldap-authentication": "4.0.4",
         "openworkflow": "catalog:",
@@ -45,7 +46,6 @@
         "typescript": "catalog:",
       },
       "peerDependencies": {
-        "drizzle-orm": "catalog:",
         "typescript": "catalog:",
       },
     },
@@ -122,6 +122,7 @@
         "@openworkflow/cli": "^0.4.4",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
+        "drizzle-orm": "catalog:",
         "openworkflow": "catalog:",
         "postgres": "catalog:",
         "zod": "catalog:",
@@ -131,7 +132,6 @@
         "@types/bun": "catalog:",
       },
       "peerDependencies": {
-        "drizzle-orm": "catalog:",
         "typescript": "catalog:",
       },
     },
@@ -147,6 +147,7 @@
         "@kiwi/logger": "workspace:*",
         "ai": "catalog:",
         "better-result": "catalog:",
+        "drizzle-orm": "catalog:",
         "js-tiktoken": "^1.0.21",
         "jsonrepair": "^3.14.0",
         "zod": "catalog:",
@@ -155,7 +156,6 @@
         "@types/bun": "catalog:",
       },
       "peerDependencies": {
-        "drizzle-orm": "catalog:",
         "typescript": "catalog:",
       },
     },
@@ -181,6 +181,7 @@
     "packages/db": {
       "name": "@kiwi/db",
       "dependencies": {
+        "drizzle-orm": "catalog:",
         "pg": "catalog:",
         "ulid": "^3.0.2",
       },
@@ -188,7 +189,6 @@
         "@types/bun": "catalog:",
       },
       "peerDependencies": {
-        "drizzle-orm": "catalog:",
         "typescript": "catalog:",
       },
     },
