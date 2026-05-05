@@ -213,8 +213,6 @@ export const chatRoute = new Elysia()
                 if (citation) {
                   citationFileKeys.add(citation.fileKey);
                   text += stringifyCitationFence(citation);
-                } else {
-                  text += segment.raw;
                 }
               }
               if (text.length > 0) {
@@ -418,20 +416,15 @@ export const chatRoute = new Elysia()
 
             const emitCitationFence = async (
               modelPartId: string,
-              rawFence: string,
               citationId: string,
             ) => {
               const citation = await enrichCitation(params.id, citationId);
-              const emittedFence = citation
-                ? stringifyCitationFence(citation)
-                : rawFence;
-              appendText(modelPartId, emittedFence);
-
               if (!citation) {
                 return;
               }
 
               citationFileKeys.add(citation.fileKey);
+              appendText(modelPartId, stringifyCitationFence(citation));
             };
 
             try {
@@ -463,7 +456,6 @@ export const chatRoute = new Elysia()
 
                       await emitCitationFence(
                         part.id,
-                        segment.raw,
                         segment.citation.sourceId,
                       );
                     }
@@ -480,7 +472,6 @@ export const chatRoute = new Elysia()
 
                         await emitCitationFence(
                           part.id,
-                          segment.raw,
                           segment.citation.sourceId,
                         );
                       }
