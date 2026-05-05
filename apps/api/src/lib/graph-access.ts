@@ -14,7 +14,7 @@ export type RootOwner =
           mode: "user";
           userId: string;
       }
-      | {
+    | {
           mode: "group";
           groupId: string;
       };
@@ -84,11 +84,8 @@ const requireGroupAccess = async (
     return;
 };
 
-export const requireGroupUpdateAccess = async (
-    headers: Headers,
-    user: AuthUser,
-    groupId: string
-): Promise<void> => requireGroupAccess(user, groupId, { headers, needsUpdate: true, allowAdmin: true });
+export const requireGroupUpdateAccess = async (headers: Headers, user: AuthUser, groupId: string): Promise<void> =>
+    requireGroupAccess(user, groupId, { headers, needsUpdate: true, allowAdmin: true });
 
 export const requireGroupViewAccess = async (user: AuthUser, groupId: string): Promise<void> =>
     requireGroupAccess(user, groupId);

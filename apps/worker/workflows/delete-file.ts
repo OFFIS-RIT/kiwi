@@ -1,11 +1,5 @@
 import { db } from "@kiwi/db";
-import {
-    entityTable,
-    filesTable,
-    relationshipTable,
-    sourcesTable,
-    textUnitTable,
-} from "@kiwi/db/tables/graph";
+import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { deleteFile as deleteStoredFile } from "@kiwi/files";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
@@ -88,14 +82,18 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
                     `);
             }
 
-            await tx.delete(filesTable).where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.id, input.fileId)));
+            await tx
+                .delete(filesTable)
+                .where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.id, input.fileId)));
 
             const survivingEntityIds =
                 affectedEntityIds.length > 0
                     ? await tx
                           .select({ id: entityTable.id })
                           .from(entityTable)
-                          .where(and(eq(entityTable.graphId, input.graphId), inArray(entityTable.id, affectedEntityIds)))
+                          .where(
+                              and(eq(entityTable.graphId, input.graphId), inArray(entityTable.id, affectedEntityIds))
+                          )
                     : [];
             const survivingRelationshipIds =
                 affectedRelationshipIds.length > 0
@@ -103,7 +101,10 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
                           .select({ id: relationshipTable.id })
                           .from(relationshipTable)
                           .where(
-                              and(eq(relationshipTable.graphId, input.graphId), inArray(relationshipTable.id, affectedRelationshipIds))
+                              and(
+                                  eq(relationshipTable.graphId, input.graphId),
+                                  inArray(relationshipTable.id, affectedRelationshipIds)
+                              )
                           )
                     : [];
 

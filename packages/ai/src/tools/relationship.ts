@@ -90,7 +90,12 @@ function toSearchRelationshipRows(rows: Record<string, unknown>[]): SearchRelati
 }
 
 function formatRelationshipList(
-    rows: Array<Pick<SearchRelationshipRow, "id" | "sourceId" | "targetId" | "sourceName" | "targetName" | "description" | "rank">>
+    rows: Array<
+        Pick<
+            SearchRelationshipRow,
+            "id" | "sourceId" | "targetId" | "sourceName" | "targetName" | "description" | "rank"
+        >
+    >
 ) {
     return rows.map(
         (row) =>
@@ -320,10 +325,7 @@ export const getNeighboursTool = (graphId: string) =>
                 {
                     title: "Neighbours",
                     name: "get_entity_neighbours",
-                    hints: [
-                        "retry with one confirmed entity ID",
-                        "if the entity is unknown, search_entities first",
-                    ],
+                    hints: ["retry with one confirmed entity ID", "if the entity is unknown, search_entities first"],
                 },
                 { entityId, limit, cursor },
                 async () => {
@@ -526,7 +528,9 @@ export const getPathBetweenTool = (graphId: string) =>
                         if (index < pathRelationshipIds.length) {
                             const relationship = relationshipMap.get(pathRelationshipIds[index]!);
                             const description = truncateWords(relationship?.description ?? "", 30);
-                            lines.push(`- ${pathRelationshipIds[index]}, ${description || "No relationship description"}`);
+                            lines.push(
+                                `- ${pathRelationshipIds[index]}, ${description || "No relationship description"}`
+                            );
                         }
                     }
 

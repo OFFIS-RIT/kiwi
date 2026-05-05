@@ -78,9 +78,7 @@ export const FileMentionList = forwardRef<FileMentionListHandle, FileMentionList
     return (
         <div className="z-50 w-max max-w-[min(90vw,32rem)] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md">
             <div className="max-h-[16.5rem] overflow-y-auto p-1" style={{ scrollbarWidth: "thin" }}>
-                {loading && (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("mention.loading")}</div>
-                )}
+                {loading && <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("mention.loading")}</div>}
                 {!loading && items.length === 0 && (
                     <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("mention.no.files")}</div>
                 )}

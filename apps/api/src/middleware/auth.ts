@@ -79,13 +79,10 @@ async function ensureMasterUser() {
                     });
                 }
             } else if (masterUserEmail) {
-                logInfo(
-                    "master user password not configured; skipping credential account bootstrap",
-                    {
-                        userId: masterUserId,
-                        email,
-                    }
-                );
+                logInfo("master user password not configured; skipping credential account bootstrap", {
+                    userId: masterUserId,
+                    email,
+                });
             }
 
             if (masterUserApiKeyRecordId) {

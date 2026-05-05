@@ -44,14 +44,14 @@ When using OpenAI reasoning models, temperature is fixed to `1.0`, as required b
 
 ## Tech Stack
 
-| Layer    | Technology                                                  |
-| -------- | ----------------------------------------------------------- |
-| Frontend | Next.js 16, React 19, TanStack Query, Tailwind CSS, Bun     |
-| Backend  | Bun, Elysia, Drizzle ORM                                    |
-| Auth     | Better Auth with admin roles, LDAP, and email/password      |
-| Database | PostgreSQL + pgvector                                        |
-| Workflow | OpenWorkflow with PostgreSQL-backed durable workflow storage |
-| Storage  | RustFS (S3-compatible)                                      |
+| Layer    | Technology                                                       |
+| -------- | ---------------------------------------------------------------- |
+| Frontend | Next.js 16, React 19, TanStack Query, Tailwind CSS, Bun          |
+| Backend  | Bun, Elysia, Drizzle ORM                                         |
+| Auth     | Better Auth with admin roles, LDAP, and email/password           |
+| Database | PostgreSQL + pgvector                                            |
+| Workflow | OpenWorkflow with PostgreSQL-backed durable workflow storage     |
+| Storage  | RustFS (S3-compatible)                                           |
 | AI       | Vercel AI SDK with OpenAI, Azure, Anthropic, and compatible APIs |
 
 ---
@@ -121,16 +121,16 @@ certificate files in `./certs`.
 
 ### Production Services
 
-| Service    | Description                    |
-| ---------- | ------------------------------ |
-| caddy      | Edge proxy with HTTPS          |
-| frontend   | Next.js frontend               |
-| server     | Bun API server with `/auth`    |
-| worker     | Durable workflow worker        |
-| migrations | Startup migration job          |
-| postgres   | PostgreSQL + pgvector          |
-| bouncer    | PostgreSQL connection pool     |
-| rustfs     | S3-compatible storage          |
+| Service    | Description                 |
+| ---------- | --------------------------- |
+| caddy      | Edge proxy with HTTPS       |
+| frontend   | Next.js frontend            |
+| server     | Bun API server with `/auth` |
+| worker     | Durable workflow worker     |
+| migrations | Startup migration job       |
+| postgres   | PostgreSQL + pgvector       |
+| bouncer    | PostgreSQL connection pool  |
+| rustfs     | S3-compatible storage       |
 
 ---
 
@@ -179,16 +179,16 @@ certificate files in `./certs`.
 
 #### Graph Exploration Tools (Agentic Mode)
 
-| Tool                        | Capability                                                                    |
-| --------------------------- | ----------------------------------------------------------------------------- |
-| `list_files`                | List files in the current graph and return file IDs for follow-up tool calls  |
-| `search_entities`           | Find entities by name, alias, type, or short topical query                    |
-| `list_entities`             | Scan entities broadly, optionally scoped to specific files                     |
-| `search_relationships`      | Search relationships relevant to a query and return relationship IDs           |
-| `get_relationships`         | Retrieve relationships for known entity IDs                                    |
-| `get_entity_neighbours`     | Traverse directly connected entities from a selected entity                    |
-| `get_path_between_entities` | Find multi-hop paths between two entities                                      |
-| `get_sources`               | Retrieve source evidence and citation IDs for entities or relationships        |
+| Tool                        | Capability                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------- |
+| `list_files`                | List files in the current graph and return file IDs for follow-up tool calls           |
+| `search_entities`           | Find entities by name, alias, type, or short topical query                             |
+| `list_entities`             | Scan entities broadly, optionally scoped to specific files                             |
+| `search_relationships`      | Search relationships relevant to a query and return relationship IDs                   |
+| `get_relationships`         | Retrieve relationships for known entity IDs                                            |
+| `get_entity_neighbours`     | Traverse directly connected entities from a selected entity                            |
+| `get_path_between_entities` | Find multi-hop paths between two entities                                              |
+| `get_sources`               | Retrieve source evidence and citation IDs for entities or relationships                |
 | `ask_clarifying_questions`  | Ask the user for missing information when the graph and prior context are insufficient |
 
 ---
@@ -197,17 +197,17 @@ certificate files in `./certs`.
 
 KIWI is organized as a Bun workspace monorepo. The main applications and shared packages are:
 
-| Package             | Purpose                                                                    |
-| ------------------- | -------------------------------------------------------------------------- |
-| `apps/frontend`     | Next.js frontend for document upload, graph browsing, admin flows, and chat |
-| `apps/api`          | Elysia API server, auth bridge, route handlers, and OpenWorkflow integration |
-| `apps/worker`       | Background worker that executes durable workflows for file processing        |
-| `packages/ai`       | Shared AI adapters, prompt helpers, chat message types, and tool wiring     |
-| `packages/auth`     | Better Auth server and client setup, permissions, and auth helpers          |
-| `packages/db`       | Drizzle schema, tables, and database access                                 |
-| `packages/files`    | Shared RustFS and S3 file utilities                                          |
-| `packages/graph`    | Graph extraction, chunking, loaders, and processing logic                   |
-| `packages/logger`   | Shared logging and OpenTelemetry helpers                                    |
+| Package           | Purpose                                                                      |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `apps/frontend`   | Next.js frontend for document upload, graph browsing, admin flows, and chat  |
+| `apps/api`        | Elysia API server, auth bridge, route handlers, and OpenWorkflow integration |
+| `apps/worker`     | Background worker that executes durable workflows for file processing        |
+| `packages/ai`     | Shared AI adapters, prompt helpers, chat message types, and tool wiring      |
+| `packages/auth`   | Better Auth server and client setup, permissions, and auth helpers           |
+| `packages/db`     | Drizzle schema, tables, and database access                                  |
+| `packages/files`  | Shared RustFS and S3 file utilities                                          |
+| `packages/graph`  | Graph extraction, chunking, loaders, and processing logic                    |
+| `packages/logger` | Shared logging and OpenTelemetry helpers                                     |
 
 This structure keeps frontend, API, worker, and shared business logic aligned while still allowing each app to ship independently.
 
@@ -220,75 +220,75 @@ Copy `.env.sample` to `.env` and configure:
 <details>
 <summary><strong>Environment Variables</strong></summary>
 
-| Variable                           | Description                                                           |
-| ---------------------------------- | --------------------------------------------------------------------- |
-| `LOG_LEVEL`                        | API log level                                                         |
-| `APP_DOMAIN`                       | Public domain used by Caddy for HTTPS and `/s3` proxying              |
-| `AUTH_SECRET`                      | Secret key for authentication                                         |
-| `AUTH_URL`                         | Public auth base URL                                                  |
-| `TRUSTED_ORIGINS`                  | Comma-separated origins allowed to call auth/API with credentials     |
-| `AUTH_CROSS_SUBDOMAIN_COOKIES`     | Enable Better Auth cross-subdomain cookies                            |
-| `AUTH_COOKIE_DOMAIN`               | Optional cookie domain for shared auth sessions across subdomains     |
-| `WORKER_CONCURRENCY`               | Maximum number of workflow runs processed in parallel by the worker   |
-| `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                 |
-| `NEXT_PUBLIC_AUTH_URL`             | Frontend auth service base URL                                        |
-| `NEXT_PUBLIC_AUTH_MODE`            | Frontend auth UI mode (see below)                                     |
-| `NEXT_PUBLIC_APP_BUILD_LABEL`      | Optional frontend build label                                         |
-| `APPLE_CLIENT_ID`                  | Apple OAuth client ID                                                 |
-| `APPLE_CLIENT_SECRET`              | Apple OAuth client secret                                             |
-| `APPLE_BUNDLE_ID`                  | Apple bundle identifier (optional)                                    |
-| `GOOGLE_CLIENT_ID`                 | Google OAuth client ID                                                |
-| `GOOGLE_CLIENT_SECRET`             | Google OAuth client secret                                            |
-| `MICROSOFT_CLIENT_ID`              | Microsoft OAuth client ID                                             |
-| `MICROSOFT_CLIENT_SECRET`          | Microsoft OAuth client secret                                         |
-| `MICROSOFT_TENANT_ID`              | Microsoft tenant ID (optional)                                        |
-| `MICROSOFT_AUTHORITY_URL`          | Microsoft authority URL (optional)                                    |
-| `LDAP_URL`                         | LDAP server URL                                                       |
-| `LDAP_BIND_DN`                     | LDAP bind DN                                                          |
-| `LDAP_PASSW`                       | LDAP bind password                                                    |
-| `LDAP_BASE_DN`                     | LDAP base DN                                                          |
-| `LDAP_SEARCH_ATTR`                 | LDAP search attribute                                                 |
-| `MASTER_USER_ID`                   | Master user ID (string)                                               |
-| `MASTER_USER_NAME`                 | Optional display name for the bootstrapped master user                |
-| `MASTER_USER_EMAIL`                | Optional email for the bootstrapped master user                       |
+| Variable                           | Description                                                            |
+| ---------------------------------- | ---------------------------------------------------------------------- |
+| `LOG_LEVEL`                        | API log level                                                          |
+| `APP_DOMAIN`                       | Public domain used by Caddy for HTTPS and `/s3` proxying               |
+| `AUTH_SECRET`                      | Secret key for authentication                                          |
+| `AUTH_URL`                         | Public auth base URL                                                   |
+| `TRUSTED_ORIGINS`                  | Comma-separated origins allowed to call auth/API with credentials      |
+| `AUTH_CROSS_SUBDOMAIN_COOKIES`     | Enable Better Auth cross-subdomain cookies                             |
+| `AUTH_COOKIE_DOMAIN`               | Optional cookie domain for shared auth sessions across subdomains      |
+| `WORKER_CONCURRENCY`               | Maximum number of workflow runs processed in parallel by the worker    |
+| `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                  |
+| `NEXT_PUBLIC_AUTH_URL`             | Frontend auth service base URL                                         |
+| `NEXT_PUBLIC_AUTH_MODE`            | Frontend auth UI mode (see below)                                      |
+| `NEXT_PUBLIC_APP_BUILD_LABEL`      | Optional frontend build label                                          |
+| `APPLE_CLIENT_ID`                  | Apple OAuth client ID                                                  |
+| `APPLE_CLIENT_SECRET`              | Apple OAuth client secret                                              |
+| `APPLE_BUNDLE_ID`                  | Apple bundle identifier (optional)                                     |
+| `GOOGLE_CLIENT_ID`                 | Google OAuth client ID                                                 |
+| `GOOGLE_CLIENT_SECRET`             | Google OAuth client secret                                             |
+| `MICROSOFT_CLIENT_ID`              | Microsoft OAuth client ID                                              |
+| `MICROSOFT_CLIENT_SECRET`          | Microsoft OAuth client secret                                          |
+| `MICROSOFT_TENANT_ID`              | Microsoft tenant ID (optional)                                         |
+| `MICROSOFT_AUTHORITY_URL`          | Microsoft authority URL (optional)                                     |
+| `LDAP_URL`                         | LDAP server URL                                                        |
+| `LDAP_BIND_DN`                     | LDAP bind DN                                                           |
+| `LDAP_PASSW`                       | LDAP bind password                                                     |
+| `LDAP_BASE_DN`                     | LDAP base DN                                                           |
+| `LDAP_SEARCH_ATTR`                 | LDAP search attribute                                                  |
+| `MASTER_USER_ID`                   | Master user ID (string)                                                |
+| `MASTER_USER_NAME`                 | Optional display name for the bootstrapped master user                 |
+| `MASTER_USER_EMAIL`                | Optional email for the bootstrapped master user                        |
 | `MASTER_USER_PASSWORD`             | Optional password for bootstrapping a credential login for master user |
-| `MASTER_USER_API_KEY`              | Optional Better Auth API key bound to the master user |
-| `DATABASE_URL`                     | Host PgBouncer PostgreSQL connection string                           |
-| `DATABASE_DIRECT_URL`              | Host direct PostgreSQL connection string                              |
-| `S3_REGION`                        | S3 region                                                             |
-| `S3_ENDPOINT`                      | Host RustFS endpoint                                                  |
-| `TLS_EMAIL`                        | Optional ACME contact email used by Caddy                             |
-| `S3_ACCESS_KEY_ID`                 | S3 access key                                                         |
-| `S3_SECRET_ACCESS_KEY`             | S3 secret key                                                         |
-| `S3_BUCKET`                        | S3 bucket name                                                        |
-| `AI_TEXT_ADAPTER`                  | Text model adapter: `openai`, `azure`, `anthropic`, `openaiAPI`      |
-| `AI_TEXT_MODEL`                    | Text model name                                                       |
-| `AI_TEXT_KEY`                      | Text model API key                                                    |
-| `AI_TEXT_URL`                      | Optional OpenAI-compatible text endpoint                              |
-| `AI_TEXT_RESOURCE_NAME`            | Azure resource name for text models                                   |
-| `AI_EMBEDDING_ADAPTER`             | Embedding adapter: `openai`, `azure`, `openaiAPI`                    |
-| `AI_EMBEDDING_MODEL`               | Embedding model name                                                  |
-| `AI_EMBEDDING_KEY`                 | Embedding API key                                                     |
-| `AI_EMBEDDING_URL`                 | Optional OpenAI-compatible embedding endpoint                         |
-| `AI_EMBEDDING_RESOURCE_NAME`       | Azure resource name for embeddings                                    |
-| `AI_IMAGE_ADAPTER`                 | Optional image / vision model adapter                                 |
-| `AI_IMAGE_MODEL`                   | Optional image / vision model name                                    |
-| `AI_IMAGE_KEY`                     | Optional image / vision model API key                                 |
-| `AI_IMAGE_URL`                     | Optional OpenAI-compatible image / vision endpoint                    |
-| `AI_IMAGE_RESOURCE_NAME`           | Optional Azure resource name for image / vision models                |
-| `AI_AUDIO_ADAPTER`                 | Optional audio model adapter                                          |
-| `AI_AUDIO_MODEL`                   | Optional audio model name                                             |
-| `AI_AUDIO_KEY`                     | Optional audio model API key                                          |
-| `AI_AUDIO_URL`                     | Optional OpenAI-compatible audio endpoint                             |
-| `AI_AUDIO_RESOURCE_NAME`           | Optional Azure resource name for audio models                         |
-| `AI_TEXT_CONCURRENCY`              | Worker-local maximum concurrent text requests                         |
-| `AI_IMAGE_CONCURRENCY`             | Worker-local maximum concurrent image requests                        |
-| `AI_EMBEDDING_CONCURRENCY`         | Worker-local maximum concurrent embedding requests                    |
-| `AI_AUDIO_CONCURRENCY`             | Worker-local maximum concurrent audio requests                        |
-| `AI_EMBED_DIM`                     | Embedding dimension used by migrations                                |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`      | Optional OTLP endpoint fallback for log export                        |
-| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Optional OTLP logs endpoint                                           |
-| `OTEL_EXPORTER_OTLP_HEADERS`       | Optional OTLP export headers                                          |
+| `MASTER_USER_API_KEY`              | Optional Better Auth API key bound to the master user                  |
+| `DATABASE_URL`                     | Host PgBouncer PostgreSQL connection string                            |
+| `DATABASE_DIRECT_URL`              | Host direct PostgreSQL connection string                               |
+| `S3_REGION`                        | S3 region                                                              |
+| `S3_ENDPOINT`                      | Host RustFS endpoint                                                   |
+| `TLS_EMAIL`                        | Optional ACME contact email used by Caddy                              |
+| `S3_ACCESS_KEY_ID`                 | S3 access key                                                          |
+| `S3_SECRET_ACCESS_KEY`             | S3 secret key                                                          |
+| `S3_BUCKET`                        | S3 bucket name                                                         |
+| `AI_TEXT_ADAPTER`                  | Text model adapter: `openai`, `azure`, `anthropic`, `openaiAPI`        |
+| `AI_TEXT_MODEL`                    | Text model name                                                        |
+| `AI_TEXT_KEY`                      | Text model API key                                                     |
+| `AI_TEXT_URL`                      | Optional OpenAI-compatible text endpoint                               |
+| `AI_TEXT_RESOURCE_NAME`            | Azure resource name for text models                                    |
+| `AI_EMBEDDING_ADAPTER`             | Embedding adapter: `openai`, `azure`, `openaiAPI`                      |
+| `AI_EMBEDDING_MODEL`               | Embedding model name                                                   |
+| `AI_EMBEDDING_KEY`                 | Embedding API key                                                      |
+| `AI_EMBEDDING_URL`                 | Optional OpenAI-compatible embedding endpoint                          |
+| `AI_EMBEDDING_RESOURCE_NAME`       | Azure resource name for embeddings                                     |
+| `AI_IMAGE_ADAPTER`                 | Optional image / vision model adapter                                  |
+| `AI_IMAGE_MODEL`                   | Optional image / vision model name                                     |
+| `AI_IMAGE_KEY`                     | Optional image / vision model API key                                  |
+| `AI_IMAGE_URL`                     | Optional OpenAI-compatible image / vision endpoint                     |
+| `AI_IMAGE_RESOURCE_NAME`           | Optional Azure resource name for image / vision models                 |
+| `AI_AUDIO_ADAPTER`                 | Optional audio model adapter                                           |
+| `AI_AUDIO_MODEL`                   | Optional audio model name                                              |
+| `AI_AUDIO_KEY`                     | Optional audio model API key                                           |
+| `AI_AUDIO_URL`                     | Optional OpenAI-compatible audio endpoint                              |
+| `AI_AUDIO_RESOURCE_NAME`           | Optional Azure resource name for audio models                          |
+| `AI_TEXT_CONCURRENCY`              | Worker-local maximum concurrent text requests                          |
+| `AI_IMAGE_CONCURRENCY`             | Worker-local maximum concurrent image requests                         |
+| `AI_EMBEDDING_CONCURRENCY`         | Worker-local maximum concurrent embedding requests                     |
+| `AI_AUDIO_CONCURRENCY`             | Worker-local maximum concurrent audio requests                         |
+| `AI_EMBED_DIM`                     | Embedding dimension used by migrations                                 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`      | Optional OTLP endpoint fallback for log export                         |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Optional OTLP logs endpoint                                            |
+| `OTEL_EXPORTER_OTLP_HEADERS`       | Optional OTLP export headers                                           |
 
 ### Authentication Mode (Credentials vs LDAP)
 
@@ -379,14 +379,14 @@ managed Better Auth API key for the master user.
 
 ### Development Services
 
-| Service    | Port       | Description                    |
-| ---------- | ---------- | ------------------------------ |
-| frontend   | 3000       | Next.js dev server             |
-| server     | 4321       | Bun API server with `/auth`    |
-| worker     | -          | Durable workflow worker        |
-| postgres   | 5433       | Direct PostgreSQL connection   |
-| bouncer    | 5432       | PgBouncer pooled connection    |
-| rustfs     | 9000, 9001 | S3-compatible storage          |
+| Service  | Port       | Description                  |
+| -------- | ---------- | ---------------------------- |
+| frontend | 3000       | Next.js dev server           |
+| server   | 4321       | Bun API server with `/auth`  |
+| worker   | -          | Durable workflow worker      |
+| postgres | 5433       | Direct PostgreSQL connection |
+| bouncer  | 5432       | PgBouncer pooled connection  |
+| rustfs   | 9000, 9001 | S3-compatible storage        |
 
 ### Worker Runtime
 
@@ -409,9 +409,9 @@ bun --cwd apps/worker run dev
 
 ## AGENTS.md
 
-| Document                    | Description                            |
-| --------------------------- | -------------------------------------- |
-| [AGENTS.md](AGENTS.md)      | Repo technologies, commands, and style |
+| Document               | Description                            |
+| ---------------------- | -------------------------------------- |
+| [AGENTS.md](AGENTS.md) | Repo technologies, commands, and style |
 
 ---
 

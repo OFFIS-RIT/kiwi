@@ -36,7 +36,14 @@ export function getUserRoles(role?: string | null) {
         return [];
     }
 
-    return [...new Set(role.split(",").map((value) => value.trim()).filter(Boolean))];
+    return [
+        ...new Set(
+            role
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean)
+        ),
+    ];
 }
 
 export function hasRole(role: string | null | undefined, expectedRole: string) {

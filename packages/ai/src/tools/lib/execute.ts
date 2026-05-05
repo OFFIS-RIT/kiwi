@@ -8,8 +8,7 @@ type ToolRunOptions = {
 };
 
 const REDACTED = "[redacted]";
-const LONG_NUMERIC_VECTOR_REGEX =
-    /(?:-?\d+(?:\.\d+)?(?:e[+-]?\d+)?\s*,\s*){20,}-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/giu;
+const LONG_NUMERIC_VECTOR_REGEX = /(?:-?\d+(?:\.\d+)?(?:e[+-]?\d+)?\s*,\s*){20,}-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/giu;
 
 function sanitizeLogText(text: string) {
     return text.replace(LONG_NUMERIC_VECTOR_REGEX, REDACTED);

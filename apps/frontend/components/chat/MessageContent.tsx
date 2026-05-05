@@ -4,11 +4,7 @@ import { Button } from "@/components/ui/button";
 import { downloadProjectFile } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
 import { useLanguage } from "@/providers/LanguageProvider";
-import {
-    isResolvedCitationFence,
-    splitTextWithCitationFences,
-    type ResolvedCitationFence,
-} from "@kiwi/ai/citation";
+import { isResolvedCitationFence, splitTextWithCitationFences, type ResolvedCitationFence } from "@kiwi/ai/citation";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { AlertTriangle, Check, FileText, Loader2, Wrench } from "lucide-react";
 import React from "react";

@@ -25,22 +25,11 @@ export function GroupList({ onEditGroup }: GroupListProps) {
     }, [isLoading, error]);
 
     if (error) {
-        return (
-            <StateDisplay
-                error={error}
-                errorMessage={t("error")}
-            />
-        );
+        return <StateDisplay error={error} errorMessage={t("error")} />;
     }
 
     if (!isLoading && groups.length === 0) {
-        return (
-            <StateDisplay
-                isEmpty
-                emptyMessage={t("no.groups")}
-                emptyDescription={t("create.first.group")}
-            />
-        );
+        return <StateDisplay isEmpty emptyMessage={t("no.groups")} emptyDescription={t("create.first.group")} />;
     }
 
     return (

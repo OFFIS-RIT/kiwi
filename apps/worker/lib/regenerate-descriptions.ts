@@ -31,7 +31,10 @@ type DescriptionItem = {
     sources: DescriptionSource[];
 };
 
-export function createDescriptionClient(): { text: NonNullable<DescriptionClient["text"]>; embedding: NonNullable<DescriptionClient["embedding"]> } {
+export function createDescriptionClient(): {
+    text: NonNullable<DescriptionClient["text"]>;
+    embedding: NonNullable<DescriptionClient["embedding"]>;
+} {
     const client = getClient({
         text: buildAdapter(
             env.AI_TEXT_ADAPTER,
@@ -108,7 +111,12 @@ function groupSources<T extends { id: string; description: string }, TKey extend
 async function regenerateDescriptions(
     items: DescriptionItem[],
     client: ReturnType<typeof createDescriptionClient>,
-    update: (args: { id: string; description: string; embedding: number[]; sourceEmbeddings: SourceEmbeddingUpdate[] }) => Promise<void>
+    update: (args: {
+        id: string;
+        description: string;
+        embedding: number[];
+        sourceEmbeddings: SourceEmbeddingUpdate[];
+    }) => Promise<void>
 ) {
     for (const chunk of chunkItems(items, DESCRIPTION_BATCH_SIZE)) {
         await Promise.all(
@@ -118,7 +126,12 @@ async function regenerateDescriptions(
                 }
 
                 const sourceDescriptions = item.sources.map((source) => source.description);
-                const description = await buildDescription(client.text, item.name, sourceDescriptions, item.description);
+                const description = await buildDescription(
+                    client.text,
+                    item.name,
+                    sourceDescriptions,
+                    item.description
+                );
 
                 const { embedding } = await withAiSlot("embedding", () =>
                     embed({
@@ -148,11 +161,7 @@ async function regenerateDescriptions(
     }
 }
 
-export async function regenerateEntities(
-    graphId: string,
-    entityIds: string[],
-    client = createDescriptionClient()
-) {
+export async function regenerateEntities(graphId: string, entityIds: string[], client = createDescriptionClient()) {
     if (entityIds.length === 0) {
         return;
     }
@@ -252,7 +261,9 @@ export async function regenerateRelationships(
 
     const relationshipSourcesById = groupSources(relationshipSources, (source) => source.relationshipId);
 
-    const entityIds = [...new Set(relationships.flatMap((relationship) => [relationship.sourceId, relationship.targetId]))];
+    const entityIds = [
+        ...new Set(relationships.flatMap((relationship) => [relationship.sourceId, relationship.targetId])),
+    ];
     const entityNames =
         entityIds.length > 0
             ? await db

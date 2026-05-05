@@ -70,7 +70,9 @@ function getMetrics(metadata?: ChatMessageMetadata) {
     };
 }
 
-export function toolPart<T extends { toolCallId: string; toolName: string; providerExecuted?: boolean; input: unknown }>(
+export function toolPart<
+    T extends { toolCallId: string; toolName: string; providerExecuted?: boolean; input: unknown },
+>(
     part: T,
     status: "pending" | "completed" | "failed",
     result?: { value: unknown }

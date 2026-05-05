@@ -75,9 +75,7 @@ export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
                     <div className="font-medium">{percentage}%</div>
                     {step && <div className="text-muted-foreground">{t(`process.${step}`) || step}</div>}
                     {timeRemaining !== undefined && (
-                        <div className="text-muted-foreground">
-                            {t("process.remaining", { time: timeRemaining })}
-                        </div>
+                        <div className="text-muted-foreground">{t("process.remaining", { time: timeRemaining })}</div>
                     )}
                 </div>
             </TooltipContent>

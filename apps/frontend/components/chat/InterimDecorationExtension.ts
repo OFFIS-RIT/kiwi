@@ -32,9 +32,7 @@ export const InterimDecoration = Extension.create({
                             widget.className = "interim-decoration";
                             widget.textContent = meta;
                             const pos = Math.max(newState.doc.content.size - 1, 0);
-                            return DecorationSet.create(newState.doc, [
-                                Decoration.widget(pos, widget, { side: 1 }),
-                            ]);
+                            return DecorationSet.create(newState.doc, [Decoration.widget(pos, widget, { side: 1 })]);
                         }
                         return decorations.map(tr.mapping, tr.doc);
                     },

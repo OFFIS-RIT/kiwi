@@ -507,9 +507,7 @@ function extractPlainTextFromDocument(pdf: PDFDocumentLike): string {
         .getPages()
         .map((page) => {
             const content = analyzePageContent(pdf, page, () => "ignored-image");
-            return tidyPageText(
-                applyActualTextToPageText(page.extractText(), content.actualTextSpans)
-            ).text.trim();
+            return tidyPageText(applyActualTextToPageText(page.extractText(), content.actualTextSpans)).text.trim();
         })
         .filter(Boolean)
         .join("\n\n");
@@ -523,7 +521,9 @@ export async function extractFullOCRTextFromPDF(
     const rasterizePages = deps.rasterizePages ?? defaultRasterizePages;
     const transcribePage = deps.transcribePage ?? defaultTranscribePage;
     const pageImages = await rasterizePages(new Uint8Array(content));
-    const pageTexts = await Promise.all(pageImages.map(async (pageImage) => (await transcribePage(pageImage, model)).trim()));
+    const pageTexts = await Promise.all(
+        pageImages.map(async (pageImage) => (await transcribePage(pageImage, model)).trim())
+    );
 
     return pageTexts.filter((pageText) => pageText.length > 0).join("\n\n");
 }

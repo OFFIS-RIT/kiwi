@@ -46,9 +46,7 @@ function createSemaphores(limits: Partial<AIConcurrencyLimits>): Record<AICapabi
             return [
                 capability,
                 new Semaphore(
-                    !Number.isFinite(limit) || !limit || limit < 1
-                        ? DEFAULT_AI_CONCURRENCY_LIMIT
-                        : Math.floor(limit)
+                    !Number.isFinite(limit) || !limit || limit < 1 ? DEFAULT_AI_CONCURRENCY_LIMIT : Math.floor(limit)
                 ),
             ];
         })

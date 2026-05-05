@@ -17,19 +17,19 @@
         "@kiwi/db": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",
+        "@openworkflow/cli": "^0.4.4",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "openworkflow": "catalog:",
         "postgres": "catalog:",
-        "zod": "catalog:",
-        "@openworkflow/cli": "^0.4.4"
+        "zod": "catalog:"
     },
     "devDependencies": {
         "@openworkflow/dashboard": "^0.1.9",
         "@types/bun": "catalog:"
     },
     "peerDependencies": {
-        "typescript": "catalog:",
-        "drizzle-orm": "catalog:"
+        "drizzle-orm": "catalog:",
+        "typescript": "catalog:"
     }
 }

@@ -11,11 +11,14 @@ import { groupRoute } from "./routes/group";
 
 initLogger();
 
-const trustedOrigins = env.TRUSTED_ORIGINS?.split(",").map((origin: string) => origin.trim()).filter(Boolean) ?? [];
+const trustedOrigins =
+    env.TRUSTED_ORIGINS?.split(",")
+        .map((origin: string) => origin.trim())
+        .filter(Boolean) ?? [];
 
 const app = new Elysia({
     serve: {
-        maxRequestBodySize: 4 * 1024 * 1024 * 1024
+        maxRequestBodySize: 4 * 1024 * 1024 * 1024,
     },
 })
     .use(

@@ -151,10 +151,7 @@ export function useGroupsWithProjects() {
         refetchIntervalInBackground: false,
         queryFn: async () => {
             const cachedGroups = queryClient.getQueryData<ApiGroup[]>(queryKeys.groups);
-            const [apiGroups, apiGraphs] = await Promise.all([
-                cachedGroups ?? fetchGroups(),
-                fetchGraphs(),
-            ]);
+            const [apiGroups, apiGraphs] = await Promise.all([cachedGroups ?? fetchGroups(), fetchGraphs()]);
 
             if (!cachedGroups) {
                 queryClient.setQueryData(queryKeys.groups, apiGroups);
@@ -184,10 +181,7 @@ export function useGroupsWithProjectsSuspense() {
         refetchIntervalInBackground: false,
         queryFn: async () => {
             const cachedGroups = queryClient.getQueryData<ApiGroup[]>(queryKeys.groups);
-            const [apiGroups, apiGraphs] = await Promise.all([
-                cachedGroups ?? fetchGroups(),
-                fetchGraphs(),
-            ]);
+            const [apiGroups, apiGraphs] = await Promise.all([cachedGroups ?? fetchGroups(), fetchGraphs()]);
 
             if (!cachedGroups) {
                 queryClient.setQueryData(queryKeys.groups, apiGroups);

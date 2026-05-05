@@ -53,5 +53,4 @@ describe("SemanticChunker", () => {
         expect(chunks[0]).toContain("Dr. Smith measured 3.14 meters.");
         expect(chunks.some((chunk) => chunk.includes("01.01.2024."))).toBe(true);
     });
-
 });

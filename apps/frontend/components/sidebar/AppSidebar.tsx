@@ -343,7 +343,9 @@ export function AppSidebar({
                         ) : !isLoading && groups.length === 0 ? (
                             <div className="px-2 py-4 text-center text-sm text-muted-foreground">{t("no.groups")}</div>
                         ) : groups.length > 0 ? (
-                            <ScrollArea className={`h-[calc(100vh-12rem)] transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}>
+                            <ScrollArea
+                                className={`h-[calc(100vh-12rem)] transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}
+                            >
                                 <SidebarMenu>
                                     {displayGroups.map((group) => (
                                         <GroupItem

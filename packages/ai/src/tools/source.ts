@@ -68,12 +68,20 @@ function buildSubjectScopeExpression(entityIds: string[], relationshipIds: strin
     const scopes: SQL[] = [];
 
     if (entityIds.length > 0) {
-        scopes.push(sql`source.entity_id in (${sql.join(entityIds.map((entityId) => sql`${entityId}`), sql`, `)})`);
+        scopes.push(
+            sql`source.entity_id in (${sql.join(
+                entityIds.map((entityId) => sql`${entityId}`),
+                sql`, `
+            )})`
+        );
     }
 
     if (relationshipIds.length > 0) {
         scopes.push(
-            sql`source.relationship_id in (${sql.join(relationshipIds.map((relationshipId) => sql`${relationshipId}`), sql`, `)})`
+            sql`source.relationship_id in (${sql.join(
+                relationshipIds.map((relationshipId) => sql`${relationshipId}`),
+                sql`, `
+            )})`
         );
     }
 
@@ -110,7 +118,11 @@ function formatSourceList(
 ) {
     return rows.map((row) => {
         const shortExcerpt = truncateWords(row.text);
-        const subject = row.entityId ? `entity ${row.entityId}` : row.relationshipId ? `relationship ${row.relationshipId}` : "unlinked";
+        const subject = row.entityId
+            ? `entity ${row.entityId}`
+            : row.relationshipId
+              ? `relationship ${row.relationshipId}`
+              : "unlinked";
 
         return `- ${row.id}, ${subject}, file ${row.fileId} ${row.fileName}, ${truncateWords(row.description) || "No description"}, excerpt: ${shortExcerpt || "No excerpt"}`;
     });
@@ -350,7 +362,15 @@ export const getRelationshipSourcesTool = (graphId: string, embeddingModel: Embe
                     ],
                 },
                 { query, keywords, files, relationshipIds, limit, cursor },
-                () => getScopedSources(graphId, embeddingModel, { query, keywords, files, relationshipIds, limit, cursor })
+                () =>
+                    getScopedSources(graphId, embeddingModel, {
+                        query,
+                        keywords,
+                        files,
+                        relationshipIds,
+                        limit,
+                        cursor,
+                    })
             ),
     });
 

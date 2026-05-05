@@ -39,10 +39,7 @@ export function UserMessageText({ projectId, text }: { projectId: string; text: 
         staleTime: 30_000,
     });
 
-    const segments = useMemo(
-        () => buildSegments(text, (files ?? []).filter(isMentionableFile)),
-        [text, files]
-    );
+    const segments = useMemo(() => buildSegments(text, (files ?? []).filter(isMentionableFile)), [text, files]);
 
     return <p className="whitespace-pre-wrap">{segments}</p>;
 }

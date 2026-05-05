@@ -174,6 +174,8 @@ export async function fetchTextUnit(projectId: string, unitId: string): Promise<
  * @returns Presigned download URL
  */
 export async function downloadProjectFile(projectId: string, fileKey: string): Promise<string> {
-    const response = await apiClient.post<GraphFileDownloadResponse>(`/graphs/${projectId}/file`, { file_key: fileKey });
+    const response = await apiClient.post<GraphFileDownloadResponse>(`/graphs/${projectId}/file`, {
+        file_key: fileKey,
+    });
     return unwrapApiResponse(response).url;
 }

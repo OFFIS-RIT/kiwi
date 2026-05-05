@@ -166,7 +166,12 @@ const chooseCanonicalName = (entities: Entity[]) => {
     const uniqueNames = [
         ...new Set(
             entities
-                .map((entity) => entity.name.trim().replace(/[\r\n]+/g, " ").replace(/\s+/g, " "))
+                .map((entity) =>
+                    entity.name
+                        .trim()
+                        .replace(/[\r\n]+/g, " ")
+                        .replace(/\s+/g, " ")
+                )
                 .filter(Boolean)
         ),
     ];
@@ -196,7 +201,10 @@ const chooseCanonicalName = (entities: Entity[]) => {
 
 const chooseCanonicalDescription = (entities: Entity[]) =>
     entities.reduce((best, current) => {
-        const description = (current.description ?? "").trim().replace(/[\r\n]+/g, " ").replace(/\s+/g, " ");
+        const description = (current.description ?? "")
+            .trim()
+            .replace(/[\r\n]+/g, " ")
+            .replace(/\s+/g, " ");
         return description.length > best.length ? description : best;
     }, "");
 
@@ -330,7 +338,10 @@ export function dedupe(graph: Graph): Graph {
             ...relationship,
             sourceId: normalizedSourceId,
             targetId: normalizedTargetId,
-            description: (relationship.description ?? "").trim().replace(/[\r\n]+/g, " ").replace(/\s+/g, " "),
+            description: (relationship.description ?? "")
+                .trim()
+                .replace(/[\r\n]+/g, " ")
+                .replace(/\s+/g, " "),
             sources: mergeSources([...relationship.sources]),
         });
     }

@@ -386,13 +386,7 @@ function ProjectChatShellSkeleton({ projectName, groupName }: { projectName: str
                     </div>
 
                     <div className="flex shrink-0 items-end gap-2">
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            disabled
-                            aria-label={t("reset.chat")}
-                            className="h-8 w-8"
-                        >
+                        <Button variant="outline" size="icon" disabled aria-label={t("reset.chat")} className="h-8 w-8">
                             <RotateCcw className="h-4 w-4" />
                         </Button>
                         <Button variant="outline" disabled className="h-8 w-9 px-0" aria-label={t("chat.templates")}>
@@ -685,7 +679,6 @@ function ProjectChatSession({
         inputRef.current?.setText(templateBody);
         inputRef.current?.focus();
     }, []);
-
 
     return (
         <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">

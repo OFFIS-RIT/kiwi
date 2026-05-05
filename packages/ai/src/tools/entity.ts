@@ -76,7 +76,9 @@ function buildFileScopeExpression(fileIds: string[]) {
 }
 
 function formatEntityList(rows: Array<Pick<SearchEntityRow, "id" | "name" | "type" | "description">>) {
-    return rows.map((row) => `- ${row.id}, ${row.name}, ${row.type}, ${truncateWords(row.description) || "No description"}`);
+    return rows.map(
+        (row) => `- ${row.id}, ${row.name}, ${row.type}, ${truncateWords(row.description) || "No description"}`
+    );
 }
 
 const searchEntitiesSchema = z.object({

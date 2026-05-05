@@ -2,13 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { downloadProjectFile, fetchTextUnit } from "@/lib/api/projects";
 import { useLanguage } from "@/providers/LanguageProvider";
@@ -39,7 +33,11 @@ export function TextReferenceBadge({ citation, index, onSelect }: TextReferenceB
             asChild
             className="mx-0.5 inline-flex cursor-pointer items-center border-2 text-xs transition-colors hover:border-primary/40 hover:bg-primary/10"
         >
-            <button type="button" title={`${t("text.reference")} ${index + 1}: ${citation.sourceId}`} onClick={onSelect}>
+            <button
+                type="button"
+                title={`${t("text.reference")} ${index + 1}: ${citation.sourceId}`}
+                onClick={onSelect}
+            >
                 {index + 1}
             </button>
         </Badge>
@@ -155,7 +153,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                                                 {t("loading")}
                                             </div>
                                         ) : (
-                                            unitText ?? ""
+                                            (unitText ?? "")
                                         )}
                                     </div>
                                 </div>

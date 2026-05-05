@@ -47,5 +47,4 @@ describe("JSONChunker", () => {
 
         expect(chunks).toEqual([input]);
     });
-
 });

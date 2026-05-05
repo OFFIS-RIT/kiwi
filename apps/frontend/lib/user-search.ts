@@ -54,11 +54,7 @@ export function createSearchIndex<T extends SearchableFields>(items: T[]): Fuse<
     });
 }
 
-export function fuzzySearchUsers<T extends SearchableFields>(
-    items: T[],
-    index: Fuse<T>,
-    query: string
-): T[] {
+export function fuzzySearchUsers<T extends SearchableFields>(items: T[], index: Fuse<T>, query: string): T[] {
     const normalizedQuery = normalizeUserSearch(query);
     const compactQuery = compactUserSearch(query);
 
@@ -75,9 +71,7 @@ export function fuzzySearchUsers<T extends SearchableFields>(
 
     const fuzzyMatches = index.search(normalizedQuery).map((r) => r.item);
     const compactMatches =
-        compactQuery && compactQuery !== normalizedQuery
-            ? index.search(compactQuery).map((r) => r.item)
-            : [];
+        compactQuery && compactQuery !== normalizedQuery ? index.search(compactQuery).map((r) => r.item) : [];
 
     const seen = new Set<T>();
     const result: T[] = [];

@@ -50,7 +50,9 @@ export function UserNav() {
                     <Button variant="ghost" size="icon" className="h-8 w-8">
                         <Avatar className="h-8 w-8">
                             <AvatarFallback>
-                                <span className={`transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}>
+                                <span
+                                    className={`transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}
+                                >
                                     {initials}
                                 </span>
                             </AvatarFallback>

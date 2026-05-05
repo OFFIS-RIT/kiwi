@@ -81,12 +81,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     }, [group?.projects, projectFilesQueries]);
 
     if (error) {
-        return (
-            <StateDisplay
-                error={error}
-                errorMessage={t("error")}
-            />
-        );
+        return <StateDisplay error={error} errorMessage={t("error")} />;
     }
 
     if (!group) {

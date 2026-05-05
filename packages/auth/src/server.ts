@@ -8,7 +8,7 @@ import { z } from "zod";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@kiwi/db";
 import { ac, admin, manager, user as userRole } from "./permissions";
-import { apiKey } from "@better-auth/api-key"
+import { apiKey } from "@better-auth/api-key";
 import * as authTables from "@kiwi/db/tables/auth";
 
 function parseBooleanEnv(value?: string) {
@@ -24,7 +24,14 @@ function parseOriginList(value?: string) {
         return [];
     }
 
-    return [...new Set(value.split(",").map((origin) => origin.trim()).filter(Boolean))];
+    return [
+        ...new Set(
+            value
+                .split(",")
+                .map((origin) => origin.trim())
+                .filter(Boolean)
+        ),
+    ];
 }
 
 const ldapEnabled = Boolean(

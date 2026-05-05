@@ -227,7 +227,10 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[800px] h-[80vh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+            <DialogContent
+                className="sm:max-w-[800px] h-[80vh] flex flex-col"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+            >
                 <DialogHeader className="flex-shrink-0">
                     <DialogTitle>{t("edit.project")}</DialogTitle>
                     <DialogDescription>{t("edit.project.description")}</DialogDescription>
@@ -288,7 +291,12 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                                                         isMarkedForDeletion && "opacity-50 ring-2 ring-destructive"
                                                     )}
                                                 >
-                                                    <div className={cn("flex items-start gap-2", canDeleteFiles && "pr-6")}>
+                                                    <div
+                                                        className={cn(
+                                                            "flex items-start gap-2",
+                                                            canDeleteFiles && "pr-6"
+                                                        )}
+                                                    >
                                                         <FileStatusIcon status={file.status} className="mt-0.5" />
                                                         <div className="min-w-0 flex-1">
                                                             <p

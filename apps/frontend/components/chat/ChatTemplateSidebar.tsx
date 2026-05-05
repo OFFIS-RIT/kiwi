@@ -38,13 +38,13 @@ function TemplateList({
                                     <p className="text-muted-foreground text-sm">{template.description}</p>
                                 ) : null}
                             </div>
-                                <Button
-                                    size="icon"
-                                    variant="outline"
-                                    className="h-8 w-8"
-                                    onClick={() => onInsert(template.body)}
-                                    aria-label={t("chat.template.insert", { title: template.title })}
-                                >
+                            <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8"
+                                onClick={() => onInsert(template.body)}
+                                aria-label={t("chat.template.insert", { title: template.title })}
+                            >
                                 <Plus className="h-4 w-4" />
                             </Button>
                         </div>

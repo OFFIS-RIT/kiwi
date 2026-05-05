@@ -731,7 +731,9 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         isNotNull(filesTable.checksum)
                     )
                 );
-            const existingChecksums = new Set(existingFiles.map((file) => file.checksum).filter((checksum) => checksum !== null));
+            const existingChecksums = new Set(
+                existingFiles.map((file) => file.checksum).filter((checksum) => checksum !== null)
+            );
             const filesWithChecksums = uniqueUploadedFiles.filter((file) => !existingChecksums.has(file.checksum));
 
             if (filesWithChecksums.length === 0) {

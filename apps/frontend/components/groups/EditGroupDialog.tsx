@@ -247,7 +247,10 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[800px] h-[80vh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+            <DialogContent
+                className="sm:max-w-[800px] h-[80vh] flex flex-col"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+            >
                 <DialogHeader className="flex-shrink-0">
                     <DialogTitle>{t("edit.group")}</DialogTitle>
                     <DialogDescription>{t("edit.group.description")}</DialogDescription>
@@ -359,7 +362,9 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                             </Badge>
                                                         )}
                                                     </div>
-                                                    {index < editableUsers.length - 1 ? <Separator className="mx-3" /> : null}
+                                                    {index < editableUsers.length - 1 ? (
+                                                        <Separator className="mx-3" />
+                                                    ) : null}
                                                 </div>
                                             );
                                         })}
@@ -393,7 +398,10 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                                     const nextValue = e.target.value;
                                                                     setNewUserSearch(nextValue);
                                                                     setError(null);
-                                                                    if (selectedUser && nextValue !== selectedUser.name) {
+                                                                    if (
+                                                                        selectedUser &&
+                                                                        nextValue !== selectedUser.name
+                                                                    ) {
                                                                         setSelectedUser(null);
                                                                     }
                                                                 }}
@@ -461,7 +469,9 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                                 <SelectItem value="moderator">
                                                                     {t("admin.role.manager")}
                                                                 </SelectItem>
-                                                                <SelectItem value="user">{t("admin.role.user")}</SelectItem>
+                                                                <SelectItem value="user">
+                                                                    {t("admin.role.user")}
+                                                                </SelectItem>
                                                             </SelectContent>
                                                         </Select>
                                                         <Button
