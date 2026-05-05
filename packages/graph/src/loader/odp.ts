@@ -55,11 +55,7 @@ type ODPParseContext = {
 };
 
 const XML_MIME_TYPE = "application/xml";
-const XML_ERROR_HANDLER = {
-    warning: () => undefined,
-    error: () => undefined,
-    fatalError: () => undefined,
-};
+const XML_ERROR_HANDLER = () => undefined;
 
 export class ODPLoader implements GraphLoader {
     readonly filetype = "odp";

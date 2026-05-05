@@ -10,6 +10,7 @@
         "./prompts/*": "./src/prompts/*.ts"
     },
     "scripts": {
+        "build": "bunx tsc --noEmit",
         "test": "bun test"
     },
     "dependencies": {
@@ -22,15 +23,15 @@
         "@kiwi/logger": "workspace:*",
         "ai": "catalog:",
         "better-result": "catalog:",
-        "drizzle-orm": "catalog:",
-        "jsonrepair": "^3.13.1",
         "js-tiktoken": "^1.0.21",
+        "jsonrepair": "^3.14.0",
         "zod": "catalog:"
     },
     "devDependencies": {
         "@types/bun": "catalog:"
     },
     "peerDependencies": {
+        "drizzle-orm": "catalog:",
         "typescript": "catalog:"
     }
 }

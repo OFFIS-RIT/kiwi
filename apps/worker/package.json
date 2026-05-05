@@ -8,9 +8,9 @@
     "scripts": {
         "build": "bunx tsc --noEmit",
         "test": "bun test",
-        "worker": "npx @openworkflow/cli worker start",
-        "dev": "bunx --bun @openworkflow/cli worker start",
-        "dashboard": "npx @openworkflow/cli dashboard  --port 4000"
+        "worker": "bun worker.ts",
+        "dev": "KIWI_WORKER_WATCH_PARENT=1 bun worker.ts",
+        "dashboard": "bunx @openworkflow/cli dashboard --port 4000"
     },
     "dependencies": {
         "@kiwi/ai": "workspace:*",
@@ -19,17 +19,17 @@
         "@kiwi/graph": "workspace:*",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
-        "drizzle-orm": "catalog:",
         "openworkflow": "catalog:",
         "postgres": "catalog:",
         "zod": "catalog:",
-        "@openworkflow/cli": "^0.4.3"
+        "@openworkflow/cli": "^0.4.4"
     },
     "devDependencies": {
         "@openworkflow/dashboard": "^0.1.9",
         "@types/bun": "catalog:"
     },
     "peerDependencies": {
-        "typescript": "catalog:"
+        "typescript": "catalog:",
+        "drizzle-orm": "catalog:"
     }
 }

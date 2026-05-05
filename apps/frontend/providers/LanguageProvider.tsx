@@ -126,6 +126,7 @@ const translations = {
 
         // Process Steps
         "process.queued": "Queued",
+        "process.waiting_worker": "Waiting for worker",
         "process.processing_files": "Processing Files",
         "process.graph_creation": "Creating Graph",
         "process.generating_descriptions": "Generating Descriptions",
@@ -140,6 +141,10 @@ const translations = {
         "process.completed": "Completed",
         "process.failed": "Failed",
         "process.remaining": "~{time} remaining",
+        "duration.second.short": "s",
+        "duration.minute.short": "m",
+        "duration.hour.short": "h",
+        "duration.day.short": "d",
         "process.eta_confidence": "ETA confidence",
         "process.eta_samples": "Samples",
         "process.eta.low": "Learning",
@@ -419,6 +424,7 @@ const translations = {
 
         // Process Steps
         "process.queued": "In Warteschlange",
+        "process.waiting_worker": "Wartet auf Worker",
         "process.processing_files": "Verarbeite Dateien",
         "process.graph_creation": "Erstelle Graph",
         "process.generating_descriptions": "Generiere Beschreibungen",
@@ -433,6 +439,10 @@ const translations = {
         "process.completed": "Abgeschlossen",
         "process.failed": "Fehlgeschlagen",
         "process.remaining": "~{time} verbleibend",
+        "duration.second.short": "Sek.",
+        "duration.minute.short": "Min.",
+        "duration.hour.short": "Std.",
+        "duration.day.short": "Tg.",
         "process.eta_confidence": "ETA-Vertrauen",
         "process.eta_samples": "Beispiele",
         "process.eta.low": "Lernt noch",

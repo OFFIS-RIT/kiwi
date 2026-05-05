@@ -17,6 +17,7 @@ RUN bun install --frozen-lockfile
 
 COPY apps/worker/index.ts apps/worker/index.ts
 COPY apps/worker/env.ts apps/worker/env.ts
+COPY apps/worker/worker.ts apps/worker/worker.ts
 COPY apps/worker/openworkflow.config.ts apps/worker/openworkflow.config.ts
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.json
 COPY apps/worker/lib apps/worker/lib
@@ -34,4 +35,4 @@ COPY packages/logger/tsconfig.json packages/logger/tsconfig.json
 
 WORKDIR /app/apps/worker
 
-CMD ["bunx", "@openworkflow/cli", "worker", "start"]
+CMD ["bun", "worker.ts"]

@@ -47,11 +47,7 @@ type ContentTypes = {
 };
 
 const XML_MIME_TYPE = "application/xml";
-const XML_ERROR_HANDLER = {
-    warning: () => undefined,
-    error: () => undefined,
-    fatalError: () => undefined,
-};
+const XML_ERROR_HANDLER = () => undefined;
 
 export class PPTXLoader implements GraphLoader {
     readonly filetype = "pptx";

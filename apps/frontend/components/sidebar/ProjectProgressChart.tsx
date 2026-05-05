@@ -17,11 +17,34 @@ type ProjectProgressChartProps = {
     project: Project;
 };
 
+function formatRemaining(parts: ReturnType<typeof formatDuration>, t: (key: string) => string) {
+    if (parts.days > 0) {
+        return parts.hours > 0
+            ? `${parts.days}${t("duration.day.short")} ${parts.hours}${t("duration.hour.short")}`
+            : `${parts.days}${t("duration.day.short")}`;
+    }
+
+    if (parts.hours > 0) {
+        return parts.minutes > 0
+            ? `${parts.hours}${t("duration.hour.short")} ${parts.minutes}${t("duration.minute.short")}`
+            : `${parts.hours}${t("duration.hour.short")}`;
+    }
+
+    if (parts.minutes > 0) {
+        return `${parts.minutes}${t("duration.minute.short")}`;
+    }
+
+    return `${Math.max(1, parts.seconds)}${t("duration.second.short")}`;
+}
+
 export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
     const { t } = useLanguage();
     const percentage = project.processPercentage ?? 0;
     const step = project.processStep ?? "";
-    const timeRemaining = project.processTimeRemaining;
+    const timeRemaining =
+        project.processTimeRemaining !== undefined && project.processTimeRemaining > 0
+            ? formatRemaining(formatDuration(project.processTimeRemaining), t)
+            : undefined;
 
     const chartData = [{ name: "progress", value: percentage, fill: "var(--foreground)" }];
 
@@ -29,7 +52,7 @@ export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
         <Tooltip>
             <TooltipTrigger asChild>
                 <div className="h-4 w-4 shrink-0 cursor-pointer pointer-events-auto">
-                    <ChartContainer config={chartConfig} className="h-4 w-4 !p-0">
+                    <ChartContainer config={chartConfig} className="h-4 w-4 p-0!">
                         <RadialBarChart
                             data={chartData}
                             startAngle={90}
@@ -51,14 +74,9 @@ export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
                 <div className="flex flex-col gap-1 text-xs text-center">
                     <div className="font-medium">{percentage}%</div>
                     {step && <div className="text-muted-foreground">{t(`process.${step}`) || step}</div>}
-                    {timeRemaining !== undefined && timeRemaining > 0 && (
+                    {timeRemaining !== undefined && (
                         <div className="text-muted-foreground">
-                            {t("process.remaining", { time: formatDuration(timeRemaining) })}
-                        </div>
-                    )}
-                    {project.processEtaConfidence && (
-                        <div className="text-muted-foreground">
-                            {t("process.eta_confidence")}: {t(`process.eta.${project.processEtaConfidence}`)}
+                            {t("process.remaining", { time: timeRemaining })}
                         </div>
                     )}
                 </div>

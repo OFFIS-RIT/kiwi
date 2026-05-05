@@ -196,7 +196,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         if (!editor) return;
         if (value === lastEmittedRef.current) return;
         // emitUpdate=false so we don't bounce back through onChange.
-        editor.commands.setContent(value, false);
+        editor.commands.setContent(value, { emitUpdate: false });
         lastEmittedRef.current = value;
     }, [editor, value]);
 
@@ -227,7 +227,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         setText: (text, options) => {
             if (!editor) return;
             const shouldEmit = !options?.silent;
-            editor.commands.setContent(text, shouldEmit);
+            editor.commands.setContent(text, { emitUpdate: shouldEmit });
             if (!shouldEmit) {
                 // Keep our internal mirror in sync so the next external `value`
                 // change is detected correctly.

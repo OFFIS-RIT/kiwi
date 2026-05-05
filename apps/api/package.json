@@ -12,7 +12,7 @@
     },
     "dependencies": {
         "@better-auth/api-key": "catalog:",
-        "@elysiajs/cors": "^1.4.1",
+        "@elysiajs/cors": "^1.4.2",
         "@kiwi/ai": "workspace:*",
         "@kiwi/auth": "workspace:*",
         "@kiwi/db": "workspace:*",
@@ -24,7 +24,6 @@
         "better-auth": "catalog:",
         "better-auth-credentials-plugin": "catalog:",
         "better-result": "catalog:",
-        "drizzle-orm": "catalog:",
         "elysia": "latest",
         "ldap-authentication": "4.0.4",
         "openworkflow": "catalog:",
@@ -34,6 +33,10 @@
         "@types/bun": "^catalog:",
         "@types/pg": "catalog:",
         "bun-types": "catalog:",
+        "typescript": "catalog:"
+    },
+    "peerDependencies": {
+        "drizzle-orm": "catalog:",
         "typescript": "catalog:"
     }
 }

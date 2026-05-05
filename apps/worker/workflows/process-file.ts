@@ -5,6 +5,7 @@ import {
     entityTable,
     filesTable,
     graphTable,
+    processRunsTable,
     processStatsTable,
     relationshipTable,
     sourcesTable,
@@ -40,6 +41,17 @@ import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 
 const WORKFLOW_STORAGE_VERSION = "v1";
+const FILE_DELETED = "__file_deleted__" as const;
+const NO_RETRY = { maximumAttempts: 1 } as const;
+const PROCESS_UNIT_BATCH_SIZE = 100;
+
+function workflowError(error: unknown) {
+    if (error instanceof Error) {
+        return new Error(error.message, { cause: error });
+    }
+
+    return new Error("Workflow failed", { cause: error });
+}
 
 async function updateFileProcessingState(fileId: string, processStep: FileProcessStep, status: FileProcessStatus) {
     await db
@@ -51,106 +63,169 @@ async function updateFileProcessingState(fileId: string, processStep: FileProces
         .where(eq(filesTable.id, fileId));
 }
 
-export const processFiles = defineWorkflow(processFilesSpec, async ({ input, step }) => {
-    await step.run({ name: "mark-files-pending" }, async () => {
-        if (input.fileIds.length === 0) {
-            return;
+async function stopIfFileDeleted(fileId: string) {
+    const [file] = await db
+        .select({ deleted: filesTable.deleted })
+        .from(filesTable)
+        .where(eq(filesTable.id, fileId))
+        .limit(1);
+
+    if (file?.deleted) {
+        await updateFileProcessingState(fileId, "completed", "processed");
+        return true;
+    }
+
+    return false;
+}
+
+export const processFiles = defineWorkflow(processFilesSpec, async ({ input, step, run }) => {
+    try {
+        await step.run({ name: "mark-files-pending" }, async () => {
+            if (input.fileIds.length === 0) {
+                return;
+            }
+
+            await db
+                .update(filesTable)
+                .set({
+                    processStep: "pending",
+                    status: "processing",
+                })
+                .where(and(eq(filesTable.graphId, input.graphId), inArray(filesTable.id, input.fileIds)));
+        });
+
+        // Update project status
+        await step.run({ name: "update-project-status" }, async () => {
+            await db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId));
+
+            if (input.processRunId) {
+                await db
+                    .update(processRunsTable)
+                    .set({ status: "started", startedAt: sql`NOW()` })
+                    .where(eq(processRunsTable.id, input.processRunId));
+            }
+        });
+
+        await Promise.allSettled(
+            input.fileIds.map((fileId) =>
+                step.runWorkflow(processFile.spec, {
+                    graphId: input.graphId,
+                    fileId,
+                })
+            )
+        );
+
+        const descriptions = await step.run({ name: "generate-descriptions" }, async () => {
+            const newEntities = await db
+                .select({ id: entityTable.id, name: entityTable.name })
+                .from(entityTable)
+                .where(and(eq(entityTable.graphId, input.graphId), eq(entityTable.active, false)));
+
+            const updatedEntityRows = await db
+                .selectDistinct({
+                    id: entityTable.id,
+                    name: entityTable.name,
+                    description: entityTable.description,
+                })
+                .from(entityTable)
+                .innerJoin(sourcesTable, eq(sourcesTable.entityId, entityTable.id))
+                .where(
+                    and(
+                        eq(entityTable.graphId, input.graphId),
+                        eq(entityTable.active, true),
+                        eq(sourcesTable.active, false)
+                    )
+                );
+            const updatedEntities = Array.from(
+                new Map(updatedEntityRows.map((entity) => [entity.id, entity])).values()
+            );
+
+            const entityIds = [
+                ...newEntities.map((entity) => entity.id),
+                ...updatedEntities.map((entity) => entity.id),
+            ];
+
+            const newRelationships = await db
+                .select({
+                    id: relationshipTable.id,
+                    sourceId: relationshipTable.sourceId,
+                    targetId: relationshipTable.targetId,
+                })
+                .from(relationshipTable)
+                .where(and(eq(relationshipTable.graphId, input.graphId), eq(relationshipTable.active, false)));
+
+            const updatedRelationshipRows = await db
+                .selectDistinct({
+                    id: relationshipTable.id,
+                    sourceId: relationshipTable.sourceId,
+                    targetId: relationshipTable.targetId,
+                    description: relationshipTable.description,
+                })
+                .from(relationshipTable)
+                .innerJoin(sourcesTable, eq(sourcesTable.relationshipId, relationshipTable.id))
+                .where(
+                    and(
+                        eq(relationshipTable.graphId, input.graphId),
+                        eq(relationshipTable.active, true),
+                        eq(sourcesTable.active, false)
+                    )
+                );
+            const updatedRelationships = Array.from(
+                new Map(updatedRelationshipRows.map((relationship) => [relationship.id, relationship])).values()
+            );
+
+            const relationshipIds = [
+                ...newRelationships.map((relationship) => relationship.id),
+                ...updatedRelationships.map((relationship) => relationship.id),
+            ];
+
+            return {
+                entityIds,
+                relationshipIds,
+            };
+        });
+
+        await Promise.all([
+            ...chunkItems(descriptions.entityIds, DESCRIPTION_BATCH_SIZE).map((entityIds) =>
+                step.runWorkflow(updateDescriptionsSpec, {
+                    graphId: input.graphId,
+                    entityIds,
+                })
+            ),
+            ...chunkItems(descriptions.relationshipIds, DESCRIPTION_BATCH_SIZE).map((relationshipIds) =>
+                step.runWorkflow(updateDescriptionsSpec, {
+                    graphId: input.graphId,
+                    relationshipIds,
+                })
+            ),
+        ]);
+
+        await step.run({ name: "finalize-project-status" }, async () => {
+            await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
+
+            if (input.processRunId) {
+                await db
+                    .update(processRunsTable)
+                    .set({ status: "completed", completedAt: sql`NOW()` })
+                    .where(eq(processRunsTable.id, input.processRunId));
+            }
+        });
+    } catch (error) {
+        if (run.retryTerminal) {
+            await step.run({ name: "mark-project-failed", retryPolicy: NO_RETRY }, async () => {
+                await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
+
+                if (input.processRunId) {
+                    await db
+                        .update(processRunsTable)
+                        .set({ status: "failed", completedAt: sql`NOW()` })
+                        .where(eq(processRunsTable.id, input.processRunId));
+                }
+            });
         }
 
-        await db
-            .update(filesTable)
-            .set({
-                processStep: "pending",
-                status: "processing",
-            })
-            .where(and(eq(filesTable.graphId, input.graphId), inArray(filesTable.id, input.fileIds)));
-    });
-
-    // Update project status
-    await step.run({ name: "update-project-status" }, async () => {
-        await db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId));
-    });
-
-    await Promise.all(
-        input.fileIds.map((fileId) => step.runWorkflow(processFile.spec, { graphId: input.graphId, fileId }))
-    );
-
-    const descriptionJobs = await step.run({ name: "generate-descriptions" }, async () => {
-        const newEntities = await db
-            .select({ id: entityTable.id, name: entityTable.name })
-            .from(entityTable)
-            .where(and(eq(entityTable.graphId, input.graphId), eq(entityTable.active, false)));
-
-        const updatedEntitiesRaw = await db
-            .selectDistinct({ id: entityTable.id, name: entityTable.name, description: entityTable.description })
-            .from(entityTable)
-            .innerJoin(sourcesTable, eq(sourcesTable.entityId, entityTable.id))
-            .where(
-                and(
-                    eq(entityTable.graphId, input.graphId),
-                    eq(entityTable.active, true),
-                    eq(sourcesTable.active, false)
-                )
-            );
-        const updatedEntitiesMap = new Map(updatedEntitiesRaw.map((entity) => [entity.id, entity]));
-        const updatedEntities = Array.from(updatedEntitiesMap.values());
-
-        const entityIdsToProcess = [
-            ...newEntities.map((entity) => entity.id),
-            ...updatedEntities.map((entity) => entity.id),
-        ];
-
-        const newRelationships = await db
-            .select({
-                id: relationshipTable.id,
-                sourceId: relationshipTable.sourceId,
-                targetId: relationshipTable.targetId,
-            })
-            .from(relationshipTable)
-            .where(and(eq(relationshipTable.graphId, input.graphId), eq(relationshipTable.active, false)));
-
-        const updatedRelsRaw = await db
-            .selectDistinct({
-                id: relationshipTable.id,
-                sourceId: relationshipTable.sourceId,
-                targetId: relationshipTable.targetId,
-                description: relationshipTable.description,
-            })
-            .from(relationshipTable)
-            .innerJoin(sourcesTable, eq(sourcesTable.relationshipId, relationshipTable.id))
-            .where(
-                and(
-                    eq(relationshipTable.graphId, input.graphId),
-                    eq(relationshipTable.active, true),
-                    eq(sourcesTable.active, false)
-                )
-            );
-        const updatedRelsMap = new Map(updatedRelsRaw.map((relationship) => [relationship.id, relationship]));
-        const updatedRelationships = Array.from(updatedRelsMap.values());
-
-        const relIdsToProcess = [
-            ...newRelationships.map((relationship) => relationship.id),
-            ...updatedRelationships.map((relationship) => relationship.id),
-        ];
-
-        return {
-            entityIdsToProcess,
-            relIdsToProcess,
-        };
-    });
-
-    await Promise.all([
-        ...chunkItems(descriptionJobs.entityIdsToProcess, DESCRIPTION_BATCH_SIZE).map((entityIds) =>
-            step.runWorkflow(updateDescriptionsSpec, { graphId: input.graphId, entityIds })
-        ),
-        ...chunkItems(descriptionJobs.relIdsToProcess, DESCRIPTION_BATCH_SIZE).map((relationshipIds) =>
-            step.runWorkflow(updateDescriptionsSpec, { graphId: input.graphId, relationshipIds })
-        ),
-    ]);
-
-    await step.run({ name: "finalize-project-status" }, async () => {
-        await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
-    });
+        throw workflowError(error);
+    }
 });
 
 export const processFile = defineWorkflow(
@@ -161,15 +236,16 @@ export const processFile = defineWorkflow(
             initialInterval: "1s",
             backoffCoefficient: 2,
             maximumInterval: "30s",
+            maximumAttempts: 3,
         },
         schema: z.object({
             graphId: z.string(),
             fileId: z.string(),
         }),
     },
-    async ({ input, step }) => {
-        let fileData;
+    async ({ input, step, run }) => {
         try {
+            let fileData;
             [fileData] = await step.run({ name: "get-file-data" }, async () => {
                 return db
                     .select()
@@ -177,45 +253,48 @@ export const processFile = defineWorkflow(
                     .where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.id, input.fileId)))
                     .limit(1);
             });
-        } catch (error) {
-            await updateFileProcessingState(input.fileId, "failed", "failed");
-            throw error;
-        }
 
-        if (!fileData) {
-            return;
-        }
+            if (!fileData) {
+                return;
+            }
 
-        const client = getClient({
-            text: buildAdapter(
-                env.AI_TEXT_ADAPTER,
-                env.AI_TEXT_MODEL,
-                env.AI_TEXT_KEY,
-                env.AI_TEXT_URL,
-                env.AI_TEXT_RESOURCE_NAME
-            ),
-            embedding: buildEmbeddingAdapter(
-                env.AI_EMBEDDING_ADAPTER,
-                env.AI_EMBEDDING_MODEL,
-                env.AI_EMBEDDING_KEY,
-                env.AI_EMBEDDING_URL,
-                env.AI_EMBEDDING_RESOURCE_NAME
-            ),
-            image:
-                env.AI_IMAGE_ADAPTER && env.AI_IMAGE_MODEL && env.AI_IMAGE_KEY
-                    ? buildAdapter(
-                          env.AI_IMAGE_ADAPTER,
-                          env.AI_IMAGE_MODEL,
-                          env.AI_IMAGE_KEY,
-                          env.AI_IMAGE_URL,
-                          env.AI_IMAGE_RESOURCE_NAME
-                      )
-                    : undefined,
-        });
+            if (fileData.deleted) {
+                await updateFileProcessingState(input.fileId, "completed", "processed");
+                return;
+            }
 
-        let baseFile;
-        try {
-            baseFile = await step.run({ name: "preprocess-file" }, async () => {
+            const client = getClient({
+                text: buildAdapter(
+                    env.AI_TEXT_ADAPTER,
+                    env.AI_TEXT_MODEL,
+                    env.AI_TEXT_KEY,
+                    env.AI_TEXT_URL,
+                    env.AI_TEXT_RESOURCE_NAME
+                ),
+                embedding: buildEmbeddingAdapter(
+                    env.AI_EMBEDDING_ADAPTER,
+                    env.AI_EMBEDDING_MODEL,
+                    env.AI_EMBEDDING_KEY,
+                    env.AI_EMBEDDING_URL,
+                    env.AI_EMBEDDING_RESOURCE_NAME
+                ),
+                image:
+                    env.AI_IMAGE_ADAPTER && env.AI_IMAGE_MODEL && env.AI_IMAGE_KEY
+                        ? buildAdapter(
+                              env.AI_IMAGE_ADAPTER,
+                              env.AI_IMAGE_MODEL,
+                              env.AI_IMAGE_KEY,
+                              env.AI_IMAGE_URL,
+                              env.AI_IMAGE_RESOURCE_NAME
+                          )
+                        : undefined,
+            });
+
+            const baseFile = await step.run({ name: "preprocess-file" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await updateFileProcessingState(input.fileId, "preprocessing", "processing");
                 const start = performance.now();
                 const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
@@ -318,14 +397,15 @@ export const processFile = defineWorkflow(
                     metadataExcerpt: buildMetadataExcerpt(text),
                 };
             });
-        } catch (error) {
-            await updateFileProcessingState(input.fileId, "failed", "failed");
-            throw error;
-        }
+            if (baseFile === FILE_DELETED) {
+                return;
+            }
 
-        let metadataResult;
-        try {
-            metadataResult = await step.run({ name: "metadata" }, async () => {
+            const metadataResult = await step.run({ name: "metadata" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await updateFileProcessingState(input.fileId, "metadata", "processing");
                 const metadata = await buildMetadata(client.text!, fileData.name, baseFile.metadataExcerpt);
 
@@ -338,14 +418,15 @@ export const processFile = defineWorkflow(
                     metadata,
                 };
             });
-        } catch (error) {
-            await updateFileProcessingState(input.fileId, "failed", "failed");
-            throw error;
-        }
+            if (metadataResult === FILE_DELETED) {
+                return;
+            }
 
-        let unitsResult;
-        try {
-            unitsResult = await step.run({ name: "build-units" }, async () => {
+            const unitsResult = await step.run({ name: "build-units" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await updateFileProcessingState(input.fileId, "chunking", "processing");
                 const start = performance.now();
 
@@ -384,14 +465,15 @@ export const processFile = defineWorkflow(
                     duration,
                 };
             });
-        } catch (error) {
-            await updateFileProcessingState(input.fileId, "failed", "failed");
-            throw error;
-        }
+            if (unitsResult === FILE_DELETED) {
+                return;
+            }
 
-        let graphResult;
-        try {
-            graphResult = await step.run({ name: "build-graph" }, async () => {
+            const graphResult = await step.run({ name: "build-graph" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await updateFileProcessingState(input.fileId, "extracting", "processing");
                 const start = performance.now();
 
@@ -400,11 +482,16 @@ export const processFile = defineWorkflow(
                     throw new Error(`Failed to load units from ${unitsResult.key}`);
                 }
 
-                const graphs = await Promise.all(
-                    loadedUnits.content.map((unit) =>
-                        processUnit(unit, client.text!, fileData.name, metadataResult.metadata || undefined)
-                    )
-                );
+                const graphs: Graph[] = [];
+                for (const units of chunkItems(loadedUnits.content, PROCESS_UNIT_BATCH_SIZE)) {
+                    graphs.push(
+                        ...(await Promise.all(
+                            units.map((unit) =>
+                                processUnit(unit, client.text!, fileData.name, metadataResult.metadata || undefined)
+                            )
+                        ))
+                    );
+                }
                 const mergedGraph = mergeGraphs(graphs);
                 const graph = dedupe(mergedGraph);
 
@@ -423,14 +510,15 @@ export const processFile = defineWorkflow(
                     duration,
                 };
             });
-        } catch (error) {
-            await updateFileProcessingState(input.fileId, "failed", "failed");
-            throw error;
-        }
+            if (graphResult === FILE_DELETED) {
+                return;
+            }
 
-        let saveGraphResult;
-        try {
-            saveGraphResult = await step.run({ name: "save-graph" }, async () => {
+            const saveGraphResult = await step.run({ name: "save-graph" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await updateFileProcessingState(input.fileId, "deduplicating", "processing");
                 const start = performance.now();
 
@@ -769,35 +857,41 @@ export const processFile = defineWorkflow(
                     metrics,
                 };
             });
-        } catch (error) {
-            await updateFileProcessingState(input.fileId, "failed", "failed");
-            throw error;
-        }
+            if (saveGraphResult === FILE_DELETED) {
+                return;
+            }
 
-        try {
-            await step.run({ name: "store-process-stats" }, async () => {
+            const statsResult = await step.run({ name: "store-process-stats" }, async () => {
+                if (await stopIfFileDeleted(input.fileId)) {
+                    return FILE_DELETED;
+                }
+
                 await db.insert(processStatsTable).values({
                     totalTime:
                         baseFile.duration + unitsResult.duration + graphResult.duration + saveGraphResult.duration,
                     files: 1,
                     fileSizes: fileData.size,
+                    fileType: fileData.type,
                     tokenCount: baseFile.tokenCount,
                 });
             });
-        } catch (error) {
-            await updateFileProcessingState(input.fileId, "failed", "failed");
-            throw error;
-        }
+            if (statsResult === FILE_DELETED) {
+                return;
+            }
 
-        try {
             await step.run({ name: "mark-file-complete" }, async () => {
                 await updateFileProcessingState(input.fileId, "completed", "processed");
             });
-        } catch (error) {
-            await updateFileProcessingState(input.fileId, "failed", "failed");
-            throw error;
-        }
 
-        return saveGraphResult.graphKey;
+            return saveGraphResult.graphKey;
+        } catch (error) {
+            if (run.retryTerminal) {
+                await updateFileProcessingState(input.fileId, "failed", "failed");
+            } else {
+                await updateFileProcessingState(input.fileId, "pending", "processing");
+            }
+
+            throw workflowError(error);
+        }
     }
 );

@@ -16,43 +16,49 @@
         "db:migrate": "dotenv -- drizzle-kit migrate",
         "db:studio": "dotenv -- drizzle-kit studio"
     },
+    "dependencies": {
+        "drizzle-orm": "catalog:"
+    },
     "devDependencies": {
         "@types/bun": "catalog:",
         "dotenv-cli": "^11.0.0",
-        "drizzle-kit": "^1.0.0-beta.21",
-        "oxfmt": "^0.45.0",
-        "oxlint": "^1.60.0",
-        "turbo": "^2.9.6"
+        "drizzle-kit": "^1.0.0-rc.1",
+        "oxfmt": "^0.47.0",
+        "oxlint": "^1.62.0",
+        "turbo": "^2.9.7"
     },
     "packageManager": "bun@1.3.11",
     "catalog": {
+        "drizzle-orm": "1.0.0-rc.1",
         "@t3-oss/env-core": "^0.13.11",
         "openworkflow": "^0.9.0",
-        "postgres": "^3.4.8",
-        "drizzle-orm": "1.0.0-beta.21",
-        "better-result": "^2.8.2",
-        "@types/bun": "latest",
-        "typescript": "^5",
-        "better-auth": "1.5.6",
-        "@better-auth/api-key": "1.5.6",
+        "postgres": "^3.4.9",
+        "better-result": "^2.9.0",
+        "@types/bun": "1.3.13",
+        "typescript": "^6.0.3",
+        "better-auth": "1.6.9",
+        "@better-auth/api-key": "1.6.9",
         "better-auth-credentials-plugin": "0.5.2",
         "pg": "^8.20.0",
         "@types/pg": "^8.18.0",
         "bun-types": "latest",
-        "zod": "4.3.6",
-        "next": "^16.1.6",
+        "zod": "4.4.1",
+        "next": "^16.2.4",
         "next-themes": "^0.4.6",
         "react": "^19.2.5",
         "react-dom": "^19.2.5",
-        "@types/node": "^25",
+        "@types/node": "^25.6.0",
         "@types/react": "^19",
         "@types/react-dom": "^19",
-        "@ai-sdk/anthropic": "^3.0.64",
-        "@ai-sdk/azure": "^3.0.49",
-        "@ai-sdk/openai": "^3.0.48",
-        "@ai-sdk/openai-compatible": "^2.0.37",
-        "@ai-sdk/provider": "^3.0.8",
-        "@ai-sdk/react": "^3.0.158",
-        "ai": "^6.0.161"
+        "@ai-sdk/anthropic": "^3.0.73",
+        "@ai-sdk/azure": "^3.0.56",
+        "@ai-sdk/openai": "^3.0.55",
+        "@ai-sdk/openai-compatible": "^2.0.43",
+        "@ai-sdk/provider": "^3.0.10",
+        "@ai-sdk/react": "^3.0.174",
+        "ai": "^6.0.172"
+    },
+    "patchedDependencies": {
+        "openworkflow@0.9.0": "patches/openworkflow@0.9.0.patch"
     }
 }

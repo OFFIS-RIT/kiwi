@@ -1,0 +1,144 @@
+diff --git a/dist/core/workflow-function.d.ts b/dist/core/workflow-function.d.ts
+index efd435287f73953e8549b83f8aaece0dde859aa9..7c8f94e5915a59d2c99847fb70545680d2aee9f2 100644
+--- a/dist/core/workflow-function.d.ts
++++ b/dist/core/workflow-function.d.ts
+@@ -68,7 +68,18 @@ export interface StepApi {
+ /**
+  * Read-only workflow run metadata exposed to workflow functions.
+  */
+-export type WorkflowRunMetadata = Pick<WorkflowRun, "id" | "workflowName" | "createdAt" | "startedAt">;
++/**
++ * Error metadata exposed when a workflow step fails and OpenWorkflow is about
++ * to decide whether the step should retry or terminally fail.
++ */
++export interface WorkflowRetryState {
++    readonly retryAttempt: number;
++    readonly retryMaxAttempts: number;
++    readonly retryTerminal: boolean;
++}
++export type WorkflowRunMetadata = Pick<WorkflowRun, "id" | "workflowName" | "createdAt" | "startedAt"> &
++    WorkflowRetryState;
++export interface WorkflowRetryError extends Error, WorkflowRetryState {}
+ /**
+  * Params passed to a workflow function for the user to use when defining
+  * steps.
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 2d59da6f5a0889f97858ba401a0a40605e6847c0..9c13b56d66cdb147fae208548bfc3cda12e6f155 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1,7 +1,7 @@
+ export type { OpenWorkflowOptions } from "./client/client.js";
+ export { OpenWorkflow } from "./client/client.js";
+ export type { RetryPolicy, Workflow } from "./core/workflow-definition.js";
+-export type { WorkflowRunMetadata } from "./core/workflow-function.js";
++export type { WorkflowRetryError, WorkflowRetryState, WorkflowRunMetadata } from "./core/workflow-function.js";
+ export { defineWorkflowSpec, defineWorkflow, declareWorkflow, } from "./core/workflow-definition.js";
+ export type { WorkerOptions } from "./worker/worker.js";
+ export { Worker } from "./worker/worker.js";
+diff --git a/dist/worker/execution.d.ts b/dist/worker/execution.d.ts
+index 05a2acdd4a43cd2ac389fc5a9eb0e7313e0543dd..c4e81fd2a4bb2b092b2c985cc87c9af94e931c68 100644
+--- a/dist/worker/execution.d.ts
++++ b/dist/worker/execution.d.ts
+@@ -5,6 +5,8 @@ import type { WorkflowFunction } from "../core/workflow-function.js";
+ import { type WorkflowRun } from "../core/workflow-run.js";
+ interface ExecutionFenceController {
+     deactivate(): void;
++    parkOnSleep(signal: Error): void;
++    readonly sleepSignal: Error | null;
+     isActive(): boolean;
+     assertActive(): void;
+ }
+diff --git a/dist/worker/execution.js b/dist/worker/execution.js
+index 32ce29913c66439e0ddd3808bc3b3afbdfb8c0e5..cc595556ff082ebd734be25e79b3a514f882a7a7 100644
+--- a/dist/worker/execution.js
++++ b/dist/worker/execution.js
+@@ -30,14 +30,25 @@ class StaleExecutionBranchError extends Error {
+  */
+ class ExecutionFence {
+     active = true;
++    sleepSignal = null;
+     deactivate() {
+         this.active = false;
+     }
++    parkOnSleep(signal) {
++        const current = this.sleepSignal;
++        if (!current || signal.resumeAt.getTime() < current.resumeAt.getTime()) {
++            this.sleepSignal = signal;
++        }
++        this.active = false;
++    }
+     isActive() {
+         return this.active;
+     }
+     assertActive() {
+         if (!this.active) {
++            if (this.sleepSignal) {
++                throw this.sleepSignal;
++            }
+             throw new StaleExecutionBranchError();
+         }
+     }
+@@ -49,6 +60,9 @@ class StepError extends Error {
+     stepName;
+     stepFailedAttempts;
+     retryPolicy;
++    retryAttempt;
++    retryMaxAttempts;
++    retryTerminal;
+     originalError;
+     constructor(options) {
+         const serialized = serializeError(options.error);
+@@ -57,6 +71,10 @@ class StepError extends Error {
+         this.stepName = options.stepName;
+         this.stepFailedAttempts = options.stepFailedAttempts;
+         this.retryPolicy = options.retryPolicy;
++        this.retryAttempt = options.stepFailedAttempts;
++        this.retryMaxAttempts = options.retryPolicy.maximumAttempts;
++        this.retryTerminal =
++            options.retryPolicy.maximumAttempts > 0 && options.stepFailedAttempts >= options.retryPolicy.maximumAttempts;
+         this.originalError = options.error;
+     }
+ }
+@@ -488,7 +506,9 @@ class StepExecutor {
+         // throw sleep signal to trigger postponement
+         // we do not mark the step as completed here; it will be updated
+         // when the workflow resumes
+-        throw new SleepSignal(this.resolveEarliestRunningWaitResumeAt(resumeAt));
++        const signal = new SleepSignal(this.resolveEarliestRunningWaitResumeAt(resumeAt));
++        this.executionFence.parkOnSleep(signal);
++        throw signal;
+     }
+     // ---- step.runWorkflow -----------------------------------------------
+     async runWorkflow(spec, input, options) {
+@@ -602,7 +622,9 @@ class StepExecutor {
+         const resumeAt = timeoutAt && Number.isFinite(timeoutAt.getTime())
+             ? timeoutAt
+             : defaultWaitTimeoutAt(workflowAttempt.createdAt);
+-        throw new SleepSignal(this.resolveEarliestRunningWaitResumeAt(resumeAt));
++        const signal = new SleepSignal(this.resolveEarliestRunningWaitResumeAt(resumeAt));
++        this.executionFence.parkOnSleep(signal);
++        throw signal;
+     }
+     /**
+      * Create (or dedupe) the child workflow run and persist the linkage on the
+@@ -885,6 +907,10 @@ export async function executeWorkflow(params) {
+             workflowName: workflowRun.workflowName,
+             createdAt: workflowRun.createdAt,
+             startedAt: workflowRun.startedAt,
++            retryAttempt: workflowRun.attempts,
++            retryMaxAttempts: params.retryPolicy.maximumAttempts,
++            retryTerminal:
++                params.retryPolicy.maximumAttempts > 0 && workflowRun.attempts >= params.retryPolicy.maximumAttempts,
+         });
+         // execute workflow
+         const output = await workflowFn({
+@@ -893,6 +919,9 @@ export async function executeWorkflow(params) {
+             version: workflowVersion,
+             run,
+         });
++        if (executionFence.sleepSignal) {
++            throw executionFence.sleepSignal;
++        }
+         // mark success
+         executionFence.deactivate();
+         await executeWorkflowRunTransition({

@@ -14,15 +14,14 @@ export function formatBytes(bytes: number) {
 }
 
 /**
- * Formats a duration in milliseconds to a human-readable string.
- * Shows only minutes (floor) — no local countdown, only server values.
- * Examples: "<1m", "2m", "15m", "1h 15m"
+ * Splits a duration into whole day/hour/minute/second parts.
  */
-export function formatDuration(ms: number): string {
-    const minutes = Math.floor(ms / 60_000);
-    if (minutes < 1) return "<1m";
-    if (minutes < 60) return `${minutes}m`;
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+export function formatDuration(ms: number): { days: number; hours: number; minutes: number; seconds: number } {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const days = Math.floor(totalSeconds / 86_400);
+    const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+    const minutes = Math.floor((totalSeconds % 3_600) / 60);
+    const seconds = totalSeconds % 60;
+
+    return { days, hours, minutes, seconds };
 }

@@ -23,6 +23,7 @@ export type ApiGroup = GroupListItem;
  * Processing pipeline stages for project creation/update.
  */
 export type ProcessStep =
+    | "waiting_worker"
     | "queued"
     | "processing_files"
     | "graph_creation"

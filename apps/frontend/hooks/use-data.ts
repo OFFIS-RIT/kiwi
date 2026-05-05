@@ -16,6 +16,7 @@ function parseCount(value?: string): number {
 /**
  * Determines the current process step based on the step with the highest file count.
  * Steps are aggregated as follows:
+ * - waiting_worker → waiting_worker (process run has not been claimed)
  * - pending → queued (shown if no active processing steps)
  * - preprocessing + metadata + chunking → processing_files
  * - extracting + deduplicating → graph_creation
@@ -28,6 +29,7 @@ function parseCount(value?: string): number {
 function determineProcessStep(progress?: ApiBatchStepProgress): ProcessStep | undefined {
     if (!progress) return undefined;
 
+    const waitingWorkerCount = parseCount(progress.waiting_worker);
     const queuedCount = parseCount(progress.pending);
     const processingFilesCount =
         parseCount(progress.preprocessing) + parseCount(progress.metadata) + parseCount(progress.chunking);
@@ -36,6 +38,10 @@ function determineProcessStep(progress?: ApiBatchStepProgress): ProcessStep | un
     const describingCount = parseCount(progress.describing);
     const failedCount = parseCount(progress.failed);
     const completedCount = parseCount(progress.completed);
+
+    if (waitingWorkerCount > 0) {
+        return "waiting_worker";
+    }
 
     // Active steps ordered by progress (furthest first for tie-breaking)
     const activeStepCounts: { step: ProcessStep; count: number }[] = [
@@ -106,8 +112,6 @@ function transformGroupsWithGraphs(apiGroups: ApiGroup[], apiGraphs: ApiGraph[])
                 processPercentage: apiGraph.process_percentage ?? (apiGraph.graph_state === "update" ? 0 : undefined),
                 processEstimatedDuration: apiGraph.process_estimated_duration,
                 processTimeRemaining: apiGraph.process_time_remaining,
-                processEtaConfidence: apiGraph.process_eta_confidence,
-                processEtaSampleCount: apiGraph.process_eta_sample_count,
             }));
 
         return {
