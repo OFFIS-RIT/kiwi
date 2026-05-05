@@ -13,6 +13,7 @@ ENV NEXT_PUBLIC_AUTH_MODE=${NEXT_PUBLIC_AUTH_MODE}
 ENV NEXT_PUBLIC_APP_BUILD_LABEL=${NEXT_PUBLIC_APP_BUILD_LABEL}
 
 COPY package.json bun.lock ./
+COPY patches patches
 COPY apps/api/package.json apps/api/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY apps/worker/package.json apps/worker/package.json

@@ -24,15 +24,6 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - name: postgres
-                      image: postgres
-                      context: ./postgres
-                      file: ./postgres/Dockerfile
-                      cache: postgres
-                      target: ""
-                      build_args: ""
-                      tag_suffix: ""
-                      latest_suffix: ""
                     - name: migrations
                       image: migrations
                       context: .

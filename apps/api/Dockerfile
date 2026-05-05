@@ -4,6 +4,7 @@ WORKDIR /app
 
 # Cache workspace dependency installation
 COPY package.json bun.lock ./
+COPY patches patches
 COPY apps/api/package.json apps/api/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY apps/worker/package.json apps/worker/package.json

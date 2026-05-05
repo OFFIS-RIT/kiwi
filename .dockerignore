@@ -4,6 +4,8 @@
 !package.json
 !bun.lock
 !drizzle.config.ts
+!patches/
+!patches/**
 
 !apps/
 !apps/api/
