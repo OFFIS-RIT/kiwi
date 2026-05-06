@@ -1,7 +1,9 @@
 import {
     buildAdapter,
     buildEmbeddingAdapter,
-    buildChatTools,
+    buildServerAndClientToolset,
+    buildServerToolset,
+    buildSubagentToolset,
     getClient,
     messagePartsToUIMessage,
     toUIMessage,
@@ -21,6 +23,11 @@ import type { ChatRequestBody } from "../types/routes";
 type RouteStatus = (code: number, body: unknown) => unknown;
 
 export type ChatRequest = ChatRequestBody;
+
+type StartReplyOptions = {
+    includeClientTools: boolean;
+    deep?: boolean;
+};
 
 export function toAssistantReply(assistantId: string, parts: MessagePart[], metadata: ChatMessageMetadata) {
     return messagePartsToUIMessage(
@@ -154,7 +161,7 @@ async function syncMessages(chatId: string, messages: ChatUIMessage[]) {
     }
 }
 
-export async function startReply(userId: string, graphId: string, request: ChatRequest) {
+export async function startReply(userId: string, graphId: string, request: ChatRequest, options: StartReplyOptions) {
     await ensureChat(userId, graphId, request);
     await syncMessages(request.id, request.messages);
 
@@ -183,6 +190,13 @@ export async function startReply(userId: string, graphId: string, request: ChatR
             env.AI_TEXT_URL,
             env.AI_TEXT_RESOURCE_NAME
         ),
+        subagent: buildAdapter(
+            env.AI_TEXT_ADAPTER,
+            env.AI_SUBAGENT_MODEL ?? env.AI_TEXT_MODEL,
+            env.AI_TEXT_KEY,
+            env.AI_TEXT_URL,
+            env.AI_TEXT_RESOURCE_NAME
+        ),
         embedding: buildEmbeddingAdapter(
             env.AI_EMBEDDING_ADAPTER,
             env.AI_EMBEDDING_MODEL,
@@ -196,10 +210,25 @@ export async function startReply(userId: string, graphId: string, request: ChatR
         throw new Error("Text and embedding models are required for chat");
     }
 
+    const toolsetOptions = { graphId, embeddingModel: client.embedding };
+    const baseToolset = options.includeClientTools
+        ? buildServerAndClientToolset(toolsetOptions)
+        : buildServerToolset(toolsetOptions);
+    const tools = options.deep
+        ? {
+              ...baseToolset,
+              ...buildSubagentToolset({
+                  ...toolsetOptions,
+                  model: client.subagent ?? client.text,
+                  graphPrompt: promptRow?.prompt ?? undefined,
+              }),
+          }
+        : baseToolset;
+
     return {
         assistantId,
         client,
-        tools: buildChatTools(graphId, client.embedding),
+        tools,
         prompt: promptRow?.prompt ?? undefined,
     };
 }

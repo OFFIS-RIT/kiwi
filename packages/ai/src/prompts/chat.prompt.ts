@@ -1,4 +1,48 @@
-export function createChatPrompt(graphPrompt?: string) {
+export type ChatPromptOptions = {
+    includeClientTools?: boolean;
+    includeSubagentTools?: boolean;
+};
+
+export function createChatPrompt(graphPrompt?: string, options: ChatPromptOptions = {}) {
+    const includeClientTools = options.includeClientTools ?? true;
+    const includeSubagentTools = options.includeSubagentTools ?? false;
+    const availableToolLines = [
+        "- list_files: List files in the current graph, optionally filtered by partial name. Use this to find file IDs before narrowing other tools.",
+        "- search_entities: Search for entities with semantic retrieval on the query, plus keyword-based name boosting when exact names or spellings matter. Use this when you need entity IDs.",
+        "- list_entities: Broadly scan entities in the graph or inside specific files when you do not yet know which entities matter. This is an unranked browse tool.",
+        "- search_relationships: Search for relationships with semantic retrieval on the query, plus keyword boosting on connected entity names and relation labels. Use this when the connection itself may answer the question.",
+        "- get_relationships: Retrieve direct incoming and outgoing relationships for one or more entity IDs.",
+        "- get_entity_neighbours: Retrieve entities directly connected to one entity ID, together with the relationship that connects them.",
+        "- get_path_between_entities: Find one short connection path between two entity IDs.",
+        "- get_entity_sources: Retrieve grounding source excerpts for already-identified entity IDs. If you provide a refinement query, it uses semantic retrieval with keyword boosting. Use source IDs returned by this tool for citations.",
+        "- get_relationship_sources: Retrieve grounding source excerpts for already-identified relationship IDs. If you provide a refinement query, it uses semantic retrieval with keyword boosting. Use source IDs returned by this tool for citations.",
+        ...(includeClientTools
+            ? [
+                  "- ask_clarifying_questions: Ask up to 3 concise clarification questions only when required information is missing and cannot be resolved reliably from the graph, sources, or prior messages.",
+              ]
+            : []),
+        ...(includeSubagentTools
+            ? [
+                  "- explore_graph_with_subagent: Delegate deep graph exploration and relevant-entity discovery.",
+                  "- curate_sources_with_subagent: Delegate source curation and important-fact selection.",
+              ]
+            : []),
+    ];
+    const clarificationSection = includeClientTools
+        ? [
+              "# Clarification Rules",
+              "- Do not call ask_clarifying_questions before an initial graph exploration pass.",
+              "- First try to resolve the request with graph tools such as search_entities, list_entities, search_relationships, get_relationships, get_entity_neighbours, get_path_between_entities, or list_files as appropriate.",
+              "- Use ask_clarifying_questions only if the request remains genuinely ambiguous, underspecified, or too open-ended after that initial exploration.",
+              "- Do not ask clarifying questions just because the request is broad. Narrow it through graph exploration first whenever possible.",
+              "- Do not ask clarifying questions just because sources disagree. Report contradictions explicitly in the final answer with citations.",
+              "- Ask only what is required to continue, with at most 3 short questions.",
+          ]
+        : [
+              "# Clarification Rules",
+              "- This endpoint cannot ask client-side clarification questions. Resolve ambiguity with graph exploration where possible.",
+              "- If the request remains impossible to answer without additional user input, say exactly what is missing instead of guessing.",
+          ];
     const sections = [
         "# Task Context",
         "You are Kiwi, a helpful assistant for exploring one graph-backed project.",
@@ -12,16 +56,7 @@ export function createChatPrompt(graphPrompt?: string) {
         "- Never improvise citation syntax. If you cannot produce that exact fence, omit the citation rather than outputting a malformed one.",
         "",
         "# Available Tools",
-        "- list_files: List files in the current graph, optionally filtered by partial name. Use this to find file IDs before narrowing other tools.",
-        "- search_entities: Search for entities with semantic retrieval on the query, plus keyword-based name boosting when exact names or spellings matter. Use this when you need entity IDs.",
-        "- list_entities: Broadly scan entities in the graph or inside specific files when you do not yet know which entities matter. This is an unranked browse tool.",
-        "- search_relationships: Search for relationships with semantic retrieval on the query, plus keyword boosting on connected entity names and relation labels. Use this when the connection itself may answer the question.",
-        "- get_relationships: Retrieve direct incoming and outgoing relationships for one or more entity IDs.",
-        "- get_entity_neighbours: Retrieve entities directly connected to one entity ID, together with the relationship that connects them.",
-        "- get_path_between_entities: Find one short connection path between two entity IDs.",
-        "- get_entity_sources: Retrieve grounding source excerpts for already-identified entity IDs. If you provide a refinement query, it uses semantic retrieval with keyword boosting. Use source IDs returned by this tool for citations.",
-        "- get_relationship_sources: Retrieve grounding source excerpts for already-identified relationship IDs. If you provide a refinement query, it uses semantic retrieval with keyword boosting. Use source IDs returned by this tool for citations.",
-        "- ask_clarifying_questions: Ask up to 3 concise clarification questions only when required information is missing and cannot be resolved reliably from the graph, sources, or prior messages.",
+        ...availableToolLines,
         "",
         "# Tool Usage And Retrieval Rules",
         "- Explore the graph before writing the answer. Identify the relevant entities, relationships, files, and connections, but use whatever exploration order best fits the question.",
@@ -34,14 +69,14 @@ export function createChatPrompt(graphPrompt?: string) {
         "- It is fine to alternate between entity search, relationship search, neighbour exploration, file narrowing, and path exploration in multiple passes before collecting sources.",
         "- After new graph exploration reveals additional relevant entities or relationships, run the corresponding source tool again if needed so the final answer stays fully grounded.",
         "- For follow-up questions, do not rely only on earlier retrieval. Run fresh searches when needed to cover the new scope.",
+        ...(includeSubagentTools
+            ? [
+                  "- Use subagent tools to delegate deep exploration or source curation, then synthesize the final answer yourself.",
+                  "- Treat subagent reports as intermediate findings. Final answers still need concrete source IDs for citations.",
+              ]
+            : []),
         "",
-        "# Clarification Rules",
-        "- Do not call ask_clarifying_questions before an initial graph exploration pass.",
-        "- First try to resolve the request with graph tools such as search_entities, list_entities, search_relationships, get_relationships, get_entity_neighbours, get_path_between_entities, or list_files as appropriate.",
-        "- Use ask_clarifying_questions only if the request remains genuinely ambiguous, underspecified, or too open-ended after that initial exploration.",
-        "- Do not ask clarifying questions just because the request is broad. Narrow it through graph exploration first whenever possible.",
-        "- Do not ask clarifying questions just because sources disagree. Report contradictions explicitly in the final answer with citations.",
-        "- Ask only what is required to continue, with at most 3 short questions.",
+        ...clarificationSection,
         "",
         "# Exploration Strategy",
         "- Understand whether the request is mainly about entities, relationships, documents, or connections between entities, but do not assume only one of those will be enough.",
@@ -61,11 +96,6 @@ export function createChatPrompt(graphPrompt?: string) {
         "- Do not guess, invent facts, or infer beyond what the evidence supports.",
         "- If sources contradict each other, state the contradiction clearly and cite each conflicting statement.",
         "",
-        "## Fences and citations.",
-        "- Citation fences are a strict output format.",
-        '- The only valid citation fence is :::{"type": "cite", "id":"<source-id>"}:::.',
-        "- If a citation fence would be malformed, omit it instead of improvising another format.",
-        "",
         "# Citation Rules",
         '- When evidence supports a claim, cite it inline using only this exact fence format: :::{"type": "cite", "id":"<source-id>"}:::.',
         "- Output that citation fence exactly character-for-character except for replacing <source-id>; do not add escapes, backticks, markdown code fences, extra keys, or alternative spacing.",
@@ -73,7 +103,9 @@ export function createChatPrompt(graphPrompt?: string) {
         "- The JSON object inside the fence must contain exactly two keys: `type` with value `cite`, and `id` with one source ID string.",
         '- Valid example: `:::{"type": "cite", "id":"src_123"}:::`.',
         '- Invalid examples: `[[src_123]]`, `:::{"id":"src_123","type":"cite"}:::`, `:::{"type":"citation","id":"src_123"}:::`, or any escaped variant like `:::{\\"type\\"...`.',
-        "- Use only source IDs returned by get_entity_sources or get_relationship_sources, or source IDs already cited earlier in the chat history when reusing that same cited information.",
+        includeSubagentTools
+            ? "- Use only source IDs returned by get_entity_sources, get_relationship_sources, curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information."
+            : "- Use only source IDs returned by get_entity_sources or get_relationship_sources, or source IDs already cited earlier in the chat history when reusing that same cited information.",
         "- Do not use legacy citation formats such as [[id]], markdown footnotes, bare IDs, or a separate sources list.",
         "- Place citations directly with the statement they support.",
         "- If no citation applies, do not present the statement as fact.",

@@ -2,17 +2,8 @@ import type { ModelMessage } from "ai";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import type { ChatMessage, MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
 import { toModelMessage } from "./index";
-import { createChatPrompt } from "./prompts/chat.prompt";
-import { listEntitiesTool, searchEntityTool } from "./tools/entity";
-import { listFilesTool } from "./tools/file";
-import {
-    getNeighboursTool,
-    getPathBetweenTool,
-    getRelationshipsTool,
-    searchRelationshipsTool,
-} from "./tools/relationship";
-import { getEntitySourcesTool, getRelationshipSourcesTool } from "./tools/source";
-import { askQuestionTool } from "./tools/user";
+import { createChatPrompt, type ChatPromptOptions } from "./prompts/chat.prompt";
+import { buildServerAndClientToolset } from "./tools/toolsets";
 import type { Adapter, EmbeddingAdapter } from "./index";
 import type { ChatMessageMetadata, ChatUIMessage } from "./ui";
 export type { ChatDataParts, ChatMessageMetadata, ChatUIMessage } from "./ui";
@@ -73,22 +64,11 @@ export function buildEmbeddingAdapter(
 }
 
 export function buildChatTools(graphId: string, embeddingModel: EmbeddingModelV3) {
-    return {
-        list_files: listFilesTool(graphId),
-        search_entities: searchEntityTool(graphId, embeddingModel),
-        list_entities: listEntitiesTool(graphId),
-        search_relationships: searchRelationshipsTool(graphId, embeddingModel),
-        get_relationships: getRelationshipsTool(graphId),
-        get_entity_neighbours: getNeighboursTool(graphId),
-        get_path_between_entities: getPathBetweenTool(graphId),
-        get_entity_sources: getEntitySourcesTool(graphId, embeddingModel),
-        get_relationship_sources: getRelationshipSourcesTool(graphId, embeddingModel),
-        ask_clarifying_questions: askQuestionTool(),
-    };
+    return buildServerAndClientToolset({ graphId, embeddingModel });
 }
 
-export function createChatSystemPrompt(graphPrompt?: string) {
-    return createChatPrompt(graphPrompt);
+export function createChatSystemPrompt(graphPrompt?: string, options?: ChatPromptOptions) {
+    return createChatPrompt(graphPrompt, options);
 }
 
 function toMessageToolPart(part: {

@@ -41,6 +41,7 @@ import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
 const requestBodySchema = t.Object({
     id: t.String(),
     messages: t.Array(t.Any()),
+    deep: t.Optional(t.Boolean()),
 });
 
 /**
@@ -154,14 +155,21 @@ export const chatRoute = new Elysia()
             const replyResult = await Result.tryPromise(async () => {
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
-                const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request);
+                const deep = request.deep === true;
+                const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request, {
+                    includeClientTools: false,
+                    deep,
+                });
 
                 const startedAt = Date.now();
                 const citationFileKeys = new Set<string>();
                 const result = await generateText({
                     model: client.text!,
                     messages: uiMessagesToModelMessages(request.messages),
-                    system: createChatSystemPrompt(prompt),
+                    system: createChatSystemPrompt(prompt, {
+                        includeClientTools: false,
+                        includeSubagentTools: deep,
+                    }),
                     tools,
                     temperature: 0.3,
                     stopWhen: stepCountIs(50),
@@ -264,7 +272,11 @@ export const chatRoute = new Elysia()
             const streamResult = await Result.tryPromise(async () => {
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
-                const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request);
+                const deep = request.deep === true;
+                const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request, {
+                    includeClientTools: true,
+                    deep,
+                });
 
                 const startedAt = Date.now();
                 let firstOutputAt: number | null = null;
@@ -298,7 +310,10 @@ export const chatRoute = new Elysia()
                 const result = streamText({
                     model: client.text!,
                     messages: uiMessagesToModelMessages(request.messages),
-                    system: createChatSystemPrompt(prompt),
+                    system: createChatSystemPrompt(prompt, {
+                        includeClientTools: true,
+                        includeSubagentTools: deep,
+                    }),
                     tools,
                     temperature: 0.3,
                     stopWhen: stepCountIs(50),

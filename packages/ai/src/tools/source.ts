@@ -158,6 +158,14 @@ const getRelationshipSourcesSchema = sourceLookupSchema.extend({
         .describe("Relationship IDs you already identified and now want grounding evidence for."),
 });
 
+const getSourceFileMetadataSchema = z.object({
+    sourceIds: z
+        .array(z.string())
+        .min(1)
+        .max(20)
+        .describe("Source IDs whose underlying file metadata should be inspected."),
+});
+
 type GetScopedSourcesArgs = {
     query?: string;
     keywords?: string[];
@@ -374,9 +382,77 @@ export const getRelationshipSourcesTool = (graphId: string, embeddingModel: Embe
             ),
     });
 
+export const getSourceFileMetadataTool = (graphId: string) =>
+    tool({
+        description:
+            "Inspect the file metadata behind source IDs. Use this to judge source relevance, authority, document type, dates, binding status, or other document-level context.",
+        inputSchema: getSourceFileMetadataSchema,
+        execute: ({ sourceIds }) =>
+            runToolSafely(
+                {
+                    title: "Source file metadata",
+                    name: "get_source_file_metadata",
+                    hints: [
+                        "call this after selecting candidate source IDs",
+                        "retry with fewer source IDs if the result is too broad",
+                    ],
+                },
+                { sourceIds },
+                async () => {
+                    const ids = uniqueTerms(sourceIds);
+                    if (ids.length === 0) {
+                        return "## Source File Metadata\n- none";
+                    }
+
+                    const rows = await db
+                        .select({
+                            sourceId: sourcesTable.id,
+                            entityId: sourcesTable.entityId,
+                            relationshipId: sourcesTable.relationshipId,
+                            sourceDescription: sourcesTable.description,
+                            unitId: textUnitTable.id,
+                            fileId: filesTable.id,
+                            fileName: filesTable.name,
+                            fileType: filesTable.type,
+                            mimeType: filesTable.mimeType,
+                            size: filesTable.size,
+                            tokenCount: filesTable.tokenCount,
+                            metadata: filesTable.metadata,
+                        })
+                        .from(sourcesTable)
+                        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                        .where(
+                            and(
+                                eq(sourcesTable.active, true),
+                                eq(filesTable.graphId, graphId),
+                                inArray(sourcesTable.id, ids)
+                            )
+                        );
+
+                    return [
+                        "## Source File Metadata",
+                        ...(rows.length > 0
+                            ? rows.map((row) => {
+                                  const subject = row.entityId
+                                      ? `entity ${row.entityId}`
+                                      : row.relationshipId
+                                        ? `relationship ${row.relationshipId}`
+                                        : "unlinked";
+                                  const metadata = row.metadata?.trim() || "No file metadata";
+
+                                  return `- source ${row.sourceId}, ${subject}, unit ${row.unitId}, file ${row.fileId} ${row.fileName}, ${row.fileType}, ${row.mimeType}, ${row.size} bytes, ${row.tokenCount} tokens, source: ${truncateWords(row.sourceDescription)}, metadata: ${truncateWords(metadata, 80)}`;
+                              })
+                            : ["- none"]),
+                    ].join("\n");
+                }
+            ),
+    });
+
 const tools = {
     getEntitySourcesTool,
     getRelationshipSourcesTool,
+    getSourceFileMetadataTool,
 };
 
 export default tools;
