@@ -17,7 +17,7 @@ const masterUserApiKeyRecordId = masterUserId ? `master-user-api-key:${masterUse
 
 let ensureMasterUserPromise: Promise<void> | null = null;
 
-async function ensureMasterUser() {
+export async function ensureMasterUser() {
     if (!masterUserId) {
         return;
     }
@@ -193,13 +193,33 @@ export function getAuthHeaders(headers: Headers) {
     return normalizedHeaders;
 }
 
-export const authMiddleware = new Elysia({ name: "auth-middleware" }).derive({ as: "scoped" }, async ({ request }) => {
-    await ensureMasterUser();
+export function getApiKeyHeaders(headers: Headers) {
+    const normalizedHeaders = new Headers();
+    const apiKey = headers.get("x-api-key")?.trim();
+    const token = apiKey && apiKey.length > 0 ? apiKey : getAuthorizationToken(headers);
 
-    const session = await getAuthSession(request.headers);
+    if (token) {
+        normalizedHeaders.set("x-api-key", token);
+    }
 
-    return {
-        session,
-        user: session?.user ?? null,
-    };
-});
+    return normalizedHeaders;
+}
+
+function createAuthMiddleware(name: string, getHeaders: (headers: Headers) => Headers) {
+    return new Elysia({ name }).derive({ as: "scoped" }, async ({ request }) => {
+        await ensureMasterUser();
+
+        const session = await auth.api.getSession({
+            headers: getHeaders(request.headers),
+        });
+
+        return {
+            session,
+            user: session?.user ?? null,
+        };
+    });
+}
+
+export const authMiddleware = createAuthMiddleware("auth-middleware", getAuthHeaders);
+
+export const mcpAuthMiddleware = createAuthMiddleware("mcp-auth-middleware", getApiKeyHeaders);

@@ -6,6 +6,7 @@
         ".": "./src/index.ts",
         "./citation": "./src/citation.ts",
         "./lock": "./src/lock.ts",
+        "./mcp": "./src/mcp/index.ts",
         "./ui": "./src/ui.ts",
         "./prompts/*": "./src/prompts/*.ts"
     },

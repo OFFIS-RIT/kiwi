@@ -19,6 +19,7 @@
         "@kiwi/files": "workspace:*",
         "@kiwi/logger": "workspace:*",
         "@kiwi/worker": "workspace:*",
+        "@modelcontextprotocol/sdk": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "better-auth": "catalog:",

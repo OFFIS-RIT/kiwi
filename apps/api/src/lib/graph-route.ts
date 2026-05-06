@@ -152,6 +152,10 @@ function buildProcessPercentage(files: RunFile[]): number {
         return 0;
     }
 
+    if (files.every((file) => file.process_step === "completed")) {
+        return 95;
+    }
+
     const totalProgress = files.reduce((sum, file) => sum + FILE_STEP_PROGRESS[file.process_step], 0);
 
     return Math.max(0, Math.min(99, Math.round(totalProgress / files.length)));
