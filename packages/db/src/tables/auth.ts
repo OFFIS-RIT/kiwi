@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
 
 export const userTable = pgTable.withRLS("user", {
@@ -40,28 +40,32 @@ export const sessionTable = pgTable.withRLS("session", {
     impersonatedBy: text("impersonatedBy").references(() => userTable.id, { onDelete: "set null" }),
 });
 
-export const accountTable = pgTable.withRLS("account", {
-    id: text("id")
-        .primaryKey()
-        .$default(() => ulid()),
-    userId: text("userId")
-        .notNull()
-        .references(() => userTable.id, { onDelete: "cascade" }),
-    accountId: text("accountId").notNull(),
-    providerId: text("providerId").notNull(),
-    accessToken: text("accessToken"),
-    refreshToken: text("refreshToken"),
-    accessTokenExpiresAt: timestamp("accessTokenExpiresAt", { withTimezone: true, mode: "date" }),
-    refreshTokenExpiresAt: timestamp("refreshTokenExpiresAt", { withTimezone: true, mode: "date" }),
-    scope: text("scope"),
-    idToken: text("idToken"),
-    password: text("password"),
-    createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-    updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" })
-        .notNull()
-        .defaultNow()
-        .$onUpdate(() => sql`NOW()`),
-});
+export const accountTable = pgTable.withRLS(
+    "account",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        userId: text("userId")
+            .notNull()
+            .references(() => userTable.id, { onDelete: "cascade" }),
+        accountId: text("accountId").notNull(),
+        providerId: text("providerId").notNull(),
+        accessToken: text("accessToken"),
+        refreshToken: text("refreshToken"),
+        accessTokenExpiresAt: timestamp("accessTokenExpiresAt", { withTimezone: true, mode: "date" }),
+        refreshTokenExpiresAt: timestamp("refreshTokenExpiresAt", { withTimezone: true, mode: "date" }),
+        scope: text("scope"),
+        idToken: text("idToken"),
+        password: text("password"),
+        createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+        updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" })
+            .notNull()
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [index("account_user_provider_idx").on(table.userId, table.providerId)]
+);
 
 export const verificationTable = pgTable.withRLS("verification", {
     id: text("id")

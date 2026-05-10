@@ -70,6 +70,7 @@ export const groupUserTable = pgTable.withRLS(
         {
             primaryKey: primaryKey({ name: "group_users_pk", columns: [table.groupId, table.userId] }),
         },
+        index("group_users_user_group_idx").on(table.userId, table.groupId),
     ]
 );
 
@@ -102,6 +103,9 @@ export const graphTable = pgTable.withRLS(
         index("graphs_group_type_idx").on(table.groupId, table.type),
         index("graphs_user_type_idx").on(table.userId, table.type),
         index("graphs_graph_type_idx").on(table.graphId, table.type),
+        index("graphs_visible_root_group_name_idx")
+            .on(table.groupId, table.name)
+            .where(sql`${table.graphId} IS NULL AND ${table.hidden} = false`),
     ]
 );
 
@@ -163,84 +167,129 @@ export const filesTable = pgTable.withRLS(
         uniqueIndex("files_graph_checksum_active_unique")
             .on(table.graphId, table.checksum)
             .where(sql`${table.deleted} = false AND ${table.checksum} IS NOT NULL`),
+        index("files_name_trgm_idx").using("gin", table.name.op("gin_trgm_ops")),
+        index("files_graph_active_created_name_idx")
+            .on(table.graphId, table.createdAt, table.name)
+            .where(sql`${table.deleted} = false`),
+        index("files_graph_active_id_idx")
+            .on(table.graphId, table.id)
+            .where(sql`${table.deleted} = false`),
+        index("files_graph_active_key_idx")
+            .on(table.graphId, table.key)
+            .where(sql`${table.deleted} = false`),
     ]
 );
 
-export const textUnitTable = pgTable.withRLS("text_units", {
-    id: text("id")
-        .primaryKey()
-        .$default(() => ulid()),
-    fileId: text("file_id")
-        .notNull()
-        .references(() => filesTable.id, { onDelete: "cascade" }),
-    text: text("text").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-        .defaultNow()
-        .$onUpdate(() => sql`NOW()`),
-});
+export const textUnitTable = pgTable.withRLS(
+    "text_units",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        fileId: text("file_id")
+            .notNull()
+            .references(() => filesTable.id, { onDelete: "cascade" }),
+        text: text("text").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [index("text_units_file_idx").on(table.fileId)]
+);
 
-export const entityTable = pgTable.withRLS("entities", {
-    id: text("id")
-        .primaryKey()
-        .$default(() => ulid()),
-    graphId: text("graph_id")
-        .notNull()
-        .references(() => graphTable.id, { onDelete: "cascade" }),
-    active: boolean("active").notNull().default(false),
-    name: text("name").notNull(),
-    description: text("description").notNull(),
-    type: text("type").notNull(),
-    embedding: vector("embedding", { dimensions: 4096 }).notNull(),
-    searchTsv: tsvector("search_tsv").generatedAlwaysAs(() => weightedTsvectorGenerated(["name", "description"])),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-        .defaultNow()
-        .$onUpdate(() => sql`NOW()`),
-});
+export const entityTable = pgTable.withRLS(
+    "entities",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        graphId: text("graph_id")
+            .notNull()
+            .references(() => graphTable.id, { onDelete: "cascade" }),
+        active: boolean("active").notNull().default(false),
+        name: text("name").notNull(),
+        description: text("description").notNull(),
+        type: text("type").notNull(),
+        embedding: vector("embedding", { dimensions: 4096 }).notNull(),
+        searchTsv: tsvector("search_tsv").generatedAlwaysAs(() => weightedTsvectorGenerated(["name", "description"])),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [
+        index("entities_graph_active_idx").on(table.graphId, table.active),
+        index("entities_graph_active_id_idx").on(table.graphId, table.active, table.id),
+        index("entities_name_trgm_idx").using("gin", table.name.op("gin_trgm_ops")),
+        index("entities_embedding_diskann_idx").using("diskann", table.embedding.op("vector_cosine_ops")),
+    ]
+);
 
-export const relationshipTable = pgTable.withRLS("relationships", {
-    id: text("id")
-        .primaryKey()
-        .$default(() => ulid()),
-    active: boolean("active").notNull().default(false),
-    sourceId: text("source_id")
-        .notNull()
-        .references(() => entityTable.id, { onDelete: "cascade" }),
-    targetId: text("target_id")
-        .notNull()
-        .references(() => entityTable.id, { onDelete: "cascade" }),
-    graphId: text("graph_id")
-        .notNull()
-        .references(() => graphTable.id, { onDelete: "cascade" }),
-    rank: doublePrecision("rank").notNull().default(0),
-    description: text("description").notNull(),
-    embedding: vector("embedding", { dimensions: 4096 }).notNull(),
-    searchTsv: tsvector("search_tsv").generatedAlwaysAs(() => weightedTsvectorGenerated(["description"])),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-        .defaultNow()
-        .$onUpdate(() => sql`NOW()`),
-});
+export const relationshipTable = pgTable.withRLS(
+    "relationships",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        active: boolean("active").notNull().default(false),
+        sourceId: text("source_id")
+            .notNull()
+            .references(() => entityTable.id, { onDelete: "cascade" }),
+        targetId: text("target_id")
+            .notNull()
+            .references(() => entityTable.id, { onDelete: "cascade" }),
+        graphId: text("graph_id")
+            .notNull()
+            .references(() => graphTable.id, { onDelete: "cascade" }),
+        rank: doublePrecision("rank").notNull().default(0),
+        description: text("description").notNull(),
+        embedding: vector("embedding", { dimensions: 4096 }).notNull(),
+        searchTsv: tsvector("search_tsv").generatedAlwaysAs(() => weightedTsvectorGenerated(["description"])),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [
+        index("relationships_graph_active_idx").on(table.graphId, table.active),
+        index("relationships_graph_active_id_idx").on(table.graphId, table.active, table.id),
+        index("relationships_graph_active_source_id_idx").on(table.graphId, table.active, table.sourceId, table.id),
+        index("relationships_graph_active_target_id_idx").on(table.graphId, table.active, table.targetId, table.id),
+        index("relationships_description_trgm_idx").using("gin", table.description.op("gin_trgm_ops")),
+        index("relationships_embedding_diskann_idx").using("diskann", table.embedding.op("vector_cosine_ops")),
+    ]
+);
 
-export const sourcesTable = pgTable.withRLS("sources", {
-    id: text("id")
-        .primaryKey()
-        .$default(() => ulid()),
-    entityId: text("entity_id").references(() => entityTable.id, { onDelete: "cascade" }),
-    relationshipId: text("relationship_id").references(() => relationshipTable.id, { onDelete: "cascade" }),
-    textUnitId: text("text_unit_id")
-        .notNull()
-        .references(() => textUnitTable.id, { onDelete: "cascade" }),
-    active: boolean("active").notNull().default(false),
-    description: text("description").notNull(),
-    embedding: vector("embedding", { dimensions: 4096 }).notNull(),
-    searchTsv: tsvector("search_tsv").generatedAlwaysAs(() => weightedTsvectorGenerated(["description"])),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-        .defaultNow()
-        .$onUpdate(() => sql`NOW()`),
-});
+export const sourcesTable = pgTable.withRLS(
+    "sources",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        entityId: text("entity_id").references(() => entityTable.id, { onDelete: "cascade" }),
+        relationshipId: text("relationship_id").references(() => relationshipTable.id, { onDelete: "cascade" }),
+        textUnitId: text("text_unit_id")
+            .notNull()
+            .references(() => textUnitTable.id, { onDelete: "cascade" }),
+        active: boolean("active").notNull().default(false),
+        description: text("description").notNull(),
+        embedding: vector("embedding", { dimensions: 4096 }).notNull(),
+        searchTsv: tsvector("search_tsv").generatedAlwaysAs(() => weightedTsvectorGenerated(["description"])),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [
+        index("sources_active_id_idx").on(table.active, table.id),
+        index("sources_entity_active_id_idx").on(table.entityId, table.active, table.id),
+        index("sources_relationship_active_id_idx").on(table.relationshipId, table.active, table.id),
+        index("sources_text_unit_idx").on(table.textUnitId),
+        index("sources_description_trgm_idx").using("gin", table.description.op("gin_trgm_ops")),
+        index("sources_embedding_diskann_idx").using("diskann", table.embedding.op("vector_cosine_ops")),
+    ]
+);
 
 export const processStatsTable = pgTable.withRLS("process_stats", {
     id: text("id")
