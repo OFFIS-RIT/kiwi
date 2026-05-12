@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { PDF, degrees, measureText, rgb } from "@libpdf/core";
 import { transcribePrompt } from "@kiwi/ai/prompts/transcribe.prompt";
+import { inflateSync } from "node:zlib";
 
 let fullOCRPageOutputs: string[] = [];
 let rasterizedPages: Uint8Array[] = [];
@@ -52,6 +53,8 @@ mock.module("pdf-to-img", () => ({
 const { PDFLoader } = await import("../pdf.ts");
 
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6rmS0AAAAASUVORK5CYII=";
+const AWIFOE_RAW_IMAGE_BASE64 = "eJztwTEBAAAAwqD1T20Hb6AAAAAAAAAAAAAAAAAAAAB+Azy0AAE=";
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 function drawPositionedTable(
     page: ReturnType<PDF["addPage"]>,
@@ -175,6 +178,10 @@ function encodeUtf16BEHex(value: string): string {
         .toUpperCase();
 }
 
+function isPNG(bytes: Uint8Array): boolean {
+    return PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
+}
+
 async function buildLineTableFixture() {
     return buildHybridFixture(async (pdf) => {
         const pngBytes = Uint8Array.from(Buffer.from(PNG_BASE64, "base64"));
@@ -208,6 +215,131 @@ async function buildLineTableFixture() {
             ["Bar", "84"],
         ]);
     });
+}
+
+function buildRawFlateImagePDF(): Uint8Array {
+    const rawImage = Buffer.from(AWIFOE_RAW_IMAGE_BASE64, "base64");
+    const content = Buffer.from(
+        [
+            "BT /F1 18 Tf 50 700 Td (Raw PDF Image) Tj ET",
+            "q",
+            "140 0 0 37 50 600 cm",
+            "/ImRaw Do",
+            "Q",
+        ].join("\n"),
+        "latin1"
+    );
+    const objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 800] /Resources << /Font << /F1 6 0 R >> /XObject << /ImRaw 5 0 R >> >> /Contents 4 0 R >>",
+        pdfStream(`<< /Length ${content.length} >>`, content),
+        pdfStream(
+            "<< /Type /XObject /Subtype /Image /Width 140 /Height 37 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length 38 >>",
+            rawImage
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+
+    return buildPDF(objects);
+}
+
+function buildRawCMYKImagePDF(): Uint8Array {
+    const rawImage = Buffer.from([0x78, 0x9c, 0x6b, 0x68, 0x68, 0x68, 0x00, 0x00, 0x03, 0x05, 0x02, 0x01]);
+    const content = Buffer.from(["q", "1 0 0 1 50 600 cm", "/ImRaw Do", "Q"].join("\n"), "latin1");
+    const objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /XObject << /ImRaw 5 0 R >> >> /Contents 4 0 R >>",
+        pdfStream(`<< /Length ${content.length} >>`, content),
+        pdfStream(
+            `<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceCMYK /BitsPerComponent 8 /Filter /FlateDecode /Length ${rawImage.length} >>`,
+            rawImage
+        ),
+        "<< >>",
+    ];
+
+    return buildPDF(objects);
+}
+
+function buildAsciiHexJPEGImagePDF(): Uint8Array {
+    const jpegHex = Buffer.from("FFD8FFE000104A46494600010100000100010000FFDB>", "latin1");
+    const content = Buffer.from(["q", "1 0 0 1 50 600 cm", "/ImRaw Do", "Q"].join("\n"), "latin1");
+    const objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /XObject << /ImRaw 5 0 R >> >> /Contents 4 0 R >>",
+        pdfStream(`<< /Length ${content.length} >>`, content),
+        pdfStream(
+            `<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ${jpegHex.length} >>`,
+            jpegHex
+        ),
+        "<< >>",
+    ];
+
+    return buildPDF(objects);
+}
+
+function readFirstPNGPixel(png: Uint8Array): [number, number, number] {
+    const chunks = readPNGChunks(png);
+    const idat = Buffer.concat(chunks.filter((chunk) => chunk.type === "IDAT").map((chunk) => Buffer.from(chunk.data)));
+    const scanline = inflateSync(idat);
+
+    return [scanline[1]!, scanline[2]!, scanline[3]!];
+}
+
+function isJPEG(bytes: Uint8Array): boolean {
+    return bytes[0] === 0xff && bytes[1] === 0xd8;
+}
+
+function readPNGChunks(png: Uint8Array): Array<{ type: string; data: Uint8Array }> {
+    const chunks: Array<{ type: string; data: Uint8Array }> = [];
+    let offset = 8;
+
+    while (offset + 8 <= png.length) {
+        const length = new DataView(png.buffer, png.byteOffset + offset, 4).getUint32(0);
+        const type = Buffer.from(png.subarray(offset + 4, offset + 8)).toString("latin1");
+        const data = png.subarray(offset + 8, offset + 8 + length);
+        chunks.push({ type, data });
+        offset += 12 + length;
+    }
+
+    return chunks;
+}
+
+function pdfStream(dictionary: string, content: Buffer): Buffer {
+    return Buffer.concat([Buffer.from(`${dictionary}\nstream\n`, "latin1"), content, Buffer.from("\nendstream", "latin1")]);
+}
+
+function buildPDF(objects: Array<string | Buffer>): Uint8Array {
+    const chunks: Buffer[] = [Buffer.from("%PDF-1.4\n", "latin1")];
+    const offsets = [0];
+    let length = chunks[0]!.length;
+
+    objects.forEach((object, index) => {
+        const objectHeader = Buffer.from(`${index + 1} 0 obj\n`, "latin1");
+        const objectBody = typeof object === "string" ? Buffer.from(object, "latin1") : object;
+        const objectFooter = Buffer.from("\nendobj\n", "latin1");
+
+        offsets.push(length);
+        chunks.push(objectHeader, objectBody, objectFooter);
+        length += objectHeader.length + objectBody.length + objectFooter.length;
+    });
+
+    const xrefOffset = length;
+    chunks.push(Buffer.from(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`, "latin1"));
+    for (const offset of offsets.slice(1)) {
+        chunks.push(Buffer.from(`${offset.toString().padStart(10, "0")} 00000 n \n`, "latin1"));
+    }
+
+    chunks.push(
+        Buffer.from(
+            `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
+            "latin1"
+        )
+    );
+
+    return Uint8Array.from(Buffer.concat(chunks));
 }
 
 async function buildAlignedTextTableFixture() {
@@ -586,7 +718,36 @@ describe("PDFLoader", () => {
         expect(fixture.hybrid).toMatch(/\| Bar \| 84 \|/);
         expect(generateTextMock).toHaveBeenCalledTimes(1);
         expect(putNamedFileMock).toHaveBeenCalledTimes(1);
+        expect(isPNG(putNamedFileMock.mock.calls[0]?.[1] as Uint8Array)).toBe(true);
         expect(pdfToImgMock).not.toHaveBeenCalled();
+    });
+
+    test("converts a raw FlateDecode image stream from the AWiFoe PDF into a PNG", async () => {
+        const fixture = await buildHybridFixtureFromBytes(buildRawFlateImagePDF());
+
+        expect(fixture.hybrid).toMatch(/^Raw PDF Image$/m);
+        expect(fixture.hybrid).toContain(
+            '<image id="img-1" key="graphs/graph-1/derived/file-1/images/img-1.png">PDF figure summary</image>'
+        );
+        expect(generateTextMock).toHaveBeenCalledTimes(1);
+        expect(putNamedFileMock).toHaveBeenCalledTimes(1);
+        expect(isPNG(Buffer.from(AWIFOE_RAW_IMAGE_BASE64, "base64"))).toBe(false);
+        expect(isPNG(putNamedFileMock.mock.calls[0]?.[1] as Uint8Array)).toBe(true);
+    });
+
+    test("converts raw CMYK image samples to RGB without additive black clipping", async () => {
+        await buildHybridFixtureFromBytes(buildRawCMYKImagePDF());
+
+        expect(putNamedFileMock).toHaveBeenCalledTimes(1);
+        expect(readFirstPNGPixel(putNamedFileMock.mock.calls[0]?.[1] as Uint8Array)).toEqual([63, 63, 63]);
+    });
+
+    test("decodes filters before DCTDecode instead of uploading encoded wrapper bytes", async () => {
+        await buildHybridFixtureFromBytes(buildAsciiHexJPEGImagePDF());
+
+        expect(putNamedFileMock).toHaveBeenCalledTimes(1);
+        expect(putNamedFileMock.mock.calls[0]?.[0]).toBe("img-1.jpg");
+        expect(isJPEG(putNamedFileMock.mock.calls[0]?.[1] as Uint8Array)).toBe(true);
     });
 
     test("detects aligned text tables as markdown in hybrid mode", async () => {
