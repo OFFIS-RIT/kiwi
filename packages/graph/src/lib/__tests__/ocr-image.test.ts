@@ -45,6 +45,50 @@ describe("processOCRImages", () => {
         });
     });
 
+    test("processes images in configured image concurrency batches", async () => {
+        const previousConcurrency = process.env.AI_IMAGE_CONCURRENCY;
+        process.env.AI_IMAGE_CONCURRENCY = "2";
+        let active = 0;
+        let maxActive = 0;
+        const describeImage = mock(async (image: { id: string }) => {
+            active += 1;
+            maxActive = Math.max(maxActive, active);
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            active -= 1;
+            return image.id;
+        });
+        const uploadImage = mock(async (name: string, _content: Uint8Array, storage: { imagePrefix: string }) => ({
+            key: `${storage.imagePrefix}/${name}`,
+        }));
+
+        const images = Array.from({ length: 5 }, (_, index) => ({
+            id: `img-${index + 1}`,
+            type: "image/png",
+            content: new Uint8Array([index]),
+        }));
+        const text = images.map((image) => `:::IMG-${image.id}:::`).join("\n");
+
+        try {
+            await processOCRImages(
+                text,
+                images,
+                {} as never,
+                { bucket: "bucket", imagePrefix: "graphs/g-1/derived/f-1/images" },
+                { describeImage, uploadImage }
+            );
+
+            expect(maxActive).toBe(2);
+            expect(describeImage).toHaveBeenCalledTimes(5);
+            expect(uploadImage).toHaveBeenCalledTimes(5);
+        } finally {
+            if (previousConcurrency === undefined) {
+                delete process.env.AI_IMAGE_CONCURRENCY;
+            } else {
+                process.env.AI_IMAGE_CONCURRENCY = previousConcurrency;
+            }
+        }
+    });
+
     test("maps supported mime types to deterministic extensions", () => {
         expect(getExtensionForMimeType("image/png")).toBe("png");
         expect(getExtensionForMimeType("image/jpeg")).toBe("jpg");

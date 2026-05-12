@@ -21,6 +21,7 @@ type OCRImageDeps = {
 };
 
 const IMAGE_FENCE_PATTERN = /:::IMG-[^:]+:::/;
+const DEFAULT_IMAGE_BATCH_SIZE = 64;
 
 export async function processOCRImages(
     text: string,
@@ -54,18 +55,25 @@ export async function processOCRImages(
         }
     }
 
-    const replacements = await Promise.all(
-        images.map(async (image) => {
-            const description = (await describeImage(image, model)).trim();
-            const extension = getExtensionForMimeType(image.type);
-            const uploaded = await uploadImage(`${image.id}.${extension}`, image.content, storage);
+    const replacements: Array<{ fence: string; tag: string }> = [];
+    const batchSize = getImageBatchSize();
+    for (let index = 0; index < images.length; index += batchSize) {
+        const batch = images.slice(index, index + batchSize);
+        replacements.push(
+            ...(await Promise.all(
+                batch.map(async (image) => {
+                    const description = (await describeImage(image, model)).trim();
+                    const extension = getExtensionForMimeType(image.type);
+                    const uploaded = await uploadImage(`${image.id}.${extension}`, image.content, storage);
 
-            return {
-                fence: `:::IMG-${image.id}:::`,
-                tag: renderImageTag(image.id, uploaded.key, description),
-            };
-        })
-    );
+                    return {
+                        fence: `:::IMG-${image.id}:::`,
+                        tag: renderImageTag(image.id, uploaded.key, description),
+                    };
+                })
+            ))
+        );
+    }
 
     let output = text;
     for (const replacement of replacements) {
@@ -78,6 +86,11 @@ export async function processOCRImages(
     }
 
     return output;
+}
+
+function getImageBatchSize(): number {
+    const value = Number(process.env.AI_IMAGE_CONCURRENCY);
+    return !Number.isFinite(value) || value < 1 ? DEFAULT_IMAGE_BATCH_SIZE : Math.floor(value);
 }
 
 async function defaultDescribeImage(image: OCRImageAsset, model: LanguageModelV3): Promise<string> {

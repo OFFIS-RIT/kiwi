@@ -106,7 +106,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             }
         });
 
-        await Promise.allSettled(
+        const fileResults = await Promise.allSettled(
             input.fileIds.map((fileId) =>
                 step.runWorkflow(processFile.spec, {
                     graphId: input.graphId,
@@ -114,6 +114,9 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
                 })
             )
         );
+        if (fileResults.length > 0 && fileResults.every((result) => result.status === "rejected")) {
+            throw new Error(`All ${fileResults.length} file processing workflows failed`);
+        }
 
         const descriptions = await step.run({ name: "generate-descriptions" }, async () => {
             const newEntities = await db
