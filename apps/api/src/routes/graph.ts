@@ -20,6 +20,7 @@ import { env } from "../env";
 import { chunk } from "../lib/array";
 import { collectGraphClosure } from "../lib/graph";
 import { mapUnitError } from "../lib/unit";
+import { cancelActiveFileProcessingWorkflowRuns, cancelActiveGraphWorkflowRuns } from "../lib/workflow-cancellation";
 import {
     assertCanCreateUnderParentGraph,
     assertCanPatchGraph,
@@ -1211,10 +1212,22 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }
 
             try {
+                const fileIds = fileKeys.map((fileKey) => fileIdByKey.get(fileKey)!);
                 const handle = await ow.runWorkflow(deleteGraphFilesSpec, {
                     graphId: existingGraph.id,
-                    fileIds: fileKeys.map((fileKey) => fileIdByKey.get(fileKey)!),
+                    fileIds,
                 });
+                const cancellationResult = await Result.tryPromise(async () =>
+                    cancelActiveFileProcessingWorkflowRuns(existingGraph.id, fileIds)
+                );
+                if (cancellationResult.isErr()) {
+                    logError("graph file processing workflow cancellation failed after delete enqueue", {
+                        graphId: existingGraph.id,
+                        removedFileCount: fileKeys.length,
+                        workflowRunId: handle.workflowRun.id,
+                        error: cancellationResult.error,
+                    });
+                }
 
                 return status(200, {
                     status: "success",
@@ -1279,6 +1292,32 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             );
             if (accessResult.isErr()) {
                 return mapGraphError(status, accessResult.error);
+            }
+
+            const graphIdsResult = await Result.tryPromise(async () => collectGraphClosure(db, [params.id]));
+            if (graphIdsResult.isErr()) {
+                return status(500, {
+                    status: "error",
+                    message: "Internal server error",
+                    code: "INTERNAL_SERVER_ERROR",
+                });
+            }
+
+            const cancellationResult = await Result.tryPromise(async () =>
+                cancelActiveGraphWorkflowRuns(graphIdsResult.value)
+            );
+            if (cancellationResult.isErr()) {
+                logError("graph workflow cancellation failed before graph delete", {
+                    graphId: params.id,
+                    graphCount: graphIdsResult.value.length,
+                    error: cancellationResult.error,
+                });
+
+                return status(500, {
+                    status: "error",
+                    message: "Internal server error",
+                    code: "INTERNAL_SERVER_ERROR",
+                });
             }
 
             let deleteResult: {
