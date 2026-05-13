@@ -13,9 +13,6 @@ changelog:
         - title: 🚀 Features
           labels:
               - enhancement
-              - frontend
-              - backend
-              - auth
         - title: 🐛 Bug Fixes
           labels:
               - bug
