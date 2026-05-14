@@ -100,6 +100,7 @@ const translations = {
         "stop.recording": "Stop voice input",
         "play.message": "Play",
         "stop.speaking": "Stop",
+        "deep.mode": "Deep Mode",
 
         // Query Steps
         "step.thinking": "Thinking...",
@@ -400,6 +401,7 @@ const translations = {
         "stop.recording": "Spracheingabe beenden",
         "play.message": "Abspielen",
         "stop.speaking": "Stopp",
+        "deep.mode": "Tiefe Analyse",
 
         // Query Steps
         "step.thinking": "Denkt nach...",
