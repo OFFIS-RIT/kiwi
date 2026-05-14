@@ -28,6 +28,7 @@ export const env = createEnv({
         AI_TEXT_KEY: z.string(),
         AI_TEXT_URL: z.string().optional(),
         AI_TEXT_RESOURCE_NAME: z.string().optional(),
+        AI_SUBAGENT_MODEL: z.string().optional(),
 
         // Embedding
         AI_EMBEDDING_ADAPTER: embeddingAdapterEnum,

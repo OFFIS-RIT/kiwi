@@ -4,8 +4,10 @@
     "type": "module",
     "exports": {
         ".": "./src/index.ts",
+        "./agents": "./src/agents/index.ts",
         "./citation": "./src/citation.ts",
         "./lock": "./src/lock.ts",
+        "./tools/toolsets": "./src/tools/toolsets.ts",
         "./ui": "./src/ui.ts",
         "./prompts/*": "./src/prompts/*.ts"
     },

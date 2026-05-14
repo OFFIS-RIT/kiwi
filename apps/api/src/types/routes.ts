@@ -114,6 +114,7 @@ export type TextUnitRecord = {
 export type ChatRequestBody = {
     id: string;
     messages: ChatUIMessage[];
+    deep?: boolean;
 };
 
 export type ChatSummaryItem = {

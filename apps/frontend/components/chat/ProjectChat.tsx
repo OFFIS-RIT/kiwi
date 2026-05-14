@@ -8,6 +8,7 @@ import { UserMessageText } from "@/components/chat/UserMessageText";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { deleteProjectChat, fetchProjectChat, fetchProjectChats } from "@/lib/api/projects";
 import { useAuth } from "@/providers/AuthProvider";
@@ -466,6 +467,7 @@ function ProjectChatSession({
         stop: stopSpeaking,
     } = useSpeechSynthesis(language);
     const [inputValue, setInputValue] = useState("");
+    const [isDeepMode, setIsDeepMode] = useState(false);
 
     const { messages, sendMessage, status, addToolOutput } = useChat<ChatUIMessage>({
         chat: entry.chat,
@@ -628,8 +630,8 @@ function ProjectChatSession({
         // reset after the await leaves the original text visible for the whole
         // response.
         setInputValue("");
-        await sendMessage({ text });
-    }, [inputValue, isRecording, pendingClarification, sendMessage, setStreamError]);
+        await sendMessage({ text }, { body: { deep: isDeepMode } });
+    }, [inputValue, isDeepMode, isRecording, pendingClarification, sendMessage, setStreamError]);
 
     const handleClarificationSubmit = useCallback(
         (toolCallId: string, questions: string[], answer: string) => {
@@ -693,7 +695,15 @@ function ProjectChatSession({
                         </p>
                     </div>
 
-                    <div className="flex shrink-0 items-end gap-2">
+                    <div className="flex shrink-0 items-center gap-3">
+                        <label htmlFor="deep-mode-switch" className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                            <Switch
+                                id="deep-mode-switch"
+                                checked={isDeepMode}
+                                onCheckedChange={setIsDeepMode}
+                            />
+                            {t("deep.mode")}
+                        </label>
                         <Button
                             variant="outline"
                             size="icon"

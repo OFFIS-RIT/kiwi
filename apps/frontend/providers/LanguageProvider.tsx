@@ -100,6 +100,7 @@ const translations = {
         "stop.recording": "Stop voice input",
         "play.message": "Play",
         "stop.speaking": "Stop",
+        "deep.mode": "Deep Mode",
 
         // Query Steps
         "step.thinking": "Thinking...",
@@ -112,6 +113,8 @@ const translations = {
         "step.get_path_between_entities": "Finding connections...",
         "step.get_entity_sources": "Retrieving entity sources...",
         "step.get_relationship_sources": "Retrieving relationship sources...",
+        "step.explore_graph_with_subagent": "Exploring graph deeply...",
+        "step.curate_sources_with_subagent": "Curating sources...",
         "step.ask_clarifying_questions": "Asked clarifying questions",
         "files.considered": "Files considered: {count}",
         "files.used": "Files used: {count}",
@@ -398,6 +401,7 @@ const translations = {
         "stop.recording": "Spracheingabe beenden",
         "play.message": "Abspielen",
         "stop.speaking": "Stopp",
+        "deep.mode": "Tiefe Analyse",
 
         // Query Steps
         "step.thinking": "Denkt nach...",
@@ -410,6 +414,8 @@ const translations = {
         "step.get_path_between_entities": "Finde Verbindungen...",
         "step.get_entity_sources": "Lade Entitätsquellen...",
         "step.get_relationship_sources": "Lade Beziehungsquellen...",
+        "step.explore_graph_with_subagent": "Erkunde Graph vertieft...",
+        "step.curate_sources_with_subagent": "Kuratierte Quellen werden gesucht...",
         "step.ask_clarifying_questions": "Rückfrage gestellt",
         "files.considered": "Dateien betrachtet: {count}",
         "files.used": "Dateien verwendet: {count}",

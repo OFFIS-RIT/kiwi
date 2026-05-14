@@ -134,6 +134,7 @@ function createProvider(adapter: Adapter) {
 
 export type ClientConfig = {
     text?: Adapter;
+    subagent?: Adapter;
     embedding?: EmbeddingAdapter;
     image?: Adapter;
     audio?: Adapter;
@@ -141,6 +142,7 @@ export type ClientConfig = {
 
 export type Client = {
     text?: LanguageModelV3;
+    subagent?: LanguageModelV3;
     embedding?: EmbeddingModelV3;
     image?: LanguageModelV3;
     audio?: LanguageModelV3;
@@ -165,6 +167,7 @@ export type Client = {
 export function getClient(config: ClientConfig): Client {
     return {
         text: config.text ? createProvider(config.text).languageModel(config.text.model) : undefined,
+        subagent: config.subagent ? createProvider(config.subagent).languageModel(config.subagent.model) : undefined,
         embedding: config.embedding
             ? createProvider(config.embedding).embeddingModel(config.embedding.model)
             : undefined,
@@ -414,3 +417,5 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
 export * from "./ui";
 export * from "./chat";
 export * from "./citation";
+export * from "./tools/toolsets";
+export * from "./agents/subagents";
