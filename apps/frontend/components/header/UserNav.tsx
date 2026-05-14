@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
-import { LogOut, Shield } from "lucide-react";
+import { ApiKeySheet } from "@/components/api-keys";
+import { Key, LogOut, Shield } from "lucide-react";
 import { Suspense, lazy, useEffect, useState } from "react";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -26,6 +27,7 @@ export function UserNav() {
     const { t } = useLanguage();
     const { user, isAdmin, signOut } = useAuth();
     const [showUserManagement, setShowUserManagement] = useState(false);
+    const [showApiKeys, setShowApiKeys] = useState(false);
     const [ready, setReady] = useState(false);
 
     useEffect(() => {
@@ -63,14 +65,16 @@ export function UserNav() {
                     <DropdownMenuLabel>{user?.name}</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <ThemeToggle />
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => setShowApiKeys(true)}>
+                        <Key className="h-4 w-4" />
+                        <span>{t("apiKey.management")}</span>
+                    </DropdownMenuItem>
                     {isAdmin && (
-                        <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onSelect={() => setShowUserManagement(true)}>
-                                <Shield className="h-4 w-4" />
-                                <span>{t("admin.user.management")}</span>
-                            </DropdownMenuItem>
-                        </>
+                        <DropdownMenuItem onSelect={() => setShowUserManagement(true)}>
+                            <Shield className="h-4 w-4" />
+                            <span>{t("admin.user.management")}</span>
+                        </DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => void signOut()}>
@@ -79,6 +83,7 @@ export function UserNav() {
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
+            <ApiKeySheet open={showApiKeys} onOpenChange={setShowApiKeys} />
             {isAdmin && (
                 <Suspense fallback={null}>
                     <UserManagementSheet open={showUserManagement} onOpenChange={setShowUserManagement} />

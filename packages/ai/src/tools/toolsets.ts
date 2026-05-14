@@ -50,3 +50,7 @@ export function buildServerAndClientToolset(options: GraphToolsetOptions) {
         ask_clarifying_questions: askQuestionTool(),
     } satisfies ToolSet;
 }
+
+export function buildMcpResearchToolset(options: GraphToolsetOptions) {
+    return buildServerToolset(options);
+}

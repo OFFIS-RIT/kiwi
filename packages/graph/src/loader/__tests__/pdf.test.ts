@@ -220,13 +220,7 @@ async function buildLineTableFixture() {
 function buildRawFlateImagePDF(): Uint8Array {
     const rawImage = Buffer.from(AWIFOE_RAW_IMAGE_BASE64, "base64");
     const content = Buffer.from(
-        [
-            "BT /F1 18 Tf 50 700 Td (Raw PDF Image) Tj ET",
-            "q",
-            "140 0 0 37 50 600 cm",
-            "/ImRaw Do",
-            "Q",
-        ].join("\n"),
+        ["BT /F1 18 Tf 50 700 Td (Raw PDF Image) Tj ET", "q", "140 0 0 37 50 600 cm", "/ImRaw Do", "Q"].join("\n"),
         "latin1"
     );
     const objects = [
@@ -308,7 +302,11 @@ function readPNGChunks(png: Uint8Array): Array<{ type: string; data: Uint8Array 
 }
 
 function pdfStream(dictionary: string, content: Buffer): Buffer {
-    return Buffer.concat([Buffer.from(`${dictionary}\nstream\n`, "latin1"), content, Buffer.from("\nendstream", "latin1")]);
+    return Buffer.concat([
+        Buffer.from(`${dictionary}\nstream\n`, "latin1"),
+        content,
+        Buffer.from("\nendstream", "latin1"),
+    ]);
 }
 
 function buildPDF(objects: Array<string | Buffer>): Uint8Array {
