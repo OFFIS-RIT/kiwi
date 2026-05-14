@@ -5,16 +5,9 @@ export async function linkifyResearchCitations(
     resolveCitation: (citation: CitationFence) => Promise<string>
 ) {
     const segments = splitTextWithCitationFences(text);
-    let output = "";
+    const resolvedCitations = await Promise.all(
+        segments.map((segment) => (segment.type === "citation" ? resolveCitation(segment.citation) : segment.text))
+    );
 
-    for (const segment of segments) {
-        if (segment.type === "text") {
-            output += segment.text;
-            continue;
-        }
-
-        output += await resolveCitation(segment.citation);
-    }
-
-    return output;
+    return resolvedCitations.join("");
 }

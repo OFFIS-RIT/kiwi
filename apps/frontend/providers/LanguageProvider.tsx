@@ -334,7 +334,8 @@ const translations = {
         "apiKey.expiry.never": "Never",
         "apiKey.created": "API Key Created",
         "apiKey.created.description": "Copy your API key now. It will not be shown again.",
-        "apiKey.created.warning": "Store this key in a safe place. You will not be able to see it again after closing this dialog.",
+        "apiKey.created.warning":
+            "Store this key in a safe place. You will not be able to see it again after closing this dialog.",
         "apiKey.delete": "Delete API key",
         "apiKey.deleted": "API key deleted.",
         "apiKey.no.keys": "No API keys yet.",
@@ -342,7 +343,7 @@ const translations = {
         "apiKey.expired": "Expired",
         "apiKey.cancel": "Cancel",
         "apiKey.delete.confirm.title": "Delete API Key",
-        "apiKey.delete.confirm.description": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
+        "apiKey.delete.confirm.description": 'Are you sure you want to delete "{name}"? This action cannot be undone.',
         "apiKey.error.loading": "Failed to load API keys.",
         "apiKey.lastUsed": "Last used: {date}",
         "apiKey.neverUsed": "Never used",
@@ -664,7 +665,8 @@ const translations = {
         "apiKey.expiry.never": "Unbegrenzt",
         "apiKey.created": "API-Schlüssel erstellt",
         "apiKey.created.description": "Kopiere deinen API-Schlüssel jetzt. Er wird nicht erneut angezeigt.",
-        "apiKey.created.warning": "Bewahre diesen Schlüssel sicher auf. Nach dem Schließen dieses Dialogs kannst du ihn nicht mehr einsehen.",
+        "apiKey.created.warning":
+            "Bewahre diesen Schlüssel sicher auf. Nach dem Schließen dieses Dialogs kannst du ihn nicht mehr einsehen.",
         "apiKey.delete": "API-Schlüssel löschen",
         "apiKey.deleted": "API-Schlüssel gelöscht.",
         "apiKey.no.keys": "Noch keine API-Schlüssel vorhanden.",
@@ -672,7 +674,8 @@ const translations = {
         "apiKey.expired": "Abgelaufen",
         "apiKey.cancel": "Abbrechen",
         "apiKey.delete.confirm.title": "API-Schlüssel löschen",
-        "apiKey.delete.confirm.description": "Möchtest du \"{name}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+        "apiKey.delete.confirm.description":
+            'Möchtest du "{name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
         "apiKey.error.loading": "API-Schlüssel konnten nicht geladen werden.",
         "apiKey.lastUsed": "Zuletzt genutzt: {date}",
         "apiKey.neverUsed": "Noch nicht genutzt",

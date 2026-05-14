@@ -35,11 +35,7 @@ export function ApiKeyRevealDialog({ apiKey, onOpenChange }: ApiKeyRevealDialogP
                             {apiKey}
                         </code>
                         <Button variant="outline" size="icon" className="shrink-0" onClick={handleCopy}>
-                            {copied ? (
-                                <Check className="h-4 w-4 text-emerald-600" />
-                            ) : (
-                                <Copy className="h-4 w-4" />
-                            )}
+                            {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
                         </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">{t("apiKey.created.warning")}</p>

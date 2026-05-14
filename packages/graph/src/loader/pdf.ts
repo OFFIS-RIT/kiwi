@@ -3378,7 +3378,14 @@ function encodeDecodedPDFImageAsPNG(
     }
 
     const colorSpace = getColorSpaceName(stream.get("ColorSpace", resolver), resolver);
-    const rgb = decodedPDFImageToRGB(decoded, width, height, bitsPerComponent, colorSpace, isImageMask(stream, resolver));
+    const rgb = decodedPDFImageToRGB(
+        decoded,
+        width,
+        height,
+        bitsPerComponent,
+        colorSpace,
+        isImageMask(stream, resolver)
+    );
     if (!rgb) {
         return decoded;
     }

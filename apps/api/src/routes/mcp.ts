@@ -1,16 +1,15 @@
 import { createChatSystemPrompt, getProviderOptions } from "@kiwi/ai";
 import { linkifyResearchCitations, runMcpResearch } from "@kiwi/ai/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { Elysia } from "elysia";
-import { z } from "zod/v3";
+import { z } from "zod/v4";
 import { assertCanViewGraph } from "../lib/graph-access";
 import { listAccessibleGraphs } from "../lib/graph-list";
 import { getGraphResearchRuntime, resolveCitationDocumentLink } from "../lib/chat";
 import { mcpAuthMiddleware } from "../middleware/auth";
 import { assertPermissions } from "../middleware/permissions";
+import { API_ERROR_CODES } from "../types";
 
 const getGraphsOutput = z.object({
     graphs: z.array(z.record(z.string(), z.unknown())),
@@ -45,6 +44,33 @@ function jsonRpcErrorResponse(status: number, code: number, message: string) {
     );
 }
 
+async function assertMcpGraphViewPermission(headers: Headers) {
+    try {
+        await assertPermissions(headers, { graph: ["view"] }, { apiKeyOnly: true });
+    } catch (error) {
+        if (error instanceof Error && error.message === API_ERROR_CODES.FORBIDDEN) {
+            throw new Error("This API key does not have permission to view graphs.");
+        }
+
+        throw new Error("Unable to verify permissions for this MCP tool.");
+    }
+}
+
+async function assertMcpCanViewGraph(...args: Parameters<typeof assertCanViewGraph>) {
+    try {
+        await assertCanViewGraph(...args);
+    } catch (error) {
+        if (
+            error instanceof Error &&
+            (error.message === API_ERROR_CODES.FORBIDDEN || error.message === API_ERROR_CODES.GRAPH_NOT_FOUND)
+        ) {
+            throw new Error("Graph not found or this API key does not have permission to view it.");
+        }
+
+        throw new Error("Unable to verify access to this graph.");
+    }
+}
+
 export const mcpRoute = new Elysia({ prefix: "/mcp" })
     .use(mcpAuthMiddleware)
     .post("/", async ({ request, session, user }) => {
@@ -56,46 +82,35 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
             name: "kiwi-mcp",
             version: "0.2.0",
         });
+        server.tool("get_graphs", "List the graphs/projects that the current API key can access.", async () => {
+            await assertMcpGraphViewPermission(request.headers);
+
+            const graphs = await listAccessibleGraphs(user);
+
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text:
+                            graphs.length === 0
+                                ? "No graphs available."
+                                : [
+                                      "Available graphs:",
+                                      ...graphs.map((graph) => `- ${graph.graph_name} (${graph.graph_id})`),
+                                  ].join("\n"),
+                    },
+                ],
+                structuredContent: getGraphsOutput.parse({ graphs }),
+            };
+        });
 
         server.tool(
-            "get_graphs",
-            "List the graphs/projects that the current API key can access.",
-            async () => {
-                await assertPermissions(request.headers, { graph: ["view"] }, { apiKeyOnly: true });
-
-                const graphs = await listAccessibleGraphs(user);
-
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text:
-                                graphs.length === 0
-                                    ? "No graphs available."
-                                    : [
-                                          "Available graphs:",
-                                          ...graphs.map((graph) => `- ${graph.graph_name} (${graph.graph_id})`),
-                                      ].join("\n"),
-                        },
-                    ],
-                    structuredContent: getGraphsOutput.parse({ graphs }),
-                };
-            }
-        );
-
-        server.registerTool(
             "research",
-            {
-                title: "Research",
-                description:
-                    "Research a question against one graph/project and return a Markdown answer with document links.",
-                inputSchema: researchInput as unknown as ZodRawShapeCompat,
-            },
-            (async (input: unknown) => {
-                const { graphId, question } = z.object(researchInput).parse(input);
-
-                await assertPermissions(request.headers, { graph: ["view"] }, { apiKeyOnly: true });
-                await assertCanViewGraph(user, graphId);
+            "Research a question against one graph/project and return a Markdown answer with document links.",
+            researchInput,
+            async ({ graphId, question }) => {
+                await assertMcpGraphViewPermission(request.headers);
+                await assertMcpCanViewGraph(user, graphId);
 
                 const { client, prompt, tools } = await getGraphResearchRuntime(graphId, { toolset: "mcp" });
 
@@ -116,7 +131,7 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
                         answer: result.answer,
                     }),
                 };
-            }) as unknown as ToolCallback<ZodRawShapeCompat>
+            }
         );
 
         const transport = new WebStandardStreamableHTTPServerTransport({

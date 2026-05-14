@@ -696,12 +696,11 @@ function ProjectChatSession({
                     </div>
 
                     <div className="flex shrink-0 items-center gap-3">
-                        <label htmlFor="deep-mode-switch" className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-                            <Switch
-                                id="deep-mode-switch"
-                                checked={isDeepMode}
-                                onCheckedChange={setIsDeepMode}
-                            />
+                        <label
+                            htmlFor="deep-mode-switch"
+                            className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground"
+                        >
+                            <Switch id="deep-mode-switch" checked={isDeepMode} onCheckedChange={setIsDeepMode} />
                             {t("deep.mode")}
                         </label>
                         <Button

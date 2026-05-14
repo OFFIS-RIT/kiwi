@@ -34,8 +34,12 @@ export function requirePermissions(permissions: KiwiPermissions) {
 
         try {
             await assertPermissions(request.headers, permissions);
-        } catch {
-            return status(403, errorResponse("Forbidden", API_ERROR_CODES.FORBIDDEN));
+        } catch (error) {
+            if (error instanceof Error && error.message === API_ERROR_CODES.FORBIDDEN) {
+                return status(403, errorResponse("Forbidden", API_ERROR_CODES.FORBIDDEN));
+            }
+
+            throw error;
         }
     };
 }

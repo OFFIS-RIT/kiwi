@@ -45,6 +45,9 @@ const trustedOrigins = parseOriginList(process.env.TRUSTED_ORIGINS);
 const crossSubDomainCookiesEnabled = parseBooleanEnv(process.env.AUTH_CROSS_SUBDOMAIN_COOKIES);
 const crossSubDomainCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined;
 
+export const API_KEY_RATE_LIMIT_TIME_WINDOW = 60_000;
+export const API_KEY_RATE_LIMIT_MAX_REQUESTS = 60;
+
 const ldapCredentialsSchema = z.object({
     credential: z.string().min(1),
     password: z.string().min(1),
@@ -120,7 +123,9 @@ export const auth = betterAuth({
             defaultPrefix: "kiwi_",
             enableSessionForAPIKeys: true,
             rateLimit: {
-                enabled: false,
+                enabled: true,
+                timeWindow: API_KEY_RATE_LIMIT_TIME_WINDOW,
+                maxRequests: API_KEY_RATE_LIMIT_MAX_REQUESTS,
             },
         }),
         adminPlugin({

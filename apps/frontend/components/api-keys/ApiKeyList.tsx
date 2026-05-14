@@ -2,7 +2,14 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { authClient } from "@kiwi/auth/client";
@@ -94,84 +101,91 @@ export function ApiKeyList() {
 
     return (
         <>
-        <div className="space-y-1">
-            {keys.map((key, index) => (
-                <div key={key.id}>
-                    <div className="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                            <Key className="h-4 w-4 text-primary" />
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                                <span className="truncate text-sm font-medium">
-                                    {key.name || t("apiKey.unnamed")}
-                                </span>
-                                {isExpired(key) && (
-                                    <Badge variant="destructive" className="h-4 px-1.5 py-0 text-[10px]">
-                                        {t("apiKey.expired")}
-                                    </Badge>
-                                )}
+            <div className="space-y-1">
+                {keys.map((key, index) => (
+                    <div key={key.id}>
+                        <div className="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                                <Key className="h-4 w-4 text-primary" />
                             </div>
-                            <span className="block truncate text-xs text-muted-foreground">
-                                {key.start ?? key.prefix ?? ""}...
-                            </span>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                <span className="flex items-center gap-1">
-                                    <Clock className="h-3 w-3" />
-                                    {key.lastRequest
-                                        ? t("apiKey.lastUsed", { date: formatDate(key.lastRequest)! })
-                                        : t("apiKey.neverUsed")}
-                                </span>
-                                {!isExpired(key) && (
-                                    <span>
-                                        {key.expiresAt
-                                            ? t("apiKey.expiresOn", { date: formatDate(key.expiresAt)! })
-                                            : t("apiKey.noExpiry")}
+
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="truncate text-sm font-medium">
+                                        {key.name || t("apiKey.unnamed")}
                                     </span>
-                                )}
+                                    {isExpired(key) && (
+                                        <Badge variant="destructive" className="h-4 px-1.5 py-0 text-[10px]">
+                                            {t("apiKey.expired")}
+                                        </Badge>
+                                    )}
+                                </div>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                    {key.start ?? key.prefix ?? ""}...
+                                </span>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1">
+                                        <Clock className="h-3 w-3" />
+                                        {key.lastRequest
+                                            ? t("apiKey.lastUsed", { date: formatDate(key.lastRequest)! })
+                                            : t("apiKey.neverUsed")}
+                                    </span>
+                                    {!isExpired(key) && (
+                                        <span>
+                                            {key.expiresAt
+                                                ? t("apiKey.expiresOn", { date: formatDate(key.expiresAt)! })
+                                                : t("apiKey.noExpiry")}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex shrink-0 items-center">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                    onClick={() => setConfirmDeleteKey(key)}
+                                    disabled={deletingId === key.id}
+                                    title={t("apiKey.delete")}
+                                >
+                                    {deletingId === key.id ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                </Button>
                             </div>
                         </div>
-
-                        <div className="flex shrink-0 items-center">
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                                onClick={() => setConfirmDeleteKey(key)}
-                                disabled={deletingId === key.id}
-                                title={t("apiKey.delete")}
-                            >
-                                {deletingId === key.id ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                )}
-                            </Button>
-                        </div>
+                        {index < keys.length - 1 && <Separator className="mx-3" />}
                     </div>
-                    {index < keys.length - 1 && <Separator className="mx-3" />}
-                </div>
-            ))}
-        </div>
-        <Dialog open={confirmDeleteKey !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteKey(null); }}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>{t("apiKey.delete.confirm.title")}</DialogTitle>
-                    <DialogDescription>
-                        {t("apiKey.delete.confirm.description", { name: confirmDeleteKey?.name || t("apiKey.unnamed") })}
-                    </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => setConfirmDeleteKey(null)}>
-                        {t("apiKey.cancel")}
-                    </Button>
-                    <Button variant="destructive" onClick={handleDelete}>
-                        {t("apiKey.delete")}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                ))}
+            </div>
+            <Dialog
+                open={confirmDeleteKey !== null}
+                onOpenChange={(open) => {
+                    if (!open) setConfirmDeleteKey(null);
+                }}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>{t("apiKey.delete.confirm.title")}</DialogTitle>
+                        <DialogDescription>
+                            {t("apiKey.delete.confirm.description", {
+                                name: confirmDeleteKey?.name || t("apiKey.unnamed"),
+                            })}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setConfirmDeleteKey(null)}>
+                            {t("apiKey.cancel")}
+                        </Button>
+                        <Button variant="destructive" onClick={handleDelete}>
+                            {t("apiKey.delete")}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }

@@ -20,6 +20,7 @@ import { db } from "@kiwi/db";
 import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { getPresignedDownloadUrl } from "@kiwi/files";
+import { error as logError } from "@kiwi/logger";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { env } from "../env";
 import { API_ERROR_CODES, errorResponse } from "../types";
@@ -179,7 +180,7 @@ async function syncMessages(chatId: string, messages: ChatUIMessage[]) {
 
 export async function getGraphResearchRuntime(
     graphId: string,
-    options: StartReplyOptions = { toolset: "server-and-client" }
+    options: StartReplyOptions = { toolset: "server" }
 ) {
     const [promptRow] = await db
         .select({ prompt: systemPromptsTable.prompt })
@@ -213,7 +214,7 @@ export async function getGraphResearchRuntime(
     });
 
     if (!client.text || !client.embedding) {
-        throw new Error("Text and embedding models are required for chat");
+        throw new Error("Text and embedding models are required");
     }
 
     const toolsetOptions = { graphId, embeddingModel: client.embedding };
@@ -286,18 +287,28 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
 }
 
 export async function resolveCitationDocumentLink(graphId: string, citation: CitationFence) {
-    const resolvedCitation = isResolvedCitationFence(citation)
-        ? citation
-        : await enrichCitation(graphId, citation.sourceId);
+    try {
+        const resolvedCitation = isResolvedCitationFence(citation)
+            ? citation
+            : await enrichCitation(graphId, citation.sourceId);
 
-    if (!resolvedCitation) {
+        if (!resolvedCitation) {
+            return "[source unavailable]";
+        }
+
+        const url = getPresignedDownloadUrl(resolvedCitation.fileKey, env.S3_BUCKET);
+        const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
+
+        return `[${label}](${url})`;
+    } catch (error) {
+        logError("failed to resolve citation document link", {
+            graphId,
+            sourceId: citation.sourceId,
+            error,
+        });
+
         return "[source unavailable]";
     }
-
-    const url = getPresignedDownloadUrl(resolvedCitation.fileKey, env.S3_BUCKET);
-    const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
-
-    return `[${label}](${url})`;
 }
 
 export async function loadChatHistory(userId: string, graphId: string, chatId: string) {

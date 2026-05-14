@@ -2,7 +2,7 @@ import Elysia from "elysia";
 import { defaultKeyHasher } from "@better-auth/api-key";
 import { and, eq } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
-import { auth } from "@kiwi/auth/server";
+import { API_KEY_RATE_LIMIT_MAX_REQUESTS, API_KEY_RATE_LIMIT_TIME_WINDOW, auth } from "@kiwi/auth/server";
 import { db } from "@kiwi/db";
 import { accountTable, apikey as apiKeyTable, userTable } from "@kiwi/db/tables/auth";
 import { error as logError, info as logInfo } from "@kiwi/logger";
@@ -106,9 +106,9 @@ export async function ensureMasterUser() {
                             refillAmount: null,
                             lastRefillAt: null,
                             enabled: true,
-                            rateLimitEnabled: false,
-                            rateLimitTimeWindow: null,
-                            rateLimitMax: null,
+                            rateLimitEnabled: true,
+                            rateLimitTimeWindow: API_KEY_RATE_LIMIT_TIME_WINDOW,
+                            rateLimitMax: API_KEY_RATE_LIMIT_MAX_REQUESTS,
                             requestCount: 0,
                             remaining: null,
                             lastRequest: null,
@@ -131,9 +131,9 @@ export async function ensureMasterUser() {
                                 refillAmount: null,
                                 lastRefillAt: null,
                                 enabled: true,
-                                rateLimitEnabled: false,
-                                rateLimitTimeWindow: null,
-                                rateLimitMax: null,
+                                rateLimitEnabled: true,
+                                rateLimitTimeWindow: API_KEY_RATE_LIMIT_TIME_WINDOW,
+                                rateLimitMax: API_KEY_RATE_LIMIT_MAX_REQUESTS,
                                 requestCount: 0,
                                 remaining: null,
                                 lastRequest: null,

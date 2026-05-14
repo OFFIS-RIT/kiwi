@@ -38,6 +38,10 @@ export async function runMcpResearch(options: RunMcpResearchOptions): Promise<Mc
     });
 
     const rawAnswer = extractFinalText(result.content);
+    if (rawAnswer.trim().length === 0) {
+        throw new Error("Research completed without a final text answer.");
+    }
+
     const answer = options.transformAnswer ? await options.transformAnswer(rawAnswer) : rawAnswer;
 
     return {
