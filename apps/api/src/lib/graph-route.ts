@@ -1,6 +1,5 @@
 import { db } from "@kiwi/db";
 import {
-    FILE_PROCESS_STEP_VALUES,
     type FileProcessStep,
     filesTable,
     graphTable,
@@ -14,8 +13,9 @@ import { error as logError } from "@kiwi/logger";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { env } from "../env";
 import { API_ERROR_CODES, errorResponse } from "../types";
-import type { ApiBatchStepProgressLike, GraphDetailFileRecord, GraphFileRecord, GraphListItem } from "../types/routes";
+import type { GraphDetailFileRecord, GraphFileRecord, GraphListItem } from "../types/routes";
 import { type GraphRecord } from "./graph-access";
+import { buildProcessStepProgress } from "./process-progress";
 
 export type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "text";
 export type UploadedFile = {
@@ -115,37 +115,6 @@ export const toGraphFileRecord = (file: GraphFileRow): GraphDetailFileRecord => 
     created_at: file.created_at?.toISOString() ?? null,
     updated_at: file.updated_at?.toISOString() ?? null,
 });
-
-function buildProcessStepProgress(run: RunRow, files: RunFile[]): ApiBatchStepProgressLike | undefined {
-    if (files.length === 0) {
-        return undefined;
-    }
-
-    const total = files.length;
-    if (run.status === "pending") {
-        return {
-            waiting_worker: `${total}/${total}`,
-        };
-    }
-
-    const counts = Object.fromEntries(FILE_PROCESS_STEP_VALUES.map((step) => [step, 0])) as Record<
-        FileProcessStep,
-        number
-    >;
-    const progress: ApiBatchStepProgressLike = {};
-
-    for (const file of files) {
-        counts[file.process_step] += 1;
-    }
-
-    for (const step of FILE_PROCESS_STEP_VALUES) {
-        if (counts[step] > 0) {
-            progress[step] = `${counts[step]}/${total}`;
-        }
-    }
-
-    return Object.keys(progress).length > 0 ? progress : undefined;
-}
 
 function buildProcessPercentage(files: RunFile[]): number {
     if (files.length === 0) {

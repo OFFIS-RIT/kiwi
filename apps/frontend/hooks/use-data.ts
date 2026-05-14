@@ -1,85 +1,9 @@
 "use client";
 
 import { fetchGraphs, fetchGroups } from "@/lib/api/groups";
-import type { ApiBatchStepProgress, ApiGraph, ApiGroup, ApiProjectFile, Group, ProcessStep } from "@/types";
+import { determineProcessStep } from "@/lib/process-step";
+import type { ApiBatchStepProgress, ApiGraph, ApiGroup, ApiProjectFile, Group } from "@/types";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-
-/**
- * Parses a string count to a number, defaulting to 0.
- */
-function parseCount(value?: string): number {
-    if (!value) return 0;
-    const parsed = parseInt(value, 10);
-    return isNaN(parsed) ? 0 : parsed;
-}
-
-/**
- * Determines the current process step based on the step with the highest file count.
- * Steps are aggregated as follows:
- * - waiting_worker → waiting_worker (process run has not been claimed)
- * - pending → queued (shown if no active processing steps)
- * - preprocessing + metadata + chunking → processing_files
- * - extracting + deduplicating → graph_creation
- * - saving → saving
- * - describing → generating_descriptions
- * - failed → failed (only if majority)
- *
- * "Completed" is never shown. If only completed files remain, falls back to "saving".
- */
-function determineProcessStep(progress?: ApiBatchStepProgress): ProcessStep | undefined {
-    if (!progress) return undefined;
-
-    const waitingWorkerCount = parseCount(progress.waiting_worker);
-    const queuedCount = parseCount(progress.pending);
-    const processingFilesCount =
-        parseCount(progress.preprocessing) + parseCount(progress.metadata) + parseCount(progress.chunking);
-    const graphCreationCount = parseCount(progress.extracting) + parseCount(progress.deduplicating);
-    const savingCount = parseCount(progress.saving);
-    const describingCount = parseCount(progress.describing);
-    const failedCount = parseCount(progress.failed);
-    const completedCount = parseCount(progress.completed);
-
-    if (waitingWorkerCount > 0) {
-        return "waiting_worker";
-    }
-
-    // Active steps ordered by progress (furthest first for tie-breaking)
-    const activeStepCounts: { step: ProcessStep; count: number }[] = [
-        { step: "generating_descriptions", count: describingCount },
-        { step: "saving", count: savingCount },
-        { step: "graph_creation", count: graphCreationCount },
-        { step: "processing_files", count: processingFilesCount },
-        { step: "failed", count: failedCount },
-    ];
-
-    // Find the step with the highest count (furthest step wins ties)
-    let maxStep: ProcessStep | undefined = undefined;
-    let maxCount = 0;
-
-    for (const { step, count } of activeStepCounts) {
-        if (count > maxCount) {
-            maxCount = count;
-            maxStep = step;
-        }
-    }
-
-    // If there's an active step, show it
-    if (maxStep) {
-        return maxStep;
-    }
-
-    // Show "queued" if files are waiting and no active processing
-    if (queuedCount > 0) {
-        return "queued";
-    }
-
-    // If only completed files remain, show "saving" as fallback
-    if (completedCount > 0) {
-        return "saving";
-    }
-
-    return undefined;
-}
 
 function hasActiveProcessing(groups?: Group[]): boolean {
     return (

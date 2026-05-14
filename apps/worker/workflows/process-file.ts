@@ -30,6 +30,7 @@ import { estimateToken, getClient } from "@kiwi/ai";
 import { ExcelLoader } from "@kiwi/graph/loader/excel";
 import { PPTXLoader } from "@kiwi/graph/loader/ppt";
 import { getFile, putNamedFile } from "@kiwi/files";
+import { error as logError } from "@kiwi/logger";
 import { buildAdapter, buildEmbeddingAdapter } from "../lib/ai";
 import { EMPTY_VECTOR_SQL, entityNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
@@ -874,14 +875,24 @@ export const processFile = defineWorkflow(
                     return FILE_DELETED;
                 }
 
-                await db.insert(processStatsTable).values({
-                    totalTime:
-                        baseFile.duration + unitsResult.duration + graphResult.duration + saveGraphResult.duration,
-                    files: 1,
-                    fileSizes: fileData.size,
-                    fileType: fileData.type,
-                    tokenCount: baseFile.tokenCount,
-                });
+                try {
+                    const totalTime =
+                        baseFile.duration + unitsResult.duration + graphResult.duration + saveGraphResult.duration;
+
+                    await db.insert(processStatsTable).values({
+                        totalTime,
+                        files: 1,
+                        fileSizes: fileData.size,
+                        fileType: fileData.type,
+                        tokenCount: baseFile.tokenCount,
+                    });
+                } catch (error) {
+                    logError("failed to store file process stats", {
+                        graphId: input.graphId,
+                        fileId: input.fileId,
+                        error,
+                    });
+                }
             });
             if (statsResult === FILE_DELETED) {
                 return;
