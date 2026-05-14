@@ -708,7 +708,7 @@ function ProjectChatSession({
                             variant="outline"
                             size="icon"
                             onClick={() => setIsResetDialogOpen(true)}
-                            disabled={isAssistantTyping}
+                            disabled={isAssistantTyping || displayedMessages.length === 0}
                             aria-label={t("reset.chat")}
                             className="h-8 w-8"
                         >
