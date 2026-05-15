@@ -1,4 +1,3 @@
-"use client";
 
 import { CardTemplate } from "@/components/common/CardTemplate";
 import { useAuth } from "@/providers/AuthProvider";

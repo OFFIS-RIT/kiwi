@@ -13,14 +13,19 @@ vi.mock("@kiwi/auth/client", () => ({
     },
 }));
 
+import { ConfigProvider } from "@/providers/ConfigProvider";
 import { LanguageProvider } from "@/providers/LanguageProvider";
 import { LoginForm } from "./LoginForm";
 
+const testConfig = { apiUrl: "/api", authUrl: "/auth", authMode: "credentials", buildLabel: "" };
+
 function renderLoginForm(onSwitch = vi.fn()) {
     return render(
-        <LanguageProvider>
-            <LoginForm onSwitchToRegister={onSwitch} />
-        </LanguageProvider>
+        <ConfigProvider config={testConfig}>
+            <LanguageProvider>
+                <LoginForm onSwitchToRegister={onSwitch} />
+            </LanguageProvider>
+        </ConfigProvider>
     );
 }
 

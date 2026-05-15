@@ -1,4 +1,3 @@
-"use client";
 
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/providers/LanguageProvider";

@@ -1,4 +1,3 @@
-"use client";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +10,6 @@ import {
 } from "@/components/ui/dialog";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { RotateCcw } from "lucide-react";
-import type React from "react";
 
 type ResetChatDialogProps = {
     open: boolean;

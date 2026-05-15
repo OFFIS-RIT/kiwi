@@ -7,7 +7,11 @@
 import { authClient } from "@kiwi/auth/client";
 import type { ApiErrorCode, ApiResponse, ErrorResponse, SuccessfulResponse } from "@kiwi/api/types";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
+let API_BASE_URL = "/api";
+
+export function initApiClient(baseUrl: string) {
+    API_BASE_URL = baseUrl;
+}
 
 /**
  * Custom error class for API failures with detailed status information.

@@ -1,4 +1,3 @@
-"use client";
 
 import { ChartConfig, ChartContainer } from "@/components/ui/chart";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";

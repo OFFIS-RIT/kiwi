@@ -1,4 +1,3 @@
-"use client";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +15,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { Search } from "lucide-react";
-import Image from "next/image";
 import type * as React from "react";
 
 export function AppSidebarSkeleton(props: React.ComponentProps<typeof Sidebar>) {
@@ -30,12 +28,11 @@ export function AppSidebarSkeleton(props: React.ComponentProps<typeof Sidebar>) 
                         <SidebarMenuItem>
                             <SidebarMenuButton size="lg">
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
-                                    <Image
+                                    <img
                                         src="/KIWI.jpg"
                                         alt="KIWI"
                                         width={48}
                                         height={48}
-                                        unoptimized
                                         className="size-full object-cover"
                                     />
                                 </div>

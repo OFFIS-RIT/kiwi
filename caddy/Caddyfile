@@ -7,8 +7,8 @@
 		max_size 4GB
 	}
 
-	@next_static path /_next/static/*
-	handle @next_static {
+	@static_assets path /assets/*
+	handle @static_assets {
 		header Cache-Control "public, immutable"
 		reverse_proxy frontend:3000
 	}

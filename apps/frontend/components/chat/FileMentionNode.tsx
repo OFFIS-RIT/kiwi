@@ -1,4 +1,3 @@
-"use client";
 
 import Mention from "@tiptap/extension-mention";
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from "@tiptap/react";

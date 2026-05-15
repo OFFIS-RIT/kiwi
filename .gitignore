@@ -40,12 +40,9 @@ coverage
 # evaluation
 evaluation/
 
-# next.js
-.next/
-out/
-
-# production
-build
+# build output
+build/
+.react-router/
 
 # misc
 .DS_Store
@@ -56,7 +53,6 @@ bun-debug.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
 
 # Docker
 *.pid

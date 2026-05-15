@@ -1,7 +1,7 @@
 # Technologies
 
 - Bun workspaces + Turbo for the monorepo and task running
-- Next.js 16 + React 19 for `apps/frontend`
+- React Router v7 + Vite (SSR) + React 19 for `apps/frontend`
 - Elysia for `apps/api`
 - AI SDK for model access and streaming
 - Drizzle ORM + Drizzle Kit for database access and migrations
@@ -27,7 +27,7 @@ Rules:
 # Structure
 
 - `apps/api`: Elysia API entrypoint, routes, auth bridge, OpenWorkflow backend wiring
-- `apps/frontend`: Next.js app, UI components, providers, frontend API client
+- `apps/frontend`: React Router v7 + Vite SSR app, UI components, providers, frontend API client
 - `apps/worker`: OpenWorkflow worker and workflow implementations
 - `packages/ai`: shared AI adapter and model utilities
 - `packages/auth`: Better Auth server/client setup and permissions

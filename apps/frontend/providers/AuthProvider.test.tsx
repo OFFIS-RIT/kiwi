@@ -10,8 +10,11 @@ vi.mock("@kiwi/auth/client", () => ({
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { authClient } from "@kiwi/auth/client";
+import { ConfigProvider } from "@/providers/ConfigProvider";
 import { LanguageProvider } from "@/providers/LanguageProvider";
 import { AuthProvider, useAuth } from "./AuthProvider";
+
+const testConfig = { apiUrl: "/api", authUrl: "/auth", authMode: "credentials", buildLabel: "" };
 
 function TestConsumer() {
     const { user, isAdmin, role } = useAuth();
@@ -32,13 +35,15 @@ function renderWithAuth(sessionData: unknown) {
     const queryClient = new QueryClient();
 
     return render(
-        <QueryClientProvider client={queryClient}>
-            <LanguageProvider>
-                <AuthProvider>
-                    <TestConsumer />
-                </AuthProvider>
-            </LanguageProvider>
-        </QueryClientProvider>
+        <ConfigProvider config={testConfig}>
+            <QueryClientProvider client={queryClient}>
+                <LanguageProvider>
+                    <AuthProvider>
+                        <TestConsumer />
+                    </AuthProvider>
+                </LanguageProvider>
+            </QueryClientProvider>
+        </ConfigProvider>
     );
 }
 

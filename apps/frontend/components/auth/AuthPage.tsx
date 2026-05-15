@@ -1,7 +1,5 @@
-"use client";
-
+import { useConfig } from "@/providers/ConfigProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
-import Image from "next/image";
 import { LoginForm } from "./LoginForm";
 import { RegisterForm } from "./RegisterForm";
 
@@ -10,9 +8,8 @@ type AuthPageProps = {
     onViewChange: (view: "login" | "register") => void;
 };
 
-const authMode = process.env.NEXT_PUBLIC_AUTH_MODE ?? "credentials";
-
 export function AuthPage({ view, onViewChange }: AuthPageProps) {
+    const { authMode } = useConfig();
     const { t } = useLanguage();
     const showRegister = authMode === "credentials" && view === "register";
 
@@ -20,12 +17,11 @@ export function AuthPage({ view, onViewChange }: AuthPageProps) {
         <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
             <div className="w-full max-w-sm rounded-xl border bg-card p-8 shadow-lg">
                 <div className="mb-6 flex flex-col items-center gap-2">
-                    <Image
+                    <img
                         src="/KIWI.jpg"
                         alt="KIWI Logo"
                         width={64}
                         height={64}
-                        unoptimized
                         className="rounded-full"
                     />
                     <h1 className="text-xl font-semibold">{t("auth.welcome")}</h1>

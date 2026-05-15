@@ -1,4 +1,3 @@
-"use client";
 
 import { fetchProjectFiles } from "@/lib/api/projects";
 import { cn } from "@/lib/utils";

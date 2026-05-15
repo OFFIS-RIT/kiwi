@@ -1,4 +1,3 @@
-"use client";
 
 import { StateDisplay } from "@/components/common/StateDisplay";
 import { useData } from "@/providers/DataProvider";

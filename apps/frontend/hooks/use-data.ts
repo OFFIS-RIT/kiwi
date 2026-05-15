@@ -1,4 +1,3 @@
-"use client";
 
 import { fetchGraphs, fetchGroups } from "@/lib/api/groups";
 import type { ApiBatchStepProgress, ApiGraph, ApiGroup, ApiProjectFile, Group, ProcessStep } from "@/types";

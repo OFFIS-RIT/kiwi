@@ -1,4 +1,3 @@
-"use client";
 
 import { chatTemplates } from "@/components/chat/chat-templates";
 import { ChatInput, type ChatInputHandle } from "@/components/chat/ChatInput";

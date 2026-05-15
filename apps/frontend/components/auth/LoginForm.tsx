@@ -1,8 +1,7 @@
-"use client";
-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useConfig } from "@/providers/ConfigProvider";
 import { authClient } from "@kiwi/auth/client";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { Loader2 } from "lucide-react";
@@ -13,10 +12,9 @@ type LoginFormProps = {
     onSwitchToRegister: () => void;
 };
 
-const authMode = process.env.NEXT_PUBLIC_AUTH_MODE ?? "credentials";
-const isLdap = authMode === "ldap";
-
 export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
+    const { authMode } = useConfig();
+    const isLdap = authMode === "ldap";
     const { t } = useLanguage();
     const [identifier, setIdentifier] = useState("");
     const [password, setPassword] = useState("");

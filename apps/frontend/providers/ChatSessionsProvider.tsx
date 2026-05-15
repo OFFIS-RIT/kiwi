@@ -1,4 +1,3 @@
-"use client";
 
 import { API_BASE_URL } from "@/lib/api/client";
 import type { ChatUIMessage } from "@kiwi/ai/ui";

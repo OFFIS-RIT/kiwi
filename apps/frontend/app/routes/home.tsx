@@ -1,5 +1,3 @@
-"use client";
-
 import { ProjectChat } from "@/components/chat";
 import { AppSidebarInset } from "@/components/common";
 import { GroupList } from "@/components/groups";
@@ -9,8 +7,10 @@ import { AppSidebar } from "@/components/sidebar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { AppProviders, useData, useLanguage, useNavigation } from "@/providers";
+import type { AppConfig } from "@/types/config";
 import type { Group, Project } from "@/types";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { useOutletContext } from "react-router";
 
 const DeleteGroupDialog = lazy(() =>
     import("@/components/groups").then((mod) => ({
@@ -32,6 +32,13 @@ const EditProjectDialog = lazy(() =>
         default: mod.EditProjectDialog,
     }))
 );
+
+export function meta() {
+    return [
+        { title: "KI-basiertes Wissensmanagement" },
+        { name: "description", content: "Ein Dashboard zur Verwaltung von Wissensgruppen und -projekten" },
+    ];
+}
 
 type DeletingProjectState = {
     project: Project;
@@ -58,7 +65,6 @@ function DashboardContent() {
         }
     }, [isLoading]);
 
-    // Processing graphs can be temporarily absent during polling; avoid treating that as deletion.
     useEffect(() => {
         const processingGroupIds = processingGroupIdsRef.current;
         const processingProjectIds = processingProjectIdsRef.current;
@@ -82,7 +88,6 @@ function DashboardContent() {
         }
     }, [groups]);
 
-    // Redirect when selected group/project was deleted.
     useEffect(() => {
         if (isLoading) return;
         if (selectedGroup) {
@@ -194,8 +199,6 @@ function NavigationWrapper({ onEditGroup, onEditProject, onDeleteGroup, onDelete
     const handleProjectCreated = (_projectId: string, groupId: string, _projectName: string) => {
         const group = groups.find((g) => g.id === groupId);
         if (group) {
-            // Select only the group to show the Project Overview (ProjectList)
-            // This allows the user to see the processing status of the new project
             selectItem(group);
         }
     };
@@ -290,9 +293,10 @@ function Dashboard() {
     );
 }
 
-export default function Page() {
+export default function Home() {
+    const config = useOutletContext<AppConfig>();
     return (
-        <AppProviders defaultTheme="light">
+        <AppProviders defaultTheme="light" config={config}>
             <Dashboard />
         </AppProviders>
     );

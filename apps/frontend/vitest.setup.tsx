@@ -1,6 +1,4 @@
 import "@testing-library/jest-dom/vitest";
-import type React from "react";
-import { vi } from "vitest";
 
 if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
     Object.defineProperty(window, "matchMedia", {
@@ -41,13 +39,3 @@ if (typeof localStorage === "undefined" || typeof localStorage.getItem !== "func
         writable: true,
     });
 }
-
-vi.mock("next/image", () => ({
-    default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => {
-        const { unoptimized: _unoptimized, ...imgProps } = props as React.ImgHTMLAttributes<HTMLImageElement> & {
-            unoptimized?: boolean;
-        };
-
-        return <img {...imgProps} />;
-    },
-}));

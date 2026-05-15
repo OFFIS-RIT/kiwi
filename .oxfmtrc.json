@@ -12,19 +12,16 @@
         "node_modules",
         ".pnp",
         ".pnp.js",
-        ".next",
-        "out",
         "dist",
         "build",
+        ".react-router",
         ".agents",
         ".claude",
         ".DS_Store",
         "*.pem",
         "bun-debug.log*",
         ".env*.local",
-        ".vercel",
         "*.tsbuildinfo",
-        "next-env.d.ts",
         "bun.lock"
     ]
 }

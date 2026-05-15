@@ -9,10 +9,7 @@
         "MASTER_USER_NAME",
         "MASTER_USER_EMAIL",
         "MASTER_USER_PASSWORD",
-        "NEXT_PUBLIC_API_URL",
-        "NEXT_PUBLIC_AUTH_URL",
-        "NEXT_PUBLIC_AUTH_MODE",
-        "NEXT_PUBLIC_APP_BUILD_LABEL",
+        "VITE_APP_BUILD_LABEL",
         "DATABASE_URL",
         "DATABASE_DIRECT_URL",
         "AUTH_SECRET",
@@ -68,7 +65,7 @@
     "tasks": {
         "build": {
             "dependsOn": ["^build"],
-            "outputs": [".next/**", "!.next/cache/**", "out/**", "dist/**"]
+            "outputs": ["build/**", "dist/**"]
         },
         "test": {
             "dependsOn": ["^test"],

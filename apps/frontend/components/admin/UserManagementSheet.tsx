@@ -1,14 +1,11 @@
-"use client";
-
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useConfig } from "@/providers/ConfigProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { UserPlus } from "lucide-react";
 import { useState } from "react";
 import { CreateUserDialog } from "./CreateUserDialog";
 import { UserTable } from "./UserTable";
-
-const authMode = process.env.NEXT_PUBLIC_AUTH_MODE ?? "credentials";
 
 type UserManagementSheetProps = {
     open: boolean;
@@ -16,6 +13,7 @@ type UserManagementSheetProps = {
 };
 
 export function UserManagementSheet({ open, onOpenChange }: UserManagementSheetProps) {
+    const { authMode } = useConfig();
     const { t } = useLanguage();
     const [showCreateUser, setShowCreateUser] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);

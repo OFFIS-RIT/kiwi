@@ -1,4 +1,3 @@
-"use client";
 
 import { Button } from "@/components/ui/button";
 import type { Group, Project } from "@/types";
@@ -34,7 +33,7 @@ import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
 import Fuse from "fuse.js";
 import { BookOpen, ChevronRight, Edit, FolderSearch, MoreVertical, Plus, Search, Trash2, Users, X } from "lucide-react";
-import Image from "next/image";
+import { useConfig } from "@/providers/ConfigProvider";
 import type * as React from "react";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 
@@ -52,7 +51,6 @@ type SearchResult = {
 };
 
 const MIN_SEARCH_LENGTH = 1;
-const APP_BUILD_LABEL = process.env.NEXT_PUBLIC_APP_BUILD_LABEL?.trim();
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     onEditGroup: (group: Group) => void;
@@ -70,6 +68,8 @@ export function AppSidebar({
     onProjectCreated,
     ...props
 }: AppSidebarProps) {
+    const { buildLabel } = useConfig();
+    const appBuildLabel = buildLabel.trim() || undefined;
     const { t } = useLanguage();
     const { groups, isLoading, error } = useData();
     const { showGroups, selectedGroup, selectedProject } = useNavigation();
@@ -258,12 +258,11 @@ export function AppSidebar({
                         <SidebarMenuItem>
                             <SidebarMenuButton size="lg" onClick={showGroups}>
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
-                                    <Image
+                                    <img
                                         src="/KIWI.jpg"
                                         alt="KIWI"
                                         width={48}
                                         height={48}
-                                        unoptimized
                                         className="size-full object-cover"
                                     />
                                 </div>
@@ -378,13 +377,13 @@ export function AppSidebar({
                     </SidebarGroupContent>
                 </SidebarGroup>
             </SidebarContent>
-            {APP_BUILD_LABEL ? (
+            {appBuildLabel ? (
                 <SidebarFooter className="gap-1 border-t border-sidebar-border group-data-[collapsible=icon]:hidden">
                     <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/40">
                         {t("app.build")}
                     </span>
-                    <span className="truncate font-mono text-xs text-sidebar-foreground/70" title={APP_BUILD_LABEL}>
-                        {APP_BUILD_LABEL}
+                    <span className="truncate font-mono text-xs text-sidebar-foreground/70" title={appBuildLabel}>
+                        {appBuildLabel}
                     </span>
                 </SidebarFooter>
             ) : null}

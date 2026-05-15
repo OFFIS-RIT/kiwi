@@ -13,16 +13,11 @@
         "isolatedModules": true,
         "jsx": "react-jsx",
         "incremental": true,
-        "types": ["vitest/globals", "@testing-library/jest-dom"],
-        "plugins": [
-            {
-                "name": "next"
-            }
-        ],
+        "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"],
         "paths": {
             "@/*": ["./*"]
         }
     },
-    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
+    "include": [".react-router/types/**/*", "**/*.ts", "**/*.tsx"],
     "exclude": ["node_modules", "vitest.config.ts", "vitest.setup.tsx"]
 }

@@ -1,4 +1,3 @@
-"use client";
 
 import { StateDisplay } from "@/components/common/StateDisplay";
 import { queryKeys } from "@/hooks/use-data";

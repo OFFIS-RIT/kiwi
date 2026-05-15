@@ -1,4 +1,3 @@
-"use client";
 
 import { AppSidebarInset } from "@/components/common/AppSidebarInset";
 import { AppSidebarSkeleton } from "@/components/sidebar";

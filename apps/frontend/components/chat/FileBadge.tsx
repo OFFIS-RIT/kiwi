@@ -1,4 +1,3 @@
-"use client";
 
 import { Badge } from "@/components/ui/badge";
 import type { ApiProjectFile } from "@/types/api";
