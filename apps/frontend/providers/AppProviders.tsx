@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import type { AppConfig } from "@/types/config";
@@ -23,7 +23,9 @@ type AppProvidersProps = {
 };
 
 export function AppProviders({ children, defaultTheme = "light", config }: AppProvidersProps) {
-    initApiClient(config.apiUrl);
+    useMemo(() => {
+        initApiClient(config.apiUrl);
+    }, [config.apiUrl]);
 
     return (
         <ConfigProvider config={config}>

@@ -17,7 +17,7 @@ import { ConfigProvider } from "@/providers/ConfigProvider";
 import { LanguageProvider } from "@/providers/LanguageProvider";
 import { LoginForm } from "./LoginForm";
 
-const testConfig = { apiUrl: "/api", authUrl: "/auth", authMode: "credentials", buildLabel: "" };
+const testConfig = { apiUrl: "/api", authMode: "credentials", buildLabel: "" };
 
 function renderLoginForm(onSwitch = vi.fn()) {
     return render(

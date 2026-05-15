@@ -9,9 +9,8 @@ export async function loader() {
     return {
         config: {
             apiUrl: process.env.API_URL || "/api",
-            authUrl: process.env.AUTH_URL || "/auth",
             authMode: process.env.AUTH_MODE || "credentials",
-            buildLabel: process.env.BUILD_LABEL || "",
+            buildLabel: import.meta.env.VITE_APP_BUILD_LABEL || "",
         },
     };
 }

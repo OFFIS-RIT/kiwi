@@ -14,7 +14,7 @@ import { ConfigProvider } from "@/providers/ConfigProvider";
 import { LanguageProvider } from "@/providers/LanguageProvider";
 import { AuthProvider, useAuth } from "./AuthProvider";
 
-const testConfig = { apiUrl: "/api", authUrl: "/auth", authMode: "credentials", buildLabel: "" };
+const testConfig = { apiUrl: "/api", authMode: "credentials", buildLabel: "" };
 
 function TestConsumer() {
     const { user, isAdmin, role } = useAuth();
