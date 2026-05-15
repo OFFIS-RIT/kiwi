@@ -50,7 +50,12 @@ function isProjectProcessing(project: Project): boolean {
     return project.state !== "ready";
 }
 
-function DashboardContent() {
+type DashboardContentProps = {
+    onEditProject: (project: Project, groupId: string) => void;
+    onEditGroup: (group: Group) => void;
+};
+
+function DashboardContent({ onEditProject, onEditGroup }: DashboardContentProps) {
     const { selectedGroup, selectedProject, showAllGroups, showGroups, selectItem } = useNavigation();
     const { t } = useLanguage();
     const { groups, isLoading } = useData();
@@ -104,84 +109,47 @@ function DashboardContent() {
         }
     }, [selectedGroup, selectedProject, groups, isLoading, showGroups, selectItem]);
 
-    const [editProjectDialogOpen, setEditProjectDialogOpen] = useState(false);
-    const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
-    const [editingProject, setEditingProject] = useState<{
-        id: string;
-        name: string;
-        groupId: string;
-    } | null>(null);
-    const [editingGroup, setEditingGroup] = useState<Group | null>(null);
-
-    const handleEditProject = (project: Project, groupId: string) => {
-        setEditingProject({ ...project, groupId });
-        setEditProjectDialogOpen(true);
-    };
-
-    const handleEditGroup = (group: Group) => {
-        setEditingGroup(group);
-        setEditGroupDialogOpen(true);
-    };
-
     return (
-        <>
-            <AppSidebarInset>
-                <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4">
-                    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                        <SidebarTrigger className="-ml-1" />
-                        <Separator orientation="vertical" className="mr-2 h-4 shrink-0" />
-                        <BreadcrumbNav ready={headerReady} />
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                        <LanguageSwitcher />
-                        <CreateActions />
-                        <UserNav />
-                    </div>
-                </header>
-                <div className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4">
-                    {selectedProject && selectedGroup ? (
-                        <div className="h-full min-w-0 overflow-hidden">
-                            <ProjectChat
-                                projectName={selectedProject.name}
-                                groupName={selectedGroup.name}
-                                projectId={selectedProject.id}
-                            />
-                        </div>
-                    ) : selectedGroup ? (
-                        <div className="h-full overflow-y-auto">
-                            <ProjectList onEditProject={handleEditProject} />
-                        </div>
-                    ) : showAllGroups ? (
-                        <div className="h-full overflow-y-auto">
-                            <GroupList onEditGroup={handleEditGroup} />
-                        </div>
-                    ) : (
-                        <div className="flex h-full items-center justify-center">
-                            <div className="text-center">
-                                <h2 className="text-xl font-semibold">{t("no.group.selected")}</h2>
-                                <p className="text-muted-foreground">{t("select.group.sidebar")}</p>
-                            </div>
-                        </div>
-                    )}
+        <AppSidebarInset>
+            <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4">
+                <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                    <SidebarTrigger className="-ml-1" />
+                    <Separator orientation="vertical" className="mr-2 h-4 shrink-0" />
+                    <BreadcrumbNav ready={headerReady} />
                 </div>
-            </AppSidebarInset>
-
-            <Suspense fallback={null}>
-                <EditProjectDialog
-                    open={editProjectDialogOpen}
-                    onOpenChange={setEditProjectDialogOpen}
-                    project={editingProject}
-                    groupId={editingProject?.groupId || null}
-                />
-            </Suspense>
-            <Suspense fallback={null}>
-                <EditGroupDialog
-                    open={editGroupDialogOpen}
-                    onOpenChange={setEditGroupDialogOpen}
-                    group={editingGroup}
-                />
-            </Suspense>
-        </>
+                <div className="flex shrink-0 items-center gap-2">
+                    <LanguageSwitcher />
+                    <CreateActions />
+                    <UserNav />
+                </div>
+            </header>
+            <div className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4">
+                {selectedProject && selectedGroup ? (
+                    <div className="h-full min-w-0 overflow-hidden">
+                        <ProjectChat
+                            projectName={selectedProject.name}
+                            groupName={selectedGroup.name}
+                            projectId={selectedProject.id}
+                        />
+                    </div>
+                ) : selectedGroup ? (
+                    <div className="h-full overflow-y-auto">
+                        <ProjectList onEditProject={onEditProject} />
+                    </div>
+                ) : showAllGroups ? (
+                    <div className="h-full overflow-y-auto">
+                        <GroupList onEditGroup={onEditGroup} />
+                    </div>
+                ) : (
+                    <div className="flex h-full items-center justify-center">
+                        <div className="text-center">
+                            <h2 className="text-xl font-semibold">{t("no.group.selected")}</h2>
+                            <p className="text-muted-foreground">{t("select.group.sidebar")}</p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </AppSidebarInset>
     );
 }
 
@@ -256,7 +224,7 @@ function Dashboard() {
                 onDeleteGroup={handleDeleteGroup}
                 onDeleteProject={handleDeleteProject}
             />
-            <DashboardContent />
+            <DashboardContent onEditProject={handleEditProject} onEditGroup={handleEditGroup} />
 
             <Suspense fallback={null}>
                 <EditProjectDialog

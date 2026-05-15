@@ -25,7 +25,7 @@ services:
         restart: unless-stopped
         environment:
             API_URL: /api
-            AUTH_URL: /auth
+            AUTH_URL: http://server:4321/auth
             AUTH_MODE: ${AUTH_MODE:-credentials}
 
     server:
