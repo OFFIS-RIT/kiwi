@@ -36,11 +36,22 @@ ENV NODE_ENV=production
 RUN groupadd --system --gid 1001 nodejs && \
     useradd --system --uid 1001 --gid nodejs --no-create-home appuser
 
-COPY --from=builder --chown=appuser:nodejs /app/apps/frontend/build ./build
-COPY --from=builder --chown=appuser:nodejs /app/apps/frontend/package.json ./package.json
-COPY --from=builder --chown=appuser:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=appuser:nodejs /app/apps/frontend/build ./apps/frontend/build
+COPY --from=builder --chown=appuser:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=appuser:nodejs /app/bun.lock ./bun.lock
+COPY --from=builder --chown=appuser:nodejs /app/apps/frontend/package.json ./apps/frontend/package.json
+COPY --from=builder --chown=appuser:nodejs /app/apps/api/package.json ./apps/api/package.json
+COPY --from=builder --chown=appuser:nodejs /app/apps/worker/package.json ./apps/worker/package.json
+COPY --from=builder --chown=appuser:nodejs /app/packages/ai/package.json ./packages/ai/package.json
+COPY --from=builder --chown=appuser:nodejs /app/packages/auth/package.json ./packages/auth/package.json
+COPY --from=builder --chown=appuser:nodejs /app/packages/db/package.json ./packages/db/package.json
+COPY --from=builder --chown=appuser:nodejs /app/packages/files/package.json ./packages/files/package.json
+COPY --from=builder --chown=appuser:nodejs /app/packages/graph/package.json ./packages/graph/package.json
+COPY --from=builder --chown=appuser:nodejs /app/packages/logger/package.json ./packages/logger/package.json
+COPY --from=builder --chown=appuser:nodejs /app/patches ./patches
+RUN bun install --production --frozen-lockfile
 
 USER appuser
 EXPOSE 3000
 
-CMD ["bun", "run", "start"]
+CMD ["bun", "run", "--filter", "@kiwi/frontend", "start"]
