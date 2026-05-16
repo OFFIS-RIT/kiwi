@@ -10,7 +10,7 @@
 
 <p align="center">
   <img alt="Bun" src="https://img.shields.io/badge/bun-1.x-black?style=flat-square&logo=bun" />
-  <img alt="Next.js" src="https://img.shields.io/badge/next.js-16-black?style=flat-square&logo=next.js" />
+  <img alt="React Router" src="https://img.shields.io/badge/react--router-7-black?style=flat-square&logo=reactrouter" />
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" /></a>
 </p>
 
@@ -46,7 +46,7 @@ When using OpenAI reasoning models, temperature is fixed to `1.0`, as required b
 
 | Layer    | Technology                                                       |
 | -------- | ---------------------------------------------------------------- |
-| Frontend | Next.js 16, React 19, TanStack Query, Tailwind CSS, Bun          |
+| Frontend | React Router v7, Vite (SSR), React 19, TanStack Query, Tailwind CSS, Bun |
 | Backend  | Bun, Elysia, Drizzle ORM                                         |
 | Auth     | Better Auth with admin roles, LDAP, and email/password           |
 | Database | PostgreSQL + pgvector                                            |
@@ -82,7 +82,7 @@ bun run dev
 
 The application will be available at:
 
-- **Frontend**: http://localhost:3000
+- **Frontend**: http://localhost:5173
 - **API**: http://localhost:4321
 - **Auth Routes**: http://localhost:4321/auth
 
@@ -124,7 +124,7 @@ certificate files in `./certs`.
 | Service    | Description                 |
 | ---------- | --------------------------- |
 | caddy      | Edge proxy with HTTPS       |
-| frontend   | Next.js frontend            |
+| frontend   | React Router + Vite SSR     |
 | server     | Bun API server with `/auth` |
 | worker     | Durable workflow worker     |
 | migrations | Startup migration job       |
@@ -139,7 +139,8 @@ certificate files in `./certs`.
 ```
 ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
 │   Frontend   │────▶│    Caddy     │────▶│   Server    │
-│  (Next.js)   │     │   (prod)     │     │    (Bun)    │
+│ (React Router│     │   (prod)     │     │    (Bun)    │
+│  + Vite SSR) │     │              │     │             │
 └──────────────┘     └──────────────┘     └─────────────┘
        │                                         │
        ▼                                         ▼
@@ -199,7 +200,7 @@ KIWI is organized as a Bun workspace monorepo. The main applications and shared 
 
 | Package           | Purpose                                                                      |
 | ----------------- | ---------------------------------------------------------------------------- |
-| `apps/frontend`   | Next.js frontend for document upload, graph browsing, admin flows, and chat  |
+| `apps/frontend`   | React Router v7 + Vite SSR frontend for document upload, graph browsing, admin flows, and chat |
 | `apps/api`        | Elysia API server, auth bridge, route handlers, and OpenWorkflow integration |
 | `apps/worker`     | Background worker that executes durable workflows for file processing        |
 | `packages/ai`     | Shared AI adapters, prompt helpers, chat message types, and tool wiring      |
@@ -230,10 +231,8 @@ Copy `.env.sample` to `.env` and configure:
 | `AUTH_CROSS_SUBDOMAIN_COOKIES`     | Enable Better Auth cross-subdomain cookies                             |
 | `AUTH_COOKIE_DOMAIN`               | Optional cookie domain for shared auth sessions across subdomains      |
 | `WORKER_CONCURRENCY`               | Maximum number of workflow runs processed in parallel by the worker    |
-| `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                  |
-| `NEXT_PUBLIC_AUTH_URL`             | Frontend auth service base URL                                         |
-| `NEXT_PUBLIC_AUTH_MODE`            | Frontend auth UI mode (see below)                                      |
-| `NEXT_PUBLIC_APP_BUILD_LABEL`      | Optional frontend build label                                          |
+| `API_URL`                          | Frontend API base URL (runtime, read by SSR server)                    |
+| `AUTH_MODE`                        | Frontend auth UI mode — `credentials` or `ldap` (runtime, see below)   |
 | `APPLE_CLIENT_ID`                  | Apple OAuth client ID                                                  |
 | `APPLE_CLIENT_SECRET`              | Apple OAuth client secret                                              |
 | `APPLE_BUNDLE_ID`                  | Apple bundle identifier (optional)                                     |
@@ -298,13 +297,13 @@ Authentication mode is configured **independently** on the backend and frontend 
   present (`LDAP_URL`, `LDAP_BIND_DN`, `LDAP_PASSW`, `LDAP_BASE_DN`,
   `LDAP_SEARCH_ATTR`). When LDAP is active, email/password sign-up and sign-in
   are **disabled** automatically.
-- **Frontend:** `NEXT_PUBLIC_AUTH_MODE` controls which login form is shown.
+- **Frontend:** `AUTH_MODE` controls which login form is shown.
   Set to `credentials` (default) for email/password or `ldap` for
   username/password via LDAP. It also hides the "Create User" button in admin
   when set to `ldap` (since user creation happens through LDAP).
 
 If the two sides disagree (e.g., backend has LDAP enabled but frontend is set to
-`credentials`), login will fail. Always set `NEXT_PUBLIC_AUTH_MODE=ldap` when
+`credentials`), login will fail. Always set `AUTH_MODE=ldap` when
 LDAP env vars are configured, and leave it as `credentials` (or unset) otherwise.
 
 Note: When all LDAP variables are set, LDAP sign-in is enabled and email/password auth is disabled.
@@ -326,27 +325,21 @@ AUTH_CROSS_SUBDOMAIN_COOKIES=true
 AUTH_COOKIE_DOMAIN=.example.com
 ```
 
-When you deploy behind Caddy on one host, keep the frontend build args on relative paths:
+When you deploy behind Caddy on one host, keep the frontend env vars on relative paths:
 
-- `NEXT_PUBLIC_API_URL=/api`
-- `NEXT_PUBLIC_AUTH_URL=/auth`
+- `API_URL=/api`
 
 Example:
 
 ```env
 AUTH_URL=https://kiwi.example.com/auth
 TRUSTED_ORIGINS=https://kiwi.example.com
-NEXT_PUBLIC_API_URL=/api
-NEXT_PUBLIC_AUTH_URL=/auth
+API_URL=/api
 ```
 
-For local Bun development without Caddy, point the frontend directly at the API/auth server:
+The auth client automatically derives its URL from the browser's origin (`window.location.origin + "/auth"`), so no separate auth URL variable is needed for the frontend.
 
-```env
-AUTH_URL=http://localhost:4321/auth
-NEXT_PUBLIC_API_URL=http://localhost:4321
-NEXT_PUBLIC_AUTH_URL=http://localhost:4321/auth
-```
+For local Bun development without Caddy, the Vite dev server proxies `/api` and `/auth` to the API server automatically — no extra frontend env vars are needed.
 
 OpenWorkflow uses `DATABASE_DIRECT_URL` instead of a separate workflow-specific connection variable.
 Use `DATABASE_URL` for pooled application queries and `DATABASE_DIRECT_URL` for migrations and workflow storage.
@@ -381,7 +374,7 @@ managed Better Auth API key for the master user.
 
 | Service  | Port       | Description                  |
 | -------- | ---------- | ---------------------------- |
-| frontend | 3000       | Next.js dev server           |
+| frontend | 5173       | Vite dev server (SSR)        |
 | server   | 4321       | Bun API server with `/auth`  |
 | worker   | -          | Durable workflow worker      |
 | postgres | 5433       | Direct PostgreSQL connection |
