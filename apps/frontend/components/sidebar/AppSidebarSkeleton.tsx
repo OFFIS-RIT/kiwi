@@ -1,3 +1,4 @@
+import { Image } from "@unpic/react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -28,11 +29,12 @@ export function AppSidebarSkeleton(props: React.ComponentProps<typeof Sidebar>) 
                         <SidebarMenuItem>
                             <SidebarMenuButton size="lg">
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
-                                    <img
+                                    <Image
                                         src="/KIWI.jpg"
                                         alt="KIWI"
                                         width={48}
                                         height={48}
+                                        layout="constrained"
                                         className="size-full object-cover"
                                     />
                                 </div>

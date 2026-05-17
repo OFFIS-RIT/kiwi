@@ -1,3 +1,4 @@
+import { Image } from "@unpic/react";
 
 import { Button } from "@/components/ui/button";
 import type { Group, Project } from "@/types";
@@ -258,11 +259,12 @@ export function AppSidebar({
                         <SidebarMenuItem>
                             <SidebarMenuButton size="lg" onClick={showGroups}>
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
-                                    <img
+                                    <Image
                                         src="/KIWI.jpg"
                                         alt="KIWI"
                                         width={48}
                                         height={48}
+                                        layout="constrained"
                                         className="size-full object-cover"
                                     />
                                 </div>
