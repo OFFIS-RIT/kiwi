@@ -9,13 +9,16 @@ export default defineConfig({
         proxy: {
             "/api": {
                 target: "http://localhost:4321",
+                changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/api/, ""),
             },
             "/auth": {
                 target: "http://localhost:4321",
+                changeOrigin: true,
             },
             "/s3": {
                 target: "http://localhost:9000",
+                changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/s3/, ""),
             },
         },
