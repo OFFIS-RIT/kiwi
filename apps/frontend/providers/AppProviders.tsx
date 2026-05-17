@@ -1,6 +1,7 @@
 import { type ReactNode, useMemo } from "react";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 import type { AppConfig } from "@/types/config";
 import { AuthProvider } from "@/providers/AuthProvider";
 import { ChatSessionsProvider } from "@/providers/ChatSessionsProvider";
@@ -30,6 +31,7 @@ export function AppProviders({ children, defaultTheme = "light", config }: AppPr
     return (
         <ConfigProvider config={config}>
             <ThemeProvider defaultTheme={defaultTheme}>
+                <Toaster richColors expand={true} position="bottom-center" duration={5000} />
                 <LanguageProvider>
                     <QueryProvider>
                         <AuthProvider>

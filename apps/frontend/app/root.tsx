@@ -1,7 +1,6 @@
 import type React from "react";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import type { Route } from "./+types/root";
-import { Toaster } from "sonner";
 import "./app.css";
 import "katex/dist/katex.min.css";
 
@@ -34,7 +33,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <body className="font-sans" style={{ fontFamily: "'Inter', sans-serif" }}>
                 <script suppressHydrationWarning>{themeScript}</script>
                 {children}
-                <Toaster richColors expand={true} position="bottom-center" duration={5000} />
                 <ScrollRestoration />
                 <Scripts />
             </body>
