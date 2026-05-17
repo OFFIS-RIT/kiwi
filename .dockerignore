@@ -13,9 +13,9 @@
 !apps/frontend/
 !apps/frontend/Dockerfile
 !apps/frontend/package.json
-!apps/frontend/next.config.ts
+!apps/frontend/vite.config.ts
+!apps/frontend/react-router.config.ts
 !apps/frontend/components.json
-!apps/frontend/postcss.config.mjs
 !apps/frontend/tsconfig.json
 !apps/frontend/app/**
 !apps/frontend/components/**

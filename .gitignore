@@ -69,11 +69,5 @@ bun-debug.log*
 # Superpowers
 .superpowers/
 
-# Binaries
-backend/worker
-backend/server
-backend/worker.exe
-backend/server.exe
-
 # turbo
 .turbo

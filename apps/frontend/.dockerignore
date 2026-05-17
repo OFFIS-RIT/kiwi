@@ -1,14 +1,12 @@
 # Dependencies and build artifacts
 node_modules/
-.next/
-out/
 dist/
 build/
 coverage/
+.react-router/
 
 # Tool caches
 .turbo/
-.vercel/
 
 # Local env and debug files
 .env
