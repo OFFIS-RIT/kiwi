@@ -8,29 +8,18 @@ import { credentialsClient } from "better-auth-credentials-plugin";
 
 import { ac, admin, manager, user } from "./permissions";
 
-function getBaseURL() {
-    const url = process.env.NEXT_PUBLIC_AUTH_URL || "/auth";
-
-    if (!("window" in globalThis) && url.startsWith("/")) {
-        return `http://localhost:3000${url}`;
-    }
-
-    return url;
+export function createKiwiAuthClient(baseURL: string) {
+    return createAuthClient({
+        baseURL,
+        plugins: [
+            inferAdditionalFields({
+                user: { role: { type: "string", input: false } },
+            }),
+            apiKeyClient(),
+            adminClient({ ac, roles: { admin, manager, user } }),
+            credentialsClient(),
+        ],
+    });
 }
 
-export const authClient = createAuthClient({
-    baseURL: getBaseURL(),
-    plugins: [
-        inferAdditionalFields({
-            user: {
-                role: {
-                    type: "string",
-                    input: false,
-                },
-            },
-        }),
-        apiKeyClient(),
-        adminClient({ ac, roles: { admin, manager, user } }),
-        credentialsClient(),
-    ],
-});
+export type KiwiAuthClient = ReturnType<typeof createKiwiAuthClient>;
