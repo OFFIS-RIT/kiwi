@@ -178,10 +178,7 @@ async function syncMessages(chatId: string, messages: ChatUIMessage[]) {
     }
 }
 
-export async function getGraphResearchRuntime(
-    graphId: string,
-    options: StartReplyOptions = { toolset: "server" }
-) {
+export async function getGraphResearchRuntime(graphId: string, options: StartReplyOptions = { toolset: "server" }) {
     const [promptRow] = await db
         .select({ prompt: systemPromptsTable.prompt })
         .from(systemPromptsTable)
