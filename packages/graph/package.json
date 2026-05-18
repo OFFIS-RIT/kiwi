@@ -24,7 +24,7 @@
         "ai": "catalog:",
         "js-tiktoken": "^1.0.21",
         "jszip": "^3.10.1",
-        "pdf-to-img": "^6.0.0",
+        "pdf-to-img": "^6.1.0",
         "ulid": "^3.0.2",
         "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
         "zod": "catalog:"

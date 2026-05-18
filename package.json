@@ -25,7 +25,7 @@
         "drizzle-kit": "^1.0.0-rc.2",
         "oxfmt": "^0.48.0",
         "oxlint": "^1.63.0",
-        "turbo": "^2.9.12"
+        "turbo": "^2.9.14"
     },
     "overrides": {
         "zod": "4.4.3"
