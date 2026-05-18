@@ -1,5 +1,3 @@
-import type { InlinePiece } from "./types";
-
 export function formatInlineText(
     value: string,
     format: { bold: boolean; italic: boolean; strike: boolean; underline: boolean },
@@ -36,27 +34,50 @@ export function formatInlineText(
     return `${leadingWhitespace}${text}${trailingWhitespace}`;
 }
 
-export function mergeInlineTextPieces(pieces: InlinePiece[]): InlinePiece[] {
-    return pieces.reduce<InlinePiece[]>((acc, piece) => {
-        const previous = acc.at(-1);
-        if (piece.kind === "text" && previous?.kind === "text") {
-            previous.text += piece.text;
-            return acc;
-        }
-
-        acc.push(piece);
-        return acc;
-    }, []);
-}
-
 export function cleanInlineText(value: string): string {
+    if (isSingleCleanLine(value)) {
+        return value.trim();
+    }
+
     const lines = value
         .replace(/\r/g, "")
         .split("\n")
-        .map((line) => line.replace(/[\t\f\v ]+/g, " ").trim())
+        .map((line) => line.replace(/\s+/g, " ").trim())
         .filter((line, index, lines) => line.length > 0 || (index > 0 && index < lines.length - 1));
 
     return lines.join("\n");
+}
+
+function isSingleCleanLine(value: string): boolean {
+    let previousWasSpace = false;
+
+    for (let index = 0; index < value.length; index += 1) {
+        const code = value.charCodeAt(index);
+        switch (code) {
+            case 9:
+            case 10:
+            case 11:
+            case 12:
+            case 13:
+                return false;
+            case 32:
+                if (previousWasSpace) {
+                    return false;
+                }
+
+                previousWasSpace = true;
+                break;
+            default:
+                if (code > 127 && /\s/u.test(value[index] ?? "")) {
+                    return false;
+                }
+
+                previousWasSpace = false;
+                break;
+        }
+    }
+
+    return true;
 }
 
 export function clampHeadingLevel(level: number): number {

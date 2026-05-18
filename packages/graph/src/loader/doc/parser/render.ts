@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import { squashWhitespace } from "../../ooxml/xml";
 import type { DOCBlock } from "./types";
 import { clampHeadingLevel, cleanInlineText } from "./text";
@@ -6,38 +5,32 @@ import { clampHeadingLevel, cleanInlineText } from "./text";
 const IMAGE_FENCE_PATTERN = /^:::IMG-[^:]+:::$/;
 
 export function renderMarkdown(blocks: DOCBlock[]): string {
-    return Effect.runSync(renderMarkdownEffect(blocks));
-}
+    const builder = new MarkdownBuilder();
 
-export function renderMarkdownEffect(blocks: DOCBlock[]): Effect.Effect<string, unknown> {
-    return Effect.try({
-        try: () => renderMarkdownSync(blocks),
-        catch: (error) => error,
-    });
-}
-
-function renderMarkdownSync(blocks: DOCBlock[]): string {
-    const rendered = blocks
-        .map((block) => {
-            switch (block.kind) {
-                case "heading":
-                    return `${"#".repeat(clampHeadingLevel(block.level))} ${block.text}`;
-                case "paragraph":
-                    return block.text;
-                case "bullet": {
-                    const indent = "  ".repeat(Math.max(0, block.level));
-                    const marker = block.ordered ? "1." : "-";
-                    return `${indent}${marker} ${block.text}`;
-                }
-                case "table":
-                    return rowsToMarkdown(block.rows);
-                case "image":
-                    return `:::IMG-${block.id}:::`;
+    for (const block of blocks) {
+        switch (block.kind) {
+            case "heading":
+                builder.append(`${"#".repeat(clampHeadingLevel(block.level))} ${block.text}`);
+                break;
+            case "paragraph":
+                builder.append(block.text);
+                break;
+            case "bullet": {
+                const indent = "  ".repeat(Math.max(0, block.level));
+                const marker = block.ordered ? "1." : "-";
+                builder.append(`${indent}${marker} ${block.text}`);
+                break;
             }
-        })
-        .filter(Boolean);
+            case "table":
+                builder.append(rowsToMarkdown(block.rows));
+                break;
+            case "image":
+                builder.append(`:::IMG-${block.id}:::`);
+                break;
+        }
+    }
 
-    return cleanMarkdownText(rendered.join("\n\n"));
+    return cleanMarkdownText(builder.toString());
 }
 
 export function rowsToMarkdown(rows: string[][]): string {
@@ -45,29 +38,53 @@ export function rowsToMarkdown(rows: string[][]): string {
         return "";
     }
 
-    const columnCount = Math.max(...rows.map((row) => row.length));
-    if (!Number.isFinite(columnCount) || columnCount <= 0) {
+    const columnCount = getColumnCount(rows);
+    if (columnCount <= 0) {
         return "";
     }
 
-    const normalizedRows = rows.map((row) => {
-        const nextRow = row.map((cell) => escapeMarkdownTableCell(cleanInlineText(cell).replace(/\s*\n\s*/g, " ")));
-        while (nextRow.length < columnCount) {
-            nextRow.push("");
+    const lines = [renderTableRow(rows[0] ?? [], columnCount), renderSeparatorRow(columnCount)];
+    for (let index = 1; index < rows.length; index += 1) {
+        lines.push(renderTableRow(rows[index] ?? [], columnCount));
+    }
+
+    return lines.join("\n");
+}
+
+class MarkdownBuilder {
+    private readonly parts: string[] = [];
+
+    append(value: string): void {
+        if (value.trim()) {
+            this.parts.push(value);
         }
+    }
 
-        return nextRow;
-    });
+    toString(): string {
+        return this.parts.join("\n\n");
+    }
+}
 
-    const header = normalizedRows[0] ?? [];
-    const separator = Array.from({ length: columnCount }, () => "---");
-    const body = normalizedRows.slice(1);
+function getColumnCount(rows: string[][]): number {
+    let columnCount = 0;
+    for (const row of rows) {
+        columnCount = Math.max(columnCount, row.length);
+    }
 
-    return [
-        `| ${header.join(" | ")} |`,
-        `| ${separator.join(" | ")} |`,
-        ...body.map((row) => `| ${row.join(" | ")} |`),
-    ].join("\n");
+    return columnCount;
+}
+
+function renderSeparatorRow(columnCount: number): string {
+    return `| ${Array.from({ length: columnCount }, () => "---").join(" | ")} |`;
+}
+
+function renderTableRow(row: string[], columnCount: number): string {
+    const cells: string[] = [];
+    for (let index = 0; index < columnCount; index += 1) {
+        cells.push(escapeMarkdownTableCell(cleanInlineText((row[index] ?? "").replace(/\s*\n\s*/g, " "))));
+    }
+
+    return `| ${cells.join(" | ")} |`;
 }
 
 function cleanMarkdownText(text: string): string {

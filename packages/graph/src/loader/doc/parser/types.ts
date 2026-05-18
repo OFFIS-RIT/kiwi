@@ -19,8 +19,6 @@ export type DOCBlock =
     | { kind: "table"; rows: string[][] }
     | { kind: "image"; id: string };
 
-export type InlinePiece = { kind: "text"; text: string } | { kind: "image"; id: string };
-
 export type DOCStyles = Map<string, { name: string | null; headingLevel: number | null }>;
 
 export type DOCNumbering = {
@@ -40,6 +38,7 @@ export type DOCParseContext = {
     styles: DOCStyles;
     numbering: DOCNumbering;
     images: DOCOCRImage[];
+    imageIdByTarget: Map<string, string>;
     nextImageId: () => string;
     ocr: boolean;
 };

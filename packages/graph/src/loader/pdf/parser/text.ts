@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import type { ActualTextSpan, PageText, TextChar, TextDirection, TextLine, TextSpan, Word } from "./types";
 import {
     INLINE_TOKEN_CONNECTORS,
@@ -14,17 +13,6 @@ import { average, getTop, median, squashWhitespace, unionBoxes } from "./geometr
 import { orderItemsByReadingLayout } from "./layout";
 
 export function tidyPageText(pageText: PageText): PageText {
-    return Effect.runSync(tidyPageTextEffect(pageText));
-}
-
-export function tidyPageTextEffect(pageText: PageText): Effect.Effect<PageText, unknown> {
-    return Effect.try({
-        try: () => tidyPageTextSync(pageText),
-        catch: (error) => error,
-    });
-}
-
-function tidyPageTextSync(pageText: PageText): PageText {
     const horizontalLines: TextLine[] = [];
     const verticalChars: TextChar[] = [];
 
@@ -85,20 +73,6 @@ function tidyPageTextSync(pageText: PageText): PageText {
 }
 
 export function applyActualTextToPageText(pageText: PageText, spans: ActualTextSpan[]): PageText {
-    return Effect.runSync(applyActualTextToPageTextEffect(pageText, spans));
-}
-
-export function applyActualTextToPageTextEffect(
-    pageText: PageText,
-    spans: ActualTextSpan[]
-): Effect.Effect<PageText, unknown> {
-    return Effect.try({
-        try: () => applyActualTextToPageTextSync(pageText, spans),
-        catch: (error) => error,
-    });
-}
-
-function applyActualTextToPageTextSync(pageText: PageText, spans: ActualTextSpan[]): PageText {
     if (spans.length === 0) {
         return pageText;
     }

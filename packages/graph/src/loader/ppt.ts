@@ -1,9 +1,8 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { Effect } from "effect";
 import type { GraphBinaryLoader, GraphLoader } from "..";
 import { processOCRImages } from "../lib/ocr-image";
-import { parsePPTEffect } from "./ppt/parser/document";
-import { renderMarkdownEffect } from "./ppt/parser/render";
+import { parsePPT } from "./ppt/parser/document";
+import { renderMarkdown } from "./ppt/parser/render";
 
 export class PPTXLoader implements GraphLoader {
     readonly filetype = "pptx";
@@ -20,43 +19,29 @@ export class PPTXLoader implements GraphLoader {
 
     async getText(): Promise<string> {
         if (this.options.ocr) {
-            this.cachedOCRText ??= Effect.runPromise(this.getOCRTextEffect());
+            this.cachedOCRText ??= this.getOCRText();
             return this.cachedOCRText;
         }
 
-        return Effect.runPromise(this.getPlainTextEffect());
+        return this.getPlainText();
     }
 
-    private getPlainTextEffect(): Effect.Effect<string, unknown> {
-        return Effect.gen(this, function* () {
-            const content = yield* this.getBinaryEffect();
-            const parsed = yield* parsePPTEffect(content, false);
-            return yield* renderMarkdownEffect(parsed.slides);
-        });
+    private async getPlainText(): Promise<string> {
+        const content = await this.options.loader.getBinary();
+        const parsed = await parsePPT(content, false);
+        return renderMarkdown(parsed.slides);
     }
 
-    private getOCRTextEffect(): Effect.Effect<string, unknown> {
+    private async getOCRText(): Promise<string> {
         const model = this.options.model;
         const storage = this.options.storage;
         if (!model || !storage) {
-            return Effect.fail(new Error("PPTX OCR requires an image model and storage configuration"));
+            throw new Error("PPTX OCR requires an image model and storage configuration");
         }
 
-        return Effect.gen(this, function* () {
-            const content = yield* this.getBinaryEffect();
-            const parsed = yield* parsePPTEffect(content, true);
-            const markdown = yield* renderMarkdownEffect(parsed.slides);
-            return yield* Effect.tryPromise({
-                try: () => processOCRImages(markdown, parsed.images, model, storage),
-                catch: (error) => error,
-            });
-        });
-    }
-
-    private getBinaryEffect(): Effect.Effect<ArrayBuffer, unknown> {
-        return Effect.tryPromise({
-            try: () => this.options.loader.getBinary(),
-            catch: (error) => error,
-        });
+        const content = await this.options.loader.getBinary();
+        const parsed = await parsePPT(content, true);
+        const markdown = renderMarkdown(parsed.slides);
+        return processOCRImages(markdown, parsed.images, model, storage);
     }
 }

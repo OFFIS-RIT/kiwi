@@ -1,23 +1,21 @@
-import { Effect } from "effect";
 import {
     createImageIdFactory,
     getMimeTypeForPath,
-    getRelationshipsForPartEffect,
-    loadOOXMLZipEffect,
-    parseContentTypesEffect,
-    readZipBinaryEffect,
-    readZipTextEffect,
+    getRelationshipsForPart,
+    loadOOXMLZip,
+    parseContentTypes,
+    readZipBinary,
+    readZipText,
 } from "../../ooxml/package";
 import {
+    childElements,
     findDescendants,
     findFirstChild,
     findFirstDescendant,
     getAttribute,
-    getChildElements,
     getDocumentRoot,
     getLocalName,
     parseXml,
-    parseXmlEffect,
 } from "../../ooxml/xml";
 import type { XMLNodeLike } from "../../ooxml/types";
 import {
@@ -25,331 +23,333 @@ import {
     cleanInlineText,
     detectHeadingLevel,
     formatInlineText,
-    mergeInlineTextPieces,
 } from "./text";
 import type {
     DOCBlock,
     DOCNumbering,
     DOCParseContext,
     DOCStyles,
-    InlinePiece,
     ParagraphListInfo,
     ParsedDOC,
 } from "./types";
 
+const PLAIN_INLINE_FORMAT = { bold: false, italic: false, strike: false, underline: false };
+
+type InlineSink = {
+    onText: (text: string) => void;
+    onImage: (id: string) => void;
+};
+
 export function parseDOCX(content: ArrayBuffer, ocr: boolean): Promise<ParsedDOC> {
-    return Effect.runPromise(parseDOCXEffect(content, ocr));
+    return parseDOCXDocument(content, ocr);
 }
 
-export function parseDOCXEffect(content: ArrayBuffer, ocr: boolean): Effect.Effect<ParsedDOC, unknown> {
-    return Effect.gen(function* () {
-        const zip = yield* loadOOXMLZipEffect(content);
-        const documentXml = yield* readZipTextEffect(zip, "word/document.xml");
-        if (!documentXml) {
-            return { blocks: [], images: [] };
-        }
+async function parseDOCXDocument(content: ArrayBuffer, ocr: boolean): Promise<ParsedDOC> {
+    const zip = await loadOOXMLZip(content);
+    const documentXml = await readZipText(zip, "word/document.xml");
+    if (!documentXml) {
+        return { blocks: [], images: [] };
+    }
 
-        const relationships = yield* getRelationshipsForPartEffect(zip, "word/document.xml");
-        const contentTypes = yield* parseContentTypesEffect(yield* readZipTextEffect(zip, "[Content_Types].xml"));
-        const styles = yield* parseDOCStylesEffect(yield* readZipTextEffect(zip, "word/styles.xml"));
-        const numbering = yield* parseDOCNumberingEffect(yield* readZipTextEffect(zip, "word/numbering.xml"));
-        const context: DOCParseContext = {
-            zip,
-            relationships,
-            contentTypes,
-            styles,
-            numbering,
-            images: [],
-            nextImageId: createImageIdFactory(),
-            ocr,
-        };
+    const relationships = ocr ? await getRelationshipsForPart(zip, "word/document.xml") : new Map();
+    const contentTypes = ocr
+        ? parseContentTypes(await readZipText(zip, "[Content_Types].xml"))
+        : { defaults: new Map(), overrides: new Map() };
+    const styles: DOCStyles = hasWordElement(documentXml, "pStyle")
+        ? parseDOCStyles(await readZipText(zip, "word/styles.xml"))
+        : new Map();
+    const numbering = hasWordElement(documentXml, "numPr")
+        ? parseDOCNumbering(await readZipText(zip, "word/numbering.xml"))
+        : createEmptyNumbering();
+    const context: DOCParseContext = {
+        zip,
+        relationships,
+        contentTypes,
+        styles,
+        numbering,
+        images: [],
+        imageIdByTarget: new Map(),
+        nextImageId: createImageIdFactory(),
+        ocr,
+    };
 
-        const document = yield* parseXmlEffect(documentXml);
-        const root = getDocumentRoot(document);
-        const body = root ? findFirstDescendant(root, "body") : null;
-        if (!body) {
-            return { blocks: [], images: [] };
-        }
+    const document = parseXml(documentXml);
+    const root = getDocumentRoot(document);
+    const body = root ? (findFirstChild(root, "body") ?? findFirstDescendant(root, "body")) : null;
+    if (!body) {
+        return { blocks: [], images: [] };
+    }
 
-        const blocks: DOCBlock[] = [];
-        for (const node of getChildElements(body)) {
-            switch (getLocalName(node)) {
-                case "p":
-                    blocks.push(...(yield* parseParagraphEffect(node, context)));
-                    break;
-                case "tbl": {
-                    const table = yield* parseTableEffect(node, context);
-                    if (table) {
-                        blocks.push(table);
-                    }
-                    break;
+    const blocks: DOCBlock[] = [];
+    for (const node of childElements(body)) {
+        switch (getLocalName(node)) {
+            case "p":
+                blocks.push(...(await parseParagraph(node, context)));
+                break;
+            case "tbl": {
+                const table = await parseTable(node, context);
+                if (table) {
+                    blocks.push(table);
                 }
-                default:
-                    break;
+                break;
             }
+            default:
+                break;
         }
+    }
 
-        return {
-            blocks,
-            images: context.images,
-        };
-    });
+    return {
+        blocks,
+        images: context.images,
+    };
 }
 
-function parseParagraphEffect(paragraph: XMLNodeLike, context: DOCParseContext): Effect.Effect<DOCBlock[], unknown> {
-    return Effect.gen(function* () {
-        const headingLevel = getParagraphHeadingLevel(paragraph, context.styles);
-        const listInfo = getParagraphListInfo(paragraph, context.numbering);
-        const pieces = yield* collectParagraphPiecesEffect(paragraph, context);
-        if (pieces.length === 0) {
-            return [];
+async function parseParagraph(paragraph: XMLNodeLike, context: DOCParseContext): Promise<DOCBlock[]> {
+    const properties = findFirstChild(paragraph, "pPr");
+    const headingLevel = getParagraphHeadingLevel(properties, context.styles);
+    const listInfo = getParagraphListInfo(properties, context.numbering);
+    const blocks: DOCBlock[] = [];
+    let textParts: string[] = [];
+
+    const flushText = () => {
+        const text = cleanInlineText(textParts.join(""));
+        textParts = [];
+        if (!text) {
+            return;
         }
 
-        const blocks: DOCBlock[] = [];
-        let textBuffer = "";
+        if (headingLevel !== null) {
+            blocks.push({ kind: "heading", level: headingLevel, text });
+            return;
+        }
 
-        const flushText = () => {
-            const text = cleanInlineText(textBuffer);
-            textBuffer = "";
-            if (!text) {
-                return;
-            }
+        if (listInfo) {
+            blocks.push({ kind: "bullet", text, level: listInfo.level, ordered: listInfo.ordered });
+            return;
+        }
 
-            if (headingLevel !== null) {
-                blocks.push({ kind: "heading", level: headingLevel, text });
-                return;
-            }
+        blocks.push({ kind: "paragraph", text });
+    };
 
-            if (listInfo) {
-                blocks.push({ kind: "bullet", text, level: listInfo.level, ordered: listInfo.ordered });
-                return;
-            }
-
-            blocks.push({ kind: "paragraph", text });
-        };
-
-        for (const piece of pieces) {
-            if (piece.kind === "text") {
-                textBuffer += piece.text;
-                continue;
-            }
-
+    await collectParagraphContent(paragraph, context, {
+        onText: (text) => textParts.push(text),
+        onImage: (id) => {
             flushText();
-            blocks.push({ kind: "image", id: piece.id });
-        }
-
-        flushText();
-        return blocks;
+            blocks.push({ kind: "image", id });
+        },
     });
+
+    flushText();
+    return blocks;
 }
 
-function parseTableEffect(table: XMLNodeLike, context: DOCParseContext): Effect.Effect<DOCBlock | null, unknown> {
-    return Effect.gen(function* () {
-        const rows = getChildElements(table).filter((node) => getLocalName(node) === "tr");
-        const renderedRows: string[][] = [];
+async function parseTable(table: XMLNodeLike, context: DOCParseContext): Promise<DOCBlock | null> {
+    const renderedRows: string[][] = [];
 
-        for (const row of rows) {
-            const cells = getChildElements(row).filter((node) => getLocalName(node) === "tc");
-            if (cells.length === 0) {
+    for (const row of childElements(table)) {
+        if (getLocalName(row) !== "tr") {
+            continue;
+        }
+
+        const renderedCells: string[] = [];
+        for (const cell of childElements(row)) {
+            if (getLocalName(cell) !== "tc") {
                 continue;
             }
 
-            const renderedCells: string[] = [];
-            for (const cell of cells) {
-                renderedCells.push(yield* extractTableCellTextEffect(cell, context));
-            }
+            renderedCells.push(await extractTableCellText(cell, context));
+        }
+
+        if (renderedCells.length > 0) {
             renderedRows.push(renderedCells);
         }
+    }
 
-        const nonEmptyRows = renderedRows.filter((row) => row.some((cell) => cell.length > 0) || row.length > 0);
-        return nonEmptyRows.length === 0 ? null : { kind: "table", rows: nonEmptyRows };
-    });
+    return renderedRows.length === 0 ? null : { kind: "table", rows: renderedRows };
 }
 
-function extractTableCellTextEffect(cell: XMLNodeLike, context: DOCParseContext): Effect.Effect<string, unknown> {
-    return Effect.gen(function* () {
-        const parts: string[] = [];
-        const textOnlyContext = { ...context, ocr: false };
+async function extractTableCellText(cell: XMLNodeLike, context: DOCParseContext): Promise<string> {
+    const parts: string[] = [];
+    const textOnlyContext = { ...context, ocr: false };
 
-        for (const node of getChildElements(cell)) {
-            if (getLocalName(node) !== "p") {
-                continue;
-            }
-
-            const pieces = yield* collectParagraphPiecesEffect(node, textOnlyContext);
-            const text = cleanInlineText(
-                pieces
-                    .filter((piece): piece is Extract<InlinePiece, { kind: "text" }> => piece.kind === "text")
-                    .map((piece) => piece.text)
-                    .join("")
-            );
-
-            if (text) {
-                parts.push(text.replace(/\s*\n\s*/g, " "));
-            }
+    for (const node of childElements(cell)) {
+        if (getLocalName(node) !== "p") {
+            continue;
         }
 
-        return cleanInlineText(parts.join(" "));
-    });
+        const textParts: string[] = [];
+        await collectParagraphContent(node, textOnlyContext, {
+            onText: (text) => textParts.push(text),
+            onImage: () => undefined,
+        });
+
+        const text = cleanInlineText(textParts.join(""));
+
+        if (text) {
+            parts.push(text.replace(/\s*\n\s*/g, " "));
+        }
+    }
+
+    return cleanInlineText(parts.join(" "));
 }
 
-function collectParagraphPiecesEffect(
+async function collectParagraphContent(
     paragraph: XMLNodeLike,
-    context: DOCParseContext
-): Effect.Effect<InlinePiece[], unknown> {
-    return Effect.gen(function* () {
-        const pieces: InlinePiece[] = [];
-
-        for (const child of getChildElements(paragraph)) {
-            if (getLocalName(child) === "pPr") {
-                continue;
-            }
-
-            pieces.push(...(yield* parseInlineNodeEffect(child, context, null)));
+    context: DOCParseContext,
+    sink: InlineSink
+): Promise<void> {
+    for (const child of childElements(paragraph)) {
+        if (getLocalName(child) === "pPr") {
+            continue;
         }
 
-        return mergeInlineTextPieces(pieces);
-    });
+        await parseInlineNode(child, context, null, sink);
+    }
 }
 
-function parseInlineNodeEffect(
+async function parseInlineNode(
     node: XMLNodeLike,
     context: DOCParseContext,
-    hyperlinkTarget: string | null
-): Effect.Effect<InlinePiece[], unknown> {
-    return Effect.gen(function* () {
-        switch (getLocalName(node)) {
-            case "r":
-                return yield* parseRunEffect(node, context, hyperlinkTarget);
-            case "hyperlink": {
+    hyperlinkTarget: string | null,
+    sink: InlineSink
+): Promise<void> {
+    switch (getLocalName(node)) {
+        case "r":
+            await parseRun(node, context, hyperlinkTarget, sink);
+            return;
+        case "hyperlink": {
+            let target: string | null = null;
+            if (context.ocr) {
                 const relationshipId = getAttribute(node, "r:id", "id");
                 const anchor = getAttribute(node, "w:anchor", "anchor");
                 const relationship = relationshipId ? context.relationships.get(relationshipId) : null;
-                const target = relationship?.target ?? (anchor ? `#${anchor}` : null);
-                const pieces: InlinePiece[] = [];
-
-                for (const child of getChildElements(node)) {
-                    pieces.push(...(yield* parseInlineNodeEffect(child, context, target)));
-                }
-
-                return mergeInlineTextPieces(pieces);
+                target = relationship?.target ?? (anchor ? `#${anchor}` : null);
             }
-            case "smartTag":
-            case "sdt":
-            case "sdtContent":
-            case "ins":
-            case "customXml":
-            case "fldSimple": {
-                const pieces: InlinePiece[] = [];
-                for (const child of getChildElements(node)) {
-                    pieces.push(...(yield* parseInlineNodeEffect(child, context, hyperlinkTarget)));
-                }
 
-                return mergeInlineTextPieces(pieces);
+            for (const child of childElements(node)) {
+                await parseInlineNode(child, context, target, sink);
             }
-            default:
-                return [];
+
+            return;
         }
-    });
+        case "smartTag":
+        case "sdt":
+        case "sdtContent":
+        case "ins":
+        case "customXml":
+        case "fldSimple": {
+            for (const child of childElements(node)) {
+                await parseInlineNode(child, context, hyperlinkTarget, sink);
+            }
+
+            return;
+        }
+        default:
+            return;
+    }
 }
 
-function parseRunEffect(
+async function parseRun(
     run: XMLNodeLike,
     context: DOCParseContext,
-    hyperlinkTarget: string | null
-): Effect.Effect<InlinePiece[], unknown> {
-    return Effect.gen(function* () {
-        const props = findFirstChild(run, "rPr");
-        const format = {
-            bold: hasRunFormatting(props, "b"),
-            italic: hasRunFormatting(props, "i"),
-            strike: hasRunFormatting(props, "strike"),
-            underline: hasRunFormatting(props, "u"),
-        };
+    hyperlinkTarget: string | null,
+    sink: InlineSink
+): Promise<void> {
+    const format = context.ocr ? getRunFormat(run) : PLAIN_INLINE_FORMAT;
 
-        const pieces: InlinePiece[] = [];
-        for (const child of getChildElements(run)) {
-            switch (getLocalName(child)) {
-                case "rPr":
-                    break;
-                case "t": {
-                    const value = child.textContent ?? "";
-                    if (value) {
-                        pieces.push({
-                            kind: "text",
-                            text: formatInlineText(value, format, hyperlinkTarget, context.ocr),
-                        });
-                    }
-                    break;
+    for (const child of childElements(run)) {
+        switch (getLocalName(child)) {
+            case "rPr":
+                break;
+            case "t": {
+                const value = child.textContent ?? "";
+                if (value) {
+                    sink.onText(formatInlineText(value, format, context.ocr ? hyperlinkTarget : null, context.ocr));
                 }
-                case "br":
-                case "cr":
-                    pieces.push({ kind: "text", text: "\n" });
-                    break;
-                case "tab":
-                    pieces.push({ kind: "text", text: "\t" });
-                    break;
-                case "noBreakHyphen":
-                case "softHyphen":
-                    pieces.push({ kind: "text", text: "-" });
-                    break;
-                case "drawing":
-                case "pict": {
-                    if (!context.ocr) {
-                        break;
-                    }
-
-                    const imageId = yield* extractImageIdEffect(child, context);
-                    if (imageId) {
-                        pieces.push({ kind: "image", id: imageId });
-                    }
-                    break;
-                }
-                default:
-                    break;
+                break;
             }
-        }
+            case "br":
+            case "cr":
+                sink.onText("\n");
+                break;
+            case "tab":
+                sink.onText("\t");
+                break;
+            case "noBreakHyphen":
+            case "softHyphen":
+                sink.onText("-");
+                break;
+            case "drawing":
+            case "pict": {
+                if (!context.ocr) {
+                    break;
+                }
 
-        return mergeInlineTextPieces(pieces);
-    });
+                const imageId = await extractImageId(child, context);
+                if (imageId) {
+                    sink.onImage(imageId);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
 }
 
-function extractImageIdEffect(node: XMLNodeLike, context: DOCParseContext): Effect.Effect<string | null, unknown> {
-    return Effect.gen(function* () {
-        const blip = findFirstDescendant(node, "blip");
-        const imageData = blip ? null : findFirstDescendant(node, "imagedata");
-        const relationshipId = blip
-            ? getAttribute(blip, "r:embed", "embed", "r:link", "link")
-            : imageData
-              ? getAttribute(imageData, "r:id", "id")
-              : null;
-        if (!relationshipId) {
-            return null;
-        }
-
-        const relationship = context.relationships.get(relationshipId);
-        if (!relationship || relationship.external) {
-            return null;
-        }
-
-        const content = yield* readZipBinaryEffect(context.zip, relationship.target);
-        if (!content) {
-            return null;
-        }
-
-        const id = context.nextImageId();
-        context.images.push({
-            id,
-            type: getMimeTypeForPath(context.contentTypes, relationship.target),
-            content,
-        });
-
-        return id;
-    });
+function getRunFormat(run: XMLNodeLike): typeof PLAIN_INLINE_FORMAT {
+    const props = findFirstChild(run, "rPr");
+    return {
+        bold: hasRunFormatting(props, "b"),
+        italic: hasRunFormatting(props, "i"),
+        strike: hasRunFormatting(props, "strike"),
+        underline: hasRunFormatting(props, "u"),
+    };
 }
 
-function getParagraphHeadingLevel(paragraph: XMLNodeLike, styles: DOCStyles): number | null {
-    const properties = findFirstChild(paragraph, "pPr");
+function hasWordElement(xml: string, name: string): boolean {
+    return xml.includes(`:${name}`) || xml.includes(`<${name}`);
+}
+
+async function extractImageId(node: XMLNodeLike, context: DOCParseContext): Promise<string | null> {
+    const blip = findFirstDescendant(node, "blip");
+    const imageData = blip ? null : findFirstDescendant(node, "imagedata");
+    const relationshipId = blip
+        ? getAttribute(blip, "r:embed", "embed", "r:link", "link")
+        : imageData
+          ? getAttribute(imageData, "r:id", "id")
+          : null;
+    if (!relationshipId) {
+        return null;
+    }
+
+    const relationship = context.relationships.get(relationshipId);
+    if (!relationship || relationship.external) {
+        return null;
+    }
+
+    const cachedId = context.imageIdByTarget.get(relationship.target);
+    if (cachedId) {
+        return cachedId;
+    }
+
+    const content = await readZipBinary(context.zip, relationship.target);
+    if (!content) {
+        return null;
+    }
+
+    const id = context.nextImageId();
+    context.images.push({
+        id,
+        type: getMimeTypeForPath(context.contentTypes, relationship.target),
+        content,
+    });
+    context.imageIdByTarget.set(relationship.target, id);
+
+    return id;
+}
+
+function getParagraphHeadingLevel(properties: XMLNodeLike | null, styles: DOCStyles): number | null {
     if (!properties) {
         return null;
     }
@@ -373,8 +373,7 @@ function getParagraphHeadingLevel(paragraph: XMLNodeLike, styles: DOCStyles): nu
     return fromStyle ?? detectHeadingLevel(styleId);
 }
 
-function getParagraphListInfo(paragraph: XMLNodeLike, numbering: DOCNumbering): ParagraphListInfo | null {
-    const properties = findFirstChild(paragraph, "pPr");
+function getParagraphListInfo(properties: XMLNodeLike | null, numbering: DOCNumbering): ParagraphListInfo | null {
     const numPr = properties ? findFirstChild(properties, "numPr") : null;
     if (!numPr) {
         return null;
@@ -433,11 +432,11 @@ function hasRunFormatting(properties: XMLNodeLike | null, name: string): boolean
     return value !== "0" && value !== "false";
 }
 
-function parseDOCStylesEffect(xml: string | null): Effect.Effect<DOCStyles, unknown> {
-    return Effect.try({
-        try: () => parseDOCStyles(xml),
-        catch: (error) => error,
-    });
+function createEmptyNumbering(): DOCNumbering {
+    return {
+        numToAbstract: new Map(),
+        abstractFormats: new Map(),
+    };
 }
 
 function parseDOCStyles(xml: string | null): DOCStyles {
@@ -466,18 +465,8 @@ function parseDOCStyles(xml: string | null): DOCStyles {
     return styles;
 }
 
-function parseDOCNumberingEffect(xml: string | null): Effect.Effect<DOCNumbering, unknown> {
-    return Effect.try({
-        try: () => parseDOCNumbering(xml),
-        catch: (error) => error,
-    });
-}
-
 function parseDOCNumbering(xml: string | null): DOCNumbering {
-    const numbering: DOCNumbering = {
-        numToAbstract: new Map(),
-        abstractFormats: new Map(),
-    };
+    const numbering = createEmptyNumbering();
     if (!xml) {
         return numbering;
     }
@@ -494,7 +483,11 @@ function parseDOCNumbering(xml: string | null): DOCNumbering {
         }
 
         const levels = new Map<number, string>();
-        for (const level of getChildElements(abstractNum).filter((node) => getLocalName(node) === "lvl")) {
+        for (const level of childElements(abstractNum)) {
+            if (getLocalName(level) !== "lvl") {
+                continue;
+            }
+
             const ilvlValue = getAttribute(level, "w:ilvl", "ilvl");
             const ilvl = Number.isFinite(Number(ilvlValue)) ? Number(ilvlValue) : 0;
             const numFmt = findFirstChild(level, "numFmt");

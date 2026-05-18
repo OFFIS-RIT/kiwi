@@ -1,47 +1,35 @@
-import { Effect } from "effect";
 import { read, utils, type WorkBook, type WorkSheet } from "xlsx";
 import { rowsToMarkdown } from "./render";
 import type { ExcelResult, ExcelSheetResult } from "./types";
 
 export function extractExcel(content: ArrayBuffer): ExcelResult {
-    return Effect.runSync(extractExcelEffect(content));
-}
+    const workbook = readWorkbook(content);
+    const sheets: ExcelSheetResult[] = [];
 
-export function extractExcelEffect(content: ArrayBuffer): Effect.Effect<ExcelResult, unknown> {
-    return Effect.gen(function* () {
-        const workbook = yield* readWorkbookEffect(content);
-        const sheets: ExcelSheetResult[] = [];
-
-        for (const [index, sheetName] of workbook.SheetNames.entries()) {
-            const sheet = yield* renderSheetEffect(workbook, sheetName, index);
-            if (sheet) {
-                sheets.push(sheet);
-            }
+    for (const [index, sheetName] of workbook.SheetNames.entries()) {
+        const sheet = renderSheet(workbook, sheetName, index);
+        if (sheet) {
+            sheets.push(sheet);
         }
+    }
 
-        return {
-            text: sheets.map((sheet) => sheet.text).join("\n\n"),
-            sheets,
-        };
-    });
+    return {
+        text: sheets.map((sheet) => sheet.text).join("\n\n"),
+        sheets,
+    };
 }
 
-function readWorkbookEffect(content: ArrayBuffer): Effect.Effect<WorkBook, unknown> {
-    return Effect.try({
-        try: () => {
-            const bytes = new Uint8Array(content);
-            if (!isLikelyWorkbook(bytes)) {
-                throw new Error("Invalid Excel workbook content");
-            }
+function readWorkbook(content: ArrayBuffer): WorkBook {
+    const bytes = new Uint8Array(content);
+    if (!isLikelyWorkbook(bytes)) {
+        throw new Error("Invalid Excel workbook content");
+    }
 
-            return read(bytes, {
-                type: "array",
-                cellText: true,
-                cellDates: true,
-                cellStyles: true,
-            });
-        },
-        catch: (error) => error,
+    return read(bytes, {
+        type: "array",
+        cellText: true,
+        cellDates: true,
+        cellStyles: true,
     });
 }
 
@@ -49,17 +37,6 @@ function isLikelyWorkbook(bytes: Uint8Array): boolean {
     const isZipBasedWorkbook = bytes[0] === 0x50 && bytes[1] === 0x4b;
     const isLegacyXLSWorkbook = bytes[0] === 0xd0 && bytes[1] === 0xcf;
     return isZipBasedWorkbook || isLegacyXLSWorkbook;
-}
-
-function renderSheetEffect(
-    workbook: WorkBook,
-    sheetName: string,
-    index: number
-): Effect.Effect<ExcelSheetResult | null, unknown> {
-    return Effect.try({
-        try: () => renderSheet(workbook, sheetName, index),
-        catch: (error) => error,
-    });
 }
 
 function renderSheet(workbook: WorkBook, sheetName: string, index: number): ExcelSheetResult | null {

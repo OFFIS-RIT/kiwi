@@ -1,5 +1,4 @@
 import { DOMParser } from "@xmldom/xmldom";
-import { Effect } from "effect";
 import type { XMLDocumentLike, XMLNodeLike } from "./types";
 
 const XML_MIME_TYPE = "application/xml";
@@ -12,23 +11,22 @@ export function parseXml(xml: string): XMLDocumentLike {
     ) as unknown as XMLDocumentLike;
 }
 
-export function parseXmlEffect(xml: string): Effect.Effect<XMLDocumentLike, unknown> {
-    return Effect.try({
-        try: () => parseXml(xml),
-        catch: (error) => error,
-    });
-}
-
 export function getDocumentRoot(document: XMLDocumentLike): XMLNodeLike | null {
     return isElementNode(document.documentElement) ? document.documentElement : null;
 }
 
 export function findFirstChild(node: XMLNodeLike, name: string): XMLNodeLike | null {
-    return getChildElements(node).find((child) => getLocalName(child) === name) ?? null;
+    for (const child of childElements(node)) {
+        if (getLocalName(child) === name) {
+            return child;
+        }
+    }
+
+    return null;
 }
 
 export function findFirstDescendant(node: XMLNodeLike, name: string): XMLNodeLike | null {
-    for (const child of getChildElements(node)) {
+    for (const child of childElements(node)) {
         if (getLocalName(child) === name) {
             return child;
         }
@@ -44,7 +42,7 @@ export function findFirstDescendant(node: XMLNodeLike, name: string): XMLNodeLik
 
 export function findDescendants(node: XMLNodeLike, name: string): XMLNodeLike[] {
     const matches: XMLNodeLike[] = [];
-    for (const child of getChildElements(node)) {
+    for (const child of childElements(node)) {
         if (getLocalName(child) === name) {
             matches.push(child);
         }
@@ -56,20 +54,21 @@ export function findDescendants(node: XMLNodeLike, name: string): XMLNodeLike[] 
 }
 
 export function getChildElements(node: XMLNodeLike): XMLNodeLike[] {
+    return Array.from(childElements(node));
+}
+
+export function* childElements(node: XMLNodeLike): IterableIterator<XMLNodeLike> {
     const childNodes = node.childNodes;
     if (!childNodes) {
-        return [];
+        return;
     }
 
-    const children: XMLNodeLike[] = [];
     for (let index = 0; index < childNodes.length; index += 1) {
         const child = childNodes[index];
         if (isElementNode(child)) {
-            children.push(child);
+            yield child;
         }
     }
-
-    return children;
 }
 
 export function isElementNode(value: unknown): value is XMLNodeLike {

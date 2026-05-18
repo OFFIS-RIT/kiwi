@@ -223,6 +223,58 @@ ${shapeXml("Before images")}
         expect(generateTextMock).toHaveBeenCalledTimes(2);
     });
 
+    test("reuses one OCR asset for repeated PPTX image targets across slides", async () => {
+        const text = await buildPPTXText(
+            basePPTXEntries({
+                "ppt/presentation.xml": presentationXml(["rSlide1", "rSlide2"]),
+                "ppt/_rels/presentation.xml.rels": relationshipsXml([
+                    { id: "rSlide1", target: "slides/slide1.xml" },
+                    { id: "rSlide2", target: "slides/slide2.xml" },
+                ]),
+                "ppt/slides/_rels/slide1.xml.rels": relationshipsXml([{ id: "rLogo", target: "../media/logo.png" }]),
+                "ppt/slides/_rels/slide2.xml.rels": relationshipsXml([{ id: "rLogo", target: "../media/logo.png" }]),
+                "ppt/slides/slide1.xml": slideXml(`
+${shapeXml("Slide one")}
+<p:pic><p:blipFill><a:blip r:embed="rLogo"/></p:blipFill></p:pic>`),
+                "ppt/slides/slide2.xml": slideXml(`
+${shapeXml("Slide two")}
+<p:pic><p:blipFill><a:blip r:embed="rLogo"/></p:blipFill></p:pic>`),
+                "ppt/media/logo.png": Uint8Array.of(1, 2, 3),
+            }),
+            { ocr: true }
+        );
+
+        expect(text).toContain("Slide one");
+        expect(text).toContain("Slide two");
+        expect(text.match(/<image id="img-1"/g) ?? []).toHaveLength(2);
+        expect(putNamedFileMock).toHaveBeenCalledTimes(1);
+        expect(generateTextMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("handles large synthetic PPTX decks", async () => {
+        const slideCount = 300;
+        const entries: Record<string, string | Uint8Array> = {
+            "ppt/presentation.xml": presentationXml(
+                Array.from({ length: slideCount }, (_, index) => `rSlide${index + 1}`)
+            ),
+            "ppt/_rels/presentation.xml.rels": relationshipsXml(
+                Array.from({ length: slideCount }, (_, index) => ({
+                    id: `rSlide${index + 1}`,
+                    target: `slides/slide${index + 1}.xml`,
+                }))
+            ),
+        };
+
+        for (let index = 1; index <= slideCount; index += 1) {
+            entries[`ppt/slides/slide${index}.xml`] = slideXml(shapeXml(`Large slide ${index}`, { title: true }));
+        }
+
+        const text = await buildPPTXText(basePPTXEntries(entries));
+
+        expect(text).toContain("# Large slide 1");
+        expect(text).toContain(`# Large slide ${slideCount}`);
+    });
+
     test("ignores missing picture targets in OCR mode", async () => {
         const text = await buildPPTXText(
             basePPTXEntries({
