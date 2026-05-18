@@ -447,18 +447,21 @@ function buildPDF(objects: Array<string | Buffer>): Uint8Array {
 }
 
 async function buildAlignedTextTableFixture() {
-    return buildHybridFixture((pdf) => {
-        const page = pdf.addPage({ size: "letter" });
+    return buildHybridFixture(
+        (pdf) => {
+            const page = pdf.addPage({ size: "letter" });
 
-        page.drawText("Aligned Text Table", { x: 210, y: 740, size: 22 });
-        drawPositionedTable(page, [50, 180, 320], 620, [
-            ["Item", "Weight", "Time"],
-            ["", "[kg]", "[ms]"],
-            ["Rotor", "12", "30"],
-            ["Stator", "18", "41"],
-            ["Frame", "24", "55"],
-        ]);
-    });
+            page.drawText("Aligned Text Table", { x: 210, y: 740, size: 22 });
+            drawPositionedTable(page, [50, 180, 320], 620, [
+                ["Item", "Weight", "Time"],
+                ["", "[kg]", "[ms]"],
+                ["Rotor", "12", "30"],
+                ["Stator", "18", "41"],
+                ["Frame", "24", "55"],
+            ]);
+        },
+        { tableMode: "lines" }
+    );
 }
 
 async function buildMathTableFixture() {
@@ -499,17 +502,20 @@ async function buildMathTableFixture() {
 }
 
 async function buildWhitespaceSeparatedTableFixture() {
-    return buildHybridFixture((pdf) => {
-        const page = pdf.addPage({ size: "letter" });
+    return buildHybridFixture(
+        (pdf) => {
+            const page = pdf.addPage({ size: "letter" });
 
-        page.drawText("Whitespace Segments", { x: 210, y: 740, size: 22 });
-        drawLineRows(page, 50, 620, [
-            "City          Score          Rank",
-            "Berlin        91             1",
-            "Leipzig       84             2",
-            "Essen         77             3",
-        ]);
-    });
+            page.drawText("Whitespace Segments", { x: 210, y: 740, size: 22 });
+            drawLineRows(page, 50, 620, [
+                "City          Score          Rank",
+                "Berlin        91             1",
+                "Leipzig       84             2",
+                "Essen         77             3",
+            ]);
+        },
+        { tableMode: "lines" }
+    );
 }
 
 async function buildRotatedTextFixture() {
@@ -639,24 +645,27 @@ async function buildAdaptiveBoundaryFixture() {
 }
 
 async function buildAdaptiveWhitespaceTableFixture() {
-    return buildHybridFixture((pdf) => {
-        const page = pdf.addPage({ size: "letter" });
+    return buildHybridFixture(
+        (pdf) => {
+            const page = pdf.addPage({ size: "letter" });
 
-        page.drawText("Adaptive Table", { x: 205, y: 740, size: 22 });
+            page.drawText("Adaptive Table", { x: 205, y: 740, size: 22 });
 
-        const rows = [
-            ["Key", "Formula", "Value"],
-            ["api_v1", "H2SO4", "42"],
-            ["file.ts", "f(x,y)", "17"],
-        ];
+            const rows = [
+                ["Key", "Formula", "Value"],
+                ["api_v1", "H2SO4", "42"],
+                ["file.ts", "f(x,y)", "17"],
+            ];
 
-        rows.forEach((row, rowIndex) => {
-            const y = 620 - rowIndex * 28;
-            drawTrackedText(page, row[0]!, 50, y, 12, rowIndex === 0 ? 0 : 2.6);
-            drawTrackedText(page, row[1]!, 190, y, 12, rowIndex === 0 ? 0 : 2.2);
-            page.drawText(row[2]!, { x: 330, y, size: 12 });
-        });
-    });
+            rows.forEach((row, rowIndex) => {
+                const y = 620 - rowIndex * 28;
+                drawTrackedText(page, row[0]!, 50, y, 12, rowIndex === 0 ? 0 : 2.6);
+                drawTrackedText(page, row[1]!, 190, y, 12, rowIndex === 0 ? 0 : 2.2);
+                page.drawText(row[2]!, { x: 330, y, size: 12 });
+            });
+        },
+        { tableMode: "lines" }
+    );
 }
 
 async function buildRepeatedEdgeFixture() {
@@ -708,6 +717,24 @@ async function buildLatin1ActualTextFixture() {
     const actualText = `caf${String.fromCharCode(0xe9)}`;
     const patched = patchContentStreams(bytes, (stream) => {
         return stream.replace(/<78> Tj/, `/Span << /ActualText (${actualText}) /MCID 0 >> BDC\n<78> Tj\nEMC`);
+    });
+
+    return buildHybridFixtureFromBytes(patched);
+}
+
+async function buildControlActualTextFixture() {
+    const bytes = await buildPDFBinary((pdf) => {
+        const page = pdf.addPage({ size: "letter" });
+
+        page.drawText("Control Tag", { x: 220, y: 740, size: 22 });
+        page.drawText("x", { x: 60, y: 640, size: 12 });
+    });
+
+    const patched = patchContentStreams(bytes, (stream) => {
+        return stream.replace(
+            /<78> Tj/,
+            `/Span << /ActualText <${encodeUtf16BEHex("Label\b Page")}> /MCID 0 >> BDC\n<78> Tj\nEMC`
+        );
     });
 
     return buildHybridFixtureFromBytes(patched);
@@ -843,8 +870,39 @@ describe("PDFLoader", () => {
         expect(pdfToImgMock).not.toHaveBeenCalled();
     });
 
-    test("detects curve-derived grids in default pdfplumber lines table mode", async () => {
-        const fixture = await buildCurvePathTableFixture();
+    test("uses full-page OCR for fragmented hybrid pages", async () => {
+        const bytes = await buildPDFBinary((pdf) => {
+            const page = pdf.addPage({ size: "letter" });
+            for (let index = 0; index < 40; index += 1) {
+                page.drawText(`Marker${index.toString().padStart(2, "0")}`, {
+                    x: 40 + (index % 7) * 71,
+                    y: 750 - index * 16,
+                    size: 8,
+                });
+            }
+        });
+        const loader = {
+            getText: async () => Buffer.from(bytes).toString(),
+            getBinary: async () => bytes.slice().buffer,
+        };
+        rasterizedPages = [new Uint8Array([9])];
+        fullOCRPageOutputs = ["# OCR fallback\nReadable page text"];
+
+        const text = await new PDFLoader({
+            loader,
+            mode: "hybrid",
+            model: {} as never,
+            storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
+        }).getText();
+
+        expect(text).toBe("# OCR fallback\nReadable page text");
+        expect(generateTextMock).toHaveBeenCalledTimes(1);
+        expect(generateTextMock.mock.calls[0]?.[0]).toMatchObject({ system: transcribePrompt });
+        expect(putNamedFileMock).not.toHaveBeenCalled();
+    });
+
+    test("detects curve-derived grids in loose pdfplumber lines table mode", async () => {
+        const fixture = await buildCurvePathTableFixture({ tableMode: "lines" });
 
         expect(fixture.plain).toContain("Curve Path Table");
         expect(fixture.hybrid).toMatch(/^# Curve Path Table$/m);
@@ -853,8 +911,8 @@ describe("PDFLoader", () => {
         expect(fixture.hybrid).toMatch(/\| Bar \| 84 \|/);
     });
 
-    test("detects rectangle-derived grids in default pdfplumber lines table mode", async () => {
-        const fixture = await buildRectanglePathTableFixture();
+    test("detects rectangle-derived grids in loose pdfplumber lines table mode", async () => {
+        const fixture = await buildRectanglePathTableFixture({ tableMode: "lines" });
 
         expect(fixture.plain).toContain("Rectangle Path Grid");
         expect(fixture.hybrid).toMatch(/^# Rectangle Path Grid$/m);
@@ -872,16 +930,16 @@ describe("PDFLoader", () => {
         expect(fixture.hybrid).toMatch(/\| Foo \| 42 \|/);
     });
 
-    test("excludes curve-derived grids when lines_strict table mode is requested", async () => {
-        const fixture = await buildCurvePathTableFixture({ tableMode: "lines_strict" });
+    test("excludes curve-derived grids by default in lines_strict table mode", async () => {
+        const fixture = await buildCurvePathTableFixture();
 
         expect(fixture.hybrid).toMatch(/^# Curve Path Table$/m);
         expect(fixture.hybrid).toContain("Name Value");
         expect(fixture.hybrid).not.toMatch(/^\| .+\|$/m);
     });
 
-    test("excludes rectangle-derived grids when lines_strict table mode is requested", async () => {
-        const fixture = await buildRectanglePathTableFixture({ tableMode: "lines_strict" });
+    test("excludes rectangle-derived grids by default in lines_strict table mode", async () => {
+        const fixture = await buildRectanglePathTableFixture();
 
         expect(fixture.hybrid).toMatch(/^# Rectangle Path Grid$/m);
         expect(fixture.hybrid).toContain("Name Value");
@@ -1060,6 +1118,14 @@ describe("PDFLoader", () => {
         expect(fixture.hybrid).toContain(`Word: ${actualText}`);
     });
 
+    test("cleans control characters from UTF-16 ActualText", async () => {
+        const fixture = await buildControlActualTextFixture();
+
+        expect(fixture.plain).toContain("Label Page");
+        expect(fixture.plain).not.toContain("\b");
+        expect(fixture.hybrid).toContain("Label Page");
+    });
+
     test("ignores images embedded inside detected tables instead of emitting broken image fences", async () => {
         const fixture = await buildTableWithEmbeddedImageFixture();
 
@@ -1147,7 +1213,7 @@ describe("PDFLoader", () => {
         expect(putNamedFileMock).not.toHaveBeenCalled();
     });
 
-    test("downscales oversized pages before full OCR rasterization", async () => {
+    test("scales oversized pages to 0.75 for full OCR rasterization", async () => {
         const bytes = await buildPDFBinary((pdf) => {
             pdf.addPage({ width: 1190.56, height: 1683.78 });
         });
@@ -1165,7 +1231,7 @@ describe("PDFLoader", () => {
         }).getText();
 
         expect(pdfToImgMock).toHaveBeenCalledTimes(1);
-        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 0.5 });
+        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 0.75 });
     });
 
     test("keeps normal page sizes at default full OCR raster scale", async () => {

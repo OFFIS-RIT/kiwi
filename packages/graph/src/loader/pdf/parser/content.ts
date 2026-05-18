@@ -485,7 +485,7 @@ export function countRenderedTextItems(value: Operand | undefined): number {
 
 export function decodePDFTextOperand(value: Operand | undefined): string | null {
     if (typeof value === "string") {
-        return value;
+        return decodePDFStringBytes(Buffer.from(value, "latin1"));
     }
 
     if (value instanceof Uint8Array) {
@@ -496,15 +496,18 @@ export function decodePDFTextOperand(value: Operand | undefined): string | null 
 }
 
 export function decodePDFStringBytes(bytes: Uint8Array): string {
+    let output: string;
+
     if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
-        let output = "";
+        output = "";
         for (let index = 2; index + 1 < bytes.length; index += 2) {
             output += String.fromCharCode((bytes[index]! << 8) | bytes[index + 1]!);
         }
-        return output;
+    } else {
+        output = Buffer.from(bytes).toString("latin1");
     }
 
-    return Buffer.from(bytes).toString("latin1");
+    return output.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ");
 }
 
 export function operandInteger(value: Operand | undefined): number | null {

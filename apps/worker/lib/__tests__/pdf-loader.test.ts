@@ -19,6 +19,20 @@ describe("buildPDFLoaderOptions", () => {
         expect(options.storage).toBe(storage);
     });
 
+    test("builds plain PDF loader options without an image model", async () => {
+        const loader = {
+            getText: async () => "",
+            getBinary: async () => new Uint8Array([1]).buffer,
+        };
+
+        const options = buildPDFLoaderOptions(loader, undefined, undefined, "plain");
+
+        expect(options.loader).toBe(loader);
+        expect(options.mode).toBe("plain");
+        expect(options.model).toBeUndefined();
+        expect(options.storage).toBeUndefined();
+    });
+
     test("throws when the image model is missing", () => {
         const loader = {
             getText: async () => "",

@@ -107,6 +107,7 @@ services:
             S3_ENDPOINT: ${S3_ENDPOINT:-http://rustfs:9000}
             S3_REGION: ${S3_REGION}
             S3_BUCKET: ${S3_BUCKET}
+            DOCUMENT_MODE: ${DOCUMENT_MODE:-hybrid}
             WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
             AI_TEXT_ADAPTER: ${AI_TEXT_ADAPTER}
             AI_TEXT_MODEL: ${AI_TEXT_MODEL}

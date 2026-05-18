@@ -18,10 +18,15 @@ export type PDFParserOptions = {
 };
 
 export type PDFPageRasterizer = (content: Uint8Array) => Promise<Uint8Array[]>;
+export type PDFSelectedPageRasterizer = (
+    content: Uint8Array,
+    pages: Array<Pick<PDFPageLike, "index" | "width" | "height">>
+) => Promise<Map<number, Uint8Array>>;
 export type PDFPageTranscriber = (image: Uint8Array, model: LanguageModelV3) => Promise<string>;
 
 export type FullOCRDeps = {
     rasterizePages?: PDFPageRasterizer;
+    rasterizeSelectedPages?: PDFSelectedPageRasterizer;
     transcribePage?: PDFPageTranscriber;
 };
 
@@ -170,8 +175,10 @@ export type PageContentAnalysis = {
 };
 
 export type PreparedPage = {
+    page: PDFPageLike;
     pageText: PageText;
     content: PageContentAnalysis;
+    ocrFallback: boolean;
 };
 
 export type PathState = {

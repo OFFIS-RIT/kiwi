@@ -304,6 +304,10 @@ export const processFile = defineWorkflow(
                 const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
                 const derivedPrefix = getDerivedFilePrefix(input.graphId, input.fileId);
                 const derivedImagePrefix = getDerivedImagePrefix(input.graphId, input.fileId);
+                const derivedImageStorage = {
+                    bucket: env.S3_BUCKET,
+                    imagePrefix: derivedImagePrefix,
+                };
                 const baseGraphFile = {
                     id: input.fileId,
                     key: fileData.key,
@@ -315,26 +319,28 @@ export const processFile = defineWorkflow(
                 switch (fileData.type) {
                     case "pdf": {
                         loader = new PDFLoader(
-                            buildPDFLoaderOptions(s3Loader, client.image, {
-                                bucket: env.S3_BUCKET,
-                                imagePrefix: derivedImagePrefix,
-                            })
+                            buildPDFLoaderOptions(
+                                s3Loader,
+                                client.image,
+                                derivedImageStorage,
+                                env.DOCUMENT_MODE
+                            )
                         );
                         break;
                     }
                     case "doc": {
-                        if (!client.image) {
+                        const useOCR = env.DOCUMENT_MODE !== "plain";
+                        if (useOCR && !client.image) {
                             throw new Error("Image adapter is not configured");
                         }
-                        loader = new DOCXLoader({
-                            ocr: true,
-                            loader: s3Loader,
-                            model: client.image,
-                            storage: {
-                                bucket: env.S3_BUCKET,
-                                imagePrefix: derivedImagePrefix,
-                            },
-                        });
+                        loader = useOCR
+                            ? new DOCXLoader({
+                                  ocr: true,
+                                  loader: s3Loader,
+                                  model: client.image,
+                                  storage: derivedImageStorage,
+                              })
+                            : new DOCXLoader({ loader: s3Loader });
                         break;
                     }
                     case "sheet": {
@@ -342,18 +348,18 @@ export const processFile = defineWorkflow(
                         break;
                     }
                     case "ppt": {
-                        if (!client.image) {
+                        const useOCR = env.DOCUMENT_MODE !== "plain";
+                        if (useOCR && !client.image) {
                             throw new Error("Image adapter is not configured");
                         }
-                        loader = new PPTXLoader({
-                            ocr: true,
-                            loader: s3Loader,
-                            model: client.image,
-                            storage: {
-                                bucket: env.S3_BUCKET,
-                                imagePrefix: derivedImagePrefix,
-                            },
-                        });
+                        loader = useOCR
+                            ? new PPTXLoader({
+                                  ocr: true,
+                                  loader: s3Loader,
+                                  model: client.image,
+                                  storage: derivedImageStorage,
+                              })
+                            : new PPTXLoader({ loader: s3Loader });
                         break;
                     }
                     case "image": {

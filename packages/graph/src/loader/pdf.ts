@@ -51,9 +51,14 @@ export class PDFLoader implements GraphLoader {
             throw new Error("PDF hybrid mode requires an image model and storage configuration");
         }
 
-        const pdf = await this.loadPDF();
-        const result = extractPDFHybridFromDocument(pdf, {
+        const content = await this.options.loader.getBinary();
+        const pdf = await this.loadPDF(content);
+        const result = await extractPDFHybridFromDocument(pdf, {
             tableMode: this.options.tableMode,
+            ocrFallback: {
+                content: new Uint8Array(content),
+                model,
+            },
         });
         return processOCRImages(result.text, result.images, model, storage);
     }
@@ -68,8 +73,8 @@ export class PDFLoader implements GraphLoader {
         return extractFullOCRTextFromPDF(content, model);
     }
 
-    private async loadPDF(): Promise<PDFDocumentLike> {
-        const content = await this.options.loader.getBinary();
+    private async loadPDF(content?: ArrayBuffer): Promise<PDFDocumentLike> {
+        content ??= await this.options.loader.getBinary();
         return (await PDF.load(new Uint8Array(content))) as unknown as PDFDocumentLike;
     }
 }
