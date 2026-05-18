@@ -108,6 +108,34 @@ describe("processOCRImages", () => {
         expect(uploadImage).toHaveBeenCalledTimes(1);
     });
 
+    test("deduplicates different image ids with identical content by checksum", async () => {
+        const describeImage = mock(async (image: { id: string }) => `Description for ${image.id}`);
+        const uploadImage = mock(async (name: string, _content: Uint8Array, storage: { imagePrefix: string }) => ({
+            key: `${storage.imagePrefix}/${name}`,
+        }));
+        const content = new Uint8Array([1, 2, 3, 4]);
+
+        const output = await processOCRImages(
+            [":::IMG-img-1:::", ":::IMG-img-2:::"].join("\n"),
+            [
+                { id: "img-1", type: "image/png", content },
+                { id: "img-2", type: "image/png", content: content.slice() },
+            ],
+            {} as never,
+            { bucket: "bucket", imagePrefix: "graphs/g-1/derived/f-1/images" },
+            { describeImage, uploadImage }
+        );
+
+        expect(output).toContain(
+            '<image id="img-1" key="graphs/g-1/derived/f-1/images/img-1.png">Description for img-1</image>'
+        );
+        expect(output).toContain(
+            '<image id="img-2" key="graphs/g-1/derived/f-1/images/img-1.png">Description for img-1</image>'
+        );
+        expect(describeImage).toHaveBeenCalledTimes(1);
+        expect(uploadImage).toHaveBeenCalledTimes(1);
+    });
+
     test("rejects fences without extracted image assets", async () => {
         await expect(
             processOCRImages(
