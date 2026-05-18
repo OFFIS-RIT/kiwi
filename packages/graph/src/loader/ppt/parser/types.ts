@@ -30,6 +30,7 @@ export type PPTParseContext = {
     relationships: Relationships;
     contentTypes: ContentTypes;
     images: PPTOCRImage[];
+    imageIdByTarget: Map<string, string>;
     nextImageId: () => string;
     ocr: boolean;
 };

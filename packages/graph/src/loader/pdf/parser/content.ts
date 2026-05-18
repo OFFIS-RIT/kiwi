@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import type {
     ActualTextSpan,
     BoundingBox,
@@ -42,25 +41,6 @@ import {
 } from "./geometry";
 
 export function analyzePageContent(
-    pdf: PDFDocumentLike,
-    page: PDFPageLike,
-    nextImageId: () => string
-): PageContentAnalysis {
-    return Effect.runSync(analyzePageContentEffect(pdf, page, nextImageId));
-}
-
-export function analyzePageContentEffect(
-    pdf: PDFDocumentLike,
-    page: PDFPageLike,
-    nextImageId: () => string
-): Effect.Effect<PageContentAnalysis, unknown> {
-    return Effect.try({
-        try: () => analyzePageContentSync(pdf, page, nextImageId),
-        catch: (error) => error,
-    });
-}
-
-function analyzePageContentSync(
     pdf: PDFDocumentLike,
     page: PDFPageLike,
     nextImageId: () => string

@@ -20,7 +20,7 @@ type OCRImageDeps = {
     uploadImage?: (name: string, content: Uint8Array, storage: OCRImageStorage) => Promise<{ key: string }>;
 };
 
-const IMAGE_FENCE_PATTERN = /:::IMG-[^:]+:::/;
+const IMAGE_FENCE_PATTERN = /:::IMG-([^:]+):::/g;
 const DEFAULT_IMAGE_BATCH_SIZE = 64;
 
 export async function processOCRImages(
@@ -31,7 +31,7 @@ export async function processOCRImages(
     deps: OCRImageDeps = {}
 ): Promise<string> {
     if (images.length === 0) {
-        if (IMAGE_FENCE_PATTERN.test(text)) {
+        if (text.match(IMAGE_FENCE_PATTERN)) {
             throw new Error("Found image fences without extracted image assets");
         }
 
@@ -40,50 +40,62 @@ export async function processOCRImages(
 
     const describeImage = deps.describeImage ?? defaultDescribeImage;
     const uploadImage = deps.uploadImage ?? defaultUploadImage;
-    const seenIds = new Set<string>();
+    const imageIds = new Set<string>();
 
     for (const image of images) {
-        if (seenIds.has(image.id)) {
+        if (imageIds.has(image.id)) {
             throw new Error(`Duplicate OCR image id ${image.id}`);
         }
 
-        seenIds.add(image.id);
-        const fence = `:::IMG-${image.id}:::`;
-        const occurrences = countOccurrences(text, fence);
-        if (occurrences !== 1) {
-            throw new Error(`Expected exactly one fence for OCR image ${image.id}, found ${occurrences}`);
+        imageIds.add(image.id);
+    }
+
+    const referencedIds = new Set<string>();
+    for (const match of text.matchAll(IMAGE_FENCE_PATTERN)) {
+        const id = match[1] ?? "";
+        if (!imageIds.has(id)) {
+            throw new Error(`Found fence for unknown OCR image ${id}`);
+        }
+
+        referencedIds.add(id);
+    }
+
+    for (const image of images) {
+        if (!referencedIds.has(image.id)) {
+            throw new Error(`Expected at least one fence for OCR image ${image.id}, found 0`);
         }
     }
 
-    const replacements: Array<{ fence: string; tag: string }> = [];
+    const tagsById = new Map<string, string>();
     const batchSize = getImageBatchSize();
     for (let index = 0; index < images.length; index += batchSize) {
         const batch = images.slice(index, index + batchSize);
-        replacements.push(
-            ...(await Promise.all(
-                batch.map(async (image) => {
-                    const description = (await describeImage(image, model)).trim();
-                    const extension = getExtensionForMimeType(image.type);
-                    const uploaded = await uploadImage(`${image.id}.${extension}`, image.content, storage);
+        const tags = await Promise.all(
+            batch.map(async (image) => {
+                const description = (await describeImage(image, model)).trim();
+                const extension = getExtensionForMimeType(image.type);
+                const uploaded = await uploadImage(`${image.id}.${extension}`, image.content, storage);
 
-                    return {
-                        fence: `:::IMG-${image.id}:::`,
-                        tag: renderImageTag(image.id, uploaded.key, description),
-                    };
-                })
-            ))
+                return {
+                    id: image.id,
+                    tag: renderImageTag(image.id, uploaded.key, description),
+                };
+            })
         );
+
+        for (const tag of tags) {
+            tagsById.set(tag.id, tag.tag);
+        }
     }
 
-    let output = text;
-    for (const replacement of replacements) {
-        output = output.replace(replacement.fence, replacement.tag);
-    }
+    const output = text.replace(IMAGE_FENCE_PATTERN, (fence, id: string) => {
+        const tag = tagsById.get(id);
+        if (!tag) {
+            throw new Error(`Unresolved OCR image fence ${fence}`);
+        }
 
-    const remainingFence = output.match(/:::IMG-[^:]+:::/);
-    if (remainingFence) {
-        throw new Error(`Unresolved OCR image fence ${remainingFence[0]}`);
-    }
+        return tag;
+    });
 
     return output;
 }
@@ -124,21 +136,6 @@ async function defaultUploadImage(
     storage: OCRImageStorage
 ): Promise<{ key: string }> {
     return putNamedFile(name, content, storage.imagePrefix, storage.bucket);
-}
-
-function countOccurrences(text: string, token: string): number {
-    let count = 0;
-    let index = 0;
-
-    while (true) {
-        const nextIndex = text.indexOf(token, index);
-        if (nextIndex === -1) {
-            return count;
-        }
-
-        count += 1;
-        index = nextIndex + token.length;
-    }
 }
 
 function renderImageTag(id: string, key: string, description: string): string {

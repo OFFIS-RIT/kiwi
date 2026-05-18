@@ -1,75 +1,63 @@
-import { Effect } from "effect";
 import JSZip from "jszip";
 import type { ContentTypes, Relationships } from "./types";
-import { findDescendants, getAttribute, getDocumentRoot, parseXml, parseXmlEffect } from "./xml";
+import { findDescendants, getAttribute, getDocumentRoot, parseXml } from "./xml";
 
-export function loadOOXMLZipEffect(content: ArrayBuffer): Effect.Effect<JSZip, unknown> {
-    return Effect.tryPromise({
-        try: () => JSZip.loadAsync(content),
-        catch: (error) => error,
-    });
+export async function loadOOXMLZip(content: ArrayBuffer): Promise<JSZip> {
+    return JSZip.loadAsync(content);
 }
 
-export function readZipTextEffect(zip: JSZip, path: string): Effect.Effect<string | null, unknown> {
+export async function readZipText(zip: JSZip, path: string): Promise<string | null> {
     const normalizedPath = cleanZipPath(path);
     if (!isSafeZipPath(normalizedPath)) {
-        return Effect.succeed(null);
+        return null;
     }
 
-    return Effect.tryPromise({
-        try: async () => zip.file(normalizedPath)?.async("text") ?? null,
-        catch: (error) => error,
-    });
+    return zip.file(normalizedPath)?.async("text") ?? null;
 }
 
-export function readZipBinaryEffect(zip: JSZip, path: string): Effect.Effect<Uint8Array | null, unknown> {
+export async function readZipBinary(zip: JSZip, path: string): Promise<Uint8Array | null> {
     const normalizedPath = cleanZipPath(path);
     if (!isSafeZipPath(normalizedPath)) {
-        return Effect.succeed(null);
+        return null;
     }
 
-    return Effect.tryPromise({
-        try: async () => zip.file(normalizedPath)?.async("uint8array") ?? null,
-        catch: (error) => error,
-    });
+    return zip.file(normalizedPath)?.async("uint8array") ?? null;
 }
 
-export function getRelationshipsForPartEffect(zip: JSZip, partPath: string): Effect.Effect<Relationships, unknown> {
-    return Effect.gen(function* () {
-        const relationships: Relationships = new Map();
-        const relsXml = yield* readZipTextEffect(zip, getRelationshipsPath(partPath));
-        if (!relsXml) {
-            return relationships;
-        }
-
-        const document = yield* parseXmlEffect(relsXml);
-        const root = getDocumentRoot(document);
-        if (!root) {
-            return relationships;
-        }
-
-        for (const relationship of findDescendants(root, "Relationship")) {
-            const id = getAttribute(relationship, "Id");
-            const target = getAttribute(relationship, "Target");
-            const targetMode = getAttribute(relationship, "TargetMode");
-            if (!id || !target) {
-                continue;
-            }
-
-            const external = targetMode === "External" || isExternalTarget(target);
-            if (external) {
-                relationships.set(id, { target, external: true });
-                continue;
-            }
-
-            const resolved = resolveZipPath(getDirectoryPath(partPath), target);
-            if (resolved) {
-                relationships.set(id, { target: resolved, external: false });
-            }
-        }
-
+export async function getRelationshipsForPart(zip: JSZip, partPath: string): Promise<Relationships> {
+    const relationships: Relationships = new Map();
+    const relsXml = await readZipText(zip, getRelationshipsPath(partPath));
+    if (!relsXml) {
         return relationships;
-    });
+    }
+
+    const document = parseXml(relsXml);
+    const root = getDocumentRoot(document);
+    if (!root) {
+        return relationships;
+    }
+
+    for (const relationship of findDescendants(root, "Relationship")) {
+        const id = getAttribute(relationship, "Id");
+        const target = getAttribute(relationship, "Target");
+        const targetMode = getAttribute(relationship, "TargetMode");
+        if (!id || !target) {
+            continue;
+        }
+
+        const external = targetMode === "External" || isExternalTarget(target);
+        if (external) {
+            relationships.set(id, { target, external: true });
+            continue;
+        }
+
+        const resolved = resolveZipPath(getDirectoryPath(partPath), target);
+        if (resolved) {
+            relationships.set(id, { target: resolved, external: false });
+        }
+    }
+
+    return relationships;
 }
 
 export function parseContentTypes(xml: string | null): ContentTypes {
@@ -102,13 +90,6 @@ export function parseContentTypes(xml: string | null): ContentTypes {
     }
 
     return { defaults, overrides };
-}
-
-export function parseContentTypesEffect(xml: string | null): Effect.Effect<ContentTypes, unknown> {
-    return Effect.try({
-        try: () => parseContentTypes(xml),
-        catch: (error) => error,
-    });
 }
 
 export function getMimeTypeForPath(contentTypes: ContentTypes, path: string): string {

@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import type {
     BoundingBox,
     Edge,
@@ -80,29 +79,6 @@ export function detectTables(
     lines: TextLine[],
     explicitEdges: Edge[],
     tableMode: PDFTableMode = "lines"
-): TableBlock[] {
-    return Effect.runSync(detectTablesEffect(pageText, words, lines, explicitEdges, tableMode));
-}
-
-export function detectTablesEffect(
-    pageText: PageText,
-    words: Word[],
-    lines: TextLine[],
-    explicitEdges: Edge[],
-    tableMode: PDFTableMode = "lines"
-): Effect.Effect<TableBlock[], unknown> {
-    return Effect.try({
-        try: () => detectTablesSync(pageText, words, lines, explicitEdges, tableMode),
-        catch: (error) => error,
-    });
-}
-
-function detectTablesSync(
-    pageText: PageText,
-    words: Word[],
-    lines: TextLine[],
-    explicitEdges: Edge[],
-    tableMode: PDFTableMode
 ): TableBlock[] {
     const tablePage = buildTablePage(pageText, words, explicitEdges);
     const tables: TableBlock[] = [];
@@ -664,17 +640,6 @@ export function escapeMarkdownTableCell(value: string): string {
 }
 
 export function extractWords(pageText: PageText): Word[] {
-    return Effect.runSync(extractWordsEffect(pageText));
-}
-
-export function extractWordsEffect(pageText: PageText): Effect.Effect<Word[], unknown> {
-    return Effect.try({
-        try: () => extractWordsSync(pageText),
-        catch: (error) => error,
-    });
-}
-
-function extractWordsSync(pageText: PageText): Word[] {
     const words: Word[] = [];
 
     for (let lineIndex = 0; lineIndex < pageText.lines.length; lineIndex += 1) {

@@ -144,6 +144,27 @@ describe("DOCXLoader", () => {
         expect(putNamedFileMock).not.toHaveBeenCalled();
     });
 
+    test("plain mode does not parse OCR-only package parts", async () => {
+        const text = await buildDOCXText({
+            "[Content_Types].xml": "not valid xml",
+            "word/document.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <w:body>
+    <w:p><w:hyperlink r:id="rMissing"><w:r><w:rPr><w:b/><w:i/></w:rPr><w:t>Plain link</w:t></w:r></w:hyperlink></w:p>
+    <w:p><w:r><w:t>Plain image text</w:t></w:r><w:r><w:drawing><a:blip r:embed="rImage"/></w:drawing></w:r></w:p>
+  </w:body>
+</w:document>`,
+            "word/_rels/document.xml.rels": "not valid xml",
+        });
+
+        expect(text).toContain("Plain link");
+        expect(text).toContain("Plain image text");
+        expect(text).not.toContain("[Plain link]");
+        expect(text).not.toContain(":::IMG-");
+        expect(generateTextMock).not.toHaveBeenCalled();
+        expect(putNamedFileMock).not.toHaveBeenCalled();
+    });
+
     test("renders styles, ordered lists, nested bullets, hyperlinks, and uneven tables", async () => {
         const text = await buildDOCXText(
             buildDOCXEntries({
@@ -204,6 +225,16 @@ describe("DOCXLoader", () => {
         expect(text).toContain("Delta");
     });
 
+    test("normalizes repeated non-ASCII whitespace in DOCX text", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                body: `<w:p><w:r><w:t>Alpha\u00A0\u00A0Beta</w:t></w:r></w:p>`,
+            })
+        );
+
+        expect(text).toBe("Alpha Beta");
+    });
+
     test("uses anchor hyperlinks when a DOCX hyperlink has no relationship target", async () => {
         const text = await buildDOCXText(
             buildDOCXEntries({
@@ -245,6 +276,44 @@ describe("DOCXLoader", () => {
         expect(text).toContain('<image id="img-2" key="graphs/graph-1/derived/file-1/images/img-2.png">');
         expect(putNamedFileMock.mock.calls.map((call) => call[0])).toEqual(["img-1.png", "img-2.png"]);
         expect(generateTextMock).toHaveBeenCalledTimes(2);
+    });
+
+    test("reuses one OCR asset for repeated DOCX image targets", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rImage" Target="media/logo.png" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"/>
+</Relationships>`,
+                body: `
+<w:p><w:r><w:t>First logo</w:t></w:r><w:r><w:drawing><a:blip r:embed="rImage"/></w:drawing></w:r></w:p>
+<w:p><w:r><w:t>Second logo</w:t></w:r><w:r><w:drawing><a:blip r:embed="rImage"/></w:drawing></w:r></w:p>`,
+                extra: {
+                    "word/media/logo.png": Uint8Array.of(1, 2, 3),
+                },
+            }),
+            { ocr: true }
+        );
+
+        expect(text).toContain("First logo");
+        expect(text).toContain("Second logo");
+        expect(text.match(/<image id="img-1"/g) ?? []).toHaveLength(2);
+        expect(putNamedFileMock).toHaveBeenCalledTimes(1);
+        expect(generateTextMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("handles large synthetic DOCX documents", async () => {
+        const paragraphCount = 1500;
+        const body = Array.from(
+            { length: paragraphCount },
+            (_, index) => `<w:p><w:r><w:t>Large paragraph ${index + 1}</w:t></w:r></w:p>`
+        ).join("");
+
+        const text = await buildDOCXText(buildDOCXEntries({ body }));
+
+        expect(text).toContain("Large paragraph 1");
+        expect(text).toContain(`Large paragraph ${paragraphCount}`);
+        expect(text.split("\n\n")).toHaveLength(paragraphCount);
     });
 
     test("ignores images inside DOCX tables instead of creating orphan OCR assets", async () => {

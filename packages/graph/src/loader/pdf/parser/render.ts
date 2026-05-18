@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import type {
     BoundingBox,
     Edge,
@@ -6,13 +5,11 @@ import type {
     PageText,
     PDFParserOptions,
     RenderBlock,
-    TableBlock,
     TextLine,
-    Word,
 } from "./types";
-import { getTop, intersectsAny, median, squashWhitespace, unionBoxes } from "./geometry";
+import { getTop, intersectsAny, median, unionBoxes } from "./geometry";
 import { orderItemsByReadingLayout } from "./layout";
-import { detectTablesEffect, extractWordsEffect, lineCenterInAnyBox, lineHasTableWords } from "./table";
+import { detectTables, extractWords, lineCenterInAnyBox, lineHasTableWords } from "./table";
 import { getLineText, inferLineDirection } from "./text";
 
 export function renderPageMarkdown(
@@ -22,33 +19,8 @@ export function renderPageMarkdown(
     repeatedEdgePatterns: Set<string>,
     options: PDFParserOptions = {}
 ): string {
-    return Effect.runSync(renderPageMarkdownEffect(pageText, images, explicitEdges, repeatedEdgePatterns, options));
-}
-
-export function renderPageMarkdownEffect(
-    pageText: PageText,
-    images: ImageOccurrence[],
-    explicitEdges: Edge[],
-    repeatedEdgePatterns: Set<string>,
-    options: PDFParserOptions = {}
-): Effect.Effect<string, unknown> {
-    return Effect.gen(function* () {
-        const words = yield* extractWordsEffect(pageText);
-        const tables = yield* detectTablesEffect(pageText, words, pageText.lines, explicitEdges, options.tableMode);
-        return yield* Effect.try({
-            try: () => renderPageMarkdownFromBlocks(pageText, images, repeatedEdgePatterns, words, tables),
-            catch: (error) => error,
-        });
-    });
-}
-
-function renderPageMarkdownFromBlocks(
-    pageText: PageText,
-    images: ImageOccurrence[],
-    repeatedEdgePatterns: Set<string>,
-    words: Word[],
-    tables: TableBlock[]
-): string {
+    const words = extractWords(pageText);
+    const tables = detectTables(pageText, words, pageText.lines, explicitEdges, options.tableMode);
     const lineFontSizes = pageText.lines
         .map((line) => getLineFontSize(line))
         .filter((size) => Number.isFinite(size) && size > 0);
@@ -107,17 +79,6 @@ function renderPageMarkdownFromBlocks(
 }
 
 export function findRepeatedEdgeLinePatterns(pageTexts: PageText[]): Set<string> {
-    return Effect.runSync(findRepeatedEdgeLinePatternsEffect(pageTexts));
-}
-
-export function findRepeatedEdgeLinePatternsEffect(pageTexts: PageText[]): Effect.Effect<Set<string>, unknown> {
-    return Effect.try({
-        try: () => findRepeatedEdgeLinePatternsSync(pageTexts),
-        catch: (error) => error,
-    });
-}
-
-function findRepeatedEdgeLinePatternsSync(pageTexts: PageText[]): Set<string> {
     const counts = new Map<string, number>();
 
     for (const pageText of pageTexts) {

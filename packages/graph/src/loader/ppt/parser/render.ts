@@ -1,58 +1,40 @@
-import { Effect } from "effect";
 import { squashWhitespace } from "../../ooxml/xml";
 import type { SlideContent } from "./types";
 
 export function renderMarkdown(slides: SlideContent[]): string {
-    return Effect.runSync(renderMarkdownEffect(slides));
-}
+    const builder = new MarkdownBuilder();
 
-export function renderMarkdownEffect(slides: SlideContent[]): Effect.Effect<string, unknown> {
-    return Effect.try({
-        try: () => renderMarkdownSync(slides),
-        catch: (error) => error,
-    });
-}
+    for (const slide of slides) {
+        if (slide.blocks.length === 0) {
+            continue;
+        }
 
-function renderMarkdownSync(slides: SlideContent[]): string {
-    const rendered = slides
-        .map((slide) => {
-            if (slide.blocks.length === 0) {
-                return "";
+        if (!slide.hasTitle) {
+            builder.append(`## Slide ${slide.index + 1}`);
+        }
+
+        for (const block of slide.blocks) {
+            switch (block.kind) {
+                case "heading":
+                    builder.append(`# ${block.text}`);
+                    break;
+                case "paragraph":
+                    builder.append(block.text);
+                    break;
+                case "bullet":
+                    builder.append(`- ${block.text}`);
+                    break;
+                case "image":
+                    builder.append(`:::IMG-${block.id}:::`);
+                    break;
+                case "table":
+                    builder.append(rowsToMarkdown(block.rows));
+                    break;
             }
+        }
+    }
 
-            const blocks: string[] = [];
-            if (!slide.hasTitle) {
-                blocks.push(`## Slide ${slide.index + 1}`);
-            }
-
-            for (const block of slide.blocks) {
-                switch (block.kind) {
-                    case "heading":
-                        blocks.push(`# ${block.text}`);
-                        break;
-                    case "paragraph":
-                        blocks.push(block.text);
-                        break;
-                    case "bullet":
-                        blocks.push(`- ${block.text}`);
-                        break;
-                    case "image":
-                        blocks.push(`:::IMG-${block.id}:::`);
-                        break;
-                    case "table":
-                        blocks.push(rowsToMarkdown(block.rows));
-                        break;
-                }
-            }
-
-            return blocks
-                .map((block) => block.trim())
-                .filter(Boolean)
-                .join("\n\n");
-        })
-        .filter(Boolean);
-
-    return rendered.join("\n\n");
+    return builder.toString();
 }
 
 export function rowsToMarkdown(rows: string[][]): string {
@@ -60,29 +42,54 @@ export function rowsToMarkdown(rows: string[][]): string {
         return "";
     }
 
-    const columnCount = Math.max(...rows.map((row) => row.length));
-    if (!Number.isFinite(columnCount) || columnCount <= 0) {
+    const columnCount = getColumnCount(rows);
+    if (columnCount <= 0) {
         return "";
     }
 
-    const normalizedRows = rows.map((row) => {
-        const nextRow = row.map((cell) => escapeMarkdownTableCell(squashWhitespace(cell)));
-        while (nextRow.length < columnCount) {
-            nextRow.push("");
+    const lines = [renderTableRow(rows[0] ?? [], columnCount), renderSeparatorRow(columnCount)];
+    for (let index = 1; index < rows.length; index += 1) {
+        lines.push(renderTableRow(rows[index] ?? [], columnCount));
+    }
+
+    return lines.join("\n");
+}
+
+class MarkdownBuilder {
+    private readonly parts: string[] = [];
+
+    append(value: string): void {
+        const trimmed = value.trim();
+        if (trimmed) {
+            this.parts.push(trimmed);
         }
+    }
 
-        return nextRow;
-    });
+    toString(): string {
+        return this.parts.join("\n\n");
+    }
+}
 
-    const header = normalizedRows[0] ?? [];
-    const separator = Array.from({ length: columnCount }, () => "---");
-    const body = normalizedRows.slice(1);
+function getColumnCount(rows: string[][]): number {
+    let columnCount = 0;
+    for (const row of rows) {
+        columnCount = Math.max(columnCount, row.length);
+    }
 
-    return [
-        `| ${header.join(" | ")} |`,
-        `| ${separator.join(" | ")} |`,
-        ...body.map((row) => `| ${row.join(" | ")} |`),
-    ].join("\n");
+    return columnCount;
+}
+
+function renderSeparatorRow(columnCount: number): string {
+    return `| ${Array.from({ length: columnCount }, () => "---").join(" | ")} |`;
+}
+
+function renderTableRow(row: string[], columnCount: number): string {
+    const cells: string[] = [];
+    for (let index = 0; index < columnCount; index += 1) {
+        cells.push(escapeMarkdownTableCell(squashWhitespace(row[index] ?? "")));
+    }
+
+    return `| ${cells.join(" | ")} |`;
 }
 
 function escapeMarkdownTableCell(value: string): string {
