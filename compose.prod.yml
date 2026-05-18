@@ -24,7 +24,7 @@ services:
         image: ghcr.io/offis-rit/kiwi/frontend:latest
         restart: unless-stopped
         healthcheck:
-            test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+            test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
             interval: 30s
             timeout: 5s
             retries: 3
