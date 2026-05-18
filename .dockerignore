@@ -24,6 +24,8 @@
 !apps/frontend/providers/**
 !apps/frontend/public/**
 !apps/frontend/types/**
+!apps/frontend/i18n/**
+!apps/frontend/messages/**
 !apps/worker/
 !apps/worker/**
 
