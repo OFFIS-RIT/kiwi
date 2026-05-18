@@ -1,7 +1,13 @@
 import { deflateSync } from "node:zlib";
 import type { PDFImageAsset, PDFRefLike, PDFStreamLike } from "./types";
 import { JPEG_MIME_TYPE, PNG_MIME_TYPE, PNG_SIGNATURE } from "./constants";
-import { isPDFArray, isPDFName, safelyDecodeStream } from "./geometry";
+import { isPDFArray, isPDFName, isPDFNumber, isPDFStream, isPDFStringLike, safelyDecodeStream } from "./geometry";
+
+export type IndexedColorSpace = {
+    highValue: number;
+    componentCount: number;
+    palette: Uint8Array;
+};
 
 export function extractPDFImageAsset(stream: PDFStreamLike, resolver?: (ref: PDFRefLike) => unknown): PDFImageAsset {
     const filterNames = getPDFFilterNames(stream.get("Filter", resolver), resolver);
@@ -75,6 +81,14 @@ export function encodeDecodedPDFImageAsPNG(
     }
 
     const colorSpace = getColorSpaceName(stream.get("ColorSpace", resolver), resolver);
+    const indexedColorSpace = getIndexedColorSpace(stream.get("ColorSpace", resolver), resolver);
+    if (indexedColorSpace) {
+        const rgb = decodedIndexedImageToRGB(decoded, width, height, bitsPerComponent, indexedColorSpace);
+        if (rgb) {
+            return encodeRGBPNG(width, height, rgb);
+        }
+    }
+
     const rgb = decodedPDFImageToRGB(
         decoded,
         width,
@@ -88,6 +102,66 @@ export function encodeDecodedPDFImageAsPNG(
     }
 
     return encodeRGBPNG(width, height, rgb);
+}
+
+export function getIndexedColorSpace(
+    value: unknown,
+    resolver?: (ref: PDFRefLike) => unknown
+): IndexedColorSpace | null {
+    if (!isPDFArray(value)) {
+        return null;
+    }
+
+    const name = value.at(0, resolver);
+    if (!isPDFName(name) || name.value !== "Indexed") {
+        return null;
+    }
+
+    const highValue = value.at(2, resolver);
+    if (!isPDFNumber(highValue) || !Number.isInteger(highValue.value) || highValue.value < 0) {
+        return null;
+    }
+
+    const componentCount = getColorSpaceComponentCount(value.at(1, resolver), resolver);
+    const palette = getPaletteBytes(value.at(3, resolver));
+    if (!componentCount || !palette || palette.length < (highValue.value + 1) * componentCount) {
+        return null;
+    }
+
+    return {
+        highValue: highValue.value,
+        componentCount,
+        palette,
+    };
+}
+
+export function decodedIndexedImageToRGB(
+    decoded: Uint8Array,
+    width: number,
+    height: number,
+    bitsPerComponent: number,
+    colorSpace: IndexedColorSpace
+): Uint8Array | null {
+    if (![1, 2, 4, 8].includes(bitsPerComponent)) {
+        return null;
+    }
+
+    const rowStride = Math.ceil((width * bitsPerComponent) / 8);
+    const output = new Uint8Array(width * height * 3);
+
+    for (let y = 0; y < height; y += 1) {
+        const rowOffset = y * rowStride;
+        for (let x = 0; x < width; x += 1) {
+            const paletteIndex = readPackedSample(decoded, rowOffset, x, bitsPerComponent);
+            const clampedIndex = Math.min(paletteIndex, colorSpace.highValue);
+            const paletteOffset = clampedIndex * colorSpace.componentCount;
+            const targetOffset = (y * width + x) * 3;
+
+            writePaletteRGB(output, targetOffset, colorSpace.palette, paletteOffset, colorSpace.componentCount);
+        }
+    }
+
+    return output;
 }
 
 export function decodedPDFImageToRGB(
@@ -148,6 +222,99 @@ export function decodedPDFImageToRGB(
     }
 
     return null;
+}
+
+function readPackedSample(bytes: Uint8Array, rowOffset: number, x: number, bitsPerComponent: number): number {
+    if (bitsPerComponent === 8) {
+        return bytes[rowOffset + x] ?? 0;
+    }
+
+    const bitOffset = x * bitsPerComponent;
+    const byte = bytes[rowOffset + (bitOffset >> 3)] ?? 0;
+    const shift = 8 - bitsPerComponent - (bitOffset % 8);
+    const mask = (1 << bitsPerComponent) - 1;
+
+    return (byte >> shift) & mask;
+}
+
+function writePaletteRGB(
+    output: Uint8Array,
+    targetOffset: number,
+    palette: Uint8Array,
+    paletteOffset: number,
+    componentCount: number
+): void {
+    if (componentCount === 1) {
+        const gray = palette[paletteOffset] ?? 0;
+        output[targetOffset] = gray;
+        output[targetOffset + 1] = gray;
+        output[targetOffset + 2] = gray;
+        return;
+    }
+
+    if (componentCount === 4) {
+        const c = palette[paletteOffset] ?? 0;
+        const m = palette[paletteOffset + 1] ?? 0;
+        const y = palette[paletteOffset + 2] ?? 0;
+        const k = palette[paletteOffset + 3] ?? 0;
+        output[targetOffset] = Math.round(((255 - c) * (255 - k)) / 255);
+        output[targetOffset + 1] = Math.round(((255 - m) * (255 - k)) / 255);
+        output[targetOffset + 2] = Math.round(((255 - y) * (255 - k)) / 255);
+        return;
+    }
+
+    if (componentCount === 3) {
+        output[targetOffset] = palette[paletteOffset] ?? 0;
+        output[targetOffset + 1] = palette[paletteOffset + 1] ?? 0;
+        output[targetOffset + 2] = palette[paletteOffset + 2] ?? 0;
+    }
+}
+
+function getPaletteBytes(value: unknown): Uint8Array | null {
+    if (isPDFStringLike(value) && value.bytes) {
+        return value.bytes;
+    }
+
+    if (isPDFStream(value)) {
+        return safelyDecodeStream(value);
+    }
+
+    return null;
+}
+
+function getColorSpaceComponentCount(value: unknown, resolver?: (ref: PDFRefLike) => unknown): number | null {
+    if (isPDFName(value)) {
+        switch (value.value) {
+            case "DeviceGray":
+                return 1;
+            case "DeviceRGB":
+                return 3;
+            case "DeviceCMYK":
+                return 4;
+            default:
+                return null;
+        }
+    }
+
+    if (!isPDFArray(value)) {
+        return null;
+    }
+
+    const name = value.at(0, resolver);
+    if (!isPDFName(name)) {
+        return null;
+    }
+
+    if (name.value === "ICCBased") {
+        const profile = value.at(1, resolver);
+        const channels = isPDFStream(profile) ? profile.getNumber("N", resolver)?.value : undefined;
+
+        return typeof channels === "number" && Number.isInteger(channels) && channels >= 1 && channels <= 4
+            ? channels
+            : null;
+    }
+
+    return getColorSpaceComponentCount(name, resolver);
 }
 
 export function getColorSpaceName(value: unknown, resolver?: (ref: PDFRefLike) => unknown): string | null {

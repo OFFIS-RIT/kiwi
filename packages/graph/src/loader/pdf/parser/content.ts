@@ -61,21 +61,19 @@ export function analyzePageContent(
         textSequenceIndex: 0,
     };
 
-    for (const stream of contentStreams) {
-        const decoded = safelyDecodeStream(stream);
-        scanContentStream({
-            pdf,
-            pageIndex: page.index,
-            resources,
-            bytes: decoded,
-            nextImageId,
-            occurrences,
-            explicitEdges,
-            actualTextSpans,
-            state: cloneGraphicsState(initialState),
-            markedContentState,
-        });
-    }
+    const contentBytes = joinBytes(contentStreams.map((stream) => safelyDecodeStream(stream)));
+    scanContentStream({
+        pdf,
+        pageIndex: page.index,
+        resources,
+        bytes: contentBytes,
+        nextImageId,
+        occurrences,
+        explicitEdges,
+        actualTextSpans,
+        state: cloneGraphicsState(initialState),
+        markedContentState,
+    });
 
     return {
         images: occurrences,
@@ -100,6 +98,28 @@ export function getContentStreams(object: unknown, resolver?: (ref: PDFRefLike) 
     }
 
     return [];
+}
+
+export function joinBytes(chunks: Uint8Array[]): Uint8Array {
+    if (chunks.length === 0) {
+        return new Uint8Array(0);
+    }
+
+    const length = chunks.reduce((total, chunk) => total + chunk.length, 0) + (chunks.length - 1);
+    const output = new Uint8Array(length);
+    let offset = 0;
+    for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index]!;
+        if (index > 0) {
+            output[offset] = 0x0a;
+            offset += 1;
+        }
+
+        output.set(chunk, offset);
+        offset += chunk.length;
+    }
+
+    return output;
 }
 
 export function scanContentStream(options: {
@@ -684,6 +704,11 @@ export function createTokenizer(bytes: Uint8Array): {
         }
 
         const value = text.slice(start, index);
+        if (value === "") {
+            index += 1;
+            return { kind: "operator", value: charAt(start) };
+        }
+
         if (/^[+-]?(?:\d+\.\d+|\d+|\.\d+)$/.test(value)) {
             return { kind: "operand", value: Number(value) };
         }

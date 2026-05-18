@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { withAiSlot } from "@kiwi/ai/lock";
 import { embeddedImagePrompt } from "@kiwi/ai/prompts/image.prompt";
@@ -67,25 +68,53 @@ export async function processOCRImages(
     }
 
     const tagsById = new Map<string, string>();
+    const checksumById = new Map<string, string>();
+    const uniqueImages: Array<{ checksum: string; image: OCRImageAsset }> = [];
+    const seenChecksums = new Set<string>();
+    for (const image of images) {
+        const checksum = checksumImageContent(image.content);
+        checksumById.set(image.id, checksum);
+
+        if (!seenChecksums.has(checksum)) {
+            seenChecksums.add(checksum);
+            uniqueImages.push({ checksum, image });
+        }
+    }
+
+    const processedByChecksum = new Map<string, { key: string; description: string }>();
     const batchSize = getImageBatchSize();
-    for (let index = 0; index < images.length; index += batchSize) {
-        const batch = images.slice(index, index + batchSize);
-        const tags = await Promise.all(
-            batch.map(async (image) => {
+    for (let index = 0; index < uniqueImages.length; index += batchSize) {
+        const batch = uniqueImages.slice(index, index + batchSize);
+        const processedImages = await Promise.all(
+            batch.map(async ({ checksum, image }) => {
                 const description = (await describeImage(image, model)).trim();
                 const extension = getExtensionForMimeType(image.type);
                 const uploaded = await uploadImage(`${image.id}.${extension}`, image.content, storage);
 
                 return {
-                    id: image.id,
-                    tag: renderImageTag(image.id, uploaded.key, description),
+                    checksum,
+                    key: uploaded.key,
+                    description,
                 };
             })
         );
 
-        for (const tag of tags) {
-            tagsById.set(tag.id, tag.tag);
+        for (const processedImage of processedImages) {
+            processedByChecksum.set(processedImage.checksum, {
+                key: processedImage.key,
+                description: processedImage.description,
+            });
         }
+    }
+
+    for (const image of images) {
+        const checksum = checksumById.get(image.id);
+        const processedImage = checksum ? processedByChecksum.get(checksum) : undefined;
+        if (!processedImage) {
+            throw new Error(`Missing OCR image checksum result for ${image.id}`);
+        }
+
+        tagsById.set(image.id, renderImageTag(image.id, processedImage.key, processedImage.description));
     }
 
     const output = text.replace(IMAGE_FENCE_PATTERN, (fence, id: string) => {
@@ -128,6 +157,10 @@ async function defaultDescribeImage(image: OCRImageAsset, model: LanguageModelV3
     );
 
     return text;
+}
+
+function checksumImageContent(content: Uint8Array): string {
+    return createHash("sha256").update(content).digest("hex");
 }
 
 async function defaultUploadImage(
