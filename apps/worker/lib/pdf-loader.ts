@@ -1,24 +1,28 @@
 import type { GraphBinaryLoader } from "@kiwi/graph";
-import { PDFLoader } from "@kiwi/graph/loader/pdf";
+import { PDFLoader, type PDFMode } from "@kiwi/graph/loader/pdf";
+
+type PDFLoaderOptions = ConstructorParameters<typeof PDFLoader>[0];
 
 export function buildPDFLoaderOptions(
     loader: GraphBinaryLoader,
-    model: ConstructorParameters<typeof PDFLoader>[0]["model"] | undefined,
-    storage: NonNullable<ConstructorParameters<typeof PDFLoader>[0]["storage"]>
-): {
-    loader: GraphBinaryLoader;
-    mode: ConstructorParameters<typeof PDFLoader>[0]["mode"];
-    model: NonNullable<ConstructorParameters<typeof PDFLoader>[0]["model"]>;
-    storage: NonNullable<ConstructorParameters<typeof PDFLoader>[0]["storage"]>;
-} {
-    if (!model) {
-        throw new Error("PDF hybrid mode requires an image-capable model");
+    model: PDFLoaderOptions["model"] | undefined,
+    storage: PDFLoaderOptions["storage"] | undefined,
+    mode: PDFMode = "hybrid"
+): PDFLoaderOptions {
+    const options: PDFLoaderOptions = { loader, mode };
+
+    if (mode === "plain") {
+        return options;
     }
 
-    return {
-        loader,
-        mode: "hybrid",
-        model,
-        storage,
-    };
+    if (!model) {
+        throw new Error(`PDF ${mode} mode requires an image-capable model`);
+    }
+
+    options.model = model;
+    if (storage) {
+        options.storage = storage;
+    }
+
+    return options;
 }

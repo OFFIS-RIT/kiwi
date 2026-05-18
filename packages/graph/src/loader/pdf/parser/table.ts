@@ -78,7 +78,7 @@ export function detectTables(
     words: Word[],
     lines: TextLine[],
     explicitEdges: Edge[],
-    tableMode: PDFTableMode = "lines"
+    tableMode: PDFTableMode = "lines_strict"
 ): TableBlock[] {
     const tablePage = buildTablePage(pageText, words, explicitEdges);
     const tables: TableBlock[] = [];
@@ -90,7 +90,7 @@ export function detectTables(
         tables,
         buildTableBlocksFromModels(tablePage, tableFindTables(tablePage, tableDefaultSettings(tableMode)), "lines")
     );
-    if (!proseLikeMultiColumn) {
+    if (!strictLines && !proseLikeMultiColumn) {
         const rejectNonStrictEdges = strictLines ? nonStrictDrawnEdges : [];
         appendUniqueTables(
             tables,
@@ -724,7 +724,7 @@ export function pushWord(words: Word[], chars: TextChar[], lineIndex: number): v
     words.push({ text, bbox, lineIndex });
 }
 
-export function tableDefaultSettings(tableMode: PDFTableMode = "lines"): TableSettings {
+export function tableDefaultSettings(tableMode: PDFTableMode = "lines_strict"): TableSettings {
     return {
         VerticalStrategy: tableMode,
         HorizontalStrategy: tableMode,

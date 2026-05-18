@@ -229,6 +229,7 @@ Copy `.env.sample` to `.env` and configure:
 | `TRUSTED_ORIGINS`                  | Comma-separated origins allowed to call auth/API with credentials      |
 | `AUTH_CROSS_SUBDOMAIN_COOKIES`     | Enable Better Auth cross-subdomain cookies                             |
 | `AUTH_COOKIE_DOMAIN`               | Optional cookie domain for shared auth sessions across subdomains      |
+| `DOCUMENT_MODE`                    | Worker document mode: `plain`, `hybrid`, or `ocr`; defaults to `hybrid` |
 | `WORKER_CONCURRENCY`               | Maximum number of workflow runs processed in parallel by the worker    |
 | `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                  |
 | `NEXT_PUBLIC_AUTH_URL`             | Frontend auth service base URL                                         |

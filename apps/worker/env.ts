@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const adapterEnum = z.enum(["openai", "azure", "anthropic", "openaiAPI"]);
 const embeddingAdapterEnum = z.enum(["openai", "azure", "openaiAPI"]);
+const documentModeEnum = z.enum(["plain", "hybrid", "ocr"]);
 
 export const env = createEnv({
     server: {
@@ -45,6 +46,7 @@ export const env = createEnv({
         DATABASE_DIRECT_URL: z.string(),
 
         // Settings
+        DOCUMENT_MODE: documentModeEnum.default("hybrid"),
         WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
         AI_TEXT_CONCURRENCY: z.coerce.number().int().positive().default(64),
         AI_IMAGE_CONCURRENCY: z.coerce.number().int().positive().default(64),
