@@ -113,15 +113,23 @@ async function buildPDFBinary(build: (pdf: PDF) => Promise<void> | void): Promis
     return await pdf.save();
 }
 
-async function buildHybridFixture(build: (pdf: PDF) => Promise<void> | void): Promise<{
+type TestPDFTableMode = "lines" | "lines_strict";
+
+async function buildHybridFixture(
+    build: (pdf: PDF) => Promise<void> | void,
+    options: { tableMode?: TestPDFTableMode } = {}
+): Promise<{
     plain: string;
     hybrid: string;
 }> {
     const bytes = await buildPDFBinary(build);
-    return buildHybridFixtureFromBytes(bytes);
+    return buildHybridFixtureFromBytes(bytes, options);
 }
 
-async function buildHybridFixtureFromBytes(bytes: Uint8Array): Promise<{
+async function buildHybridFixtureFromBytes(
+    bytes: Uint8Array,
+    options: { tableMode?: TestPDFTableMode } = {}
+): Promise<{
     plain: string;
     hybrid: string;
 }> {
@@ -134,6 +142,7 @@ async function buildHybridFixtureFromBytes(bytes: Uint8Array): Promise<{
     const hybrid = await new PDFLoader({
         loader,
         mode: "hybrid",
+        tableMode: options.tableMode,
         model: {} as never,
         storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
     }).getText();
@@ -215,6 +224,103 @@ async function buildLineTableFixture() {
             ["Bar", "84"],
         ]);
     });
+}
+
+async function buildCurvePathTableFixture(options: { tableMode?: TestPDFTableMode } = {}) {
+    const content = Buffer.from(
+        [
+            "BT /F1 22 Tf 205 740 Td (Curve Path Table) Tj ET",
+            "BT /F1 12 Tf 60 585 Td (Name) Tj ET",
+            "BT /F1 12 Tf 180 585 Td (Value) Tj ET",
+            "BT /F1 12 Tf 60 557 Td (Foo) Tj ET",
+            "BT /F1 12 Tf 180 557 Td (42) Tj ET",
+            "BT /F1 12 Tf 60 529 Td (Bar) Tj ET",
+            "BT /F1 12 Tf 180 529 Td (84) Tj ET",
+            "1 w",
+            "50 520 m",
+            "290 520 l",
+            "290 604 l",
+            "50 604 l",
+            "h",
+            "170 520 m 170 548 170 576 170 604 c",
+            "50 548 m 130 548 290 548 v",
+            "50 576 m 130 576 290 576 y",
+            "S",
+        ].join("\n"),
+        "latin1"
+    );
+    const objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        pdfStream(`<< /Length ${content.length} >>`, content),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+
+    return buildHybridFixtureFromBytes(buildPDF(objects), options);
+}
+
+async function buildRectanglePathTableFixture(options: { tableMode?: TestPDFTableMode } = {}) {
+    const content = Buffer.from(
+        [
+            "BT /F1 22 Tf 190 740 Td (Rectangle Path Grid) Tj ET",
+            "BT /F1 12 Tf 60 585 Td (Name) Tj ET",
+            "BT /F1 12 Tf 180 585 Td (Value) Tj ET",
+            "BT /F1 12 Tf 60 557 Td (Foo) Tj ET",
+            "BT /F1 12 Tf 180 557 Td (42) Tj ET",
+            "BT /F1 12 Tf 60 529 Td (Bar) Tj ET",
+            "BT /F1 12 Tf 180 529 Td (84) Tj ET",
+            "1 w",
+            "50 576 120 28 re",
+            "170 576 120 28 re",
+            "50 548 120 28 re",
+            "170 548 120 28 re",
+            "50 520 120 28 re",
+            "170 520 120 28 re",
+            "S",
+        ].join("\n"),
+        "latin1"
+    );
+    const objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        pdfStream(`<< /Length ${content.length} >>`, content),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+
+    return buildHybridFixtureFromBytes(buildPDF(objects), options);
+}
+
+async function buildImplicitClosePathTableFixture() {
+    const content = Buffer.from(
+        [
+            "BT /F1 22 Tf 175 740 Td (Implicit Close Grid) Tj ET",
+            "BT /F1 12 Tf 60 585 Td (Name) Tj ET",
+            "BT /F1 12 Tf 180 585 Td (Value) Tj ET",
+            "BT /F1 12 Tf 60 557 Td (Foo) Tj ET",
+            "BT /F1 12 Tf 180 557 Td (42) Tj ET",
+            "1 w",
+            "50 548 m",
+            "290 548 l",
+            "290 604 l",
+            "50 604 l",
+            "s",
+            "170 548 m 170 604 l",
+            "50 576 m 290 576 l",
+            "S",
+        ].join("\n"),
+        "latin1"
+    );
+    const objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        pdfStream(`<< /Length ${content.length} >>`, content),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+
+    return buildHybridFixtureFromBytes(buildPDF(objects));
 }
 
 function buildRawFlateImagePDF(): Uint8Array {
@@ -590,6 +696,23 @@ async function buildTaggedAdjacentActualTextFixture() {
     return buildHybridFixtureFromBytes(patched);
 }
 
+async function buildLatin1ActualTextFixture() {
+    const bytes = await buildPDFBinary((pdf) => {
+        const page = pdf.addPage({ size: "letter" });
+
+        page.drawText("Latin1 Tag", { x: 220, y: 740, size: 22 });
+        page.drawText("Word:", { x: 60, y: 640, size: 12 });
+        page.drawText("x", { x: 100, y: 640, size: 12 });
+    });
+
+    const actualText = `caf${String.fromCharCode(0xe9)}`;
+    const patched = patchContentStreams(bytes, (stream) => {
+        return stream.replace(/<78> Tj/, `/Span << /ActualText (${actualText}) /MCID 0 >> BDC\n<78> Tj\nEMC`);
+    });
+
+    return buildHybridFixtureFromBytes(patched);
+}
+
 async function buildTableWithEmbeddedImageFixture() {
     return buildHybridFixture(async (pdf) => {
         const pngBytes = Uint8Array.from(Buffer.from(PNG_BASE64, "base64"));
@@ -718,6 +841,51 @@ describe("PDFLoader", () => {
         expect(putNamedFileMock).toHaveBeenCalledTimes(1);
         expect(isPNG(putNamedFileMock.mock.calls[0]?.[1] as Uint8Array)).toBe(true);
         expect(pdfToImgMock).not.toHaveBeenCalled();
+    });
+
+    test("detects curve-derived grids in default pdfplumber lines table mode", async () => {
+        const fixture = await buildCurvePathTableFixture();
+
+        expect(fixture.plain).toContain("Curve Path Table");
+        expect(fixture.hybrid).toMatch(/^# Curve Path Table$/m);
+        expect(fixture.hybrid).toMatch(/\| Name \| Value \|/);
+        expect(fixture.hybrid).toMatch(/\| Foo \| 42 \|/);
+        expect(fixture.hybrid).toMatch(/\| Bar \| 84 \|/);
+    });
+
+    test("detects rectangle-derived grids in default pdfplumber lines table mode", async () => {
+        const fixture = await buildRectanglePathTableFixture();
+
+        expect(fixture.plain).toContain("Rectangle Path Grid");
+        expect(fixture.hybrid).toMatch(/^# Rectangle Path Grid$/m);
+        expect(fixture.hybrid).toMatch(/\| Name \| Value \|/);
+        expect(fixture.hybrid).toMatch(/\| Foo \| 42 \|/);
+        expect(fixture.hybrid).toMatch(/\| Bar \| 84 \|/);
+    });
+
+    test("detects grids closed by implicit PDF path painting operators", async () => {
+        const fixture = await buildImplicitClosePathTableFixture();
+
+        expect(fixture.plain).toContain("Implicit Close Grid");
+        expect(fixture.hybrid).toMatch(/^# Implicit Close Grid$/m);
+        expect(fixture.hybrid).toMatch(/\| Name \| Value \|/);
+        expect(fixture.hybrid).toMatch(/\| Foo \| 42 \|/);
+    });
+
+    test("excludes curve-derived grids when lines_strict table mode is requested", async () => {
+        const fixture = await buildCurvePathTableFixture({ tableMode: "lines_strict" });
+
+        expect(fixture.hybrid).toMatch(/^# Curve Path Table$/m);
+        expect(fixture.hybrid).toContain("Name Value");
+        expect(fixture.hybrid).not.toMatch(/^\| .+\|$/m);
+    });
+
+    test("excludes rectangle-derived grids when lines_strict table mode is requested", async () => {
+        const fixture = await buildRectanglePathTableFixture({ tableMode: "lines_strict" });
+
+        expect(fixture.hybrid).toMatch(/^# Rectangle Path Grid$/m);
+        expect(fixture.hybrid).toContain("Name Value");
+        expect(fixture.hybrid).not.toMatch(/^\| .+\|$/m);
     });
 
     test("converts a raw FlateDecode image stream from the AWiFoe PDF into a PNG", async () => {
@@ -881,6 +1049,15 @@ describe("PDFLoader", () => {
         expect(fixture.hybrid).toMatch(/^#{1,2} Adjacent Tags$/m);
         expect(fixture.hybrid).toContain("Formula: x^2+y^2");
         expect(fixture.hybrid).not.toContain("Formula: x+y");
+    });
+
+    test("decodes raw Latin-1 bytes in ActualText literal strings", async () => {
+        const fixture = await buildLatin1ActualTextFixture();
+        const actualText = `caf${String.fromCharCode(0xe9)}`;
+
+        expect(fixture.plain).toContain(`Word: ${actualText}`);
+        expect(fixture.plain).not.toContain("caf\uFFFD");
+        expect(fixture.hybrid).toContain(`Word: ${actualText}`);
     });
 
     test("ignores images embedded inside detected tables instead of emitting broken image fences", async () => {

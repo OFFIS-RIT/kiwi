@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { utils, write } from "xlsx";
 
 import { ExcelLoader } from "../excel.ts";
 
@@ -20,6 +21,50 @@ async function buildFixture(): Promise<{
     return { text };
 }
 
+async function buildExcelText(bytes: Uint8Array): Promise<string> {
+    const loader = {
+        getText: async () => Buffer.from(bytes).toString(),
+        getBinary: async () => bytes.slice().buffer,
+    };
+
+    return new ExcelLoader({ loader }).getText();
+}
+
+function buildWorkbookBytes(
+    sheets: Array<{
+        name: string;
+        rows: unknown[][];
+        hidden?: 1 | 2;
+        hiddenRows?: number[];
+        hiddenCols?: number[];
+    }>
+): Uint8Array {
+    const workbook = utils.book_new();
+    for (const sheet of sheets) {
+        const worksheet = utils.aoa_to_sheet(sheet.rows);
+        const maxRows = sheet.rows.length;
+        const maxCols = Math.max(0, ...sheet.rows.map((row) => row.length));
+
+        worksheet["!rows"] = Array.from({ length: maxRows }, (_row, index) => ({
+            hidden: sheet.hiddenRows?.includes(index) ? true : undefined,
+        }));
+        worksheet["!cols"] = Array.from({ length: maxCols }, (_col, index) => ({
+            hidden: sheet.hiddenCols?.includes(index) ? true : undefined,
+        }));
+
+        utils.book_append_sheet(workbook, worksheet, sheet.name);
+        workbook.Workbook ??= { Sheets: [] };
+        workbook.Workbook.Sheets ??= [];
+        workbook.Workbook.Sheets[workbook.SheetNames.length - 1] = {
+            Hidden: sheet.hidden ?? 0,
+            name: sheet.name,
+        };
+    }
+
+    const content = write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+    return new Uint8Array(content);
+}
+
 describe("ExcelLoader", () => {
     test("flattens visible sheets into one markdown document", async () => {
         const fixture = await buildFixture();
@@ -37,5 +82,115 @@ describe("ExcelLoader", () => {
 
         expect(fixture.text).not.toContain("## Sheet: Hidden");
         expect(fixture.text).not.toContain("Secret");
+    });
+
+    test("escapes pipes normalizes multiline cells and preserves internal blanks", async () => {
+        const text = await buildExcelText(
+            buildWorkbookBytes([
+                {
+                    name: " Messy\n Sheet ",
+                    rows: [
+                        ["Name|Pipe", "", "Value"],
+                        ["Foo\n Bar", "", "42"],
+                    ],
+                },
+            ])
+        );
+
+        expect(text).toMatch(/^## Sheet: Messy Sheet$/m);
+        expect(text).toMatch(/\| Name\\\|Pipe \|  \| Value \|/);
+        expect(text).toMatch(/\| Foo Bar \|  \| 42 \|/);
+    });
+
+    test("skips hidden rows columns and very hidden sheets", async () => {
+        const text = await buildExcelText(
+            buildWorkbookBytes([
+                {
+                    name: "Visible",
+                    rows: [
+                        ["Name", "Hidden", "Value"],
+                        ["Foo", "Drop", "42"],
+                        ["Secret row", "Drop", "99"],
+                    ],
+                    hiddenRows: [2],
+                    hiddenCols: [1],
+                },
+                {
+                    name: "VeryHidden",
+                    rows: [["Secret"]],
+                    hidden: 2,
+                },
+            ])
+        );
+
+        expect(text).toContain("## Sheet: Visible");
+        expect(text).toMatch(/\| Name \| Value \|/);
+        expect(text).toMatch(/\| Foo \| 42 \|/);
+        expect(text).not.toContain("Hidden");
+        expect(text).not.toContain("Secret row");
+        expect(text).not.toContain("VeryHidden");
+    });
+
+    test("returns empty text when every workbook sheet is empty or hidden", async () => {
+        const text = await buildExcelText(
+            buildWorkbookBytes([
+                {
+                    name: "Empty",
+                    rows: [
+                        ["", ""],
+                        [null, undefined],
+                    ],
+                },
+                { name: "HiddenOnly", rows: [["Secret"]], hidden: 1 },
+            ])
+        );
+
+        expect(text).toBe("");
+    });
+
+    test("renders cached formula date and error display values", async () => {
+        const text = await buildExcelText(
+            buildWorkbookBytes([
+                {
+                    name: "Calculated",
+                    rows: [
+                        ["Kind", "Value"],
+                        ["Formula", { t: "n", f: "SUM(1,2)", v: 3, w: "3" }],
+                        ["Date", { t: "d", v: new Date(Date.UTC(2026, 0, 2)), z: "yyyy-mm-dd" }],
+                        ["Error", { t: "e", v: 7, w: "#DIV/0!" }],
+                    ],
+                },
+            ])
+        );
+
+        expect(text).toMatch(/\| Formula \| 3 \|/);
+        expect(text).toMatch(/\| Date \| 2026-01-02 \|/);
+        expect(text).toMatch(/\| Error \| #DIV\/0! \|/);
+    });
+
+    test("keeps formula cells without cached values from crashing extraction", async () => {
+        const text = await buildExcelText(
+            buildWorkbookBytes([
+                {
+                    name: "FormulaOnly",
+                    rows: [
+                        ["Kind", "Value"],
+                        ["Formula", { t: "n", f: "SUM(1,2)" }],
+                    ],
+                },
+            ])
+        );
+
+        expect(text).toMatch(/\| Kind \| Value \|/);
+        expect(text).toMatch(/\| Formula \|  \|/);
+    });
+
+    test("propagates invalid workbook errors", async () => {
+        const loader = {
+            getText: async () => "not a workbook",
+            getBinary: async () => Uint8Array.from([1, 2, 3]).buffer,
+        };
+
+        await expect(new ExcelLoader({ loader }).getText()).rejects.toThrow();
     });
 });
