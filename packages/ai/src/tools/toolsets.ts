@@ -51,6 +51,12 @@ export function buildServerAndClientToolset(options: GraphToolsetOptions) {
     } satisfies ToolSet;
 }
 
+export function buildDeepResearchToolset(subagentToolset: ToolSet) {
+    return {
+        ...subagentToolset,
+    } satisfies ToolSet;
+}
+
 export function buildMcpResearchToolset(options: GraphToolsetOptions) {
     return buildServerToolset(options);
 }

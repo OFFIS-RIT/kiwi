@@ -1,12 +1,4 @@
-import type {
-    BoundingBox,
-    Edge,
-    ImageOccurrence,
-    PageText,
-    PDFParserOptions,
-    RenderBlock,
-    TextLine,
-} from "./types";
+import type { BoundingBox, Edge, ImageOccurrence, PageText, PDFParserOptions, RenderBlock, TextLine } from "./types";
 import { getTop, intersectsAny, median, unionBoxes } from "./geometry";
 import { orderItemsByReadingLayout } from "./layout";
 import { detectTables, extractWords, lineCenterInAnyBox, lineHasTableWords } from "./table";

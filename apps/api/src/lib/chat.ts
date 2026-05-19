@@ -1,5 +1,6 @@
 import {
     buildAdapter,
+    buildDeepResearchToolset,
     buildEmbeddingAdapter,
     buildMcpResearchToolset,
     buildServerAndClientToolset,
@@ -217,14 +218,13 @@ export async function getGraphResearchRuntime(graphId: string, options: StartRep
     const toolsetOptions = { graphId, embeddingModel: client.embedding };
     const baseToolset = buildBaseToolset(toolsetOptions, options.toolset);
     const tools = options.deep
-        ? {
-              ...baseToolset,
-              ...buildSubagentToolset({
+        ? buildDeepResearchToolset(
+              buildSubagentToolset({
                   ...toolsetOptions,
                   model: client.subagent ?? client.text,
                   graphPrompt: promptRow?.prompt ?? undefined,
-              }),
-          }
+              })
+          )
         : baseToolset;
 
     return {

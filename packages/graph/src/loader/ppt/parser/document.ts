@@ -86,11 +86,7 @@ async function getSlidePaths(zip: JSZip): Promise<string[]> {
         .sort(compareSlidePaths);
 }
 
-async function parseSlide(
-    slidePath: string,
-    index: number,
-    context: PPTParseContext
-): Promise<SlideContent> {
+async function parseSlide(slidePath: string, index: number, context: PPTParseContext): Promise<SlideContent> {
     const slideXml = await readZipText(context.zip, slidePath);
     if (!slideXml) {
         return { index, hasTitle: false, blocks: [] };

@@ -5,6 +5,7 @@ mock.module("@kiwi/db", () => ({
 }));
 
 const {
+    buildDeepResearchToolset,
     buildGraphExplorationToolset,
     buildServerAndClientToolset,
     buildServerToolset,
@@ -56,5 +57,16 @@ describe("toolsets", () => {
 
     test("adds client tools to the server-and-client toolset", () => {
         expect(Object.keys(buildServerAndClientToolset(options))).toContain("ask_clarifying_questions");
+    });
+
+    test("uses only subagent tools for deep research", () => {
+        expect(
+            Object.keys(
+                buildDeepResearchToolset({
+                    explore_graph_with_subagent: {} as never,
+                    curate_sources_with_subagent: {} as never,
+                })
+            ).sort()
+        ).toEqual(["curate_sources_with_subagent", "explore_graph_with_subagent"]);
     });
 });

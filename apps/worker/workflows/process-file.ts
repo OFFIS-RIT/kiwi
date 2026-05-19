@@ -319,12 +319,7 @@ export const processFile = defineWorkflow(
                 switch (fileData.type) {
                     case "pdf": {
                         loader = new PDFLoader(
-                            buildPDFLoaderOptions(
-                                s3Loader,
-                                client.image,
-                                derivedImageStorage,
-                                env.DOCUMENT_MODE
-                            )
+                            buildPDFLoaderOptions(s3Loader, client.image, derivedImageStorage, env.DOCUMENT_MODE)
                         );
                         break;
                     }

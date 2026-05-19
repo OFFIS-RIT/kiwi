@@ -29,13 +29,16 @@ function pageText(lines: string[]): PageText {
 
 function contentWithImages(count: number): PageContentAnalysis {
     return {
-        images: Array.from({ length: count }, (_, index): ImageOccurrence => ({
-            id: `img-${index + 1}`,
-            type: "image/png",
-            content: new Uint8Array([index]),
-            bbox: { x: 0, y: 0, width: 10, height: 10 },
-            pageIndex: 0,
-        })),
+        images: Array.from(
+            { length: count },
+            (_, index): ImageOccurrence => ({
+                id: `img-${index + 1}`,
+                type: "image/png",
+                content: new Uint8Array([index]),
+                bbox: { x: 0, y: 0, width: 10, height: 10 },
+                pageIndex: 0,
+            })
+        ),
         explicitEdges: [],
         actualTextSpans: [],
     };

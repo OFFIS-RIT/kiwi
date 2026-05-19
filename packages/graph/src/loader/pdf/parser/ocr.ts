@@ -76,7 +76,9 @@ export async function extractOCRTextFromPDFPages(
         })
     );
 
-    return new Map(pageTexts.filter((entry): entry is readonly [number, string] => entry !== undefined && entry[1].length > 0));
+    return new Map(
+        pageTexts.filter((entry): entry is readonly [number, string] => entry !== undefined && entry[1].length > 0)
+    );
 }
 
 export async function defaultRasterizeSelectedPages(
