@@ -5,7 +5,7 @@ import type React from "react";
 import { AuthPage } from "@/components/auth";
 import { DashboardSkeleton } from "@/components/common";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { authClient } from "@kiwi/auth/client";
+import { useAuthClient } from "@/providers/AuthClientProvider";
 import {
     admin as adminRole,
     getUserRoles,
@@ -36,6 +36,7 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+    const authClient = useAuthClient();
     const { data: session, isPending } = authClient.useSession();
     const queryClient = useQueryClient();
     const [authView, setAuthView] = useState<"login" | "register">("login");

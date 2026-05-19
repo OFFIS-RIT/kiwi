@@ -2,25 +2,35 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 
+const fakeUseSession = vi.fn().mockReturnValue({ data: null, isPending: false, error: null });
+const fakeSignIn = {
+    email: vi.fn().mockResolvedValue({}),
+    credentials: vi.fn().mockResolvedValue({}),
+};
+const fakeSignOut = vi.fn();
+
 vi.mock("@kiwi/auth/client", () => ({
-    authClient: {
-        useSession: vi.fn().mockReturnValue({ data: null, isPending: false, error: null }),
-        signIn: {
-            email: vi.fn().mockResolvedValue({}),
-            credentials: vi.fn().mockResolvedValue({}),
-        },
-        signOut: vi.fn(),
-    },
+    createKiwiAuthClient: vi.fn(() => ({
+        useSession: fakeUseSession,
+        signIn: fakeSignIn,
+        signOut: fakeSignOut,
+    })),
 }));
 
+import { AuthClientProvider } from "@/providers/AuthClientProvider";
 import { LanguageProvider } from "@/providers/LanguageProvider";
+import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
 import { LoginForm } from "./LoginForm";
 
 function renderLoginForm(onSwitch = vi.fn()) {
     return render(
-        <LanguageProvider>
-            <LoginForm onSwitchToRegister={onSwitch} />
-        </LanguageProvider>
+        <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
+            <AuthClientProvider>
+                <LanguageProvider>
+                    <LoginForm onSwitchToRegister={onSwitch} />
+                </LanguageProvider>
+            </AuthClientProvider>
+        </RuntimeConfigProvider>
     );
 }
 

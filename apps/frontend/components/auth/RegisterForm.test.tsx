@@ -2,24 +2,34 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 
+const fakeUseSession = vi.fn().mockReturnValue({ data: null, isPending: false, error: null });
+const fakeSignUp = {
+    email: vi.fn().mockResolvedValue({}),
+};
+const fakeSignOut = vi.fn();
+
 vi.mock("@kiwi/auth/client", () => ({
-    authClient: {
-        useSession: vi.fn().mockReturnValue({ data: null, isPending: false, error: null }),
-        signUp: {
-            email: vi.fn().mockResolvedValue({}),
-        },
-        signOut: vi.fn(),
-    },
+    createKiwiAuthClient: vi.fn(() => ({
+        useSession: fakeUseSession,
+        signUp: fakeSignUp,
+        signOut: fakeSignOut,
+    })),
 }));
 
+import { AuthClientProvider } from "@/providers/AuthClientProvider";
 import { LanguageProvider } from "@/providers/LanguageProvider";
+import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
 import { RegisterForm } from "./RegisterForm";
 
 function renderRegisterForm(onSwitch = vi.fn()) {
     return render(
-        <LanguageProvider>
-            <RegisterForm onSwitchToLogin={onSwitch} />
-        </LanguageProvider>
+        <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
+            <AuthClientProvider>
+                <LanguageProvider>
+                    <RegisterForm onSwitchToLogin={onSwitch} />
+                </LanguageProvider>
+            </AuthClientProvider>
+        </RuntimeConfigProvider>
     );
 }
 

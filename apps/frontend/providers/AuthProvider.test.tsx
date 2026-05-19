@@ -1,16 +1,20 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
+const fakeUseSession = vi.fn();
+const fakeSignOut = vi.fn();
+
 vi.mock("@kiwi/auth/client", () => ({
-    authClient: {
-        useSession: vi.fn(),
-        signOut: vi.fn(),
-    },
+    createKiwiAuthClient: vi.fn(() => ({
+        useSession: fakeUseSession,
+        signOut: fakeSignOut,
+    })),
 }));
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { authClient } from "@kiwi/auth/client";
 import { LanguageProvider } from "@/providers/LanguageProvider";
+import { AuthClientProvider } from "@/providers/AuthClientProvider";
+import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
 import { AuthProvider, useAuth } from "./AuthProvider";
 
 function TestConsumer() {
@@ -28,16 +32,20 @@ function TestConsumer() {
 }
 
 function renderWithAuth(sessionData: unknown) {
-    (authClient.useSession as ReturnType<typeof vi.fn>).mockReturnValue(sessionData);
+    fakeUseSession.mockReturnValue(sessionData);
     const queryClient = new QueryClient();
 
     return render(
         <QueryClientProvider client={queryClient}>
-            <LanguageProvider>
-                <AuthProvider>
-                    <TestConsumer />
-                </AuthProvider>
-            </LanguageProvider>
+            <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
+                <AuthClientProvider>
+                    <LanguageProvider>
+                        <AuthProvider>
+                            <TestConsumer />
+                        </AuthProvider>
+                    </LanguageProvider>
+                </AuthClientProvider>
+            </RuntimeConfigProvider>
         </QueryClientProvider>
     );
 }

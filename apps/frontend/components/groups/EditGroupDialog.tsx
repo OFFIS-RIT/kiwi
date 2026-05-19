@@ -24,7 +24,7 @@ import {
     fuzzySearchUsers,
     normalizeUserSearch,
 } from "@/lib/user-search";
-import { authClient } from "@kiwi/auth/client";
+import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
@@ -67,6 +67,7 @@ type EditGroupDialogProps = {
 const MAX_NAME_LENGTH = 40;
 
 export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogProps) {
+    const authClient = useAuthClient();
     const { t } = useLanguage();
     const { hasPermission } = useAuth();
     const { refreshData } = useData();
@@ -163,7 +164,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         } finally {
             setIsSearchingUsers(false);
         }
-    }, [canAddUser, open]);
+    }, [authClient, canAddUser, open]);
 
     useEffect(() => {
         if (!open || !canAddUser) {

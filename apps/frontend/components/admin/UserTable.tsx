@@ -13,7 +13,7 @@ import {
     fuzzySearchUsers,
     normalizeUserSearch,
 } from "@/lib/user-search";
-import { authClient } from "@kiwi/auth/client";
+import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { Ban, ChevronLeft, ChevronRight, Loader2, Pencil, Search, ShieldCheck } from "lucide-react";
@@ -43,6 +43,7 @@ function getInitials(name: string): string {
 }
 
 export function UserTable() {
+    const authClient = useAuthClient();
     const { t } = useLanguage();
     const { user: currentUser } = useAuth();
     const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -99,7 +100,7 @@ export function UserTable() {
         } finally {
             setLoading(false);
         }
-    }, [t]);
+    }, [authClient, t]);
 
     useEffect(() => {
         void loadAllUsers();

@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const { fetchGroupUsers, translate, hasPermission, listUsers } = vi.hoisted(() => ({
@@ -26,11 +27,11 @@ vi.mock("@/lib/api/groups", () => ({
 }));
 
 vi.mock("@kiwi/auth/client", () => ({
-    authClient: {
+    createKiwiAuthClient: vi.fn(() => ({
         admin: {
             listUsers,
         },
-    },
+    })),
 }));
 
 vi.mock("@/providers/AuthProvider", () => ({
@@ -51,7 +52,17 @@ vi.mock("@/providers/LanguageProvider", () => ({
     }),
 }));
 
+import { AuthClientProvider } from "@/providers/AuthClientProvider";
+import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
 import { EditGroupDialog } from "./EditGroupDialog";
+
+function renderDialog(ui: ReactElement) {
+    return render(
+        <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
+            <AuthClientProvider>{ui}</AuthClientProvider>
+        </RuntimeConfigProvider>
+    );
+}
 
 describe("EditGroupDialog", () => {
     beforeEach(() => {
@@ -73,7 +84,7 @@ describe("EditGroupDialog", () => {
             },
         ]);
 
-        render(
+        renderDialog(
             <EditGroupDialog
                 open
                 onOpenChange={vi.fn()}
@@ -120,7 +131,7 @@ describe("EditGroupDialog", () => {
             });
         });
 
-        render(
+        renderDialog(
             <EditGroupDialog
                 open
                 onOpenChange={vi.fn()}
@@ -179,7 +190,7 @@ describe("EditGroupDialog", () => {
             });
         });
 
-        render(
+        renderDialog(
             <EditGroupDialog
                 open
                 onOpenChange={vi.fn()}
@@ -223,7 +234,7 @@ describe("EditGroupDialog", () => {
             error: null,
         });
 
-        render(
+        renderDialog(
             <EditGroupDialog
                 open
                 onOpenChange={vi.fn()}
