@@ -25,7 +25,7 @@ import type {
     TextUnitResponse,
 } from "@kiwi/api/types";
 import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
-import { apiClient, unwrapApiResponse } from "./client";
+import { unwrapApiResponse, type KiwiApiClient } from "./client";
 
 /**
  * Creates a new project within a group with optional file uploads.
@@ -35,6 +35,7 @@ import { apiClient, unwrapApiResponse } from "./client";
  * @param onProgress - Optional callback for upload progress (0-100)
  */
 export async function createProject(
+    client: KiwiApiClient,
     groupId: string,
     name: string,
     files: File[],
@@ -45,7 +46,7 @@ export async function createProject(
     formData.append("name", name);
     files.forEach((file) => formData.append("files", file));
 
-    const response = await apiClient.postFormDataWithProgress<GraphCreateResponse>("/graphs", formData, onProgress);
+    const response = await client.postFormDataWithProgress<GraphCreateResponse>("/graphs", formData, onProgress);
 
     return unwrapApiResponse(response);
 }
@@ -55,8 +56,12 @@ export async function createProject(
  * @param projectId - Project to update
  * @param name - New project name
  */
-export async function updateProject(projectId: string, name: string): Promise<GraphPatchSuccessData> {
-    const response = await apiClient.patch<GraphPatchResponse>(`/graphs/${projectId}`, { name });
+export async function updateProject(
+    client: KiwiApiClient,
+    projectId: string,
+    name: string
+): Promise<GraphPatchSuccessData> {
+    const response = await client.patch<GraphPatchResponse>(`/graphs/${projectId}`, { name });
 
     return unwrapApiResponse(response);
 }
@@ -65,8 +70,8 @@ export async function updateProject(projectId: string, name: string): Promise<Gr
  * Deletes a project and all associated data.
  * @param projectId - Project to delete
  */
-export async function deleteProject(projectId: string): Promise<GraphDeleteSuccessData> {
-    const response = await apiClient.delete<GraphDeleteResponse>(`/graphs/${projectId}`);
+export async function deleteProject(client: KiwiApiClient, projectId: string): Promise<GraphDeleteSuccessData> {
+    const response = await client.delete<GraphDeleteResponse>(`/graphs/${projectId}`);
 
     return unwrapApiResponse(response);
 }
@@ -74,8 +79,11 @@ export async function deleteProject(projectId: string): Promise<GraphDeleteSucce
 /**
  * Fetches the detailed graph/project record from the current API route.
  */
-export async function fetchProjectDetail(projectId: string): Promise<GraphDetailSuccessData> {
-    const response = await apiClient.get<GraphDetailResponse>(`/graphs/${projectId}`);
+export async function fetchProjectDetail(
+    client: KiwiApiClient,
+    projectId: string
+): Promise<GraphDetailSuccessData> {
+    const response = await client.get<GraphDetailResponse>(`/graphs/${projectId}`);
 
     return unwrapApiResponse(response);
 }
@@ -84,8 +92,8 @@ export async function fetchProjectDetail(projectId: string): Promise<GraphDetail
  * Fetches all files associated with a project.
  * @param projectId - Project to fetch files from
  */
-export async function fetchProjectFiles(projectId: string): Promise<ApiProjectFile[]> {
-    const response = await apiClient.get<GraphFilesResponse>(`/graphs/${projectId}/files`);
+export async function fetchProjectFiles(client: KiwiApiClient, projectId: string): Promise<ApiProjectFile[]> {
+    const response = await client.get<GraphFilesResponse>(`/graphs/${projectId}/files`);
     return unwrapApiResponse(response);
 }
 
@@ -96,6 +104,7 @@ export async function fetchProjectFiles(projectId: string): Promise<ApiProjectFi
  * @param onProgress - Optional callback for upload progress (0-100)
  */
 export async function addFilesToProject(
+    client: KiwiApiClient,
     projectId: string,
     files: File[],
     onProgress?: (progress: number, loaded: number, total: number) => void
@@ -103,7 +112,7 @@ export async function addFilesToProject(
     const formData = new FormData();
     files.forEach((file) => formData.append("files", file));
 
-    const response = await apiClient.postFormDataWithProgress<GraphAddFilesResponse>(
+    const response = await client.postFormDataWithProgress<GraphAddFilesResponse>(
         `/graphs/${projectId}/files`,
         formData,
         onProgress
@@ -117,8 +126,12 @@ export async function addFilesToProject(
  * @param projectId - Project containing the files
  * @param fileKeys - Array of file keys to delete
  */
-export async function deleteProjectFiles(projectId: string, fileKeys: string[]): Promise<GraphDeleteFilesSuccessData> {
-    const response = await apiClient.delete<GraphDeleteFilesResponse>(`/graphs/${projectId}/files`, {
+export async function deleteProjectFiles(
+    client: KiwiApiClient,
+    projectId: string,
+    fileKeys: string[]
+): Promise<GraphDeleteFilesSuccessData> {
+    const response = await client.delete<GraphDeleteFilesResponse>(`/graphs/${projectId}/files`, {
         fileKeys,
     });
 
@@ -137,24 +150,32 @@ export type {
 /**
  * Fetches the list of conversations for a project.
  */
-export async function fetchProjectChats(projectId: string): Promise<ChatSummaryItem[]> {
-    const response = await apiClient.get<ChatListResponse>(`/chat/${projectId}`);
+export async function fetchProjectChats(client: KiwiApiClient, projectId: string): Promise<ChatSummaryItem[]> {
+    const response = await client.get<ChatListResponse>(`/chat/${projectId}`);
     return unwrapApiResponse(response);
 }
 
 /**
  * Fetches the full chat transcript for a specific conversation.
  */
-export async function fetchProjectChat(projectId: string, conversationId: string): Promise<ChatHistoryRecord> {
-    const response = await apiClient.get<ChatDetailResponse>(`/chat/${projectId}/${conversationId}`);
+export async function fetchProjectChat(
+    client: KiwiApiClient,
+    projectId: string,
+    conversationId: string
+): Promise<ChatHistoryRecord> {
+    const response = await client.get<ChatDetailResponse>(`/chat/${projectId}/${conversationId}`);
     return unwrapApiResponse(response);
 }
 
 /**
  * Deletes a conversation.
  */
-export async function deleteProjectChat(projectId: string, conversationId: string): Promise<void> {
-    await apiClient.delete(`/chat/${projectId}/${conversationId}`);
+export async function deleteProjectChat(
+    client: KiwiApiClient,
+    projectId: string,
+    conversationId: string
+): Promise<void> {
+    await client.delete(`/chat/${projectId}/${conversationId}`);
 }
 
 /**
@@ -162,8 +183,12 @@ export async function deleteProjectChat(projectId: string, conversationId: strin
  * @param projectId - Graph containing the text unit
  * @param unitId - Text unit identifier
  */
-export async function fetchTextUnit(projectId: string, unitId: string): Promise<ApiTextUnit> {
-    const response = await apiClient.get<TextUnitResponse>(`/graphs/${projectId}/units/${unitId}`);
+export async function fetchTextUnit(
+    client: KiwiApiClient,
+    projectId: string,
+    unitId: string
+): Promise<ApiTextUnit> {
+    const response = await client.get<TextUnitResponse>(`/graphs/${projectId}/units/${unitId}`);
     return unwrapApiResponse(response);
 }
 
@@ -173,8 +198,12 @@ export async function fetchTextUnit(projectId: string, unitId: string): Promise<
  * @param fileKey - File key to download
  * @returns Presigned download URL
  */
-export async function downloadProjectFile(projectId: string, fileKey: string): Promise<string> {
-    const response = await apiClient.post<GraphFileDownloadResponse>(`/graphs/${projectId}/file`, {
+export async function downloadProjectFile(
+    client: KiwiApiClient,
+    projectId: string,
+    fileKey: string
+): Promise<string> {
+    const response = await client.post<GraphFileDownloadResponse>(`/graphs/${projectId}/file`, {
         file_key: fileKey,
     });
     return unwrapApiResponse(response).url;

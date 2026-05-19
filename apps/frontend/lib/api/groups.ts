@@ -15,13 +15,13 @@ import type {
     GroupListResponse,
 } from "@kiwi/api/types";
 import type { ApiGraph, ApiGroup, ApiGroupUser } from "@/types/api";
-import { apiClient, unwrapApiResponse } from "./client";
+import { unwrapApiResponse, type KiwiApiClient } from "./client";
 
 /**
  * Fetches all groups the current user has access to.
  */
-export async function fetchGroups(): Promise<ApiGroup[]> {
-    const response = await apiClient.get<GroupListResponse>("/groups");
+export async function fetchGroups(client: KiwiApiClient): Promise<ApiGroup[]> {
+    const response = await client.get<GroupListResponse>("/groups");
 
     return unwrapApiResponse(response);
 }
@@ -29,8 +29,8 @@ export async function fetchGroups(): Promise<ApiGroup[]> {
 /**
  * Fetches all visible top-level graphs the current user has access to.
  */
-export async function fetchGraphs(): Promise<ApiGraph[]> {
-    const response = await apiClient.get<GraphListResponse>("/graphs");
+export async function fetchGraphs(client: KiwiApiClient): Promise<ApiGraph[]> {
+    const response = await client.get<GraphListResponse>("/graphs");
 
     return unwrapApiResponse(response);
 }
@@ -39,8 +39,8 @@ export async function fetchGraphs(): Promise<ApiGraph[]> {
  * Creates a new group with a default admin user.
  * @param name - Group name
  */
-export async function createGroup(name: string): Promise<GroupCreateSuccessData> {
-    const response = await apiClient.post<GroupCreateResponse>("/groups", {
+export async function createGroup(client: KiwiApiClient, name: string): Promise<GroupCreateSuccessData> {
+    const response = await client.post<GroupCreateResponse>("/groups", {
         name,
     });
 
@@ -54,11 +54,12 @@ export async function createGroup(name: string): Promise<GroupCreateSuccessData>
  * @param users - Updated list of users with roles
  */
 export async function updateGroup(
+    client: KiwiApiClient,
     groupId: string,
     name: string,
     users: { user_id: string; role: string }[]
 ): Promise<GroupPatchSuccessData> {
-    const response = await apiClient.patch<GroupPatchResponse>(`/groups/${groupId}`, { name, users });
+    const response = await client.patch<GroupPatchResponse>(`/groups/${groupId}`, { name, users });
 
     return unwrapApiResponse(response);
 }
@@ -67,8 +68,8 @@ export async function updateGroup(
  * Deletes a group and all its projects.
  * @param groupId - Group to delete
  */
-export async function deleteGroup(groupId: string): Promise<GroupDeleteSuccessData> {
-    const response = await apiClient.delete<GroupDeleteResponse>(`/groups/${groupId}`);
+export async function deleteGroup(client: KiwiApiClient, groupId: string): Promise<GroupDeleteSuccessData> {
+    const response = await client.delete<GroupDeleteResponse>(`/groups/${groupId}`);
 
     return unwrapApiResponse(response);
 }
@@ -77,8 +78,8 @@ export async function deleteGroup(groupId: string): Promise<GroupDeleteSuccessDa
  * Fetches all users belonging to a group.
  * @param groupId - Group to fetch users from
  */
-export async function fetchGroupUsers(groupId: string): Promise<ApiGroupUser[]> {
-    const response = await apiClient.get<GroupUsersResponse>(`/groups/${groupId}/users`);
+export async function fetchGroupUsers(client: KiwiApiClient, groupId: string): Promise<ApiGroupUser[]> {
+    const response = await client.get<GroupUsersResponse>(`/groups/${groupId}/users`);
 
     return unwrapApiResponse(response);
 }

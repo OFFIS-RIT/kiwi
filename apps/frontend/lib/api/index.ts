@@ -3,7 +3,8 @@
  */
 
 // Re-export client utilities
-export { apiClient, ApiError } from "./client";
+export { ApiError, createKiwiApiClient, unwrapApiResponse } from "./client";
+export type { KiwiApiClient } from "./client";
 export type {
     ApiErrorCode,
     BaseResponse,
