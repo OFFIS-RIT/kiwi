@@ -93,7 +93,12 @@ export function createKiwiApiClient(baseURL: string, authClient: KiwiAuthClient)
         post: (endpoint, body) => request(endpoint, { method: "POST", body }),
         postFormData: (endpoint, formData) =>
             request(endpoint, { method: "POST", body: formData, isFormData: true }),
-        sendFormDataWithProgress: <T>(method, endpoint, formData, onProgress?) =>
+        sendFormDataWithProgress: <T>(
+            method: "POST" | "PATCH",
+            endpoint: string,
+            formData: FormData,
+            onProgress?: (progress: number, loaded: number, total: number) => void
+        ) =>
             new Promise<T>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open(method, `${baseURL}${endpoint}`);
