@@ -8,6 +8,7 @@ export function createChatPrompt(graphPrompt?: string, options: ChatPromptOption
     const includeGraphTools = options.includeGraphTools ?? true;
     const includeClientTools = options.includeClientTools ?? true;
     const includeSubagentTools = options.includeSubagentTools ?? false;
+    const useSubagentOnlyInstructions = !includeGraphTools && includeSubagentTools;
     const availableToolLines = [
         ...(includeGraphTools
             ? [
@@ -48,7 +49,9 @@ export function createChatPrompt(graphPrompt?: string, options: ChatPromptOption
               "# Clarification Rules",
               includeGraphTools
                   ? "- This endpoint cannot ask client-side clarification questions. Resolve ambiguity with graph exploration where possible."
-                  : "- This endpoint cannot ask client-side clarification questions. Resolve ambiguity with subagent exploration where possible.",
+                  : useSubagentOnlyInstructions
+                    ? "- This endpoint cannot ask client-side clarification questions. Resolve ambiguity with subagent exploration where possible."
+                    : "- This endpoint cannot ask client-side clarification questions. Resolve ambiguity with available context where possible.",
               "- If the request remains impossible to answer without additional user input, say exactly what is missing instead of guessing.",
           ];
     const sections = [
@@ -69,10 +72,14 @@ export function createChatPrompt(graphPrompt?: string, options: ChatPromptOption
         "# Tool Usage And Retrieval Rules",
         includeGraphTools
             ? "- Explore the graph before writing the answer. Identify the relevant entities, relationships, files, and connections, but use whatever exploration order best fits the question."
-            : "- Delegate graph exploration before writing the answer. Identify the relevant entities, relationships, files, source IDs, and unresolved gaps through the available subagent tools.",
+            : useSubagentOnlyInstructions
+              ? "- Delegate graph exploration before writing the answer. Identify the relevant entities, relationships, files, source IDs, and unresolved gaps through the available subagent tools."
+              : "- Use the available context before writing the answer. Identify relevant facts and unresolved gaps without assuming unavailable tools.",
         includeGraphTools
             ? "- The main purpose of retrieval is to reach the right source excerpts to cite, but do not jump to the source tools too early. First use the graph tools to figure out what actually matters."
-            : "- The main purpose of retrieval is to reach the right source excerpts to cite. Use the exploration subagent first, then the source curation subagent when source IDs are needed.",
+            : useSubagentOnlyInstructions
+              ? "- The main purpose of retrieval is to reach the right source excerpts to cite. Use the exploration subagent first, then the source curation subagent when source IDs are needed."
+              : "- Do not reference source IDs unless they are already present in the available context.",
         "- Never give a final answer until the relevant retrieval phase is complete and the answer is grounded in tool results.",
         "- When you need tool data, call the actual tool. Never print pseudo-tool calls, JSON examples, or made-up tool outputs in plain text.",
         ...(includeGraphTools
@@ -84,9 +91,13 @@ export function createChatPrompt(graphPrompt?: string, options: ChatPromptOption
                   "- After new graph exploration reveals additional relevant entities or relationships, run the corresponding source tool again if needed so the final answer stays fully grounded.",
                   "- For follow-up questions, do not rely only on earlier retrieval. Run fresh searches when needed to cover the new scope.",
               ]
-            : [
-                  "- For follow-up questions, do not rely only on earlier retrieval. Delegate fresh exploration when needed to cover the new scope.",
-              ]),
+            : useSubagentOnlyInstructions
+              ? [
+                    "- For follow-up questions, do not rely only on earlier retrieval. Delegate fresh exploration when needed to cover the new scope.",
+                ]
+              : [
+                    "- For follow-up questions, do not rely only on earlier retrieval. Use available context to cover the new scope.",
+                ]),
         ...(includeSubagentTools
             ? [
                   "- Use subagent tools to delegate deep exploration or source curation, then synthesize the final answer yourself.",
@@ -109,11 +120,16 @@ export function createChatPrompt(graphPrompt?: string, options: ChatPromptOption
                   "- Once you know which entities and relationships actually support the answer, use get_entity_sources and get_relationship_sources as needed to collect the source excerpts you will cite.",
                   "- Repeat exploration and source gathering as needed until the answer is complete and well-supported.",
               ]
-            : [
-                  "- Use explore_graph_with_subagent for graph exploration, relevant entity and relationship discovery, paths, file IDs, and unresolved gaps.",
-                  "- Use curate_sources_with_subagent after exploration to identify the source IDs that directly support the final answer.",
-                  "- Repeat delegated exploration and source curation as needed until the answer is complete and well-supported.",
-              ]),
+            : useSubagentOnlyInstructions
+              ? [
+                    "- Use explore_graph_with_subagent for graph exploration, relevant entity and relationship discovery, paths, file IDs, and unresolved gaps.",
+                    "- Use curate_sources_with_subagent after exploration to identify the source IDs that directly support the final answer.",
+                    "- Repeat delegated exploration and source curation as needed until the answer is complete and well-supported.",
+                ]
+              : [
+                    "- Work only from available context and previously cited information.",
+                    "- If available context is insufficient, say what is missing instead of naming unavailable tools.",
+                ]),
         "",
         "# Key Principles",
         "- Ground every factual claim in source text or explicitly cited information already present in the chat history.",
@@ -133,7 +149,9 @@ export function createChatPrompt(graphPrompt?: string, options: ChatPromptOption
             ? includeSubagentTools
                 ? "- Use only source IDs returned by get_entity_sources, get_relationship_sources, curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information."
                 : "- Use only source IDs returned by get_entity_sources or get_relationship_sources, or source IDs already cited earlier in the chat history when reusing that same cited information."
-            : "- Use only source IDs returned by curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information.",
+            : useSubagentOnlyInstructions
+              ? "- Use only source IDs returned by curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information."
+              : "- Use only source IDs already cited earlier in the chat history when reusing that same cited information.",
         "- Do not use legacy citation formats such as [[id]], markdown footnotes, bare IDs, or a separate sources list.",
         "- Place citations directly with the statement they support.",
         "- If no citation applies, do not present the statement as fact.",
