@@ -1,7 +1,20 @@
 "use client";
 
-import { fetchGraphs, fetchGroups } from "@/lib/api/groups";
+import {
+    addFilesToProject,
+    createGroup,
+    createProject,
+    deleteGroup,
+    deleteProject,
+    deleteProjectFiles,
+    fetchGraphs,
+    fetchGroups,
+    fetchProjectFiles,
+    updateGroup,
+    updateProject,
+} from "@/lib/api";
 import { determineProcessStep } from "@/lib/process-step";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import type { ApiBatchStepProgress, ApiGraph, ApiGroup, ApiProjectFile, Group } from "@/types";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 
@@ -65,6 +78,7 @@ export const queryKeys = {
  */
 export function useGroupsWithProjects() {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
 
     return useQuery({
         queryKey: queryKeys.groupsWithProjects,
@@ -75,7 +89,10 @@ export function useGroupsWithProjects() {
         refetchIntervalInBackground: false,
         queryFn: async () => {
             const cachedGroups = queryClient.getQueryData<ApiGroup[]>(queryKeys.groups);
-            const [apiGroups, apiGraphs] = await Promise.all([cachedGroups ?? fetchGroups(), fetchGraphs()]);
+            const [apiGroups, apiGraphs] = await Promise.all([
+                cachedGroups ?? fetchGroups(apiClient),
+                fetchGraphs(apiClient),
+            ]);
 
             if (!cachedGroups) {
                 queryClient.setQueryData(queryKeys.groups, apiGroups);
@@ -95,6 +112,7 @@ export function useGroupsWithProjects() {
  */
 export function useGroupsWithProjectsSuspense() {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
 
     return useSuspenseQuery({
         queryKey: queryKeys.groupsWithProjects,
@@ -105,7 +123,10 @@ export function useGroupsWithProjectsSuspense() {
         refetchIntervalInBackground: false,
         queryFn: async () => {
             const cachedGroups = queryClient.getQueryData<ApiGroup[]>(queryKeys.groups);
-            const [apiGroups, apiGraphs] = await Promise.all([cachedGroups ?? fetchGroups(), fetchGraphs()]);
+            const [apiGroups, apiGraphs] = await Promise.all([
+                cachedGroups ?? fetchGroups(apiClient),
+                fetchGraphs(apiClient),
+            ]);
 
             if (!cachedGroups) {
                 queryClient.setQueryData(queryKeys.groups, apiGroups);
@@ -123,12 +144,10 @@ export function useGroupsWithProjectsSuspense() {
  */
 export function useCreateGroup() {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
 
     return useMutation({
-        mutationFn: async (name: string) => {
-            const { createGroup } = await import("@/lib/api");
-            return createGroup(name);
-        },
+        mutationFn: (name: string) => createGroup(apiClient, name),
         onSuccess: () => {
             queryClient.removeQueries({ queryKey: queryKeys.groups, exact: true });
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
@@ -145,9 +164,10 @@ export function useCreateGroup() {
  */
 export function useUpdateGroup() {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
 
     return useMutation({
-        mutationFn: async ({
+        mutationFn: ({
             groupId,
             name,
             users = [],
@@ -155,10 +175,7 @@ export function useUpdateGroup() {
             groupId: string;
             name: string;
             users?: { user_id: string; role: string }[];
-        }) => {
-            const { updateGroup } = await import("@/lib/api");
-            return updateGroup(groupId, name, users);
-        },
+        }) => updateGroup(apiClient, groupId, name, users),
         onMutate: async ({ groupId, name }) => {
             await queryClient.cancelQueries({
                 queryKey: queryKeys.groupsWithProjects,
@@ -193,12 +210,10 @@ export function useUpdateGroup() {
  */
 export function useDeleteGroup() {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
 
     return useMutation({
-        mutationFn: async (groupId: string) => {
-            const { deleteGroup } = await import("@/lib/api");
-            return deleteGroup(groupId);
-        },
+        mutationFn: (groupId: string) => deleteGroup(apiClient, groupId),
         onMutate: async (groupId) => {
             await queryClient.cancelQueries({
                 queryKey: queryKeys.groupsWithProjects,
@@ -232,12 +247,11 @@ export function useDeleteGroup() {
  */
 export function useCreateProject() {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
 
     return useMutation({
-        mutationFn: async ({ groupId, name, files = [] }: { groupId: string; name: string; files?: File[] }) => {
-            const { createProject } = await import("@/lib/api");
-            return createProject(groupId, name, files);
-        },
+        mutationFn: ({ groupId, name, files = [] }: { groupId: string; name: string; files?: File[] }) =>
+            createProject(apiClient, groupId, name, files),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
         },
@@ -252,12 +266,11 @@ export function useCreateProject() {
  */
 export function useUpdateProject() {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
 
     return useMutation({
-        mutationFn: async ({ projectId, name }: { projectId: string; name: string }) => {
-            const { updateProject } = await import("@/lib/api");
-            return updateProject(projectId, name);
-        },
+        mutationFn: ({ projectId, name }: { projectId: string; name: string }) =>
+            updateProject(apiClient, projectId, name),
         onMutate: async ({ projectId, name }) => {
             await queryClient.cancelQueries({
                 queryKey: queryKeys.groupsWithProjects,
@@ -297,12 +310,10 @@ export function useUpdateProject() {
  */
 export function useDeleteProject() {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
 
     return useMutation({
-        mutationFn: async (projectId: string) => {
-            const { deleteProject } = await import("@/lib/api");
-            return deleteProject(projectId);
-        },
+        mutationFn: (projectId: string) => deleteProject(apiClient, projectId),
         onMutate: async (projectId) => {
             await queryClient.cancelQueries({
                 queryKey: queryKeys.groupsWithProjects,
@@ -340,12 +351,11 @@ export function useDeleteProject() {
  * @returns Query result containing array of project files
  */
 export function useProjectFiles(projectId: string, options?: { enabled?: boolean }) {
+    const apiClient = useApiClient();
+
     return useQuery({
         queryKey: queryKeys.projectFiles(projectId),
-        queryFn: async () => {
-            const { fetchProjectFiles } = await import("@/lib/api");
-            return fetchProjectFiles(projectId);
-        },
+        queryFn: () => fetchProjectFiles(apiClient, projectId),
         enabled: (options?.enabled ?? true) && !!projectId,
         refetchInterval: (query) => {
             const files = query.state.data as ApiProjectFile[] | undefined;
@@ -362,9 +372,10 @@ export function useProjectFiles(projectId: string, options?: { enabled?: boolean
  */
 export function useUploadProjectFiles() {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
 
     return useMutation({
-        mutationFn: async ({
+        mutationFn: ({
             projectId,
             files,
             onProgress,
@@ -372,10 +383,7 @@ export function useUploadProjectFiles() {
             projectId: string;
             files: File[];
             onProgress?: (progress: number) => void;
-        }) => {
-            const { addFilesToProject } = await import("@/lib/api");
-            return addFilesToProject(projectId, files, onProgress);
-        },
+        }) => addFilesToProject(apiClient, projectId, files, onProgress),
         onSuccess: (_, variables) => {
             queryClient.invalidateQueries({
                 queryKey: queryKeys.projectFiles(variables.projectId),
@@ -393,12 +401,11 @@ export function useUploadProjectFiles() {
  */
 export function useDeleteProjectFiles() {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
 
     return useMutation({
-        mutationFn: async ({ projectId, fileKeys }: { projectId: string; fileKeys: string[] }) => {
-            const { deleteProjectFiles } = await import("@/lib/api");
-            return deleteProjectFiles(projectId, fileKeys);
-        },
+        mutationFn: ({ projectId, fileKeys }: { projectId: string; fileKeys: string[] }) =>
+            deleteProjectFiles(apiClient, projectId, fileKeys),
         onMutate: async ({ projectId, fileKeys }) => {
             await queryClient.cancelQueries({
                 queryKey: queryKeys.projectFiles(projectId),
