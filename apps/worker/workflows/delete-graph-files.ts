@@ -16,21 +16,23 @@ function workflowError(error: unknown) {
 }
 
 async function finalizeProjectStatus(graphId: string) {
-    await db.execute(sql`
-        UPDATE process_runs run
-        SET status = 'completed',
-            completed_at = COALESCE(run.completed_at, NOW()),
-            updated_at = NOW()
-        WHERE run.graph_id = ${graphId}
-          AND run.status IN ('pending', 'started')
-          AND NOT EXISTS (
-              SELECT 1
-              FROM process_run_files run_file
-              WHERE run_file.process_run_id = run.id
-          )
-    `);
+    await db.transaction(async (tx) => {
+        await tx.execute(sql`
+            UPDATE process_runs run
+            SET status = 'completed',
+                completed_at = COALESCE(run.completed_at, NOW()),
+                updated_at = NOW()
+            WHERE run.graph_id = ${graphId}
+              AND run.status IN ('pending', 'started')
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM process_run_files run_file
+                  WHERE run_file.process_run_id = run.id
+              )
+        `);
 
-    await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, graphId));
+        await tx.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, graphId));
+    });
 }
 
 export const deleteGraphFiles = defineWorkflow(deleteGraphFilesSpec, async ({ input, step, run }) => {

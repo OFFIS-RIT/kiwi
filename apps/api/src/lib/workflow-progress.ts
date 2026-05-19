@@ -9,7 +9,7 @@ type DeleteWorkflowRun = {
     id: string;
     graphId: string;
     status: string;
-    fileCount: number;
+    fileIds: unknown;
 };
 
 type DeleteFileProgressRow = {
@@ -29,11 +29,26 @@ type DescriptionWorkflowProgressRow = {
     totalCount: number;
 };
 
-function textList(values: readonly string[]) {
-    return sql.join(
-        values.map((value) => sql`${value}`),
-        sql`, `
-    );
+type DeleteGraphProgress = DeleteProgress & {
+    fileIds: Set<string>;
+};
+
+function textArray(values: readonly string[]) {
+    if (values.length === 0) {
+        throw new Error("textArray called with an empty array");
+    }
+
+    return sql`${values}::text[]`;
+}
+
+function getWorkflowFileIds(run: DeleteWorkflowRun) {
+    if (!Array.isArray(run.fileIds)) {
+        return [run.id];
+    }
+
+    const fileIds = run.fileIds.filter((fileId): fileId is string => typeof fileId === "string" && fileId.length > 0);
+
+    return fileIds.length > 0 ? fileIds : [run.id];
 }
 
 export async function findActiveDeleteGraphFilesProgress(graphIds: string[]) {
@@ -45,12 +60,12 @@ export async function findActiveDeleteGraphFilesProgress(graphIds: string[]) {
         SELECT "id" AS "id",
                "input"->>'graphId' AS "graphId",
                "status" AS "status",
-               COALESCE(jsonb_array_length("input"->'fileIds'), 0)::int AS "fileCount"
+               COALESCE("input"->'fileIds', '[]'::jsonb) AS "fileIds"
         FROM openworkflow.workflow_runs
         WHERE "namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
           AND "workflow_name" = 'delete-graph-files'
-          AND "status" IN (${textList(ACTIVE_WORKFLOW_RUN_STATUSES)})
-          AND "input"->>'graphId' IN (${textList(graphIds)})
+          AND "status" = ANY(${textArray(ACTIVE_WORKFLOW_RUN_STATUSES)})
+          AND "input"->>'graphId' = ANY(${textArray(graphIds)})
         ORDER BY "created_at" DESC
     `);
 
@@ -85,7 +100,7 @@ export async function findActiveDeleteGraphFilesProgress(graphIds: string[]) {
                AND cleanup_step."step_name" = 'remove-file-graph-data'
                AND cleanup_step."status" IN ('completed', 'succeeded')
             WHERE parent."namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
-              AND parent."id" IN (${textList(runIds)})
+              AND parent."id" = ANY(${textArray(runIds)})
             GROUP BY parent."id"
         `),
         db.execute(sql<DeleteDescriptionProgressRow>`
@@ -112,7 +127,7 @@ export async function findActiveDeleteGraphFilesProgress(graphIds: string[]) {
                AND description_child."id" = description_step."child_workflow_run_id"
                AND description_child."workflow_name" = 'update-descriptions'
             WHERE parent."namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
-              AND parent."id" IN (${textList(runIds)})
+              AND parent."id" = ANY(${textArray(runIds)})
             GROUP BY parent."id"
         `),
     ]);
@@ -123,27 +138,50 @@ export async function findActiveDeleteGraphFilesProgress(graphIds: string[]) {
     const descriptionProgressByRunId = new Map(
         (descriptionProgressRows.rows as DeleteDescriptionProgressRow[]).map((row) => [row.workflowRunId, row])
     );
-    const progressByGraphId = new Map<string, DeleteProgress>();
+    const progressByGraphId = new Map<string, DeleteGraphProgress>();
     for (const run of runs) {
-        const totalFileCount = Math.max(run.fileCount, 1);
+        const fileIds = getWorkflowFileIds(run);
         const fileProgress = fileProgressByRunId.get(run.id);
         const descriptionProgress = descriptionProgressByRunId.get(run.id);
-        const existing = progressByGraphId.get(run.graphId);
+        const existing =
+            progressByGraphId.get(run.graphId) ??
+            ({
+                status: run.status,
+                files: { done: 0, total: 0 },
+                descriptions: { done: 0, total: 0 },
+                fileIds: new Set<string>(),
+            } satisfies DeleteGraphProgress);
+
+        for (const fileId of fileIds) {
+            existing.fileIds.add(fileId);
+        }
+
+        const total = Math.max(existing.fileIds.size, 1);
 
         progressByGraphId.set(run.graphId, {
-            status: existing?.status === "running" || run.status === "running" ? "running" : run.status,
+            status: existing.status === "running" || run.status === "running" ? "running" : run.status,
             files: {
-                done: (existing?.files.done ?? 0) + Math.min(fileProgress?.completedFileCount ?? 0, totalFileCount),
-                total: (existing?.files.total ?? 0) + totalFileCount,
+                done: Math.min(existing.files.done + (fileProgress?.completedFileCount ?? 0), total),
+                total,
             },
             descriptions: {
-                done: (existing?.descriptions.done ?? 0) + (descriptionProgress?.completedDescriptionCount ?? 0),
-                total: (existing?.descriptions.total ?? 0) + (descriptionProgress?.totalDescriptionCount ?? 0),
+                done: existing.descriptions.done + (descriptionProgress?.completedDescriptionCount ?? 0),
+                total: existing.descriptions.total + (descriptionProgress?.totalDescriptionCount ?? 0),
             },
+            fileIds: existing.fileIds,
         });
     }
 
-    return progressByGraphId;
+    return new Map(
+        [...progressByGraphId.entries()].map(([graphId, progress]) => [
+            graphId,
+            {
+                status: progress.status,
+                files: progress.files,
+                descriptions: progress.descriptions,
+            },
+        ])
+    );
 }
 
 export async function findProcessDescriptionProgress(runIds: string[]) {
@@ -164,7 +202,7 @@ export async function findProcessDescriptionProgress(runIds: string[]) {
            AND child."id" = step_attempt."child_workflow_run_id"
         WHERE parent."namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
           AND parent."workflow_name" = 'process-files'
-          AND parent."input"->>'processRunId' IN (${textList(runIds)})
+          AND parent."input"->>'processRunId' = ANY(${textArray(runIds)})
           AND step_attempt."kind" = 'workflow'
           AND child."workflow_name" = 'update-descriptions'
         GROUP BY parent."input"->>'processRunId'
