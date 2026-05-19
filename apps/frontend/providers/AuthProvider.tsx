@@ -10,7 +10,7 @@ import {
     user as userRole,
 } from "@kiwi/auth/permissions";
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import type { InitialClientSession } from "@/lib/auth/types";
 import { useAuthClient } from "./AuthClientProvider";
 
@@ -49,29 +49,35 @@ export function AuthProvider({
     const authClient = useAuthClient();
     const queryClient = useQueryClient();
     const router = useRouter();
+    const prevUserIdRef = useRef<string | null>(null);
     const { data: liveSession, isPending } = authClient.useSession();
 
     const sessionUser = liveSession?.user ?? initialSession.user;
+    const roles = getUserRoles(sessionUser?.role ?? null);
+    const role = roles[0] ?? null;
+    const isAdmin = hasRole(sessionUser?.role ?? null, "admin");
+    const isManager = hasRole(sessionUser?.role ?? null, "manager");
 
-    // Wenn nach Pending keine Session mehr da ist -> Server-Layout neu evaluieren,
-    // das redirected dann zu /login. Verhindert "App ist sichtbar, aber Backend gibt 401".
     useEffect(() => {
         if (!isPending && !liveSession) {
             router.refresh();
         }
     }, [isPending, liveSession, router]);
 
-    const roles = getUserRoles(sessionUser?.role ?? null);
-    const role = roles[0] ?? null;
-    const isAdmin = hasRole(sessionUser?.role ?? null, "admin");
-    const isManager = hasRole(sessionUser?.role ?? null, "manager");
+    useEffect(() => {
+        if (sessionUser?.id && prevUserIdRef.current && sessionUser.id !== prevUserIdRef.current) {
+            localStorage.removeItem("kiwi-navigation-state");
+        }
+
+        prevUserIdRef.current = sessionUser?.id ?? null;
+    }, [sessionUser?.id]);
 
     const hasPermission = useCallback(
         (permission: string): boolean => {
             if (isAdmin) return true;
             const [resource, action] = permission.split(".");
             if (!resource || !action) return false;
-            return roles.some((r) => roleMap[r]?.statements[resource]?.includes(action) ?? false);
+            return roles.some((currentRole) => roleMap[currentRole]?.statements[resource]?.includes(action) ?? false);
         },
         [isAdmin, roles]
     );
@@ -79,6 +85,7 @@ export function AuthProvider({
     const signOut = useCallback(async () => {
         await authClient.signOut();
         queryClient.clear();
+        localStorage.removeItem("kiwi-navigation-state");
         router.replace("/login");
     }, [authClient, queryClient, router]);
 

@@ -137,9 +137,10 @@ certificate files in `./certs`.
 ## Architecture
 
 The frontend runs as a Next.js standalone server on Node 20. Browser-facing
-configuration such as `API_URL`, `AUTH_URL`, and `AUTH_MODE` is read from
-runtime environment variables, so the same built image can be deployed with
-different API/auth endpoints without rebuilding.
+configuration such as `API_URL` and `AUTH_URL` is read from runtime environment
+variables, so the same built image can be deployed with different API/auth
+endpoints without rebuilding. Authentication mode is derived server-side from
+non-sensitive LDAP presence flags.
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
@@ -238,7 +239,6 @@ Copy `.env.sample` to `.env` and configure:
 | `WORKER_CONCURRENCY`               | Maximum number of workflow runs processed in parallel by the worker     |
 | `API_URL`                          | Frontend API base URL (runtime; no rebuild needed)                      |
 | `INTERNAL_AUTH_URL`                | Server-to-server auth URL inside Docker (defaults to `AUTH_URL`)        |
-| `AUTH_MODE`                        | Frontend auth UI mode (runtime; `credentials` or `ldap`)                |
 | `BUILD_LABEL`                      | Frontend build label, set via CI build arg                              |
 | `APPLE_CLIENT_ID`                  | Apple OAuth client ID                                                   |
 | `APPLE_CLIENT_SECRET`              | Apple OAuth client secret                                               |
@@ -254,6 +254,7 @@ Copy `.env.sample` to `.env` and configure:
 | `LDAP_PASSW`                       | LDAP bind password                                                      |
 | `LDAP_BASE_DN`                     | LDAP base DN                                                            |
 | `LDAP_SEARCH_ATTR`                 | LDAP search attribute                                                   |
+| `LDAP_*_CONFIGURED`                | Non-sensitive frontend LDAP presence flags, derived in production compose |
 | `MASTER_USER_ID`                   | Master user ID (string)                                                 |
 | `MASTER_USER_NAME`                 | Optional display name for the bootstrapped master user                  |
 | `MASTER_USER_EMAIL`                | Optional email for the bootstrapped master user                         |
@@ -298,22 +299,15 @@ Copy `.env.sample` to `.env` and configure:
 
 ### Authentication Mode (Credentials vs LDAP)
 
-Authentication mode is configured **independently** on the backend and frontend — they must match:
+LDAP is auto-enabled when **all** LDAP env vars are present (`LDAP_URL`,
+`LDAP_BIND_DN`, `LDAP_PASSW`, `LDAP_BASE_DN`, `LDAP_SEARCH_ATTR`). When LDAP is
+active, email/password sign-up and sign-in are **disabled** automatically.
 
-- **API/auth backend:** LDAP is auto-enabled when **all** LDAP env vars are
-  present (`LDAP_URL`, `LDAP_BIND_DN`, `LDAP_PASSW`, `LDAP_BASE_DN`,
-  `LDAP_SEARCH_ATTR`). When LDAP is active, email/password sign-up and sign-in
-  are **disabled** automatically.
-- **Frontend:** `AUTH_MODE` controls which login form is shown.
-  Set to `credentials` (default) for email/password or `ldap` for
-  username/password via LDAP. It also hides the "Create User" button in admin
-  when set to `ldap` (since user creation happens through LDAP).
-
-If the two sides disagree (e.g., backend has LDAP enabled but frontend is set to
-`credentials`), login will fail. Always set `AUTH_MODE=ldap` when
-LDAP env vars are configured, and leave it as `credentials` (or unset) otherwise.
-
-Note: When all LDAP variables are set, LDAP sign-in is enabled and email/password auth is disabled.
+The API and frontend both derive the mode with the shared `@kiwi/auth` helper.
+The API derives from actual LDAP values and logs a warning for partial
+configuration. The frontend derives from non-sensitive `LDAP_*_CONFIGURED`
+presence flags so LDAP bind credentials do not need to be present in the
+frontend container.
 
 ### Cross-Subdomain Cookies
 

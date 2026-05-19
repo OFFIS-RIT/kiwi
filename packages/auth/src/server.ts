@@ -1,4 +1,4 @@
-import { error as logError } from "@kiwi/logger";
+import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { betterAuth } from "better-auth";
 import { credentials } from "better-auth-credentials-plugin";
 import { admin as adminPlugin } from "better-auth/plugins";
@@ -8,6 +8,7 @@ import { z } from "zod";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@kiwi/db";
 import { ac, admin, manager, user as userRole } from "./permissions";
+import { deriveAuthMode, getLdapConfigState } from "./mode";
 import { apiKey } from "@better-auth/api-key";
 import * as authTables from "@kiwi/db/tables/auth";
 
@@ -34,17 +35,20 @@ function parseOriginList(value?: string) {
     ];
 }
 
-const ldapEnabled = Boolean(
-    process.env.LDAP_URL &&
-    process.env.LDAP_BIND_DN &&
-    process.env.LDAP_PASSW &&
-    process.env.LDAP_BASE_DN &&
-    process.env.LDAP_SEARCH_ATTR
-);
+const ldapConfigState = getLdapConfigState(process.env);
+
+if (ldapConfigState.partial) {
+    logWarn("LDAP configuration is incomplete; falling back to credentials auth mode", {
+        missingKeys: ldapConfigState.missingKeys,
+        blankKeys: ldapConfigState.blankKeys,
+    });
+}
+
+export const authMode = deriveAuthMode(process.env);
+const ldapEnabled = authMode === "ldap";
 const trustedOrigins = parseOriginList(process.env.TRUSTED_ORIGINS);
 const internalServiceOrigins = ["http://server:4321", "http://frontend:3000"];
-const allTrustedOrigins =
-    trustedOrigins.length > 0 ? [...trustedOrigins, ...internalServiceOrigins] : undefined;
+const allTrustedOrigins = trustedOrigins.length > 0 ? [...trustedOrigins, ...internalServiceOrigins] : undefined;
 const crossSubDomainCookiesEnabled = parseBooleanEnv(process.env.AUTH_CROSS_SUBDOMAIN_COOKIES);
 const crossSubDomainCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined;
 

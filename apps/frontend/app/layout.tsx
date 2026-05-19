@@ -7,6 +7,7 @@ import { ThemeProvider as NextThemesProvider } from "next-themes";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Toaster } from "sonner";
+import { deriveAuthModeFromPresence } from "@kiwi/auth/mode";
 import { AppMessagesProvider } from "@/lib/i18n/use-app-translations";
 import { RuntimeConfigProvider, type RuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { AuthClientProvider } from "@/providers/AuthClientProvider";
@@ -19,18 +20,10 @@ export const metadata: Metadata = {
     description: "Ein Dashboard zur Verwaltung von Wissensgruppen und -projekten",
 };
 
-function parseAuthMode(value: string | undefined): "credentials" | "ldap" {
-    if (value === "credentials" || value === "ldap") return value;
-    if (value !== undefined && value !== "") {
-        console.warn(`Invalid AUTH_MODE "${value}", falling back to "credentials"`);
-    }
-    return "credentials";
-}
-
 const SERVER_CONFIG: RuntimeConfig = {
     apiUrl: process.env.API_URL ?? "/api",
     authUrl: process.env.AUTH_URL ?? "/auth",
-    authMode: parseAuthMode(process.env.AUTH_MODE),
+    authMode: deriveAuthModeFromPresence(process.env),
     buildLabel: process.env.BUILD_LABEL?.trim() || undefined,
 };
 

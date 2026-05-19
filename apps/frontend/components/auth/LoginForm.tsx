@@ -3,9 +3,9 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { getSafeRedirectPath } from "@/lib/utils";
+import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
