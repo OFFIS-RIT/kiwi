@@ -191,8 +191,8 @@ export async function findProcessDescriptionProgress(runIds: string[]) {
 
     const result = await db.execute(sql<DescriptionWorkflowProgressRow>`
         SELECT parent."input"->>'processRunId' AS "processRunId",
-               COUNT(*) FILTER (WHERE child."status" IN ('completed', 'succeeded'))::int AS "completedCount",
-               COUNT(*)::int AS "totalCount"
+               COUNT(DISTINCT child."id") FILTER (WHERE child."status" IN ('completed', 'succeeded'))::int AS "completedCount",
+               COUNT(DISTINCT child."id")::int AS "totalCount"
         FROM openworkflow.workflow_runs parent
         INNER JOIN openworkflow.step_attempts step_attempt
             ON step_attempt."namespace_id" = parent."namespace_id"
@@ -202,6 +202,7 @@ export async function findProcessDescriptionProgress(runIds: string[]) {
            AND child."id" = step_attempt."child_workflow_run_id"
         WHERE parent."namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
           AND parent."workflow_name" = 'process-files'
+          AND parent."status" = ANY(${textArray(ACTIVE_WORKFLOW_RUN_STATUSES)})
           AND parent."input"->>'processRunId' = ANY(${textArray(runIds)})
           AND step_attempt."kind" = 'workflow'
           AND child."workflow_name" = 'update-descriptions'
