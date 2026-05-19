@@ -1,7 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { LanguageProvider } from "@/providers/LanguageProvider";
+import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
+import { AuthClientProvider } from "@/providers/AuthClientProvider";
+import { ApiClientProvider } from "@/providers/ApiClientProvider";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { MessageContent } from "../MessageContent";
 
@@ -16,18 +20,33 @@ vi.mock("@/lib/api/projects", () => ({
     })),
 }));
 
+vi.mock("@kiwi/auth/client", () => ({
+    createKiwiAuthClient: vi.fn(() => ({
+        signOut: vi.fn(),
+        useSession: vi.fn(() => ({ data: null, isPending: false })),
+    })),
+}));
+
 function citationFence(sourceId: string) {
     return `:::{"type":"cite","sourceId":"${sourceId}","unitId":"unit-1","fileName":"document.pdf","fileKey":"graphs/g1/document.pdf"}:::`;
+}
+
+function wrapWithProviders(node: ReactNode) {
+    return (
+        <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
+            <AuthClientProvider>
+                <ApiClientProvider>
+                    <LanguageProvider>{node}</LanguageProvider>
+                </ApiClientProvider>
+            </AuthClientProvider>
+        </RuntimeConfigProvider>
+    );
 }
 
 function renderMessageContent(parts: ChatUIMessage["parts"]) {
     localStorage.setItem("language", "en");
 
-    return render(
-        <LanguageProvider>
-            <MessageContent parts={parts} projectId="graph-1" />
-        </LanguageProvider>
-    );
+    return render(wrapWithProviders(<MessageContent parts={parts} projectId="graph-1" />));
 }
 
 describe("MessageContent", () => {
@@ -56,20 +75,12 @@ describe("MessageContent", () => {
         const parts: ChatUIMessage["parts"] = [{ type: "text", text: `Alpha ${citationFence("src-1")} Omega` }];
         localStorage.setItem("language", "en");
 
-        const { rerender } = render(
-            <LanguageProvider>
-                <MessageContent parts={parts} projectId="graph-1" />
-            </LanguageProvider>
-        );
+        const { rerender } = render(wrapWithProviders(<MessageContent parts={parts} projectId="graph-1" />));
 
         await userEvent.click(screen.getByRole("button", { name: "1" }));
         expect(await screen.findByText("Alpha evidence")).toBeInTheDocument();
 
-        rerender(
-            <LanguageProvider>
-                <MessageContent parts={parts} projectId="graph-1" />
-            </LanguageProvider>
-        );
+        rerender(wrapWithProviders(<MessageContent parts={parts} projectId="graph-1" />));
 
         expect(screen.getByRole("dialog")).toBeInTheDocument();
         expect(screen.getByText("Alpha evidence")).toBeInTheDocument();

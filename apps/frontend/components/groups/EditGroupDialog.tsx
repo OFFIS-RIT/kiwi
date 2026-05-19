@@ -24,6 +24,7 @@ import {
     fuzzySearchUsers,
     normalizeUserSearch,
 } from "@/lib/user-search";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useData } from "@/providers/DataProvider";
@@ -67,6 +68,7 @@ type EditGroupDialogProps = {
 const MAX_NAME_LENGTH = 40;
 
 export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogProps) {
+    const apiClient = useApiClient();
     const authClient = useAuthClient();
     const { t } = useLanguage();
     const { hasPermission } = useAuth();
@@ -96,14 +98,14 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         setIsLoading(true);
         setError(null);
         try {
-            const users = await fetchGroupUsers(groupId);
+            const users = await fetchGroupUsers(apiClient, groupId);
             setEditableUsers(users.map((u) => ({ user_id: u.user_id, user_name: u.user_name, role: u.role })));
         } catch (err) {
             setError(err instanceof Error ? err.message : t("error.loading.users"));
         } finally {
             setIsLoading(false);
         }
-    }, [groupId, t]);
+    }, [apiClient, groupId, t]);
 
     useEffect(() => {
         if (groupId && groupName !== undefined && open) {
@@ -209,7 +211,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         setIsSubmitting(true);
         setError(null);
         try {
-            await updateGroup(group.id, editedName, editableUsers);
+            await updateGroup(apiClient, group.id, editedName, editableUsers);
             await refreshData();
             onOpenChange(false);
         } catch (err) {

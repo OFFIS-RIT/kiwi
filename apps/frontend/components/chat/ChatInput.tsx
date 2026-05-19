@@ -2,6 +2,7 @@
 
 import { fetchProjectFiles } from "@/lib/api/projects";
 import { cn } from "@/lib/utils";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import type { ApiProjectFile } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -65,6 +66,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     { value, onChange, onSubmit, disabled = false, placeholder, projectId, interimTranscript },
     ref
 ) {
+    const apiClient = useApiClient();
     // Keep the latest file list and loading flag accessible to the mention
     // extension's closures without recreating the editor on every render.
     const filesRef = useRef<ApiProjectFile[]>([]);
@@ -96,7 +98,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
     const { data: files, isLoading } = useQuery({
         queryKey: projectFilesQueryKey(projectId),
-        queryFn: () => fetchProjectFiles(projectId),
+        queryFn: () => fetchProjectFiles(apiClient, projectId),
         staleTime: 30_000,
     });
 

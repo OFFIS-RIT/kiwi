@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { downloadProjectFile } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { isResolvedCitationFence, splitTextWithCitationFences, type ResolvedCitationFence } from "@kiwi/ai/citation";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
@@ -69,6 +70,7 @@ type ThinkingItem = { kind: "reasoning"; key: string; text: string } | { kind: "
 
 export function MessageContent({ parts, projectId, isStreaming = false }: MessageContentProps) {
     const { t } = useLanguage();
+    const apiClient = useApiClient();
     const [activeCitationSourceId, setActiveCitationSourceId] = React.useState<string | null>(null);
 
     const { markdownContent, citations, thinkingItems } = React.useMemo(() => {
@@ -213,7 +215,7 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
         if (!projectId) return;
 
         try {
-            const downloadUrl = await downloadProjectFile(projectId, fileKey);
+            const downloadUrl = await downloadProjectFile(apiClient, projectId, fileKey);
             window.open(downloadUrl, "_blank");
         } catch (error) {
             console.error("Error opening file:", error);

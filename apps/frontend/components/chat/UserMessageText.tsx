@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchProjectFiles } from "@/lib/api/projects";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import type { ApiProjectFile } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import { Fragment, useMemo, type ReactNode } from "react";
@@ -33,9 +34,10 @@ function buildSegments(text: string, files: ApiProjectFile[]): ReactNode[] {
 }
 
 export function UserMessageText({ projectId, text }: { projectId: string; text: string }) {
+    const apiClient = useApiClient();
     const { data: files } = useQuery({
         queryKey: projectFilesQueryKey(projectId),
-        queryFn: () => fetchProjectFiles(projectId),
+        queryFn: () => fetchProjectFiles(apiClient, projectId),
         staleTime: 30_000,
     });
 

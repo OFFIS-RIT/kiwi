@@ -52,6 +52,7 @@ vi.mock("@/providers/LanguageProvider", () => ({
     }),
 }));
 
+import { ApiClientProvider } from "@/providers/ApiClientProvider";
 import { AuthClientProvider } from "@/providers/AuthClientProvider";
 import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
 import { EditGroupDialog } from "./EditGroupDialog";
@@ -59,7 +60,9 @@ import { EditGroupDialog } from "./EditGroupDialog";
 function renderDialog(ui: ReactElement) {
     return render(
         <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
-            <AuthClientProvider>{ui}</AuthClientProvider>
+            <AuthClientProvider>
+                <ApiClientProvider>{ui}</ApiClientProvider>
+            </AuthClientProvider>
         </RuntimeConfigProvider>
     );
 }
@@ -95,7 +98,7 @@ describe("EditGroupDialog", () => {
             />
         );
 
-        await waitFor(() => expect(fetchGroupUsers).toHaveBeenCalledWith("group_1"));
+        await waitFor(() => expect(fetchGroupUsers).toHaveBeenCalledWith(expect.anything(), "group_1"));
         expect(await screen.findByText("Max Mustermann")).toBeInTheDocument();
         expect(screen.getByText("MM")).toBeInTheDocument();
         expect(screen.queryByText("user.id: user_1")).not.toBeInTheDocument();

@@ -36,6 +36,13 @@ vi.mock("@/lib/api/projects", () => ({
     updateProject: vi.fn(),
 }));
 
+vi.mock("@kiwi/auth/client", () => ({
+    createKiwiAuthClient: vi.fn(() => ({
+        signOut: vi.fn(),
+        useSession: vi.fn(() => ({ data: null, isPending: false })),
+    })),
+}));
+
 vi.mock("@/providers/AuthProvider", () => ({
     useAuth: () => ({
         hasPermission: () => false,
@@ -62,20 +69,29 @@ vi.mock("./FileStatusIcon", () => ({
     FileStatusIcon: () => <div>status-icon</div>,
 }));
 
+import { ApiClientProvider } from "@/providers/ApiClientProvider";
+import { AuthClientProvider } from "@/providers/AuthClientProvider";
+import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
 import { EditProjectDialog } from "./EditProjectDialog";
 
 describe("EditProjectDialog", () => {
     test("renders name field and project files inside the dialog scroll area", () => {
         render(
-            <EditProjectDialog
-                open
-                onOpenChange={vi.fn()}
-                project={{
-                    id: "project_1",
-                    name: "Wissensbasis",
-                }}
-                groupId={null}
-            />
+            <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
+                <AuthClientProvider>
+                    <ApiClientProvider>
+                        <EditProjectDialog
+                            open
+                            onOpenChange={vi.fn()}
+                            project={{
+                                id: "project_1",
+                                name: "Wissensbasis",
+                            }}
+                            groupId={null}
+                        />
+                    </ApiClientProvider>
+                </AuthClientProvider>
+            </RuntimeConfigProvider>
         );
 
         const nameInput = screen.getByLabelText("project.name");

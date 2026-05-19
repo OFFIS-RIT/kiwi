@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { downloadProjectFile, fetchTextUnit } from "@/lib/api/projects";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import type { ResolvedCitationFence } from "@kiwi/ai/citation";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
@@ -46,6 +47,7 @@ export function TextReferenceBadge({ citation, index, onSelect }: TextReferenceB
 
 export function TextReferenceDialog({ citation, index, projectId, open, onOpenChange }: TextReferenceDialogProps) {
     const { t } = useLanguage();
+    const apiClient = useApiClient();
     const getUnknownErrorLabel = useEffectEvent(() => t("error.unknown"));
     const [isLoadingUnit, setIsLoadingUnit] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
@@ -64,7 +66,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
             setError(null);
             setUnitText(null);
             try {
-                const unit = await fetchTextUnit(projectId, citation.unitId);
+                const unit = await fetchTextUnit(apiClient, projectId, citation.unitId);
                 if (!isCancelled) {
                     setUnitText(unit.text);
                 }
@@ -84,7 +86,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         return () => {
             isCancelled = true;
         };
-    }, [citation.unitId, open, projectId]);
+    }, [apiClient, citation.unitId, open, projectId]);
 
     const copyToClipboard = () => {
         if (unitText) {
@@ -98,7 +100,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         setIsDownloading(true);
         setError(null);
         try {
-            const downloadUrl = await downloadProjectFile(projectId, citation.fileKey);
+            const downloadUrl = await downloadProjectFile(apiClient, projectId, citation.fileKey);
             window.open(downloadUrl, "_blank");
         } catch (err) {
             setError(err instanceof Error ? err.message : t("error.unknown"));

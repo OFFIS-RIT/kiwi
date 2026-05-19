@@ -11,6 +11,8 @@ import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { deleteProjectChat, fetchProjectChat, fetchProjectChats } from "@/lib/api/projects";
+import type { KiwiApiClient } from "@/lib/api/client";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
@@ -300,10 +302,10 @@ function stripMarkdown(text: string): string {
 
 const projectChatQueryKey = (projectId: string) => ["project-chat", projectId] as const;
 
-async function hydrateProjectChatSession(projectId: string): Promise<ChatSessionState> {
-    const chats = await fetchProjectChats(projectId);
+async function hydrateProjectChatSession(client: KiwiApiClient, projectId: string): Promise<ChatSessionState> {
+    const chats = await fetchProjectChats(client, projectId);
     if (chats.length > 0) {
-        const latest = await fetchProjectChat(projectId, chats[0].id);
+        const latest = await fetchProjectChat(client, projectId, chats[0].id);
         return { id: latest.id, messages: latest.messages };
     }
     return { id: uuidv4(), messages: [] };
@@ -311,6 +313,7 @@ async function hydrateProjectChatSession(projectId: string): Promise<ChatSession
 
 export function ProjectChat({ projectName, groupName, projectId }: ProjectChatProps) {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
     const { entry, ensureEntry, resetEntry } = useProjectChatSession(projectId);
 
     // Hydrate once per project from the server and cache it in React Query so
@@ -318,7 +321,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     // the stored Chat instance in the provider survives the trip.
     const { data: hydrated, isLoading: isHydrating } = useQuery({
         queryKey: projectChatQueryKey(projectId),
-        queryFn: () => hydrateProjectChatSession(projectId),
+        queryFn: () => hydrateProjectChatSession(apiClient, projectId),
         enabled: !entry,
         staleTime: Infinity,
     });
@@ -338,7 +341,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     const handleReset = useCallback(
         async (chatId: string) => {
             try {
-                await deleteProjectChat(projectId, chatId);
+                await deleteProjectChat(apiClient, projectId, chatId);
             } catch (error) {
                 console.error("Failed to delete conversation:", error);
             } finally {
@@ -346,7 +349,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
                 await queryClient.invalidateQueries({ queryKey: projectChatQueryKey(projectId) });
             }
         },
-        [projectId, queryClient, resetEntry]
+        [apiClient, projectId, queryClient, resetEntry]
     );
 
     // Render a skeleton with the same DOM structure while the provider is

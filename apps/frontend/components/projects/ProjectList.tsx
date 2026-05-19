@@ -2,6 +2,7 @@
 
 import { StateDisplay } from "@/components/common/StateDisplay";
 import { queryKeys } from "@/hooks/use-data";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { useNavigation } from "@/providers/NavigationProvider";
@@ -15,6 +16,7 @@ type ProjectListProps = {
 };
 
 export function ProjectList({ onEditProject }: ProjectListProps) {
+    const apiClient = useApiClient();
     const { selectedGroup, selectItem } = useNavigation();
     const { t } = useLanguage();
     const { groups, isLoading, error } = useData();
@@ -49,7 +51,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
             queryKey: queryKeys.projectFiles(project.id),
             queryFn: async () => {
                 const { fetchProjectFiles } = await import("@/lib/api");
-                return fetchProjectFiles(project.id);
+                return fetchProjectFiles(apiClient, project.id);
             },
             staleTime: 30 * 1000,
         })),

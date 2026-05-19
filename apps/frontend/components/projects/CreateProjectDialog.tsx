@@ -17,6 +17,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createProject } from "@/lib/api/projects";
 import { formatBytes } from "@/lib/utils";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
@@ -34,6 +35,7 @@ type CreateProjectDialogProps = {
 const MAX_NAME_LENGTH = 40;
 
 export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCreated }: CreateProjectDialogProps) {
+    const apiClient = useApiClient();
     const { t } = useLanguage();
     const { groups, isLoading, error, refreshData } = useData();
     const { toggleGroupExpanded, expandedGroups } = useSidebarExpansion();
@@ -93,23 +95,29 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
             let lastTime = startTime;
             let lastLoaded = 0;
 
-            const response = await createProject(selectedGroup, projectName, files, (progress, loaded, total) => {
-                setUploadProgress(progress);
-                setUploadedBytes(loaded);
-                setTotalBytes(total);
+            const response = await createProject(
+                apiClient,
+                selectedGroup,
+                projectName,
+                files,
+                (progress, loaded, total) => {
+                    setUploadProgress(progress);
+                    setUploadedBytes(loaded);
+                    setTotalBytes(total);
 
-                const currentTime = Date.now();
-                const timeDiff = currentTime - lastTime;
+                    const currentTime = Date.now();
+                    const timeDiff = currentTime - lastTime;
 
-                // Update speed every 500ms to avoid flickering
-                if (timeDiff > 500) {
-                    const bytesDiff = loaded - lastLoaded;
-                    const speed = (bytesDiff / timeDiff) * 1000; // Bytes/sec
-                    setUploadSpeed(speed);
-                    lastTime = currentTime;
-                    lastLoaded = loaded;
+                    // Update speed every 500ms to avoid flickering
+                    if (timeDiff > 500) {
+                        const bytesDiff = loaded - lastLoaded;
+                        const speed = (bytesDiff / timeDiff) * 1000; // Bytes/sec
+                        setUploadSpeed(speed);
+                        lastTime = currentTime;
+                        lastLoaded = loaded;
+                    }
                 }
-            });
+            );
 
             if (!expandedGroups[selectedGroup]) {
                 toggleGroupExpanded(selectedGroup);
