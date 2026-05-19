@@ -15,7 +15,8 @@ import { env } from "../env";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { GraphDetailFileRecord, GraphFileRecord, GraphListItem } from "../types/routes";
 import { type GraphRecord } from "./graph-access";
-import { buildProcessStepProgress } from "./process-progress";
+import { buildDeleteStepProgress, buildProcessStepProgress } from "./process-progress";
+import { findActiveDeleteGraphFilesProgress, findProcessDescriptionProgress } from "./workflow-progress";
 
 export type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "text";
 export type UploadedFile = {
@@ -361,7 +362,7 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
         WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 50000000 THEN 'large'
         ELSE 'huge'
     END`;
-    const [runs, bucketStats, typeStats, [globalStats]] = await Promise.all([
+    const [runs, bucketStats, typeStats, [globalStats], deleteProgressByGraphId] = await Promise.all([
         db
             .select({
                 id: processRunsTable.id,
@@ -401,6 +402,7 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
                 sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
             })
             .from(processStatsTable),
+        findActiveDeleteGraphFilesProgress(graphIds),
     ]);
 
     const runByGraphId = new Map<string, RunRow>();
@@ -411,9 +413,9 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
     }
 
     const runIds = Array.from(runByGraphId.values()).map((run) => run.id);
-    const runFiles =
+    const [runFiles, descriptionProgressByRunId] = await Promise.all([
         runIds.length > 0
-            ? await db
+            ? db
                   .select({
                       process_run_id: processRunFilesTable.processRunId,
                       process_step: filesTable.processStep,
@@ -423,7 +425,9 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
                   .from(processRunFilesTable)
                   .innerJoin(filesTable, eq(filesTable.id, processRunFilesTable.fileId))
                   .where(inArray(processRunFilesTable.processRunId, runIds))
-            : [];
+            : [],
+        findProcessDescriptionProgress(runIds),
+    ]);
 
     const filesByRunId = new Map<string, RunFile[]>();
     for (const runFile of runFiles) {
@@ -461,6 +465,17 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
             : undefined;
 
     return graphs.map((graph) => {
+        const deleteProgress = deleteProgressByGraphId.get(graph.graph_id);
+        if (deleteProgress) {
+            return mapGraphListItem(
+                {
+                    ...graph,
+                    graph_state: "updating",
+                },
+                buildDeleteStepProgress(deleteProgress)
+            );
+        }
+
         const run = runByGraphId.get(graph.graph_id);
         if (!run) {
             return mapGraphListItem(graph);
@@ -473,7 +488,7 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
                 graph_state: "updating",
             },
             {
-                process_step: buildProcessStepProgress(run, files),
+                process_step: buildProcessStepProgress(run, files, descriptionProgressByRunId.get(run.id)),
                 process_percentage: buildProcessPercentage(files),
                 ...buildTimeEstimate(run, files, bucketAverages, typeAverages, globalAverage),
             }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildProcessStepProgress } from "./process-progress";
+import { buildDeleteStepProgress, buildProcessStepProgress } from "./process-progress";
 
 describe("buildProcessStepProgress", () => {
     test("returns undefined for an empty file list", () => {
@@ -37,15 +37,59 @@ describe("buildProcessStepProgress", () => {
         });
     });
 
-    test("reports description generation after every file has completed in an active run", () => {
+    test("reports pending description generation after every file has completed in an active run", () => {
         expect(
             buildProcessStepProgress({ status: "started" }, [
                 { process_step: "completed" },
                 { process_step: "completed" },
             ])
         ).toEqual({
-            describing: "2/2",
-            completed: "2/2",
+            describing: "0/2",
+        });
+    });
+
+    test("reports actual description workflow progress when available", () => {
+        expect(
+            buildProcessStepProgress(
+                { status: "started" },
+                [{ process_step: "completed" }, { process_step: "completed" }],
+                { done: 1, total: 3 }
+            )
+        ).toEqual({
+            describing: "1/3",
+        });
+    });
+});
+
+describe("buildDeleteStepProgress", () => {
+    test("reports deleting file progress without description progress", () => {
+        expect(
+            buildDeleteStepProgress({
+                status: "running",
+                files: { done: 1, total: 2 },
+                descriptions: { done: 0, total: 0 },
+            })
+        ).toEqual({
+            process_step: {
+                deleting: "1/2",
+            },
+            process_percentage: 50,
+        });
+    });
+
+    test("reports deleting and description progress together", () => {
+        expect(
+            buildDeleteStepProgress({
+                status: "running",
+                files: { done: 2, total: 2 },
+                descriptions: { done: 1, total: 3 },
+            })
+        ).toEqual({
+            process_step: {
+                deleting: "2/2",
+                describing: "1/3",
+            },
+            process_percentage: 72,
         });
     });
 });
