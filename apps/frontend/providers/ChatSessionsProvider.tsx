@@ -1,6 +1,6 @@
 "use client";
 
-import { API_BASE_URL } from "@/lib/api/client";
+import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { Chat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
@@ -36,6 +36,7 @@ type ChatSessionsStore = {
 const ChatSessionsContext = createContext<ChatSessionsStore | null>(null);
 
 export function ChatSessionsProvider({ children }: { children: ReactNode }) {
+    const { apiUrl } = useRuntimeConfig();
     // Instances and listeners are kept in refs so we don't re-render the whole tree
     // when a single project's stream progresses. Subscribers per projectId opt in
     // to their own updates via useSyncExternalStore below.
@@ -69,7 +70,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                     id: init.sessionId,
                     messages: init.initialMessages,
                     transport: new DefaultChatTransport({
-                        api: `${API_BASE_URL}/stream/${projectId}`,
+                        api: `${apiUrl}/stream/${projectId}`,
                         credentials: "include",
                     }),
                     sendAutomaticallyWhen: init.sendAutomaticallyWhen,
@@ -129,7 +130,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 };
             },
         };
-    }, [notify, updateEntry]);
+    }, [notify, updateEntry, apiUrl]);
 
     return <ChatSessionsContext.Provider value={store}>{children}</ChatSessionsContext.Provider>;
 }
