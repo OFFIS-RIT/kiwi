@@ -1,5 +1,5 @@
 import type JSZip from "jszip";
-import type { ContentTypes, Relationships } from "../../ooxml/types";
+import type { ContentTypes, Relationships } from "../ooxml/types";
 
 export type PPTOCRImage = {
     id: string;

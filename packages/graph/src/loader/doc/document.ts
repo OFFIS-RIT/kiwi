@@ -6,7 +6,7 @@ import {
     parseContentTypes,
     readZipBinary,
     readZipText,
-} from "../../ooxml/package";
+} from "../ooxml/package";
 import {
     childElements,
     findDescendants,
@@ -16,8 +16,8 @@ import {
     getDocumentRoot,
     getLocalName,
     parseXml,
-} from "../../ooxml/xml";
-import type { XMLNodeLike } from "../../ooxml/types";
+} from "../ooxml/xml";
+import type { XMLNodeLike } from "../ooxml/types";
 import { clampHeadingLevel, cleanInlineText, detectHeadingLevel, formatInlineText } from "./text";
 import type { DOCBlock, DOCNumbering, DOCParseContext, DOCStyles, ParagraphListInfo, ParsedDOC } from "./types";
 

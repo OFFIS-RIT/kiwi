@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildDeleteStepProgress, buildProcessStepProgress } from "./process-progress";
+import { buildDeleteStepProgress, buildProcessStepProgress } from "../process-progress";
 
 describe("buildProcessStepProgress", () => {
     test("returns undefined for an empty file list", () => {

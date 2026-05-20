@@ -1,5 +1,5 @@
 import type { GraphBinaryLoader, GraphLoader } from "..";
-import { extractExcel } from "./excel/parser/document";
+import { extractExcel } from "./excel/document";
 
 export class ExcelLoader implements GraphLoader {
     readonly filetype = "xlsx";

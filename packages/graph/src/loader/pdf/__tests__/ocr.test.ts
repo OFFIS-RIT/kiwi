@@ -1,8 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
-import { DEFAULT_RASTER_SCALE } from "./constants";
-import { shouldUsePageOCRFallback } from "./document";
-import { extractOCRTextFromPDFPages, getPageRasterScale } from "./ocr";
-import type { ImageOccurrence, PageContentAnalysis, PageText } from "./types";
+import { DEFAULT_RASTER_SCALE } from "../constants";
+import { shouldUsePageOCRFallback } from "../document";
+import { extractOCRTextFromPDFPages, getPageRasterScale } from "../ocr";
+import type { ImageOccurrence, PageContentAnalysis, PageText } from "../types";
 
 function pageText(lines: string[]): PageText {
     return {

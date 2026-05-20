@@ -1,4 +1,4 @@
-import { squashWhitespace } from "../../ooxml/xml";
+import { squashWhitespace } from "../ooxml/xml";
 import type { SlideContent } from "./types";
 
 export function renderMarkdown(slides: SlideContent[]): string {

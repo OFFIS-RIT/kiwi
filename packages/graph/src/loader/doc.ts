@@ -1,8 +1,8 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { GraphBinaryLoader, GraphLoader } from "..";
 import { processOCRImages } from "../lib/ocr-image";
-import { parseDOCX } from "./doc/parser/document";
-import { renderMarkdown } from "./doc/parser/render";
+import { parseDOCX } from "./doc/document";
+import { renderMarkdown } from "./doc/render";
 
 export class DOCXLoader implements GraphLoader {
     readonly filetype = "docx";

@@ -1,4 +1,4 @@
-import { squashWhitespace } from "../../ooxml/xml";
+import { squashWhitespace } from "../ooxml/xml";
 import type { DOCBlock } from "./types";
 import { clampHeadingLevel, cleanInlineText } from "./text";
 

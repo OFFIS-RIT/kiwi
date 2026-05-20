@@ -2,13 +2,13 @@ import { PDF } from "@libpdf/core";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { GraphBinaryLoader, GraphLoader } from "..";
 import { processOCRImages } from "../lib/ocr-image";
-import { extractPDFHybridFromDocument, extractPlainTextFromDocument } from "./pdf/parser/document";
-import { extractFullOCRTextFromPDF } from "./pdf/parser/ocr";
-import type { PDFDocumentLike, PDFTableMode } from "./pdf/parser/types";
+import { extractPDFHybridFromDocument, extractPlainTextFromDocument } from "./pdf/document";
+import { extractFullOCRTextFromPDF } from "./pdf/ocr";
+import type { PDFDocumentLike, PDFTableMode } from "./pdf/types";
 
-export { extractFullOCRTextFromPDF } from "./pdf/parser/ocr";
+export { extractFullOCRTextFromPDF } from "./pdf/ocr";
 export type PDFMode = "plain" | "hybrid" | "ocr";
-export type { PDFTableMode } from "./pdf/parser/types";
+export type { PDFTableMode } from "./pdf/types";
 
 export class PDFLoader implements GraphLoader {
     readonly filetype = "pdf";

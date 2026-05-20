@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { analyzePageContent, createTokenizer } from "./content";
-import type { PDFArrayLike, PDFDictLike, PDFDocumentLike, PDFPageLike, PDFStreamLike } from "./types";
+import { analyzePageContent, createTokenizer } from "../content";
+import type { PDFArrayLike, PDFDictLike, PDFDocumentLike, PDFPageLike, PDFStreamLike } from "../types";
 
 const encoder = new TextEncoder();
 

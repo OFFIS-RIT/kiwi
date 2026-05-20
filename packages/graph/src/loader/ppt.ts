@@ -1,8 +1,8 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { GraphBinaryLoader, GraphLoader } from "..";
 import { processOCRImages } from "../lib/ocr-image";
-import { parsePPT } from "./ppt/parser/document";
-import { renderMarkdown } from "./ppt/parser/render";
+import { parsePPT } from "./ppt/document";
+import { renderMarkdown } from "./ppt/render";
 
 export class PPTXLoader implements GraphLoader {
     readonly filetype = "pptx";

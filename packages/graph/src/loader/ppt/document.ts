@@ -7,7 +7,7 @@ import {
     parseContentTypes,
     readZipBinary,
     readZipText,
-} from "../../ooxml/package";
+} from "../ooxml/package";
 import {
     childElements,
     findFirstChild,
@@ -17,8 +17,8 @@ import {
     getLocalName,
     parseXml,
     squashWhitespace,
-} from "../../ooxml/xml";
-import type { XMLNodeLike } from "../../ooxml/types";
+} from "../ooxml/xml";
+import type { XMLNodeLike } from "../ooxml/types";
 import type { ParsedPPT, PPTParseContext, SlideBlock, SlideContent } from "./types";
 
 export function parsePPT(content: ArrayBuffer, ocr: boolean): Promise<ParsedPPT> {

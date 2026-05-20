@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decodedIndexedImageToRGB, type IndexedColorSpace } from "./image";
+import { decodedIndexedImageToRGB, type IndexedColorSpace } from "../image";
 
 describe("decodedIndexedImageToRGB", () => {
     test("expands 4-bit indexed samples into RGB pixels", () => {
