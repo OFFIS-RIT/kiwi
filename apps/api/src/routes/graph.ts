@@ -1157,13 +1157,23 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
+            const fileIds = fileKeys.map((fileKey) => fileIdByKey.get(fileKey)!);
             let graph = existingGraph;
             try {
-                const [updatedGraph] = await db
-                    .update(graphTable)
-                    .set({ state: "updating" })
-                    .where(eq(graphTable.id, existingGraph.id))
-                    .returning(selectGraphFields);
+                const [updatedGraph] = await db.transaction(async (tx) => {
+                    const updatedGraphs = await tx
+                        .update(graphTable)
+                        .set({ state: "updating" })
+                        .where(eq(graphTable.id, existingGraph.id))
+                        .returning(selectGraphFields);
+
+                    await tx
+                        .update(filesTable)
+                        .set({ deleted: true })
+                        .where(and(eq(filesTable.graphId, existingGraph.id), inArray(filesTable.id, fileIds)));
+
+                    return updatedGraphs;
+                });
 
                 graph = updatedGraph ?? existingGraph;
             } catch (dbPatchError) {
@@ -1181,7 +1191,6 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }
 
             try {
-                const fileIds = fileKeys.map((fileKey) => fileIdByKey.get(fileKey)!);
                 const handle = await ow.runWorkflow(deleteGraphFilesSpec, {
                     graphId: existingGraph.id,
                     fileIds,
@@ -1208,10 +1217,17 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             } catch (enqueueError) {
                 try {
-                    await db
-                        .update(graphTable)
-                        .set({ state: existingGraph.state })
-                        .where(eq(graphTable.id, existingGraph.id));
+                    await db.transaction(async (tx) => {
+                        await tx
+                            .update(filesTable)
+                            .set({ deleted: false })
+                            .where(and(eq(filesTable.graphId, existingGraph.id), inArray(filesTable.id, fileIds)));
+
+                        await tx
+                            .update(graphTable)
+                            .set({ state: existingGraph.state })
+                            .where(eq(graphTable.id, existingGraph.id));
+                    });
                 } catch (restoreError) {
                     logError("failed to restore graph state after file delete enqueue failure", {
                         graphId: existingGraph.id,

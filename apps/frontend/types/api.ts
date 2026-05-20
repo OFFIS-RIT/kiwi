@@ -25,6 +25,7 @@ export type ApiGroup = GroupListItem;
 export type ProcessStep =
     | "waiting_worker"
     | "queued"
+    | "deleting_files"
     | "processing_files"
     | "graph_creation"
     | "generating_descriptions"
