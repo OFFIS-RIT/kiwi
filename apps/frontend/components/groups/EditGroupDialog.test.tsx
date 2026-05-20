@@ -46,12 +46,6 @@ vi.mock("@/providers/DataProvider", () => ({
     }),
 }));
 
-vi.mock("@/providers/LanguageProvider", () => ({
-    useLanguage: () => ({
-        t: translate,
-    }),
-}));
-
 import { renderWithProviders } from "@/test/test-utils";
 import { EditGroupDialog } from "./EditGroupDialog";
 

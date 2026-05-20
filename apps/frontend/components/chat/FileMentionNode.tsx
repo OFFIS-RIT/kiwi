@@ -55,7 +55,7 @@ function FileMentionView({ node }: ReactNodeViewProps) {
 
 /**
  * Build the configured Mention extension. The suggestion lifecycle pushes
- * popover state into the parent React tree (so providers like LanguageProvider
+ * popover state into the parent React tree (so providers like i18n
  * remain accessible), and forwards keyboard events to the popover via
  * `options.listRef`.
  */

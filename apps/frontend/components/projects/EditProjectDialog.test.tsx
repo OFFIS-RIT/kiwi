@@ -55,12 +55,6 @@ vi.mock("@/providers/DataProvider", () => ({
     }),
 }));
 
-vi.mock("@/providers/LanguageProvider", () => ({
-    useLanguage: () => ({
-        t: (key: string) => key,
-    }),
-}));
-
 vi.mock("./FileUploader", () => ({
     FileUploader: () => <div>file-uploader</div>,
 }));

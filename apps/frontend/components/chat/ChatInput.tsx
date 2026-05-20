@@ -60,7 +60,7 @@ export const projectFilesQueryKey = (projectId: string) => ["projectFiles", proj
  *
  * The mention suggestion popover is rendered inside this component's own
  * React tree (via `createPortal` to `document.body`) so it inherits all
- * surrounding providers — `LanguageProvider`, query client, theme, etc.
+ * surrounding providers — i18n, query client, theme, etc.
  */
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     { value, onChange, onSubmit, disabled = false, placeholder, projectId, interimTranscript },

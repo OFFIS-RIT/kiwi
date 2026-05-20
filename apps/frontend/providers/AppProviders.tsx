@@ -7,7 +7,6 @@ import type { InitialClientSession } from "@/lib/auth/types";
 import { AuthProvider } from "@/providers/AuthProvider";
 import { ChatSessionsProvider } from "@/providers/ChatSessionsProvider";
 import { DataProvider } from "@/providers/DataProvider";
-import { LanguageProvider } from "@/providers/LanguageProvider";
 import { QueryErrorBoundary } from "@/providers/QueryErrorBoundary";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { SidebarExpansionProvider } from "@/providers/SidebarExpansionProvider";
@@ -23,21 +22,19 @@ const fallbackInitialSession: InitialClientSession = {
 
 export function AppProviders({ children, initialSession }: AppProvidersProps) {
     return (
-        <LanguageProvider>
-            <QueryProvider>
-                <AuthProvider initialSession={initialSession ?? fallbackInitialSession}>
-                    <QueryErrorBoundary>
-                        <DataProvider>
-                            <ChatSessionsProvider>
-                                <SidebarExpansionProvider>
-                                    <SidebarProvider>{children}</SidebarProvider>
-                                </SidebarExpansionProvider>
-                            </ChatSessionsProvider>
-                        </DataProvider>
-                    </QueryErrorBoundary>
-                </AuthProvider>
-            </QueryProvider>
-        </LanguageProvider>
+        <QueryProvider>
+            <AuthProvider initialSession={initialSession ?? fallbackInitialSession}>
+                <QueryErrorBoundary>
+                    <DataProvider>
+                        <ChatSessionsProvider>
+                            <SidebarExpansionProvider>
+                                <SidebarProvider>{children}</SidebarProvider>
+                            </SidebarExpansionProvider>
+                        </ChatSessionsProvider>
+                    </DataProvider>
+                </QueryErrorBoundary>
+            </AuthProvider>
+        </QueryProvider>
     );
 }
 
