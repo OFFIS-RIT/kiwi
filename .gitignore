@@ -11,6 +11,9 @@
 # opencode
 .opencode/
 
+# anitgravity cli
+.antigravitycli/
+
 # vscode
 .vscode/
 
