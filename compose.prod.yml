@@ -23,6 +23,12 @@ services:
         container_name: frontend
         image: ghcr.io/offis-rit/kiwi/frontend:latest
         restart: unless-stopped
+        environment:
+            NODE_ENV: production
+            API_URL: ${API_URL:-/api}
+            AUTH_URL: ${AUTH_URL:-/auth}
+            INTERNAL_AUTH_URL: http://server:4321/auth
+            AUTH_MODE: ${AUTH_MODE:-credentials}
         healthcheck:
             test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
             interval: 30s

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
+import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
@@ -13,12 +14,11 @@ type LoginFormProps = {
     onSwitchToRegister: () => void;
 };
 
-const authMode = process.env.NEXT_PUBLIC_AUTH_MODE ?? "credentials";
-const isLdap = authMode === "ldap";
-
 export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
     const authClient = useAuthClient();
     const { t } = useLanguage();
+    const { authMode } = useRuntimeConfig();
+    const isLdap = authMode === "ldap";
     const [identifier, setIdentifier] = useState("");
     const [password, setPassword] = useState("");
     const [rememberMe, setRememberMe] = useState(false);

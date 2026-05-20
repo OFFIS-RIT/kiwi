@@ -52,8 +52,7 @@ jobs:
                       cache: frontend
                       target: ""
                       build_args: |
-                          NEXT_PUBLIC_API_URL=/api
-                          NEXT_PUBLIC_APP_BUILD_LABEL=${{ github.ref_name }}
+                          BUILD_LABEL=${{ github.ref_name }}
 
         steps:
             - name: Checkout code
