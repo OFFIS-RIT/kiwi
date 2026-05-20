@@ -17,6 +17,9 @@
 # claude
 docs/
 
+# solo
+solo.yml
+
 # certs
 certs/kiwi.*
 
