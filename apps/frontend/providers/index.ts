@@ -11,4 +11,3 @@ export { LanguageProvider, useLanguage } from "./LanguageProvider";
 export { QueryErrorBoundary } from "./QueryErrorBoundary";
 export { QueryProvider } from "./QueryProvider";
 export { SidebarExpansionProvider, useSidebarExpansion } from "./SidebarExpansionProvider";
-export { ThemeProvider, useTheme } from "./ThemeProvider";

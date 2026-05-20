@@ -1,6 +1,7 @@
 import "@/app/globals.css";
 import "katex/dist/katex.min.css";
 import { Inter } from "next/font/google";
+import { ThemeProvider as NextThemesProvider } from "next-themes";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Toaster } from "sonner";
@@ -30,20 +31,16 @@ const SERVER_CONFIG: RuntimeConfig = {
     buildLabel: process.env.BUILD_LABEL?.trim() || undefined,
 };
 
-const themeScript = `(function(){try{var t=localStorage.getItem('ui-theme');if(t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();`;
-
 export default function RootLayout({ children }: { children: ReactNode }) {
     return (
         <html lang="en" suppressHydrationWarning>
-            <head>
-                {/* eslint-disable-next-line react/no-danger */}
-                <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-            </head>
             <body className={inter.className}>
                 <RuntimeConfigProvider config={SERVER_CONFIG}>
-                    <AuthClientProvider>
-                        <ApiClientProvider>{children}</ApiClientProvider>
-                    </AuthClientProvider>
+                    <NextThemesProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+                        <AuthClientProvider>
+                            <ApiClientProvider>{children}</ApiClientProvider>
+                        </AuthClientProvider>
+                    </NextThemesProvider>
                 </RuntimeConfigProvider>
                 <Toaster richColors expand position="bottom-center" duration={5000} />
             </body>

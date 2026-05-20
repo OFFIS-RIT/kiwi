@@ -11,13 +11,9 @@ import { LanguageProvider } from "@/providers/LanguageProvider";
 import { QueryErrorBoundary } from "@/providers/QueryErrorBoundary";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { SidebarExpansionProvider } from "@/providers/SidebarExpansionProvider";
-import { ThemeProvider } from "@/providers/ThemeProvider";
-
-type ThemeOption = React.ComponentProps<typeof ThemeProvider>["defaultTheme"];
 
 type AppProvidersProps = {
     children: ReactNode;
-    defaultTheme?: ThemeOption;
     initialSession?: InitialClientSession;
 };
 
@@ -25,25 +21,23 @@ const fallbackInitialSession: InitialClientSession = {
     user: { id: "", name: "", email: "", image: null, role: null },
 };
 
-export function AppProviders({ children, defaultTheme = "light", initialSession }: AppProvidersProps) {
+export function AppProviders({ children, initialSession }: AppProvidersProps) {
     return (
-        <ThemeProvider defaultTheme={defaultTheme}>
-            <LanguageProvider>
-                <QueryProvider>
-                    <AuthProvider initialSession={initialSession ?? fallbackInitialSession}>
-                        <QueryErrorBoundary>
-                            <DataProvider>
-                                <ChatSessionsProvider>
-                                    <SidebarExpansionProvider>
-                                        <SidebarProvider>{children}</SidebarProvider>
-                                    </SidebarExpansionProvider>
-                                </ChatSessionsProvider>
-                            </DataProvider>
-                        </QueryErrorBoundary>
-                    </AuthProvider>
-                </QueryProvider>
-            </LanguageProvider>
-        </ThemeProvider>
+        <LanguageProvider>
+            <QueryProvider>
+                <AuthProvider initialSession={initialSession ?? fallbackInitialSession}>
+                    <QueryErrorBoundary>
+                        <DataProvider>
+                            <ChatSessionsProvider>
+                                <SidebarExpansionProvider>
+                                    <SidebarProvider>{children}</SidebarProvider>
+                                </SidebarExpansionProvider>
+                            </ChatSessionsProvider>
+                        </DataProvider>
+                    </QueryErrorBoundary>
+                </AuthProvider>
+            </QueryProvider>
+        </LanguageProvider>
     );
 }
 

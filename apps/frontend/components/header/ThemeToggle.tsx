@@ -2,8 +2,8 @@
 
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/providers/LanguageProvider";
-import { useTheme } from "@/providers/ThemeProvider";
 import { Monitor, Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
 
 export function ThemeToggle() {
     const { theme, setTheme } = useTheme();
