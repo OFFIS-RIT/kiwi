@@ -50,11 +50,11 @@ ENV HOSTNAME=0.0.0.0
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-RUN npm install --omit=dev sharp
-
 COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/.next/static ./apps/frontend/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/public ./apps/frontend/public
+
+RUN npm install --omit=dev sharp
 
 USER nextjs
 EXPOSE 3000
