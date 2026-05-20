@@ -15,10 +15,18 @@ export const metadata: Metadata = {
     description: "Ein Dashboard zur Verwaltung von Wissensgruppen und -projekten",
 };
 
+function parseAuthMode(value: string | undefined): "credentials" | "ldap" {
+    if (value === "credentials" || value === "ldap") return value;
+    if (value !== undefined && value !== "") {
+        console.warn(`Invalid AUTH_MODE "${value}", falling back to "credentials"`);
+    }
+    return "credentials";
+}
+
 const SERVER_CONFIG: RuntimeConfig = {
     apiUrl: process.env.API_URL ?? "/api",
     authUrl: process.env.AUTH_URL ?? "/auth",
-    authMode: (process.env.AUTH_MODE ?? "credentials") as "credentials" | "ldap",
+    authMode: parseAuthMode(process.env.AUTH_MODE),
     buildLabel: process.env.BUILD_LABEL?.trim() || undefined,
 };
 
