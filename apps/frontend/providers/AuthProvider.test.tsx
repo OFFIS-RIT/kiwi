@@ -11,34 +11,48 @@ vi.mock("@kiwi/auth/client", () => ({
     })),
 }));
 
+const fakeRouterRefresh = vi.fn();
+const fakeRouterReplace = vi.fn();
+
 vi.mock("next/navigation", () => ({
-    useRouter: vi.fn(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() })),
+    useRouter: vi.fn(() => ({
+        push: vi.fn(),
+        replace: fakeRouterReplace,
+        refresh: fakeRouterRefresh,
+    })),
 }));
 
+import type { InitialClientSession } from "@/lib/auth/types";
 import { LanguageProvider } from "@/providers/LanguageProvider";
 import { renderWithProviders } from "@/test/test-utils";
 import { AuthProvider, useAuth } from "./AuthProvider";
 
 function TestConsumer() {
-    const { user, isAdmin, role } = useAuth();
+    const { user, isAdmin, role, isPending } = useAuth();
     if (!user) {
-        return <div>no-session</div>;
+        return <div>no-user</div>;
     }
 
     return (
         <div>
             <span data-testid="role">{role}</span>
             <span data-testid="admin">{isAdmin ? "yes" : "no"}</span>
+            <span data-testid="pending">{isPending ? "yes" : "no"}</span>
+            <span data-testid="name">{user.name}</span>
         </div>
     );
 }
 
-function renderWithAuth(sessionData: unknown) {
+const initialAdmin: InitialClientSession = {
+    user: { id: "1", name: "Initial Admin", email: "i@a.com", image: null, role: "admin" },
+};
+
+function renderWithAuth(sessionData: unknown, initialSession: InitialClientSession = initialAdmin) {
     fakeUseSession.mockReturnValue(sessionData);
 
     return renderWithProviders(
         <LanguageProvider>
-            <AuthProvider>
+            <AuthProvider initialSession={initialSession}>
                 <TestConsumer />
             </AuthProvider>
         </LanguageProvider>
@@ -46,28 +60,41 @@ function renderWithAuth(sessionData: unknown) {
 }
 
 describe("AuthProvider", () => {
-    test("shows loading when isPending", () => {
+    test("uses initialSession user while live session is pending", () => {
+        fakeRouterRefresh.mockClear();
         renderWithAuth({ data: null, isPending: true, error: null });
-        expect(screen.getByRole("img", { name: "KIWI" })).toBeInTheDocument();
-        expect(screen.queryByText("no-session")).not.toBeInTheDocument();
+
+        expect(screen.getByTestId("role")).toHaveTextContent("admin");
+        expect(screen.getByTestId("admin")).toHaveTextContent("yes");
+        expect(screen.getByTestId("pending")).toHaveTextContent("yes");
+        expect(screen.getByTestId("name")).toHaveTextContent("Initial Admin");
+        expect(fakeRouterRefresh).not.toHaveBeenCalled();
     });
 
-    test("renders children when session exists", () => {
+    test("renders children with live session data once resolved", () => {
+        fakeRouterRefresh.mockClear();
         renderWithAuth({
             data: {
-                user: { id: "1", name: "Test", email: "t@t.com", role: "admin" },
+                user: { id: "2", name: "Live User", email: "l@u.com", role: "manager" },
                 session: {},
             },
             isPending: false,
             error: null,
         });
 
-        expect(screen.getByTestId("role")).toHaveTextContent("admin");
-        expect(screen.getByTestId("admin")).toHaveTextContent("yes");
+        expect(screen.getByTestId("role")).toHaveTextContent("manager");
+        expect(screen.getByTestId("admin")).toHaveTextContent("no");
+        expect(screen.getByTestId("pending")).toHaveTextContent("no");
+        expect(screen.getByTestId("name")).toHaveTextContent("Live User");
+        expect(fakeRouterRefresh).not.toHaveBeenCalled();
     });
 
-    test("shows login when no session", () => {
+    test("renders nothing and calls router.refresh when live session is gone", () => {
+        fakeRouterRefresh.mockClear();
         renderWithAuth({ data: null, isPending: false, error: null });
+
         expect(screen.queryByTestId("role")).not.toBeInTheDocument();
+        expect(screen.queryByText("no-user")).not.toBeInTheDocument();
+        expect(fakeRouterRefresh).toHaveBeenCalledTimes(1);
     });
 });

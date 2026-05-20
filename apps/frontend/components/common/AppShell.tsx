@@ -19,15 +19,12 @@ type AppShellProps = {
     children: ReactNode;
 };
 
-export function AppShell({ initialSession: _initialSession, children }: AppShellProps) {
-    // Note: initialSession wird in Task 3.6 an AuthProvider weitergereicht.
-    // Heute akzeptieren wir es nur als Prop; der AuthProvider funktioniert weiterhin
-    // mit seinem Client-only useSession-Hook.
+export function AppShell({ initialSession, children }: AppShellProps) {
     return (
         <ThemeProvider defaultTheme="light">
             <LanguageProvider>
                 <QueryProvider>
-                    <AuthProvider>
+                    <AuthProvider initialSession={initialSession}>
                         <QueryErrorBoundary>
                             <DataProvider>
                                 <ChatSessionsProvider>
