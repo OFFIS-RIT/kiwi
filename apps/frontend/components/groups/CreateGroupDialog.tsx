@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useData } from "@/providers/DataProvider";
+import { useCreateGroup } from "@/hooks/use-data";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
@@ -26,7 +26,7 @@ const MAX_NAME_LENGTH = 40;
 
 export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
     const t = useTranslations();
-    const { addGroup } = useData();
+    const createGroupMutation = useCreateGroup();
     const [groupName, setGroupName] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -37,7 +37,7 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
         setIsSubmitting(true);
 
         try {
-            await addGroup(groupName);
+            await createGroupMutation.mutateAsync(groupName);
             setGroupName("");
             setIsSubmitting(false);
             onOpenChange(false);

@@ -15,12 +15,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { queryKeys, useGroupsWithProjects } from "@/hooks/use-data";
 import { createProject } from "@/lib/api/projects";
 import { formatBytes } from "@/lib/utils";
 import { useApiClient } from "@/providers/ApiClientProvider";
-import { useData } from "@/providers/DataProvider";
 import { useTranslations } from "next-intl";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FileUploader } from "./FileUploader";
@@ -36,8 +37,10 @@ const MAX_NAME_LENGTH = 40;
 
 export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCreated }: CreateProjectDialogProps) {
     const apiClient = useApiClient();
+    const queryClient = useQueryClient();
     const t = useTranslations();
-    const { groups, isLoading, error, refreshData } = useData();
+    const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
+    const error = queryError ? t("error.loading.data") : null;
     const { toggleGroupExpanded, expandedGroups } = useSidebarExpansion();
     const [projectName, setProjectName] = useState("");
     const [selectedGroup, setSelectedGroup] = useState("");
@@ -123,9 +126,7 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
                 toggleGroupExpanded(selectedGroup);
             }
 
-            if (refreshData) {
-                refreshData();
-            }
+            await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
 
             if (onProjectCreated) {
                 onProjectCreated(response.graph.id.toString(), selectedGroup, response.graph.name);

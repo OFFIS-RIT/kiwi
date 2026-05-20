@@ -2,7 +2,7 @@
 
 import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { ProjectList } from "@/components/projects";
-import { useData } from "@/providers/DataProvider";
+import { useGroupsWithProjects } from "@/hooks/use-data";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -14,7 +14,7 @@ type GroupViewProps = {
 export function GroupView({ groupId }: GroupViewProps) {
     const router = useRouter();
     const t = useTranslations();
-    const { groups, isLoading, error } = useData();
+    const { data: groups = [], isLoading, error } = useGroupsWithProjects();
     const [headerReady, setHeaderReady] = useState(false);
     const processingGroupIdsRef = useRef<Set<string>>(new Set());
 

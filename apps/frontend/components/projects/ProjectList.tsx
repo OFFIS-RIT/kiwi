@@ -1,10 +1,9 @@
 "use client";
 
 import { StateDisplay } from "@/components/common/StateDisplay";
-import { queryKeys } from "@/hooks/use-data";
+import { queryKeys, useGroupsWithProjects } from "@/hooks/use-data";
 import { useCurrentSelection } from "@/hooks/use-current-selection";
 import { useApiClient } from "@/providers/ApiClientProvider";
-import { useData } from "@/providers/DataProvider";
 import { useTranslations } from "next-intl";
 import type { ApiProjectFile, Project } from "@/types";
 import { useQueries } from "@tanstack/react-query";
@@ -21,7 +20,8 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     const router = useRouter();
     const { group: selectedGroup } = useCurrentSelection();
     const t = useTranslations();
-    const { groups, isLoading, error } = useData();
+    const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
+    const error = queryError ? t("error.loading.data") : null;
     const [ready, setReady] = useState(false);
 
     useEffect(() => {

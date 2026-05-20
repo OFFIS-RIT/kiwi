@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { useCurrentSelection } from "@/hooks/use-current-selection";
+import { useGroupsWithProjects } from "@/hooks/use-data";
 import type { Group, Project } from "@/types";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -28,7 +29,6 @@ import {
     SidebarMenuSub,
     SidebarRail,
 } from "@/components/ui/sidebar";
-import { useData } from "@/providers/DataProvider";
 import { useTranslations } from "next-intl";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
@@ -74,7 +74,8 @@ export function AppSidebar({
     const t = useTranslations();
     const router = useRouter();
     const { buildLabel } = useRuntimeConfig();
-    const { groups, isLoading, error } = useData();
+    const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
+    const error = queryError ? t("error.loading.data") : null;
     const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
     const {
         expandedGroups,

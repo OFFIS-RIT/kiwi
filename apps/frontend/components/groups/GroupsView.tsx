@@ -2,11 +2,11 @@
 
 import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { GroupList } from "@/components/groups/GroupList";
-import { useData } from "@/providers/DataProvider";
+import { useGroupsWithProjects } from "@/hooks/use-data";
 import { useEffect, useState } from "react";
 
 export function GroupsView() {
-    const { isLoading, error } = useData();
+    const { isLoading, error } = useGroupsWithProjects();
     const [headerReady, setHeaderReady] = useState(false);
 
     useEffect(() => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { StateDisplay } from "@/components/common/StateDisplay";
-import { useData } from "@/providers/DataProvider";
+import { useGroupsWithProjects } from "@/hooks/use-data";
 import { useTranslations } from "next-intl";
 import type { Group } from "@/types";
 import { useRouter } from "next/navigation";
@@ -15,7 +15,8 @@ type GroupListProps = {
 export function GroupList({ onEditGroup }: GroupListProps) {
     const router = useRouter();
     const t = useTranslations();
-    const { groups, isLoading, error } = useData();
+    const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
+    const error = queryError ? t("error.loading.data") : null;
     const [ready, setReady] = useState(false);
 
     useEffect(() => {

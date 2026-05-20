@@ -2,7 +2,7 @@
 
 import { ProjectChat } from "@/components/chat";
 import { DashboardFrame } from "@/components/common/DashboardFrame";
-import { useData } from "@/providers/DataProvider";
+import { useGroupsWithProjects } from "@/hooks/use-data";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -13,7 +13,7 @@ type ProjectViewProps = {
 
 export function ProjectView({ groupId, projectId }: ProjectViewProps) {
     const router = useRouter();
-    const { groups, isLoading, error } = useData();
+    const { data: groups = [], isLoading, error } = useGroupsWithProjects();
     const [headerReady, setHeaderReady] = useState(false);
     const processingProjectIdsRef = useRef<Set<string>>(new Set());
 

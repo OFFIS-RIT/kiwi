@@ -27,8 +27,9 @@ import {
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
-import { useData } from "@/providers/DataProvider";
+import { queryKeys } from "@/hooks/use-data";
 import { useTranslations } from "next-intl";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -70,9 +71,9 @@ const MAX_NAME_LENGTH = 40;
 export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogProps) {
     const apiClient = useApiClient();
     const authClient = useAuthClient();
+    const queryClient = useQueryClient();
     const t = useTranslations();
     const { hasPermission } = useAuth();
-    const { refreshData } = useData();
     const canEdit = hasPermission("group.update");
     const canAddUser = hasPermission("group.add:user");
     const canRemoveUser = hasPermission("group.remove:user");
@@ -212,7 +213,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         setError(null);
         try {
             await updateGroup(apiClient, group.id, editedName, editableUsers);
-            await refreshData();
+            await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             onOpenChange(false);
         } catch (err) {
             setError(err instanceof Error ? err.message : t("error.saving"));

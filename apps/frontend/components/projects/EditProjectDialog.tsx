@@ -16,13 +16,13 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { useProjectFiles } from "@/hooks/use-data";
+import { queryKeys, useProjectFiles } from "@/hooks/use-data";
 import { addFilesToProject, deleteProjectFiles, updateProject } from "@/lib/api/projects";
 import { cn, formatBytes } from "@/lib/utils";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
-import { useData } from "@/providers/DataProvider";
 import { useTranslations } from "next-intl";
+import { useQueryClient } from "@tanstack/react-query";
 import { Calendar, Loader2, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FileStatusIcon } from "./FileStatusIcon";
@@ -42,9 +42,9 @@ const MAX_NAME_LENGTH = 40;
 
 export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDialogProps) {
     const apiClient = useApiClient();
+    const queryClient = useQueryClient();
     const t = useTranslations();
     const { hasPermission } = useAuth();
-    const { refreshData } = useData();
     const canEdit = hasPermission("graph.update");
     const canDeleteFiles = hasPermission("graph.delete:file");
     const canAddFiles = hasPermission("graph.add:file");
@@ -172,7 +172,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
             }
 
             if (overallSuccess && (nameChanged || filesAdded || filesMarkedForDeletion)) {
-                await refreshData();
+                await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
                 await refetchProjectFiles();
             }
 

@@ -6,7 +6,6 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import type { InitialClientSession } from "@/lib/auth/types";
 import { AuthProvider } from "@/providers/AuthProvider";
 import { ChatSessionsProvider } from "@/providers/ChatSessionsProvider";
-import { DataProvider } from "@/providers/DataProvider";
 import { QueryErrorBoundary } from "@/providers/QueryErrorBoundary";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { SidebarExpansionProvider } from "@/providers/SidebarExpansionProvider";
@@ -25,13 +24,11 @@ export function AppProviders({ children, initialSession }: AppProvidersProps) {
         <QueryProvider>
             <AuthProvider initialSession={initialSession ?? fallbackInitialSession}>
                 <QueryErrorBoundary>
-                    <DataProvider>
-                        <ChatSessionsProvider>
-                            <SidebarExpansionProvider>
-                                <SidebarProvider>{children}</SidebarProvider>
-                            </SidebarExpansionProvider>
-                        </ChatSessionsProvider>
-                    </DataProvider>
+                    <ChatSessionsProvider>
+                        <SidebarExpansionProvider>
+                            <SidebarProvider>{children}</SidebarProvider>
+                        </SidebarExpansionProvider>
+                    </ChatSessionsProvider>
                 </QueryErrorBoundary>
             </AuthProvider>
         </QueryProvider>

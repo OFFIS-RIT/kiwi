@@ -40,12 +40,6 @@ vi.mock("@/providers/AuthProvider", () => ({
     }),
 }));
 
-vi.mock("@/providers/DataProvider", () => ({
-    useData: () => ({
-        refreshData: vi.fn(),
-    }),
-}));
-
 import { renderWithProviders } from "@/test/test-utils";
 import { EditGroupDialog } from "./EditGroupDialog";
 

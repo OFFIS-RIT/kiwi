@@ -49,12 +49,6 @@ vi.mock("@/providers/AuthProvider", () => ({
     }),
 }));
 
-vi.mock("@/providers/DataProvider", () => ({
-    useData: () => ({
-        refreshData: vi.fn(),
-    }),
-}));
-
 vi.mock("./FileUploader", () => ({
     FileUploader: () => <div>file-uploader</div>,
 }));
