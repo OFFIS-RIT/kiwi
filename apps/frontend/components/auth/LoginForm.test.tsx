@@ -17,6 +17,10 @@ vi.mock("@kiwi/auth/client", () => ({
     })),
 }));
 
+vi.mock("next/navigation", () => ({
+    useRouter: vi.fn(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() })),
+}));
+
 import { LanguageProvider } from "@/providers/LanguageProvider";
 import { renderWithProviders } from "@/test/test-utils";
 import { LoginForm } from "./LoginForm";

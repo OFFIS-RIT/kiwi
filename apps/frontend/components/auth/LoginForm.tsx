@@ -7,17 +7,20 @@ import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import { useState } from "react";
 
 type LoginFormProps = {
-    onSwitchToRegister: () => void;
+    onSwitchToRegister?: () => void;
+    nextPath?: string;
 };
 
-export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
+export function LoginForm({ onSwitchToRegister, nextPath }: LoginFormProps) {
     const authClient = useAuthClient();
     const { t } = useLanguage();
     const { authMode } = useRuntimeConfig();
+    const router = useRouter();
     const isLdap = authMode === "ldap";
     const [identifier, setIdentifier] = useState("");
     const [password, setPassword] = useState("");
@@ -46,7 +49,12 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
                 if (signInError) {
                     setError(signInError.message ?? t("auth.error.invalid.credentials"));
                 } else {
-                    window.location.reload();
+                    const safeNext =
+                        nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")
+                            ? nextPath
+                            : "/";
+                    router.replace(safeNext);
+                    router.refresh();
                 }
             } else {
                 const { error: signInError } = await authClient.signIn.email({
@@ -57,6 +65,13 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
 
                 if (signInError) {
                     setError(signInError.message ?? t("auth.error.invalid.credentials"));
+                } else {
+                    const safeNext =
+                        nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")
+                            ? nextPath
+                            : "/";
+                    router.replace(safeNext);
+                    router.refresh();
                 }
             }
         } catch {
@@ -117,7 +132,7 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
                     t("auth.sign.in")
                 )}
             </Button>
-            {!isLdap && (
+            {!isLdap && onSwitchToRegister && (
                 <p className="text-center text-sm text-muted-foreground">
                     {t("auth.no.account")}{" "}
                     <button
