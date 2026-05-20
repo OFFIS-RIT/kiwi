@@ -8,14 +8,17 @@ import {
     BreadcrumbPage,
     BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useNavigation } from "@/providers/NavigationProvider";
+import { useCurrentSelection } from "@/hooks/use-current-selection";
+import { usePathname } from "next/navigation";
 
 type BreadcrumbNavProps = {
     ready?: boolean;
 };
 
 export function BreadcrumbNav({ ready = true }: BreadcrumbNavProps) {
-    const { selectedGroup, selectedProject, selectItem, showAllGroups, showGroups } = useNavigation();
+    const pathname = usePathname();
+    const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
+    const showAllGroups = pathname === "/";
 
     const fadeClass = `transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`;
 
@@ -29,14 +32,7 @@ export function BreadcrumbNav({ ready = true }: BreadcrumbNavProps) {
                 ) : selectedGroup ? (
                     <>
                         <BreadcrumbItem className="shrink-0">
-                            <BreadcrumbLink
-                                className="max-w-full truncate"
-                                href="#"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    showGroups();
-                                }}
-                            >
+                            <BreadcrumbLink className="max-w-full truncate" href="/">
                                 KIWI
                             </BreadcrumbLink>
                         </BreadcrumbItem>
@@ -44,12 +40,8 @@ export function BreadcrumbNav({ ready = true }: BreadcrumbNavProps) {
                         <BreadcrumbItem className={`min-w-0 shrink ${fadeClass}`}>
                             <BreadcrumbLink
                                 className="block max-w-full truncate"
-                                href="#"
+                                href={`/${selectedGroup.id}`}
                                 title={selectedGroup.name}
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    selectItem(selectedGroup);
-                                }}
                             >
                                 {selectedGroup.name}
                             </BreadcrumbLink>
@@ -67,7 +59,7 @@ export function BreadcrumbNav({ ready = true }: BreadcrumbNavProps) {
                     </>
                 ) : (
                     <BreadcrumbItem className="shrink-0">
-                        <BreadcrumbLink href="#">KIWI</BreadcrumbLink>
+                        <BreadcrumbLink href="/">KIWI</BreadcrumbLink>
                     </BreadcrumbItem>
                 )}
             </BreadcrumbList>

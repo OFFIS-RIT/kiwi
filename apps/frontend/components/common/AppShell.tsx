@@ -8,7 +8,6 @@ import { AuthProvider } from "@/providers/AuthProvider";
 import { ChatSessionsProvider } from "@/providers/ChatSessionsProvider";
 import { DataProvider } from "@/providers/DataProvider";
 import { LanguageProvider } from "@/providers/LanguageProvider";
-import { NavigationProvider } from "@/providers/NavigationProvider";
 import { QueryErrorBoundary } from "@/providers/QueryErrorBoundary";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { SidebarExpansionProvider } from "@/providers/SidebarExpansionProvider";
@@ -29,9 +28,7 @@ export function AppShell({ initialSession, children }: AppShellProps) {
                             <DataProvider>
                                 <ChatSessionsProvider>
                                     <SidebarExpansionProvider>
-                                        <NavigationProvider>
-                                            <SidebarProvider>{children}</SidebarProvider>
-                                        </NavigationProvider>
+                                        <SidebarProvider>{children}</SidebarProvider>
                                     </SidebarExpansionProvider>
                                 </ChatSessionsProvider>
                             </DataProvider>

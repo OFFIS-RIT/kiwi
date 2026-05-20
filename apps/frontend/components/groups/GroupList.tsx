@@ -3,17 +3,17 @@
 import { StateDisplay } from "@/components/common/StateDisplay";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
-import { useNavigation } from "@/providers/NavigationProvider";
 import type { Group } from "@/types";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { GroupCard } from "./GroupCard";
 
 type GroupListProps = {
-    onEditGroup: (group: Group) => void;
+    onEditGroup?: (group: Group) => void;
 };
 
 export function GroupList({ onEditGroup }: GroupListProps) {
-    const { selectItem } = useNavigation();
+    const router = useRouter();
     const { t } = useLanguage();
     const { groups, isLoading, error } = useData();
     const [ready, setReady] = useState(false);
@@ -44,8 +44,8 @@ export function GroupList({ onEditGroup }: GroupListProps) {
                     <GroupCard
                         key={group.id}
                         group={group}
-                        onSelect={() => selectItem(group)}
-                        onEdit={() => onEditGroup(group)}
+                        onSelect={() => router.push(`/${group.id}`)}
+                        onEdit={() => onEditGroup?.(group)}
                     />
                 ))}
             </div>

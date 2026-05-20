@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { useCurrentSelection } from "@/hooks/use-current-selection";
 import type { Group, Project } from "@/types";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -29,13 +30,13 @@ import {
 } from "@/components/ui/sidebar";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
-import { useNavigation } from "@/providers/NavigationProvider";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
 import Fuse from "fuse.js";
 import { BookOpen, ChevronRight, Edit, FolderSearch, MoreVertical, Plus, Search, Trash2, Users, X } from "lucide-react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import type * as React from "react";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 
@@ -71,9 +72,10 @@ export function AppSidebar({
     ...props
 }: AppSidebarProps) {
     const { t } = useLanguage();
+    const router = useRouter();
     const { buildLabel } = useRuntimeConfig();
     const { groups, isLoading, error } = useData();
-    const { showGroups, selectedGroup, selectedProject } = useNavigation();
+    const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
     const {
         expandedGroups,
         toggleGroupExpanded,
@@ -257,7 +259,7 @@ export function AppSidebar({
                 <div className="flex items-center justify-between p-2">
                     <SidebarMenu>
                         <SidebarMenuItem>
-                            <SidebarMenuButton size="lg" onClick={showGroups}>
+                            <SidebarMenuButton size="lg" onClick={() => router.push("/")}>
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
                                     <Image
                                         src="/KIWI.jpg"
@@ -486,7 +488,8 @@ function GroupItem({
     onDeleteProject,
     onProjectCreated,
 }: GroupItemProps) {
-    const { selectedGroup, selectedProject, selectItem } = useNavigation();
+    const router = useRouter();
+    const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
     const { t } = useLanguage();
     const [showCreateProject, setShowCreateProject] = useState(false);
 
@@ -509,7 +512,7 @@ function GroupItem({
                     <SidebarMenuButton
                         className="min-w-0 flex-1 pr-8"
                         isActive={selectedGroup?.id === group.id && !selectedProject}
-                        onClick={() => selectItem(group)}
+                        onClick={() => router.push(`/${group.id}`)}
                         title={group.name}
                         tooltip={group.name}
                     >
@@ -568,7 +571,7 @@ function GroupItem({
                                             isActive={selectedProject?.id === project.id}
                                             onClick={() => {
                                                 onSelectProject(group.id);
-                                                selectItem(group, project);
+                                                router.push(`/${group.id}/${project.id}`);
                                             }}
                                             title={project.name}
                                             tooltip={project.name}

@@ -27,6 +27,8 @@ const translations = {
         "select.group.sidebar": "Select a group from the sidebar to view its projects",
         "no.project.selected": "No Project Selected",
         "select.project.sidebar": "Select a project from the sidebar to view its details",
+        settings: "Settings",
+        appearance: "Appearance",
 
         // Groups
         "knowledge.groups": "Groups & Knowledge Projects",
@@ -358,6 +360,8 @@ const translations = {
         "select.group.sidebar": "Wähle eine Gruppe aus der Seitenleiste, um ihre Projekte anzuzeigen",
         "no.project.selected": "Kein Projekt ausgewählt",
         "select.project.sidebar": "Wähle ein Projekt aus der Seitenleiste, um dessen Details anzuzeigen",
+        settings: "Einstellungen",
+        appearance: "Darstellung",
 
         // Groups
         "knowledge.groups": "Gruppen & Wissensprojekte",

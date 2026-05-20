@@ -2,22 +2,24 @@
 
 import { StateDisplay } from "@/components/common/StateDisplay";
 import { queryKeys } from "@/hooks/use-data";
+import { useCurrentSelection } from "@/hooks/use-current-selection";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
-import { useNavigation } from "@/providers/NavigationProvider";
 import type { ApiProjectFile, Project } from "@/types";
 import { useQueries } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ProjectCard } from "./ProjectCard";
 
 type ProjectListProps = {
-    onEditProject: (project: Project, groupId: string) => void;
+    onEditProject?: (project: Project, groupId: string) => void;
 };
 
 export function ProjectList({ onEditProject }: ProjectListProps) {
     const apiClient = useApiClient();
-    const { selectedGroup, selectItem } = useNavigation();
+    const router = useRouter();
+    const { group: selectedGroup } = useCurrentSelection();
     const { t } = useLanguage();
     const { groups, isLoading, error } = useData();
     const [ready, setReady] = useState(false);
@@ -125,8 +127,8 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
                             processTimeRemaining: project.processTimeRemaining,
                         }}
                         groupName={group.name}
-                        onSelect={() => selectItem(group, project)}
-                        onEdit={() => onEditProject(project, group.id)}
+                        onSelect={() => router.push(`/${group.id}/${project.id}`)}
+                        onEdit={() => onEditProject?.(project, group.id)}
                     />
                 ))}
             </div>

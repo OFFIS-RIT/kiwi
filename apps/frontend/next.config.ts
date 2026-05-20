@@ -11,10 +11,11 @@ const nextConfig: NextConfig = {
         "/**/*": ["./messages/*.json"],
     },
     transpilePackages: ["@kiwi/auth"],
+    experimental: {
+        authInterrupts: true,
+    },
     images: {
-        remotePatterns: [
-            { protocol: "https", hostname: "lh3.googleusercontent.com" },
-        ],
+        remotePatterns: [{ protocol: "https", hostname: "lh3.googleusercontent.com" }],
         minimumCacheTTL: 60 * 60 * 24,
     },
 };
