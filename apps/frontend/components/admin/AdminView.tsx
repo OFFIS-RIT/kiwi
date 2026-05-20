@@ -3,14 +3,14 @@
 import { UserTable } from "@/components/admin/UserTable";
 import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { Button } from "@/components/ui/button";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { UserPlus } from "lucide-react";
 import { useState } from "react";
 import { CreateUserDialog } from "./CreateUserDialog";
 
 export function AdminView() {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { authMode } = useRuntimeConfig();
     const [showCreateUser, setShowCreateUser] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);

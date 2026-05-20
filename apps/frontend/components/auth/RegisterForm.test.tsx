@@ -16,16 +16,11 @@ vi.mock("@kiwi/auth/client", () => ({
     })),
 }));
 
-import { LanguageProvider } from "@/providers/LanguageProvider";
 import { renderWithProviders } from "@/test/test-utils";
 import { RegisterForm } from "./RegisterForm";
 
 function renderRegisterForm(onSwitch = vi.fn()) {
-    return renderWithProviders(
-        <LanguageProvider>
-            <RegisterForm onSwitchToLogin={onSwitch} />
-        </LanguageProvider>
-    );
+    return renderWithProviders(<RegisterForm onSwitchToLogin={onSwitch} />);
 }
 
 describe("RegisterForm", () => {

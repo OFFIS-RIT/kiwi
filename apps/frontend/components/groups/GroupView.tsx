@@ -3,7 +3,7 @@
 import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { ProjectList } from "@/components/projects";
 import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -13,7 +13,7 @@ type GroupViewProps = {
 
 export function GroupView({ groupId }: GroupViewProps) {
     const router = useRouter();
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { groups, isLoading, error } = useData();
     const [headerReady, setHeaderReady] = useState(false);
     const processingGroupIdsRef = useRef<Set<string>>(new Set());

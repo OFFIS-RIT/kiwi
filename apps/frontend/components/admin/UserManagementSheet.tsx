@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { UserPlus } from "lucide-react";
 import { useState } from "react";
@@ -15,7 +15,7 @@ type UserManagementSheetProps = {
 };
 
 export function UserManagementSheet({ open, onOpenChange }: UserManagementSheetProps) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { authMode } = useRuntimeConfig();
     const [showCreateUser, setShowCreateUser] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);

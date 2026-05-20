@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { downloadProjectFile } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
 import { useApiClient } from "@/providers/ApiClientProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { isResolvedCitationFence, splitTextWithCitationFences, type ResolvedCitationFence } from "@kiwi/ai/citation";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { AlertTriangle, Check, FileText, Loader2, Wrench } from "lucide-react";
@@ -38,7 +38,7 @@ function toolNameOf(part: ToolPart): string {
 }
 
 function ToolCallChip({ part }: { part: ToolPart }) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const name = toolNameOf(part);
     const label = t(`step.${name}`);
 
@@ -69,7 +69,7 @@ function ToolCallChip({ part }: { part: ToolPart }) {
 type ThinkingItem = { kind: "reasoning"; key: string; text: string } | { kind: "tool"; key: string; part: ToolPart };
 
 export function MessageContent({ parts, projectId, isStreaming = false }: MessageContentProps) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const apiClient = useApiClient();
     const [activeCitationSourceId, setActiveCitationSourceId] = React.useState<string | null>(null);
 

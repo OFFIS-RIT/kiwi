@@ -2,7 +2,7 @@
 
 import { CardTemplate } from "@/components/common/CardTemplate";
 import { useAuth } from "@/providers/AuthProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import type { Group } from "@/types";
 import { FileText, Loader2, Users } from "lucide-react";
 
@@ -13,7 +13,7 @@ type GroupCardProps = {
 };
 
 export function GroupCard({ group, onSelect, onEdit }: GroupCardProps) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { hasPermission } = useAuth();
     const canEditGroup = hasPermission("group.update");
     const canViewMembers = hasPermission("group.list:user");

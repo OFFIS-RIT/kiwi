@@ -1,9 +1,12 @@
 import { render, type RenderOptions } from "@testing-library/react";
-import type { ReactElement, ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { RuntimeConfigProvider, type RuntimeConfig } from "@/providers/RuntimeConfigProvider";
-import { AuthClientProvider } from "@/providers/AuthClientProvider";
+import { NextIntlClientProvider } from "next-intl";
+import type { ReactElement, ReactNode } from "react";
+
+import deMessages from "@/messages/de.json";
 import { ApiClientProvider } from "@/providers/ApiClientProvider";
+import { AuthClientProvider } from "@/providers/AuthClientProvider";
+import { RuntimeConfigProvider, type RuntimeConfig } from "@/providers/RuntimeConfigProvider";
 
 const defaultConfig: RuntimeConfig = {
     apiUrl: "/api",
@@ -24,11 +27,13 @@ export function renderWithProviders(
     function Wrapper({ children }: { children: ReactNode }) {
         return (
             <RuntimeConfigProvider config={config}>
-                <AuthClientProvider>
-                    <ApiClientProvider>
-                        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-                    </ApiClientProvider>
-                </AuthClientProvider>
+                <NextIntlClientProvider locale="de" messages={deMessages}>
+                    <AuthClientProvider>
+                        <ApiClientProvider>
+                            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+                        </ApiClientProvider>
+                    </AuthClientProvider>
+                </NextIntlClientProvider>
             </RuntimeConfigProvider>
         );
     }

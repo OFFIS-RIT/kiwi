@@ -5,7 +5,7 @@ import { queryKeys } from "@/hooks/use-data";
 import { useCurrentSelection } from "@/hooks/use-current-selection";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import type { ApiProjectFile, Project } from "@/types";
 import { useQueries } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -20,7 +20,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     const apiClient = useApiClient();
     const router = useRouter();
     const { group: selectedGroup } = useCurrentSelection();
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { groups, isLoading, error } = useData();
     const [ready, setReady] = useState(false);
 

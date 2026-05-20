@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { FileText, Plus } from "lucide-react";
 import type { ChatTemplate } from "./chat-templates";
 
@@ -24,7 +24,7 @@ function TemplateList({
     templates: ChatTemplate[];
     onInsert: (templateBody: string) => void;
 }) {
-    const { t } = useLanguage();
+    const t = useTranslations();
 
     return (
         <ScrollArea className="h-full">
@@ -64,7 +64,7 @@ function SidebarPanel({
     onInsert: (templateBody: string) => void;
     showHeading?: boolean;
 }) {
-    const { t } = useLanguage();
+    const t = useTranslations();
 
     return (
         <div className="flex h-full flex-col gap-4">
@@ -83,7 +83,7 @@ function SidebarPanel({
 }
 
 export function ChatTemplateSidebar({ templates, onInsert, open, onOpenChange }: ChatTemplateSidebarProps) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const [isMobile, setIsMobile] = useState(false);
 
     useEffect(() => {

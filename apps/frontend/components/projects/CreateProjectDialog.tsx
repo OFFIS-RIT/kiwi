@@ -19,7 +19,7 @@ import { createProject } from "@/lib/api/projects";
 import { formatBytes } from "@/lib/utils";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -36,7 +36,7 @@ const MAX_NAME_LENGTH = 40;
 
 export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCreated }: CreateProjectDialogProps) {
     const apiClient = useApiClient();
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { groups, isLoading, error, refreshData } = useData();
     const { toggleGroupExpanded, expandedGroups } = useSidebarExpansion();
     const [projectName, setProjectName] = useState("");

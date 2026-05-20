@@ -1,6 +1,6 @@
 "use client";
 
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import Image from "next/image";
 import { LoginForm } from "./LoginForm";
@@ -12,7 +12,7 @@ type AuthPageProps = {
 };
 
 export function AuthPage({ view, onViewChange }: AuthPageProps) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { authMode } = useRuntimeConfig();
     const showRegister = authMode === "credentials" && view === "register";
 

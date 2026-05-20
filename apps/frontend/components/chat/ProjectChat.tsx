@@ -15,7 +15,6 @@ import type { KiwiApiClient } from "@/lib/api/client";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { useChat } from "@ai-sdk/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -34,6 +33,7 @@ import {
     VolumeX,
     X,
 } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { MessageContent } from "./MessageContent";
@@ -373,7 +373,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
 }
 
 function ProjectChatShellSkeleton({ projectName, groupName }: { projectName: string; groupName: string }) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
 
     return (
@@ -438,7 +438,8 @@ function ProjectChatSession({
     onReset: (chatId: string) => Promise<void>;
 }) {
     const { user } = useAuth();
-    const { t, language } = useLanguage();
+    const t = useTranslations();
+    const language = useLocale();
     const userInitials = user?.name
         ? user.name
               .split(" ")

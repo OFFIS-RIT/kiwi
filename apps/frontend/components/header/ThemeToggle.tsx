@@ -1,13 +1,13 @@
 "use client";
 
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
 export function ThemeToggle() {
     const { theme, setTheme } = useTheme();
-    const { t } = useLanguage();
+    const t = useTranslations();
 
     return (
         <DropdownMenuItem

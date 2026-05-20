@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import type { LucideIcon } from "lucide-react";
 import { Edit } from "lucide-react";
 
@@ -34,7 +34,7 @@ export function CardTemplate({
     children,
     disabled = false,
 }: CardTemplateProps) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const titleId = useId();
 
     return (

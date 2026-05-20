@@ -22,7 +22,7 @@ import { cn, formatBytes } from "@/lib/utils";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { Calendar, Loader2, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FileStatusIcon } from "./FileStatusIcon";
@@ -42,7 +42,7 @@ const MAX_NAME_LENGTH = 40;
 
 export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDialogProps) {
     const apiClient = useApiClient();
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { hasPermission } = useAuth();
     const { refreshData } = useData();
     const canEdit = hasPermission("graph.update");

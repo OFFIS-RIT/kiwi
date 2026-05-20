@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { Check, SendIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -28,7 +28,7 @@ export function ClarificationBlock({
     submitted = false,
     submittedAnswers,
 }: ClarificationBlockProps) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const [answers, setAnswers] = useState<string[]>(() => submittedAnswers ?? new Array(questions.length).fill(""));
     const inputRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
 

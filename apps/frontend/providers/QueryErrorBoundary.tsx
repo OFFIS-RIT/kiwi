@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { Component, type ReactNode } from "react";
 
 interface QueryErrorBoundaryProps {
@@ -100,7 +100,7 @@ class QueryErrorBoundaryInner extends Component<QueryErrorBoundaryProps, QueryEr
  * Wrapper component that provides translations to the error boundary
  */
 export function QueryErrorBoundary({ children }: { children: ReactNode }) {
-    const { t } = useLanguage();
+    const t = useTranslations();
 
     const translations = {
         somethingWentWrong: t("error.something.went.wrong"),

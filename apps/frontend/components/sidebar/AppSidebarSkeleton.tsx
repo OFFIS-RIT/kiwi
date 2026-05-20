@@ -14,13 +14,13 @@ import {
     SidebarRail,
 } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { Search } from "lucide-react";
 import Image from "next/image";
 import type * as React from "react";
 
 export function AppSidebarSkeleton(props: React.ComponentProps<typeof Sidebar>) {
-    const { t } = useLanguage();
+    const t = useTranslations();
 
     return (
         <Sidebar {...props}>

@@ -3,7 +3,7 @@
 import type React from "react";
 
 import { useCreateGroup, useGroupsWithProjects } from "@/hooks/use-data";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import type { Group } from "@/types";
 import { createContext, useContext } from "react";
 
@@ -26,7 +26,7 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
  * Wraps TanStack Query hooks to expose a simpler API for components.
  */
 export function DataProvider({ children }: { children: React.ReactNode }) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     // Use TanStack Query hook for fetching groups with projects
     const { data: groups = [], isLoading, error: queryError, refetch, dataUpdatedAt } = useGroupsWithProjects();
 

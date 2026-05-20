@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { ApiKeyRevealDialog } from "./ApiKeyRevealDialog";
@@ -15,7 +15,7 @@ type ApiKeySheetProps = {
 };
 
 export function ApiKeySheet({ open, onOpenChange }: ApiKeySheetProps) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const [showCreate, setShowCreate] = useState(false);
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);

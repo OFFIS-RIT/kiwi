@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useAuthClient } from "@/providers/AuthClientProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
@@ -21,7 +21,7 @@ type EditUserDialogProps = {
 
 export function EditUserDialog({ user, onOpenChange, onUpdated }: EditUserDialogProps) {
     const authClient = useAuthClient();
-    const { t } = useLanguage();
+    const t = useTranslations();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");

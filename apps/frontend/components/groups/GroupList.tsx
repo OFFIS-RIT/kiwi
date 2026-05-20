@@ -2,7 +2,7 @@
 
 import { StateDisplay } from "@/components/common/StateDisplay";
 import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import type { Group } from "@/types";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -14,7 +14,7 @@ type GroupListProps = {
 
 export function GroupList({ onEditGroup }: GroupListProps) {
     const router = useRouter();
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { groups, isLoading, error } = useData();
     const [ready, setReady] = useState(false);
 

@@ -8,7 +8,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/providers/AuthProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { BookOpen, Plus, Upload, Users } from "lucide-react";
 import { Suspense, lazy, useState } from "react";
 
@@ -24,7 +24,7 @@ const CreateProjectDialog = lazy(() =>
 );
 
 export function CreateActions() {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { hasPermission } = useAuth();
     const canCreateGroup = hasPermission("group.create");
     const canCreateProject = hasPermission("graph.create");

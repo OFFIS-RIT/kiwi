@@ -28,7 +28,7 @@ import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { Check, Loader2, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -70,7 +70,7 @@ const MAX_NAME_LENGTH = 40;
 export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogProps) {
     const apiClient = useApiClient();
     const authClient = useAuthClient();
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { hasPermission } = useAuth();
     const { refreshData } = useData();
     const canEdit = hasPermission("group.update");

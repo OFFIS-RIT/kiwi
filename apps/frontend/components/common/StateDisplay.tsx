@@ -1,6 +1,6 @@
 "use client";
 
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 
 type StateDisplayProps = {
     isLoading?: boolean;
@@ -21,7 +21,7 @@ export function StateDisplay({
     emptyMessage,
     emptyDescription,
 }: StateDisplayProps) {
-    const { t } = useLanguage();
+    const t = useTranslations();
 
     if (isLoading) {
         return (

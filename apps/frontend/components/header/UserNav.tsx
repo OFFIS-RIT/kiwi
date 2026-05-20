@@ -11,7 +11,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/providers/AuthProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { ApiKeySheet } from "@/components/api-keys";
 import { Key, LogOut, Shield } from "lucide-react";
 import { Suspense, lazy, useEffect, useState } from "react";
@@ -24,7 +24,7 @@ const UserManagementSheet = lazy(() =>
 );
 
 export function UserNav() {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { user, isAdmin, signOut } = useAuth();
     const [showUserManagement, setShowUserManagement] = useState(false);
     const [showApiKeys, setShowApiKeys] = useState(false);

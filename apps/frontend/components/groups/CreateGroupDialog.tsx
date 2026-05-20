@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 
 type CreateGroupDialogProps = {
@@ -25,7 +25,7 @@ type CreateGroupDialogProps = {
 const MAX_NAME_LENGTH = 40;
 
 export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const { addGroup } = useData();
     const [groupName, setGroupName] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);

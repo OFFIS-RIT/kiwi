@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { useAuthClient } from "@/providers/AuthClientProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { Clock, Key, Loader2, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -29,7 +29,7 @@ type ApiKey = {
 
 export function ApiKeyList() {
     const authClient = useAuthClient();
-    const { t } = useLanguage();
+    const t = useTranslations();
     const [keys, setKeys] = useState<ApiKey[]>([]);
     const [loading, setLoading] = useState(true);
     const [deletingId, setDeletingId] = useState<string | null>(null);

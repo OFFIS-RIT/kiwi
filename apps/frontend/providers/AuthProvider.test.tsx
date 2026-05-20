@@ -23,7 +23,6 @@ vi.mock("next/navigation", () => ({
 }));
 
 import type { InitialClientSession } from "@/lib/auth/types";
-import { LanguageProvider } from "@/providers/LanguageProvider";
 import { renderWithProviders } from "@/test/test-utils";
 import { AuthProvider, useAuth } from "./AuthProvider";
 
@@ -51,11 +50,9 @@ function renderWithAuth(sessionData: unknown, initialSession: InitialClientSessi
     fakeUseSession.mockReturnValue(sessionData);
 
     return renderWithProviders(
-        <LanguageProvider>
-            <AuthProvider initialSession={initialSession}>
-                <TestConsumer />
-            </AuthProvider>
-        </LanguageProvider>
+        <AuthProvider initialSession={initialSession}>
+            <TestConsumer />
+        </AuthProvider>
     );
 }
 

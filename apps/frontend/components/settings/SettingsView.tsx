@@ -7,12 +7,12 @@ import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { LanguageSwitcher } from "@/components/header/LanguageSwitcher";
 import { ThemeToggle } from "@/components/header/ThemeToggle";
 import { Button } from "@/components/ui/button";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useTranslations } from "next-intl";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 
 export function SettingsView() {
-    const { t } = useLanguage();
+    const t = useTranslations();
     const [showCreate, setShowCreate] = useState(false);
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);

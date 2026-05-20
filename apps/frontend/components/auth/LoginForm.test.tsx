@@ -21,16 +21,11 @@ vi.mock("next/navigation", () => ({
     useRouter: vi.fn(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() })),
 }));
 
-import { LanguageProvider } from "@/providers/LanguageProvider";
 import { renderWithProviders } from "@/test/test-utils";
 import { LoginForm } from "./LoginForm";
 
 function renderLoginForm(onSwitch = vi.fn()) {
-    return renderWithProviders(
-        <LanguageProvider>
-            <LoginForm onSwitchToRegister={onSwitch} />
-        </LanguageProvider>
-    );
+    return renderWithProviders(<LoginForm onSwitchToRegister={onSwitch} />);
 }
 
 describe("LoginForm", () => {
