@@ -1,6 +1,8 @@
 import "@/app/globals.css";
 import "katex/dist/katex.min.css";
 import { Inter } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
 import { ThemeProvider as NextThemesProvider } from "next-themes";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
@@ -31,16 +33,20 @@ const SERVER_CONFIG: RuntimeConfig = {
     buildLabel: process.env.BUILD_LABEL?.trim() || undefined,
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+    const [locale, messages] = await Promise.all([getLocale(), getMessages()]);
+
     return (
-        <html lang="en" suppressHydrationWarning>
+        <html lang={locale} suppressHydrationWarning>
             <body className={inter.className}>
                 <RuntimeConfigProvider config={SERVER_CONFIG}>
-                    <NextThemesProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
-                        <AuthClientProvider>
-                            <ApiClientProvider>{children}</ApiClientProvider>
-                        </AuthClientProvider>
-                    </NextThemesProvider>
+                    <NextIntlClientProvider messages={messages}>
+                        <NextThemesProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+                            <AuthClientProvider>
+                                <ApiClientProvider>{children}</ApiClientProvider>
+                            </AuthClientProvider>
+                        </NextThemesProvider>
+                    </NextIntlClientProvider>
                 </RuntimeConfigProvider>
                 <Toaster richColors expand position="bottom-center" duration={5000} />
             </body>
