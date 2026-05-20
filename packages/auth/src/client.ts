@@ -20,8 +20,9 @@ function resolveBaseURL(baseURL: string): string {
     if (baseURL.startsWith("http://") || baseURL.startsWith("https://")) {
         return baseURL;
     }
-    if (typeof window !== "undefined") {
-        return `${window.location.origin}${baseURL}`;
+    if ("window" in globalThis) {
+        const win = (globalThis as unknown as { window: { location: { origin: string } } }).window;
+        return `${win.location.origin}${baseURL}`;
     }
     return `http://localhost:3000${baseURL}`;
 }
