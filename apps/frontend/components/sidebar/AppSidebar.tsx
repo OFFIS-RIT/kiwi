@@ -30,6 +30,7 @@ import {
 import { useData } from "@/providers/DataProvider";
 import { useLanguage } from "@/providers/LanguageProvider";
 import { useNavigation } from "@/providers/NavigationProvider";
+import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
 import Fuse from "fuse.js";
@@ -52,7 +53,6 @@ type SearchResult = {
 };
 
 const MIN_SEARCH_LENGTH = 1;
-const APP_BUILD_LABEL = process.env.NEXT_PUBLIC_APP_BUILD_LABEL?.trim();
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     onEditGroup: (group: Group) => void;
@@ -71,6 +71,7 @@ export function AppSidebar({
     ...props
 }: AppSidebarProps) {
     const { t } = useLanguage();
+    const { buildLabel } = useRuntimeConfig();
     const { groups, isLoading, error } = useData();
     const { showGroups, selectedGroup, selectedProject } = useNavigation();
     const {
@@ -378,13 +379,13 @@ export function AppSidebar({
                     </SidebarGroupContent>
                 </SidebarGroup>
             </SidebarContent>
-            {APP_BUILD_LABEL ? (
+            {buildLabel ? (
                 <SidebarFooter className="gap-1 border-t border-sidebar-border group-data-[collapsible=icon]:hidden">
                     <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/40">
                         {t("app.build")}
                     </span>
-                    <span className="truncate font-mono text-xs text-sidebar-foreground/70" title={APP_BUILD_LABEL}>
-                        {APP_BUILD_LABEL}
+                    <span className="truncate font-mono text-xs text-sidebar-foreground/70" title={buildLabel}>
+                        {buildLabel}
                     </span>
                 </SidebarFooter>
             ) : null}
