@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 
@@ -17,20 +17,15 @@ vi.mock("@kiwi/auth/client", () => ({
     })),
 }));
 
-import { AuthClientProvider } from "@/providers/AuthClientProvider";
 import { LanguageProvider } from "@/providers/LanguageProvider";
-import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
+import { renderWithProviders } from "@/test/test-utils";
 import { LoginForm } from "./LoginForm";
 
 function renderLoginForm(onSwitch = vi.fn()) {
-    return render(
-        <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
-            <AuthClientProvider>
-                <LanguageProvider>
-                    <LoginForm onSwitchToRegister={onSwitch} />
-                </LanguageProvider>
-            </AuthClientProvider>
-        </RuntimeConfigProvider>
+    return renderWithProviders(
+        <LanguageProvider>
+            <LoginForm onSwitchToRegister={onSwitch} />
+        </LanguageProvider>
     );
 }
 

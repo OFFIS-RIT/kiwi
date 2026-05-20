@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -52,19 +52,11 @@ vi.mock("@/providers/LanguageProvider", () => ({
     }),
 }));
 
-import { ApiClientProvider } from "@/providers/ApiClientProvider";
-import { AuthClientProvider } from "@/providers/AuthClientProvider";
-import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
+import { renderWithProviders } from "@/test/test-utils";
 import { EditGroupDialog } from "./EditGroupDialog";
 
 function renderDialog(ui: ReactElement) {
-    return render(
-        <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
-            <AuthClientProvider>
-                <ApiClientProvider>{ui}</ApiClientProvider>
-            </AuthClientProvider>
-        </RuntimeConfigProvider>
-    );
+    return renderWithProviders(ui);
 }
 
 describe("EditGroupDialog", () => {

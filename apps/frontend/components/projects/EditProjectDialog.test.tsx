@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 class ResizeObserverMock {
@@ -69,29 +69,21 @@ vi.mock("./FileStatusIcon", () => ({
     FileStatusIcon: () => <div>status-icon</div>,
 }));
 
-import { ApiClientProvider } from "@/providers/ApiClientProvider";
-import { AuthClientProvider } from "@/providers/AuthClientProvider";
-import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
+import { renderWithProviders } from "@/test/test-utils";
 import { EditProjectDialog } from "./EditProjectDialog";
 
 describe("EditProjectDialog", () => {
     test("renders name field and project files inside the dialog scroll area", () => {
-        render(
-            <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
-                <AuthClientProvider>
-                    <ApiClientProvider>
-                        <EditProjectDialog
-                            open
-                            onOpenChange={vi.fn()}
-                            project={{
-                                id: "project_1",
-                                name: "Wissensbasis",
-                            }}
-                            groupId={null}
-                        />
-                    </ApiClientProvider>
-                </AuthClientProvider>
-            </RuntimeConfigProvider>
+        renderWithProviders(
+            <EditProjectDialog
+                open
+                onOpenChange={vi.fn()}
+                project={{
+                    id: "project_1",
+                    name: "Wissensbasis",
+                }}
+                groupId={null}
+            />
         );
 
         const nameInput = screen.getByLabelText("project.name");

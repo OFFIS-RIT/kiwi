@@ -1,11 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { LanguageProvider } from "@/providers/LanguageProvider";
-import { RuntimeConfigProvider } from "@/providers/RuntimeConfigProvider";
-import { AuthClientProvider } from "@/providers/AuthClientProvider";
-import { ApiClientProvider } from "@/providers/ApiClientProvider";
+import { renderWithProviders } from "@/test/test-utils";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { MessageContent } from "../MessageContent";
 
@@ -31,22 +29,14 @@ function citationFence(sourceId: string) {
     return `:::{"type":"cite","sourceId":"${sourceId}","unitId":"unit-1","fileName":"document.pdf","fileKey":"graphs/g1/document.pdf"}:::`;
 }
 
-function wrapWithProviders(node: ReactNode) {
-    return (
-        <RuntimeConfigProvider config={{ apiUrl: "/api", authUrl: "/auth", authMode: "credentials" }}>
-            <AuthClientProvider>
-                <ApiClientProvider>
-                    <LanguageProvider>{node}</LanguageProvider>
-                </ApiClientProvider>
-            </AuthClientProvider>
-        </RuntimeConfigProvider>
-    );
+function wrapWithLanguage(node: ReactNode) {
+    return <LanguageProvider>{node}</LanguageProvider>;
 }
 
 function renderMessageContent(parts: ChatUIMessage["parts"]) {
     localStorage.setItem("language", "en");
 
-    return render(wrapWithProviders(<MessageContent parts={parts} projectId="graph-1" />));
+    return renderWithProviders(wrapWithLanguage(<MessageContent parts={parts} projectId="graph-1" />));
 }
 
 describe("MessageContent", () => {
@@ -75,12 +65,14 @@ describe("MessageContent", () => {
         const parts: ChatUIMessage["parts"] = [{ type: "text", text: `Alpha ${citationFence("src-1")} Omega` }];
         localStorage.setItem("language", "en");
 
-        const { rerender } = render(wrapWithProviders(<MessageContent parts={parts} projectId="graph-1" />));
+        const { rerender } = renderWithProviders(
+            wrapWithLanguage(<MessageContent parts={parts} projectId="graph-1" />)
+        );
 
         await userEvent.click(screen.getByRole("button", { name: "1" }));
         expect(await screen.findByText("Alpha evidence")).toBeInTheDocument();
 
-        rerender(wrapWithProviders(<MessageContent parts={parts} projectId="graph-1" />));
+        rerender(wrapWithLanguage(<MessageContent parts={parts} projectId="graph-1" />));
 
         expect(screen.getByRole("dialog")).toBeInTheDocument();
         expect(screen.getByText("Alpha evidence")).toBeInTheDocument();
