@@ -113,14 +113,16 @@ export function shouldUsePageOCRFallback(pageText: PreparedPage["pageText"], con
     }
 
     const shortLineRatio = lines.filter((line) => line.text.length <= 16).length / lineCount;
-    const isolatedTokenRatio = lines.filter((line) => !/\s/.test(line.text) && line.text.length <= 24).length / lineCount;
+    const isolatedTokenRatio =
+        lines.filter((line) => !/\s/.test(line.text) && line.text.length <= 24).length / lineCount;
     const verticalLineRatio = lines.filter((line) => line.direction === "vertical").length / lineCount;
     const averageLineLength = characterCount / lineCount;
     const fragmentedText =
         lineCount >= 20 &&
         characterCount >= 200 &&
         (averageLineLength <= 18 || shortLineRatio >= 0.65 || isolatedTokenRatio >= 0.6);
-    const verticalFragments = lineCount >= 12 && verticalLineRatio >= 0.25 && (averageLineLength <= 24 || shortLineRatio >= 0.5);
+    const verticalFragments =
+        lineCount >= 12 && verticalLineRatio >= 0.25 && (averageLineLength <= 24 || shortLineRatio >= 0.5);
     const imageDominantPage = content.images.length >= 4 && characterCount < 500 && lineCount < 12;
 
     return fragmentedText || verticalFragments || imageDominantPage;

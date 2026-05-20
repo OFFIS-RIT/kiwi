@@ -18,20 +18,8 @@ import {
     parseXml,
 } from "../../ooxml/xml";
 import type { XMLNodeLike } from "../../ooxml/types";
-import {
-    clampHeadingLevel,
-    cleanInlineText,
-    detectHeadingLevel,
-    formatInlineText,
-} from "./text";
-import type {
-    DOCBlock,
-    DOCNumbering,
-    DOCParseContext,
-    DOCStyles,
-    ParagraphListInfo,
-    ParsedDOC,
-} from "./types";
+import { clampHeadingLevel, cleanInlineText, detectHeadingLevel, formatInlineText } from "./text";
+import type { DOCBlock, DOCNumbering, DOCParseContext, DOCStyles, ParagraphListInfo, ParsedDOC } from "./types";
 
 const PLAIN_INLINE_FORMAT = { bold: false, italic: false, strike: false, underline: false };
 
