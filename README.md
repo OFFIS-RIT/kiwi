@@ -136,6 +136,11 @@ certificate files in `./certs`.
 
 ## Architecture
 
+The frontend runs as a Next.js standalone server on Node 20. Browser-facing
+configuration such as `API_URL`, `AUTH_URL`, and `AUTH_MODE` is read from
+runtime environment variables, so the same built image can be deployed with
+different API/auth endpoints without rebuilding.
+
 ```
 ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
 │   Frontend   │────▶│    Caddy     │────▶│   Server    │
@@ -349,6 +354,9 @@ API_URL=http://localhost:4321
 
 OpenWorkflow uses `DATABASE_DIRECT_URL` instead of a separate workflow-specific connection variable.
 Use `DATABASE_URL` for pooled application queries and `DATABASE_DIRECT_URL` for migrations and workflow storage.
+
+The frontend uses `next-intl` with cookie-based locale selection via
+`NEXT_LOCALE`. Supported locales are `de` (default) and `en`.
 
 For production, set these variables to the container-network endpoints used inside the Compose stack:
 
