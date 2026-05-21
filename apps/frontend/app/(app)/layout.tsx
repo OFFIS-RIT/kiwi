@@ -11,7 +11,7 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
     const session = await getServerSession();
     if (!session) {
         const headersList = await headers();
-        const url = headersList.get("x-invoke-path") ?? headersList.get("x-pathname") ?? "";
+        const url = headersList.get("x-pathname") ?? "";
         const next = url ? `?next=${encodeURIComponent(url)}` : "";
         redirect(`/login${next}`);
     }
