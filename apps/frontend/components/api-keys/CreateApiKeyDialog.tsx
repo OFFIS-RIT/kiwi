@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuthClient } from "@/providers/AuthClientProvider";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
@@ -27,7 +27,7 @@ const EXPIRY_OPTIONS = [
 
 export function CreateApiKeyDialog({ open, onOpenChange, onCreated }: CreateApiKeyDialogProps) {
     const authClient = useAuthClient();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const [name, setName] = useState("");
     const [expiry, setExpiry] = useState<string>("never");
     const [loading, setLoading] = useState(false);

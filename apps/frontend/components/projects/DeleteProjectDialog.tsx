@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { useDeleteProject } from "@/hooks/use-data";
 import { useCurrentSelection } from "@/hooks/use-current-selection";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -28,7 +28,7 @@ type DeleteProjectDialogProps = {
 };
 
 export function DeleteProjectDialog({ open, onOpenChange, project, groupId, groupName }: DeleteProjectDialogProps) {
-    const t = useTranslations();
+    const t = useAppTranslations();
     const router = useRouter();
     const { project: selectedProject } = useCurrentSelection();
     const deleteProjectMutation = useDeleteProject();

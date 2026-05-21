@@ -33,7 +33,8 @@ import {
     VolumeX,
     X,
 } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { useLocale } from "next-intl";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { MessageContent } from "./MessageContent";
@@ -373,7 +374,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
 }
 
 function ProjectChatShellSkeleton({ projectName, groupName }: { projectName: string; groupName: string }) {
-    const t = useTranslations();
+    const t = useAppTranslations();
     const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
 
     return (
@@ -438,7 +439,7 @@ function ProjectChatSession({
     onReset: (chatId: string) => Promise<void>;
 }) {
     const { user } = useAuth();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const language = useLocale();
     const userInitials = user?.name
         ? user.name

@@ -2,7 +2,7 @@
 
 import { StateDisplay } from "@/components/common/StateDisplay";
 import { useGroupsWithProjects } from "@/hooks/use-data";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { Group } from "@/types";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -14,7 +14,7 @@ type GroupListProps = {
 
 export function GroupList({ onEditGroup }: GroupListProps) {
     const router = useRouter();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
     const [ready, setReady] = useState(false);

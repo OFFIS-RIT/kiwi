@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { FileStatus } from "@/types";
 import { cn } from "@/lib/utils";
 import { AlertCircle, CheckCircle2, HelpCircle, Loader2 } from "lucide-react";
@@ -11,7 +11,7 @@ type FileStatusIconProps = {
 };
 
 export function FileStatusIcon({ status, className }: FileStatusIconProps) {
-    const t = useTranslations();
+    const t = useAppTranslations();
 
     const normalizedStatus: FileStatus = status ?? "no_status";
 

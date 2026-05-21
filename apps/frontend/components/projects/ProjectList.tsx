@@ -4,7 +4,7 @@ import { StateDisplay } from "@/components/common/StateDisplay";
 import { queryKeys, useGroupsWithProjects } from "@/hooks/use-data";
 import { useCurrentSelection } from "@/hooks/use-current-selection";
 import { useApiClient } from "@/providers/ApiClientProvider";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { ApiProjectFile, Project } from "@/types";
 import { useQueries } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -19,7 +19,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     const apiClient = useApiClient();
     const router = useRouter();
     const { group: selectedGroup } = useCurrentSelection();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
     const [ready, setReady] = useState(false);

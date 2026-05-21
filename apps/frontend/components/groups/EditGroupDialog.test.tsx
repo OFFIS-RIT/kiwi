@@ -3,9 +3,8 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { fetchGroupUsers, translate, hasPermission, listUsers } = vi.hoisted(() => ({
+const { fetchGroupUsers, hasPermission, listUsers } = vi.hoisted(() => ({
     fetchGroupUsers: vi.fn(),
-    translate: vi.fn((key: string) => key),
     hasPermission: vi.fn((_: string) => false),
     listUsers: vi.fn(),
 }));
@@ -51,7 +50,6 @@ describe("EditGroupDialog", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         hasPermission.mockReturnValue(false);
-        translate.mockImplementation((key: string) => key);
         fetchGroupUsers.mockResolvedValue([]);
     });
 
@@ -135,7 +133,7 @@ describe("EditGroupDialog", () => {
         );
 
         const user = userEvent.setup();
-        await user.type(await screen.findByPlaceholderText("admin.search.users"), "Anna");
+        await user.type(await screen.findByPlaceholderText("Benutzer suchen..."), "Anna");
 
         await user.click(await screen.findByRole("button", { name: /Anna Example/i }));
 
@@ -185,7 +183,7 @@ describe("EditGroupDialog", () => {
         );
 
         const user = userEvent.setup();
-        await user.type(await screen.findByPlaceholderText("admin.search.users"), "ANNA MEIR");
+        await user.type(await screen.findByPlaceholderText("Benutzer suchen..."), "ANNA MEIR");
 
         await waitFor(() =>
             expect(listUsers).toHaveBeenCalledWith({
@@ -238,7 +236,7 @@ describe("EditGroupDialog", () => {
         );
 
         const user = userEvent.setup();
-        await user.type(await screen.findByPlaceholderText("admin.search.users"), "Ann");
+        await user.type(await screen.findByPlaceholderText("Benutzer suchen..."), "Ann");
 
         expect(listUsers).toHaveBeenCalledTimes(1);
         expect(await screen.findByRole("button", { name: /Anna Example/i })).toBeInTheDocument();

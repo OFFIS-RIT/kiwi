@@ -9,14 +9,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { setLocale } from "@/lib/i18n/set-locale";
 import { Globe } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { useLocale } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
 export function LanguageSwitcher() {
     const locale = useLocale();
     const router = useRouter();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const [isPending, startTransition] = useTransition();
 
     const handleChange = (nextLocale: "de" | "en") => {

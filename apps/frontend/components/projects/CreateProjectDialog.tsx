@@ -19,7 +19,7 @@ import { queryKeys, useGroupsWithProjects } from "@/hooks/use-data";
 import { createProject } from "@/lib/api/projects";
 import { formatBytes } from "@/lib/utils";
 import { useApiClient } from "@/providers/ApiClientProvider";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -38,7 +38,7 @@ const MAX_NAME_LENGTH = 40;
 export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCreated }: CreateProjectDialogProps) {
     const apiClient = useApiClient();
     const queryClient = useQueryClient();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
     const { toggleGroupExpanded, expandedGroups } = useSidebarExpansion();

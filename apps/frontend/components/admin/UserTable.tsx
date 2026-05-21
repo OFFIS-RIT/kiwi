@@ -15,7 +15,7 @@ import {
 } from "@/lib/user-search";
 import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Ban, ChevronLeft, ChevronRight, Loader2, Pencil, Search, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -44,7 +44,7 @@ function getInitials(name: string): string {
 
 export function UserTable() {
     const authClient = useAuthClient();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const { user: currentUser } = useAuth();
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);

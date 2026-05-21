@@ -7,12 +7,12 @@ import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { LanguageSwitcher } from "@/components/header/LanguageSwitcher";
 import { ThemeToggle } from "@/components/header/ThemeToggle";
 import { Button } from "@/components/ui/button";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 
 export function SettingsView() {
-    const t = useTranslations();
+    const t = useAppTranslations();
     const [showCreate, setShowCreate] = useState(false);
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);
@@ -27,7 +27,7 @@ export function SettingsView() {
                     <section className="space-y-3">
                         <h2 className="text-lg font-semibold">{t("appearance")}</h2>
                         <div className="flex items-center gap-2">
-                            <ThemeToggle />
+                            <ThemeToggle asMenuItem={false} />
                             <LanguageSwitcher />
                         </div>
                     </section>

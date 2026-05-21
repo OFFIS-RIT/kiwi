@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthClient } from "@/providers/AuthClientProvider";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
@@ -15,7 +15,7 @@ type RegisterFormProps = {
 
 export function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
     const authClient = useAuthClient();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");

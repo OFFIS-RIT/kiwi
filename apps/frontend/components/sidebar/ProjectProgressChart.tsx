@@ -3,7 +3,7 @@
 import { ChartConfig, ChartContainer } from "@/components/ui/chart";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDuration } from "@/lib/utils";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { Project } from "@/types";
 import { PolarAngleAxis, RadialBar, RadialBarChart } from "recharts";
 
@@ -38,7 +38,7 @@ function formatRemaining(parts: ReturnType<typeof formatDuration>, t: (key: stri
 }
 
 export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
-    const t = useTranslations();
+    const t = useAppTranslations();
     const percentage = project.processPercentage ?? 0;
     const step = project.processStep ?? "";
     const timeRemaining =

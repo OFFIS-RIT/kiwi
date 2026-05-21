@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { downloadProjectFile, fetchTextUnit } from "@/lib/api/projects";
 import { useApiClient } from "@/providers/ApiClientProvider";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { ResolvedCitationFence } from "@kiwi/ai/citation";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
 import { useEffect, useEffectEvent, useState } from "react";
@@ -26,7 +26,7 @@ type TextReferenceDialogProps = {
 };
 
 export function TextReferenceBadge({ citation, index, onSelect }: TextReferenceBadgeProps) {
-    const t = useTranslations();
+    const t = useAppTranslations();
 
     return (
         <Badge
@@ -46,7 +46,7 @@ export function TextReferenceBadge({ citation, index, onSelect }: TextReferenceB
 }
 
 export function TextReferenceDialog({ citation, index, projectId, open, onOpenChange }: TextReferenceDialogProps) {
-    const t = useTranslations();
+    const t = useAppTranslations();
     const apiClient = useApiClient();
     const getUnknownErrorLabel = useEffectEvent(() => t("error.unknown"));
     const [isLoadingUnit, setIsLoadingUnit] = useState(false);

@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { useDeleteGroup } from "@/hooks/use-data";
 import { useCurrentSelection } from "@/hooks/use-current-selection";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -26,7 +26,7 @@ type DeleteGroupDialogProps = {
 };
 
 export function DeleteGroupDialog({ open, onOpenChange, group }: DeleteGroupDialogProps) {
-    const t = useTranslations();
+    const t = useAppTranslations();
     const router = useRouter();
     const { group: selectedGroup } = useCurrentSelection();
     const deleteGroupMutation = useDeleteGroup();

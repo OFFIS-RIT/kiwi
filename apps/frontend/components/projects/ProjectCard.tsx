@@ -5,7 +5,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDuration } from "@/lib/utils";
 import { useAuth } from "@/providers/AuthProvider";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { Project } from "@/types";
 import { BookOpen, Calendar, Loader2 } from "lucide-react";
 
@@ -37,7 +37,7 @@ function formatRemaining(parts: ReturnType<typeof formatDuration>, t: (key: stri
 }
 
 export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCardProps) {
-    const t = useTranslations();
+    const t = useAppTranslations();
     const { hasPermission } = useAuth();
     const canEditProject = hasPermission("graph.update");
     const canViewFiles = hasPermission("graph.list:file");

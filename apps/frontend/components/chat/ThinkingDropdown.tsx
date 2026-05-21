@@ -5,7 +5,7 @@ import { Brain, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 
 type ThinkingDropdownProps = {
     children: React.ReactNode;
@@ -25,7 +25,7 @@ export function ThinkingDropdown({
 }: ThinkingDropdownProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
-    const t = useTranslations();
+    const t = useAppTranslations();
 
     useEffect(() => {
         if (!isLive || !startTime) return;

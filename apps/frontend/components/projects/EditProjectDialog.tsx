@@ -21,7 +21,7 @@ import { addFilesToProject, deleteProjectFiles, updateProject } from "@/lib/api/
 import { cn, formatBytes } from "@/lib/utils";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useQueryClient } from "@tanstack/react-query";
 import { Calendar, Loader2, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -43,7 +43,7 @@ const MAX_NAME_LENGTH = 40;
 export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDialogProps) {
     const apiClient = useApiClient();
     const queryClient = useQueryClient();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const { hasPermission } = useAuth();
     const canEdit = hasPermission("graph.update");
     const canDeleteFiles = hasPermission("graph.delete:file");

@@ -29,7 +29,7 @@ import {
     SidebarMenuSub,
     SidebarRail,
 } from "@/components/ui/sidebar";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
@@ -71,7 +71,7 @@ export function AppSidebar({
     onProjectCreated,
     ...props
 }: AppSidebarProps) {
-    const t = useTranslations();
+    const t = useAppTranslations();
     const router = useRouter();
     const { buildLabel } = useRuntimeConfig();
     const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
@@ -491,7 +491,7 @@ function GroupItem({
 }: GroupItemProps) {
     const router = useRouter();
     const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const [showCreateProject, setShowCreateProject] = useState(false);
 
     const projectsToShow = group.projects;

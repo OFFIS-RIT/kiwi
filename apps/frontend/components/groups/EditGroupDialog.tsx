@@ -28,7 +28,7 @@ import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { queryKeys } from "@/hooks/use-data";
-import { useTranslations } from "next-intl";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -72,7 +72,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
     const apiClient = useApiClient();
     const authClient = useAuthClient();
     const queryClient = useQueryClient();
-    const t = useTranslations();
+    const t = useAppTranslations();
     const { hasPermission } = useAuth();
     const canEdit = hasPermission("group.update");
     const canAddUser = hasPermission("group.add:user");
