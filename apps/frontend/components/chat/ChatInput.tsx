@@ -39,6 +39,8 @@ export type ChatInputProps = {
     disabled?: boolean;
     /** Placeholder text shown when the editor is empty. */
     placeholder: string;
+    /** Optional classes for the editable surface. */
+    editorClassName?: string;
     /** Project whose files back the @-mention picker. */
     projectId: string;
     /**
@@ -63,7 +65,7 @@ export const projectFilesQueryKey = (projectId: string) => ["projectFiles", proj
  * surrounding providers — i18n, query client, theme, etc.
  */
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
-    { value, onChange, onSubmit, disabled = false, placeholder, projectId, interimTranscript },
+    { value, onChange, onSubmit, disabled = false, placeholder, editorClassName, projectId, interimTranscript },
     ref
 ) {
     const apiClient = useApiClient();
@@ -152,6 +154,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             attributes: {
                 class: cn(
                     "tiptap-chat-input flex-1 resize-none overflow-y-auto border-input min-h-10 max-h-[15lh] w-full min-w-0 rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+                    editorClassName,
                     disabled && "pointer-events-none cursor-not-allowed opacity-50"
                 ),
             },
@@ -163,6 +166,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     return true;
                 }
                 return false;
+            },
+            handlePaste: (view, event) => {
+                const pastedText = event.clipboardData?.getData("text/plain");
+                if (!pastedText) return false;
+
+                event.preventDefault();
+                const inlineText = pastedText.replace(/\s*\r?\n\s*/g, " ");
+                view.dispatch(view.state.tr.insertText(inlineText));
+                return true;
             },
         },
         onUpdate: ({ editor: ed }) => {

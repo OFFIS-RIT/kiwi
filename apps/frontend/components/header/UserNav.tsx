@@ -12,22 +12,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/providers/AuthProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
-import { ApiKeySheet } from "@/components/api-keys";
-import { Key, LogOut, Shield } from "lucide-react";
-import { Suspense, lazy, useEffect, useState } from "react";
+import { LogOut, Settings, ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { ThemeToggle } from "./ThemeToggle";
-
-const UserManagementSheet = lazy(() =>
-    import("@/components/admin").then((mod) => ({
-        default: mod.UserManagementSheet,
-    }))
-);
 
 export function UserNav() {
     const t = useAppTranslations();
     const { user, isAdmin, signOut } = useAuth();
-    const [showUserManagement, setShowUserManagement] = useState(false);
-    const [showApiKeys, setShowApiKeys] = useState(false);
     const [ready, setReady] = useState(false);
 
     useEffect(() => {
@@ -66,14 +58,18 @@ export function UserNav() {
                     <DropdownMenuSeparator />
                     <ThemeToggle />
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={() => setShowApiKeys(true)}>
-                        <Key className="h-4 w-4" />
-                        <span>{t("apiKey.management")}</span>
+                    <DropdownMenuItem asChild>
+                        <Link href="/settings">
+                            <Settings className="h-4 w-4" />
+                            <span>{t("settings")}</span>
+                        </Link>
                     </DropdownMenuItem>
                     {isAdmin && (
-                        <DropdownMenuItem onSelect={() => setShowUserManagement(true)}>
-                            <Shield className="h-4 w-4" />
-                            <span>{t("admin.user.management")}</span>
+                        <DropdownMenuItem asChild>
+                            <Link href="/admin">
+                                <ShieldCheck className="h-4 w-4" />
+                                <span>{t("admin.role.admin")}</span>
+                            </Link>
                         </DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />
@@ -83,12 +79,6 @@ export function UserNav() {
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
-            <ApiKeySheet open={showApiKeys} onOpenChange={setShowApiKeys} />
-            {isAdmin && (
-                <Suspense fallback={null}>
-                    <UserManagementSheet open={showUserManagement} onOpenChange={setShowUserManagement} />
-                </Suspense>
-            )}
         </>
     );
 }
