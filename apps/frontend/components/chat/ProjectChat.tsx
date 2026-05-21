@@ -435,7 +435,6 @@ function ProjectChatShellSkeleton({ projectName, groupName }: { projectName: str
 
 function ProjectChatSession({
     projectName,
-    groupName,
     projectId,
     entry,
     isHydrating,
