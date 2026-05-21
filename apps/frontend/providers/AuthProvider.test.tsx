@@ -86,12 +86,14 @@ describe("AuthProvider", () => {
         expect(fakeRouterRefresh).not.toHaveBeenCalled();
     });
 
-    test("renders nothing and calls router.refresh when live session is gone", () => {
+    test("keeps rendering initial session and calls router.refresh when live session is gone", () => {
         fakeRouterRefresh.mockClear();
         renderWithAuth({ data: null, isPending: false, error: null });
 
-        expect(screen.queryByTestId("role")).not.toBeInTheDocument();
-        expect(screen.queryByText("no-user")).not.toBeInTheDocument();
+        expect(screen.getByTestId("role")).toHaveTextContent("admin");
+        expect(screen.getByTestId("admin")).toHaveTextContent("yes");
+        expect(screen.getByTestId("pending")).toHaveTextContent("no");
+        expect(screen.getByTestId("name")).toHaveTextContent("Initial Admin");
         expect(fakeRouterRefresh).toHaveBeenCalledTimes(1);
     });
 });

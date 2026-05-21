@@ -51,8 +51,7 @@ export function AuthProvider({
     const router = useRouter();
     const { data: liveSession, isPending } = authClient.useSession();
 
-    // Pending: SSR-Wert nutzen. Resolved: live ist Source-of-Truth (auch null).
-    const sessionUser = isPending ? initialSession.user : (liveSession?.user ?? null);
+    const sessionUser = liveSession?.user ?? initialSession.user;
 
     // Wenn nach Pending keine Session mehr da ist -> Server-Layout neu evaluieren,
     // das redirected dann zu /login. Verhindert "App ist sichtbar, aber Backend gibt 401".
@@ -102,10 +101,6 @@ export function AuthProvider({
         }),
         [sessionUser, role, isAdmin, isManager, isPending, signOut, hasPermission]
     );
-
-    // Nach Pending ohne Session: nichts rendern bis refresh durchgreift.
-    // Sicherheits-Boundary ist das Server-Layout; das hier ist UX-Glue.
-    if (!isPending && !sessionUser) return null;
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
