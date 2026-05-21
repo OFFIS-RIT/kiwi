@@ -42,6 +42,22 @@ const joinPath = (path: string, name: string) => {
     return normalizedPath === "" ? normalizedName : `${normalizedPath}/${normalizedName}`;
 };
 
+export function getDerivedFilePrefix(graphId: string, fileId: string): string {
+    return `graphs/${graphId}/derived/${fileId}`;
+}
+
+export function getDerivedImagePrefix(graphId: string, fileId: string): string {
+    return `${getDerivedFilePrefix(graphId, fileId)}/images`;
+}
+
+export function getDerivedSourceKey(graphId: string, fileId: string): string {
+    return `${getDerivedFilePrefix(graphId, fileId)}/source.txt`;
+}
+
+export function getDerivedPdfPreviewPrefix(graphId: string, fileId: string): string {
+    return `${getDerivedFilePrefix(graphId, fileId)}/pdf-preview/v1/scale-1.5`;
+}
+
 async function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket: string): Promise<StoredFile> {
     const client = getClient(bucket);
     const s3File = client.file(key);

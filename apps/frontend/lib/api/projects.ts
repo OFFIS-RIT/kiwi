@@ -217,5 +217,12 @@ export function getProjectFileUrl(projectId: string, fileId: string, options: { 
         return url;
     }
 
-    return `${url}?page=${page}#page=${page}`;
+    return `${url}#page=${page}`;
+}
+
+export function getApiAssetUrl(path: string): string {
+    const normalizedBase = API_BASE_URL.replace(/\/+$/u, "");
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+    return `${normalizedBase}${normalizedPath}`;
 }

@@ -19,6 +19,8 @@ import { chunk } from "../lib/array";
 import { contentDispositionForFile, escapeHeaderValue, parseByteRange } from "../lib/file-proxy";
 import { collectGraphClosure } from "../lib/graph";
 import { listAccessibleGraphs } from "../lib/graph-list";
+import { getOrRenderPDFPreviewPage } from "../lib/pdf-preview-cache";
+import { buildTextUnitPreview, parsePageImageParam } from "../lib/text-unit-preview";
 import { mapUnitError } from "../lib/unit";
 import { cancelActiveFileProcessingWorkflowRuns, cancelActiveGraphWorkflowRuns } from "../lib/workflow-cancellation";
 import {
@@ -43,11 +45,89 @@ import {
     type GraphFileRow,
     type UploadedFile,
 } from "../lib/graph-route";
-import type { GraphDetailFileRecord } from "../types/routes";
+import type { GraphDetailFileRecord, TextUnitRecord } from "../types/routes";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { ow } from "../openworkflow";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
+
+type TextUnitWithFile = {
+    id: string;
+    project_file_id: string;
+    text: string;
+    start_page: number | null;
+    end_page: number | null;
+    file_name: string;
+    file_type: string;
+    mime_type: string;
+    file_key: string;
+    created_at: Date | null;
+    updated_at: Date | null;
+};
+
+async function loadTextUnitWithFile(graphId: string, unitId: string): Promise<TextUnitWithFile | null> {
+    const [unit] = await db
+        .select({
+            id: textUnitTable.id,
+            project_file_id: textUnitTable.fileId,
+            text: textUnitTable.text,
+            start_page: textUnitTable.startPage,
+            end_page: textUnitTable.endPage,
+            file_name: filesTable.name,
+            file_type: filesTable.type,
+            mime_type: filesTable.mimeType,
+            file_key: filesTable.key,
+            created_at: textUnitTable.createdAt,
+            updated_at: textUnitTable.updatedAt,
+        })
+        .from(textUnitTable)
+        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+        .where(and(eq(textUnitTable.id, unitId), eq(filesTable.graphId, graphId), eq(filesTable.deleted, false)))
+        .limit(1);
+
+    return unit ?? null;
+}
+
+function toTextUnitRecord(graphId: string, unit: TextUnitWithFile): TextUnitRecord {
+    return {
+        id: unit.id,
+        project_file_id: unit.project_file_id,
+        text: unit.text,
+        start_page: unit.start_page,
+        end_page: unit.end_page,
+        file_name: unit.file_name,
+        file_type: unit.file_type,
+        mime_type: unit.mime_type,
+        preview: buildTextUnitPreview({
+            graphId,
+            unitId: unit.id,
+            fileType: unit.file_type,
+            startPage: unit.start_page,
+            endPage: unit.end_page,
+        }),
+        created_at: unit.created_at?.toISOString() ?? null,
+        updated_at: unit.updated_at?.toISOString() ?? null,
+    };
+}
+
+function isPageInsideUnitSpan(unit: Pick<TextUnitWithFile, "start_page" | "end_page">, page: number): boolean {
+    return unit.start_page !== null && unit.end_page !== null && page >= unit.start_page && page <= unit.end_page;
+}
+
+function pngResponse(content: Uint8Array): Response {
+    const body = new ArrayBuffer(content.byteLength);
+    new Uint8Array(body).set(content);
+
+    return new Response(body, {
+        status: 200,
+        headers: {
+            "Cache-Control": "private, max-age=86400",
+            "Content-Length": String(content.byteLength),
+            "Content-Type": "image/png",
+            "X-Content-Type-Options": "nosniff",
+        },
+    });
+}
 
 export const graphRoute = new Elysia({ prefix: "/graphs" })
     .use(authMiddleware)
@@ -196,9 +276,6 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 id: t.String(),
                 fileId: t.String(),
             }),
-            query: t.Object({
-                page: t.Optional(t.String()),
-            }),
             beforeHandle: requirePermissions({
                 graph: ["view"],
             }),
@@ -261,34 +338,13 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             const unitResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
 
-                const [unit] = await db
-                    .select({
-                        id: textUnitTable.id,
-                        project_file_id: textUnitTable.fileId,
-                        text: textUnitTable.text,
-                        start_page: textUnitTable.startPage,
-                        end_page: textUnitTable.endPage,
-                        created_at: textUnitTable.createdAt,
-                        updated_at: textUnitTable.updatedAt,
-                    })
-                    .from(textUnitTable)
-                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                    .where(and(eq(textUnitTable.id, params.unitId), eq(filesTable.graphId, params.id)))
-                    .limit(1);
+                const unit = await loadTextUnitWithFile(params.id, params.unitId);
 
                 if (!unit) {
                     throw new Error(API_ERROR_CODES.TEXT_UNIT_NOT_FOUND);
                 }
 
-                return {
-                    id: unit.id,
-                    project_file_id: unit.project_file_id,
-                    text: unit.text,
-                    start_page: unit.start_page,
-                    end_page: unit.end_page,
-                    created_at: unit.created_at?.toISOString() ?? null,
-                    updated_at: unit.updated_at?.toISOString() ?? null,
-                };
+                return toTextUnitRecord(params.id, unit);
             });
 
             if (unitResult.isErr()) {
@@ -301,6 +357,77 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             params: t.Object({
                 id: t.String(),
                 unitId: t.String(),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["view"],
+            }),
+        }
+    )
+    .get(
+        "/:id/units/:unitId/pages/:page",
+        async ({ params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const page = parsePageImageParam(params.page);
+            if (page === null) {
+                return status(404, errorResponse("Text unit not found", API_ERROR_CODES.TEXT_UNIT_NOT_FOUND));
+            }
+
+            const unitResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                return loadTextUnitWithFile(params.id, params.unitId);
+            });
+
+            if (unitResult.isErr()) {
+                return mapGraphError(status, unitResult.error);
+            }
+
+            const unit = unitResult.value;
+            if (!unit) {
+                return status(404, errorResponse("Text unit not found", API_ERROR_CODES.TEXT_UNIT_NOT_FOUND));
+            }
+            if (unit.file_type !== "pdf") {
+                return status(415, errorResponse("Unsupported file type", API_ERROR_CODES.UNSUPPORTED_FILE_TYPE));
+            }
+            if (!isPageInsideUnitSpan(unit, page)) {
+                return status(422, errorResponse("Invalid page range", API_ERROR_CODES.INVALID_PAGE_RANGE));
+            }
+
+            try {
+                const preview = await getOrRenderPDFPreviewPage({
+                    graphId: params.id,
+                    fileId: unit.project_file_id,
+                    fileKey: unit.file_key,
+                    page,
+                    bucket: env.S3_BUCKET,
+                });
+                if (preview.status === "source_missing") {
+                    return status(404, errorResponse("File not found", API_ERROR_CODES.INVALID_FILE_IDS));
+                }
+
+                return pngResponse(preview.content);
+            } catch (error) {
+                logError("failed to render PDF text unit preview", {
+                    graphId: params.id,
+                    unitId: params.unitId,
+                    fileId: unit.project_file_id,
+                    page,
+                    error,
+                });
+
+                return status(
+                    500,
+                    errorResponse("Failed to render PDF preview", API_ERROR_CODES.INTERNAL_SERVER_ERROR)
+                );
+            }
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+                unitId: t.String(),
+                page: t.String(),
             }),
             beforeHandle: requirePermissions({
                 graph: ["view"],

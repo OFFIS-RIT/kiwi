@@ -26,6 +26,7 @@
         "@kiwi/auth": "workspace:*",
         "@kiwi/db": "workspace:*",
         "@kiwi/files": "workspace:*",
+        "@kiwi/graph": "workspace:*",
         "@kiwi/logger": "workspace:*",
         "@kiwi/worker": "workspace:*",
         "@modelcontextprotocol/sdk": "catalog:",

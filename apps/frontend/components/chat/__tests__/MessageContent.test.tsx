@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/test-utils";
-import { downloadProjectFile, getProjectFileUrl } from "@/lib/api/projects";
+import { downloadProjectFile, fetchTextUnit, getApiAssetUrl, getProjectFileUrl } from "@/lib/api/projects";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { MessageContent } from "../MessageContent";
 
@@ -14,12 +14,17 @@ vi.mock("@/lib/api/projects", () => ({
         text: "Alpha evidence",
         start_page: 3,
         end_page: 4,
+        file_name: "document.pdf",
+        file_type: "doc",
+        mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        preview: { type: "none" },
         created_at: null,
         updated_at: null,
     })),
+    getApiAssetUrl: vi.fn((path: string) => `/api${path}`),
     getProjectFileUrl: vi.fn((projectId: string, fileId: string, options?: { page?: number | null }) => {
         const url = `/api/graphs/${projectId}/files/${fileId}`;
-        return options?.page ? `${url}?page=${options.page}#page=${options.page}` : url;
+        return options?.page ? `${url}#page=${options.page}` : url;
     }),
 }));
 
@@ -50,6 +55,8 @@ function renderMessageContent(parts: ChatUIMessage["parts"]) {
 describe("MessageContent", () => {
     beforeEach(() => {
         vi.mocked(downloadProjectFile).mockClear();
+        vi.mocked(fetchTextUnit).mockClear();
+        vi.mocked(getApiAssetUrl).mockClear();
         vi.mocked(getProjectFileUrl).mockClear();
     });
 
@@ -93,6 +100,42 @@ describe("MessageContent", () => {
         expect(screen.getByText("Alpha evidence")).toBeInTheDocument();
     });
 
+    test("renders PDF page previews in the inline citation dialog without extracted text", async () => {
+        vi.mocked(fetchTextUnit).mockResolvedValueOnce({
+            id: "unit-1",
+            project_file_id: "file-1",
+            text: "Alpha evidence",
+            start_page: 3,
+            end_page: 4,
+            file_name: "document.pdf",
+            file_type: "pdf",
+            mime_type: "application/pdf",
+            preview: {
+                type: "pdf_pages",
+                start_page: 3,
+                end_page: 4,
+                pages: [
+                    { page: 3, image_path: "/graphs/graph-1/units/unit-1/pages/3.png" },
+                    { page: 4, image_path: "/graphs/graph-1/units/unit-1/pages/4.png" },
+                ],
+            },
+            created_at: null,
+            updated_at: null,
+        });
+
+        renderMessageContent([{ type: "text", text: `Alpha ${citationFence("src-1")} Omega` }]);
+
+        await userEvent.click(screen.getByRole("button", { name: "1" }));
+
+        expect(await screen.findByRole("img", { name: "document.pdf page 3" })).toHaveAttribute(
+            "src",
+            "/api/graphs/graph-1/units/unit-1/pages/3.png"
+        );
+        expect(screen.getByRole("img", { name: "document.pdf page 4" })).toBeInTheDocument();
+        expect(screen.queryByText("Alpha evidence")).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument();
+    });
+
     test("opens end source file buttons through the file proxy for page-aware PDFs", async () => {
         const openMock = vi.spyOn(window, "open").mockImplementation(() => null);
         renderMessageContent([
@@ -110,7 +153,7 @@ describe("MessageContent", () => {
         await userEvent.click(screen.getByRole("button", { name: /document.pdf/i }));
 
         expect(getProjectFileUrl).toHaveBeenCalledWith("graph-1", "file-1", { page: 3 });
-        expect(openMock).toHaveBeenCalledWith("/api/graphs/graph-1/files/file-1?page=3#page=3", "_blank");
+        expect(openMock).toHaveBeenCalledWith("/api/graphs/graph-1/files/file-1#page=3", "_blank");
         expect(downloadProjectFile).not.toHaveBeenCalled();
     });
 
