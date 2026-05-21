@@ -25,6 +25,7 @@ export function GroupCard({ group, onSelect, onEdit }: GroupCardProps) {
             badgeIcon={Users}
             badgeText={t("group")}
             buttonText={t("open")}
+            prefetchHref={`/${group.id}`}
             onSelect={onSelect}
             onEdit={canEditGroup || canViewMembers ? onEdit : undefined}
         >

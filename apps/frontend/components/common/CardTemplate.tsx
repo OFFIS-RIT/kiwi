@@ -6,8 +6,9 @@ import { useId } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import { Edit } from "lucide-react";
 
@@ -21,6 +22,8 @@ type CardTemplateProps = {
     onEdit?: () => void;
     children?: React.ReactNode;
     disabled?: boolean;
+    prefetchHref?: string;
+    onPrefetchVisible?: () => void;
 };
 
 export function CardTemplate({
@@ -33,12 +36,18 @@ export function CardTemplate({
     onEdit,
     children,
     disabled = false,
+    prefetchHref,
+    onPrefetchVisible,
 }: CardTemplateProps) {
     const t = useAppTranslations();
     const titleId = useId();
+    const prefetchRef = usePrefetchWhenVisible<HTMLDivElement>(disabled ? undefined : prefetchHref, {
+        onVisible: disabled ? undefined : onPrefetchVisible,
+    });
 
     return (
         <Card
+            ref={prefetchRef}
             role="group"
             aria-labelledby={titleId}
             tabIndex={disabled ? undefined : 0}

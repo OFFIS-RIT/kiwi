@@ -4,6 +4,7 @@ import { chatTemplates } from "@/components/chat/chat-templates";
 import { ChatInput, type ChatInputHandle } from "@/components/chat/ChatInput";
 import { ChatTemplateSidebar } from "@/components/chat/ChatTemplateSidebar";
 import { ClarificationBlock } from "@/components/chat/ClarificationBlock";
+import { hydrateProjectChatSession, projectChatQueryKey } from "@/components/chat/project-chat-session-query";
 import { UserMessageText } from "@/components/chat/UserMessageText";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,8 +16,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
-import { deleteProjectChat, fetchProjectChat, fetchProjectChats } from "@/lib/api/projects";
-import type { KiwiApiClient } from "@/lib/api/client";
+import { deleteProjectChat } from "@/lib/api/projects";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
@@ -41,7 +41,7 @@ import {
 } from "lucide-react";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useLocale } from "next-intl";
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { MessageContent } from "./MessageContent";
 
@@ -57,11 +57,6 @@ type ProjectChatProps = {
     projectName: string;
     groupName: string;
     projectId: string;
-};
-
-type ChatSessionState = {
-    id: string;
-    messages: ChatUIMessage[];
 };
 
 type IntelligenceLevel = "default" | "high";
@@ -311,17 +306,6 @@ function stripMarkdown(text: string): string {
     return cleaned.trim();
 }
 
-const projectChatQueryKey = (projectId: string) => ["project-chat", projectId] as const;
-
-async function hydrateProjectChatSession(client: KiwiApiClient, projectId: string): Promise<ChatSessionState> {
-    const chats = await fetchProjectChats(client, projectId);
-    if (chats.length > 0) {
-        const latest = await fetchProjectChat(client, projectId, chats[0].id);
-        return { id: latest.id, messages: latest.messages };
-    }
-    return { id: uuidv4(), messages: [] };
-}
-
 export function ProjectChat({ projectName, groupName, projectId }: ProjectChatProps) {
     const queryClient = useQueryClient();
     const apiClient = useApiClient();
@@ -338,10 +322,10 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
         staleTime: Infinity,
     });
 
-    // Create the Chat instance lazily once hydration data is available. Once
-    // the entry exists the provider owns the lifecycle — we never recreate it
-    // unless an explicit reset happens below.
-    useEffect(() => {
+    // Create the Chat instance before paint once hydration data is available.
+    // With visible-project prefetching this avoids flashing the shell skeleton
+    // on normal internal project navigation.
+    useLayoutEffect(() => {
         if (entry || !hydrated) return;
         ensureEntry({
             sessionId: hydrated.id,
@@ -370,12 +354,8 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
         [apiClient, ensureEntry, projectId, queryClient, queryKey, resetEntry]
     );
 
-    // Render a skeleton with the same DOM structure while the provider is
-    // still setting up the Chat instance. This keeps the header, buttons and
-    // input area visually stable between the initial mount and the fully
-    // interactive Session view — only the message area fades in.
     if (!entry) {
-        return <ProjectChatShellSkeleton projectName={projectName} groupName={groupName} />;
+        return null;
     }
 
     return (
@@ -387,59 +367,6 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
             isHydrating={isHydrating}
             onReset={handleReset}
         />
-    );
-}
-
-function ProjectChatShellSkeleton({ projectName, groupName }: { projectName: string; groupName: string }) {
-    const t = useAppTranslations();
-    const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
-
-    return (
-        <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">
-            <div className="mb-4 min-w-0 shrink-0">
-                <div className="flex min-w-0 items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1 overflow-hidden">
-                        <h1 className="max-w-full truncate text-2xl font-bold" title={projectName}>
-                            {projectName}
-                        </h1>
-                        <p className="max-w-full truncate text-muted-foreground" title={groupDescription}>
-                            {groupDescription}
-                        </p>
-                    </div>
-
-                    <div className="flex shrink-0 items-end gap-2">
-                        <Button variant="outline" size="icon" disabled aria-label={t("reset.chat")} className="h-8 w-8">
-                            <RotateCcw className="h-4 w-4" />
-                        </Button>
-                        <Button variant="outline" disabled className="h-8 w-9 px-0" aria-label={t("chat.templates")}>
-                            <FileText className="h-4 w-4" />
-                        </Button>
-                    </div>
-                </div>
-            </div>
-
-            <div className="flex flex-1 overflow-hidden">
-                <Card className="flex min-w-0 flex-1 flex-col gap-0 overflow-hidden py-0">
-                    <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }} />
-                    <div className="border-t p-4">
-                        <div className="flex items-center gap-2">
-                            <textarea
-                                placeholder={t("ask.question")}
-                                value=""
-                                readOnly
-                                disabled
-                                className="flex-1 resize-none overflow-hidden border-input min-h-10 w-full min-w-0 rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
-                                rows={1}
-                            />
-                            <Button size="icon" disabled>
-                                <SendIcon className="h-4 w-4" />
-                                <span className="sr-only">{t("send.message")}</span>
-                            </Button>
-                        </div>
-                    </div>
-                </Card>
-            </div>
-        </div>
     );
 }
 

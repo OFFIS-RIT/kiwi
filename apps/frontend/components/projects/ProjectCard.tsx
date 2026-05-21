@@ -3,6 +3,7 @@
 import { CardTemplate } from "@/components/common/CardTemplate";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
 import { formatDuration } from "@/lib/utils";
 import { useAuth } from "@/providers/AuthProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
@@ -11,6 +12,7 @@ import { BookOpen, Calendar, Loader2 } from "lucide-react";
 
 type ProjectCardProps = {
     project: Project;
+    groupId: string;
     groupName: string;
     onSelect: () => void;
     onEdit: () => void;
@@ -36,8 +38,9 @@ function formatRemaining(parts: ReturnType<typeof formatDuration>, t: (key: stri
     return `${Math.max(1, parts.seconds)}${t("duration.second.short")}`;
 }
 
-export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCardProps) {
+export function ProjectCard({ project, groupId, groupName, onSelect, onEdit }: ProjectCardProps) {
     const t = useAppTranslations();
+    const prefetchProjectChat = usePrefetchProjectChat(project.id);
     const { hasPermission } = useAuth();
     const canEditProject = hasPermission("graph.update");
     const canViewFiles = hasPermission("graph.list:file");
@@ -56,6 +59,8 @@ export function ProjectCard({ project, groupName, onSelect, onEdit }: ProjectCar
             badgeIcon={BookOpen}
             badgeText={t("knowledge.project")}
             buttonText={t("open")}
+            prefetchHref={`/${groupId}/${project.id}`}
+            onPrefetchVisible={prefetchProjectChat}
             onSelect={onSelect}
             onEdit={canEditProject || canViewFiles ? onEdit : undefined}
         >

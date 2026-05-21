@@ -119,6 +119,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
                             processEstimatedDuration: project.processEstimatedDuration,
                             processTimeRemaining: project.processTimeRemaining,
                         }}
+                        groupId={group.id}
                         groupName={group.name}
                         onSelect={() => router.push(`/${group.id}/${project.id}`)}
                         onEdit={() => onEditProject?.(project, group.id)}
