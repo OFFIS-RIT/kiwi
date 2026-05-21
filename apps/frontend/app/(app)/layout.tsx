@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
@@ -9,7 +10,10 @@ import type { InitialClientSession } from "@/lib/auth/types";
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {
     const session = await getServerSession();
     if (!session) {
-        redirect("/login");
+        const headersList = await headers();
+        const url = headersList.get("x-invoke-path") ?? headersList.get("x-pathname") ?? "";
+        const next = url ? `?next=${encodeURIComponent(url)}` : "";
+        redirect(`/login${next}`);
     }
 
     const initialSession: InitialClientSession = {

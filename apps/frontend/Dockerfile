@@ -56,7 +56,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/.next/static ./apps/frontend/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/public ./apps/frontend/public
 
-RUN npm install --omit=dev sharp
+RUN npm install --omit=dev sharp@0.34.5
 
 USER nextjs
 EXPOSE 3000
