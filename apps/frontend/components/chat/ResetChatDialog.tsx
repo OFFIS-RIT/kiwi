@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { RotateCcw } from "lucide-react";
-import type React from "react";
 
 type ResetChatDialogProps = {
     open: boolean;
