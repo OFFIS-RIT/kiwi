@@ -1,14 +1,26 @@
 import { squashWhitespace } from "../ooxml/xml";
+import { renderPageFence } from "../../lib/page-fence";
 import type { DOCBlock } from "./types";
 import { clampHeadingLevel, cleanInlineText } from "./text";
 
-const IMAGE_FENCE_PATTERN = /^:::IMG-[^:]+:::$/;
+const MARKER_FENCE_PATTERN = /^:::(?:IMG-[^:]+|PAGE-\d+):::$/;
 
 export function renderMarkdown(blocks: DOCBlock[]): string {
+    if (!blocks.some((block) => block.kind !== "pageBreak")) {
+        return "";
+    }
+
     const builder = new MarkdownBuilder();
+    let currentPage = 1;
+
+    builder.append(renderPageFence(currentPage));
 
     for (const block of blocks) {
         switch (block.kind) {
+            case "pageBreak":
+                currentPage += 1;
+                builder.append(renderPageFence(currentPage));
+                break;
             case "heading":
                 builder.append(`${"#".repeat(clampHeadingLevel(block.level))} ${block.text}`);
                 break;
@@ -122,7 +134,7 @@ function cleanMarkdownLine(line: string): string {
         return "";
     }
 
-    if (IMAGE_FENCE_PATTERN.test(trimmed)) {
+    if (MARKER_FENCE_PATTERN.test(trimmed)) {
         return trimmed;
     }
 

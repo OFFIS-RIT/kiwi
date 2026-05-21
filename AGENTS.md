@@ -20,6 +20,7 @@
 
 Rules:
 
+- Always run tests from the repository root so workspace tooling, dotenv loading, and Turbo filters behave consistently.
 - Never run `bun run dev`; always assume a dev server is already running.
 - Never run `bun run db:migrate`.
 - Never hand-create migration files first; run `bun run db:generate --custom` before editing a custom migration.

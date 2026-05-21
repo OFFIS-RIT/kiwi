@@ -23,7 +23,7 @@ describe("extractFullOCRTextFromPDF", () => {
             transcribePage,
         });
 
-        expect(text).toBe("# Page 1\nAlpha\n\n## Page 2\nBeta");
+        expect(text).toBe(":::PAGE-1:::\n\n# Page 1\nAlpha\n\n:::PAGE-2:::\n\n## Page 2\nBeta");
         expect(rasterizePages).toHaveBeenCalledTimes(1);
         expect(transcribePage).toHaveBeenCalledTimes(3);
     });

@@ -26,6 +26,7 @@ const PLAIN_INLINE_FORMAT = { bold: false, italic: false, strike: false, underli
 type InlineSink = {
     onText: (text: string) => void;
     onImage: (id: string) => void;
+    onPageBreak: () => void;
 };
 
 export function parseDOCX(content: ArrayBuffer, ocr: boolean): Promise<ParsedDOC> {
@@ -99,6 +100,10 @@ async function parseParagraph(paragraph: XMLNodeLike, context: DOCParseContext):
     const blocks: DOCBlock[] = [];
     let textParts: string[] = [];
 
+    if (hasPageBreakBefore(properties)) {
+        blocks.push({ kind: "pageBreak" });
+    }
+
     const flushText = () => {
         const text = cleanInlineText(textParts.join(""));
         textParts = [];
@@ -124,6 +129,10 @@ async function parseParagraph(paragraph: XMLNodeLike, context: DOCParseContext):
         onImage: (id) => {
             flushText();
             blocks.push({ kind: "image", id });
+        },
+        onPageBreak: () => {
+            flushText();
+            blocks.push({ kind: "pageBreak" });
         },
     });
 
@@ -169,6 +178,7 @@ async function extractTableCellText(cell: XMLNodeLike, context: DOCParseContext)
         await collectParagraphContent(node, textOnlyContext, {
             onText: (text) => textParts.push(text),
             onImage: () => undefined,
+            onPageBreak: () => undefined,
         });
 
         const text = cleanInlineText(textParts.join(""));
@@ -257,6 +267,16 @@ async function parseRun(
                 break;
             }
             case "br":
+                if (getAttribute(child, "w:type", "type") === "page") {
+                    sink.onPageBreak();
+                    break;
+                }
+
+                sink.onText("\n");
+                break;
+            case "lastRenderedPageBreak":
+                sink.onPageBreak();
+                break;
             case "cr":
                 sink.onText("\n");
                 break;
@@ -283,6 +303,10 @@ async function parseRun(
                 break;
         }
     }
+}
+
+function hasPageBreakBefore(properties: XMLNodeLike | null): boolean {
+    return properties ? findFirstChild(properties, "pageBreakBefore") !== null : false;
 }
 
 function getRunFormat(run: XMLNodeLike): typeof PLAIN_INLINE_FORMAT {

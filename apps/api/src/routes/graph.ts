@@ -10,12 +10,13 @@ import {
     processRunsTable,
     textUnitTable,
 } from "@kiwi/db/tables/graph";
-import { deleteFile, getPresignedDownloadUrl, listFiles, putFile } from "@kiwi/files";
+import { deleteFile, getFileMetadata, getFileStream, getPresignedDownloadUrl, listFiles, putFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { deleteGraphFilesSpec } from "@kiwi/worker/delete-graph-files-spec";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
 import { env } from "../env";
 import { chunk } from "../lib/array";
+import { contentDispositionForFile, escapeHeaderValue, parseByteRange } from "../lib/file-proxy";
 import { collectGraphClosure } from "../lib/graph";
 import { listAccessibleGraphs } from "../lib/graph-list";
 import { mapUnitError } from "../lib/unit";
@@ -105,6 +106,104 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }),
         }
     )
+    .get(
+        "/:id/files/:fileId",
+        async ({ params, request, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const fileResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+
+                const [file] = await db
+                    .select({
+                        id: filesTable.id,
+                        key: filesTable.key,
+                        name: filesTable.name,
+                        type: filesTable.type,
+                        mimeType: filesTable.mimeType,
+                    })
+                    .from(filesTable)
+                    .where(
+                        and(
+                            eq(filesTable.graphId, params.id),
+                            eq(filesTable.id, params.fileId),
+                            eq(filesTable.deleted, false)
+                        )
+                    )
+                    .limit(1);
+
+                return file ?? null;
+            });
+
+            if (fileResult.isErr()) {
+                return mapGraphError(status, fileResult.error);
+            }
+
+            const file = fileResult.value;
+            if (!file) {
+                return status(404, errorResponse("File not found", API_ERROR_CODES.INVALID_FILE_IDS));
+            }
+
+            const metadata = await getFileMetadata(file.key, env.S3_BUCKET);
+            if (!metadata) {
+                return status(404, errorResponse("File not found", API_ERROR_CODES.INVALID_FILE_IDS));
+            }
+
+            const range = parseByteRange(request.headers.get("range"), metadata.size);
+            if (range === "invalid") {
+                return new Response(null, {
+                    status: 416,
+                    headers: {
+                        "Accept-Ranges": "bytes",
+                        "Content-Range": `bytes */${metadata.size}`,
+                    },
+                });
+            }
+
+            const stream = await getFileStream(file.key, env.S3_BUCKET, range ?? undefined);
+            if (!stream) {
+                return status(404, errorResponse("File not found", API_ERROR_CODES.INVALID_FILE_IDS));
+            }
+
+            const contentType = file.mimeType || metadata.type || "application/octet-stream";
+            const disposition = contentDispositionForFile(file.name, contentType);
+            const headers = new Headers({
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "private, no-store",
+                "Content-Disposition": `${disposition}; filename="${escapeHeaderValue(file.name)}"`,
+                "Content-Length": String(range ? range.end - range.start + 1 : metadata.size),
+                "Content-Type": contentType,
+                "X-Content-Type-Options": "nosniff",
+            });
+
+            if (metadata.lastModified) {
+                headers.set("Last-Modified", metadata.lastModified.toUTCString());
+            }
+
+            if (range) {
+                headers.set("Content-Range", `bytes ${range.start}-${range.end}/${metadata.size}`);
+            }
+
+            return new Response(stream.content, {
+                status: range ? 206 : 200,
+                headers,
+            });
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+                fileId: t.String(),
+            }),
+            query: t.Object({
+                page: t.Optional(t.String()),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["view"],
+            }),
+        }
+    )
     .post(
         "/:id/file",
         async ({ body, params, user, status }) => {
@@ -167,6 +266,8 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         id: textUnitTable.id,
                         project_file_id: textUnitTable.fileId,
                         text: textUnitTable.text,
+                        start_page: textUnitTable.startPage,
+                        end_page: textUnitTable.endPage,
                         created_at: textUnitTable.createdAt,
                         updated_at: textUnitTable.updatedAt,
                     })
@@ -183,6 +284,8 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     id: unit.id,
                     project_file_id: unit.project_file_id,
                     text: unit.text,
+                    start_page: unit.start_page,
+                    end_page: unit.end_page,
                     created_at: unit.created_at?.toISOString() ?? null,
                     updated_at: unit.updated_at?.toISOString() ?? null,
                 };

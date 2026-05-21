@@ -846,6 +846,7 @@ describe("PDFLoader", () => {
     test("returns plain text without image fences", async () => {
         const fixture = await buildLineTableFixture();
 
+        expect(fixture.plain).toMatch(/^:::PAGE-1:::$/m);
         expect(fixture.plain).toContain("Main Title");
         expect(fixture.plain).toContain("Alpha Omega");
         expect(fixture.plain).toContain("Name");
@@ -856,6 +857,7 @@ describe("PDFLoader", () => {
     test("returns hybrid markdown with headings tables and persisted image tags", async () => {
         const fixture = await buildLineTableFixture();
 
+        expect(fixture.hybrid).toMatch(/^:::PAGE-1:::$/m);
         expect(fixture.hybrid).toMatch(/^# Main Title$/m);
         expect(fixture.hybrid).toContain(
             '<image id="img-1" key="graphs/graph-1/derived/file-1/images/img-1.png">PDF figure summary</image>'
@@ -895,7 +897,7 @@ describe("PDFLoader", () => {
             storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
         }).getText();
 
-        expect(text).toBe("# OCR fallback\nReadable page text");
+        expect(text).toBe(":::PAGE-1:::\n\n# OCR fallback\nReadable page text");
         expect(generateTextMock).toHaveBeenCalledTimes(1);
         expect(generateTextMock.mock.calls[0]?.[0]).toMatchObject({ system: transcribePrompt });
         expect(putNamedFileMock).not.toHaveBeenCalled();
@@ -1207,7 +1209,7 @@ describe("PDFLoader", () => {
             model: {} as never,
         }).getText();
 
-        expect(text).toBe("# Page 1\nAlpha\n\n## Page 2\n<image>Diagram</image>");
+        expect(text).toBe(":::PAGE-1:::\n\n# Page 1\nAlpha\n\n:::PAGE-2:::\n\n## Page 2\n<image>Diagram</image>");
         expect(pdfToImgMock).toHaveBeenCalledTimes(1);
         expect(generateTextMock).toHaveBeenCalledTimes(2);
         expect(putNamedFileMock).not.toHaveBeenCalled();

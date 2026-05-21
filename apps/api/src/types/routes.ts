@@ -108,6 +108,8 @@ export type TextUnitRecord = {
     id: string;
     project_file_id: string;
     text: string;
+    start_page: number | null;
+    end_page: number | null;
     created_at: string | null;
     updated_at: string | null;
 };

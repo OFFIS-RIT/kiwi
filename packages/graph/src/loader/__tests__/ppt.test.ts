@@ -120,6 +120,7 @@ describe("PPTXLoader", () => {
     test("returns markdown slide content without image fences in plain mode", async () => {
         const fixture = await buildFixture();
 
+        expect(fixture.plain).toMatch(/^:::PAGE-1:::$/m);
         expect(fixture.plain).toMatch(/^# PPT Loader Title$/m);
         expect(fixture.plain).toContain("Alpha before image.");
         expect(fixture.plain).toMatch(/^- First bullet$/m);
@@ -154,6 +155,8 @@ describe("PPTXLoader", () => {
             })
         );
 
+        expect(text).toMatch(/^:::PAGE-1:::$/m);
+        expect(text).toMatch(/^:::PAGE-2:::$/m);
         expect(text.indexOf("# First in deck")).toBeLessThan(text.indexOf("# Second in deck"));
     });
 
@@ -194,7 +197,7 @@ ${shapeXml("Intro paragraph")}
             })
         );
 
-        expect(text).toBe("# Alpha Beta Gamma Delta");
+        expect(text).toBe(":::PAGE-1:::\n\n# Alpha Beta Gamma Delta");
     });
 
     test("extracts multiple slide OCR images with stable ids", async () => {

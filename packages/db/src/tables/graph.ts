@@ -190,12 +190,20 @@ export const textUnitTable = pgTable.withRLS(
             .notNull()
             .references(() => filesTable.id, { onDelete: "cascade" }),
         text: text("text").notNull(),
+        startPage: integer("start_page"),
+        endPage: integer("end_page"),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
         updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
             .defaultNow()
             .$onUpdate(() => sql`NOW()`),
     },
-    (table) => [index("text_units_file_idx").on(table.fileId)]
+    (table) => [
+        check(
+            "text_units_page_span_check",
+            sql`((${table.startPage} IS NULL AND ${table.endPage} IS NULL) OR (${table.startPage} IS NOT NULL AND ${table.endPage} IS NOT NULL AND ${table.startPage} >= 1 AND ${table.endPage} >= ${table.startPage}))`
+        ),
+        index("text_units_file_idx").on(table.fileId),
+    ]
 );
 
 export const entityTable = pgTable.withRLS(

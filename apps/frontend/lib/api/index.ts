@@ -49,6 +49,7 @@ export {
     fetchProjectDetail,
     fetchProjectFiles,
     fetchTextUnit,
+    getProjectFileUrl,
     updateProject,
 } from "./projects";
 

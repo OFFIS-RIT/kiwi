@@ -10,6 +10,7 @@ import { transcribePrompt } from "@kiwi/ai/prompts/transcribe.prompt";
 import { generateText } from "ai";
 import { pdf } from "pdf-to-img";
 import { DEFAULT_RASTER_SCALE, PNG_MIME_TYPE } from "./constants";
+import { renderPageFence } from "../../lib/page-fence";
 import type { FullOCRDeps, PDFDocumentLike, PDFPageLike } from "./types";
 
 const require = createRequire(import.meta.url);
@@ -31,7 +32,10 @@ export async function extractFullOCRTextFromPDF(
     const transcribePage = deps.transcribePage ?? defaultTranscribePage;
     const pageImages = await rasterizePages(new Uint8Array(content));
     const pageTexts = await Promise.all(
-        pageImages.map(async (pageImage) => (await transcribePage(pageImage, model)).trim())
+        pageImages.map(async (pageImage, index) => {
+            const pageText = (await transcribePage(pageImage, model)).trim();
+            return pageText ? `${renderPageFence(index + 1)}\n\n${pageText}` : "";
+        })
     );
 
     return pageTexts.filter((pageText) => pageText.length > 0).join("\n\n");

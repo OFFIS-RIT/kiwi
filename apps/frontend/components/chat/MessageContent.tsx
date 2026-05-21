@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { downloadProjectFile } from "@/lib/api/projects";
+import { downloadProjectFile, getProjectFileUrl } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
@@ -35,6 +35,10 @@ function isToolPart(part: ChatMessagePart): part is ToolPart {
 
 function toolNameOf(part: ToolPart): string {
     return part.type.startsWith("tool-") ? part.type.slice("tool-".length) : part.type;
+}
+
+function isPDFCitation(citation: ResolvedCitationFence): boolean {
+    return citation.fileType === "pdf" || citation.fileName.toLowerCase().endsWith(".pdf");
 }
 
 function ToolCallChip({ part }: { part: ToolPart }) {
@@ -211,11 +215,17 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
         return React.Children.map(children, processNode);
     };
 
-    const handleFileDownload = async (fileKey: string) => {
+    const handleFileDownload = async (citation: ResolvedCitationFence) => {
         if (!projectId) return;
 
+        if (citation.fileId) {
+            const page = isPDFCitation(citation) ? citation.startPage : null;
+            window.open(getProjectFileUrl(projectId, citation.fileId, { page }), "_blank");
+            return;
+        }
+
         try {
-            const downloadUrl = await downloadProjectFile(apiClient, projectId, fileKey);
+            const downloadUrl = await downloadProjectFile(apiClient, projectId, citation.fileKey);
             window.open(downloadUrl, "_blank");
         } catch (error) {
             console.error("Error opening file:", error);
@@ -356,7 +366,7 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
                                 variant="outline"
                                 size="sm"
                                 className="h-7 px-2 py-1 text-xs"
-                                onClick={() => handleFileDownload(citation.fileKey)}
+                                onClick={() => handleFileDownload(citation)}
                             >
                                 <FileText className="mr-1 h-3 w-3" />
                                 {citation.fileName}

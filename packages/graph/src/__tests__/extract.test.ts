@@ -11,6 +11,8 @@ describe("mergeGraphs", () => {
                     id: "unit-1",
                     fileId: "file-1",
                     content: "Alice works at Acme.",
+                    startPage: null,
+                    endPage: null,
                 },
             ],
             entities: [
@@ -66,6 +68,8 @@ describe("mergeGraphs", () => {
                     id: "unit-2",
                     fileId: "file-1",
                     content: "Acme employs Alice.",
+                    startPage: null,
+                    endPage: null,
                 },
             ],
             entities: [
@@ -144,6 +148,8 @@ describe("mergeGraphs", () => {
                     id: "unit-a",
                     fileId: "file-a",
                     content: "Alice founded Acme.",
+                    startPage: null,
+                    endPage: null,
                 },
             ],
             entities: [
@@ -199,6 +205,8 @@ describe("mergeGraphs", () => {
                     id: "unit-b",
                     fileId: "file-b",
                     content: "Acme hired Bob.",
+                    startPage: null,
+                    endPage: null,
                 },
             ],
             entities: [
@@ -254,6 +262,8 @@ describe("mergeGraphs", () => {
                     id: "unit-c",
                     fileId: "file-c",
                     content: "Bob partnered with Alice.",
+                    startPage: null,
+                    endPage: null,
                 },
             ],
             entities: [

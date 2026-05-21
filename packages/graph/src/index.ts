@@ -25,6 +25,8 @@ export type Unit = {
     id: string;
     fileId: string;
     content: string;
+    startPage: number | null;
+    endPage: number | null;
 };
 
 export type Graph = {

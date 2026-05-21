@@ -7,6 +7,19 @@ type StoredFile = {
     type: string;
 };
 
+export type StoredFileStream = {
+    content: ReadableStream<Uint8Array>;
+    size: number;
+    type: string;
+    lastModified: Date | null;
+};
+
+export type StoredFileMetadata = {
+    size: number;
+    type: string;
+    lastModified: Date | null;
+};
+
 const getClient = (bucket: string) => {
     return new S3Client({
         region: process.env.S3_REGION as string,
@@ -101,6 +114,48 @@ export async function getFile(
             return { type, content: bytes };
         }
     }
+}
+
+export async function getFileStream(
+    key: string,
+    bucket: string,
+    range?: { start: number; end: number }
+): Promise<StoredFileStream | null> {
+    const client = getClient(bucket);
+    const s3File = client.file(key);
+
+    const exists = await s3File.exists();
+    if (!exists) {
+        return null;
+    }
+
+    const stat = await s3File.stat();
+    const file = range ? s3File.slice(range.start, range.end + 1) : s3File;
+
+    return {
+        content: file.stream(),
+        size: stat.size,
+        type: s3File.type || getFileType(key),
+        lastModified: stat.lastModified ?? null,
+    };
+}
+
+export async function getFileMetadata(key: string, bucket: string): Promise<StoredFileMetadata | null> {
+    const client = getClient(bucket);
+    const s3File = client.file(key);
+
+    const exists = await s3File.exists();
+    if (!exists) {
+        return null;
+    }
+
+    const stat = await s3File.stat();
+
+    return {
+        size: stat.size,
+        type: s3File.type || getFileType(key),
+        lastModified: stat.lastModified ?? null,
+    };
 }
 
 export async function deleteFile(key: string, bucket: string) {

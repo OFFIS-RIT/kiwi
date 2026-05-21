@@ -261,8 +261,12 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
         .select({
             sourceId: sourcesTable.id,
             unitId: textUnitTable.id,
+            fileId: filesTable.id,
             fileName: filesTable.name,
             fileKey: filesTable.key,
+            fileType: filesTable.type,
+            startPage: textUnitTable.startPage,
+            endPage: textUnitTable.endPage,
         })
         .from(sourcesTable)
         .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
@@ -278,8 +282,12 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
         type: "cite",
         sourceId: row.sourceId,
         unitId: row.unitId,
+        fileId: row.fileId,
         fileName: row.fileName,
         fileKey: row.fileKey,
+        fileType: row.fileType,
+        startPage: row.startPage ?? undefined,
+        endPage: row.endPage ?? undefined,
     };
 }
 

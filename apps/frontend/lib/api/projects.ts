@@ -25,7 +25,7 @@ import type {
     TextUnitResponse,
 } from "@kiwi/api/types";
 import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
-import { unwrapApiResponse, type KiwiApiClient } from "./client";
+import { API_BASE_URL, unwrapApiResponse, type KiwiApiClient } from "./client";
 
 /**
  * Creates a new project within a group with optional file uploads.
@@ -207,4 +207,15 @@ export async function downloadProjectFile(
         file_key: fileKey,
     });
     return unwrapApiResponse(response).url;
+}
+
+export function getProjectFileUrl(projectId: string, fileId: string, options: { page?: number | null } = {}): string {
+    const url = `${API_BASE_URL}/graphs/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}`;
+    const page = options.page;
+
+    if (typeof page !== "number" || !Number.isInteger(page) || page < 1) {
+        return url;
+    }
+
+    return `${url}?page=${page}#page=${page}`;
 }
