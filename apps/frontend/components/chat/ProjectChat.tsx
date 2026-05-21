@@ -316,12 +316,13 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     const queryClient = useQueryClient();
     const apiClient = useApiClient();
     const { entry, ensureEntry, resetEntry } = useProjectChatSession(projectId);
+    const queryKey = projectChatQueryKey(projectId);
 
     // Hydrate once per project from the server and cache it in React Query so
     // switching back to a previously opened project is instant (cache hit) and
     // the stored Chat instance in the provider survives the trip.
     const { data: hydrated, isLoading: isHydrating } = useQuery({
-        queryKey: projectChatQueryKey(projectId),
+        queryKey,
         queryFn: () => hydrateProjectChatSession(apiClient, projectId),
         enabled: !entry,
         staleTime: Infinity,
@@ -346,11 +347,17 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
             } catch (error) {
                 console.error("Failed to delete conversation:", error);
             } finally {
+                const nextSession = { id: uuidv4(), messages: [] };
+                queryClient.setQueryData(queryKey, nextSession);
                 resetEntry();
-                await queryClient.invalidateQueries({ queryKey: projectChatQueryKey(projectId) });
+                ensureEntry({
+                    sessionId: nextSession.id,
+                    initialMessages: nextSession.messages,
+                    sendAutomaticallyWhen: shouldAutoContinue,
+                });
             }
         },
-        [apiClient, projectId, queryClient, resetEntry]
+        [apiClient, ensureEntry, projectId, queryClient, queryKey, resetEntry]
     );
 
     // Render a skeleton with the same DOM structure while the provider is
