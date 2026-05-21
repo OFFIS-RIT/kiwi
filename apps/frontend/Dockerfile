@@ -43,6 +43,8 @@ RUN bun run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
+ARG BUILD_LABEL=
+ENV BUILD_LABEL=${BUILD_LABEL}
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
