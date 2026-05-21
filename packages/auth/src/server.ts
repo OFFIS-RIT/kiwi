@@ -43,7 +43,8 @@ const ldapEnabled = Boolean(
 );
 const trustedOrigins = parseOriginList(process.env.TRUSTED_ORIGINS);
 const internalServiceOrigins = ["http://server:4321", "http://frontend:3000"];
-const allTrustedOrigins = [...trustedOrigins, ...internalServiceOrigins];
+const allTrustedOrigins =
+    trustedOrigins.length > 0 ? [...trustedOrigins, ...internalServiceOrigins] : undefined;
 const crossSubDomainCookiesEnabled = parseBooleanEnv(process.env.AUTH_CROSS_SUBDOMAIN_COOKIES);
 const crossSubDomainCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined;
 
