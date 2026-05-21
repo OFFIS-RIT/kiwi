@@ -1,5 +1,20 @@
 import { describe, expect, test } from "vitest";
-import { formatDuration } from "./utils";
+import { formatDuration, getSafeRedirectPath } from "./utils";
+
+describe("getSafeRedirectPath", () => {
+    test("allows local absolute paths", () => {
+        expect(getSafeRedirectPath("/projects?id=1")).toBe("/projects?id=1");
+    });
+
+    test("rejects protocol-relative and backslash paths", () => {
+        expect(getSafeRedirectPath("//evil.com")).toBe("/");
+        expect(getSafeRedirectPath("/\\evil.com")).toBe("/");
+    });
+
+    test("rejects full external URLs", () => {
+        expect(getSafeRedirectPath("https://evil.com")).toBe("/");
+    });
+});
 
 describe("formatDuration", () => {
     test("returns whole duration parts", () => {

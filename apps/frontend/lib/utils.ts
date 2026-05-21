@@ -13,6 +13,17 @@ export function formatBytes(bytes: number) {
     return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+export function getSafeRedirectPath(path?: string) {
+    if (!path || path.includes("\\")) return "/";
+
+    try {
+        const url = new URL(path, "http://localhost");
+        return url.origin === "http://localhost" && path.startsWith("/") ? path : "/";
+    } catch {
+        return "/";
+    }
+}
+
 /**
  * Splits a duration into whole day/hour/minute/second parts.
  */

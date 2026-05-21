@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { getSafeRedirectPath } from "@/lib/utils";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -49,11 +50,7 @@ export function LoginForm({ onSwitchToRegister, nextPath }: LoginFormProps) {
                 if (signInError) {
                     setError(signInError.message ?? t("auth.error.invalid.credentials"));
                 } else {
-                    const safeNext =
-                        nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")
-                            ? nextPath
-                            : "/";
-                    router.replace(safeNext);
+                    router.replace(getSafeRedirectPath(nextPath));
                     router.refresh();
                 }
             } else {
@@ -66,11 +63,7 @@ export function LoginForm({ onSwitchToRegister, nextPath }: LoginFormProps) {
                 if (signInError) {
                     setError(signInError.message ?? t("auth.error.invalid.credentials"));
                 } else {
-                    const safeNext =
-                        nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")
-                            ? nextPath
-                            : "/";
-                    router.replace(safeNext);
+                    router.replace(getSafeRedirectPath(nextPath));
                     router.refresh();
                 }
             }
