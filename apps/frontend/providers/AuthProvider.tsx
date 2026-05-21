@@ -81,7 +81,6 @@ export function AuthProvider({
         await authClient.signOut();
         queryClient.clear();
         router.replace("/login");
-        router.refresh();
     }, [authClient, queryClient, router]);
 
     const value = useMemo<AuthContextType>(
