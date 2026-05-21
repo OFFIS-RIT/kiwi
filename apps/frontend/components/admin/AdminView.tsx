@@ -1,7 +1,6 @@
 "use client";
 
 import { UserTable } from "@/components/admin/UserTable";
-import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { Button } from "@/components/ui/button";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
@@ -16,7 +15,7 @@ export function AdminView() {
     const [refreshKey, setRefreshKey] = useState(0);
 
     return (
-        <DashboardFrame>
+        <>
             <div className="h-full overflow-y-auto">
                 <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
                     <div className="flex items-center justify-between gap-3">
@@ -39,6 +38,6 @@ export function AdminView() {
                 onOpenChange={setShowCreateUser}
                 onCreated={() => setRefreshKey((key) => key + 1)}
             />
-        </DashboardFrame>
+        </>
     );
 }

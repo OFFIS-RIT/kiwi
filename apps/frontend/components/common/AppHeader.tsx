@@ -4,17 +4,13 @@ import { BreadcrumbNav, CreateActions, LanguageSwitcher, UserNav } from "@/compo
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
-type AppHeaderProps = {
-    ready?: boolean;
-};
-
-export function AppHeader({ ready = true }: AppHeaderProps) {
+export function AppHeader() {
     return (
         <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4">
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                 <SidebarTrigger className="-ml-1" />
                 <Separator orientation="vertical" className="mr-2 h-4 shrink-0" />
-                <BreadcrumbNav ready={ready} />
+                <BreadcrumbNav />
             </div>
             <div className="flex shrink-0 items-center gap-2">
                 <LanguageSwitcher />

@@ -111,18 +111,14 @@ export function LoginForm({ onSwitchToRegister, nextPath }: LoginFormProps) {
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
-                    className="h-4 w-4 rounded border-input accent-[var(--brand)]"
+                    className="h-4 w-4 rounded border-input accent-primary"
                 />
                 <Label htmlFor="rememberMe" className="cursor-pointer text-sm font-normal">
                     {t("auth.remember.me")}
                 </Label>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button
-                type="submit"
-                className="w-full bg-[var(--brand)] text-[var(--brand-foreground)] hover:bg-[var(--brand)]/90"
-                disabled={loading}
-            >
+            <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (
                     <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

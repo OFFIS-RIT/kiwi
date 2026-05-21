@@ -24,10 +24,9 @@ type DeletingProjectState = {
 
 type DashboardFrameProps = {
     children: ReactNode;
-    headerReady?: boolean;
 };
 
-export function DashboardFrame({ children, headerReady = true }: DashboardFrameProps) {
+export function DashboardFrame({ children }: DashboardFrameProps) {
     const router = useRouter();
     const [editProjectDialogOpen, setEditProjectDialogOpen] = useState(false);
     const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
@@ -64,7 +63,7 @@ export function DashboardFrame({ children, headerReady = true }: DashboardFrameP
                 onProjectCreated={(_projectId, groupId) => router.push(`/${groupId}`)}
             />
             <AppSidebarInset>
-                <AppHeader ready={headerReady} />
+                <AppHeader />
                 <div className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4">{children}</div>
             </AppSidebarInset>
 

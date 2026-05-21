@@ -1,10 +1,9 @@
 "use client";
 
 import { ProjectChat } from "@/components/chat";
-import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { useGroupsWithProjects } from "@/hooks/use-data";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 type ProjectViewProps = {
     groupId: string;
@@ -13,15 +12,8 @@ type ProjectViewProps = {
 
 export function ProjectView({ groupId, projectId }: ProjectViewProps) {
     const router = useRouter();
-    const { data: groups = [], isLoading, error } = useGroupsWithProjects();
-    const [headerReady, setHeaderReady] = useState(false);
+    const { data: groups = [], isLoading } = useGroupsWithProjects();
     const processingProjectIdsRef = useRef<Set<string>>(new Set());
-
-    useEffect(() => {
-        if (!isLoading && !error) {
-            requestAnimationFrame(() => setHeaderReady(true));
-        }
-    }, [isLoading, error]);
 
     useEffect(() => {
         const processingProjectIds = processingProjectIdsRef.current;
@@ -51,12 +43,10 @@ export function ProjectView({ groupId, projectId }: ProjectViewProps) {
     }, [group, isLoading, project, projectId, router]);
 
     return (
-        <DashboardFrame headerReady={headerReady}>
-            <div className="h-full min-w-0 overflow-hidden">
-                {group && project ? (
-                    <ProjectChat projectName={project.name} groupName={group.name} projectId={project.id} />
-                ) : null}
-            </div>
-        </DashboardFrame>
+        <div className="h-full min-w-0 overflow-hidden">
+            {group && project ? (
+                <ProjectChat projectName={project.name} groupName={group.name} projectId={project.id} />
+            ) : null}
+        </div>
     );
 }

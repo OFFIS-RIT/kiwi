@@ -70,6 +70,8 @@ export const queryKeys = {
     projectFiles: (projectId: string) => ["project-files", projectId] as const,
 };
 
+const GROUPS_WITH_PROJECTS_STALE_TIME_MS = 30 * 1000;
+
 /**
  * Fetches all groups with their associated projects, transforming API data to domain models.
  * Combines data from both groups and projects endpoints in parallel for efficiency.
@@ -82,6 +84,7 @@ export function useGroupsWithProjects() {
 
     return useQuery({
         queryKey: queryKeys.groupsWithProjects,
+        staleTime: GROUPS_WITH_PROJECTS_STALE_TIME_MS,
         refetchInterval: (query) => {
             const groups = query.state.data as Group[] | undefined;
             return hasActiveProcessing(groups) ? 5000 : false;
@@ -116,6 +119,7 @@ export function useGroupsWithProjectsSuspense() {
 
     return useSuspenseQuery({
         queryKey: queryKeys.groupsWithProjects,
+        staleTime: GROUPS_WITH_PROJECTS_STALE_TIME_MS,
         refetchInterval: (query) => {
             const groups = query.state.data as Group[] | undefined;
             return hasActiveProcessing(groups) ? 5000 : false;

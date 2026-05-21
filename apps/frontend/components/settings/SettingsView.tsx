@@ -3,7 +3,6 @@
 import { ApiKeyList } from "@/components/api-keys/ApiKeyList";
 import { ApiKeyRevealDialog } from "@/components/api-keys/ApiKeyRevealDialog";
 import { CreateApiKeyDialog } from "@/components/api-keys/CreateApiKeyDialog";
-import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { LanguageSwitcher } from "@/components/header/LanguageSwitcher";
 import { ThemeToggle } from "@/components/header/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -18,7 +17,7 @@ export function SettingsView() {
     const [refreshKey, setRefreshKey] = useState(0);
 
     return (
-        <DashboardFrame>
+        <>
             <div className="h-full overflow-y-auto">
                 <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
                     <div>
@@ -55,6 +54,6 @@ export function SettingsView() {
                 }}
             />
             <ApiKeyRevealDialog apiKey={createdKey} onOpenChange={(open) => !open && setCreatedKey(null)} />
-        </DashboardFrame>
+        </>
     );
 }

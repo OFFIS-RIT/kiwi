@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { AppShell } from "@/components/common/AppShell";
 import { getServerSession } from "@/lib/auth/get-server-session";
 import type { InitialClientSession } from "@/lib/auth/types";
@@ -21,5 +22,9 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
         },
     };
 
-    return <AppShell initialSession={initialSession}>{children}</AppShell>;
+    return (
+        <AppShell initialSession={initialSession}>
+            <DashboardFrame>{children}</DashboardFrame>
+        </AppShell>
+    );
 }

@@ -8,7 +8,7 @@ import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { ApiProjectFile, Project } from "@/types";
 import { useQueries } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ProjectCard } from "./ProjectCard";
 
 type ProjectListProps = {
@@ -22,13 +22,6 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     const t = useAppTranslations();
     const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
-    const [ready, setReady] = useState(false);
-
-    useEffect(() => {
-        if (!isLoading && !error) {
-            requestAnimationFrame(() => setReady(true));
-        }
-    }, [isLoading, error]);
 
     function parseApiTimestamp(input: unknown): Date | undefined {
         if (!input) return undefined;
@@ -104,7 +97,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     }
 
     return (
-        <div className={`space-y-6 transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}>
+        <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-bold">{group.name}</h1>
                 <p className="text-muted-foreground">{t("select.knowledge.project")}</p>
