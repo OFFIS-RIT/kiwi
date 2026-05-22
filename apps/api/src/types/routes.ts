@@ -64,6 +64,7 @@ export type GraphDetailFileRecord = GraphFileListItem;
 
 export type ApiBatchStepProgressLike = {
     waiting_worker?: string;
+    deleting?: string;
     pending?: string;
     preprocessing?: string;
     metadata?: string;

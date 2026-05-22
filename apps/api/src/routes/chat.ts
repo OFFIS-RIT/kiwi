@@ -167,6 +167,7 @@ export const chatRoute = new Elysia()
                     model: client.text!,
                     messages: uiMessagesToModelMessages(request.messages),
                     system: createChatSystemPrompt(prompt, {
+                        includeGraphTools: !deep,
                         includeClientTools: false,
                         includeSubagentTools: deep,
                     }),
@@ -313,7 +314,8 @@ export const chatRoute = new Elysia()
                     model: client.text!,
                     messages: uiMessagesToModelMessages(request.messages),
                     system: createChatSystemPrompt(prompt, {
-                        includeClientTools: true,
+                        includeGraphTools: !deep,
+                        includeClientTools: !deep,
                         includeSubagentTools: deep,
                     }),
                     tools,

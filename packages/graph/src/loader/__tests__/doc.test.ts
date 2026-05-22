@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import JSZip from "jszip";
 
 const generateTextMock = mock(async () => ({
     text: 'Embedded <diagram> & "caption"',
@@ -46,6 +47,59 @@ async function buildFixture(): Promise<{
     };
 }
 
+async function buildDOCXText(
+    entries: Record<string, string | Uint8Array>,
+    options: { ocr?: boolean } = {}
+): Promise<string> {
+    const zip = new JSZip();
+    for (const [path, content] of Object.entries(entries)) {
+        zip.file(path, content);
+    }
+
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    const loader = {
+        getText: async () => Buffer.from(bytes).toString(),
+        getBinary: async () => bytes.slice().buffer,
+    };
+
+    return new DOCXLoader({
+        loader,
+        ocr: options.ocr,
+        model: {} as never,
+        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
+    }).getText();
+}
+
+function buildDOCXEntries(options: {
+    body: string;
+    relationships?: string;
+    styles?: string;
+    numbering?: string;
+    contentTypes?: string;
+    extra?: Record<string, string | Uint8Array>;
+}): Record<string, string | Uint8Array> {
+    return {
+        "[Content_Types].xml":
+            options.contentTypes ??
+            `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
+</Types>`,
+        "word/document.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <w:body>${options.body}</w:body>
+</w:document>`,
+        "word/_rels/document.xml.rels":
+            options.relationships ??
+            `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`,
+        ...(options.styles ? { "word/styles.xml": options.styles } : {}),
+        ...(options.numbering ? { "word/numbering.xml": options.numbering } : {}),
+        ...(options.extra ?? {}),
+    };
+}
+
 describe("DOCXLoader", () => {
     beforeEach(() => {
         generateTextMock.mockClear();
@@ -78,5 +132,246 @@ describe("DOCXLoader", () => {
         expect(fixture.ocrText).toMatch(/\| Foo \| 42 \|/);
         expect(generateTextMock).toHaveBeenCalledTimes(1);
         expect(putNamedFileMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("handles missing document parts as empty text", async () => {
+        const text = await buildDOCXText({
+            "[Content_Types].xml": `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>`,
+        });
+
+        expect(text).toBe("");
+        expect(generateTextMock).not.toHaveBeenCalled();
+        expect(putNamedFileMock).not.toHaveBeenCalled();
+    });
+
+    test("plain mode does not parse OCR-only package parts", async () => {
+        const text = await buildDOCXText({
+            "[Content_Types].xml": "not valid xml",
+            "word/document.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <w:body>
+    <w:p><w:hyperlink r:id="rMissing"><w:r><w:rPr><w:b/><w:i/></w:rPr><w:t>Plain link</w:t></w:r></w:hyperlink></w:p>
+    <w:p><w:r><w:t>Plain image text</w:t></w:r><w:r><w:drawing><a:blip r:embed="rImage"/></w:drawing></w:r></w:p>
+  </w:body>
+</w:document>`,
+            "word/_rels/document.xml.rels": "not valid xml",
+        });
+
+        expect(text).toContain("Plain link");
+        expect(text).toContain("Plain image text");
+        expect(text).not.toContain("[Plain link]");
+        expect(text).not.toContain(":::IMG-");
+        expect(generateTextMock).not.toHaveBeenCalled();
+        expect(putNamedFileMock).not.toHaveBeenCalled();
+    });
+
+    test("renders styles, ordered lists, nested bullets, hyperlinks, and uneven tables", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                styles: `<?xml version="1.0"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="TitleStyle"><w:name w:val="Heading 2"/></w:style>
+</w:styles>`,
+                numbering: `<?xml version="1.0"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="1">
+    <w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/></w:lvl>
+    <w:lvl w:ilvl="1"><w:numFmt w:val="bullet"/></w:lvl>
+  </w:abstractNum>
+  <w:num w:numId="5"><w:abstractNumId w:val="1"/></w:num>
+</w:numbering>`,
+                relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rLink" Target="https://example.test/docs" TargetMode="External" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"/>
+</Relationships>`,
+                body: `
+<w:p><w:pPr><w:pStyle w:val="TitleStyle"/></w:pPr><w:r><w:t>Styled Heading</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="5"/></w:numPr></w:pPr><w:r><w:t>Ordered item</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="5"/></w:numPr></w:pPr><w:r><w:t>Nested bullet</w:t></w:r></w:p>
+<w:p><w:hyperlink r:id="rLink"><w:r><w:rPr><w:b/><w:i/><w:strike/><w:u/></w:rPr><w:t>Example link</w:t></w:r></w:hyperlink></w:p>
+<w:tbl>
+  <w:tr><w:tc><w:p><w:r><w:t>Name|Pipe</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Value</w:t></w:r></w:p></w:tc></w:tr>
+  <w:tr><w:tc><w:p><w:r><w:t>Only one cell</w:t></w:r></w:p></w:tc></w:tr>
+</w:tbl>`,
+            }),
+            { ocr: true }
+        );
+
+        expect(text).toMatch(/^## Styled Heading$/m);
+        expect(text).toMatch(/^1\. Ordered item$/m);
+        expect(text).toMatch(/^  - Nested bullet$/m);
+        expect(text).toContain("[~~***Example link***~~](https://example.test/docs)");
+        expect(text).toMatch(/\| Name\\\|Pipe \| Value \|/);
+        expect(text).toMatch(/\| Only one cell \|  \|/);
+    });
+
+    test("extracts wrapper text and normalizes tabs breaks and Word hyphen elements", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                body: `
+<w:p>
+  <w:sdt><w:sdtContent><w:r><w:t>Alpha</w:t></w:r></w:sdtContent></w:sdt>
+  <w:r><w:tab/></w:r>
+  <w:customXml><w:r><w:t>Beta</w:t></w:r></w:customXml>
+  <w:r><w:noBreakHyphen/></w:r>
+  <w:ins><w:r><w:t>Gamma</w:t></w:r></w:ins>
+  <w:r><w:br/></w:r>
+  <w:fldSimple><w:r><w:t>Delta</w:t></w:r></w:fldSimple>
+</w:p>`,
+            })
+        );
+
+        expect(text).toContain("Alpha Beta-Gamma");
+        expect(text).toContain("Delta");
+    });
+
+    test("normalizes repeated non-ASCII whitespace in DOCX text", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                body: `<w:p><w:r><w:t>Alpha\u00A0\u00A0Beta</w:t></w:r></w:p>`,
+            })
+        );
+
+        expect(text).toBe("Alpha Beta");
+    });
+
+    test("uses anchor hyperlinks when a DOCX hyperlink has no relationship target", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                body: `<w:p><w:hyperlink w:anchor="section-2"><w:r><w:t>Jump</w:t></w:r></w:hyperlink></w:p>`,
+            }),
+            { ocr: true }
+        );
+
+        expect(text).toBe("[Jump](#section-2)");
+    });
+
+    test("extracts multiple inline OCR images with stable ids and content types", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                contentTypes: `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="png" ContentType="image/png"/>
+  <Override PartName="/word/media/diagram.bin" ContentType="image/png"/>
+</Types>`,
+                relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rImage1" Target="media/one.png" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"/>
+  <Relationship Id="rImage2" Target="media/diagram.bin" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"/>
+</Relationships>`,
+                body: `
+<w:p><w:r><w:t>Before</w:t></w:r><w:r><w:drawing><a:blip r:embed="rImage1"/></w:drawing></w:r></w:p>
+<w:p><w:r><w:drawing><a:blip r:embed="rImage2"/></w:drawing></w:r><w:r><w:t>After</w:t></w:r></w:p>`,
+                extra: {
+                    "word/media/one.png": Uint8Array.of(1, 2, 3),
+                    "word/media/diagram.bin": Uint8Array.of(4, 5, 6),
+                },
+            }),
+            { ocr: true }
+        );
+
+        expect(text).toContain("Before");
+        expect(text).toContain("After");
+        expect(text).toContain('<image id="img-1" key="graphs/graph-1/derived/file-1/images/img-1.png">');
+        expect(text).toContain('<image id="img-2" key="graphs/graph-1/derived/file-1/images/img-2.png">');
+        expect(putNamedFileMock.mock.calls.map((call) => call[0])).toEqual(["img-1.png", "img-2.png"]);
+        expect(generateTextMock).toHaveBeenCalledTimes(2);
+    });
+
+    test("reuses one OCR asset for repeated DOCX image targets", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rImage" Target="media/logo.png" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"/>
+</Relationships>`,
+                body: `
+<w:p><w:r><w:t>First logo</w:t></w:r><w:r><w:drawing><a:blip r:embed="rImage"/></w:drawing></w:r></w:p>
+<w:p><w:r><w:t>Second logo</w:t></w:r><w:r><w:drawing><a:blip r:embed="rImage"/></w:drawing></w:r></w:p>`,
+                extra: {
+                    "word/media/logo.png": Uint8Array.of(1, 2, 3),
+                },
+            }),
+            { ocr: true }
+        );
+
+        expect(text).toContain("First logo");
+        expect(text).toContain("Second logo");
+        expect(text.match(/<image id="img-1"/g) ?? []).toHaveLength(2);
+        expect(putNamedFileMock).toHaveBeenCalledTimes(1);
+        expect(generateTextMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("handles large synthetic DOCX documents", async () => {
+        const paragraphCount = 1500;
+        const body = Array.from(
+            { length: paragraphCount },
+            (_, index) => `<w:p><w:r><w:t>Large paragraph ${index + 1}</w:t></w:r></w:p>`
+        ).join("");
+
+        const text = await buildDOCXText(buildDOCXEntries({ body }));
+
+        expect(text).toContain("Large paragraph 1");
+        expect(text).toContain(`Large paragraph ${paragraphCount}`);
+        expect(text.split("\n\n")).toHaveLength(paragraphCount);
+    });
+
+    test("ignores images inside DOCX tables instead of creating orphan OCR assets", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rImage" Target="media/inside.png" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"/>
+</Relationships>`,
+                body: `<w:tbl>
+  <w:tr><w:tc><w:p><w:r><w:t>Name</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Preview</w:t></w:r></w:p></w:tc></w:tr>
+  <w:tr><w:tc><w:p><w:r><w:t>Diagram</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:drawing><a:blip r:embed="rImage"/></w:drawing></w:r></w:p></w:tc></w:tr>
+</w:tbl>`,
+                extra: {
+                    "word/media/inside.png": Uint8Array.of(1, 2, 3),
+                },
+            }),
+            { ocr: true }
+        );
+
+        expect(text).toMatch(/\| Name \| Preview \|/);
+        expect(text).toMatch(/\| Diagram \|  \|/);
+        expect(text).not.toContain(":::IMG-");
+        expect(text).not.toContain("<image ");
+        expect(generateTextMock).not.toHaveBeenCalled();
+        expect(putNamedFileMock).not.toHaveBeenCalled();
+    });
+
+    test("ignores unsafe image relationships without leaving OCR fences", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rUnsafe" Target="../../evil.png" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"/>
+</Relationships>`,
+                body: `
+<w:p><w:r><w:t>Safe text</w:t></w:r></w:p>
+<w:p><w:r><w:drawing><a:blip r:embed="rUnsafe"/></w:drawing></w:r></w:p>`,
+                extra: {
+                    "evil.png": Uint8Array.of(1, 2, 3),
+                },
+            }),
+            { ocr: true }
+        );
+
+        expect(text).toContain("Safe text");
+        expect(text).not.toContain(":::IMG-");
+        expect(text).not.toContain("<image ");
+        expect(generateTextMock).not.toHaveBeenCalled();
+        expect(putNamedFileMock).not.toHaveBeenCalled();
+    });
+
+    test("propagates invalid DOCX zip errors", async () => {
+        const loader = {
+            getText: async () => "not a zip",
+            getBinary: async () => Uint8Array.from([1, 2, 3]).buffer,
+        };
+
+        await expect(new DOCXLoader({ loader }).getText()).rejects.toThrow();
     });
 });

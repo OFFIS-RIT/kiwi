@@ -1,5 +1,6 @@
 import {
     buildAdapter,
+    buildDeepResearchToolset,
     buildEmbeddingAdapter,
     buildMcpResearchToolset,
     buildServerAndClientToolset,
@@ -178,10 +179,7 @@ async function syncMessages(chatId: string, messages: ChatUIMessage[]) {
     }
 }
 
-export async function getGraphResearchRuntime(
-    graphId: string,
-    options: StartReplyOptions = { toolset: "server" }
-) {
+export async function getGraphResearchRuntime(graphId: string, options: StartReplyOptions = { toolset: "server" }) {
     const [promptRow] = await db
         .select({ prompt: systemPromptsTable.prompt })
         .from(systemPromptsTable)
@@ -220,14 +218,13 @@ export async function getGraphResearchRuntime(
     const toolsetOptions = { graphId, embeddingModel: client.embedding };
     const baseToolset = buildBaseToolset(toolsetOptions, options.toolset);
     const tools = options.deep
-        ? {
-              ...baseToolset,
-              ...buildSubagentToolset({
+        ? buildDeepResearchToolset(
+              buildSubagentToolset({
                   ...toolsetOptions,
                   model: client.subagent ?? client.text,
                   graphPrompt: promptRow?.prompt ?? undefined,
-              }),
-          }
+              })
+          )
         : baseToolset;
 
     return {

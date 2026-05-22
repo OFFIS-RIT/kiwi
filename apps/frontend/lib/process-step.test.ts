@@ -28,4 +28,37 @@ describe("determineProcessStep", () => {
             })
         ).toBe("generating_descriptions");
     });
+
+    test("maps zero-count describing progress to generating descriptions", () => {
+        expect(
+            determineProcessStep({
+                describing: "0/3",
+            })
+        ).toBe("generating_descriptions");
+    });
+
+    test("maps deleting progress to deleting files", () => {
+        expect(
+            determineProcessStep({
+                deleting: "1/2",
+            })
+        ).toBe("deleting_files");
+    });
+
+    test("maps zero-count deleting progress to deleting files", () => {
+        expect(
+            determineProcessStep({
+                deleting: "0/2",
+            })
+        ).toBe("deleting_files");
+    });
+
+    test("switches from completed deleting progress to descriptions", () => {
+        expect(
+            determineProcessStep({
+                deleting: "2/2",
+                describing: "1/3",
+            })
+        ).toBe("generating_descriptions");
+    });
 });

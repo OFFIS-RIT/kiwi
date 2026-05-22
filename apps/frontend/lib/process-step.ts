@@ -19,6 +19,7 @@ function parseTotal(value?: string): number {
  * Determines the current process step based on the step with the highest file count.
  * Steps are aggregated as follows:
  * - waiting_worker -> waiting_worker (process run has not been claimed)
+ * - deleting -> deleting_files
  * - pending -> queued (shown if no active processing steps)
  * - preprocessing + metadata + chunking -> processing_files
  * - extracting + deduplicating -> graph_creation
@@ -32,12 +33,17 @@ export function determineProcessStep(progress?: ApiBatchStepProgress): ProcessSt
     if (!progress) return undefined;
 
     const waitingWorkerCount = parseCount(progress.waiting_worker);
+    const deletingRawCount = parseCount(progress.deleting);
+    const deletingTotalCount = parseTotal(progress.deleting);
+    const deletingComplete = deletingTotalCount > 0 && deletingRawCount >= deletingTotalCount;
+    const deletingCount =
+        progress.deleting && (!deletingComplete || !progress.describing) ? Math.max(deletingRawCount, 1) : 0;
     const queuedCount = parseCount(progress.pending);
     const processingFilesCount =
         parseCount(progress.preprocessing) + parseCount(progress.metadata) + parseCount(progress.chunking);
     const graphCreationCount = parseCount(progress.extracting) + parseCount(progress.deduplicating);
     const savingCount = parseCount(progress.saving);
-    const describingCount = parseCount(progress.describing);
+    const describingCount = progress.describing ? Math.max(parseCount(progress.describing), 1) : 0;
     const failedCount = parseCount(progress.failed);
     const completedCount = parseCount(progress.completed);
     const totalCount = Object.values(progress).reduce((maxTotal, value) => Math.max(maxTotal, parseTotal(value)), 0);
@@ -48,6 +54,7 @@ export function determineProcessStep(progress?: ApiBatchStepProgress): ProcessSt
     }
 
     const activeStepCounts: { step: ProcessStep; count: number }[] = [
+        { step: "deleting_files", count: deletingCount },
         { step: "generating_descriptions", count: describingCount },
         { step: "saving", count: savingCount },
         { step: "graph_creation", count: graphCreationCount },
