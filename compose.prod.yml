@@ -144,6 +144,10 @@ services:
             AI_AUDIO_KEY: ${AI_AUDIO_KEY}
             AI_AUDIO_URL: ${AI_AUDIO_URL}
             AI_AUDIO_RESOURCE_NAME: ${AI_AUDIO_RESOURCE_NAME}
+            AI_TEXT_CONCURRENCY: ${AI_TEXT_CONCURRENCY:-}
+            AI_IMAGE_CONCURRENCY: ${AI_IMAGE_CONCURRENCY:-}
+            AI_EMBEDDING_CONCURRENCY: ${AI_EMBEDDING_CONCURRENCY:-}
+            AI_AUDIO_CONCURRENCY: ${AI_AUDIO_CONCURRENCY:-}
         depends_on:
             bouncer:
                 condition: service_healthy
