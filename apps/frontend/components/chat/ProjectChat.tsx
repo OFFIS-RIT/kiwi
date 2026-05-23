@@ -4,23 +4,30 @@ import { chatTemplates } from "@/components/chat/chat-templates";
 import { ChatInput, type ChatInputHandle } from "@/components/chat/ChatInput";
 import { ChatTemplateSidebar } from "@/components/chat/ChatTemplateSidebar";
 import { ClarificationBlock } from "@/components/chat/ClarificationBlock";
+import { hydrateProjectChatSession, projectChatQueryKey } from "@/components/chat/project-chat-session-query";
 import { UserMessageText } from "@/components/chat/UserMessageText";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
-import { deleteProjectChat, fetchProjectChat, fetchProjectChats } from "@/lib/api/projects";
-import { useAuth } from "@/providers/AuthProvider";
+import { deleteProjectChat } from "@/lib/api/projects";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { useChat } from "@ai-sdk/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UIMessage } from "ai";
 import {
     AlertCircle,
+    Brain,
     Check,
+    ChevronDown,
     Copy,
     FileText,
     Loader2,
@@ -32,7 +39,9 @@ import {
     VolumeX,
     X,
 } from "lucide-react";
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { useLocale } from "next-intl";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { MessageContent } from "./MessageContent";
 
@@ -50,10 +59,9 @@ type ProjectChatProps = {
     projectId: string;
 };
 
-type ChatSessionState = {
-    id: string;
-    messages: ChatUIMessage[];
-};
+type IntelligenceLevel = "default" | "high";
+
+const intelligenceLevels: IntelligenceLevel[] = ["default", "high"];
 
 type ClarificationState = {
     toolCallId: string;
@@ -298,35 +306,26 @@ function stripMarkdown(text: string): string {
     return cleaned.trim();
 }
 
-const projectChatQueryKey = (projectId: string) => ["project-chat", projectId] as const;
-
-async function hydrateProjectChatSession(projectId: string): Promise<ChatSessionState> {
-    const chats = await fetchProjectChats(projectId);
-    if (chats.length > 0) {
-        const latest = await fetchProjectChat(projectId, chats[0].id);
-        return { id: latest.id, messages: latest.messages };
-    }
-    return { id: uuidv4(), messages: [] };
-}
-
 export function ProjectChat({ projectName, groupName, projectId }: ProjectChatProps) {
     const queryClient = useQueryClient();
+    const apiClient = useApiClient();
     const { entry, ensureEntry, resetEntry } = useProjectChatSession(projectId);
+    const queryKey = projectChatQueryKey(projectId);
 
     // Hydrate once per project from the server and cache it in React Query so
     // switching back to a previously opened project is instant (cache hit) and
     // the stored Chat instance in the provider survives the trip.
     const { data: hydrated, isLoading: isHydrating } = useQuery({
-        queryKey: projectChatQueryKey(projectId),
-        queryFn: () => hydrateProjectChatSession(projectId),
+        queryKey,
+        queryFn: () => hydrateProjectChatSession(apiClient, projectId),
         enabled: !entry,
         staleTime: Infinity,
     });
 
-    // Create the Chat instance lazily once hydration data is available. Once
-    // the entry exists the provider owns the lifecycle — we never recreate it
-    // unless an explicit reset happens below.
-    useEffect(() => {
+    // Create the Chat instance before paint once hydration data is available.
+    // With visible-project prefetching this avoids flashing the shell skeleton
+    // on normal internal project navigation.
+    useLayoutEffect(() => {
         if (entry || !hydrated) return;
         ensureEntry({
             sessionId: hydrated.id,
@@ -338,23 +337,25 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     const handleReset = useCallback(
         async (chatId: string) => {
             try {
-                await deleteProjectChat(projectId, chatId);
+                await deleteProjectChat(apiClient, projectId, chatId);
             } catch (error) {
                 console.error("Failed to delete conversation:", error);
             } finally {
+                const nextSession = { id: uuidv4(), messages: [] };
+                queryClient.setQueryData(queryKey, nextSession);
                 resetEntry();
-                await queryClient.invalidateQueries({ queryKey: projectChatQueryKey(projectId) });
+                ensureEntry({
+                    sessionId: nextSession.id,
+                    initialMessages: nextSession.messages,
+                    sendAutomaticallyWhen: shouldAutoContinue,
+                });
             }
         },
-        [projectId, queryClient, resetEntry]
+        [apiClient, ensureEntry, projectId, queryClient, queryKey, resetEntry]
     );
 
-    // Render a skeleton with the same DOM structure while the provider is
-    // still setting up the Chat instance. This keeps the header, buttons and
-    // input area visually stable between the initial mount and the fully
-    // interactive Session view — only the message area fades in.
     if (!entry) {
-        return <ProjectChatShellSkeleton projectName={projectName} groupName={groupName} />;
+        return null;
     }
 
     return (
@@ -369,62 +370,8 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     );
 }
 
-function ProjectChatShellSkeleton({ projectName, groupName }: { projectName: string; groupName: string }) {
-    const { t } = useLanguage();
-    const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
-
-    return (
-        <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">
-            <div className="mb-4 min-w-0 shrink-0">
-                <div className="flex min-w-0 items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1 overflow-hidden">
-                        <h1 className="max-w-full truncate text-2xl font-bold" title={projectName}>
-                            {projectName}
-                        </h1>
-                        <p className="max-w-full truncate text-muted-foreground" title={groupDescription}>
-                            {groupDescription}
-                        </p>
-                    </div>
-
-                    <div className="flex shrink-0 items-end gap-2">
-                        <Button variant="outline" size="icon" disabled aria-label={t("reset.chat")} className="h-8 w-8">
-                            <RotateCcw className="h-4 w-4" />
-                        </Button>
-                        <Button variant="outline" disabled className="h-8 w-9 px-0" aria-label={t("chat.templates")}>
-                            <FileText className="h-4 w-4" />
-                        </Button>
-                    </div>
-                </div>
-            </div>
-
-            <div className="flex flex-1 overflow-hidden">
-                <Card className="flex min-w-0 flex-1 flex-col gap-0 overflow-hidden py-0">
-                    <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }} />
-                    <div className="border-t p-4">
-                        <div className="flex items-center gap-2">
-                            <textarea
-                                placeholder={t("ask.question")}
-                                value=""
-                                readOnly
-                                disabled
-                                className="flex-1 resize-none overflow-hidden border-input min-h-10 w-full min-w-0 rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
-                                rows={1}
-                            />
-                            <Button size="icon" disabled>
-                                <SendIcon className="h-4 w-4" />
-                                <span className="sr-only">{t("send.message")}</span>
-                            </Button>
-                        </div>
-                    </div>
-                </Card>
-            </div>
-        </div>
-    );
-}
-
 function ProjectChatSession({
     projectName,
-    groupName,
     projectId,
     entry,
     isHydrating,
@@ -434,19 +381,9 @@ function ProjectChatSession({
     isHydrating: boolean;
     onReset: (chatId: string) => Promise<void>;
 }) {
-    const { user } = useAuth();
-    const { t, language } = useLanguage();
-    const userInitials = user?.name
-        ? user.name
-              .split(" ")
-              .map((name) => name[0])
-              .join("")
-              .toUpperCase()
-              .slice(0, 2)
-        : "?";
-    const groupDescription = `${t("from.group")} ${groupName} ${t("group")}`;
+    const t = useAppTranslations();
+    const language = useLocale();
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const [chatReady, setChatReady] = useState(false);
     const inputRef = useRef<ChatInputHandle>(null);
     const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -467,7 +404,7 @@ function ProjectChatSession({
         stop: stopSpeaking,
     } = useSpeechSynthesis(language);
     const [inputValue, setInputValue] = useState("");
-    const [isDeepMode, setIsDeepMode] = useState(false);
+    const [intelligenceLevel, setIntelligenceLevel] = useState<IntelligenceLevel>("default");
 
     const { messages, sendMessage, status, addToolOutput } = useChat<ChatUIMessage>({
         chat: entry.chat,
@@ -478,6 +415,7 @@ function ProjectChatSession({
         const visible = messages.filter((message) => message.role !== "system");
         return stripPhantomPrefix(visible);
     }, [messages]);
+    const isEmptyChat = !isHydrating && displayedMessages.length === 0;
     const pendingClarification = useMemo(
         () =>
             displayedMessages
@@ -500,20 +438,14 @@ function ProjectChatSession({
         stopSpeaking();
     }, [stopSpeaking, entry.sessionId]);
 
-    // Each time a different chat is opened (i.e. `entry.sessionId` changes),
-    // jump to the bottom without animation and re-run the fade-in. The smooth
-    // scroll below only takes over for later updates inside the same session.
+    // Each time a different chat is opened, jump to the bottom without animation.
     useEffect(() => {
-        setChatReady(false);
         messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
-        const raf = requestAnimationFrame(() => setChatReady(true));
-        return () => cancelAnimationFrame(raf);
     }, [entry.sessionId]);
 
     useEffect(() => {
-        if (!chatReady) return;
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [displayedMessages, status, chatReady]);
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+    }, [displayedMessages, status]);
 
     useEffect(() => {
         if (status === "ready") {
@@ -630,8 +562,8 @@ function ProjectChatSession({
         // reset after the await leaves the original text visible for the whole
         // response.
         setInputValue("");
-        await sendMessage({ text }, { body: { deep: isDeepMode } });
-    }, [inputValue, isDeepMode, isRecording, pendingClarification, sendMessage, setStreamError]);
+        await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
+    }, [inputValue, intelligenceLevel, isRecording, pendingClarification, sendMessage, setStreamError]);
 
     const handleClarificationSubmit = useCallback(
         (toolCallId: string, questions: string[], answer: string) => {
@@ -682,66 +614,119 @@ function ProjectChatSession({
         inputRef.current?.focus();
     }, []);
 
-    return (
-        <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">
-            <div className="mb-4 min-w-0 shrink-0">
-                <div className="flex min-w-0 items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1 overflow-hidden">
-                        <h1 className="max-w-full truncate text-2xl font-bold" title={projectName}>
-                            {projectName}
-                        </h1>
-                        <p className="max-w-full truncate text-muted-foreground" title={groupDescription}>
-                            {groupDescription}
-                        </p>
-                    </div>
+    const inputControls = (
+        <div className="flex flex-col gap-2">
+            <ChatInput
+                ref={inputRef}
+                value={inputValue}
+                onChange={setInputValue}
+                onSubmit={() => void handleSendMessage()}
+                disabled={isRecording || !!pendingClarification}
+                placeholder={t("ask.question")}
+                projectId={projectId}
+                interimTranscript={isRecording ? interimTranscript : undefined}
+                editorClassName={
+                    isEmptyChat
+                        ? "min-h-[calc(2lh+2rem)] rounded-xl border-0 bg-transparent px-4 py-4 shadow-none focus-visible:ring-0"
+                        : "min-h-[calc(2lh+1rem)] rounded-xl border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0"
+                }
+            />
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setIsResetDialogOpen(true)}
+                        disabled={isAssistantTyping || displayedMessages.length === 0}
+                        aria-label={t("reset.chat")}
+                        className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                    >
+                        <RotateCcw className="h-4 w-4" />
+                    </Button>
 
-                    <div className="flex shrink-0 items-center gap-3">
-                        <label
-                            htmlFor="deep-mode-switch"
-                            className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground"
-                        >
-                            <Switch id="deep-mode-switch" checked={isDeepMode} onCheckedChange={setIsDeepMode} />
-                            {t("deep.mode")}
-                        </label>
+                    <Button
+                        variant={isTemplateSidebarOpen ? "secondary" : "ghost"}
+                        size="icon"
+                        onClick={() => setIsTemplateSidebarOpen((previous) => !previous)}
+                        aria-pressed={isTemplateSidebarOpen}
+                        className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                        aria-label={t("chat.templates")}
+                    >
+                        <FileText className="h-4 w-4" />
+                    </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                         <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setIsResetDialogOpen(true)}
-                            disabled={isAssistantTyping || displayedMessages.length === 0}
-                            aria-label={t("reset.chat")}
-                            className="h-8 w-8"
+                            type="button"
+                            variant="ghost"
+                            disabled={isAssistantTyping}
+                            aria-label={t("deep.mode")}
+                            className="h-9 shrink-0 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
                         >
-                            <RotateCcw className="h-4 w-4" />
+                            <Brain className="h-4 w-4" />
+                            <span className="text-sm">{t(`deep.mode.${intelligenceLevel}`)}</span>
+                            <ChevronDown className="h-3.5 w-3.5" />
                         </Button>
-
-                        <Button
-                            variant={isTemplateSidebarOpen ? "default" : "outline"}
-                            onClick={() => setIsTemplateSidebarOpen((previous) => !previous)}
-                            aria-pressed={isTemplateSidebarOpen}
-                            className="h-8 w-9 px-0"
-                            aria-label={t("chat.templates")}
-                        >
-                            <FileText className="h-4 w-4" />
-                        </Button>
-                    </div>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" side="top" sideOffset={8} className="w-44 rounded-xl p-1.5">
+                        <DropdownMenuLabel className="px-2.5 py-1.5 text-sm font-normal text-muted-foreground">
+                            {t("deep.mode.intelligence")}
+                        </DropdownMenuLabel>
+                        {intelligenceLevels.map((level) => (
+                            <DropdownMenuItem
+                                key={level}
+                                onClick={() => setIntelligenceLevel(level)}
+                                className="min-h-9 rounded-lg px-2.5 text-sm"
+                            >
+                                <span>{t(`deep.mode.${level}`)}</span>
+                                {intelligenceLevel === level && <Check className="ml-auto h-4 w-4" />}
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+                {speechSupported && (
+                    <Button
+                        size="icon"
+                        variant={isRecording ? "destructive" : "outline"}
+                        onClick={toggleRecording}
+                        aria-label={isRecording ? t("stop.recording") : t("start.recording")}
+                        disabled={!!pendingClarification}
+                        className={isEmptyChat ? "h-10 w-10 shrink-0" : undefined}
+                    >
+                        {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    </Button>
+                )}
+                <Button
+                    size="icon"
+                    onClick={() => void handleSendMessage()}
+                    disabled={!inputValue.trim() || isAssistantTyping || isRecording || !!pendingClarification}
+                    className={isEmptyChat ? "h-10 w-10 shrink-0" : undefined}
+                >
+                    <SendIcon className="h-4 w-4" />
+                    <span className="sr-only">{t("send.message")}</span>
+                </Button>
                 </div>
             </div>
+        </div>
+    );
 
+    return (
+        <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">
             <div className={`flex flex-1 overflow-hidden ${isTemplateSidebarOpen ? "lg:gap-4" : ""}`}>
-                <Card className="flex min-w-0 flex-1 flex-col gap-0 overflow-hidden py-0">
+                <Card
+                    className="flex min-w-0 flex-1 flex-col gap-0 overflow-hidden border-0 bg-transparent py-0 shadow-none"
+                >
                     <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-                        <div
-                            className={`space-y-4 p-4 transition-opacity duration-300 ${chatReady ? "opacity-100" : "opacity-0"}`}
-                        >
-                            {!isHydrating && displayedMessages.length === 0 && (
-                                <div className="flex justify-start">
-                                    <div className="flex max-w-[80%] items-start gap-3">
-                                        <Avatar className="h-8 w-8">
-                                            <AvatarFallback>AI</AvatarFallback>
-                                        </Avatar>
-                                        <div className="rounded-lg bg-muted p-3">
-                                            <p>{t("welcome.message", { projectName })}</p>
-                                        </div>
+                        <div className="mx-auto h-full w-full max-w-4xl space-y-4 p-4">
+                            {isEmptyChat && (
+                                <div className="flex min-h-full items-center justify-center pb-20">
+                                    <div className="w-full max-w-4xl">
+                                        <h2 className="mb-8 text-center text-3xl font-semibold tracking-normal text-foreground">
+                                            {t("empty.chat.prompt", { projectName })}
+                                        </h2>
+                                        <div className="rounded-2xl border bg-card p-2 shadow-sm">{inputControls}</div>
                                     </div>
                                 </div>
                             )}
@@ -759,18 +744,7 @@ function ProjectChatSession({
                                             key={message.id}
                                             className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                                         >
-                                            <div
-                                                className={`group flex max-w-[80%] items-start gap-3 ${
-                                                    message.role === "user" ? "flex-row-reverse" : ""
-                                                }`}
-                                            >
-                                                <Avatar className="h-8 w-8">
-                                                    {message.role === "assistant" ? (
-                                                        <AvatarFallback>AI</AvatarFallback>
-                                                    ) : (
-                                                        <AvatarFallback>{userInitials}</AvatarFallback>
-                                                    )}
-                                                </Avatar>
+                                            <div className="group max-w-[80%]">
                                                 <div>
                                                     <div
                                                         className={`rounded-lg p-3 ${
@@ -937,15 +911,10 @@ function ProjectChatSession({
                             {isAssistantTyping &&
                                 displayedMessages[displayedMessages.length - 1]?.role !== "assistant" && (
                                     <div className="flex justify-start">
-                                        <div className="flex max-w-[80%] items-start gap-3">
-                                            <Avatar className="h-8 w-8">
-                                                <AvatarFallback>AI</AvatarFallback>
-                                            </Avatar>
-                                            <div className="w-full min-w-[200px] rounded-lg bg-muted p-3">
-                                                <div className="flex w-full items-center gap-2 text-sm text-muted-foreground">
-                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                    <span>{liveStepLabel}</span>
-                                                </div>
+                                        <div className="w-full max-w-[80%] min-w-[200px] rounded-lg bg-muted p-3">
+                                            <div className="flex w-full items-center gap-2 text-sm text-muted-foreground">
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                <span>{liveStepLabel}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -976,41 +945,11 @@ function ProjectChatSession({
                         </div>
                     </div>
 
-                    <div className="border-t p-4">
-                        <div className="flex items-center gap-2">
-                            <ChatInput
-                                ref={inputRef}
-                                value={inputValue}
-                                onChange={setInputValue}
-                                onSubmit={() => void handleSendMessage()}
-                                disabled={isRecording || !!pendingClarification}
-                                placeholder={t("ask.question")}
-                                projectId={projectId}
-                                interimTranscript={isRecording ? interimTranscript : undefined}
-                            />
-                            {speechSupported && (
-                                <Button
-                                    size="icon"
-                                    variant={isRecording ? "destructive" : "outline"}
-                                    onClick={toggleRecording}
-                                    aria-label={isRecording ? t("stop.recording") : t("start.recording")}
-                                    disabled={!!pendingClarification}
-                                >
-                                    {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                                </Button>
-                            )}
-                            <Button
-                                size="icon"
-                                onClick={() => void handleSendMessage()}
-                                disabled={
-                                    !inputValue.trim() || isAssistantTyping || isRecording || !!pendingClarification
-                                }
-                            >
-                                <SendIcon className="h-4 w-4" />
-                                <span className="sr-only">{t("send.message")}</span>
-                            </Button>
+                    {!isEmptyChat && (
+                        <div className="mx-auto w-full max-w-4xl p-4 pt-3">
+                            <div className="rounded-2xl border bg-card p-2 shadow-sm">{inputControls}</div>
                         </div>
-                    </div>
+                    )}
                 </Card>
 
                 <ChatTemplateSidebar

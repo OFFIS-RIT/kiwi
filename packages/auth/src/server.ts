@@ -42,6 +42,9 @@ const ldapEnabled = Boolean(
     process.env.LDAP_SEARCH_ATTR
 );
 const trustedOrigins = parseOriginList(process.env.TRUSTED_ORIGINS);
+const internalServiceOrigins = ["http://server:4321", "http://frontend:3000"];
+const allTrustedOrigins =
+    trustedOrigins.length > 0 ? [...trustedOrigins, ...internalServiceOrigins] : undefined;
 const crossSubDomainCookiesEnabled = parseBooleanEnv(process.env.AUTH_CROSS_SUBDOMAIN_COOKIES);
 const crossSubDomainCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined;
 
@@ -75,7 +78,13 @@ export const auth = betterAuth({
             apikey: authTables.apikey,
         },
     }),
-    trustedOrigins: trustedOrigins.length > 0 ? trustedOrigins : undefined,
+    trustedOrigins: allTrustedOrigins,
+    session: {
+        cookieCache: {
+            enabled: true,
+            maxAge: 5 * 60, // 5 Min — bewusster Trade-off (siehe Spec §6)
+        },
+    },
     advanced:
         crossSubDomainCookiesEnabled || crossSubDomainCookieDomain
             ? {

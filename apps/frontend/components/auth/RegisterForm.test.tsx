@@ -1,26 +1,26 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 
+const fakeUseSession = vi.fn().mockReturnValue({ data: null, isPending: false, error: null });
+const fakeSignUp = {
+    email: vi.fn().mockResolvedValue({}),
+};
+const fakeSignOut = vi.fn();
+
 vi.mock("@kiwi/auth/client", () => ({
-    authClient: {
-        useSession: vi.fn().mockReturnValue({ data: null, isPending: false, error: null }),
-        signUp: {
-            email: vi.fn().mockResolvedValue({}),
-        },
-        signOut: vi.fn(),
-    },
+    createKiwiAuthClient: vi.fn(() => ({
+        useSession: fakeUseSession,
+        signUp: fakeSignUp,
+        signOut: fakeSignOut,
+    })),
 }));
 
-import { LanguageProvider } from "@/providers/LanguageProvider";
+import { renderWithProviders } from "@/test/test-utils";
 import { RegisterForm } from "./RegisterForm";
 
 function renderRegisterForm(onSwitch = vi.fn()) {
-    return render(
-        <LanguageProvider>
-            <RegisterForm onSwitchToLogin={onSwitch} />
-        </LanguageProvider>
-    );
+    return renderWithProviders(<RegisterForm onSwitchToLogin={onSwitch} />);
 }
 
 describe("RegisterForm", () => {

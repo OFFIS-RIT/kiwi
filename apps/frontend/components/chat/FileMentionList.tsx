@@ -1,6 +1,6 @@
 "use client";
 
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { ApiProjectFile } from "@/types/api";
 import { FileText } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
@@ -32,7 +32,7 @@ export const FileMentionList = forwardRef<FileMentionListHandle, FileMentionList
     { items, loading, command },
     ref
 ) {
-    const { t } = useLanguage();
+    const t = useAppTranslations();
     const [selectedIndex, setSelectedIndex] = useState(0);
     const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 

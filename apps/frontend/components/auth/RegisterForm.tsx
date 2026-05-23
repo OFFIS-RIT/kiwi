@@ -3,8 +3,8 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { authClient } from "@kiwi/auth/client";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAuthClient } from "@/providers/AuthClientProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
@@ -14,7 +14,8 @@ type RegisterFormProps = {
 };
 
 export function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
-    const { t } = useLanguage();
+    const authClient = useAuthClient();
+    const t = useAppTranslations();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -101,11 +102,7 @@ export function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
                 />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button
-                type="submit"
-                className="w-full bg-[var(--brand)] text-[var(--brand-foreground)] hover:bg-[var(--brand)]/90"
-                disabled={loading}
-            >
+            <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (
                     <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -1,28 +1,21 @@
 "use client";
 
 import { StateDisplay } from "@/components/common/StateDisplay";
-import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
-import { useNavigation } from "@/providers/NavigationProvider";
+import { useGroupsWithProjects } from "@/hooks/use-data";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { Group } from "@/types";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { GroupCard } from "./GroupCard";
 
 type GroupListProps = {
-    onEditGroup: (group: Group) => void;
+    onEditGroup?: (group: Group) => void;
 };
 
 export function GroupList({ onEditGroup }: GroupListProps) {
-    const { selectItem } = useNavigation();
-    const { t } = useLanguage();
-    const { groups, isLoading, error } = useData();
-    const [ready, setReady] = useState(false);
-
-    useEffect(() => {
-        if (!isLoading && !error) {
-            requestAnimationFrame(() => setReady(true));
-        }
-    }, [isLoading, error]);
+    const router = useRouter();
+    const t = useAppTranslations();
+    const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
+    const error = queryError ? t("error.loading.data") : null;
 
     if (error) {
         return <StateDisplay error={error} errorMessage={t("error")} />;
@@ -33,7 +26,7 @@ export function GroupList({ onEditGroup }: GroupListProps) {
     }
 
     return (
-        <div className={`space-y-6 transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}>
+        <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-bold">KIWI</h1>
                 <p className="text-muted-foreground">{t("select.group")}</p>
@@ -44,8 +37,8 @@ export function GroupList({ onEditGroup }: GroupListProps) {
                     <GroupCard
                         key={group.id}
                         group={group}
-                        onSelect={() => selectItem(group)}
-                        onEdit={() => onEditGroup(group)}
+                        onSelect={() => router.push(`/${group.id}`)}
+                        onEdit={() => onEditGroup?.(group)}
                     />
                 ))}
             </div>

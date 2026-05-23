@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { authClient } from "@kiwi/auth/client";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAuthClient } from "@/providers/AuthClientProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
@@ -18,7 +18,8 @@ type CreateUserDialogProps = {
 };
 
 export function CreateUserDialog({ open, onOpenChange, onCreated }: CreateUserDialogProps) {
-    const { t } = useLanguage();
+    const authClient = useAuthClient();
+    const t = useAppTranslations();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");

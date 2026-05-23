@@ -1,10 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { fetchGroupUsers, translate, hasPermission, listUsers } = vi.hoisted(() => ({
+const { fetchGroupUsers, hasPermission, listUsers } = vi.hoisted(() => ({
     fetchGroupUsers: vi.fn(),
-    translate: vi.fn((key: string) => key),
     hasPermission: vi.fn((_: string) => false),
     listUsers: vi.fn(),
 }));
@@ -26,11 +26,11 @@ vi.mock("@/lib/api/groups", () => ({
 }));
 
 vi.mock("@kiwi/auth/client", () => ({
-    authClient: {
+    createKiwiAuthClient: vi.fn(() => ({
         admin: {
             listUsers,
         },
-    },
+    })),
 }));
 
 vi.mock("@/providers/AuthProvider", () => ({
@@ -39,25 +39,17 @@ vi.mock("@/providers/AuthProvider", () => ({
     }),
 }));
 
-vi.mock("@/providers/DataProvider", () => ({
-    useData: () => ({
-        refreshData: vi.fn(),
-    }),
-}));
-
-vi.mock("@/providers/LanguageProvider", () => ({
-    useLanguage: () => ({
-        t: translate,
-    }),
-}));
-
+import { renderWithProviders } from "@/test/test-utils";
 import { EditGroupDialog } from "./EditGroupDialog";
+
+function renderDialog(ui: ReactElement) {
+    return renderWithProviders(ui);
+}
 
 describe("EditGroupDialog", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         hasPermission.mockReturnValue(false);
-        translate.mockImplementation((key: string) => key);
         fetchGroupUsers.mockResolvedValue([]);
     });
 
@@ -73,7 +65,7 @@ describe("EditGroupDialog", () => {
             },
         ]);
 
-        render(
+        renderDialog(
             <EditGroupDialog
                 open
                 onOpenChange={vi.fn()}
@@ -84,7 +76,7 @@ describe("EditGroupDialog", () => {
             />
         );
 
-        await waitFor(() => expect(fetchGroupUsers).toHaveBeenCalledWith("group_1"));
+        await waitFor(() => expect(fetchGroupUsers).toHaveBeenCalledWith(expect.anything(), "group_1"));
         expect(await screen.findByText("Max Mustermann")).toBeInTheDocument();
         expect(screen.getByText("MM")).toBeInTheDocument();
         expect(screen.queryByText("user.id: user_1")).not.toBeInTheDocument();
@@ -120,7 +112,7 @@ describe("EditGroupDialog", () => {
             });
         });
 
-        render(
+        renderDialog(
             <EditGroupDialog
                 open
                 onOpenChange={vi.fn()}
@@ -141,7 +133,7 @@ describe("EditGroupDialog", () => {
         );
 
         const user = userEvent.setup();
-        await user.type(await screen.findByPlaceholderText("admin.search.users"), "Anna");
+        await user.type(await screen.findByPlaceholderText("Benutzer suchen..."), "Anna");
 
         await user.click(await screen.findByRole("button", { name: /Anna Example/i }));
 
@@ -179,7 +171,7 @@ describe("EditGroupDialog", () => {
             });
         });
 
-        render(
+        renderDialog(
             <EditGroupDialog
                 open
                 onOpenChange={vi.fn()}
@@ -191,7 +183,7 @@ describe("EditGroupDialog", () => {
         );
 
         const user = userEvent.setup();
-        await user.type(await screen.findByPlaceholderText("admin.search.users"), "ANNA MEIR");
+        await user.type(await screen.findByPlaceholderText("Benutzer suchen..."), "ANNA MEIR");
 
         await waitFor(() =>
             expect(listUsers).toHaveBeenCalledWith({
@@ -223,7 +215,7 @@ describe("EditGroupDialog", () => {
             error: null,
         });
 
-        render(
+        renderDialog(
             <EditGroupDialog
                 open
                 onOpenChange={vi.fn()}
@@ -244,7 +236,7 @@ describe("EditGroupDialog", () => {
         );
 
         const user = userEvent.setup();
-        await user.type(await screen.findByPlaceholderText("admin.search.users"), "Ann");
+        await user.type(await screen.findByPlaceholderText("Benutzer suchen..."), "Ann");
 
         expect(listUsers).toHaveBeenCalledTimes(1);
         expect(await screen.findByRole("button", { name: /Anna Example/i })).toBeInTheDocument();

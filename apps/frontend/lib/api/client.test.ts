@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-
-vi.mock("@kiwi/auth/client", () => ({
-    authClient: { signOut: vi.fn() },
-}));
+import type { KiwiAuthClient } from "@kiwi/auth/client";
 
 const fetchSpy = vi.fn();
 
 (globalThis as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
 
-import { authClient } from "@kiwi/auth/client";
-import { ApiError, apiClient } from "./client";
+import { ApiError, createKiwiApiClient } from "./client";
+
+const signOutSpy = vi.fn();
+const fakeAuthClient = { signOut: signOutSpy } as unknown as KiwiAuthClient;
+const apiClient = createKiwiApiClient("https://api.test", fakeAuthClient);
 
 describe("API client", () => {
     beforeEach(() => {
@@ -75,7 +75,7 @@ describe("API client", () => {
         });
 
         await expect(apiClient.get("/protected")).rejects.toThrow(ApiError);
-        expect(authClient.signOut).toHaveBeenCalled();
+        expect(signOutSpy).toHaveBeenCalled();
     });
 
     test("surfaces envelope error details", async () => {

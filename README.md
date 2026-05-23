@@ -136,6 +136,11 @@ certificate files in `./certs`.
 
 ## Architecture
 
+The frontend runs as a Next.js standalone server on Node 20. Browser-facing
+configuration such as `API_URL`, `AUTH_URL`, and `AUTH_MODE` is read from
+runtime environment variables, so the same built image can be deployed with
+different API/auth endpoints without rebuilding.
+
 ```
 ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
 │   Frontend   │────▶│    Caddy     │────▶│   Server    │
@@ -231,10 +236,10 @@ Copy `.env.sample` to `.env` and configure:
 | `AUTH_COOKIE_DOMAIN`               | Optional cookie domain for shared auth sessions across subdomains       |
 | `DOCUMENT_MODE`                    | Worker document mode: `plain`, `hybrid`, or `ocr`; defaults to `hybrid` |
 | `WORKER_CONCURRENCY`               | Maximum number of workflow runs processed in parallel by the worker     |
-| `NEXT_PUBLIC_API_URL`              | Frontend API base URL                                                   |
-| `NEXT_PUBLIC_AUTH_URL`             | Frontend auth service base URL                                          |
-| `NEXT_PUBLIC_AUTH_MODE`            | Frontend auth UI mode (see below)                                       |
-| `NEXT_PUBLIC_APP_BUILD_LABEL`      | Optional frontend build label                                           |
+| `API_URL`                          | Frontend API base URL (runtime; no rebuild needed)                      |
+| `INTERNAL_AUTH_URL`                | Server-to-server auth URL inside Docker (defaults to `AUTH_URL`)        |
+| `AUTH_MODE`                        | Frontend auth UI mode (runtime; `credentials` or `ldap`)                |
+| `BUILD_LABEL`                      | Frontend build label, set via CI build arg                              |
 | `APPLE_CLIENT_ID`                  | Apple OAuth client ID                                                   |
 | `APPLE_CLIENT_SECRET`              | Apple OAuth client secret                                               |
 | `APPLE_BUNDLE_ID`                  | Apple bundle identifier (optional)                                      |
@@ -299,13 +304,13 @@ Authentication mode is configured **independently** on the backend and frontend 
   present (`LDAP_URL`, `LDAP_BIND_DN`, `LDAP_PASSW`, `LDAP_BASE_DN`,
   `LDAP_SEARCH_ATTR`). When LDAP is active, email/password sign-up and sign-in
   are **disabled** automatically.
-- **Frontend:** `NEXT_PUBLIC_AUTH_MODE` controls which login form is shown.
+- **Frontend:** `AUTH_MODE` controls which login form is shown.
   Set to `credentials` (default) for email/password or `ldap` for
   username/password via LDAP. It also hides the "Create User" button in admin
   when set to `ldap` (since user creation happens through LDAP).
 
 If the two sides disagree (e.g., backend has LDAP enabled but frontend is set to
-`credentials`), login will fail. Always set `NEXT_PUBLIC_AUTH_MODE=ldap` when
+`credentials`), login will fail. Always set `AUTH_MODE=ldap` when
 LDAP env vars are configured, and leave it as `credentials` (or unset) otherwise.
 
 Note: When all LDAP variables are set, LDAP sign-in is enabled and email/password auth is disabled.
@@ -327,30 +332,31 @@ AUTH_CROSS_SUBDOMAIN_COOKIES=true
 AUTH_COOKIE_DOMAIN=.example.com
 ```
 
-When you deploy behind Caddy on one host, keep the frontend build args on relative paths:
+When you deploy behind Caddy on one host, keep the frontend on relative paths:
 
-- `NEXT_PUBLIC_API_URL=/api`
-- `NEXT_PUBLIC_AUTH_URL=/auth`
+- `API_URL=/api`
+- `AUTH_URL=/auth`
 
 Example:
 
 ```env
 AUTH_URL=https://kiwi.example.com/auth
 TRUSTED_ORIGINS=https://kiwi.example.com
-NEXT_PUBLIC_API_URL=/api
-NEXT_PUBLIC_AUTH_URL=/auth
+API_URL=/api
 ```
 
 For local Bun development without Caddy, point the frontend directly at the API/auth server:
 
 ```env
 AUTH_URL=http://localhost:4321/auth
-NEXT_PUBLIC_API_URL=http://localhost:4321
-NEXT_PUBLIC_AUTH_URL=http://localhost:4321/auth
+API_URL=http://localhost:4321
 ```
 
 OpenWorkflow uses `DATABASE_DIRECT_URL` instead of a separate workflow-specific connection variable.
 Use `DATABASE_URL` for pooled application queries and `DATABASE_DIRECT_URL` for migrations and workflow storage.
+
+The frontend uses `next-intl` with cookie-based locale selection via
+`NEXT_LOCALE`. Supported locales are `de` (default) and `en`.
 
 For production, set these variables to the container-network endpoints used inside the Compose stack:
 

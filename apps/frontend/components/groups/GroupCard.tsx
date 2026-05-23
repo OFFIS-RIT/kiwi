@@ -2,7 +2,7 @@
 
 import { CardTemplate } from "@/components/common/CardTemplate";
 import { useAuth } from "@/providers/AuthProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { Group } from "@/types";
 import { FileText, Loader2, Users } from "lucide-react";
 
@@ -13,7 +13,7 @@ type GroupCardProps = {
 };
 
 export function GroupCard({ group, onSelect, onEdit }: GroupCardProps) {
-    const { t } = useLanguage();
+    const t = useAppTranslations();
     const { hasPermission } = useAuth();
     const canEditGroup = hasPermission("group.update");
     const canViewMembers = hasPermission("group.list:user");
@@ -25,6 +25,7 @@ export function GroupCard({ group, onSelect, onEdit }: GroupCardProps) {
             badgeIcon={Users}
             badgeText={t("group")}
             buttonText={t("open")}
+            prefetchHref={`/${group.id}`}
             onSelect={onSelect}
             onEdit={canEditGroup || canViewMembers ? onEdit : undefined}
         >

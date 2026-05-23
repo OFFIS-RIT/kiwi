@@ -13,9 +13,9 @@ import {
     fuzzySearchUsers,
     normalizeUserSearch,
 } from "@/lib/user-search";
-import { authClient } from "@kiwi/auth/client";
+import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Ban, ChevronLeft, ChevronRight, Loader2, Pencil, Search, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -43,7 +43,8 @@ function getInitials(name: string): string {
 }
 
 export function UserTable() {
-    const { t } = useLanguage();
+    const authClient = useAuthClient();
+    const t = useAppTranslations();
     const { user: currentUser } = useAuth();
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
@@ -99,7 +100,7 @@ export function UserTable() {
         } finally {
             setLoading(false);
         }
-    }, [t]);
+    }, [authClient, t]);
 
     useEffect(() => {
         void loadAllUsers();

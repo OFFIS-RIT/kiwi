@@ -3,21 +3,26 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { authClient } from "@kiwi/auth/client";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAuthClient } from "@/providers/AuthClientProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { getSafeRedirectPath } from "@/lib/utils";
+import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import { useState } from "react";
 
 type LoginFormProps = {
-    onSwitchToRegister: () => void;
+    onSwitchToRegister?: () => void;
+    nextPath?: string;
 };
 
-const authMode = process.env.NEXT_PUBLIC_AUTH_MODE ?? "credentials";
-const isLdap = authMode === "ldap";
-
-export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
-    const { t } = useLanguage();
+export function LoginForm({ onSwitchToRegister, nextPath }: LoginFormProps) {
+    const authClient = useAuthClient();
+    const t = useAppTranslations();
+    const { authMode } = useRuntimeConfig();
+    const router = useRouter();
+    const isLdap = authMode === "ldap";
     const [identifier, setIdentifier] = useState("");
     const [password, setPassword] = useState("");
     const [rememberMe, setRememberMe] = useState(false);
@@ -45,7 +50,8 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
                 if (signInError) {
                     setError(signInError.message ?? t("auth.error.invalid.credentials"));
                 } else {
-                    window.location.reload();
+                    router.replace(getSafeRedirectPath(nextPath));
+                    router.refresh();
                 }
             } else {
                 const { error: signInError } = await authClient.signIn.email({
@@ -56,6 +62,9 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
 
                 if (signInError) {
                     setError(signInError.message ?? t("auth.error.invalid.credentials"));
+                } else {
+                    router.replace(getSafeRedirectPath(nextPath));
+                    router.refresh();
                 }
             }
         } catch {
@@ -95,18 +104,14 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
-                    className="h-4 w-4 rounded border-input accent-[var(--brand)]"
+                    className="h-4 w-4 rounded border-input accent-primary"
                 />
                 <Label htmlFor="rememberMe" className="cursor-pointer text-sm font-normal">
                     {t("auth.remember.me")}
                 </Label>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button
-                type="submit"
-                className="w-full bg-[var(--brand)] text-[var(--brand-foreground)] hover:bg-[var(--brand)]/90"
-                disabled={loading}
-            >
+            <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (
                     <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -116,7 +121,7 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
                     t("auth.sign.in")
                 )}
             </Button>
-            {!isLdap && (
+            {!isLdap && onSwitchToRegister && (
                 <p className="text-center text-sm text-muted-foreground">
                     {t("auth.no.account")}{" "}
                     <button

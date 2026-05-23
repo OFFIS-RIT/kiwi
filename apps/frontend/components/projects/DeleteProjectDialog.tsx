@@ -10,9 +10,10 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { useDeleteProject } from "@/hooks/use-data";
-import { useLanguage } from "@/providers/LanguageProvider";
-import { useNavigation } from "@/providers/NavigationProvider";
+import { useCurrentSelection } from "@/hooks/use-current-selection";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 type DeleteProjectDialogProps = {
@@ -27,8 +28,9 @@ type DeleteProjectDialogProps = {
 };
 
 export function DeleteProjectDialog({ open, onOpenChange, project, groupId, groupName }: DeleteProjectDialogProps) {
-    const { t } = useLanguage();
-    const { selectItem, selectedProject } = useNavigation();
+    const t = useAppTranslations();
+    const router = useRouter();
+    const { project: selectedProject } = useCurrentSelection();
     const deleteProjectMutation = useDeleteProject();
 
     useEffect(() => {
@@ -46,7 +48,7 @@ export function DeleteProjectDialog({ open, onOpenChange, project, groupId, grou
             onOpenChange(false);
 
             if (selectedProject?.id === project.id && groupId && groupName) {
-                selectItem({ id: groupId, name: groupName });
+                router.push(`/${groupId}`);
             }
         } catch (err) {
             console.error("Failed to delete project:", err);

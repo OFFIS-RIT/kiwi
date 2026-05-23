@@ -11,11 +11,17 @@
 # opencode
 .opencode/
 
+# anitgravity cli
+.antigravitycli/
+
 # vscode
 .vscode/
 
 # claude
 docs/
+
+# solo
+solo.yml
 
 # certs
 certs/kiwi.*

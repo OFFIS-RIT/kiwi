@@ -38,7 +38,10 @@ function textArray(values: readonly string[]) {
         throw new Error("textArray called with an empty array");
     }
 
-    return sql`${values}::text[]`;
+    return sql`ARRAY[${sql.join(
+        values.map((value) => sql`${value}`),
+        sql`, `
+    )}]::text[]`;
 }
 
 function getWorkflowFileIds(run: DeleteWorkflowRun) {

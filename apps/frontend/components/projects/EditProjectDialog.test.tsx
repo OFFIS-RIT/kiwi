@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 class ResizeObserverMock {
@@ -36,21 +36,16 @@ vi.mock("@/lib/api/projects", () => ({
     updateProject: vi.fn(),
 }));
 
+vi.mock("@kiwi/auth/client", () => ({
+    createKiwiAuthClient: vi.fn(() => ({
+        signOut: vi.fn(),
+        useSession: vi.fn(() => ({ data: null, isPending: false })),
+    })),
+}));
+
 vi.mock("@/providers/AuthProvider", () => ({
     useAuth: () => ({
         hasPermission: () => false,
-    }),
-}));
-
-vi.mock("@/providers/DataProvider", () => ({
-    useData: () => ({
-        refreshData: vi.fn(),
-    }),
-}));
-
-vi.mock("@/providers/LanguageProvider", () => ({
-    useLanguage: () => ({
-        t: (key: string) => key,
     }),
 }));
 
@@ -62,11 +57,12 @@ vi.mock("./FileStatusIcon", () => ({
     FileStatusIcon: () => <div>status-icon</div>,
 }));
 
+import { renderWithProviders } from "@/test/test-utils";
 import { EditProjectDialog } from "./EditProjectDialog";
 
 describe("EditProjectDialog", () => {
     test("renders name field and project files inside the dialog scroll area", () => {
-        render(
+        renderWithProviders(
             <EditProjectDialog
                 open
                 onOpenChange={vi.fn()}
@@ -78,7 +74,7 @@ describe("EditProjectDialog", () => {
             />
         );
 
-        const nameInput = screen.getByLabelText("project.name");
+        const nameInput = screen.getByLabelText("Projektname");
         const fileName = screen.getByText("README.pdf");
         const scrollArea = fileName.closest('[data-slot="scroll-area"]');
 

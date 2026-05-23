@@ -1,30 +1,27 @@
 "use client";
 
 import { StateDisplay } from "@/components/common/StateDisplay";
-import { queryKeys } from "@/hooks/use-data";
-import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
-import { useNavigation } from "@/providers/NavigationProvider";
+import { queryKeys, useGroupsWithProjects } from "@/hooks/use-data";
+import { useCurrentSelection } from "@/hooks/use-current-selection";
+import { useApiClient } from "@/providers/ApiClientProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { ApiProjectFile, Project } from "@/types";
 import { useQueries } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo } from "react";
 import { ProjectCard } from "./ProjectCard";
 
 type ProjectListProps = {
-    onEditProject: (project: Project, groupId: string) => void;
+    onEditProject?: (project: Project, groupId: string) => void;
 };
 
 export function ProjectList({ onEditProject }: ProjectListProps) {
-    const { selectedGroup, selectItem } = useNavigation();
-    const { t } = useLanguage();
-    const { groups, isLoading, error } = useData();
-    const [ready, setReady] = useState(false);
-
-    useEffect(() => {
-        if (!isLoading && !error) {
-            requestAnimationFrame(() => setReady(true));
-        }
-    }, [isLoading, error]);
+    const apiClient = useApiClient();
+    const router = useRouter();
+    const { group: selectedGroup } = useCurrentSelection();
+    const t = useAppTranslations();
+    const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
+    const error = queryError ? t("error.loading.data") : null;
 
     function parseApiTimestamp(input: unknown): Date | undefined {
         if (!input) return undefined;
@@ -49,7 +46,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
             queryKey: queryKeys.projectFiles(project.id),
             queryFn: async () => {
                 const { fetchProjectFiles } = await import("@/lib/api");
-                return fetchProjectFiles(project.id);
+                return fetchProjectFiles(apiClient, project.id);
             },
             staleTime: 30 * 1000,
         })),
@@ -100,7 +97,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     }
 
     return (
-        <div className={`space-y-6 transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}>
+        <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-bold">{group.name}</h1>
                 <p className="text-muted-foreground">{t("select.knowledge.project")}</p>
@@ -122,9 +119,10 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
                             processEstimatedDuration: project.processEstimatedDuration,
                             processTimeRemaining: project.processTimeRemaining,
                         }}
+                        groupId={group.id}
                         groupName={group.name}
-                        onSelect={() => selectItem(group, project)}
-                        onEdit={() => onEditProject(project, group.id)}
+                        onSelect={() => router.push(`/${group.id}/${project.id}`)}
+                        onEdit={() => onEditProject?.(project, group.id)}
                     />
                 ))}
             </div>

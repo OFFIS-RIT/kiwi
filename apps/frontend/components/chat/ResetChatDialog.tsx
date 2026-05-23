@@ -9,9 +9,8 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { RotateCcw } from "lucide-react";
-import type React from "react";
 
 type ResetChatDialogProps = {
     open: boolean;
@@ -21,7 +20,7 @@ type ResetChatDialogProps = {
 };
 
 export function ResetChatDialog({ open, onOpenChange, onConfirm, projectName }: ResetChatDialogProps) {
-    const { t } = useLanguage();
+    const t = useAppTranslations();
 
     const handleReset = () => {
         onConfirm();

@@ -15,11 +15,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { queryKeys, useGroupsWithProjects } from "@/hooks/use-data";
 import { createProject } from "@/lib/api/projects";
 import { formatBytes } from "@/lib/utils";
-import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useApiClient } from "@/providers/ApiClientProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FileUploader } from "./FileUploader";
@@ -34,8 +36,11 @@ type CreateProjectDialogProps = {
 const MAX_NAME_LENGTH = 40;
 
 export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCreated }: CreateProjectDialogProps) {
-    const { t } = useLanguage();
-    const { groups, isLoading, error, refreshData } = useData();
+    const apiClient = useApiClient();
+    const queryClient = useQueryClient();
+    const t = useAppTranslations();
+    const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
+    const error = queryError ? t("error.loading.data") : null;
     const { toggleGroupExpanded, expandedGroups } = useSidebarExpansion();
     const [projectName, setProjectName] = useState("");
     const [selectedGroup, setSelectedGroup] = useState("");
@@ -93,31 +98,35 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
             let lastTime = startTime;
             let lastLoaded = 0;
 
-            const response = await createProject(selectedGroup, projectName, files, (progress, loaded, total) => {
-                setUploadProgress(progress);
-                setUploadedBytes(loaded);
-                setTotalBytes(total);
+            const response = await createProject(
+                apiClient,
+                selectedGroup,
+                projectName,
+                files,
+                (progress, loaded, total) => {
+                    setUploadProgress(progress);
+                    setUploadedBytes(loaded);
+                    setTotalBytes(total);
 
-                const currentTime = Date.now();
-                const timeDiff = currentTime - lastTime;
+                    const currentTime = Date.now();
+                    const timeDiff = currentTime - lastTime;
 
-                // Update speed every 500ms to avoid flickering
-                if (timeDiff > 500) {
-                    const bytesDiff = loaded - lastLoaded;
-                    const speed = (bytesDiff / timeDiff) * 1000; // Bytes/sec
-                    setUploadSpeed(speed);
-                    lastTime = currentTime;
-                    lastLoaded = loaded;
+                    // Update speed every 500ms to avoid flickering
+                    if (timeDiff > 500) {
+                        const bytesDiff = loaded - lastLoaded;
+                        const speed = (bytesDiff / timeDiff) * 1000; // Bytes/sec
+                        setUploadSpeed(speed);
+                        lastTime = currentTime;
+                        lastLoaded = loaded;
+                    }
                 }
-            });
+            );
 
             if (!expandedGroups[selectedGroup]) {
                 toggleGroupExpanded(selectedGroup);
             }
 
-            if (refreshData) {
-                refreshData();
-            }
+            await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
 
             if (onProjectCreated) {
                 onProjectCreated(response.graph.id.toString(), selectedGroup, response.graph.name);

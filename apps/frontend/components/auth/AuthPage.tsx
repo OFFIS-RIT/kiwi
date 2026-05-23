@@ -1,20 +1,30 @@
 "use client";
 
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import Image from "next/image";
+import { useState } from "react";
 import { LoginForm } from "./LoginForm";
 import { RegisterForm } from "./RegisterForm";
 
 type AuthPageProps = {
     view: "login" | "register";
-    onViewChange: (view: "login" | "register") => void;
+    onViewChange?: (view: "login" | "register") => void;
+    nextPath?: string;
 };
 
-const authMode = process.env.NEXT_PUBLIC_AUTH_MODE ?? "credentials";
-
-export function AuthPage({ view, onViewChange }: AuthPageProps) {
-    const { t } = useLanguage();
-    const showRegister = authMode === "credentials" && view === "register";
+export function AuthPage({ view, onViewChange, nextPath }: AuthPageProps) {
+    const t = useAppTranslations();
+    const { authMode } = useRuntimeConfig();
+    const [localView, setLocalView] = useState(view);
+    const currentView = onViewChange ? view : localView;
+    const showRegister = authMode === "credentials" && currentView === "register";
+    const handleViewChange = (nextView: "login" | "register") => {
+        onViewChange?.(nextView);
+        if (!onViewChange) {
+            setLocalView(nextView);
+        }
+    };
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
@@ -32,9 +42,9 @@ export function AuthPage({ view, onViewChange }: AuthPageProps) {
                     <p className="text-sm text-muted-foreground">{t("auth.welcome.subtitle")}</p>
                 </div>
                 {showRegister ? (
-                    <RegisterForm onSwitchToLogin={() => onViewChange("login")} />
+                    <RegisterForm onSwitchToLogin={() => handleViewChange("login")} />
                 ) : (
-                    <LoginForm onSwitchToRegister={() => onViewChange("register")} />
+                    <LoginForm onSwitchToRegister={() => handleViewChange("register")} nextPath={nextPath} />
                 )}
             </div>
         </div>

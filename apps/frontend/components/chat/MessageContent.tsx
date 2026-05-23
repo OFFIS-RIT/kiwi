@@ -3,7 +3,8 @@
 import { Button } from "@/components/ui/button";
 import { downloadProjectFile } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useApiClient } from "@/providers/ApiClientProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { isResolvedCitationFence, splitTextWithCitationFences, type ResolvedCitationFence } from "@kiwi/ai/citation";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { AlertTriangle, Check, FileText, Loader2, Wrench } from "lucide-react";
@@ -37,7 +38,7 @@ function toolNameOf(part: ToolPart): string {
 }
 
 function ToolCallChip({ part }: { part: ToolPart }) {
-    const { t } = useLanguage();
+    const t = useAppTranslations();
     const name = toolNameOf(part);
     const label = t(`step.${name}`);
 
@@ -68,7 +69,8 @@ function ToolCallChip({ part }: { part: ToolPart }) {
 type ThinkingItem = { kind: "reasoning"; key: string; text: string } | { kind: "tool"; key: string; part: ToolPart };
 
 export function MessageContent({ parts, projectId, isStreaming = false }: MessageContentProps) {
-    const { t } = useLanguage();
+    const t = useAppTranslations();
+    const apiClient = useApiClient();
     const [activeCitationSourceId, setActiveCitationSourceId] = React.useState<string | null>(null);
 
     const { markdownContent, citations, thinkingItems } = React.useMemo(() => {
@@ -213,7 +215,7 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
         if (!projectId) return;
 
         try {
-            const downloadUrl = await downloadProjectFile(projectId, fileKey);
+            const downloadUrl = await downloadProjectFile(apiClient, projectId, fileKey);
             window.open(downloadUrl, "_blank");
         } catch (error) {
             console.error("Error opening file:", error);

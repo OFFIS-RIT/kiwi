@@ -16,12 +16,13 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { useProjectFiles } from "@/hooks/use-data";
+import { queryKeys, useProjectFiles } from "@/hooks/use-data";
 import { addFilesToProject, deleteProjectFiles, updateProject } from "@/lib/api/projects";
 import { cn, formatBytes } from "@/lib/utils";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
-import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { useQueryClient } from "@tanstack/react-query";
 import { Calendar, Loader2, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FileStatusIcon } from "./FileStatusIcon";
@@ -40,9 +41,10 @@ type EditProjectDialogProps = {
 const MAX_NAME_LENGTH = 40;
 
 export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDialogProps) {
-    const { t } = useLanguage();
+    const apiClient = useApiClient();
+    const queryClient = useQueryClient();
+    const t = useAppTranslations();
     const { hasPermission } = useAuth();
-    const { refreshData } = useData();
     const canEdit = hasPermission("graph.update");
     const canDeleteFiles = hasPermission("graph.delete:file");
     const canAddFiles = hasPermission("graph.add:file");
@@ -108,7 +110,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
         try {
             if (filesMarkedForDeletion) {
                 try {
-                    await deleteProjectFiles(project.id, filesToDelete);
+                    await deleteProjectFiles(apiClient, project.id, filesToDelete);
                     setFilesToDelete([]);
                 } catch (err) {
                     overallSuccess = false;
@@ -123,7 +125,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
 
             if (nameChanged && overallSuccess) {
                 try {
-                    await updateProject(project.id, editedName);
+                    await updateProject(apiClient, project.id, editedName);
                 } catch (err) {
                     overallSuccess = false;
                     console.error("Error updating project name:", err);
@@ -141,7 +143,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                     let lastTime = startTime;
                     let lastLoaded = 0;
 
-                    await addFilesToProject(project.id, newFiles, (progress, loaded, total) => {
+                    await addFilesToProject(apiClient, project.id, newFiles, (progress, loaded, total) => {
                         setUploadProgress(progress);
                         setUploadedBytes(loaded);
                         setTotalBytes(total);
@@ -170,7 +172,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
             }
 
             if (overallSuccess && (nameChanged || filesAdded || filesMarkedForDeletion)) {
-                await refreshData();
+                await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
                 await refetchProjectFiles();
             }
 

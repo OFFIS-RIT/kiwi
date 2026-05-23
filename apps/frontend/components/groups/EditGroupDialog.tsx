@@ -24,10 +24,12 @@ import {
     fuzzySearchUsers,
     normalizeUserSearch,
 } from "@/lib/user-search";
-import { authClient } from "@kiwi/auth/client";
+import { useApiClient } from "@/providers/ApiClientProvider";
+import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
-import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { queryKeys } from "@/hooks/use-data";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -67,9 +69,11 @@ type EditGroupDialogProps = {
 const MAX_NAME_LENGTH = 40;
 
 export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogProps) {
-    const { t } = useLanguage();
+    const apiClient = useApiClient();
+    const authClient = useAuthClient();
+    const queryClient = useQueryClient();
+    const t = useAppTranslations();
     const { hasPermission } = useAuth();
-    const { refreshData } = useData();
     const canEdit = hasPermission("group.update");
     const canAddUser = hasPermission("group.add:user");
     const canRemoveUser = hasPermission("group.remove:user");
@@ -95,14 +99,14 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         setIsLoading(true);
         setError(null);
         try {
-            const users = await fetchGroupUsers(groupId);
+            const users = await fetchGroupUsers(apiClient, groupId);
             setEditableUsers(users.map((u) => ({ user_id: u.user_id, user_name: u.user_name, role: u.role })));
         } catch (err) {
             setError(err instanceof Error ? err.message : t("error.loading.users"));
         } finally {
             setIsLoading(false);
         }
-    }, [groupId, t]);
+    }, [apiClient, groupId, t]);
 
     useEffect(() => {
         if (groupId && groupName !== undefined && open) {
@@ -163,7 +167,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         } finally {
             setIsSearchingUsers(false);
         }
-    }, [canAddUser, open]);
+    }, [authClient, canAddUser, open]);
 
     useEffect(() => {
         if (!open || !canAddUser) {
@@ -208,8 +212,8 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         setIsSubmitting(true);
         setError(null);
         try {
-            await updateGroup(group.id, editedName, editableUsers);
-            await refreshData();
+            await updateGroup(apiClient, group.id, editedName, editableUsers);
+            await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             onOpenChange(false);
         } catch (err) {
             setError(err instanceof Error ? err.message : t("error.saving"));

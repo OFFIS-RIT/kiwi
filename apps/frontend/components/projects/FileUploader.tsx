@@ -3,7 +3,7 @@
 import type React from "react";
 
 import { Button } from "@/components/ui/button";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { FileText, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 
@@ -13,7 +13,7 @@ type FileUploaderProps = {
 };
 
 export function FileUploader({ files, setFiles }: FileUploaderProps) {
-    const { t } = useLanguage();
+    const t = useAppTranslations();
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 

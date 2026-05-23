@@ -11,8 +11,8 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { useLanguage } from "@/providers/LanguageProvider";
-import { authClient } from "@kiwi/auth/client";
+import { useAuthClient } from "@/providers/AuthClientProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Clock, Key, Loader2, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -28,7 +28,8 @@ type ApiKey = {
 };
 
 export function ApiKeyList() {
-    const { t } = useLanguage();
+    const authClient = useAuthClient();
+    const t = useAppTranslations();
     const [keys, setKeys] = useState<ApiKey[]>([]);
     const [loading, setLoading] = useState(true);
     const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -49,7 +50,7 @@ export function ApiKeyList() {
         } finally {
             setLoading(false);
         }
-    }, [t]);
+    }, [authClient, t]);
 
     useEffect(() => {
         void loadKeys();

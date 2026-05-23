@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
@@ -12,7 +12,7 @@ type ApiKeyRevealDialogProps = {
 };
 
 export function ApiKeyRevealDialog({ apiKey, onOpenChange }: ApiKeyRevealDialogProps) {
-    const { t } = useLanguage();
+    const t = useAppTranslations();
     const [copied, setCopied] = useState(false);
 
     const handleCopy = () => {

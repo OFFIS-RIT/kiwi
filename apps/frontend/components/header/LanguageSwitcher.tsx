@@ -7,11 +7,25 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useLanguage } from "@/providers/LanguageProvider";
+import { setLocale } from "@/lib/i18n/set-locale";
 import { Globe } from "lucide-react";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { useLocale } from "next-intl";
+import { useRouter } from "next/navigation";
+import { useTransition } from "react";
 
 export function LanguageSwitcher() {
-    const { language, setLanguage, t } = useLanguage();
+    const locale = useLocale();
+    const router = useRouter();
+    const t = useAppTranslations();
+    const [isPending, startTransition] = useTransition();
+
+    const handleChange = (nextLocale: "de" | "en") => {
+        startTransition(async () => {
+            await setLocale(nextLocale);
+            router.refresh();
+        });
+    };
 
     return (
         <DropdownMenu>
@@ -22,10 +36,18 @@ export function LanguageSwitcher() {
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setLanguage("en")} className={language === "en" ? "bg-muted" : ""}>
+                <DropdownMenuItem
+                    disabled={isPending}
+                    onClick={() => handleChange("en")}
+                    className={locale === "en" ? "bg-muted" : ""}
+                >
                     <span>{t("english")}</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setLanguage("de")} className={language === "de" ? "bg-muted" : ""}>
+                <DropdownMenuItem
+                    disabled={isPending}
+                    onClick={() => handleChange("de")}
+                    className={locale === "de" ? "bg-muted" : ""}
+                >
                     <span>{t("german")}</span>
                 </DropdownMenuItem>
             </DropdownMenuContent>

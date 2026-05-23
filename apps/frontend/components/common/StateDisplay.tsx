@@ -1,6 +1,6 @@
 "use client";
 
-import { useLanguage } from "@/providers/LanguageProvider";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 
 type StateDisplayProps = {
     isLoading?: boolean;
@@ -21,7 +21,7 @@ export function StateDisplay({
     emptyMessage,
     emptyDescription,
 }: StateDisplayProps) {
-    const { t } = useLanguage();
+    const t = useAppTranslations();
 
     if (isLoading) {
         return (

@@ -1,6 +1,8 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { useCurrentSelection } from "@/hooks/use-current-selection";
+import { useGroupsWithProjects } from "@/hooks/use-data";
 import type { Group, Project } from "@/types";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -27,14 +29,16 @@ import {
     SidebarMenuSub,
     SidebarRail,
 } from "@/components/ui/sidebar";
-import { useData } from "@/providers/DataProvider";
-import { useLanguage } from "@/providers/LanguageProvider";
-import { useNavigation } from "@/providers/NavigationProvider";
+import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
+import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
+import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
 import Fuse from "fuse.js";
 import { BookOpen, ChevronRight, Edit, FolderSearch, MoreVertical, Plus, Search, Trash2, Users, X } from "lucide-react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import type * as React from "react";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 
@@ -52,7 +56,6 @@ type SearchResult = {
 };
 
 const MIN_SEARCH_LENGTH = 1;
-const APP_BUILD_LABEL = process.env.NEXT_PUBLIC_APP_BUILD_LABEL?.trim();
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     onEditGroup: (group: Group) => void;
@@ -70,9 +73,13 @@ export function AppSidebar({
     onProjectCreated,
     ...props
 }: AppSidebarProps) {
-    const { t } = useLanguage();
-    const { groups, isLoading, error } = useData();
-    const { showGroups, selectedGroup, selectedProject } = useNavigation();
+    const t = useAppTranslations();
+    const router = useRouter();
+    const { buildLabel } = useRuntimeConfig();
+    const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
+    const error = queryError ? t("error.loading.data") : null;
+    const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
+    const homePrefetchRef = usePrefetchWhenVisible<HTMLButtonElement>("/");
     const {
         expandedGroups,
         toggleGroupExpanded,
@@ -256,7 +263,7 @@ export function AppSidebar({
                 <div className="flex items-center justify-between p-2">
                     <SidebarMenu>
                         <SidebarMenuItem>
-                            <SidebarMenuButton size="lg" onClick={showGroups}>
+                            <SidebarMenuButton ref={homePrefetchRef} size="lg" onClick={() => router.push("/")}>
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
                                     <Image
                                         src="/KIWI.jpg"
@@ -378,13 +385,13 @@ export function AppSidebar({
                     </SidebarGroupContent>
                 </SidebarGroup>
             </SidebarContent>
-            {APP_BUILD_LABEL ? (
+            {buildLabel ? (
                 <SidebarFooter className="gap-1 border-t border-sidebar-border group-data-[collapsible=icon]:hidden">
                     <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/40">
                         {t("app.build")}
                     </span>
-                    <span className="truncate font-mono text-xs text-sidebar-foreground/70" title={APP_BUILD_LABEL}>
-                        {APP_BUILD_LABEL}
+                    <span className="truncate font-mono text-xs text-sidebar-foreground/70" title={buildLabel}>
+                        {buildLabel}
                     </span>
                 </SidebarFooter>
             ) : null}
@@ -485,9 +492,12 @@ function GroupItem({
     onDeleteProject,
     onProjectCreated,
 }: GroupItemProps) {
-    const { selectedGroup, selectedProject, selectItem } = useNavigation();
-    const { t } = useLanguage();
+    const router = useRouter();
+    const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
+    const t = useAppTranslations();
     const [showCreateProject, setShowCreateProject] = useState(false);
+    const groupHref = `/${group.id}`;
+    const groupPrefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(groupHref);
 
     const projectsToShow = group.projects;
 
@@ -506,9 +516,10 @@ function GroupItem({
                         </Button>
                     </CollapsibleTrigger>
                     <SidebarMenuButton
+                        ref={groupPrefetchRef}
                         className="min-w-0 flex-1 pr-8"
                         isActive={selectedGroup?.id === group.id && !selectedProject}
-                        onClick={() => selectItem(group)}
+                        onClick={() => router.push(groupHref)}
                         title={group.name}
                         tooltip={group.name}
                     >
@@ -555,66 +566,99 @@ function GroupItem({
                 </Suspense>
                 <CollapsibleContent>
                     <SidebarMenuSub className="mr-0 pr-0">
-                        {projectsToShow.map((project) => {
-                            const isProjectMatched = matchedProjectIds?.has(project.id);
-                            const isProcessing = project.processPercentage !== undefined;
-
-                            return (
-                                <SidebarMenuItem key={project.id}>
-                                    <div className="group/project-row relative">
-                                        <SidebarMenuButton
-                                            className="min-w-0 pr-8"
-                                            isActive={selectedProject?.id === project.id}
-                                            onClick={() => {
-                                                onSelectProject(group.id);
-                                                selectItem(group, project);
-                                            }}
-                                            title={project.name}
-                                            tooltip={project.name}
-                                        >
-                                            {isProcessing ? (
-                                                <ProjectProgressChart project={project} />
-                                            ) : (
-                                                <BookOpen className="shrink-0" />
-                                            )}
-                                            <div className="w-0 min-w-0 flex-1 overflow-hidden">
-                                                <span className="block truncate">
-                                                    {highlightTerm && isProjectMatched
-                                                        ? fuzzyHighlight(project.name, highlightTerm)
-                                                        : project.name}
-                                                </span>
-                                            </div>
-                                        </SidebarMenuButton>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-                                                <SidebarMenuAction className="opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
-                                                    <MoreVertical className="h-4 w-4" />
-                                                    <span className="sr-only">{t("options")}</span>
-                                                </SidebarMenuAction>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="start" side="right" className="w-40">
-                                                <DropdownMenuItem onSelect={() => onEditProject(project, group.id)}>
-                                                    <Edit className="mr-2 h-4 w-4" />
-                                                    <span>{t("edit")}</span>
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem
-                                                    className="text-destructive focus:text-destructive"
-                                                    onSelect={() => {
-                                                        onDeleteProject(project, group.id, group.name);
-                                                    }}
-                                                >
-                                                    <Trash2 className="mr-2 h-4 w-4" />
-                                                    <span>{t("delete")}</span>
-                                                </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </div>
-                                </SidebarMenuItem>
-                            );
-                        })}
+                        {projectsToShow.map((project) => (
+                            <ProjectItem
+                                key={project.id}
+                                project={project}
+                                group={group}
+                                isMatched={matchedProjectIds?.has(project.id) ?? false}
+                                isActive={selectedProject?.id === project.id}
+                                highlightTerm={highlightTerm}
+                                onSelectProject={onSelectProject}
+                                onEditProject={onEditProject}
+                                onDeleteProject={onDeleteProject}
+                            />
+                        ))}
                     </SidebarMenuSub>
                 </CollapsibleContent>
             </Collapsible>
+        </SidebarMenuItem>
+    );
+}
+
+type ProjectItemProps = {
+    project: Project;
+    group: Group;
+    isMatched: boolean;
+    isActive: boolean;
+    highlightTerm?: string;
+    onSelectProject: (groupId: string) => void;
+    onEditProject: (project: Project, groupId: string) => void;
+    onDeleteProject: (project: Project, groupId: string, groupName: string) => void;
+};
+
+function ProjectItem({
+    project,
+    group,
+    isMatched,
+    isActive,
+    highlightTerm,
+    onSelectProject,
+    onEditProject,
+    onDeleteProject,
+}: ProjectItemProps) {
+    const router = useRouter();
+    const t = useAppTranslations();
+    const href = `/${group.id}/${project.id}`;
+    const prefetchProjectChat = usePrefetchProjectChat(project.id);
+    const prefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(href, { onVisible: prefetchProjectChat });
+    const isProcessing = project.processPercentage !== undefined;
+
+    return (
+        <SidebarMenuItem>
+            <div className="group/project-row relative">
+                <SidebarMenuButton
+                    ref={prefetchRef}
+                    className="min-w-0 pr-8"
+                    isActive={isActive}
+                    onClick={() => {
+                        onSelectProject(group.id);
+                        router.push(href);
+                    }}
+                    title={project.name}
+                    tooltip={project.name}
+                >
+                    {isProcessing ? <ProjectProgressChart project={project} /> : <BookOpen className="shrink-0" />}
+                    <div className="w-0 min-w-0 flex-1 overflow-hidden">
+                        <span className="block truncate">
+                            {highlightTerm && isMatched ? fuzzyHighlight(project.name, highlightTerm) : project.name}
+                        </span>
+                    </div>
+                </SidebarMenuButton>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                        <SidebarMenuAction className="opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
+                            <MoreVertical className="h-4 w-4" />
+                            <span className="sr-only">{t("options")}</span>
+                        </SidebarMenuAction>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" side="right" className="w-40">
+                        <DropdownMenuItem onSelect={() => onEditProject(project, group.id)}>
+                            <Edit className="mr-2 h-4 w-4" />
+                            <span>{t("edit")}</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => {
+                                onDeleteProject(project, group.id, group.name);
+                            }}
+                        >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            <span>{t("delete")}</span>
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
         </SidebarMenuItem>
     );
 }
