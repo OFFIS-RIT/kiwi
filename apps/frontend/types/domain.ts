@@ -13,6 +13,11 @@ export type ProjectState = "ready" | "update";
 
 export type { ProcessStep };
 
+export type ProjectChatSummary = {
+    id: string;
+    title: string;
+};
+
 /**
  * Frontend project model with string IDs and processing state.
  */
@@ -27,13 +32,16 @@ export type Project = {
     processPercentage?: number;
     processEstimatedDuration?: number;
     processTimeRemaining?: number;
+    recentChats: ProjectChatSummary[];
 };
 
 /**
- * Frontend group model containing projects.
+ * Frontend team/organization bucket containing projects.
  */
 export type Group = {
     id: string;
     name: string;
+    role: "admin" | "moderator" | "member";
+    scope: "organization" | "team";
     projects: Project[];
 };

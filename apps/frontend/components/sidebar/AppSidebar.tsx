@@ -32,6 +32,8 @@ import {
 import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
 import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { canCreateProjectInGroup, canDeleteTeam, canManageTeam, canMutateProjectInGroup } from "@/lib/capabilities";
+import { useAuth } from "@/providers/AuthProvider";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
@@ -495,11 +497,16 @@ function GroupItem({
     const router = useRouter();
     const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
     const t = useAppTranslations();
+    const { isAdmin } = useAuth();
     const [showCreateProject, setShowCreateProject] = useState(false);
     const groupHref = `/${group.id}`;
     const groupPrefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(groupHref);
 
     const projectsToShow = group.projects;
+    const context = { isAdmin };
+    const canEditTeam = canManageTeam(group, context);
+    const canCreateProject = canCreateProjectInGroup(group, context);
+    const canDeleteGroup = canDeleteTeam(group, context);
 
     return (
         <SidebarMenuItem>
@@ -530,31 +537,39 @@ function GroupItem({
                             </span>
                         </div>
                     </SidebarMenuButton>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-                            <SidebarMenuAction className="opacity-0 group-hover/group-row:opacity-100 group-focus-within/group-row:opacity-100 data-[state=open]:opacity-100">
-                                <MoreVertical className="h-4 w-4" />
-                                <span className="sr-only">{t("options")}</span>
-                            </SidebarMenuAction>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" side="right" className="w-48">
-                            <DropdownMenuItem onSelect={() => onEditGroup(group)}>
-                                <Edit className="mr-2 h-4 w-4" />
-                                <span>{t("edit")}</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setShowCreateProject(true)}>
-                                <Plus className="mr-2 h-4 w-4" />
-                                <span>{t("create.new.project")}</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onSelect={() => onDeleteGroup(group)}
-                            >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                <span>{t("delete")}</span>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    {(canEditTeam || canCreateProject || canDeleteGroup) && (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                                <SidebarMenuAction className="opacity-0 group-hover/group-row:opacity-100 group-focus-within/group-row:opacity-100 data-[state=open]:opacity-100">
+                                    <MoreVertical className="h-4 w-4" />
+                                    <span className="sr-only">{t("options")}</span>
+                                </SidebarMenuAction>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" side="right" className="w-48">
+                                {canEditTeam && (
+                                    <DropdownMenuItem onSelect={() => onEditGroup(group)}>
+                                        <Edit className="mr-2 h-4 w-4" />
+                                        <span>{t("edit")}</span>
+                                    </DropdownMenuItem>
+                                )}
+                                {canCreateProject && (
+                                    <DropdownMenuItem onSelect={() => setShowCreateProject(true)}>
+                                        <Plus className="mr-2 h-4 w-4" />
+                                        <span>{t("create.new.project")}</span>
+                                    </DropdownMenuItem>
+                                )}
+                                {canDeleteGroup && (
+                                    <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onSelect={() => onDeleteGroup(group)}
+                                    >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        <span>{t("delete")}</span>
+                                    </DropdownMenuItem>
+                                )}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    )}
                 </div>
                 <Suspense fallback={null}>
                     <CreateProjectDialog
@@ -613,6 +628,8 @@ function ProjectItem({
     const prefetchProjectChat = usePrefetchProjectChat(project.id);
     const prefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(href, { onVisible: prefetchProjectChat });
     const isProcessing = project.processPercentage !== undefined;
+    const { isAdmin } = useAuth();
+    const canMutateProject = canMutateProjectInGroup(group, { isAdmin });
 
     return (
         <SidebarMenuItem>
@@ -635,29 +652,31 @@ function ProjectItem({
                         </span>
                     </div>
                 </SidebarMenuButton>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-                        <SidebarMenuAction className="opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
-                            <MoreVertical className="h-4 w-4" />
-                            <span className="sr-only">{t("options")}</span>
-                        </SidebarMenuAction>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" side="right" className="w-40">
-                        <DropdownMenuItem onSelect={() => onEditProject(project, group.id)}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            <span>{t("edit")}</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onSelect={() => {
-                                onDeleteProject(project, group.id, group.name);
-                            }}
-                        >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            <span>{t("delete")}</span>
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                {canMutateProject && (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                            <SidebarMenuAction className="opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
+                                <MoreVertical className="h-4 w-4" />
+                                <span className="sr-only">{t("options")}</span>
+                            </SidebarMenuAction>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" side="right" className="w-40">
+                            <DropdownMenuItem onSelect={() => onEditProject(project, group.id)}>
+                                <Edit className="mr-2 h-4 w-4" />
+                                <span>{t("edit")}</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onSelect={() => {
+                                    onDeleteProject(project, group.id, group.name);
+                                }}
+                            >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                <span>{t("delete")}</span>
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                )}
             </div>
         </SidebarMenuItem>
     );

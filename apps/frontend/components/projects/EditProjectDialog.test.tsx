@@ -13,6 +13,17 @@ Object.defineProperty(globalThis, "ResizeObserver", {
 });
 
 vi.mock("@/hooks/use-data", () => ({
+    useGroupsWithProjects: () => ({
+        data: [
+            {
+                id: "group_1",
+                name: "Team Wissen",
+                role: "admin",
+                scope: "team",
+                projects: [],
+            },
+        ],
+    }),
     useProjectFiles: () => ({
         data: [
             {
@@ -45,7 +56,7 @@ vi.mock("@kiwi/auth/client", () => ({
 
 vi.mock("@/providers/AuthProvider", () => ({
     useAuth: () => ({
-        hasPermission: () => false,
+        isAdmin: false,
     }),
 }));
 
@@ -70,7 +81,7 @@ describe("EditProjectDialog", () => {
                     id: "project_1",
                     name: "Wissensbasis",
                 }}
-                groupId={null}
+                groupId="group_1"
             />
         );
 

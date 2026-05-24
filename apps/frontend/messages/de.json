@@ -24,6 +24,8 @@
     "no.items": "Keine Einträge gefunden",
     "from.group": "Aus der",
     "group": "Gruppe",
+    "organization": "Organisation",
+    "personal": "Persönlich",
     "welcome.message": "Willkommen in der {projectName} Wissensdatenbank. Wie kann ich dir heute helfen?",
     "empty.chat.prompt": "Was möchtest du über {projectName} wissen?",
     "ask.question": "Stelle eine Frage zu diesem Wissensprojekt...",

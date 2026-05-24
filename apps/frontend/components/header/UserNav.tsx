@@ -1,5 +1,6 @@
 "use client";
 
+import { ApiKeySheet } from "@/components/api-keys";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,19 +9,34 @@ import {
     DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useAuth } from "@/providers/AuthProvider";
+import { canAccessSystemAdmin } from "@/lib/capabilities";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
-import { LogOut, Settings, ShieldCheck } from "lucide-react";
+import { queryKeys } from "@/lib/query-keys";
+import { useAuthClient } from "@/providers/AuthClientProvider";
+import { useAuth } from "@/providers/AuthProvider";
+import { useQueryClient } from "@tanstack/react-query";
+import { Building2, Check, Key, LogOut, Settings, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function UserNav() {
     const t = useAppTranslations();
-    const { user, isAdmin, signOut } = useAuth();
+    const authClient = useAuthClient();
+    const queryClient = useQueryClient();
+    const { user, isSystemAdmin, signOut } = useAuth();
+    const { data: organizations } = authClient.useListOrganizations();
+    const { data: activeOrganization } = authClient.useActiveOrganization();
+    const [showApiKeys, setShowApiKeys] = useState(false);
     const [ready, setReady] = useState(false);
+    const organizationList = organizations ?? [];
+    const canSwitchOrganization = organizationList.length > 1;
+    const canOpenAdmin = canAccessSystemAdmin({ isSystemAdmin });
 
     useEffect(() => {
         if (user) {
@@ -36,6 +52,21 @@ export function UserNav() {
               .toUpperCase()
               .slice(0, 2)
         : "?";
+
+    const handleSwitchOrganization = async (organizationId: string) => {
+        if (organizationId === activeOrganization?.id) {
+            return;
+        }
+
+        const { error } = await authClient.organization.setActive({ organizationId });
+        if (error) {
+            return;
+        }
+
+        localStorage.removeItem("kiwi-navigation-state");
+        queryClient.removeQueries({ queryKey: queryKeys.groups });
+        await queryClient.invalidateQueries();
+    };
 
     return (
         <>
@@ -58,13 +89,37 @@ export function UserNav() {
                     <DropdownMenuSeparator />
                     <ThemeToggle />
                     <DropdownMenuSeparator />
+                    {canSwitchOrganization ? (
+                        <>
+                            <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>
+                                    <Building2 className="h-4 w-4" />
+                                    <span>{t("organization.switch")}</span>
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent alignOffset={-4} className="w-56">
+                                    {organizationList.map((organization) => (
+                                        <DropdownMenuItem
+                                            key={organization.id}
+                                            onSelect={() => void handleSwitchOrganization(organization.id)}
+                                        >
+                                            <span className="truncate">{organization.name}</span>
+                                            {organization.id === activeOrganization?.id ? (
+                                                <Check className="ml-auto h-4 w-4" />
+                                            ) : null}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                            <DropdownMenuSeparator />
+                        </>
+                    ) : null}
                     <DropdownMenuItem asChild>
                         <Link href="/settings">
                             <Settings className="h-4 w-4" />
                             <span>{t("settings")}</span>
                         </Link>
                     </DropdownMenuItem>
-                    {isAdmin && (
+                    {canOpenAdmin && (
                         <DropdownMenuItem asChild>
                             <Link href="/admin">
                                 <ShieldCheck className="h-4 w-4" />
@@ -72,6 +127,10 @@ export function UserNav() {
                             </Link>
                         </DropdownMenuItem>
                     )}
+                    <DropdownMenuItem onSelect={() => setShowApiKeys(true)}>
+                        <Key className="h-4 w-4" />
+                        <span>{t("apiKey.management")}</span>
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => void signOut()}>
                         <LogOut className="h-4 w-4" />
@@ -79,6 +138,7 @@ export function UserNav() {
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
+            <ApiKeySheet open={showApiKeys} onOpenChange={setShowApiKeys} />
         </>
     );
 }

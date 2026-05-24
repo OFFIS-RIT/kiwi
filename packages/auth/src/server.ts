@@ -1,16 +1,18 @@
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { credentials } from "better-auth-credentials-plugin";
-import { admin as adminPlugin } from "better-auth/plugins";
+import { admin as adminPlugin, organization } from "better-auth/plugins";
 import { Result } from "better-result";
 import { authenticate } from "ldap-authentication";
 import { z } from "zod";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@kiwi/db";
-import { ac, admin, manager, user as userRole } from "./permissions";
+import { ac, admin as organizationAdmin, member, roleIncludes } from "./permissions";
 import { deriveAuthMode, getLdapConfigState } from "./mode";
 import { apiKey } from "@better-auth/api-key";
 import * as authTables from "@kiwi/db/tables/auth";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 
 function parseBooleanEnv(value?: string) {
     if (!value) {
@@ -54,6 +56,10 @@ const crossSubDomainCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || und
 
 export const API_KEY_RATE_LIMIT_TIME_WINDOW = 60_000;
 export const API_KEY_RATE_LIMIT_MAX_REQUESTS = 60;
+const DEFAULT_ORGANIZATION_SLUG = "default-org";
+const SYSTEM_ADMIN_ROLE = "admin";
+
+let defaultOrganizationIdPromise: Promise<string> | null = null;
 
 const ldapCredentialsSchema = z.object({
     credential: z.string().min(1),
@@ -69,6 +75,157 @@ type LdapResult = {
     [key: string]: unknown;
 };
 
+type AdminMembershipInput = {
+    organizationId: string;
+    userId: string;
+};
+
+async function loadDefaultOrganizationId() {
+    const [organization] = await db
+        .select({ id: authTables.organizationTable.id })
+        .from(authTables.organizationTable)
+        .orderBy(
+            sql`CASE WHEN ${authTables.organizationTable.slug} = ${DEFAULT_ORGANIZATION_SLUG} THEN 0 ELSE 1 END`,
+            authTables.organizationTable.createdAt
+        )
+        .limit(1);
+
+    if (!organization) {
+        throw new Error("Expected a default organization");
+    }
+
+    return organization.id;
+}
+
+export async function getDefaultOrganizationId() {
+    defaultOrganizationIdPromise ??= loadDefaultOrganizationId().catch((error) => {
+        defaultOrganizationIdPromise = null;
+        throw error;
+    });
+
+    return defaultOrganizationIdPromise;
+}
+
+async function getInitialOrganizationId(userId: string) {
+    const [membership] = await db
+        .select({ organizationId: authTables.memberTable.organizationId })
+        .from(authTables.memberTable)
+        .innerJoin(
+            authTables.organizationTable,
+            eq(authTables.organizationTable.id, authTables.memberTable.organizationId)
+        )
+        .where(eq(authTables.memberTable.userId, userId))
+        .orderBy(
+            asc(authTables.memberTable.createdAt),
+            asc(authTables.organizationTable.createdAt),
+            asc(authTables.organizationTable.id)
+        )
+        .limit(1);
+
+    return membership?.organizationId ?? (await getDefaultOrganizationId());
+}
+
+export function isSystemAdminRole(role: unknown) {
+    return typeof role === "string" && roleIncludes(role, SYSTEM_ADMIN_ROLE);
+}
+
+function requireSystemAdminRole(user: unknown) {
+    const role = user && typeof user === "object" && "role" in user ? (user as { role?: unknown }).role : null;
+
+    if (!isSystemAdminRole(role)) {
+        throw new APIError("FORBIDDEN", { message: "Only system admins can manage organizations" });
+    }
+}
+
+async function ensureAdminMemberships(members: AdminMembershipInput[]) {
+    if (members.length === 0) {
+        return;
+    }
+
+    await db
+        .insert(authTables.memberTable)
+        .values(
+            members.map((member) => ({
+                ...member,
+                role: "admin",
+                systemRoleProvisioned: true,
+            }))
+        )
+        .onConflictDoUpdate({
+            target: [authTables.memberTable.organizationId, authTables.memberTable.userId],
+            set: {
+                role: sql`CASE WHEN ${authTables.memberTable.systemRoleProvisioned} THEN 'admin' ELSE ${authTables.memberTable.role} END`,
+            },
+        });
+}
+
+export async function ensureSystemAdminOrganizationMemberships(userId: string) {
+    const organizations = await db.select({ id: authTables.organizationTable.id }).from(authTables.organizationTable);
+
+    await ensureAdminMemberships(organizations.map((organization) => ({ organizationId: organization.id, userId })));
+}
+
+async function removeSystemAdminOrganizationMemberships(userId: string) {
+    const defaultOrganizationId = await getDefaultOrganizationId();
+
+    await db.transaction(async (tx) => {
+        await tx
+            .update(authTables.memberTable)
+            .set({
+                role: "member",
+                systemRoleProvisioned: false,
+            })
+            .where(
+                and(
+                    eq(authTables.memberTable.userId, userId),
+                    eq(authTables.memberTable.organizationId, defaultOrganizationId),
+                    eq(authTables.memberTable.systemRoleProvisioned, true)
+                )
+            );
+
+        await tx
+            .delete(authTables.memberTable)
+            .where(
+                and(
+                    eq(authTables.memberTable.userId, userId),
+                    ne(authTables.memberTable.organizationId, defaultOrganizationId),
+                    eq(authTables.memberTable.systemRoleProvisioned, true)
+                )
+            );
+    });
+}
+
+async function ensureOrganizationSystemAdminMembers(organizationId: string) {
+    const systemAdmins = await db
+        .select({ id: authTables.userTable.id })
+        .from(authTables.userTable)
+        .where(
+            sql`${SYSTEM_ADMIN_ROLE} = ANY(regexp_split_to_array(btrim(COALESCE(${authTables.userTable.role}, '')), '[[:space:]]*,[[:space:]]*'))`
+        );
+
+    await ensureAdminMemberships(systemAdmins.map((user) => ({ organizationId, userId: user.id })));
+}
+
+export async function ensureDefaultOrganizationMember(userId: string, role: "admin" | "member" = "member") {
+    const organizationId = await getDefaultOrganizationId();
+
+    await db
+        .insert(authTables.memberTable)
+        .values({
+            organizationId,
+            userId,
+            role,
+        })
+        .onConflictDoUpdate({
+            target: [authTables.memberTable.organizationId, authTables.memberTable.userId],
+            set: {
+                role: sql`CASE WHEN ${authTables.memberTable.role} = 'admin' THEN ${authTables.memberTable.role} ELSE ${role} END`,
+            },
+        });
+
+    return organizationId;
+}
+
 export const auth = betterAuth({
     secret: process.env.AUTH_SECRET as string,
     baseURL: process.env.AUTH_URL as string,
@@ -80,13 +237,55 @@ export const auth = betterAuth({
             verification: authTables.verificationTable,
             session: authTables.sessionTable,
             apikey: authTables.apikey,
+            organization: authTables.organizationTable,
+            member: authTables.memberTable,
+            invitation: authTables.invitationTable,
+            team: authTables.teamTable,
+            teamMember: authTables.teamMemberTable,
         },
     }),
+    databaseHooks: {
+        user: {
+            create: {
+                after: async (user) => {
+                    await ensureDefaultOrganizationMember(user.id, "member");
+
+                    if (isSystemAdminRole(user.role)) {
+                        await ensureSystemAdminOrganizationMemberships(user.id);
+                    }
+                },
+            },
+            update: {
+                after: async (user) => {
+                    if (isSystemAdminRole(user.role)) {
+                        await ensureSystemAdminOrganizationMemberships(user.id);
+                    } else {
+                        await removeSystemAdminOrganizationMemberships(user.id);
+                    }
+                },
+            },
+        },
+        session: {
+            create: {
+                before: async (session) => {
+                    const organizationId = await getInitialOrganizationId(session.userId);
+
+                    return {
+                        data: {
+                            ...session,
+                            activeOrganizationId: organizationId,
+                            activeTeamId: null,
+                        },
+                    };
+                },
+            },
+        },
+    },
     trustedOrigins: allTrustedOrigins,
     session: {
         cookieCache: {
             enabled: true,
-            maxAge: 5 * 60, // 5 Min — bewusster Trade-off (siehe Spec §6)
+            maxAge: 5 * 60,
         },
     },
     advanced:
@@ -141,12 +340,25 @@ export const auth = betterAuth({
                 maxRequests: API_KEY_RATE_LIMIT_MAX_REQUESTS,
             },
         }),
-        adminPlugin({
-            ac: ac,
+        adminPlugin(),
+        organization({
+            ac,
+            allowUserToCreateOrganization: (user) => isSystemAdminRole(user.role),
+            creatorRole: "admin",
+            organizationHooks: {
+                beforeUpdateOrganization: async ({ user }) => {
+                    requireSystemAdminRole(user);
+                },
+                beforeDeleteOrganization: async ({ user }) => {
+                    requireSystemAdminRole(user);
+                },
+                afterCreateOrganization: async ({ organization }) => {
+                    await ensureOrganizationSystemAdminMembers(organization.id);
+                },
+            },
             roles: {
-                admin,
-                user: userRole,
-                manager,
+                admin: organizationAdmin,
+                member,
             },
         }),
         ...(ldapEnabled

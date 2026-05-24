@@ -1,6 +1,7 @@
 "use client";
 
 import { CardTemplate } from "@/components/common/CardTemplate";
+import { canManageTeam } from "@/lib/capabilities";
 import { useAuth } from "@/providers/AuthProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { Group } from "@/types";
@@ -14,9 +15,8 @@ type GroupCardProps = {
 
 export function GroupCard({ group, onSelect, onEdit }: GroupCardProps) {
     const t = useAppTranslations();
-    const { hasPermission } = useAuth();
-    const canEditGroup = hasPermission("group.update");
-    const canViewMembers = hasPermission("group.list:user");
+    const { isAdmin } = useAuth();
+    const canOpenTeamDetails = canManageTeam(group, { isAdmin });
     const processingCount = group.projects.filter((p) => p.processPercentage !== undefined).length;
 
     return (
@@ -27,7 +27,7 @@ export function GroupCard({ group, onSelect, onEdit }: GroupCardProps) {
             buttonText={t("open")}
             prefetchHref={`/${group.id}`}
             onSelect={onSelect}
-            onEdit={canEditGroup || canViewMembers ? onEdit : undefined}
+            onEdit={canOpenTeamDetails ? onEdit : undefined}
         >
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <FileText className="h-4 w-4" />

@@ -8,16 +8,17 @@ import type {
     GraphDetailSuccessData,
     GraphFileListItem,
     GraphListItem,
-    GroupUserListItem,
-    GroupListItem,
+    OrganizationMemberListItem,
+    TeamUserListItem,
+    TeamListItem,
     TextUnitRecord,
     TextUnitResponse,
 } from "@kiwi/api/types";
 
 /**
- * Group as returned by the /groups endpoint.
+ * Team as returned by the /teams endpoint.
  */
-export type ApiGroup = GroupListItem;
+export type ApiGroup = TeamListItem;
 
 /**
  * Processing pipeline stages for project creation/update.
@@ -57,9 +58,11 @@ export type FileStatus = "processing" | "processed" | "failed" | "no_status";
 export type ApiProjectFile = GraphFileListItem;
 
 /**
- * User membership in a group with role.
+ * User membership in a team with role.
  */
-export type ApiGroupUser = GroupUserListItem;
+export type ApiGroupUser = TeamUserListItem;
+
+export type ApiOrganizationMember = OrganizationMemberListItem;
 
 /**
  * Text unit (chunk) from the knowledge graph.

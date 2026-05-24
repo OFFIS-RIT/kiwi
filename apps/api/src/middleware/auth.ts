@@ -2,7 +2,14 @@ import Elysia from "elysia";
 import { defaultKeyHasher } from "@better-auth/api-key";
 import { and, eq } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
-import { API_KEY_RATE_LIMIT_MAX_REQUESTS, API_KEY_RATE_LIMIT_TIME_WINDOW, auth } from "@kiwi/auth/server";
+import {
+    API_KEY_RATE_LIMIT_MAX_REQUESTS,
+    API_KEY_RATE_LIMIT_TIME_WINDOW,
+    auth,
+    ensureDefaultOrganizationMember,
+    ensureSystemAdminOrganizationMemberships,
+    isSystemAdminRole,
+} from "@kiwi/auth/server";
 import { db } from "@kiwi/db";
 import { accountTable, apikey as apiKeyTable, userTable } from "@kiwi/db/tables/auth";
 import { error as logError, info as logInfo } from "@kiwi/logger";
@@ -53,6 +60,9 @@ export async function ensureMasterUser() {
                         banExpires: null,
                     },
                 });
+
+            await ensureDefaultOrganizationMember(masterUserId, "admin");
+            await ensureSystemAdminOrganizationMemberships(masterUserId);
 
             if (masterUserPassword) {
                 const password = await hashPassword(masterUserPassword);
@@ -146,7 +156,7 @@ export async function ensureMasterUser() {
                 }
             }
 
-            logInfo("ensured master user", { userId: masterUserId, role: "admin" });
+            logInfo("ensured master user", { userId: masterUserId, systemRole: "admin", organizationRole: "admin" });
         })().catch((error) => {
             ensureMasterUserPromise = null;
 
@@ -163,7 +173,34 @@ export const getAuthSession = (headers: Headers) =>
     });
 
 export type AuthSession = Awaited<ReturnType<typeof getAuthSession>>;
-export type AuthUser = NonNullable<AuthSession>["user"];
+type SessionUser = NonNullable<AuthSession>["user"];
+type SessionRecord = NonNullable<AuthSession>["session"];
+type SessionWithTeam = SessionRecord & {
+    activeTeamId?: string | null;
+};
+export type AuthUser = SessionUser & {
+    role?: string | null;
+    activeOrganizationId: string | null;
+    activeTeamId: string | null;
+    isSystemAdmin: boolean;
+};
+
+function toAuthUser(session: { user: SessionUser; session: SessionRecord } | null): AuthUser | null {
+    if (!session) {
+        return null;
+    }
+
+    const role = "role" in session.user && typeof session.user.role === "string" ? session.user.role : null;
+    const sessionRecord = session.session as SessionWithTeam;
+
+    return {
+        ...session.user,
+        role,
+        activeOrganizationId: sessionRecord.activeOrganizationId ?? null,
+        activeTeamId: sessionRecord.activeTeamId ?? null,
+        isSystemAdmin: isSystemAdminRole(role),
+    };
+}
 
 function getAuthorizationToken(headers: Headers) {
     const authorization = headers.get("authorization")?.trim();
@@ -215,7 +252,7 @@ function createAuthMiddleware(name: string, getHeaders: (headers: Headers) => He
 
         return {
             session,
-            user: session?.user ?? null,
+            user: toAuthUser(session),
         };
     });
 }

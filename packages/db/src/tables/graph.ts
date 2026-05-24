@@ -3,6 +3,7 @@ import {
     boolean,
     check,
     doublePrecision,
+    foreignKey,
     index,
     integer,
     json,
@@ -15,7 +16,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
-import { userTable } from "./auth";
+import { organizationTable, teamTable, userTable } from "./auth";
 import { tsvector, weightedTsvectorGenerated } from "./tsvector";
 
 export const FILE_PROCESS_STATUS_VALUES = ["processing", "processed", "failed"] as const;
@@ -37,50 +38,14 @@ export type FileProcessStep = (typeof FILE_PROCESS_STEP_VALUES)[number];
 export const PROCESS_RUN_STATUS_VALUES = ["pending", "started", "completed", "failed"] as const;
 export type ProcessRunStatus = (typeof PROCESS_RUN_STATUS_VALUES)[number];
 
-export const groupTable = pgTable.withRLS("groups", {
-    id: text("id")
-        .primaryKey()
-        .$default(() => ulid()),
-    name: text("name").notNull(),
-    description: text("description"),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-        .defaultNow()
-        .$onUpdate(() => sql`NOW()`),
-});
-
-export const groupUserTable = pgTable.withRLS(
-    "group_users",
-    {
-        groupId: text("group_id")
-            .notNull()
-            .references(() => groupTable.id, { onDelete: "cascade" }),
-        userId: text("user_id")
-            .notNull()
-            .references(() => userTable.id, { onDelete: "cascade" }),
-        role: text("role", { enum: ["user", "admin", "moderator"] })
-            .notNull()
-            .default("user"),
-        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-            .defaultNow()
-            .$onUpdate(() => sql`NOW()`),
-    },
-    (table) => [
-        {
-            primaryKey: primaryKey({ name: "group_users_pk", columns: [table.groupId, table.userId] }),
-        },
-        index("group_users_user_group_idx").on(table.userId, table.groupId),
-    ]
-);
-
 export const graphTable = pgTable.withRLS(
     "graphs",
     {
         id: text("id")
             .primaryKey()
             .$default(() => ulid()),
-        groupId: text("group_id").references(() => groupTable.id, { onDelete: "cascade" }),
+        organizationId: text("organization_id").references(() => organizationTable.id, { onDelete: "cascade" }),
+        teamId: text("team_id").references(() => teamTable.id, { onDelete: "cascade" }),
         userId: text("user_id").references(() => userTable.id, { onDelete: "cascade" }),
         graphId: text("graph_id").references((): AnyPgColumn => graphTable.id, { onDelete: "cascade" }),
         name: text("name").notNull(),
@@ -98,13 +63,26 @@ export const graphTable = pgTable.withRLS(
     (table) => [
         check(
             "graphs_single_owner_check",
-            sql`(((${table.groupId} IS NOT NULL)::int + (${table.userId} IS NOT NULL)::int + (${table.graphId} IS NOT NULL)::int) <= 1)`
+            sql`(((${table.organizationId} IS NOT NULL)::int + (${table.userId} IS NOT NULL)::int + (${table.graphId} IS NOT NULL)::int) = 1)`
         ),
-        index("graphs_group_type_idx").on(table.groupId, table.type),
+        check(
+            "graphs_team_requires_organization_check",
+            sql`${table.teamId} IS NULL OR ${table.organizationId} IS NOT NULL`
+        ),
+        foreignKey({
+            name: "graphs_team_organization_fkey",
+            columns: [table.teamId, table.organizationId],
+            foreignColumns: [teamTable.id, teamTable.organizationId],
+        }).onDelete("cascade"),
+        index("graphs_organization_type_idx").on(table.organizationId, table.type),
+        index("graphs_team_type_idx").on(table.teamId, table.type),
         index("graphs_user_type_idx").on(table.userId, table.type),
         index("graphs_graph_type_idx").on(table.graphId, table.type),
-        index("graphs_visible_root_group_name_idx")
-            .on(table.groupId, table.name)
+        index("graphs_visible_root_organization_name_idx")
+            .on(table.organizationId, table.name)
+            .where(sql`${table.graphId} IS NULL AND ${table.teamId} IS NULL AND ${table.hidden} = false`),
+        index("graphs_visible_root_team_name_idx")
+            .on(table.teamId, table.name)
             .where(sql`${table.graphId} IS NULL AND ${table.hidden} = false`),
     ]
 );

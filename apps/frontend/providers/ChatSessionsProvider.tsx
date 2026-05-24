@@ -64,7 +64,10 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
             getEntry: (projectId) => entriesRef.current.get(projectId),
             ensureEntry: (projectId, init) => {
                 const existing = entriesRef.current.get(projectId);
-                if (existing) return existing;
+                if (existing?.sessionId === init.sessionId) return existing;
+                if (existing) {
+                    void existing.chat.stop().catch(() => undefined);
+                }
 
                 const chat = new Chat<ChatUIMessage>({
                     id: init.sessionId,

@@ -16,7 +16,8 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { fetchGroupUsers, updateGroup } from "@/lib/api/groups";
+import { fetchGroupAvailableUsers, fetchGroupUsers, updateGroup, updateGroupUsers } from "@/lib/api/groups";
+import { canChangeTeamAdminRole, canManageTeam, canRemoveTeamMember, canRenameTeam } from "@/lib/capabilities";
 import {
     type SearchableFields,
     compactUserSearch,
@@ -24,10 +25,10 @@ import {
     fuzzySearchUsers,
     normalizeUserSearch,
 } from "@/lib/user-search";
+import type { Group } from "@/types";
 import { useApiClient } from "@/providers/ApiClientProvider";
-import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
-import { queryKeys } from "@/hooks/use-data";
+import { queryKeys } from "@/lib/query-keys";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Plus, X } from "lucide-react";
@@ -60,23 +61,23 @@ function getInitials(name: string): string {
 type EditGroupDialogProps = {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    group: {
-        id: string;
-        name: string;
-    } | null;
+    group: Group | null;
 };
 
 const MAX_NAME_LENGTH = 40;
 
 export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogProps) {
     const apiClient = useApiClient();
-    const authClient = useAuthClient();
     const queryClient = useQueryClient();
     const t = useAppTranslations();
-    const { hasPermission } = useAuth();
-    const canEdit = hasPermission("group.update");
-    const canAddUser = hasPermission("group.add:user");
-    const canRemoveUser = hasPermission("group.remove:user");
+    const { isAdmin } = useAuth();
+    const context = { isAdmin };
+    const canEdit = group ? canRenameTeam(group, context) : false;
+    const canManageMembers = group ? canManageTeam(group, context) : false;
+    const canAddUser = canManageMembers;
+    const canManageRoles = canManageMembers;
+    const canRemoveUser = group ? canRemoveTeamMember(group, context) : false;
+    const canEditAdminRole = group ? canChangeTeamAdminRole(group, context) : false;
     const [isLoading, setIsLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -90,7 +91,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
     const [selectedUser, setSelectedUser] = useState<UserSuggestion | null>(null);
     const [availableUsers, setAvailableUsers] = useState<UserSuggestion[]>([]);
     const [isSearchingUsers, setIsSearchingUsers] = useState(false);
-    const [newUserRole, setNewUserRole] = useState("user");
+    const [newUserRole, setNewUserRole] = useState("member");
     const groupId = group?.id;
     const groupName = group?.name;
 
@@ -116,58 +117,32 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
             setError(null);
             setNewUserSearch("");
             setSelectedUser(null);
-            setNewUserRole("user");
+            setNewUserRole("member");
         }
     }, [groupId, groupName, open, loadGroupUsers]);
 
     const loadAvailableUsers = useCallback(async () => {
-        if (!canAddUser || !open) {
+        if (!canAddUser || !open || !groupId) {
             return;
         }
 
         setIsSearchingUsers(true);
 
         try {
-            const pageSize = 100;
-            let offset = 0;
-            let total = Number.POSITIVE_INFINITY;
-            const allUsers: UserSuggestion[] = [];
-
-            while (offset < total) {
-                const { data, error } = await authClient.admin.listUsers({
-                    query: {
-                        limit: pageSize,
-                        offset,
-                    },
-                });
-
-                if (error) {
-                    throw error;
-                }
-
-                const users = (data?.users ?? []).map((user) => ({
-                    id: user.id,
-                    name: user.name ?? user.id,
-                    email: user.email ?? "",
-                }));
-
-                allUsers.push(...users);
-
-                total = data?.total ?? allUsers.length;
-                if (users.length < pageSize) {
-                    break;
-                }
-
-                offset += pageSize;
-            }
-
-            setAvailableUsers(allUsers);
+            const users = await fetchGroupAvailableUsers(apiClient, groupId);
+            setAvailableUsers(
+                users.map((user) => ({
+                    id: user.user_id,
+                    name: user.user_name ?? user.user_id,
+                    email: user.user_email,
+                }))
+            );
         } catch {
             setAvailableUsers([]);
         } finally {
             setIsSearchingUsers(false);
         }
-    }, [authClient, canAddUser, open]);
+    }, [apiClient, canAddUser, groupId, open]);
 
     useEffect(() => {
         if (!open || !canAddUser) {
@@ -204,7 +179,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         ]);
         setNewUserSearch("");
         setSelectedUser(null);
-        setNewUserRole("user");
+        setNewUserRole("member");
     };
 
     const handleSubmit = async () => {
@@ -212,7 +187,18 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         setIsSubmitting(true);
         setError(null);
         try {
-            await updateGroup(apiClient, group.id, editedName, editableUsers);
+            if (canEdit) {
+                await updateGroup(apiClient, group.id, editedName, editableUsers);
+            } else {
+                await updateGroupUsers(
+                    apiClient,
+                    group.id,
+                    editableUsers.map((user) => ({
+                        user_id: user.user_id,
+                        role: user.role as "admin" | "moderator" | "member",
+                    }))
+                );
+            }
             await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             onOpenChange(false);
         } catch (err) {
@@ -320,38 +306,43 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                             </span>
                                                         </div>
 
-                                                        {canRemoveUser ? (
+                                                        {canManageRoles ? (
                                                             <div className="flex shrink-0 items-center gap-1">
                                                                 <Select
                                                                     value={user.role}
                                                                     onValueChange={(newRole) =>
                                                                         handleUpdateUserRole(user.user_id, newRole)
                                                                     }
+                                                                    disabled={!canEditAdminRole && user.role === "admin"}
                                                                 >
                                                                     <SelectTrigger className="h-8 w-[110px] text-xs">
                                                                         <SelectValue placeholder={t("admin.role")} />
                                                                     </SelectTrigger>
                                                                     <SelectContent>
-                                                                        <SelectItem value="admin">
-                                                                            {t("admin.role.admin")}
-                                                                        </SelectItem>
+                                                                        {canEditAdminRole && (
+                                                                            <SelectItem value="admin">
+                                                                                {t("admin.role.admin")}
+                                                                            </SelectItem>
+                                                                        )}
                                                                         <SelectItem value="moderator">
                                                                             {t("admin.role.manager")}
                                                                         </SelectItem>
-                                                                        <SelectItem value="user">
+                                                                        <SelectItem value="member">
                                                                             {t("admin.role.user")}
                                                                         </SelectItem>
                                                                     </SelectContent>
                                                                 </Select>
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-8 w-8"
-                                                                    onClick={() => handleRemoveUser(user.user_id)}
-                                                                >
-                                                                    <X className="h-3.5 w-3.5" />
-                                                                </Button>
+                                                                {canRemoveUser && (canEditAdminRole || user.role !== "admin") && (
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-8 w-8"
+                                                                        onClick={() => handleRemoveUser(user.user_id)}
+                                                                    >
+                                                                        <X className="h-3.5 w-3.5" />
+                                                                    </Button>
+                                                                )}
                                                             </div>
                                                         ) : (
                                                             <Badge
@@ -467,13 +458,15 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                                 <SelectValue placeholder={t("admin.role")} />
                                                             </SelectTrigger>
                                                             <SelectContent>
-                                                                <SelectItem value="admin">
-                                                                    {t("admin.role.admin")}
-                                                                </SelectItem>
+                                                                {canEditAdminRole && (
+                                                                    <SelectItem value="admin">
+                                                                        {t("admin.role.admin")}
+                                                                    </SelectItem>
+                                                                )}
                                                                 <SelectItem value="moderator">
                                                                     {t("admin.role.manager")}
                                                                 </SelectItem>
-                                                                <SelectItem value="user">
+                                                                <SelectItem value="member">
                                                                     {t("admin.role.user")}
                                                                 </SelectItem>
                                                             </SelectContent>

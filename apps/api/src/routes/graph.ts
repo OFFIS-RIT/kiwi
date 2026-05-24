@@ -2,14 +2,8 @@ import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
 import { db } from "@kiwi/db";
-import {
-    filesTable,
-    graphTable,
-    groupTable,
-    processRunFilesTable,
-    processRunsTable,
-    textUnitTable,
-} from "@kiwi/db/tables/graph";
+import { filesTable, graphTable, processRunFilesTable, processRunsTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { teamTable } from "@kiwi/db/tables/auth";
 import { deleteFile, getPresignedDownloadUrl, listFiles, putFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { deleteGraphFilesSpec } from "@kiwi/worker/delete-graph-files-spec";
@@ -21,11 +15,13 @@ import { listAccessibleGraphs } from "../lib/graph-list";
 import { mapUnitError } from "../lib/unit";
 import { cancelActiveFileProcessingWorkflowRuns, cancelActiveGraphWorkflowRuns } from "../lib/workflow-cancellation";
 import {
+    assertCanCreateTopLevelGraph,
     assertCanCreateUnderParentGraph,
+    assertCanCreateTeamGraph,
+    assertCanManageGraphFiles,
     assertCanPatchGraph,
     assertCanViewGraph,
     resolveGraphOwnerRoot,
-    requireGroupUpdateAccess,
     type GraphRecord,
     selectGraphFields,
 } from "../lib/graph-access";
@@ -34,6 +30,7 @@ import {
     cleanupFailedGraphCreation,
     mapGraphError,
     toGraphFileRecord,
+    inferGraphFileType,
     restoreGraphFileChangeFailure,
     selectFileFields,
     selectGraphDetailFileFields,
@@ -221,46 +218,28 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }
             const graph = graphResult.value;
 
-            let groupId: string | null = null;
-            let groupName: string | null = null;
+            let teamId: string | null = null;
+            let teamName: string | null = null;
 
             const detailResult = await Result.tryPromise(async () => {
-                if (graph.groupId) {
-                    const [group] = await db
+                const rootOwner = await resolveGraphOwnerRoot(graph.id);
+
+                if (rootOwner.mode === "team") {
+                    const [team] = await db
                         .select({
-                            id: groupTable.id,
-                            name: groupTable.name,
+                            id: teamTable.id,
+                            name: teamTable.name,
                         })
-                        .from(groupTable)
-                        .where(eq(groupTable.id, graph.groupId))
+                        .from(teamTable)
+                        .where(eq(teamTable.id, rootOwner.teamId))
                         .limit(1);
 
-                    if (!group) {
-                        throw new Error(API_ERROR_CODES.GROUP_NOT_FOUND);
+                    if (!team) {
+                        throw new Error(API_ERROR_CODES.TEAM_NOT_FOUND);
                     }
 
-                    groupId = group.id;
-                    groupName = group.name;
-                } else {
-                    const rootOwner = await resolveGraphOwnerRoot(graph.id);
-
-                    if (rootOwner.mode === "group") {
-                        const [group] = await db
-                            .select({
-                                id: groupTable.id,
-                                name: groupTable.name,
-                            })
-                            .from(groupTable)
-                            .where(eq(groupTable.id, rootOwner.groupId))
-                            .limit(1);
-
-                        if (!group) {
-                            throw new Error(API_ERROR_CODES.GROUP_NOT_FOUND);
-                        }
-
-                        groupId = group.id;
-                        groupName = group.name;
-                    }
+                    teamId = team.id;
+                    teamName = team.name;
                 }
 
                 const fileRows: GraphFileRow[] = await db
@@ -275,8 +254,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     project_state: graph.state === "updating" ? "update" : "ready",
                     description: graph.description,
                     hidden: graph.hidden,
-                    group_id: groupId,
-                    group_name: groupName,
+                    organization_id: graph.organizationId,
+                    team_id: teamId,
+                    team_name: teamName,
+                    scope:
+                        rootOwner.mode === "user" ? "private" : rootOwner.mode === "team" ? "team" : "organization",
                     files,
                 };
             });
@@ -301,7 +283,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
     )
     .post(
         "/",
-        async ({ body, request, user, status }) => {
+        async ({ body, user, status }) => {
             if (!user) {
                 return status(401, {
                     status: "error",
@@ -310,7 +292,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            if (body.groupId && body.graphId) {
+            if (body.teamId && body.graphId) {
                 return status(400, {
                     status: "error",
                     message: "Only one owner may be specified",
@@ -319,22 +301,40 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }
 
             const files = body.files ? (Array.isArray(body.files) ? body.files : [body.files]) : [];
-            const ownerMode = body.groupId ? "group" : body.graphId ? "graph" : "user";
 
-            const accessResult = await Result.tryPromise(async () => {
-                if (body.groupId) {
-                    await requireGroupUpdateAccess(request.headers, user, body.groupId);
-                } else if (body.graphId) {
-                    await assertCanCreateUnderParentGraph(request.headers, user, body.graphId);
+            const ownerResult = await Result.tryPromise(async () => {
+                if (body.teamId) {
+                    const access = await assertCanCreateTeamGraph(user, body.teamId);
+                    return {
+                        ownerMode: "team" as const,
+                        organizationId: access.team.organizationId,
+                        teamId: body.teamId,
+                    };
                 }
+
+                if (body.graphId) {
+                    await assertCanCreateUnderParentGraph(user, body.graphId);
+                    return {
+                        ownerMode: "graph" as const,
+                        graphId: body.graphId,
+                    };
+                }
+
+                const access = await assertCanCreateTopLevelGraph(user);
+                return {
+                    ownerMode: "organization" as const,
+                    organizationId: access.organizationId,
+                };
             });
 
-            if (accessResult.isErr()) {
-                return mapGraphError(status, accessResult.error);
+            if (ownerResult.isErr()) {
+                return mapGraphError(status, ownerResult.error);
             }
 
+            const owner = ownerResult.value;
+            const ownerMode = owner.ownerMode;
             const filesWithChecksums = await uniqueFilesByChecksum(files);
-            const hidden = body.groupId ? body.hidden === true || body.hidden === "true" : true;
+            const hidden = owner.ownerMode === "graph" ? true : body.hidden === true || body.hidden === "true";
             const initialState = filesWithChecksums.length > 0 ? "updating" : "ready";
 
             const [graph] = await db
@@ -344,9 +344,9 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     description: body.description,
                     hidden,
                     state: initialState,
-                    groupId: body.groupId,
-                    graphId: body.graphId,
-                    userId: ownerMode === "user" ? user.id : undefined,
+                    organizationId: owner.ownerMode === "graph" ? undefined : owner.organizationId,
+                    teamId: owner.ownerMode === "team" ? owner.teamId : undefined,
+                    graphId: owner.ownerMode === "graph" ? owner.graphId : undefined,
                 })
                 .returning(selectGraphFields);
 
@@ -373,62 +373,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             try {
                 for (const { file, checksum } of filesWithChecksums) {
                     const upload = await putFile(file.name, file, `graphs/${graph.id}`, env.S3_BUCKET);
-                    const type: UploadedFile["type"] = (() => {
-                        const normalizedMimeType = file.type?.trim().toLowerCase() ?? "";
-                        const rawExtension = file.name.split(".").pop()?.trim().toLowerCase();
-                        const extension = rawExtension && rawExtension !== file.name.toLowerCase() ? rawExtension : "";
-
-                        if (normalizedMimeType === "application/pdf" || extension === "pdf") {
-                            return "pdf";
-                        }
-
-                        if (
-                            normalizedMimeType === "application/msword" ||
-                            normalizedMimeType ===
-                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-                            extension === "doc" ||
-                            extension === "docx"
-                        ) {
-                            return "doc";
-                        }
-
-                        if (
-                            normalizedMimeType === "application/vnd.ms-excel" ||
-                            normalizedMimeType ===
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-                            normalizedMimeType === "text/csv" ||
-                            extension === "xls" ||
-                            extension === "xlsx" ||
-                            extension === "csv"
-                        ) {
-                            return "sheet";
-                        }
-
-                        if (
-                            normalizedMimeType === "application/vnd.ms-powerpoint" ||
-                            normalizedMimeType ===
-                                "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
-                            extension === "ppt" ||
-                            extension === "pptx"
-                        ) {
-                            return "ppt";
-                        }
-
-                        if (normalizedMimeType.startsWith("image/")) {
-                            return "image";
-                        }
-
-                        if (normalizedMimeType === "application/json" || extension === "json") {
-                            return "json";
-                        }
-
-                        return "text";
-                    })();
 
                     uploadedFiles.push({
                         name: file.name,
                         size: file.size,
-                        type,
+                        type: inferGraphFileType(file),
                         mimeType: file.type || upload.type,
                         key: upload.key,
                         checksum,
@@ -556,17 +505,14 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 name: t.String(),
                 description: t.Optional(t.String()),
                 hidden: t.Optional(t.Union([t.Boolean(), t.Literal("true"), t.Literal("false")])),
-                groupId: t.Optional(t.String()),
+                teamId: t.Optional(t.String()),
                 graphId: t.Optional(t.String()),
-            }),
-            beforeHandle: requirePermissions({
-                graph: ["create"],
             }),
         }
     )
     .patch(
         "/:id",
-        async ({ body, params, request, user, status }) => {
+        async ({ body, params, user, status }) => {
             if (!user) {
                 return status(401, {
                     status: "error",
@@ -575,9 +521,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            const accessResult = await Result.tryPromise(async () =>
-                assertCanPatchGraph(request.headers, user, params.id)
-            );
+            const accessResult = await Result.tryPromise(async () => assertCanPatchGraph(user, params.id));
             if (accessResult.isErr()) {
                 return mapGraphError(status, accessResult.error);
             }
@@ -646,14 +590,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 name: t.Optional(t.String()),
                 description: t.Optional(t.String()),
             }),
-            beforeHandle: requirePermissions({
-                graph: ["update"],
-            }),
         }
     )
     .post(
         "/:id/files",
-        async ({ body, params, request, user, status }) => {
+        async ({ body, params, user, status }) => {
             if (!user) {
                 return status(401, {
                     status: "error",
@@ -662,9 +603,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            const accessResult = await Result.tryPromise(async () =>
-                assertCanPatchGraph(request.headers, user, params.id)
-            );
+            const accessResult = await Result.tryPromise(async () => assertCanManageGraphFiles(user, params.id));
             if (accessResult.isErr()) {
                 return mapGraphError(status, accessResult.error);
             }
@@ -721,62 +660,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             try {
                 for (const { file, checksum } of filesWithChecksums) {
                     const upload = await putFile(file.name, file, `graphs/${existingGraph.id}`, env.S3_BUCKET);
-                    const type: UploadedFile["type"] = (() => {
-                        const normalizedMimeType = file.type?.trim().toLowerCase() ?? "";
-                        const rawExtension = file.name.split(".").pop()?.trim().toLowerCase();
-                        const extension = rawExtension && rawExtension !== file.name.toLowerCase() ? rawExtension : "";
-
-                        if (normalizedMimeType === "application/pdf" || extension === "pdf") {
-                            return "pdf";
-                        }
-
-                        if (
-                            normalizedMimeType === "application/msword" ||
-                            normalizedMimeType ===
-                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-                            extension === "doc" ||
-                            extension === "docx"
-                        ) {
-                            return "doc";
-                        }
-
-                        if (
-                            normalizedMimeType === "application/vnd.ms-excel" ||
-                            normalizedMimeType ===
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-                            normalizedMimeType === "text/csv" ||
-                            extension === "xls" ||
-                            extension === "xlsx" ||
-                            extension === "csv"
-                        ) {
-                            return "sheet";
-                        }
-
-                        if (
-                            normalizedMimeType === "application/vnd.ms-powerpoint" ||
-                            normalizedMimeType ===
-                                "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
-                            extension === "ppt" ||
-                            extension === "pptx"
-                        ) {
-                            return "ppt";
-                        }
-
-                        if (normalizedMimeType.startsWith("image/")) {
-                            return "image";
-                        }
-
-                        if (normalizedMimeType === "application/json" || extension === "json") {
-                            return "json";
-                        }
-
-                        return "text";
-                    })();
 
                     uploadedFiles.push({
                         name: file.name,
                         size: file.size,
-                        type,
+                        type: inferGraphFileType(file),
                         mimeType: file.type || upload.type,
                         key: upload.key,
                         checksum,
@@ -946,14 +834,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             body: t.Object({
                 files: t.Optional(t.Files()),
             }),
-            beforeHandle: requirePermissions({
-                graph: ["add:file"],
-            }),
         }
     )
     .post(
         "/:id/files/:fileId/retry",
-        async ({ params, request, user, status }) => {
+        async ({ params, user, status }) => {
             if (!user) {
                 return status(401, {
                     status: "error",
@@ -962,9 +847,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            const accessResult = await Result.tryPromise(async () =>
-                assertCanPatchGraph(request.headers, user, params.id)
-            );
+            const accessResult = await Result.tryPromise(async () => assertCanManageGraphFiles(user, params.id));
             if (accessResult.isErr()) {
                 return mapGraphError(status, accessResult.error);
             }
@@ -1097,14 +980,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 id: t.String(),
                 fileId: t.String(),
             }),
-            beforeHandle: requirePermissions({
-                graph: ["add:file"],
-            }),
         }
     )
     .delete(
         "/:id/files",
-        async ({ body, params, request, user, status }) => {
+        async ({ body, params, user, status }) => {
             if (!user) {
                 return status(401, {
                     status: "error",
@@ -1113,9 +993,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            const accessResult = await Result.tryPromise(async () =>
-                assertCanPatchGraph(request.headers, user, params.id)
-            );
+            const accessResult = await Result.tryPromise(async () => assertCanManageGraphFiles(user, params.id));
             if (accessResult.isErr()) {
                 return mapGraphError(status, accessResult.error);
             }
@@ -1256,14 +1134,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             body: t.Object({
                 fileKeys: t.Optional(t.Union([t.String(), t.Array(t.String())])),
             }),
-            beforeHandle: requirePermissions({
-                graph: ["delete:file"],
-            }),
         }
     )
     .delete(
         "/:id",
-        async ({ params, request, user, status }) => {
+        async ({ params, user, status }) => {
             if (!user) {
                 return status(401, {
                     status: "error",
@@ -1272,9 +1147,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            const accessResult = await Result.tryPromise(async () =>
-                assertCanPatchGraph(request.headers, user, params.id)
-            );
+            const accessResult = await Result.tryPromise(async () => assertCanPatchGraph(user, params.id));
             if (accessResult.isErr()) {
                 return mapGraphError(status, accessResult.error);
             }
@@ -1426,9 +1299,6 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
         {
             params: t.Object({
                 id: t.String(),
-            }),
-            beforeHandle: requirePermissions({
-                graph: ["delete"],
             }),
         }
     );

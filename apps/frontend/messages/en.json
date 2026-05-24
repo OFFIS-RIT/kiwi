@@ -24,6 +24,8 @@
     "no.items": "No items found",
     "from.group": "From",
     "group": "group",
+    "organization": "Organization",
+    "personal": "Personal",
     "welcome.message": "Welcome to the {projectName} knowledge base. How can I help you today?",
     "empty.chat.prompt": "What would you like to know about {projectName}?",
     "ask.question": "Ask a question about this knowledge project...",
