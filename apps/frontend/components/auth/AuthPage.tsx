@@ -19,6 +19,7 @@ export function AuthPage({ view, onViewChange, nextPath }: AuthPageProps) {
     const [localView, setLocalView] = useState(view);
     const currentView = onViewChange ? view : localView;
     const showRegister = authMode === "credentials" && currentView === "register";
+
     const handleViewChange = (nextView: "login" | "register") => {
         onViewChange?.(nextView);
         if (!onViewChange) {

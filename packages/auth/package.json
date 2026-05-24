@@ -5,7 +5,8 @@
     "exports": {
         "./server": "./src/server.ts",
         "./client": "./src/client.ts",
-        "./permissions": "./src/permissions.ts"
+        "./permissions": "./src/permissions.ts",
+        "./mode": "./src/mode.ts"
     },
     "scripts": {
         "build": "bunx tsc --noEmit",

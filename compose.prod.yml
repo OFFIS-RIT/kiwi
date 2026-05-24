@@ -28,7 +28,11 @@ services:
             API_URL: ${API_URL:-/api}
             AUTH_URL: ${AUTH_URL:-/auth}
             INTERNAL_AUTH_URL: http://server:4321/auth
-            AUTH_MODE: ${AUTH_MODE:-credentials}
+            LDAP_URL_CONFIGURED: ${LDAP_URL:+true}
+            LDAP_BIND_DN_CONFIGURED: ${LDAP_BIND_DN:+true}
+            LDAP_PASSW_CONFIGURED: ${LDAP_PASSW:+true}
+            LDAP_BASE_DN_CONFIGURED: ${LDAP_BASE_DN:+true}
+            LDAP_SEARCH_ATTR_CONFIGURED: ${LDAP_SEARCH_ATTR:+true}
         healthcheck:
             test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
             interval: 30s
