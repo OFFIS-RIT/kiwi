@@ -40,7 +40,7 @@ COPY packages/auth/tsconfig.json packages/auth/tsconfig.json
 WORKDIR /app/apps/frontend
 RUN bun run build
 
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 ARG BUILD_LABEL=
