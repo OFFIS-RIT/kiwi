@@ -4,7 +4,7 @@ import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { embed, embedMany } from "ai";
 import { getClient, withAiSlot } from "@kiwi/ai";
 import { buildDescription } from "./description";
-import { buildAdapter, buildEmbeddingAdapter } from "./ai";
+import { buildEmbeddingAdapter, buildWorkerTextAdapter } from "./ai";
 import { env } from "../env";
 import { chunkItems } from "./chunk";
 import { DESCRIPTION_BATCH_SIZE } from "./description-workflow";
@@ -36,13 +36,7 @@ export function createDescriptionClient(): {
     embedding: NonNullable<DescriptionClient["embedding"]>;
 } {
     const client = getClient({
-        text: buildAdapter(
-            env.AI_TEXT_ADAPTER,
-            env.AI_TEXT_MODEL,
-            env.AI_TEXT_KEY,
-            env.AI_TEXT_URL,
-            env.AI_TEXT_RESOURCE_NAME
-        ),
+        text: buildWorkerTextAdapter(),
         embedding: buildEmbeddingAdapter(
             env.AI_EMBEDDING_ADAPTER,
             env.AI_EMBEDDING_MODEL,

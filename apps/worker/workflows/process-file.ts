@@ -31,7 +31,7 @@ import { ExcelLoader } from "@kiwi/graph/loader/excel";
 import { PPTXLoader } from "@kiwi/graph/loader/ppt";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
-import { buildAdapter, buildEmbeddingAdapter } from "../lib/ai";
+import { buildAdapter, buildEmbeddingAdapter, buildWorkerTextAdapter } from "../lib/ai";
 import { EMPTY_VECTOR_SQL, entityNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
@@ -268,13 +268,7 @@ export const processFile = defineWorkflow(
             }
 
             const client = getClient({
-                text: buildAdapter(
-                    env.AI_TEXT_ADAPTER,
-                    env.AI_TEXT_MODEL,
-                    env.AI_TEXT_KEY,
-                    env.AI_TEXT_URL,
-                    env.AI_TEXT_RESOURCE_NAME
-                ),
+                text: buildWorkerTextAdapter(),
                 embedding: buildEmbeddingAdapter(
                     env.AI_EMBEDDING_ADAPTER,
                     env.AI_EMBEDDING_MODEL,

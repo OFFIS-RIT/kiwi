@@ -273,6 +273,11 @@ Copy `.env.sample` to `.env` and configure:
 | `AI_TEXT_KEY`                      | Text model API key                                                      |
 | `AI_TEXT_URL`                      | Optional OpenAI-compatible text endpoint                                |
 | `AI_TEXT_RESOURCE_NAME`            | Azure resource name for text models                                     |
+| `AI_EXTRACT_ADAPTER`               | Optional worker-only text adapter; set with extract model and key       |
+| `AI_EXTRACT_MODEL`                 | Optional worker-only text model; set with extract adapter and key       |
+| `AI_EXTRACT_KEY`                   | Optional worker-only text API key; set with extract adapter and model   |
+| `AI_EXTRACT_URL`                   | Optional worker-only text endpoint                                     |
+| `AI_EXTRACT_RESOURCE_NAME`         | Azure worker-only text resource; required for Azure extract config      |
 | `AI_EMBEDDING_ADAPTER`             | Embedding adapter: `openai`, `azure`, `openaiAPI`                       |
 | `AI_EMBEDDING_MODEL`               | Embedding model name                                                    |
 | `AI_EMBEDDING_KEY`                 | Embedding API key                                                       |
