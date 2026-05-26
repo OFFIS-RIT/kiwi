@@ -26,10 +26,10 @@ export type ParsedCitationSegment =
           type: "text";
           text: string;
       }
-      | {
-            type: "citation";
-            citation: CitationFence;
-        };
+    | {
+          type: "citation";
+          citation: CitationFence;
+      };
 
 export function isResolvedCitationFence(citation: CitationFence): citation is ResolvedCitationFence {
     return Boolean(citation.unitId && citation.fileName && (citation.fileId || citation.fileKey));
@@ -85,20 +85,11 @@ export function parseCitationFence(rawFence: string): CitationFence | null {
             return null;
         }
 
-        const unitId =
-            typeof parsed.unitId === "string" && parsed.unitId.trim().length > 0 ? parsed.unitId.trim() : undefined;
-        const fileId =
-            typeof parsed.fileId === "string" && parsed.fileId.trim().length > 0 ? parsed.fileId.trim() : undefined;
-        const fileNameValue = parsed.fileName ?? parsed.filename;
-        const fileName =
-            typeof fileNameValue === "string" && fileNameValue.trim().length > 0 ? fileNameValue.trim() : undefined;
-        const fileKeyValue = parsed.fileKey ?? parsed.filekey;
-        const fileKey =
-            typeof fileKeyValue === "string" && fileKeyValue.trim().length > 0 ? fileKeyValue.trim() : undefined;
-        const fileType =
-            typeof parsed.fileType === "string" && parsed.fileType.trim().length > 0
-                ? parsed.fileType.trim()
-                : undefined;
+        const unitId = optionalString(parsed.unitId);
+        const fileId = optionalString(parsed.fileId);
+        const fileName = optionalString(parsed.fileName ?? parsed.filename);
+        const fileKey = optionalString(parsed.fileKey ?? parsed.filekey);
+        const fileType = optionalString(parsed.fileType);
         const startPage = toPositiveInteger(parsed.startPage);
         const endPage = toPositiveInteger(parsed.endPage);
 
@@ -116,6 +107,15 @@ export function parseCitationFence(rawFence: string): CitationFence | null {
     } catch {
         return null;
     }
+}
+
+function optionalString(value: unknown): string | undefined {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function toPositiveInteger(value: unknown): number | undefined {

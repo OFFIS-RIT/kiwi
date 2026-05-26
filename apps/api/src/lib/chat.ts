@@ -29,7 +29,6 @@ import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
 import {
     createCachingCitationResolver,
-    DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES,
     normalizeMessageCitationFences,
     type CitationResolver,
 } from "./chat-citation-normalization";
@@ -308,7 +307,6 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
 function createCachedCitationResolver(graphId: string): CitationResolver {
     return createCachingCitationResolver({
         negativeCache: unresolvedCitationCache,
-        negativeCacheMaxEntries: DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES,
         resolveCitation: (sourceId) => enrichCitation(graphId, sourceId),
     });
 }

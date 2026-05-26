@@ -49,34 +49,30 @@ export function createCachingCitationResolver(options: CachingCitationResolverOp
     const now = options.now ?? Date.now;
 
     return (citation) => {
-        const cachedMissingUntil = negativeCache.get(citation.sourceId);
+        const sourceId = citation.sourceId;
+        const cachedMissingUntil = negativeCache.get(sourceId);
         if (cachedMissingUntil !== undefined) {
             if (cachedMissingUntil > now()) {
-                negativeCache.delete(citation.sourceId);
-                negativeCache.set(citation.sourceId, cachedMissingUntil);
+                negativeCache.delete(sourceId);
+                negativeCache.set(sourceId, cachedMissingUntil);
                 return Promise.resolve(null);
             }
 
-            negativeCache.delete(citation.sourceId);
+            negativeCache.delete(sourceId);
         }
 
-        let resolvedCitation = citationCache.get(citation.sourceId);
+        let resolvedCitation = citationCache.get(sourceId);
         if (!resolvedCitation) {
-            resolvedCitation = options.resolveCitation(citation.sourceId).then((resolved) => {
+            resolvedCitation = options.resolveCitation(sourceId).then((resolved) => {
                 if (resolved) {
-                    negativeCache.delete(citation.sourceId);
+                    negativeCache.delete(sourceId);
                     return resolved;
                 }
 
-                setNegativeCacheEntry(
-                    negativeCache,
-                    citation.sourceId,
-                    now() + negativeCacheTtlMs,
-                    negativeCacheMaxEntries
-                );
+                setNegativeCacheEntry(negativeCache, sourceId, now() + negativeCacheTtlMs, negativeCacheMaxEntries);
                 return null;
             });
-            citationCache.set(citation.sourceId, resolvedCitation);
+            citationCache.set(sourceId, resolvedCitation);
         }
 
         return resolvedCitation;

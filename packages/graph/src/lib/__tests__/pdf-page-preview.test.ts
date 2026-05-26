@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { renderPDFPagePreviewsWithDeps } from "../pdf-page-preview";
+import { renderPDFPagePreviews } from "../pdf-page-preview";
 import type { PDFDocumentLike, PDFPageLike } from "../../loader/pdf/types";
 
 function pdfWithPages(pages: Array<Pick<PDFPageLike, "index" | "width" | "height">>): PDFDocumentLike {
@@ -18,7 +18,7 @@ describe("renderPDFPagePreviews", () => {
                     [2, new Uint8Array([3])],
                 ])
         );
-        const previews = await renderPDFPagePreviewsWithDeps(
+        const previews = await renderPDFPagePreviews(
             new Uint8Array([9]),
             [1, 3],
             {},
@@ -42,13 +42,13 @@ describe("renderPDFPagePreviews", () => {
 
     test("rejects invalid page numbers", async () => {
         await expect(
-            renderPDFPagePreviewsWithDeps(new Uint8Array([9]), [0], {}, { loadPDF: async () => pdfWithPages([]) })
+            renderPDFPagePreviews(new Uint8Array([9]), [0], {}, { loadPDF: async () => pdfWithPages([]) })
         ).rejects.toThrow("Invalid PDF page number 0");
     });
 
     test("skips pages beyond the PDF page count", async () => {
         const rasterizeSelectedPages = mock(async () => new Map([[0, new Uint8Array([1])]]));
-        const previews = await renderPDFPagePreviewsWithDeps(
+        const previews = await renderPDFPagePreviews(
             new Uint8Array([9]),
             [1, 5],
             {},
@@ -65,7 +65,7 @@ describe("renderPDFPagePreviews", () => {
     test("caps preview scale by maximum page dimension", async () => {
         const rasterizeSelectedPages = mock(async () => new Map([[0, new Uint8Array([1])]]));
 
-        await renderPDFPagePreviewsWithDeps(
+        await renderPDFPagePreviews(
             new Uint8Array([9]),
             [1],
             { scale: 1.5, maxDimensionPixels: 2400 },

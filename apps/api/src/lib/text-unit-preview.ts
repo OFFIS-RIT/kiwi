@@ -55,9 +55,5 @@ export function parsePageImageParam(value: string): number | null {
 }
 
 export function getPdfPreviewPageKey(graphId: string, fileId: string, page: number): string {
-    return `${getPdfPreviewPagePrefix(graphId, fileId)}/page-${page}.png`;
-}
-
-export function getPdfPreviewPagePrefix(graphId: string, fileId: string): string {
-    return getDerivedPdfPreviewPrefix(graphId, fileId);
+    return `${getDerivedPdfPreviewPrefix(graphId, fileId)}/page-${page}.png`;
 }

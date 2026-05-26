@@ -228,7 +228,7 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
     const sourceFileCitations = React.useMemo(() => buildSourceFileCitations(citations), [citations]);
 
     const hasText = markdownContent.trim().length > 0;
-    const toolThinkingItems = thinkingItems.filter(
+    const liveToolItem = thinkingItems.findLast(
         (item): item is Extract<ThinkingItem, { kind: "tool" }> => item.kind === "tool"
     );
     // Surface the most recent tool as the live label – even once it has
@@ -237,7 +237,6 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
     // between calls. While the model is deciding the next step, the spinner
     // still correctly conveys "working", and the label names the most recent
     // concrete action.
-    const liveToolItem = toolThinkingItems.at(-1);
     const liveToolLabel = liveToolItem ? t(`step.${toolNameOf(liveToolItem.part)}`) : undefined;
 
     const renderThinkingBody = () =>

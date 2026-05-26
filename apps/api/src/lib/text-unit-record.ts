@@ -63,10 +63,6 @@ export function toTextUnitRecord(graphId: string, unit: TextUnitWithFile): TextU
     };
 }
 
-export function isPageInsideUnitSpan(unit: Pick<TextUnitWithFile, "start_page" | "end_page">, page: number): boolean {
-    return unit.start_page !== null && unit.end_page !== null && page >= unit.start_page && page <= unit.end_page;
-}
-
 export function pngResponse(content: Uint8Array): Response {
     const body = new ArrayBuffer(content.byteLength);
     new Uint8Array(body).set(content);

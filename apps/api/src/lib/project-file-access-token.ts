@@ -13,12 +13,8 @@ type ProjectFileAccessTokenPayload = {
 let signingKeyPromise: Promise<CryptoKey> | null = null;
 let signingKeySecret: string | null = null;
 
-function getSigningSecret(): string {
-    return env.AUTH_SECRET;
-}
-
 function getSigningKey(): Promise<CryptoKey> {
-    const secret = getSigningSecret();
+    const secret = env.AUTH_SECRET;
     if (!signingKeyPromise || signingKeySecret !== secret) {
         signingKeySecret = secret;
         signingKeyPromise = crypto.subtle.importKey(

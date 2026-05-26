@@ -61,20 +61,11 @@ export async function rasterizeSelectedPDFPagesWithPDFToImg(
         scale,
         docInitParams: getPDFJSWasmDocInitParams(),
     });
-    const pageImages = new Map<number, Uint8Array>();
-
     const renderedPages = await Promise.all(
-        pages.map(async (page) => ({
-            index: page.index,
-            image: await document.getPage(page.index + 1),
-        }))
+        pages.map(async (page) => [page.index, await document.getPage(page.index + 1)] as const)
     );
 
-    for (const page of renderedPages) {
-        pageImages.set(page.index, page.image);
-    }
-
-    return pageImages;
+    return new Map(renderedPages);
 }
 
 export async function rasterizeSelectedPDFPagesWithGhostscript(
@@ -129,8 +120,7 @@ export function splitPagesIntoContiguousRanges<T extends PageSelection>(pages: T
 
     for (const page of sortedPages) {
         const currentRange = ranges[ranges.length - 1];
-        const previousPage = currentRange?.[currentRange.length - 1];
-        if (currentRange && previousPage && page.index === previousPage.index + 1) {
+        if (currentRange && page.index === currentRange[currentRange.length - 1]!.index + 1) {
             currentRange.push(page);
         } else {
             ranges.push([page]);

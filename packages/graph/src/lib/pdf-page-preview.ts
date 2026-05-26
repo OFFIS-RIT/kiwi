@@ -18,14 +18,6 @@ const DEFAULT_MAX_DIMENSION_PIXELS = 2400;
 export async function renderPDFPagePreviews(
     content: Uint8Array,
     pageNumbers: number[],
-    options: PDFPagePreviewOptions = {}
-): Promise<Map<number, Uint8Array>> {
-    return renderPDFPagePreviewsWithDeps(content, pageNumbers, options);
-}
-
-export async function renderPDFPagePreviewsWithDeps(
-    content: Uint8Array,
-    pageNumbers: number[],
     options: PDFPagePreviewOptions = {},
     deps: PDFPagePreviewDeps = {}
 ): Promise<Map<number, Uint8Array>> {

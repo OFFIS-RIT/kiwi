@@ -43,15 +43,11 @@ export function getPublicApiBaseUrl(request: Request, configuredApiUrl?: string)
         return apiUrl.replace(/\/+$/u, "");
     }
 
-    const origin = getRequestOrigin(request);
+    const origin = new URL(request.url).origin;
     if (!apiUrl) {
         return origin;
     }
 
     const path = apiUrl.startsWith("/") ? apiUrl : `/${apiUrl}`;
     return `${origin}${path.replace(/\/+$/u, "")}`;
-}
-
-function getRequestOrigin(request: Request): string {
-    return new URL(request.url).origin;
 }

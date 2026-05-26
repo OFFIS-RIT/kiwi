@@ -1,6 +1,6 @@
-import { getFile, putNamedFile } from "@kiwi/files";
+import { getDerivedPdfPreviewPrefix, getFile, putNamedFile } from "@kiwi/files";
 import { renderPDFPagePreviews } from "@kiwi/graph/lib/pdf-page-preview";
-import { getPdfPreviewPageKey, getPdfPreviewPagePrefix } from "./text-unit-preview";
+import { getPdfPreviewPageKey } from "./text-unit-preview";
 
 export type PDFPreviewPageResult =
     | {
@@ -65,7 +65,7 @@ export async function getOrRenderPDFPreviewPage(
             saveNamedFile(
                 `page-${page}.png`,
                 renderedImage,
-                getPdfPreviewPagePrefix(options.graphId, options.fileId),
+                getDerivedPdfPreviewPrefix(options.graphId, options.fileId),
                 options.bucket
             )
         )

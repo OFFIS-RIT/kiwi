@@ -7,7 +7,6 @@ type PageRange = {
 };
 
 type SourceFileGroup = {
-    fileRef: string;
     fallback: ResolvedCitationFence | null;
     ranges: PageRange[];
 };
@@ -77,7 +76,7 @@ export function buildSourceFileCitations(citations: ResolvedCitationFence[]): So
         const fileRef = citationFileRef(citation);
         let group = groups.get(fileRef);
         if (!group) {
-            group = { fileRef, fallback: null, ranges: [] };
+            group = { fallback: null, ranges: [] };
             groups.set(fileRef, group);
         }
 
@@ -89,16 +88,14 @@ export function buildSourceFileCitations(citations: ResolvedCitationFence[]): So
         }
     }
 
-    return Array.from(groups.values()).flatMap((group) => {
+    return Array.from(groups.entries()).flatMap(([fileRef, group]) => {
         const ranges = mergePageRanges(group.ranges);
         if (ranges.length === 0) {
-            return group.fallback
-                ? [{ key: group.fileRef, label: group.fallback.fileName, citation: group.fallback }]
-                : [];
+            return group.fallback ? [{ key: fileRef, label: group.fallback.fileName, citation: group.fallback }] : [];
         }
 
         return ranges.map((range) => ({
-            key: `${group.fileRef}:${range.startPage}-${range.endPage}`,
+            key: `${fileRef}:${range.startPage}-${range.endPage}`,
             label: `${range.citation.fileName} ${formatPageRange(range)}`,
             citation: {
                 ...range.citation,
