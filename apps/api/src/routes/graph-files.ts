@@ -166,8 +166,7 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
     )
     .get(
         "/:id/files/:fileId/:filename",
-        async ({ params, request, user, status }) =>
-            serveGraphFile({ params, request, status, user }),
+        async ({ params, request, user, status }) => serveGraphFile({ params, request, status, user }),
         {
             params: t.Object({
                 id: t.String(),
@@ -178,8 +177,7 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
     )
     .head(
         "/:id/files/:fileId/:filename",
-        async ({ params, request, user, status }) =>
-            serveGraphFile({ head: true, params, request, status, user }),
+        async ({ params, request, user, status }) => serveGraphFile({ head: true, params, request, status, user }),
         {
             params: t.Object({
                 id: t.String(),
@@ -315,27 +313,24 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
                 return status(422, errorResponse("Invalid page range", API_ERROR_CODES.INVALID_PAGE_RANGE));
             }
 
-            try {
-                const preview = await getOrRenderPDFPreviewPage({
+            const previewResult = await Result.tryPromise(async () =>
+                getOrRenderPDFPreviewPage({
                     graphId: params.id,
                     fileId: unit.project_file_id,
                     fileKey: unit.file_key,
                     page,
                     pagesToRender: getPdfPreviewPageNumbers(startPage, endPage),
                     bucket: env.S3_BUCKET,
-                });
-                if (preview.status === "source_missing") {
-                    return status(404, errorResponse("File not found", API_ERROR_CODES.INVALID_FILE_IDS));
-                }
+                })
+            );
 
-                return pngResponse(preview.content);
-            } catch (error) {
+            if (previewResult.isErr()) {
                 logError("failed to render PDF text unit preview", {
                     graphId: params.id,
                     unitId: params.unitId,
                     fileId: unit.project_file_id,
                     page,
-                    error,
+                    error: previewResult.error,
                 });
 
                 return status(
@@ -343,6 +338,12 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
                     errorResponse("Failed to render PDF preview", API_ERROR_CODES.INTERNAL_SERVER_ERROR)
                 );
             }
+
+            if (previewResult.value.status === "source_missing") {
+                return status(404, errorResponse("File not found", API_ERROR_CODES.INVALID_FILE_IDS));
+            }
+
+            return pngResponse(previewResult.value.content);
         },
         {
             params: t.Object({
