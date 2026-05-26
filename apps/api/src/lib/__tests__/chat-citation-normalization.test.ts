@@ -91,6 +91,7 @@ describe("chat citation normalization", () => {
         );
 
         expect(result.changed).toBe(true);
+        expect(result.unresolvedCitations).toEqual([]);
         expect(result.parts[1]).toEqual({ type: "reasoning", text: "thinking" });
         expect(firstCitation(result.parts[0]?.type === "text" ? result.parts[0].text : "").fileId).toBe("file-1");
     });
@@ -107,6 +108,34 @@ describe("chat citation normalization", () => {
         const result = await normalizeMessageCitationFences(parts, async () => null);
 
         expect(result.changed).toBe(false);
+        expect(result.unresolvedCitations).toEqual([]);
         expect(result.parts).toEqual(parts);
+    });
+
+    test("reports unresolved citations that were hidden from display parts", async () => {
+        const legacyCitation = stringifyCitationFence({
+            type: "cite",
+            sourceId: "source-missing",
+            unitId: "unit-legacy",
+            fileName: "missing.pdf",
+            fileKey: "graphs/graph-1/missing.pdf",
+        });
+
+        const result = await normalizeMessageCitationFences(
+            [{ type: "text", text: `Alpha ${legacyCitation} Omega` }],
+            async () => null
+        );
+
+        expect(result.changed).toBe(true);
+        expect(result.parts).toEqual([{ type: "text", text: "Alpha  Omega" }]);
+        expect(result.unresolvedCitations).toEqual([
+            {
+                partIndex: 0,
+                sourceId: "source-missing",
+                unitId: "unit-legacy",
+                fileName: "missing.pdf",
+                fileKey: "graphs/graph-1/missing.pdf",
+            },
+        ]);
     });
 });

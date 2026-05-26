@@ -9,58 +9,111 @@ import type { MessagePart } from "@kiwi/db/tables/chats";
 
 export type CitationResolver = (citation: CitationFence) => Promise<ResolvedCitationFence | null>;
 
+export type UnresolvedCitation = {
+    partIndex: number;
+    sourceId: string;
+    unitId?: string;
+    fileId?: string;
+    fileName?: string;
+    fileKey?: string;
+};
+
+type NormalizedCitationText = {
+    text: string;
+    unresolvedCitations: UnresolvedCitation[];
+};
+
 function needsCanonicalCitation(citation: CitationFence): boolean {
     return !isResolvedCitationFence(citation) || !citation.fileId;
 }
 
-export async function normalizeCitationFencesInText(text: string, resolveCitation: CitationResolver): Promise<string> {
+function toUnresolvedCitation(partIndex: number, citation: CitationFence): UnresolvedCitation {
+    return {
+        partIndex,
+        sourceId: citation.sourceId,
+        ...(citation.unitId ? { unitId: citation.unitId } : {}),
+        ...(citation.fileId ? { fileId: citation.fileId } : {}),
+        ...(citation.fileName ? { fileName: citation.fileName } : {}),
+        ...(citation.fileKey ? { fileKey: citation.fileKey } : {}),
+    };
+}
+
+async function normalizeCitationFencesInTextDetailed(
+    text: string,
+    resolveCitation: CitationResolver,
+    partIndex: number
+): Promise<NormalizedCitationText> {
     const segments = splitTextWithCitationFences(text);
     const hasLegacyCitation = segments.some(
         (segment) => segment.type === "citation" && needsCanonicalCitation(segment.citation)
     );
 
     if (!hasLegacyCitation) {
-        return text;
+        return { text, unresolvedCitations: [] };
     }
 
     const normalizedSegments = await Promise.all(
         segments.map(async (segment) => {
             if (segment.type === "text") {
-                return segment.text;
+                return { text: segment.text };
             }
 
             if (!needsCanonicalCitation(segment.citation)) {
-                return stringifyCitationFence(segment.citation);
+                return { text: stringifyCitationFence(segment.citation) };
             }
 
             const resolvedCitation = await resolveCitation(segment.citation);
-            return resolvedCitation ? stringifyCitationFence(resolvedCitation) : "";
+            if (resolvedCitation) {
+                return { text: stringifyCitationFence(resolvedCitation) };
+            }
+
+            return {
+                text: "",
+                unresolvedCitation: toUnresolvedCitation(partIndex, segment.citation),
+            };
         })
     );
 
-    return normalizedSegments.join("");
+    return {
+        text: normalizedSegments.map((segment) => segment.text).join(""),
+        unresolvedCitations: normalizedSegments.flatMap((segment) =>
+            segment.unresolvedCitation ? [segment.unresolvedCitation] : []
+        ),
+    };
+}
+
+export async function normalizeCitationFencesInText(text: string, resolveCitation: CitationResolver): Promise<string> {
+    return (await normalizeCitationFencesInTextDetailed(text, resolveCitation, 0)).text;
 }
 
 export async function normalizeMessageCitationFences(
     parts: MessagePart[],
     resolveCitation: CitationResolver
-): Promise<{ parts: MessagePart[]; changed: boolean }> {
+): Promise<{ parts: MessagePart[]; changed: boolean; unresolvedCitations: UnresolvedCitation[] }> {
     let changed = false;
-    const normalizedParts = await Promise.all(
-        parts.map(async (part) => {
+    const normalized = await Promise.all(
+        parts.map(async (part, partIndex) => {
             if (part.type !== "text") {
-                return part;
+                return { part, unresolvedCitations: [] };
             }
 
-            const text = await normalizeCitationFencesInText(part.text, resolveCitation);
+            const { text, unresolvedCitations } = await normalizeCitationFencesInTextDetailed(
+                part.text,
+                resolveCitation,
+                partIndex
+            );
             if (text === part.text) {
-                return part;
+                return { part, unresolvedCitations };
             }
 
             changed = true;
-            return { ...part, text };
+            return { part: { ...part, text }, unresolvedCitations };
         })
     );
 
-    return { parts: normalizedParts, changed };
+    return {
+        parts: normalized.map((item) => item.part),
+        changed,
+        unresolvedCitations: normalized.flatMap((item) => item.unresolvedCitations),
+    };
 }

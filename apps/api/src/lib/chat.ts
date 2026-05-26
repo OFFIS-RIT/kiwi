@@ -21,7 +21,7 @@ import {
 import { db } from "@kiwi/db";
 import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
-import { error as logError } from "@kiwi/logger";
+import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
@@ -347,7 +347,7 @@ export async function resolveCitationDocumentLink(
     }
 }
 
-export async function loadChatHistory(userId: string, graphId: string, chatId: string) {
+export async function loadChatSummary(userId: string, graphId: string, chatId: string) {
     const [chat] = await db
         .select({
             id: chatTable.id,
@@ -363,6 +363,15 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
         throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
     }
 
+    return {
+        id: chat.id,
+        title: chat.title,
+    };
+}
+
+export async function loadChatHistory(userId: string, graphId: string, chatId: string) {
+    const chat = await loadChatSummary(userId, graphId, chatId);
+
     const rows = await db
         .select()
         .from(messageTable)
@@ -373,7 +382,17 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
     const messages = await Promise.all(
         rows.map(async (message) => {
             const normalized = await normalizeMessageCitationFences(message.parts, resolveCitation);
-            if (normalized.changed) {
+            if (normalized.unresolvedCitations.length > 0) {
+                logWarn("chat citation normalization hid unresolved citations without persisting", {
+                    graphId,
+                    chatId,
+                    messageId: message.id,
+                    unresolvedCitationCount: normalized.unresolvedCitations.length,
+                    sourceIds: normalized.unresolvedCitations.map((citation) => citation.sourceId).join(","),
+                });
+            }
+
+            if (normalized.changed && normalized.unresolvedCitations.length === 0) {
                 await db
                     .update(messageTable)
                     .set({ parts: normalized.parts })

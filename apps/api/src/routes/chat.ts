@@ -25,6 +25,7 @@ import {
     getFinishMetadata,
     listChats,
     loadChatHistory,
+    loadChatSummary,
     mapChatError,
     startReply,
     toolPart,
@@ -128,8 +129,8 @@ export const chatRoute = new Elysia()
 
             const deleteResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
-                const history = await loadChatHistory(user.id, params.id, params.chatId);
-                await db.delete(chatTable).where(eq(chatTable.id, history.id));
+                const chat = await loadChatSummary(user.id, params.id, params.chatId);
+                await db.delete(chatTable).where(eq(chatTable.id, chat.id));
             });
 
             if (deleteResult.isErr()) {
