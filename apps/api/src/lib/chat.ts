@@ -26,6 +26,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
+import { normalizeCitationFencesInText, type CitationResolver } from "./chat-citation-normalization";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 
@@ -296,6 +297,33 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
     };
 }
 
+function createCachedCitationResolver(graphId: string): CitationResolver {
+    const citationCache = new Map<string, Promise<ResolvedCitationFence | null>>();
+
+    return (citation) => {
+        let resolvedCitation = citationCache.get(citation.sourceId);
+        if (!resolvedCitation) {
+            resolvedCitation = enrichCitation(graphId, citation.sourceId);
+            citationCache.set(citation.sourceId, resolvedCitation);
+        }
+
+        return resolvedCitation;
+    };
+}
+
+async function normalizeMessageCitationFences(parts: MessagePart[], resolveCitation: CitationResolver) {
+    return Promise.all(
+        parts.map(async (part) => {
+            if (part.type !== "text") {
+                return part;
+            }
+
+            const text = await normalizeCitationFencesInText(part.text, resolveCitation);
+            return text === part.text ? part : { ...part, text };
+        })
+    );
+}
+
 export async function resolveCitationDocumentLink(
     graphId: string,
     citation: CitationFence,
@@ -354,10 +382,20 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
         .where(eq(messageTable.chatId, chatId))
         .orderBy(asc(messageTable.createdAt), asc(messageTable.id));
 
+    const resolveCitation = createCachedCitationResolver(graphId);
+    const messages = await Promise.all(
+        rows.map(async (message) =>
+            toUIMessage({
+                ...message,
+                parts: await normalizeMessageCitationFences(message.parts, resolveCitation),
+            })
+        )
+    );
+
     return {
         id: chat.id,
         title: chat.title,
-        messages: rows.map((message) => toUIMessage(message)),
+        messages,
     };
 }
 
