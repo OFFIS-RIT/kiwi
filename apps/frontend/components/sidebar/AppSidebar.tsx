@@ -43,9 +43,9 @@ import { ProjectProgressChart } from "./ProjectProgressChart";
 import Fuse from "fuse.js";
 import {
     BookOpen,
+    ChevronRight,
     Edit,
     FolderSearch,
-    MessageCircle,
     MoreVertical,
     Plus,
     Search,
@@ -496,14 +496,17 @@ export function AppSidebar({
                             return (
                                 <SidebarGroup key={group.id}>
                                     <SidebarGroupLabel asChild className="px-2">
-                                        <div className="group/team-row flex min-w-0 items-center gap-1">
+                                        <div className="group/team-row flex min-w-0 items-center gap-1 rounded-md transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
                                             <button
                                                 type="button"
-                                                className="min-w-0 flex-1 cursor-pointer text-left"
+                                                className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
                                                 title={group.name}
                                                 onClick={() => toggleGroupExpanded(group.id)}
                                             >
                                                 <span className="block truncate">{group.name}</span>
+                                                <ChevronRight
+                                                    className={`h-4 w-4 shrink-0 text-sidebar-foreground/60 opacity-0 transition-[opacity,transform] group-hover/team-row:opacity-100 group-focus-within/team-row:opacity-100 ${expandedGroups[group.id] ? "rotate-90" : ""}`}
+                                                />
                                             </button>
                                             {showTeamMenu ? (
                                                 <DropdownMenu>
@@ -942,7 +945,6 @@ function ProjectItem({
                                             }}
                                             title={chat.title}
                                         >
-                                            <MessageCircle />
                                             <span>{chat.title}</span>
                                         </button>
                                     </SidebarMenuSubButton>
