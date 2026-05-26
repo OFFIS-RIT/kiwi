@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseCitationFence, stringifyCitationFence, type ResolvedCitationFence } from "../citation";
+import { isPDFCitation, parseCitationFence, stringifyCitationFence, type ResolvedCitationFence } from "../citation";
 
 describe("citation fences", () => {
     test("round-trips resolved file and page metadata", () => {
@@ -47,5 +47,11 @@ describe("citation fences", () => {
             fileName: "document.pdf",
             fileKey: "graphs/graph-1/document.pdf",
         });
+    });
+
+    test("detects PDF citations from file type or filename", () => {
+        expect(isPDFCitation({ fileName: "report.docx", fileType: "pdf" })).toBe(true);
+        expect(isPDFCitation({ fileName: "report.PDF" })).toBe(true);
+        expect(isPDFCitation({ fileName: "report.docx", fileType: "doc" })).toBe(false);
     });
 });

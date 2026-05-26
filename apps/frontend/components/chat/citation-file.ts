@@ -1,10 +1,6 @@
 import { downloadProjectFile, getProjectFileUrl } from "@/lib/api/projects";
 import type { KiwiApiClient } from "@/lib/api/client";
-import type { ResolvedCitationFence } from "@kiwi/ai/citation";
-
-function isPDFCitation(citation: ResolvedCitationFence): boolean {
-    return citation.fileType === "pdf" || citation.fileName.toLowerCase().endsWith(".pdf");
-}
+import { isPDFCitation, type ResolvedCitationFence } from "@kiwi/ai/citation";
 
 export async function openCitationSourceFile(
     apiClient: KiwiApiClient,

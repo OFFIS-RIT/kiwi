@@ -141,13 +141,13 @@ export async function getFileStream(
     const client = getClient(bucket);
     const s3File = client.file(key);
 
+    const exists = await s3File.exists();
+    if (!exists) {
+        return null;
+    }
+
     let fileMetadata = metadata;
     if (!fileMetadata) {
-        const exists = await s3File.exists();
-        if (!exists) {
-            return null;
-        }
-
         const stat = await s3File.stat();
         fileMetadata = {
             size: stat.size,

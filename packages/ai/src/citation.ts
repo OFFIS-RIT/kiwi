@@ -35,6 +35,10 @@ export function isResolvedCitationFence(citation: CitationFence): citation is Re
     return Boolean(citation.unitId && citation.fileName && (citation.fileId || citation.fileKey));
 }
 
+export function isPDFCitation(citation: Pick<CitationFence, "fileName" | "fileType">): boolean {
+    return citation.fileType === "pdf" || citation.fileName?.toLowerCase().endsWith(".pdf") === true;
+}
+
 export function stringifyCitationFence(citation: CitationFence, options?: { forModel?: boolean }) {
     const payload =
         options?.forModel || !isResolvedCitationFence(citation)

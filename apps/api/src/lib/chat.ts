@@ -7,6 +7,7 @@ import {
     buildServerToolset,
     buildSubagentToolset,
     getClient,
+    isPDFCitation,
     isResolvedCitationFence,
     messagePartsToUIMessage,
     toUIMessage,
@@ -293,10 +294,6 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
         startPage: row.startPage ?? undefined,
         endPage: row.endPage ?? undefined,
     };
-}
-
-function isPDFCitation(citation: ResolvedCitationFence): boolean {
-    return citation.fileType === "pdf" || citation.fileName.toLowerCase().endsWith(".pdf");
 }
 
 export async function resolveCitationDocumentLink(
