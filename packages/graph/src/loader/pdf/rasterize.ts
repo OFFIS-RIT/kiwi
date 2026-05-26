@@ -102,8 +102,7 @@ export async function rasterizeSelectedPDFPagesWithGhostscript(
             ]);
             for (const page of pageRange) {
                 const pageNumber = page.index + 1;
-                const outputNumber = pageNumber - firstPage + 1;
-                const outputPath = join(directory, `range-${rangeIndex}-page-${outputNumber}.png`);
+                const outputPath = join(directory, `range-${rangeIndex}-page-${pageNumber}.png`);
                 pageImages.set(page.index, await readFile(outputPath));
             }
         }
