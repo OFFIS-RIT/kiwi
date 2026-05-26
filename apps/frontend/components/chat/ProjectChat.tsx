@@ -585,10 +585,10 @@ function ProjectChatSession({
     }, [isAssistantTyping, setIsGenerating]);
 
     useEffect(() => {
-        if (!isAssistantTyping) {
-            setHasUnreadUpdate(false);
+        if (!isAssistantTyping && chatId === entry.sessionId) {
+            setHasUnreadUpdate(entry.sessionId, false);
         }
-    }, [isAssistantTyping, setHasUnreadUpdate]);
+    }, [chatId, entry.sessionId, isAssistantTyping, setHasUnreadUpdate]);
 
     useEffect(() => {
         inputRef.current?.focus();
@@ -720,7 +720,7 @@ function ProjectChatSession({
             window.history.replaceState(null, "", `${pathname}?chatId=${encodeURIComponent(entry.sessionId)}`);
         }
         setIsGenerating(true);
-        setHasUnreadUpdate(false);
+        setHasUnreadUpdate(entry.sessionId, false);
         try {
             await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
         } finally {
