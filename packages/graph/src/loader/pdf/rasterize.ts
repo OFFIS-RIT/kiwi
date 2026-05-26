@@ -81,9 +81,10 @@ export async function rasterizeSelectedPDFPagesWithGhostscript(
 
         const pageImages = new Map<number, Uint8Array>();
         const dpi = Math.max(1, Math.round(72 * scale));
-        for (const page of pages) {
-            const pageNumber = page.index + 1;
-            const outputPath = join(directory, `page-${pageNumber}.png`);
+        if (pages.length > 0) {
+            const firstPage = Math.min(...pages.map((page) => page.index + 1));
+            const lastPage = Math.max(...pages.map((page) => page.index + 1));
+            const outputPattern = join(directory, "page-%d.png");
             await runGhostscript([
                 "-q",
                 "-dSAFER",
@@ -91,12 +92,17 @@ export async function rasterizeSelectedPDFPagesWithGhostscript(
                 "-dNOPAUSE",
                 "-sDEVICE=pngalpha",
                 `-r${dpi}`,
-                `-dFirstPage=${pageNumber}`,
-                `-dLastPage=${pageNumber}`,
-                `-sOutputFile=${outputPath}`,
+                `-dFirstPage=${firstPage}`,
+                `-dLastPage=${lastPage}`,
+                `-sOutputFile=${outputPattern}`,
                 inputPath,
             ]);
-            pageImages.set(page.index, await readFile(outputPath));
+            for (const page of pages) {
+                const pageNumber = page.index + 1;
+                const outputNumber = pageNumber - firstPage + 1;
+                const outputPath = join(directory, `page-${outputNumber}.png`);
+                pageImages.set(page.index, await readFile(outputPath));
+            }
         }
 
         return pageImages;
