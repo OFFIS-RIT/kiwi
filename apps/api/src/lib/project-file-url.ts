@@ -39,7 +39,7 @@ export function getProjectFileProxyUrl(
 export function getPublicApiBaseUrl(request: Request, configuredApiUrl?: string): string {
     const apiUrl = configuredApiUrl?.trim();
 
-    if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(apiUrl)) {
+    if (apiUrl && /^[a-z][a-z0-9+.-]*:\/\//iu.test(apiUrl)) {
         return apiUrl.replace(/\/+$/u, "");
     }
 
