@@ -351,8 +351,12 @@ export const auth = betterAuth({
                 beforeUpdateOrganization: async ({ user }) => {
                     requireSystemAdminRole(user);
                 },
-                beforeDeleteOrganization: async ({ user }) => {
+                beforeDeleteOrganization: async ({ organization, user }) => {
                     requireSystemAdminRole(user);
+
+                    if (organization.id === (await getDefaultOrganizationId())) {
+                        throw new APIError("FORBIDDEN", { message: "The default organization cannot be deleted" });
+                    }
                 },
                 afterCreateOrganization: async ({ organization }) => {
                     await ensureOrganizationSystemAdminMembers(organization.id);
