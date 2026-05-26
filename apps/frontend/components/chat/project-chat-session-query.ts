@@ -8,9 +8,19 @@ export type ChatSessionState = {
     messages: ChatUIMessage[];
 };
 
-export const projectChatQueryKey = (projectId: string) => ["project-chat", projectId] as const;
+export const projectChatQueryKey = (projectId: string, chatId?: string | null) =>
+    ["project-chat", projectId, chatId ?? "latest"] as const;
 
-export async function hydrateProjectChatSession(client: KiwiApiClient, projectId: string): Promise<ChatSessionState> {
+export async function hydrateProjectChatSession(
+    client: KiwiApiClient,
+    projectId: string,
+    chatId?: string | null
+): Promise<ChatSessionState> {
+    if (chatId) {
+        const chat = await fetchProjectChat(client, projectId, chatId);
+        return { id: chat.id, messages: chat.messages };
+    }
+
     const chats = await fetchProjectChats(client, projectId);
     if (chats.length > 0) {
         const latest = await fetchProjectChat(client, projectId, chats[0].id);

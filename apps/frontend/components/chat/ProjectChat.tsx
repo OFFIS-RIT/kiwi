@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useLocale } from "next-intl";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { MessageContent } from "./MessageContent";
@@ -309,18 +310,32 @@ function stripMarkdown(text: string): string {
 export function ProjectChat({ projectName, groupName, projectId }: ProjectChatProps) {
     const queryClient = useQueryClient();
     const apiClient = useApiClient();
+    const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const chatId = searchParams.get("chatId");
     const { entry, ensureEntry, resetEntry } = useProjectChatSession(projectId);
-    const queryKey = projectChatQueryKey(projectId);
+    const queryKey = projectChatQueryKey(projectId, chatId);
 
     // Hydrate once per project from the server and cache it in React Query so
     // switching back to a previously opened project is instant (cache hit) and
     // the stored Chat instance in the provider survives the trip.
-    const { data: hydrated, isLoading: isHydrating } = useQuery({
+    const {
+        data: hydrated,
+        error: hydrationError,
+        isLoading: isHydrating,
+    } = useQuery({
         queryKey,
-        queryFn: () => hydrateProjectChatSession(apiClient, projectId),
-        enabled: !entry,
+        queryFn: () => hydrateProjectChatSession(apiClient, projectId, chatId),
+        enabled: !entry || (!!chatId && entry.sessionId !== chatId),
+        retry: false,
         staleTime: Infinity,
     });
+
+    useEffect(() => {
+        if (!chatId || !hydrationError) return;
+        router.replace(pathname);
+    }, [chatId, hydrationError, pathname, router]);
 
     // Create the Chat instance before paint once hydration data is available.
     // With visible-project prefetching this avoids flashing the shell skeleton

@@ -414,6 +414,7 @@ export function AppSidebar({
                                                 group={organizationGroup}
                                                 isExpanded={expandedProjects[project.id] ?? false}
                                                 onToggleExpanded={() => toggleProjectExpanded(project.id)}
+                                                activeChatId={chatId}
                                                 isMatched={
                                                     isSearching && "matchedProjectIds" in organizationGroup
                                                         ? (organizationGroup.matchedProjectIds as Set<string>).has(
@@ -453,6 +454,7 @@ export function AppSidebar({
                                             }
                                             expandedProjects={expandedProjects}
                                             onToggleProjectExpanded={toggleProjectExpanded}
+                                            activeChatId={chatId}
                                             onSelectProject={(groupId) => {
                                                 if (isSearching) {
                                                     projectSelectedDuringSearchRef.current = true;
@@ -495,6 +497,7 @@ type GroupItemProps = {
     matchedProjectIds?: Set<string>;
     expandedProjects: Record<string, boolean>;
     onToggleProjectExpanded: (projectId: string) => void;
+    activeChatId: string | null;
     onSelectProject: (groupId: string) => void;
     onEditProject: (project: Project, groupId: string) => void;
     onEditGroup: (group: Group) => void;
@@ -576,6 +579,7 @@ function GroupItem({
     matchedProjectIds,
     expandedProjects,
     onToggleProjectExpanded,
+    activeChatId,
     onSelectProject,
     onEditProject,
     onEditGroup,
@@ -671,6 +675,7 @@ function GroupItem({
                                 group={group}
                                 isExpanded={expandedProjects[project.id] ?? false}
                                 onToggleExpanded={() => onToggleProjectExpanded(project.id)}
+                                activeChatId={activeChatId}
                                 isMatched={matchedProjectIds?.has(project.id) ?? false}
                                 highlightTerm={highlightTerm}
                                 onSelectProject={onSelectProject}
@@ -690,6 +695,7 @@ type ProjectItemProps = {
     group: Group;
     isExpanded: boolean;
     onToggleExpanded: () => void;
+    activeChatId: string | null;
     isMatched: boolean;
     highlightTerm?: string;
     onSelectProject: (groupId: string) => void;
@@ -702,6 +708,7 @@ function ProjectItem({
     group,
     isExpanded,
     onToggleExpanded,
+    activeChatId,
     isMatched,
     highlightTerm,
     onSelectProject,
@@ -783,6 +790,7 @@ function ProjectItem({
                                     <SidebarMenuSubButton
                                         asChild
                                         size="sm"
+                                        isActive={activeChatId === chat.id}
                                         onMouseEnter={prefetchProjectChat}
                                         onFocus={prefetchProjectChat}
                                     >
@@ -790,7 +798,7 @@ function ProjectItem({
                                             type="button"
                                             onClick={() => {
                                                 onSelectProject(group.id);
-                                                router.push(href);
+                                                router.push(`${href}?chatId=${encodeURIComponent(chat.id)}`);
                                             }}
                                             title={chat.title}
                                         >
