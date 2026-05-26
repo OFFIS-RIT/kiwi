@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { buildTextUnitPreview, parsePageImageParam } from "../text-unit-preview";
+import {
+    buildTextUnitPreview,
+    getPdfPreviewPageNumbers,
+    MAX_PDF_PREVIEW_PAGES,
+    parsePageImageParam,
+} from "../text-unit-preview";
 
 describe("buildTextUnitPreview", () => {
     test("returns PDF page preview metadata for PDF units with page spans", () => {
@@ -41,6 +46,33 @@ describe("buildTextUnitPreview", () => {
                 endPage: null,
             })
         ).toEqual({ type: "none" });
+    });
+
+    test("caps large PDF spans to a bounded preview window", () => {
+        const preview = buildTextUnitPreview({
+            graphId: "graph-1",
+            unitId: "unit-1",
+            fileType: "pdf",
+            startPage: 10,
+            endPage: 30,
+        });
+
+        expect(preview).toMatchObject({
+            type: "pdf_pages",
+            start_page: 10,
+            end_page: 30,
+        });
+        expect(preview.type === "pdf_pages" ? preview.pages.map((page) => page.page) : []).toEqual(
+            Array.from({ length: MAX_PDF_PREVIEW_PAGES }, (_, index) => 10 + index)
+        );
+    });
+});
+
+describe("getPdfPreviewPageNumbers", () => {
+    test("returns a capped page window", () => {
+        expect(getPdfPreviewPageNumbers(2, 4)).toEqual([2, 3, 4]);
+        expect(getPdfPreviewPageNumbers(2, 20)).toHaveLength(MAX_PDF_PREVIEW_PAGES);
+        expect(getPdfPreviewPageNumbers(4, 2)).toEqual([]);
     });
 });
 

@@ -28,7 +28,13 @@ describe("getOrRenderPDFPreviewPage", () => {
 
     test("renders and stores PNG bytes on cache miss", async () => {
         const putNamedFile = mock(async () => ({ key: "saved", type: "image/png" }));
-        const renderPDFPagePreviews = mock(async () => new Map([[3, new Uint8Array([3])]]));
+        const renderPDFPagePreviews = mock(
+            async () =>
+                new Map([
+                    [3, new Uint8Array([3])],
+                    [4, new Uint8Array([4])],
+                ])
+        );
 
         const result = await getOrRenderPDFPreviewPage(options, {
             getFile: async (key) =>
@@ -39,12 +45,36 @@ describe("getOrRenderPDFPreviewPage", () => {
 
         expect(result).toEqual({ status: "ok", content: new Uint8Array([3]), cache: "miss" });
         expect(renderPDFPagePreviews).toHaveBeenCalledWith(new Uint8Array([9]), [3]);
+        expect(putNamedFile).toHaveBeenCalledTimes(2);
         expect(putNamedFile).toHaveBeenCalledWith(
             "page-3.png",
             new Uint8Array([3]),
             "graphs/graph-1/derived/file-1/pdf-preview/v1/scale-1.5",
             "bucket-1"
         );
+    });
+
+    test("renders the requested page together with the preview window", async () => {
+        const putNamedFile = mock(async () => ({ key: "saved", type: "image/png" }));
+        const renderPDFPagePreviews = mock(
+            async () =>
+                new Map([
+                    [3, new Uint8Array([3])],
+                    [4, new Uint8Array([4])],
+                ])
+        );
+
+        await getOrRenderPDFPreviewPage(
+            { ...options, pagesToRender: [3, 4] },
+            {
+                getFile: async (key) =>
+                    key === "source.pdf" ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+                putNamedFile,
+                renderPDFPagePreviews,
+            }
+        );
+
+        expect(renderPDFPagePreviews).toHaveBeenCalledWith(new Uint8Array([9]), [3, 4]);
     });
 
     test("reports missing source file", async () => {

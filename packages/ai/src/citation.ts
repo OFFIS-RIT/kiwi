@@ -19,7 +19,6 @@ export type CitationFence = {
 export type ResolvedCitationFence = CitationFence & {
     unitId: string;
     fileName: string;
-    fileKey: string;
 };
 
 export type ParsedCitationSegment =
@@ -34,7 +33,7 @@ export type ParsedCitationSegment =
       };
 
 export function isResolvedCitationFence(citation: CitationFence): citation is ResolvedCitationFence {
-    return Boolean(citation.unitId && citation.fileName && citation.fileKey);
+    return Boolean(citation.unitId && citation.fileName && (citation.fileId || citation.fileKey));
 }
 
 export function stringifyCitationFence(citation: CitationFence, options?: { forModel?: boolean }) {
@@ -47,7 +46,7 @@ export function stringifyCitationFence(citation: CitationFence, options?: { forM
                   unitId: citation.unitId,
                   fileId: citation.fileId,
                   fileName: citation.fileName,
-                  fileKey: citation.fileKey,
+                  fileKey: citation.fileId ? undefined : citation.fileKey,
                   fileType: citation.fileType,
                   startPage: citation.startPage,
                   endPage: citation.endPage,

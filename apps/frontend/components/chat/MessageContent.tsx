@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { downloadProjectFile, getProjectFileUrl } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
@@ -13,6 +12,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { openCitationSourceFile } from "./citation-file";
 import { TextReferenceBadge, TextReferenceDialog } from "./TextReferenceBadge";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
@@ -35,10 +35,6 @@ function isToolPart(part: ChatMessagePart): part is ToolPart {
 
 function toolNameOf(part: ToolPart): string {
     return part.type.startsWith("tool-") ? part.type.slice("tool-".length) : part.type;
-}
-
-function isPDFCitation(citation: ResolvedCitationFence): boolean {
-    return citation.fileType === "pdf" || citation.fileName.toLowerCase().endsWith(".pdf");
 }
 
 function ToolCallChip({ part }: { part: ToolPart }) {
@@ -218,22 +214,16 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
     const handleFileDownload = async (citation: ResolvedCitationFence) => {
         if (!projectId) return;
 
-        if (citation.fileId) {
-            const page = isPDFCitation(citation) ? citation.startPage : null;
-            window.open(getProjectFileUrl(projectId, citation.fileId, { page }), "_blank");
-            return;
-        }
-
         try {
-            const downloadUrl = await downloadProjectFile(apiClient, projectId, citation.fileKey);
-            window.open(downloadUrl, "_blank");
+            await openCitationSourceFile(apiClient, projectId, citation);
         } catch (error) {
             console.error("Error opening file:", error);
         }
     };
 
     const uniqueSourceFiles = citations.reduce((unique, citation) => {
-        const existingFile = unique.find((file) => file.fileKey === citation.fileKey);
+        const citationFileRef = citation.fileId ?? citation.fileKey ?? citation.sourceId;
+        const existingFile = unique.find((file) => (file.fileId ?? file.fileKey ?? file.sourceId) === citationFileRef);
         if (!existingFile) {
             unique.push(citation);
         }

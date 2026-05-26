@@ -9,7 +9,6 @@ describe("citation fences", () => {
             unitId: "unit-1",
             fileId: "file-1",
             fileName: "document.pdf",
-            fileKey: "graphs/graph-1/document.pdf",
             fileType: "pdf",
             startPage: 3,
             endPage: 5,
@@ -27,7 +26,6 @@ describe("citation fences", () => {
                     unitId: "unit-1",
                     fileId: "file-1",
                     fileName: "document.pdf",
-                    fileKey: "graphs/graph-1/document.pdf",
                     fileType: "pdf",
                     startPage: 3,
                     endPage: 5,
@@ -35,5 +33,19 @@ describe("citation fences", () => {
                 { forModel: true }
             )
         ).toBe(':::{"type":"cite","id":"source-1"}:::');
+    });
+
+    test("keeps legacy file-key citations parseable", () => {
+        expect(
+            parseCitationFence(
+                ':::{"type":"cite","sourceId":"source-1","unitId":"unit-1","fileName":"document.pdf","fileKey":"graphs/graph-1/document.pdf"}:::'
+            )
+        ).toMatchObject({
+            type: "cite",
+            sourceId: "source-1",
+            unitId: "unit-1",
+            fileName: "document.pdf",
+            fileKey: "graphs/graph-1/document.pdf",
+        });
     });
 });

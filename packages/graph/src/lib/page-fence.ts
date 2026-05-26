@@ -73,14 +73,8 @@ export function toPageAwareChunks(rawChunks: string[]): PageAwareChunk[] {
             continue;
         }
 
-        const firstFence = fences[0]!;
-        const lastFence = fences[fences.length - 1]!;
-        const prefix = rawChunk.slice(0, firstFence.index);
-        const hasContentBeforeFirstFence = stripPageFences(prefix) !== "";
-        const startPage = hasContentBeforeFirstFence && currentPage !== null ? currentPage : firstFence.page;
-        const endPage = lastFence.page;
-
-        currentPage = lastFence.page;
+        const span = getContentPageSpan(rawChunk, fences, currentPage);
+        currentPage = fences[fences.length - 1]!.page;
 
         if (content === "") {
             continue;
@@ -88,10 +82,45 @@ export function toPageAwareChunks(rawChunks: string[]): PageAwareChunk[] {
 
         chunks.push({
             content,
-            startPage,
-            endPage,
+            startPage: span.startPage,
+            endPage: span.endPage,
         });
     }
 
     return chunks;
+}
+
+function getContentPageSpan(
+    rawChunk: string,
+    fences: PageFence[],
+    initialPage: number | null
+): Pick<PageAwareChunk, "startPage" | "endPage"> {
+    const pagesWithContent: number[] = [];
+    let activePage = initialPage;
+    let cursor = 0;
+
+    for (const fence of fences) {
+        addContentPage(rawChunk.slice(cursor, fence.index), activePage, pagesWithContent);
+        activePage = fence.page;
+        cursor = fence.index + fence.length;
+    }
+
+    addContentPage(rawChunk.slice(cursor), activePage, pagesWithContent);
+
+    if (pagesWithContent.length === 0) {
+        return { startPage: null, endPage: null };
+    }
+
+    return {
+        startPage: pagesWithContent[0]!,
+        endPage: pagesWithContent[pagesWithContent.length - 1]!,
+    };
+}
+
+function addContentPage(rawContent: string, page: number | null, pagesWithContent: number[]): void {
+    if (page === null || stripPageFences(rawContent) === "") {
+        return;
+    }
+
+    pagesWithContent.push(page);
 }

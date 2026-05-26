@@ -6,6 +6,7 @@ import { initLogger, shutdownLogger } from "./logger";
 import { authMiddleware } from "./middleware/auth";
 import { authRoute } from "./routes/auth";
 import { chatRoute } from "./routes/chat";
+import { graphFilesRoute } from "./routes/graph-files";
 import { graphRoute } from "./routes/graph";
 import { groupRoute } from "./routes/group";
 import { mcpRoute } from "./routes/mcp";
@@ -39,6 +40,7 @@ const app = new Elysia({
     .use(authMiddleware)
     .use(authRoute)
     .use(chatRoute)
+    .use(graphFilesRoute)
     .use(graphRoute)
     .use(groupRoute)
     .get("/health", () => ({ status: "ok" }))

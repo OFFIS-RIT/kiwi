@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/test-utils";
 import { downloadProjectFile, fetchTextUnit, getApiAssetUrl, getProjectFileUrl } from "@/lib/api/projects";
@@ -21,11 +21,13 @@ vi.mock("@/lib/api/projects", () => ({
         created_at: null,
         updated_at: null,
     })),
-    getApiAssetUrl: vi.fn((path: string) => `/api${path}`),
-    getProjectFileUrl: vi.fn((projectId: string, fileId: string, options?: { page?: number | null }) => {
-        const url = `/api/graphs/${projectId}/files/${fileId}`;
-        return options?.page ? `${url}#page=${options.page}` : url;
-    }),
+    getApiAssetUrl: vi.fn((_client: object, path: string) => `/api${path}`),
+    getProjectFileUrl: vi.fn(
+        (_client: object, projectId: string, fileId: string, options?: { page?: number | null }) => {
+            const url = `/api/graphs/${projectId}/files/${fileId}`;
+            return options?.page ? `${url}#page=${options.page}` : url;
+        }
+    ),
 }));
 
 vi.mock("@kiwi/auth/client", () => ({
@@ -34,6 +36,17 @@ vi.mock("@kiwi/auth/client", () => ({
         useSession: vi.fn(() => ({ data: null, isPending: false })),
     })),
 }));
+
+class ResizeObserverMock {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+}
+
+Object.defineProperty(globalThis, "ResizeObserver", {
+    writable: true,
+    value: ResizeObserverMock,
+});
 
 function citationFence(sourceId: string, fields: Record<string, unknown> = {}) {
     return `:::${JSON.stringify({
@@ -143,6 +156,7 @@ describe("MessageContent", () => {
                 type: "text",
                 text: `Alpha ${citationFence("src-1", {
                     fileId: "file-1",
+                    fileKey: undefined,
                     fileType: "pdf",
                     startPage: 3,
                     endPage: 4,
@@ -152,12 +166,36 @@ describe("MessageContent", () => {
 
         await userEvent.click(screen.getByRole("button", { name: /document.pdf/i }));
 
-        expect(getProjectFileUrl).toHaveBeenCalledWith("graph-1", "file-1", { page: 3 });
+        expect(getProjectFileUrl).toHaveBeenCalledWith(expect.any(Object), "graph-1", "file-1", { page: 3 });
         expect(openMock).toHaveBeenCalledWith("/api/graphs/graph-1/files/file-1#page=3", "_blank");
         expect(downloadProjectFile).not.toHaveBeenCalled();
     });
 
-    test("keeps legacy presigned URL fallback for source files without file ids", async () => {
+    test("opens dialog source file buttons through the page-aware file proxy", async () => {
+        const openMock = vi.spyOn(window, "open").mockImplementation(() => null);
+        renderMessageContent([
+            {
+                type: "text",
+                text: `Alpha ${citationFence("src-1", {
+                    fileId: "file-1",
+                    fileKey: undefined,
+                    fileType: "pdf",
+                    startPage: 3,
+                    endPage: 4,
+                })}`,
+            },
+        ]);
+
+        await userEvent.click(screen.getByRole("button", { name: "1" }));
+        const dialog = await screen.findByRole("dialog");
+        await userEvent.click(within(dialog).getByRole("button", { name: /document.pdf/i }));
+
+        expect(getProjectFileUrl).toHaveBeenCalledWith(expect.any(Object), "graph-1", "file-1", { page: 3 });
+        expect(openMock).toHaveBeenCalledWith("/api/graphs/graph-1/files/file-1#page=3", "_blank");
+        expect(downloadProjectFile).not.toHaveBeenCalled();
+    });
+
+    test("keeps legacy file-key fallback for source files without file ids", async () => {
         const openMock = vi.spyOn(window, "open").mockImplementation(() => null);
         renderMessageContent([{ type: "text", text: `Alpha ${citationFence("src-1")}` }]);
 

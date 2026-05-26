@@ -20,10 +20,11 @@ import {
 import { db } from "@kiwi/db";
 import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
-import { getPresignedDownloadUrl } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { env } from "../env";
+import { createProjectFileAccessToken } from "./project-file-access-token";
+import { getProjectFileProxyUrl } from "./project-file-url";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 
@@ -263,7 +264,6 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
             unitId: textUnitTable.id,
             fileId: filesTable.id,
             fileName: filesTable.name,
-            fileKey: filesTable.key,
             fileType: filesTable.type,
             startPage: textUnitTable.startPage,
             endPage: textUnitTable.endPage,
@@ -284,24 +284,34 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
         unitId: row.unitId,
         fileId: row.fileId,
         fileName: row.fileName,
-        fileKey: row.fileKey,
         fileType: row.fileType,
         startPage: row.startPage ?? undefined,
         endPage: row.endPage ?? undefined,
     };
 }
 
-export async function resolveCitationDocumentLink(graphId: string, citation: CitationFence) {
-    try {
-        const resolvedCitation = isResolvedCitationFence(citation)
-            ? citation
-            : await enrichCitation(graphId, citation.sourceId);
+function isPDFCitation(citation: ResolvedCitationFence): boolean {
+    return citation.fileType === "pdf" || citation.fileName.toLowerCase().endsWith(".pdf");
+}
 
-        if (!resolvedCitation) {
+export async function resolveCitationDocumentLink(
+    graphId: string,
+    citation: CitationFence,
+    options: { baseUrl?: string; signed?: boolean } = {}
+) {
+    try {
+        const resolvedCitation =
+            isResolvedCitationFence(citation) && citation.fileId
+                ? citation
+                : await enrichCitation(graphId, citation.sourceId);
+
+        if (!resolvedCitation?.fileId) {
             return "[source unavailable]";
         }
 
-        const url = getPresignedDownloadUrl(resolvedCitation.fileKey, env.S3_BUCKET);
+        const page = isPDFCitation(resolvedCitation) ? resolvedCitation.startPage : null;
+        const token = options.signed ? await createProjectFileAccessToken(graphId, resolvedCitation.fileId) : undefined;
+        const url = getProjectFileProxyUrl(options.baseUrl, graphId, resolvedCitation.fileId, { page, token });
         const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
 
         return `[${label}](${url})`;

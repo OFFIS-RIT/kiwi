@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { downloadProjectFile, fetchTextUnit, getApiAssetUrl } from "@/lib/api/projects";
+import { fetchTextUnit, getApiAssetUrl } from "@/lib/api/projects";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import type { ApiTextUnit } from "@/types/api";
@@ -12,6 +12,7 @@ import type { ResolvedCitationFence } from "@kiwi/ai/citation";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useEffectEvent, useState } from "react";
+import { openCitationSourceFile } from "./citation-file";
 
 type TextReferenceBadgeProps = {
     citation: ResolvedCitationFence;
@@ -134,8 +135,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         setIsDownloading(true);
         setError(null);
         try {
-            const downloadUrl = await downloadProjectFile(apiClient, projectId, citation.fileKey);
-            window.open(downloadUrl, "_blank");
+            await openCitationSourceFile(apiClient, projectId, citation);
         } catch (err) {
             setError(err instanceof Error ? err.message : t("error.unknown"));
         } finally {
@@ -177,7 +177,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                                         {pdfPreview.pages.map((page) => (
                                             <PDFPreviewPageImage
                                                 key={page.page}
-                                                src={getApiAssetUrl(page.image_path)}
+                                                src={getApiAssetUrl(apiClient, page.image_path)}
                                                 alt={`${unit?.file_name ?? citation.fileName} page ${page.page}`}
                                             />
                                         ))}
@@ -210,7 +210,6 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                                     <p>
                                         {t("file")}: {unit?.file_name ?? citation.fileName}
                                     </p>
-                                    <p>S3: {citation.fileKey}</p>
                                 </div>
 
                                 {projectId && (

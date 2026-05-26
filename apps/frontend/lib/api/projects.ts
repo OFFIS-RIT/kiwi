@@ -25,7 +25,7 @@ import type {
     TextUnitResponse,
 } from "@kiwi/api/types";
 import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
-import { API_BASE_URL, unwrapApiResponse, type KiwiApiClient } from "./client";
+import { unwrapApiResponse, type KiwiApiClient } from "./client";
 
 /**
  * Creates a new project within a group with optional file uploads.
@@ -79,10 +79,7 @@ export async function deleteProject(client: KiwiApiClient, projectId: string): P
 /**
  * Fetches the detailed graph/project record from the current API route.
  */
-export async function fetchProjectDetail(
-    client: KiwiApiClient,
-    projectId: string
-): Promise<GraphDetailSuccessData> {
+export async function fetchProjectDetail(client: KiwiApiClient, projectId: string): Promise<GraphDetailSuccessData> {
     const response = await client.get<GraphDetailResponse>(`/graphs/${projectId}`);
 
     return unwrapApiResponse(response);
@@ -183,11 +180,7 @@ export async function deleteProjectChat(
  * @param projectId - Graph containing the text unit
  * @param unitId - Text unit identifier
  */
-export async function fetchTextUnit(
-    client: KiwiApiClient,
-    projectId: string,
-    unitId: string
-): Promise<ApiTextUnit> {
+export async function fetchTextUnit(client: KiwiApiClient, projectId: string, unitId: string): Promise<ApiTextUnit> {
     const response = await client.get<TextUnitResponse>(`/graphs/${projectId}/units/${unitId}`);
     return unwrapApiResponse(response);
 }
@@ -196,21 +189,23 @@ export async function fetchTextUnit(
  * Generates a download URL for a project file.
  * @param projectId - Project containing the file
  * @param fileKey - File key to download
- * @returns Presigned download URL
+ * @returns Authenticated file URL
  */
-export async function downloadProjectFile(
-    client: KiwiApiClient,
-    projectId: string,
-    fileKey: string
-): Promise<string> {
+export async function downloadProjectFile(client: KiwiApiClient, projectId: string, fileKey: string): Promise<string> {
     const response = await client.post<GraphFileDownloadResponse>(`/graphs/${projectId}/file`, {
         file_key: fileKey,
     });
-    return unwrapApiResponse(response).url;
+    const url = unwrapApiResponse(response).url;
+    return isAbsoluteUrl(url) ? url : getApiAssetUrl(client, url);
 }
 
-export function getProjectFileUrl(projectId: string, fileId: string, options: { page?: number | null } = {}): string {
-    const url = `${API_BASE_URL}/graphs/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}`;
+export function getProjectFileUrl(
+    client: KiwiApiClient,
+    projectId: string,
+    fileId: string,
+    options: { page?: number | null } = {}
+): string {
+    const url = getApiAssetUrl(client, `/graphs/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}`);
     const page = options.page;
 
     if (typeof page !== "number" || !Number.isInteger(page) || page < 1) {
@@ -220,9 +215,13 @@ export function getProjectFileUrl(projectId: string, fileId: string, options: { 
     return `${url}#page=${page}`;
 }
 
-export function getApiAssetUrl(path: string): string {
-    const normalizedBase = API_BASE_URL.replace(/\/+$/u, "");
+export function getApiAssetUrl(client: KiwiApiClient, path: string): string {
+    const normalizedBase = client.baseURL.replace(/\/+$/u, "");
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 
     return `${normalizedBase}${normalizedPath}`;
+}
+
+function isAbsoluteUrl(url: string): boolean {
+    return /^[a-z][a-z0-9+.-]*:/iu.test(url);
 }

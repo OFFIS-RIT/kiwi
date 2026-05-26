@@ -43,6 +43,21 @@ describe("page fences", () => {
         ]);
     });
 
+    test("does not include a trailing boundary fence in the previous content span", () => {
+        expect(toPageAwareChunks([":::PAGE-1:::\n\nAlpha\n\n:::PAGE-2:::", "Beta"])).toEqual([
+            {
+                content: "Alpha",
+                startPage: 1,
+                endPage: 1,
+            },
+            {
+                content: "Beta",
+                startPage: 2,
+                endPage: 2,
+            },
+        ]);
+    });
+
     test("keeps chunks before the first page fence unpaged", () => {
         expect(toPageAwareChunks(["Preface"])).toEqual([
             {

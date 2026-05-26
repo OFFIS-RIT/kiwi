@@ -29,6 +29,7 @@ export async function getOrRenderPDFPreviewPage(
         fileId: string;
         fileKey: string;
         page: number;
+        pagesToRender?: number[];
         bucket: string;
     },
     deps: PDFPreviewCacheDeps = {}
@@ -52,17 +53,22 @@ export async function getOrRenderPDFPreviewPage(
         return { status: "source_missing" };
     }
 
-    const renderedPages = await renderPreview(new Uint8Array(sourceFile.content), [options.page]);
+    const pagesToRender = uniquePositiveIntegers([options.page, ...(options.pagesToRender ?? [])]);
+    const renderedPages = await renderPreview(new Uint8Array(sourceFile.content), pagesToRender);
     const image = renderedPages.get(options.page);
     if (!image) {
         throw new Error(`PDF preview renderer returned no image for page ${options.page}`);
     }
 
-    await saveNamedFile(
-        `page-${options.page}.png`,
-        image,
-        getPdfPreviewPagePrefix(options.graphId, options.fileId),
-        options.bucket
+    await Promise.all(
+        [...renderedPages.entries()].map(([page, renderedImage]) =>
+            saveNamedFile(
+                `page-${page}.png`,
+                renderedImage,
+                getPdfPreviewPagePrefix(options.graphId, options.fileId),
+                options.bucket
+            )
+        )
     );
 
     return {
@@ -70,4 +76,20 @@ export async function getOrRenderPDFPreviewPage(
         content: image,
         cache: "miss",
     };
+}
+
+function uniquePositiveIntegers(values: number[]): number[] {
+    const seen = new Set<number>();
+    const result: number[] = [];
+
+    for (const value of values) {
+        if (!Number.isInteger(value) || value < 1 || seen.has(value)) {
+            continue;
+        }
+
+        seen.add(value);
+        result.push(value);
+    }
+
+    return result;
 }

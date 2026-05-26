@@ -1,6 +1,8 @@
 import { getDerivedPdfPreviewPrefix } from "@kiwi/files";
 import type { TextUnitPreview } from "../types/routes";
 
+export const MAX_PDF_PREVIEW_PAGES = 6;
+
 export function buildTextUnitPreview(options: {
     graphId: string;
     unitId: string;
@@ -20,18 +22,26 @@ export function buildTextUnitPreview(options: {
     const startPage = options.startPage;
     const endPage = options.endPage;
 
+    const pages = getPdfPreviewPageNumbers(startPage, endPage).map((page) => ({
+        page,
+        image_path: `/graphs/${encodeURIComponent(options.graphId)}/units/${encodeURIComponent(options.unitId)}/pages/${page}.png`,
+    }));
+
     return {
         type: "pdf_pages",
         start_page: startPage,
         end_page: endPage,
-        pages: Array.from({ length: endPage - startPage + 1 }, (_, index) => {
-            const page = startPage + index;
-            return {
-                page,
-                image_path: `/graphs/${encodeURIComponent(options.graphId)}/units/${encodeURIComponent(options.unitId)}/pages/${page}.png`,
-            };
-        }),
+        pages,
     };
+}
+
+export function getPdfPreviewPageNumbers(startPage: number, endPage: number): number[] {
+    if (!Number.isInteger(startPage) || !Number.isInteger(endPage) || startPage < 1 || endPage < startPage) {
+        return [];
+    }
+
+    const pageCount = Math.min(endPage - startPage + 1, MAX_PDF_PREVIEW_PAGES);
+    return Array.from({ length: pageCount }, (_, index) => startPage + index);
 }
 
 export function parsePageImageParam(value: string): number | null {

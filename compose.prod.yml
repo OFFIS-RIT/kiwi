@@ -77,6 +77,7 @@ services:
             AI_AUDIO_KEY: ${AI_AUDIO_KEY}
             AI_AUDIO_URL: ${AI_AUDIO_URL}
             AI_AUDIO_RESOURCE_NAME: ${AI_AUDIO_RESOURCE_NAME}
+            API_URL: ${API_URL:-/api}
             AUTH_SECRET: ${AUTH_SECRET}
             AUTH_URL: ${AUTH_URL}
             TRUSTED_ORIGINS: ${TRUSTED_ORIGINS}
