@@ -100,7 +100,6 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
                         }
 
                         if (!isResolvedCitationFence(segment.citation)) {
-                            markdown += segment.raw;
                             continue;
                         }
 

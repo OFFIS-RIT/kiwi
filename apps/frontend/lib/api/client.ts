@@ -20,6 +20,7 @@ type RequestOptions = {
     body?: unknown;
     headers?: Record<string, string>;
     isFormData?: boolean;
+    suppressErrorLog?: (error: ApiError) => boolean;
 };
 
 function tryParseJson<T>(value: string): T | null {
@@ -33,6 +34,7 @@ function isErrorResponse(value: unknown): value is ErrorResponse {
 export type KiwiApiClient = {
     baseURL: string;
     get: <T>(endpoint: string) => Promise<T>;
+    getQuietly: <T>(endpoint: string, suppressErrorLog: (error: ApiError) => boolean) => Promise<T>;
     post: <T>(endpoint: string, body?: unknown) => Promise<T>;
     postFormData: <T>(endpoint: string, formData: FormData) => Promise<T>;
     sendFormDataWithProgress: <T>(
@@ -57,7 +59,7 @@ export type KiwiApiClient = {
 
 export function createKiwiApiClient(baseURL: string, authClient: KiwiAuthClient): KiwiApiClient {
     async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-        const { method = "GET", body, headers = {}, isFormData = false } = options;
+        const { method = "GET", body, headers = {}, isFormData = false, suppressErrorLog } = options;
         const requestHeaders: Record<string, string> = { ...headers };
         if (!isFormData && body) requestHeaders["Content-Type"] = "application/json";
 
@@ -72,8 +74,7 @@ export function createKiwiApiClient(baseURL: string, authClient: KiwiAuthClient)
             if (response.status === 401) void authClient.signOut();
             const errorBody = await response.text().catch(() => "");
             const parsedError = errorBody ? tryParseJson<ErrorResponse>(errorBody) : null;
-            if (errorBody) console.error(`API Error [${endpoint}]:`, errorBody);
-            throw new ApiError(
+            const apiError = new ApiError(
                 isErrorResponse(parsedError) ? parsedError.message : `Request failed: ${response.statusText}`,
                 response.status,
                 response.statusText,
@@ -81,6 +82,8 @@ export function createKiwiApiClient(baseURL: string, authClient: KiwiAuthClient)
                 isErrorResponse(parsedError) ? parsedError.code : undefined,
                 isErrorResponse(parsedError) ? parsedError : undefined
             );
+            if (errorBody && !suppressErrorLog?.(apiError)) console.error(`API Error [${endpoint}]:`, errorBody);
+            throw apiError;
         }
 
         if (response.status === 204) return null as T;
@@ -90,6 +93,7 @@ export function createKiwiApiClient(baseURL: string, authClient: KiwiAuthClient)
     const client: KiwiApiClient = {
         baseURL,
         get: (endpoint) => request(endpoint),
+        getQuietly: (endpoint, suppressErrorLog) => request(endpoint, { suppressErrorLog }),
         post: (endpoint, body) => request(endpoint, { method: "POST", body }),
         postFormData: (endpoint, formData) =>
             request(endpoint, { method: "POST", body: formData, isFormData: true }),

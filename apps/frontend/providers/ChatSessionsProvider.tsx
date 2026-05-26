@@ -28,6 +28,12 @@ type ChatSessionsStore = {
     getEntry: (projectId: string) => ProjectChatEntry | undefined;
     ensureEntry: (projectId: string, init: EnsureEntryInit) => ProjectChatEntry;
     resetEntry: (projectId: string) => void;
+    startNewEntry: (projectId: string, init: EnsureEntryInit) => ProjectChatEntry;
+    requestNewEntry: (projectId: string, init: EnsureEntryInit) => void;
+    consumeRequestedNewEntry: (projectId: string) => EnsureEntryInit | undefined;
+    getNewChatDraft: () => string;
+    setNewChatDraft: (draft: string) => void;
+    clearNewChatDraft: () => void;
     setCurrentStep: (projectId: string, step: string | null) => void;
     setStreamError: (projectId: string, error: string | null) => void;
     subscribe: (projectId: string, listener: Listener) => () => void;
@@ -41,7 +47,9 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     // when a single project's stream progresses. Subscribers per projectId opt in
     // to their own updates via useSyncExternalStore below.
     const entriesRef = useRef<Map<string, ProjectChatEntry>>(new Map());
+    const requestedNewEntriesRef = useRef<Map<string, EnsureEntryInit>>(new Map());
     const listenersRef = useRef<Map<string, Set<Listener>>>(new Map());
+    const newChatDraftRef = useRef("");
 
     const notify = useCallback((projectId: string) => {
         const listeners = listenersRef.current.get(projectId);
@@ -60,50 +68,55 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     );
 
     const store = useMemo<ChatSessionsStore>(() => {
+        const createEntry = (projectId: string, init: EnsureEntryInit) => {
+            const chat = new Chat<ChatUIMessage>({
+                id: init.sessionId,
+                messages: init.initialMessages,
+                transport: new DefaultChatTransport({
+                    api: `${apiUrl}/stream/${projectId}`,
+                    credentials: "include",
+                }),
+                sendAutomaticallyWhen: init.sendAutomaticallyWhen,
+                onData: (part) => {
+                    if (part.type === "data-step") {
+                        const name =
+                            part.data && typeof part.data === "object" && "name" in part.data ? part.data.name : null;
+                        updateEntry(projectId, {
+                            currentStep: typeof name === "string" ? name : null,
+                        });
+                    }
+                },
+                onError: (error) => {
+                    console.error("Chat stream error:", error);
+                    updateEntry(projectId, { streamError: error.message });
+                },
+                onFinish: () => {
+                    updateEntry(projectId, { currentStep: null });
+                },
+            });
+
+            const entry: ProjectChatEntry = {
+                projectId,
+                sessionId: init.sessionId,
+                chat,
+                currentStep: null,
+                streamError: null,
+            };
+            entriesRef.current.set(projectId, entry);
+            notify(projectId);
+            return entry;
+        };
+
         return {
             getEntry: (projectId) => entriesRef.current.get(projectId),
             ensureEntry: (projectId, init) => {
                 const existing = entriesRef.current.get(projectId);
-                if (existing) return existing;
+                if (existing?.sessionId === init.sessionId) return existing;
+                if (existing) {
+                    void existing.chat.stop().catch(() => undefined);
+                }
 
-                const chat = new Chat<ChatUIMessage>({
-                    id: init.sessionId,
-                    messages: init.initialMessages,
-                    transport: new DefaultChatTransport({
-                        api: `${apiUrl}/stream/${projectId}`,
-                        credentials: "include",
-                    }),
-                    sendAutomaticallyWhen: init.sendAutomaticallyWhen,
-                    onData: (part) => {
-                        if (part.type === "data-step") {
-                            const name =
-                                part.data && typeof part.data === "object" && "name" in part.data
-                                    ? part.data.name
-                                    : null;
-                            updateEntry(projectId, {
-                                currentStep: typeof name === "string" ? name : null,
-                            });
-                        }
-                    },
-                    onError: (error) => {
-                        console.error("Chat stream error:", error);
-                        updateEntry(projectId, { streamError: error.message });
-                    },
-                    onFinish: () => {
-                        updateEntry(projectId, { currentStep: null });
-                    },
-                });
-
-                const entry: ProjectChatEntry = {
-                    projectId,
-                    sessionId: init.sessionId,
-                    chat,
-                    currentStep: null,
-                    streamError: null,
-                };
-                entriesRef.current.set(projectId, entry);
-                notify(projectId);
-                return entry;
+                return createEntry(projectId, init);
             },
             resetEntry: (projectId) => {
                 const entry = entriesRef.current.get(projectId);
@@ -112,6 +125,30 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 }
                 entriesRef.current.delete(projectId);
                 notify(projectId);
+            },
+            startNewEntry: (projectId, init) => {
+                const entry = entriesRef.current.get(projectId);
+                if (entry) {
+                    void entry.chat.stop().catch(() => undefined);
+                    entriesRef.current.delete(projectId);
+                }
+                return createEntry(projectId, init);
+            },
+            requestNewEntry: (projectId, init) => {
+                requestedNewEntriesRef.current.set(projectId, init);
+                notify(projectId);
+            },
+            consumeRequestedNewEntry: (projectId) => {
+                const init = requestedNewEntriesRef.current.get(projectId);
+                requestedNewEntriesRef.current.delete(projectId);
+                return init;
+            },
+            getNewChatDraft: () => newChatDraftRef.current,
+            setNewChatDraft: (draft) => {
+                newChatDraftRef.current = draft;
+            },
+            clearNewChatDraft: () => {
+                newChatDraftRef.current = "";
             },
             setCurrentStep: (projectId, step) => updateEntry(projectId, { currentStep: step }),
             setStreamError: (projectId, error) => updateEntry(projectId, { streamError: error }),
@@ -147,6 +184,12 @@ type UseProjectChatSessionResult = {
     entry: ProjectChatEntry | undefined;
     ensureEntry: (init: EnsureEntryInit) => ProjectChatEntry;
     resetEntry: () => void;
+    startNewEntry: (init: EnsureEntryInit) => ProjectChatEntry;
+    requestNewEntry: (init: EnsureEntryInit) => void;
+    consumeRequestedNewEntry: () => EnsureEntryInit | undefined;
+    getNewChatDraft: () => string;
+    setNewChatDraft: (draft: string) => void;
+    clearNewChatDraft: () => void;
     setStreamError: (error: string | null) => void;
     setCurrentStep: (step: string | null) => void;
 };
@@ -167,6 +210,18 @@ export function useProjectChatSession(projectId: string): UseProjectChatSessionR
 
     const ensureEntry = useCallback((init: EnsureEntryInit) => store.ensureEntry(projectId, init), [projectId, store]);
     const resetEntry = useCallback(() => store.resetEntry(projectId), [projectId, store]);
+    const startNewEntry = useCallback(
+        (init: EnsureEntryInit) => store.startNewEntry(projectId, init),
+        [projectId, store]
+    );
+    const requestNewEntry = useCallback(
+        (init: EnsureEntryInit) => store.requestNewEntry(projectId, init),
+        [projectId, store]
+    );
+    const consumeRequestedNewEntry = useCallback(
+        () => store.consumeRequestedNewEntry(projectId),
+        [projectId, store]
+    );
     const setStreamError = useCallback(
         (error: string | null) => store.setStreamError(projectId, error),
         [projectId, store]
@@ -176,7 +231,19 @@ export function useProjectChatSession(projectId: string): UseProjectChatSessionR
         [projectId, store]
     );
 
-    return { entry, ensureEntry, resetEntry, setStreamError, setCurrentStep };
+    return {
+        entry,
+        ensureEntry,
+        resetEntry,
+        startNewEntry,
+        requestNewEntry,
+        consumeRequestedNewEntry,
+        getNewChatDraft: store.getNewChatDraft,
+        setNewChatDraft: store.setNewChatDraft,
+        clearNewChatDraft: store.clearNewChatDraft,
+        setStreamError,
+        setCurrentStep,
+    };
 }
 
 export type { ProjectChatEntry, EnsureEntryInit };

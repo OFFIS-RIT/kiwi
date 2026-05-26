@@ -1,9 +1,12 @@
 "use client";
 
 import { StateDisplay } from "@/components/common/StateDisplay";
-import { queryKeys, useGroupsWithProjects } from "@/hooks/use-data";
+import { useGroupsWithProjects } from "@/hooks/use-data";
 import { useCurrentSelection } from "@/hooks/use-current-selection";
+import { canMutateProjectInGroup, canViewProjectFilesInGroup } from "@/lib/capabilities";
+import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
+import { useAuth } from "@/providers/AuthProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { ApiProjectFile, Project } from "@/types";
 import { useQueries } from "@tanstack/react-query";
@@ -20,6 +23,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     const router = useRouter();
     const { group: selectedGroup } = useCurrentSelection();
     const t = useAppTranslations();
+    const { isAdmin } = useAuth();
     const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
 
@@ -40,6 +44,9 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     }
 
     const group = groups.find((g) => g.id === selectedGroup?.id);
+    const canOpenProjectDetails = group
+        ? canMutateProjectInGroup(group, { isAdmin }) || canViewProjectFilesInGroup()
+        : false;
 
     const projectFilesQueries = useQueries({
         queries: (group?.projects || []).map((project) => ({
@@ -118,9 +125,11 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
                             processPercentage: project.processPercentage,
                             processEstimatedDuration: project.processEstimatedDuration,
                             processTimeRemaining: project.processTimeRemaining,
+                            recentChats: project.recentChats,
                         }}
                         groupId={group.id}
                         groupName={group.name}
+                        canOpenDetails={canOpenProjectDetails}
                         onSelect={() => router.push(`/${group.id}/${project.id}`)}
                         onEdit={() => onEditProject?.(project, group.id)}
                     />

@@ -2,11 +2,13 @@ import { screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 const fakeUseSession = vi.fn();
+const fakeUseActiveMemberRole = vi.fn();
 const fakeSignOut = vi.fn();
 
 vi.mock("@kiwi/auth/client", () => ({
     createKiwiAuthClient: vi.fn(() => ({
         useSession: fakeUseSession,
+        useActiveMemberRole: fakeUseActiveMemberRole,
         signOut: fakeSignOut,
     })),
 }));
@@ -46,8 +48,13 @@ const initialAdmin: InitialClientSession = {
     user: { id: "1", name: "Initial Admin", email: "i@a.com", image: null, role: "admin" },
 };
 
-function renderWithAuth(sessionData: unknown, initialSession: InitialClientSession = initialAdmin) {
+function renderWithAuth(sessionData: unknown, initialSession: InitialClientSession = initialAdmin, activeRole = "admin") {
     fakeUseSession.mockReturnValue(sessionData);
+    fakeUseActiveMemberRole.mockReturnValue({
+        data: { role: activeRole },
+        isPending: false,
+        error: null,
+    });
 
     return renderWithProviders(
         <AuthProvider initialSession={initialSession}>
@@ -72,15 +79,15 @@ describe("AuthProvider", () => {
         fakeRouterRefresh.mockClear();
         renderWithAuth({
             data: {
-                user: { id: "2", name: "Live User", email: "l@u.com", role: "manager" },
+                user: { id: "2", name: "Live User", email: "l@u.com", role: "user" },
                 session: {},
             },
             isPending: false,
             error: null,
         });
 
-        expect(screen.getByTestId("role")).toHaveTextContent("manager");
-        expect(screen.getByTestId("admin")).toHaveTextContent("no");
+        expect(screen.getByTestId("role")).toHaveTextContent("admin");
+        expect(screen.getByTestId("admin")).toHaveTextContent("yes");
         expect(screen.getByTestId("pending")).toHaveTextContent("no");
         expect(screen.getByTestId("name")).toHaveTextContent("Live User");
         expect(fakeRouterRefresh).not.toHaveBeenCalled();
@@ -95,5 +102,12 @@ describe("AuthProvider", () => {
         expect(screen.getByTestId("pending")).toHaveTextContent("no");
         expect(screen.getByTestId("name")).toHaveTextContent("Initial Admin");
         expect(fakeRouterRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    test("treats system admins as effective organization admins", () => {
+        renderWithAuth({ data: null, isPending: true, error: null }, initialAdmin, "member");
+
+        expect(screen.getByTestId("role")).toHaveTextContent("admin");
+        expect(screen.getByTestId("admin")).toHaveTextContent("yes");
     });
 });

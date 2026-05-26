@@ -46,7 +46,6 @@ describe("citation fences", () => {
             {
                 type: "citation",
                 citation: { type: "cite", sourceId: "src_1" },
-                raw: ':::{"type":"cite","id":"src_1"}:::',
             },
             { type: "text", text: " Omega" },
         ]);
@@ -85,7 +84,6 @@ describe("citation fences", () => {
             {
                 type: "citation",
                 citation: { type: "cite", sourceId: "src_1" },
-                raw: ':::{"type":"cite","id":"src_1"}:::',
             },
             { type: "text", text: " Omega" },
         ]);
@@ -110,12 +108,10 @@ describe("citation fences", () => {
             {
                 type: "citation",
                 citation: { type: "cite", sourceId: "src_1" },
-                raw: ':::{"type":"cite","id":"src_1"}:::',
             },
             {
                 type: "citation",
                 citation: { type: "cite", sourceId: "src_2" },
-                raw: ':::{"type":"cite","id":"src_2"}:::',
             },
         ]);
     });

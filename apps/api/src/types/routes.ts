@@ -1,21 +1,21 @@
 import type { ApiResponse } from "./responses";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 
-export type GroupUserRole = "admin" | "user" | "moderator";
+export type TeamUserRole = "admin" | "moderator" | "member";
 export type GraphState = "ready" | "updating";
 
-export type GroupUserRecord = {
-    groupId: string;
+export type TeamUserRecord = {
+    teamId: string;
     userId: string;
-    role: GroupUserRole;
+    role: TeamUserRole;
     createdAt: Date | null;
     updatedAt: Date | null;
 };
 
-export type GroupRecord = {
+export type TeamRecord = {
     id: string;
     name: string;
-    description: string | null;
+    organizationId: string;
     createdAt: Date | null;
     updatedAt: Date | null;
 };
@@ -24,7 +24,8 @@ export type GraphRecord = {
     id: string;
     name: string;
     description: string | null;
-    groupId: string | null;
+    organizationId: string | null;
+    teamId: string | null;
     userId: string | null;
     graphId: string | null;
     hidden: boolean;
@@ -77,31 +78,47 @@ export type ApiBatchStepProgressLike = {
     failed?: string;
 };
 
-export type GroupListItem = {
-    group_id: string;
-    group_name: string;
-    role: GroupUserRole;
+export type TeamListItem = {
+    team_id: string;
+    team_name: string;
+    role: TeamUserRole;
 };
 
-export type GroupUserListItem = {
-    group_id: string;
+export type TeamUserListItem = {
+    team_id: string;
     user_id: string;
     user_name: string | null;
-    role: GroupUserRole;
+    role: TeamUserRole;
     created_at: string | null;
     updated_at: string | null;
+};
+
+export type OrganizationMemberListItem = {
+    user_id: string;
+    user_name: string | null;
+    user_email: string;
+    role: string;
+};
+
+export type GraphRecentChatItem = {
+    id: string;
+    title: string;
 };
 
 export type GraphListItem = {
     graph_id: string;
     graph_name: string;
     graph_state: "ready" | "update";
-    group_id: string;
+    organization_id: string | null;
+    team_id: string | null;
+    team_name: string | null;
+    scope: "organization" | "team" | "private";
     hidden: boolean;
     process_step?: ApiBatchStepProgressLike;
     process_percentage?: number;
     process_estimated_duration?: number;
     process_time_remaining?: number;
+    recent_chats: GraphRecentChatItem[];
 };
 
 export type TextUnitRecord = {
@@ -160,18 +177,18 @@ export type DeleteS3Cleanup = {
     failedKeyCount: number;
 };
 
-export type GroupCreateSuccessData = {
-    group: Pick<GroupRecord, "id">;
-    users: GroupUserRecord[];
+export type TeamCreateSuccessData = {
+    team: Pick<TeamRecord, "id">;
+    users: TeamUserRecord[];
 };
 
-export type GroupPatchSuccessData = {
-    group: GroupRecord;
-    users: GroupUserRecord[];
+export type TeamPatchSuccessData = {
+    team: TeamRecord;
+    users: TeamUserListItem[];
 };
 
-export type GroupDeleteSuccessData = {
-    groupId: string;
+export type TeamDeleteSuccessData = {
+    teamId: string;
     deletedGraphCount: number;
     deletedFileCount: number;
     s3Cleanup: DeleteS3Cleanup;
@@ -184,8 +201,10 @@ export type GraphDetailSuccessData = {
     project_state: "ready" | "update";
     description: string | null;
     hidden: boolean;
-    group_id: string | null;
-    group_name: string | null;
+    organization_id: string | null;
+    team_id: string | null;
+    team_name: string | null;
+    scope: "organization" | "team" | "private";
     files: GraphFileListItem[];
 };
 
@@ -223,33 +242,38 @@ export type GraphDeleteSuccessData = {
     warnings?: string[];
 };
 
-export type GroupCreateResponse = ApiResponse<
-    GroupCreateSuccessData,
-    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+export type TeamCreateResponse = ApiResponse<
+    TeamCreateSuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INVALID_TEAM_MEMBERS" | "INTERNAL_SERVER_ERROR"
 >;
 
-export type GroupListResponse = ApiResponse<GroupListItem[], "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;
+export type TeamListResponse = ApiResponse<TeamListItem[], "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;
 
-export type GroupUsersResponse = ApiResponse<
-    GroupUserListItem[],
-    "UNAUTHORIZED" | "FORBIDDEN" | "GROUP_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
+export type TeamUsersResponse = ApiResponse<
+    TeamUserListItem[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "TEAM_NOT_FOUND" | "INVALID_TEAM_MEMBERS" | "INTERNAL_SERVER_ERROR"
 >;
 
-export type GroupPatchResponse = ApiResponse<
-    GroupPatchSuccessData,
-    "UNAUTHORIZED" | "FORBIDDEN" | "GROUP_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
+export type TeamAvailableUsersResponse = ApiResponse<
+    OrganizationMemberListItem[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "TEAM_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
 >;
 
-export type GroupDeleteResponse = ApiResponse<
-    GroupDeleteSuccessData,
-    "UNAUTHORIZED" | "FORBIDDEN" | "GROUP_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
+export type TeamPatchResponse = ApiResponse<
+    TeamPatchSuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "TEAM_NOT_FOUND" | "INVALID_TEAM_MEMBERS" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type TeamDeleteResponse = ApiResponse<
+    TeamDeleteSuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "TEAM_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
 >;
 
 export type GraphDetailResponse = ApiResponse<
     GraphDetailSuccessData,
     | "UNAUTHORIZED"
     | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
+    | "TEAM_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "INTERNAL_SERVER_ERROR"
@@ -261,7 +285,7 @@ export type GraphFilesResponse = ApiResponse<
     GraphFileListItem[],
     | "UNAUTHORIZED"
     | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
+    | "TEAM_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "INTERNAL_SERVER_ERROR"
@@ -271,7 +295,7 @@ export type GraphCreateResponse = ApiResponse<
     GraphCreateSuccessData,
     | "UNAUTHORIZED"
     | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
+    | "TEAM_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "INTERNAL_SERVER_ERROR"
@@ -281,7 +305,6 @@ export type GraphPatchResponse = ApiResponse<
     GraphPatchSuccessData,
     | "UNAUTHORIZED"
     | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "INVALID_NAME"
@@ -291,20 +314,13 @@ export type GraphPatchResponse = ApiResponse<
 
 export type GraphAddFilesResponse = ApiResponse<
     GraphAddFilesSuccessData,
-    | "UNAUTHORIZED"
-    | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
-    | "GRAPH_NOT_FOUND"
-    | "INVALID_GRAPH_OWNER"
-    | "NO_CHANGES"
-    | "INTERNAL_SERVER_ERROR"
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "NO_CHANGES" | "INTERNAL_SERVER_ERROR"
 >;
 
 export type GraphDeleteFilesResponse = ApiResponse<
     GraphDeleteFilesSuccessData,
     | "UNAUTHORIZED"
     | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "INVALID_FILE_IDS"
@@ -316,7 +332,6 @@ export type GraphFileDownloadResponse = ApiResponse<
     GraphFileDownloadSuccessData,
     | "UNAUTHORIZED"
     | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "INVALID_FILE_IDS"
@@ -325,19 +340,13 @@ export type GraphFileDownloadResponse = ApiResponse<
 
 export type GraphDeleteResponse = ApiResponse<
     GraphDeleteSuccessData,
-    | "UNAUTHORIZED"
-    | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
-    | "GRAPH_NOT_FOUND"
-    | "INVALID_GRAPH_OWNER"
-    | "INTERNAL_SERVER_ERROR"
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
 >;
 
 export type TextUnitResponse = ApiResponse<
     TextUnitRecord,
     | "UNAUTHORIZED"
     | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "TEXT_UNIT_NOT_FOUND"
@@ -348,7 +357,6 @@ export type ChatListResponse = ApiResponse<
     ChatSummaryItem[],
     | "UNAUTHORIZED"
     | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "CHAT_NOT_FOUND"
@@ -359,7 +367,6 @@ export type ChatDetailResponse = ApiResponse<
     ChatHistoryRecord,
     | "UNAUTHORIZED"
     | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "CHAT_NOT_FOUND"
@@ -370,7 +377,6 @@ export type ChatCreateResponse = ApiResponse<
     ChatCreateSuccessData,
     | "UNAUTHORIZED"
     | "FORBIDDEN"
-    | "GROUP_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "CHAT_NOT_FOUND"

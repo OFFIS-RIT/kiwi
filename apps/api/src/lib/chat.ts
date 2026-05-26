@@ -37,6 +37,8 @@ type StartReplyOptions = {
     deep?: boolean;
 };
 
+export const DEFAULT_CHAT_TITLE = "...";
+
 function buildBaseToolset(options: GraphToolsetOptions, toolset: StartReplyOptions["toolset"]) {
     switch (toolset) {
         case "server-and-client":
@@ -60,7 +62,7 @@ export function toAssistantReply(assistantId: string, parts: MessagePart[], meta
     );
 }
 
-function createChatTitle(messages: ChatUIMessage[]) {
+export function createChatTitle(messages: ChatUIMessage[]) {
     const firstUserMessage = messages.find((message) => message.role === "user");
     const text = firstUserMessage
         ? firstUserMessage.parts
@@ -130,14 +132,16 @@ async function ensureChat(userId: string, graphId: string, request: ChatRequest)
             id: request.id,
             userId,
             graphId,
-            title: createChatTitle(request.messages),
+            title: DEFAULT_CHAT_TITLE,
         });
-        return;
+        return { isNewChat: true };
     }
 
     if (existingChat.userId !== userId || existingChat.graphId !== graphId) {
         throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
     }
+
+    return { isNewChat: false };
 }
 
 export async function touchChat(chatId: string) {
@@ -236,7 +240,7 @@ export async function getGraphResearchRuntime(graphId: string, options: StartRep
 }
 
 export async function startReply(userId: string, graphId: string, request: ChatRequest, options: StartReplyOptions) {
-    await ensureChat(userId, graphId, request);
+    const { isNewChat } = await ensureChat(userId, graphId, request);
     await syncMessages(request.id, request.messages);
 
     const assistantId = crypto.randomUUID();
@@ -253,6 +257,7 @@ export async function startReply(userId: string, graphId: string, request: ChatR
 
     return {
         assistantId,
+        isNewChat,
         ...runtime,
     };
 }
@@ -424,23 +429,23 @@ export function mapChatError(status: RouteStatus, error: unknown) {
         return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
     }
 
-    if (error.message === API_ERROR_CODES.GRAPH_NOT_FOUND) {
+    const message = error.message;
+    const causeMessage = error.cause instanceof Error ? error.cause.message : undefined;
+    const hasErrorCode = (code: string) => message === code || causeMessage === code || message.includes(code);
+
+    if (hasErrorCode(API_ERROR_CODES.GRAPH_NOT_FOUND)) {
         return status(404, errorResponse("Graph not found", API_ERROR_CODES.GRAPH_NOT_FOUND));
     }
 
-    if (error.message === API_ERROR_CODES.GROUP_NOT_FOUND) {
-        return status(404, errorResponse("Group not found", API_ERROR_CODES.GROUP_NOT_FOUND));
-    }
-
-    if (error.message === API_ERROR_CODES.INVALID_GRAPH_OWNER) {
+    if (hasErrorCode(API_ERROR_CODES.INVALID_GRAPH_OWNER)) {
         return status(400, errorResponse("Invalid graph owner chain", API_ERROR_CODES.INVALID_GRAPH_OWNER));
     }
 
-    if (error.message === API_ERROR_CODES.FORBIDDEN) {
+    if (hasErrorCode(API_ERROR_CODES.FORBIDDEN)) {
         return status(403, errorResponse("Forbidden", API_ERROR_CODES.FORBIDDEN));
     }
 
-    if (error.message === API_ERROR_CODES.CHAT_NOT_FOUND) {
+    if (hasErrorCode(API_ERROR_CODES.CHAT_NOT_FOUND)) {
         return status(404, errorResponse("Chat not found", API_ERROR_CODES.CHAT_NOT_FOUND));
     }
 

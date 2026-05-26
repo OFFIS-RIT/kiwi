@@ -25,11 +25,14 @@ import type {
     TextUnitResponse,
 } from "@kiwi/api/types";
 import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
-import { unwrapApiResponse, type KiwiApiClient } from "./client";
+import { ApiError, unwrapApiResponse, type KiwiApiClient } from "./client";
+
+export const ORGANIZATION_GROUP_ID = "__organization__";
+export const PERSONAL_GROUP_ID = "__personal__";
 
 /**
- * Creates a new project within a group with optional file uploads.
- * @param groupId - Parent group ID
+ * Creates a new project within a team or organization with optional file uploads.
+ * @param groupId - Parent team ID, or an ownership pseudo-group ID
  * @param name - Project name
  * @param files - Files to upload initially
  * @param onProgress - Optional callback for upload progress (0-100)
@@ -42,7 +45,9 @@ export async function createProject(
     onProgress?: (progress: number, loaded: number, total: number) => void
 ): Promise<GraphCreateSuccessData> {
     const formData = new FormData();
-    formData.append("groupId", groupId);
+    if (groupId !== ORGANIZATION_GROUP_ID && groupId !== PERSONAL_GROUP_ID) {
+        formData.append("teamId", groupId);
+    }
     formData.append("name", name);
     files.forEach((file) => formData.append("files", file));
 
@@ -158,9 +163,18 @@ export async function fetchProjectChats(client: KiwiApiClient, projectId: string
 export async function fetchProjectChat(
     client: KiwiApiClient,
     projectId: string,
-    conversationId: string
+    conversationId: string,
+    options: { suppressNotFoundLog?: boolean } = {}
 ): Promise<ChatHistoryRecord> {
-    const response = await client.get<ChatDetailResponse>(`/chat/${projectId}/${conversationId}`);
+    const endpoint = `/chat/${projectId}/${conversationId}`;
+    const response = options.suppressNotFoundLog
+        ? await client.getQuietly<ChatDetailResponse>(
+              endpoint,
+              (error) =>
+                  error instanceof ApiError &&
+                  (error.code === "CHAT_NOT_FOUND" || error.message.includes("CHAT_NOT_FOUND"))
+          )
+        : await client.get<ChatDetailResponse>(endpoint);
     return unwrapApiResponse(response);
 }
 

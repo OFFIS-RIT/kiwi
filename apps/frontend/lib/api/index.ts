@@ -25,16 +25,28 @@ export type {
     GraphDetailResponse,
     GraphFileDownloadResponse,
     GraphPatchResponse,
-    GroupCreateResponse,
-    GroupDeleteResponse,
-    GroupListResponse,
-    GroupUsersResponse,
-    GroupPatchResponse,
+    TeamAvailableUsersResponse,
+    TeamCreateResponse,
+    TeamDeleteResponse,
+    TeamListResponse,
+    TeamUsersResponse,
+    TeamPatchResponse,
     TextUnitResponse,
 } from "@kiwi/api/types";
 
-// Re-export groups API
-export { createGroup, deleteGroup, fetchGraphs, fetchGroups, fetchGroupUsers, updateGroup } from "./groups";
+// Re-export team API helpers under the existing frontend group names.
+export {
+    addGroupUser,
+    createGroup,
+    deleteGroup,
+    fetchGraphs,
+    fetchGroups,
+    fetchGroupAvailableUsers,
+    fetchGroupUsers,
+    removeGroupUser,
+    updateGroup,
+    updateGroupUsers,
+} from "./groups";
 
 // Re-export projects API
 export {

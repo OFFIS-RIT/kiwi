@@ -1,12 +1,11 @@
 "use client";
 
 import { apiKeyClient } from "@better-auth/api-key/client";
-import { inferAdditionalFields } from "better-auth/client/plugins";
-import { adminClient } from "better-auth/client/plugins";
+import { adminClient, inferAdditionalFields, organizationClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { credentialsClient } from "better-auth-credentials-plugin";
 
-import { ac, admin, manager, user } from "./permissions";
+import { ac, admin, member, systemAdmin, user } from "./permissions";
 
 /**
  * Better Auth requires an absolute URL even when evaluated server-side during
@@ -33,9 +32,20 @@ export function createKiwiAuthClient(baseURL: string) {
         plugins: [
             inferAdditionalFields({
                 user: { role: { type: "string", input: false } },
+                session: {
+                    activeOrganizationId: {
+                        type: "string",
+                        input: false,
+                    },
+                    activeTeamId: {
+                        type: "string",
+                        input: false,
+                    },
+                },
             }),
             apiKeyClient(),
-            adminClient({ ac, roles: { admin, manager, user } }),
+            adminClient({ ac, roles: { admin: systemAdmin, user } }),
+            organizationClient({ ac, roles: { admin, member } }),
             credentialsClient(),
         ],
     });

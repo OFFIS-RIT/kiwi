@@ -1,10 +1,16 @@
-import { auth } from "@kiwi/auth/server";
-import { hasRole, type KiwiPermissions } from "@kiwi/auth/permissions";
 import { db } from "@kiwi/db";
-import { graphTable, groupTable, groupUserTable } from "@kiwi/db/tables/graph";
-import { and, eq } from "drizzle-orm";
-import { getAuthHeaders, type AuthUser } from "../middleware/auth";
+import { graphTable } from "@kiwi/db/tables/graph";
+import { eq } from "drizzle-orm";
+import type { AuthUser } from "../middleware/auth";
 import { API_ERROR_CODES } from "../types";
+import {
+    getActiveOrganizationId,
+    requireOrganizationAdmin,
+    requireOrganizationMembership,
+    requireTeamAccess,
+    requireTeamGraphCreateAccess,
+    requireTeamGraphFileManageAccess,
+} from "./team-access";
 import type { GraphRecord } from "../types/routes";
 
 export type { GraphRecord } from "../types/routes";
@@ -15,15 +21,21 @@ export type RootOwner =
           userId: string;
       }
     | {
-          mode: "group";
-          groupId: string;
+          mode: "organization";
+          organizationId: string;
+      }
+    | {
+          mode: "team";
+          organizationId: string;
+          teamId: string;
       };
 
 export const selectGraphFields = {
     id: graphTable.id,
     name: graphTable.name,
     description: graphTable.description,
-    groupId: graphTable.groupId,
+    organizationId: graphTable.organizationId,
+    teamId: graphTable.teamId,
     userId: graphTable.userId,
     graphId: graphTable.graphId,
     hidden: graphTable.hidden,
@@ -34,61 +46,6 @@ export const getGraphById = async (graphId: string): Promise<GraphRecord | null>
     const [graph] = await db.select(selectGraphFields).from(graphTable).where(eq(graphTable.id, graphId)).limit(1);
     return graph ?? null;
 };
-
-const requireGroupAccess = async (
-    user: AuthUser,
-    groupId: string,
-    options?: {
-        headers?: Headers;
-        needsUpdate?: boolean;
-        allowAdmin?: boolean;
-    }
-): Promise<void> => {
-    const [group] = await db.select({ id: groupTable.id }).from(groupTable).where(eq(groupTable.id, groupId)).limit(1);
-
-    if (!group) {
-        throw new Error(API_ERROR_CODES.GROUP_NOT_FOUND);
-    }
-
-    if (options?.allowAdmin && hasRole(user.role, "admin")) {
-        return;
-    }
-
-    const [membership] = await db
-        .select({
-            groupId: groupUserTable.groupId,
-        })
-        .from(groupUserTable)
-        .where(and(eq(groupUserTable.groupId, groupId), eq(groupUserTable.userId, user.id)))
-        .limit(1);
-
-    if (!membership) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-
-    if (options?.needsUpdate) {
-        const permissionCheck = await auth.api.userHasPermission({
-            headers: getAuthHeaders(options.headers!),
-            body: {
-                permissions: {
-                    group: ["update"],
-                } satisfies KiwiPermissions,
-            },
-        });
-
-        if (!permissionCheck.success) {
-            throw new Error(API_ERROR_CODES.FORBIDDEN);
-        }
-    }
-
-    return;
-};
-
-export const requireGroupUpdateAccess = async (headers: Headers, user: AuthUser, groupId: string): Promise<void> =>
-    requireGroupAccess(user, groupId, { headers, needsUpdate: true, allowAdmin: true });
-
-export const requireGroupViewAccess = async (user: AuthUser, groupId: string): Promise<void> =>
-    requireGroupAccess(user, groupId);
 
 export const resolveGraphOwnerRoot = async (parentGraphId: string): Promise<RootOwner> => {
     const visited = new Set<string>();
@@ -114,10 +71,18 @@ export const resolveGraphOwnerRoot = async (parentGraphId: string): Promise<Root
             };
         }
 
-        if (graph.groupId) {
+        if (graph.organizationId) {
+            if (graph.teamId) {
+                return {
+                    mode: "team",
+                    organizationId: graph.organizationId,
+                    teamId: graph.teamId,
+                };
+            }
+
             return {
-                mode: "group",
-                groupId: graph.groupId,
+                mode: "organization",
+                organizationId: graph.organizationId,
             };
         }
 
@@ -130,38 +95,47 @@ export const resolveGraphOwnerRoot = async (parentGraphId: string): Promise<Root
     }
 };
 
-export const assertCanCreateUnderParentGraph = async (headers: Headers, user: AuthUser, parentGraphId: string) => {
-    if (hasRole(user.role, "admin")) {
-        await resolveGraphOwnerRoot(parentGraphId);
-        return;
-    }
+export const assertCanCreateTeamGraph = async (user: AuthUser, teamId: string) => {
+    return requireTeamGraphCreateAccess(user, teamId);
+};
 
+export const assertCanCreateTopLevelGraph = async (user: AuthUser) => {
+    return requireOrganizationAdmin(user);
+};
+
+async function assertActiveOrganization(user: AuthUser, organizationId: string) {
+    if ((await getActiveOrganizationId(user)) !== organizationId) {
+        throw new Error(API_ERROR_CODES.FORBIDDEN);
+    }
+}
+
+export const assertCanCreateUnderParentGraph = async (user: AuthUser, parentGraphId: string) => {
     const rootOwner = await resolveGraphOwnerRoot(parentGraphId);
+
     if (rootOwner.mode === "user") {
-        if (rootOwner.userId !== user.id) {
-            throw new Error(API_ERROR_CODES.FORBIDDEN);
-        }
+        throw new Error(API_ERROR_CODES.FORBIDDEN);
+    }
+
+    if (rootOwner.mode === "team") {
+        await requireTeamGraphCreateAccess(user, rootOwner.teamId);
         return;
     }
 
-    await requireGroupUpdateAccess(headers, user, rootOwner.groupId);
+    await assertActiveOrganization(user, rootOwner.organizationId);
+    await requireOrganizationAdmin(user, rootOwner.organizationId);
 };
 
 const assertGraphAccess = async (
     user: AuthUser,
     graphId: string,
     options?: {
-        headers?: Headers;
         needsUpdate?: boolean;
+        needsFileManage?: boolean;
     }
 ): Promise<GraphRecord> => {
     const graph = await getGraphById(graphId);
     if (!graph) {
         throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
-    }
-
-    if (hasRole(user.role, "admin")) {
-        return graph;
     }
 
     const rootOwner = await resolveGraphOwnerRoot(graph.id);
@@ -170,20 +144,43 @@ const assertGraphAccess = async (
             throw new Error(API_ERROR_CODES.FORBIDDEN);
         }
 
+        if (options?.needsUpdate || options?.needsFileManage) {
+            throw new Error(API_ERROR_CODES.FORBIDDEN);
+        }
+
         return graph;
     }
 
-    if (options?.needsUpdate) {
-        await requireGroupUpdateAccess(options.headers!, user, rootOwner.groupId);
-    } else {
-        await requireGroupViewAccess(user, rootOwner.groupId);
+    await assertActiveOrganization(user, rootOwner.organizationId);
+
+    if (options?.needsUpdate || options?.needsFileManage) {
+        if (rootOwner.mode === "team") {
+            if (options.needsFileManage) {
+                await requireTeamGraphFileManageAccess(user, rootOwner.teamId);
+            } else {
+                await requireTeamGraphCreateAccess(user, rootOwner.teamId);
+            }
+            return graph;
+        }
+
+        await requireOrganizationAdmin(user, rootOwner.organizationId);
+        return graph;
     }
 
+    if (rootOwner.mode === "team") {
+        await requireTeamAccess(user, rootOwner.teamId);
+        return graph;
+    }
+
+    await requireOrganizationMembership(user, rootOwner.organizationId);
     return graph;
 };
 
-export const assertCanPatchGraph = async (headers: Headers, user: AuthUser, graphId: string): Promise<GraphRecord> =>
-    assertGraphAccess(user, graphId, { headers, needsUpdate: true });
+export const assertCanPatchGraph = async (user: AuthUser, graphId: string): Promise<GraphRecord> =>
+    assertGraphAccess(user, graphId, { needsUpdate: true });
+
+export const assertCanManageGraphFiles = async (user: AuthUser, graphId: string): Promise<GraphRecord> =>
+    assertGraphAccess(user, graphId, { needsFileManage: true });
 
 export const assertCanViewGraph = async (user: AuthUser, graphId: string): Promise<GraphRecord> =>
     assertGraphAccess(user, graphId);

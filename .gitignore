@@ -23,6 +23,9 @@ docs/
 # solo
 solo.yml
 
+# scratch
+.scratch/
+
 # certs
 certs/kiwi.*
 

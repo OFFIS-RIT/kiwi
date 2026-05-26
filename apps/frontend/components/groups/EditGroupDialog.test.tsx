@@ -3,10 +3,11 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { fetchGroupUsers, hasPermission, listUsers } = vi.hoisted(() => ({
+const { fetchGroupUsers, fetchGroupAvailableUsers, updateGroupUsers, isAdmin } = vi.hoisted(() => ({
     fetchGroupUsers: vi.fn(),
-    hasPermission: vi.fn((_: string) => false),
-    listUsers: vi.fn(),
+    fetchGroupAvailableUsers: vi.fn(),
+    updateGroupUsers: vi.fn(),
+    isAdmin: { value: true },
 }));
 
 class ResizeObserverMock {
@@ -22,20 +23,14 @@ Object.defineProperty(globalThis, "ResizeObserver", {
 
 vi.mock("@/lib/api/groups", () => ({
     fetchGroupUsers,
+    fetchGroupAvailableUsers,
     updateGroup: vi.fn(),
-}));
-
-vi.mock("@kiwi/auth/client", () => ({
-    createKiwiAuthClient: vi.fn(() => ({
-        admin: {
-            listUsers,
-        },
-    })),
+    updateGroupUsers,
 }));
 
 vi.mock("@/providers/AuthProvider", () => ({
     useAuth: () => ({
-        hasPermission,
+        isAdmin: isAdmin.value,
     }),
 }));
 
@@ -49,14 +44,16 @@ function renderDialog(ui: ReactElement) {
 describe("EditGroupDialog", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        hasPermission.mockReturnValue(false);
+        isAdmin.value = true;
         fetchGroupUsers.mockResolvedValue([]);
+        fetchGroupAvailableUsers.mockResolvedValue([]);
+        updateGroupUsers.mockResolvedValue([]);
     });
 
     test("shows fetched user names in the group member list", async () => {
         fetchGroupUsers.mockResolvedValue([
             {
-                group_id: "group_1",
+                team_id: "group_1",
                 user_id: "user_1",
                 user_name: "Max Mustermann",
                 role: "admin",
@@ -72,6 +69,9 @@ describe("EditGroupDialog", () => {
                 group={{
                     id: "group_1",
                     name: "Team Wissen",
+                    role: "admin",
+                    scope: "team",
+                    projects: [],
                 }}
             />
         );
@@ -83,34 +83,14 @@ describe("EditGroupDialog", () => {
     });
 
     test("suggests matching user names when adding a group member", async () => {
-        hasPermission.mockImplementation((permission: string) => permission === "group.add:user");
-        listUsers.mockImplementation(({ query }: { query?: { searchValue?: string } }) => {
-            if (query?.searchValue) {
-                return Promise.resolve({
-                    data: {
-                        users: [],
-                        total: 0,
-                    },
-                    error: null,
-                });
-            }
-
-            return Promise.resolve({
-                data: {
-                    users: [
-                        {
-                            id: "user_2",
-                            name: "Anna Example",
-                            email: "anna@example.com",
-                            role: "user",
-                            banned: false,
-                        },
-                    ],
-                    total: 1,
-                },
-                error: null,
-            });
-        });
+        fetchGroupAvailableUsers.mockResolvedValue([
+            {
+                user_id: "user_2",
+                user_name: "Anna Example",
+                user_email: "anna@example.com",
+                role: "member",
+            },
+        ]);
 
         renderDialog(
             <EditGroupDialog
@@ -119,18 +99,14 @@ describe("EditGroupDialog", () => {
                 group={{
                     id: "group_1",
                     name: "Team Wissen",
+                    role: "admin",
+                    scope: "team",
+                    projects: [],
                 }}
             />
         );
 
-        await waitFor(() =>
-            expect(listUsers).toHaveBeenCalledWith({
-                query: {
-                    limit: 100,
-                    offset: 0,
-                },
-            })
-        );
+        await waitFor(() => expect(fetchGroupAvailableUsers).toHaveBeenCalledWith(expect.anything(), "group_1"));
 
         const user = userEvent.setup();
         await user.type(await screen.findByPlaceholderText("Benutzer suchen..."), "Anna");
@@ -142,34 +118,14 @@ describe("EditGroupDialog", () => {
     });
 
     test("matches names case-insensitively with hyphens, omitted middle names, and small typos", async () => {
-        hasPermission.mockImplementation((permission: string) => permission === "group.add:user");
-        listUsers.mockImplementation(({ query }: { query?: { searchValue?: string } }) => {
-            if (query?.searchValue) {
-                return Promise.resolve({
-                    data: {
-                        users: [],
-                        total: 0,
-                    },
-                    error: null,
-                });
-            }
-
-            return Promise.resolve({
-                data: {
-                    users: [
-                        {
-                            id: "user_3",
-                            name: "Anna-Maria Meier",
-                            email: "anna.maria@example.com",
-                            role: "user",
-                            banned: false,
-                        },
-                    ],
-                    total: 1,
-                },
-                error: null,
-            });
-        });
+        fetchGroupAvailableUsers.mockResolvedValue([
+            {
+                user_id: "user_3",
+                user_name: "Anna-Maria Meier",
+                user_email: "anna.maria@example.com",
+                role: "member",
+            },
+        ]);
 
         renderDialog(
             <EditGroupDialog
@@ -178,6 +134,9 @@ describe("EditGroupDialog", () => {
                 group={{
                     id: "group_1",
                     name: "Team Wissen",
+                    role: "admin",
+                    scope: "team",
+                    projects: [],
                 }}
             />
         );
@@ -185,35 +144,20 @@ describe("EditGroupDialog", () => {
         const user = userEvent.setup();
         await user.type(await screen.findByPlaceholderText("Benutzer suchen..."), "ANNA MEIR");
 
-        await waitFor(() =>
-            expect(listUsers).toHaveBeenCalledWith({
-                query: {
-                    limit: 100,
-                    offset: 0,
-                },
-            })
-        );
+        await waitFor(() => expect(fetchGroupAvailableUsers).toHaveBeenCalledWith(expect.anything(), "group_1"));
 
         expect(await screen.findByRole("button", { name: /Anna-Maria Meier/i })).toBeInTheDocument();
     });
 
     test("filters locally without refetching on every keystroke", async () => {
-        hasPermission.mockImplementation((permission: string) => permission === "group.add:user");
-        listUsers.mockResolvedValue({
-            data: {
-                users: [
-                    {
-                        id: "user_2",
-                        name: "Anna Example",
-                        email: "anna@example.com",
-                        role: "user",
-                        banned: false,
-                    },
-                ],
-                total: 1,
+        fetchGroupAvailableUsers.mockResolvedValue([
+            {
+                user_id: "user_2",
+                user_name: "Anna Example",
+                user_email: "anna@example.com",
+                role: "member",
             },
-            error: null,
-        });
+        ]);
 
         renderDialog(
             <EditGroupDialog
@@ -222,23 +166,19 @@ describe("EditGroupDialog", () => {
                 group={{
                     id: "group_1",
                     name: "Team Wissen",
+                    role: "admin",
+                    scope: "team",
+                    projects: [],
                 }}
             />
         );
 
-        await waitFor(() =>
-            expect(listUsers).toHaveBeenCalledWith({
-                query: {
-                    limit: 100,
-                    offset: 0,
-                },
-            })
-        );
+        await waitFor(() => expect(fetchGroupAvailableUsers).toHaveBeenCalledWith(expect.anything(), "group_1"));
 
         const user = userEvent.setup();
         await user.type(await screen.findByPlaceholderText("Benutzer suchen..."), "Ann");
 
-        expect(listUsers).toHaveBeenCalledTimes(1);
+        expect(fetchGroupAvailableUsers).toHaveBeenCalledTimes(1);
         expect(await screen.findByRole("button", { name: /Anna Example/i })).toBeInTheDocument();
     });
 });

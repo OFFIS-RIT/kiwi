@@ -5,7 +5,7 @@ import { useCurrentSelection } from "@/hooks/use-current-selection";
 import { useGroupsWithProjects } from "@/hooks/use-data";
 import type { Group, Project } from "@/types";
 
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -27,20 +27,36 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
     SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
     SidebarRail,
 } from "@/components/ui/sidebar";
 import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
 import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { canCreateProjectInGroup, canDeleteTeam, canManageTeam, canOpenProjectEditorInGroup } from "@/lib/capabilities";
+import { useAuth } from "@/providers/AuthProvider";
+import { useProjectChatSession } from "@/providers/ChatSessionsProvider";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
 import Fuse from "fuse.js";
-import { BookOpen, ChevronRight, Edit, FolderSearch, MoreVertical, Plus, Search, Trash2, Users, X } from "lucide-react";
+import {
+    BookOpen,
+    ChevronRight,
+    Edit,
+    FolderSearch,
+    MoreVertical,
+    Plus,
+    Search,
+    Trash2,
+    X,
+} from "lucide-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type * as React from "react";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 
 const CreateProjectDialog = lazy(() =>
     import("@/components/projects").then((mod) => ({
@@ -49,13 +65,15 @@ const CreateProjectDialog = lazy(() =>
 );
 
 type SearchResult = {
-    type: "group" | "project";
+    type: "group" | "project" | "chat";
     group: Group;
     project?: Project;
+    chat?: Project["recentChats"][number];
     score: number;
 };
 
 const MIN_SEARCH_LENGTH = 1;
+const EMPTY_GROUPS: Group[] = [];
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     onEditGroup: (group: Group) => void;
@@ -75,43 +93,56 @@ export function AppSidebar({
 }: AppSidebarProps) {
     const t = useAppTranslations();
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const chatId = searchParams.get("chatId");
     const { buildLabel } = useRuntimeConfig();
-    const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
+    const { data: groups = EMPTY_GROUPS, isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
+    const { isAdmin } = useAuth();
     const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
     const homePrefetchRef = usePrefetchWhenVisible<HTMLButtonElement>("/");
     const {
         expandedGroups,
+        expandedProjects,
         toggleGroupExpanded,
+        toggleProjectExpanded,
         initializeExpandedGroups,
+        initializeExpandedProjects,
         restoreExpansionAfterSearch,
         expandGroupsForSearch,
     } = useSidebarExpansion();
 
     const [showSearch, setShowSearch] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [createProjectGroupId, setCreateProjectGroupId] = useState<string | null>(null);
     const [ready, setReady] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
 
     const originalExpandedStateRef = useRef<Record<string, boolean>>({});
+    const originalExpandedProjectsRef = useRef<Record<string, boolean>>({});
     const projectSelectedDuringSearchRef = useRef(false);
     const wasSearchingRef = useRef(false);
     const selectedGroupIdDuringSearchRef = useRef<string | null>(null);
     const expandedGroupsRef = useRef(expandedGroups);
+    const expandedProjectsRef = useRef(expandedProjects);
 
     // Build flat list for Fuse.js search
     const searchableItems = useMemo(() => {
         const items: Array<{
-            type: "group" | "project";
+            type: "group" | "project" | "chat";
             name: string;
             group: Group;
             project?: Project;
+            chat?: Project["recentChats"][number];
         }> = [];
 
         groups.forEach((group) => {
             items.push({ type: "group", name: group.name, group });
             group.projects.forEach((project) => {
                 items.push({ type: "project", name: project.name, group, project });
+                project.recentChats.forEach((chat) => {
+                    items.push({ type: "chat", name: chat.title, group, project, chat });
+                });
             });
         });
 
@@ -141,17 +172,35 @@ export function AppSidebar({
             type: r.item.type,
             group: r.item.group,
             project: r.item.project,
+            chat: r.item.chat,
             score: r.score ?? 1,
         }));
     }, [fuse, searchTerm]);
 
     const isSearching = searchTerm.trim().length >= MIN_SEARCH_LENGTH;
 
+    const activeChatId = useMemo(() => {
+        if (!chatId) return null;
+        return groups.some((group) =>
+            group.projects.some((project) => project.recentChats.some((chat) => chat.id === chatId))
+        )
+            ? chatId
+            : null;
+    }, [chatId, groups]);
+
     // Build grouped results for display
     const groupedResults = useMemo(() => {
         if (!isSearching) return null;
 
-        const groupMap = new Map<string, { group: Group; matchedProjects: Set<string>; groupMatches: boolean }>();
+        const groupMap = new Map<
+            string,
+            {
+                group: Group;
+                matchedProjects: Set<string>;
+                matchedChatsByProject: Map<string, Set<string>>;
+                groupMatches: boolean;
+            }
+        >();
 
         searchResults.forEach((result) => {
             const groupId = result.group.id;
@@ -159,6 +208,7 @@ export function AppSidebar({
                 groupMap.set(groupId, {
                     group: result.group,
                     matchedProjects: new Set(),
+                    matchedChatsByProject: new Map(),
                     groupMatches: false,
                 });
             }
@@ -167,6 +217,11 @@ export function AppSidebar({
                 entry.groupMatches = true;
             } else if (result.project) {
                 entry.matchedProjects.add(result.project.id);
+                if (result.type === "chat" && result.chat) {
+                    const matchedChats = entry.matchedChatsByProject.get(result.project.id) ?? new Set<string>();
+                    matchedChats.add(result.chat.id);
+                    entry.matchedChatsByProject.set(result.project.id, matchedChats);
+                }
             }
         });
 
@@ -176,6 +231,10 @@ export function AppSidebar({
     useEffect(() => {
         expandedGroupsRef.current = expandedGroups;
     }, [expandedGroups]);
+
+    useEffect(() => {
+        expandedProjectsRef.current = expandedProjects;
+    }, [expandedProjects]);
 
     useEffect(() => {
         if (!isLoading && !error) {
@@ -190,6 +249,26 @@ export function AppSidebar({
         }
     }, [groups, initializeExpandedGroups]);
 
+    useEffect(() => {
+        const projectIds = groups.flatMap((group) => group.projects.map((project) => project.id));
+        if (projectIds.length === 0) return;
+        initializeExpandedProjects(projectIds);
+    }, [groups, initializeExpandedProjects]);
+
+    useEffect(() => {
+        if (!activeChatId) return;
+
+        for (const group of groups) {
+            const project = group.projects.find((candidate) =>
+                candidate.recentChats.some((chat) => chat.id === activeChatId)
+            );
+            if (project) {
+                expandGroupsForSearch([group.id], [project.id]);
+                return;
+            }
+        }
+    }, [activeChatId, groups, expandGroupsForSearch]);
+
     // Handle expansion state during search
     useEffect(() => {
         if (!isSearching) {
@@ -197,9 +276,9 @@ export function AppSidebar({
                 if (projectSelectedDuringSearchRef.current && selectedGroupIdDuringSearchRef.current) {
                     const stateToRestore = { ...originalExpandedStateRef.current };
                     stateToRestore[selectedGroupIdDuringSearchRef.current] = true;
-                    restoreExpansionAfterSearch(stateToRestore);
+                    restoreExpansionAfterSearch(stateToRestore, originalExpandedProjectsRef.current);
                 } else {
-                    restoreExpansionAfterSearch(originalExpandedStateRef.current);
+                    restoreExpansionAfterSearch(originalExpandedStateRef.current, originalExpandedProjectsRef.current);
                 }
             }
             wasSearchingRef.current = false;
@@ -208,6 +287,7 @@ export function AppSidebar({
 
         if (!wasSearchingRef.current) {
             originalExpandedStateRef.current = { ...expandedGroupsRef.current };
+            originalExpandedProjectsRef.current = { ...expandedProjectsRef.current };
             projectSelectedDuringSearchRef.current = false;
             selectedGroupIdDuringSearchRef.current = null;
         }
@@ -215,7 +295,12 @@ export function AppSidebar({
 
         if (groupedResults) {
             const groupIdsToExpand = Array.from(groupedResults.keys());
-            expandGroupsForSearch(groupIdsToExpand);
+            const projectIdsToExpand = Array.from(groupedResults.values()).flatMap((entry) =>
+                entry.groupMatches
+                    ? []
+                    : [...entry.matchedProjects, ...entry.matchedChatsByProject.keys()]
+            );
+            expandGroupsForSearch(groupIdsToExpand, projectIdsToExpand);
         }
     }, [isSearching, groupedResults, expandGroupsForSearch, restoreExpansionAfterSearch]);
 
@@ -249,13 +334,19 @@ export function AppSidebar({
     const displayGroups = useMemo(() => {
         if (!isSearching || !groupedResults) return groups;
 
-        return Array.from(groupedResults.values()).map(({ group, matchedProjects, groupMatches }) => ({
+        return Array.from(groupedResults.values()).map(({ group, matchedProjects, matchedChatsByProject, groupMatches }) => ({
             ...group,
-            projects: groupMatches ? group.projects : group.projects.filter((p) => matchedProjects.has(p.id)),
+            projects: groupMatches
+                ? group.projects
+                : group.projects.filter((p) => matchedProjects.has(p.id) || matchedChatsByProject.has(p.id)),
             matchedProjectIds: matchedProjects,
+            matchedChatsByProject,
             groupMatches,
         }));
     }, [groups, isSearching, groupedResults]);
+
+    const organizationGroup = displayGroups.find((group) => group.scope === "organization");
+    const teamGroups = displayGroups.filter((group) => group.scope === "team");
 
     return (
         <Sidebar {...props}>
@@ -336,54 +427,182 @@ export function AppSidebar({
                 )}
             </SidebarHeader>
             <SidebarContent>
-                <SidebarGroup>
-                    <SidebarGroupLabel>{t("knowledge.groups")}</SidebarGroupLabel>
-                    <SidebarGroupContent>
-                        {error ? (
-                            <div className="px-2 py-4 text-center text-sm text-destructive">{error}</div>
-                        ) : isSearching && searchResults.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-                                <FolderSearch className="h-10 w-10 text-muted-foreground/50 mb-3" />
-                                <p className="text-sm font-medium text-muted-foreground">{t("no.search.results")}</p>
-                                <p className="text-xs text-muted-foreground/70 mt-1">{t("search.try.different")}</p>
-                            </div>
-                        ) : !isLoading && groups.length === 0 ? (
-                            <div className="px-2 py-4 text-center text-sm text-muted-foreground">{t("no.groups")}</div>
-                        ) : groups.length > 0 ? (
-                            <ScrollArea
-                                className={`h-[calc(100vh-12rem)] transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}
-                            >
-                                <SidebarMenu>
-                                    {displayGroups.map((group) => (
-                                        <GroupItem
-                                            key={group.id}
-                                            group={group}
-                                            isExpanded={expandedGroups[group.id]}
-                                            onToggleExpanded={() => toggleGroupExpanded(group.id)}
-                                            highlightTerm={isSearching ? searchTerm : undefined}
-                                            matchedProjectIds={
-                                                isSearching && "matchedProjectIds" in group
-                                                    ? (group.matchedProjectIds as Set<string>)
-                                                    : undefined
-                                            }
-                                            onSelectProject={(groupId) => {
-                                                if (isSearching) {
-                                                    projectSelectedDuringSearchRef.current = true;
-                                                    selectedGroupIdDuringSearchRef.current = groupId;
+                {error ? (
+                    <div className="px-2 py-4 text-center text-sm text-destructive">{error}</div>
+                ) : isSearching && searchResults.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                        <FolderSearch className="h-10 w-10 text-muted-foreground/50 mb-3" />
+                        <p className="text-sm font-medium text-muted-foreground">{t("no.search.results")}</p>
+                        <p className="text-xs text-muted-foreground/70 mt-1">{t("search.try.different")}</p>
+                    </div>
+                ) : !isLoading && groups.length === 0 ? (
+                    <div className="px-2 py-4 text-center text-sm text-muted-foreground">{t("no.groups")}</div>
+                ) : groups.length > 0 ? (
+                    <ScrollArea
+                        className={`h-[calc(100vh-12rem)] transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}
+                    >
+                        {organizationGroup ? (
+                            <SidebarGroup>
+                                <SidebarGroupContent>
+                                    <SidebarMenu>
+                                        {organizationGroup.projects.map((project) => (
+                                            <ProjectItem
+                                                key={project.id}
+                                                project={project}
+                                                group={organizationGroup}
+                                                isExpanded={expandedProjects[project.id] ?? false}
+                                                onToggleExpanded={() => toggleProjectExpanded(project.id)}
+                                                activeChatId={activeChatId}
+                                                isMatched={
+                                                    isSearching && "matchedProjectIds" in organizationGroup
+                                                        ? (organizationGroup.matchedProjectIds as Set<string>).has(
+                                                              project.id
+                                                          )
+                                                        : false
                                                 }
-                                            }}
-                                            onEditProject={onEditProject}
-                                            onEditGroup={onEditGroup}
-                                            onDeleteGroup={onDeleteGroup}
-                                            onDeleteProject={onDeleteProject}
+                                                matchedChatIds={
+                                                    isSearching && "matchedChatsByProject" in organizationGroup
+                                                        ? (
+                                                              organizationGroup.matchedChatsByProject as Map<
+                                                                  string,
+                                                                  Set<string>
+                                                              >
+                                                          ).get(project.id)
+                                                        : undefined
+                                                }
+                                                highlightTerm={isSearching ? searchTerm : undefined}
+                                                onSelectProject={(groupId) => {
+                                                    if (isSearching) {
+                                                        projectSelectedDuringSearchRef.current = true;
+                                                        selectedGroupIdDuringSearchRef.current = groupId;
+                                                    }
+                                                }}
+                                                onEditProject={onEditProject}
+                                                onDeleteProject={onDeleteProject}
+                                            />
+                                        ))}
+                                    </SidebarMenu>
+                                </SidebarGroupContent>
+                            </SidebarGroup>
+                        ) : null}
+                        {teamGroups.map((group) => {
+                            const context = { isAdmin };
+                            const canEditTeam = canManageTeam(group, context);
+                            const canCreateProject = canCreateProjectInGroup(group, context);
+                            const canDeleteGroup = canDeleteTeam(group, context);
+                            const showTeamMenu = canEditTeam || canCreateProject || canDeleteGroup;
+
+                            return (
+                                <SidebarGroup key={group.id}>
+                                    <SidebarGroupLabel asChild className="px-2">
+                                        <div className="group/team-row flex min-w-0 items-center gap-1 rounded-md transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
+                                            <button
+                                                type="button"
+                                                className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
+                                                title={group.name}
+                                                onClick={() => toggleGroupExpanded(group.id)}
+                                            >
+                                                <span className="block truncate">{group.name}</span>
+                                                <ChevronRight
+                                                    className={`h-4 w-4 shrink-0 text-sidebar-foreground/60 opacity-0 transition-[opacity,transform] group-hover/team-row:opacity-100 group-focus-within/team-row:opacity-100 ${expandedGroups[group.id] ? "rotate-90" : ""}`}
+                                                />
+                                            </button>
+                                            {showTeamMenu ? (
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-5 w-5 shrink-0 p-0 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/team-row:opacity-100 group-focus-within/team-row:opacity-100 data-[state=open]:opacity-100"
+                                                            aria-label={t("options")}
+                                                        >
+                                                            <MoreVertical className="h-4 w-4" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="start" side="right" className="w-48">
+                                                        {canEditTeam ? (
+                                                            <DropdownMenuItem onSelect={() => onEditGroup(group)}>
+                                                                <Edit className="mr-2 h-4 w-4" />
+                                                                <span>{t("edit")}</span>
+                                                            </DropdownMenuItem>
+                                                        ) : null}
+                                                        {canCreateProject ? (
+                                                            <DropdownMenuItem
+                                                                onSelect={() => setCreateProjectGroupId(group.id)}
+                                                            >
+                                                                <Plus className="mr-2 h-4 w-4" />
+                                                                <span>{t("create.new.project")}</span>
+                                                            </DropdownMenuItem>
+                                                        ) : null}
+                                                        {canDeleteGroup ? (
+                                                            <DropdownMenuItem
+                                                                className="text-destructive focus:text-destructive"
+                                                                onSelect={() => onDeleteGroup(group)}
+                                                            >
+                                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                                <span>{t("delete")}</span>
+                                                            </DropdownMenuItem>
+                                                        ) : null}
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            ) : null}
+                                        </div>
+                                    </SidebarGroupLabel>
+                                    <Suspense fallback={null}>
+                                        <CreateProjectDialog
+                                            open={createProjectGroupId === group.id}
+                                            onOpenChange={(open) => setCreateProjectGroupId(open ? group.id : null)}
+                                            groupId={group.id}
                                             onProjectCreated={onProjectCreated}
                                         />
-                                    ))}
-                                </SidebarMenu>
-                            </ScrollArea>
-                        ) : null}
-                    </SidebarGroupContent>
-                </SidebarGroup>
+                                    </Suspense>
+                                    <SidebarGroupContent>
+                                        {expandedGroups[group.id] ? (
+                                            <SidebarMenu>
+                                                {group.projects.map((project) => (
+                                                    <ProjectItem
+                                                        key={project.id}
+                                                        project={project}
+                                                        group={group}
+                                                        isExpanded={expandedProjects[project.id] ?? false}
+                                                        onToggleExpanded={() => toggleProjectExpanded(project.id)}
+                                                        activeChatId={activeChatId}
+                                                        isMatched={
+                                                            isSearching && "matchedProjectIds" in group
+                                                                ? (group.matchedProjectIds as Set<string>).has(
+                                                                      project.id
+                                                                  )
+                                                                : false
+                                                        }
+                                                        matchedChatIds={
+                                                            isSearching && "matchedChatsByProject" in group
+                                                                ? (
+                                                                      group.matchedChatsByProject as Map<
+                                                                          string,
+                                                                          Set<string>
+                                                                      >
+                                                                  ).get(project.id)
+                                                                : undefined
+                                                        }
+                                                        highlightTerm={isSearching ? searchTerm : undefined}
+                                                        onSelectProject={(groupId) => {
+                                                            if (isSearching) {
+                                                                projectSelectedDuringSearchRef.current = true;
+                                                                selectedGroupIdDuringSearchRef.current = groupId;
+                                                            }
+                                                        }}
+                                                        onEditProject={onEditProject}
+                                                        onDeleteProject={onDeleteProject}
+                                                    />
+                                                ))}
+                                            </SidebarMenu>
+                                        ) : null}
+                                    </SidebarGroupContent>
+                                </SidebarGroup>
+                            );
+                        })}
+                    </ScrollArea>
+                ) : null}
             </SidebarContent>
             {buildLabel ? (
                 <SidebarFooter className="gap-1 border-t border-sidebar-border group-data-[collapsible=icon]:hidden">
@@ -399,20 +618,6 @@ export function AppSidebar({
         </Sidebar>
     );
 }
-
-type GroupItemProps = {
-    group: Group;
-    isExpanded: boolean;
-    onToggleExpanded: () => void;
-    highlightTerm?: string;
-    matchedProjectIds?: Set<string>;
-    onSelectProject: (groupId: string) => void;
-    onEditProject: (project: Project, groupId: string) => void;
-    onEditGroup: (group: Group) => void;
-    onDeleteGroup: (group: Group) => void;
-    onDeleteProject: (project: Project, groupId: string, groupName: string) => void;
-    onProjectCreated?: (projectId: string, groupId: string, projectName: string) => void;
-};
 
 // Modern highlight: finds best matching substring and highlights it subtly
 function fuzzyHighlight(text: string, term: string): React.ReactNode {
@@ -479,118 +684,14 @@ function fuzzyHighlight(text: string, term: string): React.ReactNode {
     return text;
 }
 
-function GroupItem({
-    group,
-    isExpanded,
-    onToggleExpanded,
-    highlightTerm,
-    matchedProjectIds,
-    onSelectProject,
-    onEditProject,
-    onEditGroup,
-    onDeleteGroup,
-    onDeleteProject,
-    onProjectCreated,
-}: GroupItemProps) {
-    const router = useRouter();
-    const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
-    const t = useAppTranslations();
-    const [showCreateProject, setShowCreateProject] = useState(false);
-    const groupHref = `/${group.id}`;
-    const groupPrefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(groupHref);
-
-    const projectsToShow = group.projects;
-
-    return (
-        <SidebarMenuItem>
-            <Collapsible className="group/collapsible" open={isExpanded} onOpenChange={onToggleExpanded}>
-                <div className="group/group-row relative flex min-w-0 items-center gap-1">
-                    <CollapsibleTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 shrink-0 p-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            aria-label={isExpanded ? "Gruppe einklappen" : "Gruppe ausklappen"}
-                        >
-                            <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-                        </Button>
-                    </CollapsibleTrigger>
-                    <SidebarMenuButton
-                        ref={groupPrefetchRef}
-                        className="min-w-0 flex-1 pr-8"
-                        isActive={selectedGroup?.id === group.id && !selectedProject}
-                        onClick={() => router.push(groupHref)}
-                        title={group.name}
-                        tooltip={group.name}
-                    >
-                        <Users className="shrink-0" />
-                        <div className="w-0 min-w-0 flex-1 overflow-hidden">
-                            <span className="block truncate">
-                                {highlightTerm ? fuzzyHighlight(group.name, highlightTerm) : group.name}
-                            </span>
-                        </div>
-                    </SidebarMenuButton>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-                            <SidebarMenuAction className="opacity-0 group-hover/group-row:opacity-100 group-focus-within/group-row:opacity-100 data-[state=open]:opacity-100">
-                                <MoreVertical className="h-4 w-4" />
-                                <span className="sr-only">{t("options")}</span>
-                            </SidebarMenuAction>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" side="right" className="w-48">
-                            <DropdownMenuItem onSelect={() => onEditGroup(group)}>
-                                <Edit className="mr-2 h-4 w-4" />
-                                <span>{t("edit")}</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setShowCreateProject(true)}>
-                                <Plus className="mr-2 h-4 w-4" />
-                                <span>{t("create.new.project")}</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onSelect={() => onDeleteGroup(group)}
-                            >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                <span>{t("delete")}</span>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-                <Suspense fallback={null}>
-                    <CreateProjectDialog
-                        open={showCreateProject}
-                        onOpenChange={setShowCreateProject}
-                        groupId={group.id}
-                        onProjectCreated={onProjectCreated}
-                    />
-                </Suspense>
-                <CollapsibleContent>
-                    <SidebarMenuSub className="mr-0 pr-0">
-                        {projectsToShow.map((project) => (
-                            <ProjectItem
-                                key={project.id}
-                                project={project}
-                                group={group}
-                                isMatched={matchedProjectIds?.has(project.id) ?? false}
-                                isActive={selectedProject?.id === project.id}
-                                highlightTerm={highlightTerm}
-                                onSelectProject={onSelectProject}
-                                onEditProject={onEditProject}
-                                onDeleteProject={onDeleteProject}
-                            />
-                        ))}
-                    </SidebarMenuSub>
-                </CollapsibleContent>
-            </Collapsible>
-        </SidebarMenuItem>
-    );
-}
-
 type ProjectItemProps = {
     project: Project;
     group: Group;
+    isExpanded: boolean;
+    onToggleExpanded: () => void;
+    activeChatId: string | null;
     isMatched: boolean;
-    isActive: boolean;
+    matchedChatIds?: Set<string>;
     highlightTerm?: string;
     onSelectProject: (groupId: string) => void;
     onEditProject: (project: Project, groupId: string) => void;
@@ -600,8 +701,11 @@ type ProjectItemProps = {
 function ProjectItem({
     project,
     group,
+    isExpanded,
+    onToggleExpanded,
+    activeChatId,
     isMatched,
-    isActive,
+    matchedChatIds,
     highlightTerm,
     onSelectProject,
     onEditProject,
@@ -611,54 +715,119 @@ function ProjectItem({
     const t = useAppTranslations();
     const href = `/${group.id}/${project.id}`;
     const prefetchProjectChat = usePrefetchProjectChat(project.id);
-    const prefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(href, { onVisible: prefetchProjectChat });
+    const prefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(href, {
+        onVisible: prefetchProjectChat,
+    });
     const isProcessing = project.processPercentage !== undefined;
+    const { isAdmin } = useAuth();
+    const { requestNewEntry } = useProjectChatSession(project.id);
+    const canOpenProjectEditor = canOpenProjectEditorInGroup(group, { isAdmin });
+    const chatsToShow = matchedChatIds
+        ? project.recentChats.filter((chat) => matchedChatIds.has(chat.id))
+        : project.recentChats;
+
+    const handleStartNewChat = () => {
+        requestNewEntry({
+            sessionId: uuidv4(),
+            initialMessages: [],
+        });
+        router.push(href);
+    };
 
     return (
         <SidebarMenuItem>
-            <div className="group/project-row relative">
-                <SidebarMenuButton
-                    ref={prefetchRef}
-                    className="min-w-0 pr-8"
-                    isActive={isActive}
-                    onClick={() => {
-                        onSelectProject(group.id);
-                        router.push(href);
-                    }}
-                    title={project.name}
-                    tooltip={project.name}
-                >
-                    {isProcessing ? <ProjectProgressChart project={project} /> : <BookOpen className="shrink-0" />}
-                    <div className="w-0 min-w-0 flex-1 overflow-hidden">
-                        <span className="block truncate">
-                            {highlightTerm && isMatched ? fuzzyHighlight(project.name, highlightTerm) : project.name}
-                        </span>
-                    </div>
-                </SidebarMenuButton>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-                        <SidebarMenuAction className="opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
-                            <MoreVertical className="h-4 w-4" />
-                            <span className="sr-only">{t("options")}</span>
-                        </SidebarMenuAction>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" side="right" className="w-40">
-                        <DropdownMenuItem onSelect={() => onEditProject(project, group.id)}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            <span>{t("edit")}</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onSelect={() => {
-                                onDeleteProject(project, group.id, group.name);
-                            }}
-                        >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            <span>{t("delete")}</span>
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
+            <Collapsible className="group/project-collapsible" open={isExpanded} onOpenChange={onToggleExpanded}>
+                <div className="group/project-row relative flex min-w-0 items-center gap-1">
+                    <SidebarMenuButton
+                        ref={prefetchRef}
+                        className="min-w-0 flex-1 pr-8"
+                        onClick={onToggleExpanded}
+                        title={project.name}
+                        tooltip={project.name}
+                    >
+                        {isProcessing ? <ProjectProgressChart project={project} /> : <BookOpen className="shrink-0" />}
+                        <div className="w-0 min-w-0 flex-1 overflow-hidden">
+                            <span className="block truncate">
+                                {highlightTerm && isMatched
+                                    ? fuzzyHighlight(project.name, highlightTerm)
+                                    : project.name}
+                            </span>
+                        </div>
+                    </SidebarMenuButton>
+                    {canOpenProjectEditor && (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                                <SidebarMenuAction className="right-7 opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
+                                    <MoreVertical className="h-4 w-4" />
+                                    <span className="sr-only">{t("options")}</span>
+                                </SidebarMenuAction>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" side="right" className="w-40">
+                                <DropdownMenuItem onSelect={() => onEditProject(project, group.id)}>
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    <span>{t("edit")}</span>
+                                </DropdownMenuItem>
+                                {canCreateProjectInGroup(group, { isAdmin }) && (
+                                    <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onSelect={() => {
+                                            onDeleteProject(project, group.id, group.name);
+                                        }}
+                                    >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        <span>{t("delete")}</span>
+                                    </DropdownMenuItem>
+                                )}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    )}
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1.5 h-5 w-5 p-0 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            handleStartNewChat();
+                        }}
+                        aria-label={t("new.chat")}
+                    >
+                        <Plus className="h-4 w-4" />
+                    </Button>
+                </div>
+                <CollapsibleContent>
+                    <SidebarMenuSub className="mr-0 pr-0">
+                        {chatsToShow.length > 0 ? (
+                            chatsToShow.map((chat) => (
+                                <SidebarMenuSubItem key={chat.id}>
+                                    <SidebarMenuSubButton
+                                        asChild
+                                        size="sm"
+                                        isActive={activeChatId === chat.id}
+                                        className="w-full justify-start"
+                                        onMouseEnter={prefetchProjectChat}
+                                        onFocus={prefetchProjectChat}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                onSelectProject(group.id);
+                                                router.push(`${href}?chatId=${encodeURIComponent(chat.id)}`);
+                                            }}
+                                            title={chat.title}
+                                        >
+                                            <span>{chat.title}</span>
+                                        </button>
+                                    </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                            ))
+                        ) : (
+                            <SidebarMenuSubItem>
+                                <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no.chats")}</div>
+                            </SidebarMenuSubItem>
+                        )}
+                    </SidebarMenuSub>
+                </CollapsibleContent>
+            </Collapsible>
         </SidebarMenuItem>
     );
 }

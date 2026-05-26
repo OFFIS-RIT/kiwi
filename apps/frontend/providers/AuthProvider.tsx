@@ -2,13 +2,7 @@
 
 import type React from "react";
 import { useRouter } from "next/navigation";
-import {
-    admin as adminRole,
-    getUserRoles,
-    hasRole,
-    manager as managerRole,
-    user as userRole,
-} from "@kiwi/auth/permissions";
+import { getUserRoles, hasRole } from "@kiwi/auth/permissions";
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import type { InitialClientSession } from "@/lib/auth/types";
@@ -25,19 +19,12 @@ type AuthContextType = {
     user: AuthUser | null;
     role: string | null;
     isAdmin: boolean;
-    isManager: boolean;
+    isSystemAdmin: boolean;
     isPending: boolean;
     signOut: () => Promise<void>;
-    hasPermission: (permission: string) => boolean;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const roleMap: Record<string, { statements: Record<string, readonly string[]> }> = {
-    admin: adminRole,
-    manager: managerRole,
-    user: userRole,
-};
 
 export function AuthProvider({
     initialSession,
@@ -51,12 +38,14 @@ export function AuthProvider({
     const router = useRouter();
     const prevUserIdRef = useRef<string | null>(null);
     const { data: liveSession, isPending } = authClient.useSession();
+    const { data: activeMemberRole, isPending: isRolePending } = authClient.useActiveMemberRole();
 
     const sessionUser = liveSession?.user ?? initialSession.user;
-    const roles = getUserRoles(sessionUser?.role ?? null);
-    const role = roles[0] ?? null;
-    const isAdmin = hasRole(sessionUser?.role ?? null, "admin");
-    const isManager = hasRole(sessionUser?.role ?? null, "manager");
+    const organizationRoles = getUserRoles(activeMemberRole?.role ?? null);
+    const isSystemAdmin = hasRole(sessionUser?.role ?? null, "admin");
+    const role = isSystemAdmin ? "admin" : (organizationRoles[0] ?? null);
+    const isAdmin = isSystemAdmin || organizationRoles.includes("admin");
+    const pending = isPending || (!!sessionUser && isRolePending);
 
     useEffect(() => {
         if (!isPending && !liveSession) {
@@ -72,16 +61,6 @@ export function AuthProvider({
         prevUserIdRef.current = sessionUser?.id ?? null;
     }, [sessionUser?.id]);
 
-    const hasPermission = useCallback(
-        (permission: string): boolean => {
-            if (isAdmin) return true;
-            const [resource, action] = permission.split(".");
-            if (!resource || !action) return false;
-            return roles.some((currentRole) => roleMap[currentRole]?.statements[resource]?.includes(action) ?? false);
-        },
-        [isAdmin, roles]
-    );
-
     const signOut = useCallback(async () => {
         await authClient.signOut();
         queryClient.clear();
@@ -96,17 +75,16 @@ export function AuthProvider({
                       id: sessionUser.id,
                       name: sessionUser.name,
                       email: sessionUser.email,
-                      role: role ?? "user",
+                      role: role ?? "member",
                   }
                 : null,
             role,
             isAdmin,
-            isManager,
-            isPending,
+            isSystemAdmin,
+            isPending: pending,
             signOut,
-            hasPermission,
         }),
-        [sessionUser, role, isAdmin, isManager, isPending, signOut, hasPermission]
+        [sessionUser, role, isAdmin, isSystemAdmin, pending, signOut]
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

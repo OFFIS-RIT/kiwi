@@ -33,6 +33,7 @@ import {
     updateAssistantMessage,
     type ChatRequest,
 } from "../lib/chat";
+import { startChatTitleGeneration } from "../lib/chat-title";
 import { assertCanViewGraph } from "../lib/graph-access";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
@@ -156,9 +157,15 @@ export const chatRoute = new Elysia()
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
                 const deep = request.deep === true;
-                const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request, {
+                const { assistantId, client, tools, prompt, isNewChat } = await startReply(user.id, params.id, request, {
                     toolset: "server",
                     deep,
+                });
+                startChatTitleGeneration({
+                    chatId: request.id,
+                    messages: request.messages,
+                    client,
+                    isNewChat,
                 });
 
                 const startedAt = Date.now();
@@ -197,8 +204,6 @@ export const chatRoute = new Elysia()
                                         citationFileIds.add(citationFileId);
                                     }
                                     text += stringifyCitationFence(citation);
-                                } else {
-                                    text += segment.raw;
                                 }
                             }
                             if (text.length > 0) {
@@ -279,9 +284,20 @@ export const chatRoute = new Elysia()
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
                 const deep = request.deep === true;
-                const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request, {
-                    toolset: "server-and-client",
-                    deep,
+                const { assistantId, client, tools, prompt, isNewChat } = await startReply(
+                    user.id,
+                    params.id,
+                    request,
+                    {
+                        toolset: "server-and-client",
+                        deep,
+                    }
+                );
+                startChatTitleGeneration({
+                    chatId: request.id,
+                    messages: request.messages,
+                    client,
+                    isNewChat,
                 });
 
                 const startedAt = Date.now();
@@ -385,11 +401,8 @@ export const chatRoute = new Elysia()
                             });
                         };
 
-                        const emitCitationFence = async (modelPartId: string, rawFence: string, citationId: string) => {
+                        const emitCitationFence = async (modelPartId: string, citationId: string) => {
                             const citation = await enrichCitation(params.id, citationId);
-                            const emittedFence = citation ? stringifyCitationFence(citation) : rawFence;
-                            appendText(modelPartId, emittedFence);
-
                             if (!citation) {
                                 return;
                             }
@@ -398,6 +411,7 @@ export const chatRoute = new Elysia()
                             if (citationFileId) {
                                 citationFileIds.add(citationFileId);
                             }
+                            appendText(modelPartId, stringifyCitationFence(citation));
                         };
 
                         try {
@@ -423,7 +437,7 @@ export const chatRoute = new Elysia()
                                                 continue;
                                             }
 
-                                            await emitCitationFence(part.id, segment.raw, segment.citation.sourceId);
+                                            await emitCitationFence(part.id, segment.citation.sourceId);
                                         }
                                         break;
                                     }
@@ -436,11 +450,7 @@ export const chatRoute = new Elysia()
                                                     continue;
                                                 }
 
-                                                await emitCitationFence(
-                                                    part.id,
-                                                    segment.raw,
-                                                    segment.citation.sourceId
-                                                );
+                                                await emitCitationFence(part.id, segment.citation.sourceId);
                                             }
                                         }
 
