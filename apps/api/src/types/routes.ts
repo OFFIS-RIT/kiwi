@@ -103,7 +103,6 @@ export type OrganizationMemberListItem = {
 export type GraphRecentChatItem = {
     id: string;
     title: string;
-    updatedAt: string | null;
 };
 
 export type GraphListItem = {

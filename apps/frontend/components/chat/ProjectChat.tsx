@@ -421,7 +421,7 @@ function ProjectChatSession({
     const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const [interimTranscript, setInterimTranscript] = useState("");
     const [isTemplateSidebarOpen, setIsTemplateSidebarOpen] = useState(false);
-    const { setStreamError, setCurrentStep, setStatus, getNewChatDraft, setNewChatDraft, clearNewChatDraft } =
+    const { setStreamError, setCurrentStep, getNewChatDraft, setNewChatDraft, clearNewChatDraft } =
         useProjectChatSession(projectId);
     const currentStep = entry.currentStep;
     const streamError = entry.streamError;
@@ -485,11 +485,10 @@ function ProjectChatSession({
     }, [displayedMessages, status]);
 
     useEffect(() => {
-        setStatus(status);
         if (status === "ready") {
             setCurrentStep(null);
         }
-    }, [status, setCurrentStep, setStatus]);
+    }, [status, setCurrentStep]);
 
     useEffect(() => {
         inputRef.current?.focus();

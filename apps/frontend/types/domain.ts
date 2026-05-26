@@ -16,7 +16,6 @@ export type { ProcessStep };
 export type ProjectChatSummary = {
     id: string;
     title: string;
-    updatedAt: string | null;
 };
 
 /**

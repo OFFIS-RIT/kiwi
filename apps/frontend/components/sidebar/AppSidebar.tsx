@@ -35,7 +35,6 @@ import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
 import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { canCreateProjectInGroup, canDeleteTeam, canManageTeam, canOpenProjectEditorInGroup } from "@/lib/capabilities";
-import { cn } from "@/lib/utils";
 import { useAuth } from "@/providers/AuthProvider";
 import { useProjectChatSession } from "@/providers/ChatSessionsProvider";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
@@ -46,7 +45,6 @@ import {
     BookOpen,
     Edit,
     FolderSearch,
-    LoaderCircle,
     MessageCircle,
     MoreVertical,
     Plus,
@@ -76,25 +74,6 @@ type SearchResult = {
 };
 
 const MIN_SEARCH_LENGTH = 1;
-
-function formatChatAge(updatedAt: string | null, now: number) {
-    if (!updatedAt) return null;
-    const updatedTime = new Date(updatedAt).getTime();
-    if (!Number.isFinite(updatedTime)) return null;
-    const elapsedSeconds = Math.max(0, Math.floor((now - updatedTime) / 1000));
-    if (elapsedSeconds < 60) return "now";
-    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-    if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
-    const elapsedHours = Math.floor(elapsedMinutes / 60);
-    if (elapsedHours < 24) return `${elapsedHours}h`;
-    const elapsedDays = Math.floor(elapsedHours / 24);
-    if (elapsedDays < 7) return `${elapsedDays}d`;
-    const elapsedWeeks = Math.floor(elapsedDays / 7);
-    if (elapsedWeeks < 5) return `${elapsedWeeks}w`;
-    const elapsedMonths = Math.floor(elapsedDays / 30);
-    if (elapsedMonths < 12) return `${elapsedMonths}mo`;
-    return `${Math.floor(elapsedDays / 365)}y`;
-}
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     onEditGroup: (group: Group) => void;
@@ -136,7 +115,6 @@ export function AppSidebar({
     const [showSearch, setShowSearch] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [createProjectGroupId, setCreateProjectGroupId] = useState<string | null>(null);
-    const [currentTime, setCurrentTime] = useState(() => Date.now());
     const [ready, setReady] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -254,11 +232,6 @@ export function AppSidebar({
             requestAnimationFrame(() => setReady(true));
         }
     }, [isLoading, error]);
-
-    useEffect(() => {
-        const interval = window.setInterval(() => setCurrentTime(Date.now()), 60_000);
-        return () => window.clearInterval(interval);
-    }, []);
 
     useEffect(() => {
         if (groups.length > 0) {
@@ -470,7 +443,6 @@ export function AppSidebar({
                                                 isExpanded={expandedProjects[project.id] ?? false}
                                                 onToggleExpanded={() => toggleProjectExpanded(project.id)}
                                                 activeChatId={chatId}
-                                                currentTime={currentTime}
                                                 isMatched={
                                                     isSearching && "matchedProjectIds" in organizationGroup
                                                         ? (organizationGroup.matchedProjectIds as Set<string>).has(
@@ -582,7 +554,6 @@ export function AppSidebar({
                                                         isExpanded={expandedProjects[project.id] ?? false}
                                                         onToggleExpanded={() => toggleProjectExpanded(project.id)}
                                                         activeChatId={chatId}
-                                                        currentTime={currentTime}
                                                         isMatched={
                                                             isSearching && "matchedProjectIds" in group
                                                                 ? (group.matchedProjectIds as Set<string>).has(
@@ -814,7 +785,6 @@ function GroupItem({
                                 isExpanded={expandedProjects[project.id] ?? false}
                                 onToggleExpanded={() => onToggleProjectExpanded(project.id)}
                                 activeChatId={activeChatId}
-                                currentTime={Date.now()}
                                 isMatched={matchedProjectIds?.has(project.id) ?? false}
                                 matchedChatIds={matchedChatsByProject?.get(project.id)}
                                 highlightTerm={highlightTerm}
@@ -836,7 +806,6 @@ type ProjectItemProps = {
     isExpanded: boolean;
     onToggleExpanded: () => void;
     activeChatId: string | null;
-    currentTime: number;
     isMatched: boolean;
     matchedChatIds?: Set<string>;
     highlightTerm?: string;
@@ -851,7 +820,6 @@ function ProjectItem({
     isExpanded,
     onToggleExpanded,
     activeChatId,
-    currentTime,
     isMatched,
     matchedChatIds,
     highlightTerm,
@@ -868,9 +836,7 @@ function ProjectItem({
     });
     const isProcessing = project.processPercentage !== undefined;
     const { isAdmin } = useAuth();
-    const { entry, requestNewEntry } = useProjectChatSession(project.id);
-    const activeChatSessionId =
-        entry && (entry.status === "submitted" || entry.status === "streaming") ? entry.sessionId : null;
+    const { requestNewEntry } = useProjectChatSession(project.id);
     const canOpenProjectEditor = canOpenProjectEditorInGroup(group, { isAdmin });
     const chatsToShow = matchedChatIds
         ? project.recentChats.filter((chat) => matchedChatIds.has(chat.id))
@@ -947,51 +913,30 @@ function ProjectItem({
                 <CollapsibleContent>
                     <SidebarMenuSub className="mr-0 pr-0">
                         {chatsToShow.length > 0 ? (
-                            chatsToShow.map((chat) => {
-                                const isActiveChat = activeChatSessionId === chat.id;
-                                const ageLabel = formatChatAge(chat.updatedAt, currentTime);
-
-                                return (
-                                    <SidebarMenuSubItem key={chat.id}>
-                                        <SidebarMenuSubButton
-                                            asChild
-                                            size="sm"
-                                            isActive={activeChatId === chat.id}
-                                            className="w-full justify-start pr-1"
-                                            onMouseEnter={prefetchProjectChat}
-                                            onFocus={prefetchProjectChat}
+                            chatsToShow.map((chat) => (
+                                <SidebarMenuSubItem key={chat.id}>
+                                    <SidebarMenuSubButton
+                                        asChild
+                                        size="sm"
+                                        isActive={activeChatId === chat.id}
+                                        className="w-full justify-start"
+                                        onMouseEnter={prefetchProjectChat}
+                                        onFocus={prefetchProjectChat}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                onSelectProject(group.id);
+                                                router.push(`${href}?chatId=${encodeURIComponent(chat.id)}`);
+                                            }}
+                                            title={chat.title}
                                         >
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    onSelectProject(group.id);
-                                                    router.push(`${href}?chatId=${encodeURIComponent(chat.id)}`);
-                                                }}
-                                                title={chat.title}
-                                            >
-                                                <MessageCircle />
-                                                <span className="min-w-0 flex-1 truncate">{chat.title}</span>
-                                                {isActiveChat ? (
-                                                    <LoaderCircle
-                                                        className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
-                                                        aria-label="active"
-                                                    />
-                                                ) : ageLabel ? (
-                                                    <time
-                                                        className={cn(
-                                                            "ml-auto shrink-0 text-[11px] leading-none text-muted-foreground",
-                                                            activeChatId === chat.id && "text-sidebar-accent-foreground/70"
-                                                        )}
-                                                        dateTime={chat.updatedAt ?? undefined}
-                                                    >
-                                                        {ageLabel}
-                                                    </time>
-                                                ) : null}
-                                            </button>
-                                        </SidebarMenuSubButton>
-                                    </SidebarMenuSubItem>
-                                );
-                            })
+                                            <MessageCircle />
+                                            <span>{chat.title}</span>
+                                        </button>
+                                    </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                            ))
                         ) : (
                             <SidebarMenuSubItem>
                                 <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no.chats")}</div>
