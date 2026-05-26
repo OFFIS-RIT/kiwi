@@ -12,7 +12,7 @@ import { mapGraphError, selectGraphDetailFileFields, toGraphFileRecord, type Gra
 import { getOrRenderPDFPreviewPage } from "../lib/pdf-preview-cache";
 import { getProjectFileProxyPath } from "../lib/project-file-url";
 import { getPdfPreviewPageNumbers, parsePageImageParam } from "../lib/text-unit-preview";
-import { isPageInsideUnitSpan, loadTextUnitWithFile, pngResponse, toTextUnitRecord } from "../lib/text-unit-record";
+import { loadTextUnitWithFile, pngResponse, toTextUnitRecord } from "../lib/text-unit-record";
 import { mapUnitError } from "../lib/unit";
 import { authMiddleware, type AuthUser } from "../middleware/auth";
 import { assertPermissions, requirePermissions } from "../middleware/permissions";
@@ -309,7 +309,9 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
             if (unit.file_type !== "pdf") {
                 return status(415, errorResponse("Unsupported file type", API_ERROR_CODES.UNSUPPORTED_FILE_TYPE));
             }
-            if (!isPageInsideUnitSpan(unit, page)) {
+            const startPage = unit.start_page;
+            const endPage = unit.end_page;
+            if (startPage === null || endPage === null || page < startPage || page > endPage) {
                 return status(422, errorResponse("Invalid page range", API_ERROR_CODES.INVALID_PAGE_RANGE));
             }
 
@@ -319,7 +321,7 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
                     fileId: unit.project_file_id,
                     fileKey: unit.file_key,
                     page,
-                    pagesToRender: getPdfPreviewPageNumbers(unit.start_page!, unit.end_page!),
+                    pagesToRender: getPdfPreviewPageNumbers(startPage, endPage),
                     bucket: env.S3_BUCKET,
                 });
                 if (preview.status === "source_missing") {

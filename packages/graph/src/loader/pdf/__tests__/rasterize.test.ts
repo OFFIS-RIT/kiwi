@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { GhostscriptUnavailableError, rasterizeSelectedPDFPages } from "../rasterize";
+import { GhostscriptUnavailableError, rasterizeSelectedPDFPages, splitPagesIntoContiguousRanges } from "../rasterize";
 
 describe("rasterizeSelectedPDFPages", () => {
     const pages = [{ index: 1, width: 600, height: 800 }];
@@ -32,5 +32,18 @@ describe("rasterizeSelectedPDFPages", () => {
         expect(result).toEqual(new Map([[1, new Uint8Array([2])]]));
         expect(ghostscript).toHaveBeenCalledTimes(1);
         expect(pdfToImg).toHaveBeenCalledTimes(1);
+    });
+
+    test("splits requested pages into contiguous ranges", () => {
+        const ranges = splitPagesIntoContiguousRanges([
+            { index: 49 },
+            { index: 0 },
+            { index: 1 },
+            { index: 4 },
+            { index: 5 },
+            { index: 5 },
+        ]);
+
+        expect(ranges.map((range) => range.map((page) => page.index))).toEqual([[0, 1], [4, 5], [49]]);
     });
 });

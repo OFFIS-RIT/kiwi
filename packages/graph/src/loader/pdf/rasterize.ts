@@ -16,6 +16,8 @@ type RasterizeSelectedDeps = {
     pdfToImg?: typeof rasterizeSelectedPDFPagesWithPDFToImg;
 };
 
+type PageSelection = Pick<PDFPageLike, "index">;
+
 export async function rasterizeAllPDFPages(content: Uint8Array, scale: number): Promise<Uint8Array[]> {
     const document = await pdf(Buffer.from(content), {
         scale,
@@ -32,7 +34,7 @@ export async function rasterizeAllPDFPages(content: Uint8Array, scale: number): 
 
 export async function rasterizeSelectedPDFPages(
     content: Uint8Array,
-    pages: Array<Pick<PDFPageLike, "index" | "width" | "height">>,
+    pages: PageSelection[],
     scale: number,
     deps: RasterizeSelectedDeps = {}
 ): Promise<Map<number, Uint8Array>> {
@@ -52,7 +54,7 @@ export async function rasterizeSelectedPDFPages(
 
 export async function rasterizeSelectedPDFPagesWithPDFToImg(
     content: Uint8Array,
-    pages: Array<Pick<PDFPageLike, "index" | "width" | "height">>,
+    pages: PageSelection[],
     scale: number
 ): Promise<Map<number, Uint8Array>> {
     const document = await pdf(Buffer.from(content), {
@@ -70,7 +72,7 @@ export async function rasterizeSelectedPDFPagesWithPDFToImg(
 
 export async function rasterizeSelectedPDFPagesWithGhostscript(
     content: Uint8Array,
-    pages: Array<Pick<PDFPageLike, "index">>,
+    pages: PageSelection[],
     scale: number
 ): Promise<Map<number, Uint8Array>> {
     const directory = await mkdtemp(join(tmpdir(), "kiwi-pdf-raster-"));
@@ -81,10 +83,11 @@ export async function rasterizeSelectedPDFPagesWithGhostscript(
 
         const pageImages = new Map<number, Uint8Array>();
         const dpi = Math.max(1, Math.round(72 * scale));
-        if (pages.length > 0) {
-            const firstPage = Math.min(...pages.map((page) => page.index + 1));
-            const lastPage = Math.max(...pages.map((page) => page.index + 1));
-            const outputPattern = join(directory, "page-%d.png");
+
+        for (const [rangeIndex, pageRange] of splitPagesIntoContiguousRanges(pages).entries()) {
+            const firstPage = pageRange[0]!.index + 1;
+            const lastPage = pageRange[pageRange.length - 1]!.index + 1;
+            const outputPattern = join(directory, `range-${rangeIndex}-page-%d.png`);
             await runGhostscript([
                 "-q",
                 "-dSAFER",
@@ -97,10 +100,10 @@ export async function rasterizeSelectedPDFPagesWithGhostscript(
                 `-sOutputFile=${outputPattern}`,
                 inputPath,
             ]);
-            for (const page of pages) {
+            for (const page of pageRange) {
                 const pageNumber = page.index + 1;
                 const outputNumber = pageNumber - firstPage + 1;
-                const outputPath = join(directory, `page-${outputNumber}.png`);
+                const outputPath = join(directory, `range-${rangeIndex}-page-${outputNumber}.png`);
                 pageImages.set(page.index, await readFile(outputPath));
             }
         }
@@ -109,6 +112,25 @@ export async function rasterizeSelectedPDFPagesWithGhostscript(
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
+}
+
+export function splitPagesIntoContiguousRanges<T extends PageSelection>(pages: T[]): T[][] {
+    const sortedPages = [...new Map(pages.map((page) => [page.index, page])).values()].sort(
+        (left, right) => left.index - right.index
+    );
+    const ranges: T[][] = [];
+
+    for (const page of sortedPages) {
+        const currentRange = ranges[ranges.length - 1];
+        const previousPage = currentRange?.[currentRange.length - 1];
+        if (currentRange && previousPage && page.index === previousPage.index + 1) {
+            currentRange.push(page);
+        } else {
+            ranges.push([page]);
+        }
+    }
+
+    return ranges;
 }
 
 async function runGhostscript(args: string[]): Promise<void> {
