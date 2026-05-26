@@ -9,10 +9,10 @@ export function usePrefetchProjectChat(projectId: string) {
     const apiClient = useApiClient();
     const queryClient = useQueryClient();
 
-    return useCallback(() => {
+    return useCallback((chatId?: string) => {
         void queryClient.prefetchQuery({
-            queryKey: projectChatQueryKey(projectId),
-            queryFn: () => hydrateProjectChatSession(apiClient, projectId),
+            queryKey: projectChatQueryKey(projectId, chatId),
+            queryFn: () => hydrateProjectChatSession(apiClient, projectId, chatId),
             staleTime: Infinity,
         });
     }, [apiClient, projectId, queryClient]);
