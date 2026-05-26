@@ -857,6 +857,7 @@ function ProjectItem({
                                         asChild
                                         size="sm"
                                         isActive={activeChatId === chat.id}
+                                        className="w-full justify-start"
                                         onMouseEnter={prefetchProjectChat}
                                         onFocus={prefetchProjectChat}
                                     >
