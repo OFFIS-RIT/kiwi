@@ -342,7 +342,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     // With visible-project prefetching this avoids flashing the shell skeleton
     // on normal internal project navigation.
     useLayoutEffect(() => {
-        if (entry || !hydrated) return;
+        if (!hydrated || entry?.sessionId === hydrated.id) return;
         ensureEntry({
             sessionId: hydrated.id,
             initialMessages: hydrated.messages,
