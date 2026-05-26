@@ -22,11 +22,15 @@ import { db } from "@kiwi/db";
 import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
-import { normalizeMessageCitationFences, type CitationResolver } from "./chat-citation-normalization";
+import {
+    createCachingCitationResolver,
+    normalizeMessageCitationFences,
+    type CitationResolver,
+} from "./chat-citation-normalization";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 
@@ -40,6 +44,8 @@ type StartReplyOptions = {
 };
 
 export const DEFAULT_CHAT_TITLE = "...";
+
+const unresolvedCitationCache = new Map<string, number>();
 
 function buildBaseToolset(options: GraphToolsetOptions, toolset: StartReplyOptions["toolset"]) {
     switch (toolset) {
@@ -298,17 +304,36 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
 }
 
 function createCachedCitationResolver(graphId: string): CitationResolver {
-    const citationCache = new Map<string, Promise<ResolvedCitationFence | null>>();
+    return createCachingCitationResolver({
+        negativeCache: unresolvedCitationCache,
+        resolveCitation: (sourceId) => enrichCitation(graphId, sourceId),
+    });
+}
 
-    return (citation) => {
-        let resolvedCitation = citationCache.get(citation.sourceId);
-        if (!resolvedCitation) {
-            resolvedCitation = enrichCitation(graphId, citation.sourceId);
-            citationCache.set(citation.sourceId, resolvedCitation);
-        }
+async function updateMessagePartsBatch(chatId: string, updates: Array<{ id: string; parts: MessagePart[] }>) {
+    if (updates.length === 0) {
+        return;
+    }
 
-        return resolvedCitation;
-    };
+    const cases = sql.join(
+        updates.map(
+            (update) => sql`when ${messageTable.id} = ${update.id} then ${JSON.stringify(update.parts)}::jsonb`
+        ),
+        sql.raw(" ")
+    );
+
+    await db
+        .update(messageTable)
+        .set({ parts: sql<MessagePart[]>`case ${cases} else ${messageTable.parts} end` })
+        .where(
+            and(
+                eq(messageTable.chatId, chatId),
+                inArray(
+                    messageTable.id,
+                    updates.map((update) => update.id)
+                )
+            )
+        );
 }
 
 export async function resolveCitationDocumentLink(
@@ -379,7 +404,7 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
         .orderBy(asc(messageTable.createdAt), asc(messageTable.id));
 
     const resolveCitation = createCachedCitationResolver(graphId);
-    const messages = await Promise.all(
+    const normalizedRows = await Promise.all(
         rows.map(async (message) => {
             const normalized = await normalizeMessageCitationFences(message.parts, resolveCitation);
             if (normalized.unresolvedCitations.length > 0) {
@@ -392,17 +417,26 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
                 });
             }
 
-            if (normalized.changed && normalized.unresolvedCitations.length === 0) {
-                await db
-                    .update(messageTable)
-                    .set({ parts: normalized.parts })
-                    .where(and(eq(messageTable.id, message.id), eq(messageTable.chatId, chatId)));
-            }
+            return {
+                message,
+                normalized,
+            };
+        })
+    );
 
-            return toUIMessage({
-                ...message,
-                parts: normalized.parts,
-            });
+    await updateMessagePartsBatch(
+        chatId,
+        normalizedRows.flatMap(({ message, normalized }) =>
+            normalized.changed && normalized.unresolvedCitations.length === 0
+                ? [{ id: message.id, parts: normalized.parts }]
+                : []
+        )
+    );
+
+    const messages = normalizedRows.map(({ message, normalized }) =>
+        toUIMessage({
+            ...message,
+            parts: normalized.parts,
         })
     );
 

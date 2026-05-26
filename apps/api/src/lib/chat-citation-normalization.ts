@@ -9,6 +9,15 @@ import type { MessagePart } from "@kiwi/db/tables/chats";
 
 export type CitationResolver = (citation: CitationFence) => Promise<ResolvedCitationFence | null>;
 
+export const DEFAULT_CITATION_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+export type CachingCitationResolverOptions = {
+    resolveCitation: (sourceId: string) => Promise<ResolvedCitationFence | null>;
+    negativeCache?: Map<string, number>;
+    negativeCacheTtlMs?: number;
+    now?: () => number;
+};
+
 export type UnresolvedCitation = {
     partIndex: number;
     sourceId: string;
@@ -25,6 +34,40 @@ type NormalizedCitationText = {
 
 function needsCanonicalCitation(citation: CitationFence): boolean {
     return !isResolvedCitationFence(citation) || !citation.fileId;
+}
+
+export function createCachingCitationResolver(options: CachingCitationResolverOptions): CitationResolver {
+    const citationCache = new Map<string, Promise<ResolvedCitationFence | null>>();
+    const negativeCache = options.negativeCache ?? new Map<string, number>();
+    const negativeCacheTtlMs = options.negativeCacheTtlMs ?? DEFAULT_CITATION_NEGATIVE_CACHE_TTL_MS;
+    const now = options.now ?? Date.now;
+
+    return (citation) => {
+        const cachedMissingUntil = negativeCache.get(citation.sourceId);
+        if (cachedMissingUntil !== undefined) {
+            if (cachedMissingUntil > now()) {
+                return Promise.resolve(null);
+            }
+
+            negativeCache.delete(citation.sourceId);
+        }
+
+        let resolvedCitation = citationCache.get(citation.sourceId);
+        if (!resolvedCitation) {
+            resolvedCitation = options.resolveCitation(citation.sourceId).then((resolved) => {
+                if (resolved) {
+                    negativeCache.delete(citation.sourceId);
+                    return resolved;
+                }
+
+                negativeCache.set(citation.sourceId, now() + negativeCacheTtlMs);
+                return null;
+            });
+            citationCache.set(citation.sourceId, resolvedCitation);
+        }
+
+        return resolvedCitation;
+    };
 }
 
 function toUnresolvedCitation(partIndex: number, citation: CitationFence): UnresolvedCitation {

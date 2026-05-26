@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { splitTextWithCitationFences, stringifyCitationFence, type CitationFence } from "@kiwi/ai/citation";
-import { normalizeCitationFencesInText, normalizeMessageCitationFences } from "../chat-citation-normalization";
+import {
+    createCachingCitationResolver,
+    normalizeCitationFencesInText,
+    normalizeMessageCitationFences,
+} from "../chat-citation-normalization";
 
 function firstCitation(text: string): CitationFence {
     const segment = splitTextWithCitationFences(text).find((part) => part.type === "citation");
@@ -137,5 +141,29 @@ describe("chat citation normalization", () => {
                 fileKey: "graphs/graph-1/missing.pdf",
             },
         ]);
+    });
+
+    test("caches unresolved citation lookups across resolver instances", async () => {
+        const negativeCache = new Map<string, number>();
+        let now = 1000;
+        let resolveCalls = 0;
+        const createResolver = () =>
+            createCachingCitationResolver({
+                negativeCache,
+                negativeCacheTtlMs: 500,
+                now: () => now,
+                resolveCitation: async () => {
+                    resolveCalls += 1;
+                    return null;
+                },
+            });
+
+        expect(await createResolver()({ type: "cite", sourceId: "missing-source" })).toBeNull();
+        expect(await createResolver()({ type: "cite", sourceId: "missing-source" })).toBeNull();
+        expect(resolveCalls).toBe(1);
+
+        now = 1600;
+        expect(await createResolver()({ type: "cite", sourceId: "missing-source" })).toBeNull();
+        expect(resolveCalls).toBe(2);
     });
 });
