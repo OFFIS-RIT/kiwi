@@ -443,6 +443,8 @@ function ProjectChatSession({
     const queryClient = useQueryClient();
     const router = useRouter();
     const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const chatId = searchParams.get("chatId");
     const language = useLocale();
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<ChatInputHandle>(null);
@@ -501,12 +503,12 @@ function ProjectChatSession({
     }, [stopSpeaking, entry.sessionId]);
 
     useEffect(() => {
-        if (displayedMessages.length === 0) {
+        if (!chatId && displayedMessages.length === 0) {
             setInputValue(getNewChatDraft());
         } else {
             setInputValue("");
         }
-    }, [displayedMessages.length, entry.sessionId, getNewChatDraft]);
+    }, [chatId, displayedMessages.length, entry.sessionId, getNewChatDraft]);
 
     // Each time a different chat is opened, jump to the bottom without animation.
     useEffect(() => {
@@ -656,11 +658,11 @@ function ProjectChatSession({
     const handleInputChange = useCallback(
         (value: string) => {
             setInputValue(value);
-            if (displayedMessages.length === 0) {
+            if (!chatId && displayedMessages.length === 0) {
                 setNewChatDraft(value);
             }
         },
-        [displayedMessages.length, setNewChatDraft]
+        [chatId, displayedMessages.length, setNewChatDraft]
     );
 
     const handleClarificationSubmit = useCallback(
