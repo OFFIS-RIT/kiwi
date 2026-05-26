@@ -25,8 +25,10 @@ const ghostscriptSpawnMock = mock((_command: string, args: string[]) => {
                 const firstPage = Number(args.find((arg) => arg.startsWith("-dFirstPage="))!.split("=")[1]);
                 const lastPage = Number(args.find((arg) => arg.startsWith("-dLastPage="))!.split("=")[1]);
 
+                let outputNumber = 1;
                 for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
-                    await writeFile(outputPattern.replace("%d", String(pageNumber)), new Uint8Array([pageNumber]));
+                    await writeFile(outputPattern.replace("%d", String(outputNumber)), new Uint8Array([pageNumber]));
+                    outputNumber += 1;
                 }
 
                 child.emit("close", 0);
@@ -120,7 +122,7 @@ describe("rasterizeSelectedPDFPages", () => {
         expect(ranges.map((range) => range.map((page) => page.index))).toEqual([[0, 1], [4, 5], [49]]);
     });
 
-    test("reads Ghostscript range outputs by document page number", async () => {
+    test("reads Ghostscript range outputs by render sequence", async () => {
         const result = await rasterizeSelectedPDFPagesWithGhostscript(
             new Uint8Array([9]),
             [{ index: 2 }, { index: 3 }, { index: 4 }],

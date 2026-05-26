@@ -100,9 +100,8 @@ export async function rasterizeSelectedPDFPagesWithGhostscript(
                 `-sOutputFile=${outputPattern}`,
                 inputPath,
             ]);
-            for (const page of pageRange) {
-                const pageNumber = page.index + 1;
-                const outputPath = join(directory, `range-${rangeIndex}-page-${pageNumber}.png`);
+            for (const [pageIndex, page] of pageRange.entries()) {
+                const outputPath = join(directory, `range-${rangeIndex}-page-${pageIndex + 1}.png`);
                 pageImages.set(page.index, await readFile(outputPath));
             }
         }
