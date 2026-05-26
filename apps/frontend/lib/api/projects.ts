@@ -213,6 +213,8 @@ export async function downloadProjectFile(client: KiwiApiClient, projectId: stri
     return isAbsoluteUrl(url) ? url : getApiAssetUrl(client, url);
 }
 
+// NOTE: this path format mirrors getProjectFileProxyPath in apps/api/src/lib/project-file-url.ts.
+// Keep both in sync if the path structure changes.
 export function getProjectFileUrl(
     client: KiwiApiClient,
     projectId: string,

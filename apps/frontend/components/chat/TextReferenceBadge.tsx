@@ -50,6 +50,47 @@ export function TextReferenceBadge({ citation, index, onSelect }: TextReferenceB
 
 function PDFPreviewPageImage({ src, alt }: { src: string; alt: string }) {
     const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+    const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        let isCancelled = false;
+        let objectUrl: string | null = null;
+
+        setStatus("loading");
+        setImageUrl(null);
+
+        const loadImage = async () => {
+            try {
+                const response = await fetch(src, { credentials: "include", signal: controller.signal });
+                if (!response.ok) {
+                    throw new Error(`Failed to load preview image: ${response.status}`);
+                }
+
+                objectUrl = URL.createObjectURL(await response.blob());
+                if (isCancelled) {
+                    URL.revokeObjectURL(objectUrl);
+                    return;
+                }
+
+                setImageUrl(objectUrl);
+            } catch {
+                if (!controller.signal.aborted && !isCancelled) {
+                    setStatus("error");
+                }
+            }
+        };
+
+        void loadImage();
+
+        return () => {
+            isCancelled = true;
+            controller.abort();
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+            }
+        };
+    }, [src]);
 
     return (
         <div className="relative overflow-hidden rounded-md border bg-white">
@@ -60,9 +101,9 @@ function PDFPreviewPageImage({ src, alt }: { src: string; alt: string }) {
             ) : null}
             {status === "error" ? (
                 <div className="flex min-h-40 items-center justify-center p-4 text-sm text-destructive">{alt}</div>
-            ) : (
+            ) : imageUrl ? (
                 <Image
-                    src={src}
+                    src={imageUrl}
                     alt={alt}
                     width={1200}
                     height={1600}
@@ -71,7 +112,7 @@ function PDFPreviewPageImage({ src, alt }: { src: string; alt: string }) {
                     onLoad={() => setStatus("loaded")}
                     onError={() => setStatus("error")}
                 />
-            )}
+            ) : null}
         </div>
     );
 }

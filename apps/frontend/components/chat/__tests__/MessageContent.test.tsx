@@ -2,12 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/test-utils";
-import {
-    downloadProjectFile,
-    fetchTextUnit,
-    getApiAssetUrl,
-    getProjectFileUrl,
-} from "@/lib/api/projects";
+import { downloadProjectFile, fetchTextUnit, getApiAssetUrl, getProjectFileUrl } from "@/lib/api/projects";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { MessageContent } from "../MessageContent";
 
@@ -59,6 +54,19 @@ Object.defineProperty(globalThis, "ResizeObserver", {
     value: ResizeObserverMock,
 });
 
+const fetchMock = vi.fn();
+const createObjectURLMock = vi.fn();
+const revokeObjectURLMock = vi.fn();
+
+Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    value: createObjectURLMock,
+});
+Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    value: revokeObjectURLMock,
+});
+
 function citationFence(sourceId: string, fields: Record<string, unknown> = {}) {
     return `:::${JSON.stringify({
         type: "cite",
@@ -82,9 +90,20 @@ describe("MessageContent", () => {
         vi.mocked(fetchTextUnit).mockClear();
         vi.mocked(getApiAssetUrl).mockClear();
         vi.mocked(getProjectFileUrl).mockClear();
+        fetchMock.mockReset();
+        fetchMock.mockImplementation(async () => new Response(new Blob(["preview"], { type: "image/png" })));
+        vi.stubGlobal("fetch", fetchMock);
+        let objectUrlIndex = 0;
+        createObjectURLMock.mockReset();
+        createObjectURLMock.mockImplementation(() => {
+            objectUrlIndex += 1;
+            return `blob:preview-${objectUrlIndex}`;
+        });
+        revokeObjectURLMock.mockReset();
     });
 
     afterEach(() => {
+        vi.unstubAllGlobals();
         vi.restoreAllMocks();
     });
 
@@ -169,16 +188,8 @@ describe("MessageContent", () => {
             fileName: "document.pdf",
             page: 5,
         });
-        expect(openMock).toHaveBeenNthCalledWith(
-            1,
-            "/api/graphs/graph-1/files/file-1/document.pdf#page=1",
-            "_blank"
-        );
-        expect(openMock).toHaveBeenNthCalledWith(
-            2,
-            "/api/graphs/graph-1/files/file-1/document.pdf#page=5",
-            "_blank"
-        );
+        expect(openMock).toHaveBeenNthCalledWith(1, "/api/graphs/graph-1/files/file-1/document.pdf#page=1", "_blank");
+        expect(openMock).toHaveBeenNthCalledWith(2, "/api/graphs/graph-1/files/file-1/document.pdf#page=5", "_blank");
     });
 
     test("opens old page-less PDF footer citations without a page fragment", async () => {
@@ -200,10 +211,7 @@ describe("MessageContent", () => {
             fileName: "document.pdf",
             page: null,
         });
-        expect(openMock).toHaveBeenCalledWith(
-            "/api/graphs/graph-1/files/file-1/document.pdf",
-            "_blank"
-        );
+        expect(openMock).toHaveBeenCalledWith("/api/graphs/graph-1/files/file-1/document.pdf", "_blank");
         expect(downloadProjectFile).not.toHaveBeenCalled();
     });
 
@@ -306,9 +314,17 @@ describe("MessageContent", () => {
 
         expect(await screen.findByRole("img", { name: "document.pdf page 3" })).toHaveAttribute(
             "src",
-            "/api/graphs/graph-1/units/unit-1/pages/3.png"
+            "blob:preview-1"
         );
-        expect(screen.getByRole("img", { name: "document.pdf page 4" })).toBeInTheDocument();
+        expect(await screen.findByRole("img", { name: "document.pdf page 4" })).toBeInTheDocument();
+        expect(fetchMock).toHaveBeenCalledWith(
+            "/api/graphs/graph-1/units/unit-1/pages/3.png",
+            expect.objectContaining({ credentials: "include" })
+        );
+        expect(fetchMock).toHaveBeenCalledWith(
+            "/api/graphs/graph-1/units/unit-1/pages/4.png",
+            expect.objectContaining({ credentials: "include" })
+        );
         expect(screen.queryByText("Alpha evidence")).not.toBeInTheDocument();
         expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument();
         expect(document.querySelector("[data-slot='dialog-content']")).toHaveClass(
@@ -342,10 +358,7 @@ describe("MessageContent", () => {
             fileName: "document.pdf",
             page: 3,
         });
-        expect(openMock).toHaveBeenCalledWith(
-            "/api/graphs/graph-1/files/file-1/document.pdf#page=3",
-            "_blank"
-        );
+        expect(openMock).toHaveBeenCalledWith("/api/graphs/graph-1/files/file-1/document.pdf#page=3", "_blank");
         expect(downloadProjectFile).not.toHaveBeenCalled();
     });
 
@@ -372,10 +385,7 @@ describe("MessageContent", () => {
             fileName: "document.pdf",
             page: 3,
         });
-        expect(openMock).toHaveBeenCalledWith(
-            "/api/graphs/graph-1/files/file-1/document.pdf#page=3",
-            "_blank"
-        );
+        expect(openMock).toHaveBeenCalledWith("/api/graphs/graph-1/files/file-1/document.pdf#page=3", "_blank");
         expect(downloadProjectFile).not.toHaveBeenCalled();
     });
 
