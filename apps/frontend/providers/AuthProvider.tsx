@@ -19,7 +19,6 @@ type AuthContextType = {
     user: AuthUser | null;
     role: string | null;
     isAdmin: boolean;
-    isManager: boolean;
     isSystemAdmin: boolean;
     isPending: boolean;
     signOut: () => Promise<void>;
@@ -42,12 +41,10 @@ export function AuthProvider({
     const { data: activeMemberRole, isPending: isRolePending } = authClient.useActiveMemberRole();
 
     const sessionUser = liveSession?.user ?? initialSession.user;
-    const systemRoles = getUserRoles(sessionUser?.role ?? null);
     const organizationRoles = getUserRoles(activeMemberRole?.role ?? null);
     const isSystemAdmin = hasRole(sessionUser?.role ?? null, "admin");
     const role = isSystemAdmin ? "admin" : (organizationRoles[0] ?? null);
     const isAdmin = isSystemAdmin || organizationRoles.includes("admin");
-    const isManager = systemRoles.includes("manager");
     const pending = isPending || (!!sessionUser && isRolePending);
 
     useEffect(() => {
@@ -83,12 +80,11 @@ export function AuthProvider({
                 : null,
             role,
             isAdmin,
-            isManager,
             isSystemAdmin,
             isPending: pending,
             signOut,
         }),
-        [sessionUser, role, isAdmin, isManager, isSystemAdmin, pending, signOut]
+        [sessionUser, role, isAdmin, isSystemAdmin, pending, signOut]
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

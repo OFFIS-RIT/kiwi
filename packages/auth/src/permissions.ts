@@ -44,13 +44,6 @@ export const systemAdmin = ac.newRole({
     chat: [...permissionStatements.chat],
 });
 
-export const manager = ac.newRole({
-    ...userAc.statements,
-    group: ["view"],
-    graph: [...permissionStatements.graph],
-    chat: [...permissionStatements.chat],
-});
-
 export const user = ac.newRole({
     ...userAc.statements,
     group: ["view"],

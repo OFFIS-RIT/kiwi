@@ -79,7 +79,7 @@ describe("AuthProvider", () => {
         fakeRouterRefresh.mockClear();
         renderWithAuth({
             data: {
-                user: { id: "2", name: "Live User", email: "l@u.com", role: "manager" },
+                user: { id: "2", name: "Live User", email: "l@u.com", role: "user" },
                 session: {},
             },
             isPending: false,

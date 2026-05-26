@@ -244,7 +244,7 @@
     "admin.search.users": "Search users...",
     "admin.no.users": "No users found",
     "admin.role.admin": "Admin",
-    "admin.role.manager": "Manager",
+    "admin.role.moderator": "Moderator",
     "admin.role.user": "User",
     "admin.ban.reason": "Ban Reason",
     "admin.ban.reason.placeholder": "Reason for ban...",

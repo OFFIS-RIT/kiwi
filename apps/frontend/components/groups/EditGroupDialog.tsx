@@ -325,7 +325,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                                             </SelectItem>
                                                                         )}
                                                                         <SelectItem value="moderator">
-                                                                            {t("admin.role.manager")}
+                                                                            {t("admin.role.moderator")}
                                                                         </SelectItem>
                                                                         <SelectItem value="member">
                                                                             {t("admin.role.user")}
@@ -464,7 +464,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                                     </SelectItem>
                                                                 )}
                                                                 <SelectItem value="moderator">
-                                                                    {t("admin.role.manager")}
+                                                                    {t("admin.role.moderator")}
                                                                 </SelectItem>
                                                                 <SelectItem value="member">
                                                                     {t("admin.role.user")}
