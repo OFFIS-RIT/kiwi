@@ -4,6 +4,8 @@ import { z } from "zod";
 const adapterEnum = z.enum(["openai", "azure", "anthropic", "openaiAPI"]);
 const embeddingAdapterEnum = z.enum(["openai", "azure", "openaiAPI"]);
 const documentModeEnum = z.enum(["plain", "hybrid", "ocr"]);
+const optionalEnvString = z.preprocess((value) => (value === "" ? undefined : value), z.string().optional());
+const optionalAdapterEnum = z.preprocess((value) => (value === "" ? undefined : value), adapterEnum.optional());
 
 export const env = createEnv({
     server: {
@@ -19,6 +21,13 @@ export const env = createEnv({
         AI_TEXT_KEY: z.string(),
         AI_TEXT_URL: z.string().optional(),
         AI_TEXT_RESOURCE_NAME: z.string().optional(),
+
+        // Worker text model override; falls back to AI_TEXT_* when unset.
+        AI_EXTRACT_ADAPTER: optionalAdapterEnum,
+        AI_EXTRACT_MODEL: optionalEnvString,
+        AI_EXTRACT_KEY: optionalEnvString,
+        AI_EXTRACT_URL: optionalEnvString,
+        AI_EXTRACT_RESOURCE_NAME: optionalEnvString,
 
         // Embedding
         AI_EMBEDDING_ADAPTER: embeddingAdapterEnum,
