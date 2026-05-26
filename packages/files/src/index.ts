@@ -54,8 +54,11 @@ export function getDerivedSourceKey(graphId: string, fileId: string): string {
     return `${getDerivedFilePrefix(graphId, fileId)}/source.txt`;
 }
 
+// PDF_PREVIEW_VERSION must be bumped whenever DEFAULT_PREVIEW_SCALE in pdf-page-preview.ts changes.
+const PDF_PREVIEW_VERSION = "v1/scale-1.5";
+
 export function getDerivedPdfPreviewPrefix(graphId: string, fileId: string): string {
-    return `${getDerivedFilePrefix(graphId, fileId)}/pdf-preview/v1/scale-1.5`;
+    return `${getDerivedFilePrefix(graphId, fileId)}/pdf-preview/${PDF_PREVIEW_VERSION}`;
 }
 
 async function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket: string): Promise<StoredFile> {
