@@ -50,6 +50,8 @@ import {
     Edit,
     FolderSearch,
     MoreVertical,
+    Archive,
+    Pin,
     Plus,
     Search,
     Trash2,
@@ -80,6 +82,37 @@ type SearchResult = {
 const MIN_SEARCH_LENGTH = 1;
 const RECENT_CHAT_LIMIT = 6;
 const EMPTY_GROUPS: Group[] = [];
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+const WEEK_MS = 7 * DAY_MS;
+
+function formatRelativeChatTime(updatedAt: string, now: number) {
+    const timestamp = new Date(updatedAt).getTime();
+
+    if (!Number.isFinite(timestamp)) {
+        return "";
+    }
+
+    const elapsed = Math.max(0, now - timestamp);
+
+    if (elapsed < HOUR_MS) {
+        return `${Math.max(1, Math.floor(elapsed / MINUTE_MS))}m`;
+    }
+
+    if (elapsed < DAY_MS) {
+        return `${Math.floor(elapsed / HOUR_MS)}h`;
+    }
+
+    if (elapsed < WEEK_MS) {
+        return `${Math.floor(elapsed / DAY_MS)}d`;
+    }
+
+    return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+    }).format(timestamp);
+}
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     onEditGroup: (group: Group) => void;
@@ -863,6 +896,20 @@ function ProjectItem({
         ? project.recentChats.filter((chat) => matchedChatIds.has(chat.id))
         : visibleChats;
     const canExpandChats = !matchedChatIds && project.recentChats.length >= RECENT_CHAT_LIMIT;
+    const [now, setNow] = useState(() => Date.now());
+    const hasChatTimes = chatsToShow.some((chat) => chat.updatedAt);
+
+    useEffect(() => {
+        if (!hasChatTimes) return;
+
+        setNow(Date.now());
+
+        const intervalId = window.setInterval(() => {
+            setNow(Date.now());
+        }, MINUTE_MS);
+
+        return () => window.clearInterval(intervalId);
+    }, [hasChatTimes]);
 
     const handleStartNewChat = () => {
         requestNewEntry({
@@ -935,29 +982,51 @@ function ProjectItem({
                 <CollapsibleContent>
                     <SidebarMenuSub className="mr-0 pr-0">
                         {chatsToShow.length > 0 ? (
-                            chatsToShow.map((chat) => (
-                                <SidebarMenuSubItem key={chat.id}>
-                                    <SidebarMenuSubButton
-                                        asChild
-                                        size="sm"
-                                        isActive={activeChatId === chat.id}
-                                        className="w-full justify-start"
-                                        onMouseEnter={prefetchProjectChat}
-                                        onFocus={prefetchProjectChat}
-                                    >
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                onSelectProject(group.id);
-                                                router.push(`${href}?chatId=${encodeURIComponent(chat.id)}`);
-                                            }}
-                                            title={chat.title}
+                            chatsToShow.map((chat) => {
+                                const relativeUpdatedAt = chat.updatedAt
+                                    ? formatRelativeChatTime(chat.updatedAt, now)
+                                    : null;
+
+                                return (
+                                    <SidebarMenuSubItem key={chat.id} className="group/chat-row">
+                                        <SidebarMenuSubButton
+                                            asChild
+                                            size="sm"
+                                            isActive={activeChatId === chat.id}
+                                            className="relative w-full justify-start"
+                                            onMouseEnter={prefetchProjectChat}
+                                            onFocus={prefetchProjectChat}
                                         >
-                                            <span>{chat.title}</span>
-                                        </button>
-                                    </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                            ))
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    onSelectProject(group.id);
+                                                    router.push(`${href}?chatId=${encodeURIComponent(chat.id)}`);
+                                                }}
+                                                title={chat.title}
+                                            >
+                                                <span className="min-w-0 flex-1 truncate pr-9 text-left">{chat.title}</span>
+                                                {relativeUpdatedAt ? (
+                                                    <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/chat-row:hidden">
+                                                        {relativeUpdatedAt}
+                                                    </span>
+                                                ) : null}
+                                            </button>
+                                        </SidebarMenuSubButton>
+                                        <div
+                                            className="pointer-events-none absolute right-1 top-1/2 hidden -translate-y-1/2 items-center gap-1 text-muted-foreground group-hover/chat-row:flex"
+                                            aria-hidden="true"
+                                        >
+                                            <span className="flex h-5 w-5 items-center justify-center">
+                                                <Pin className="h-3.5 w-3.5" />
+                                            </span>
+                                            <span className="flex h-5 w-5 items-center justify-center">
+                                                <Archive className="h-3.5 w-3.5" />
+                                            </span>
+                                        </div>
+                                    </SidebarMenuSubItem>
+                                );
+                            })
                         ) : (
                             <SidebarMenuSubItem>
                                 <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no.chats")}</div>
