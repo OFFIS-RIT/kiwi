@@ -7,6 +7,7 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { createContext, useCallback, useContext, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 
 type SendAutomaticallyWhen = (options: { messages: UIMessage[] }) => boolean | PromiseLike<boolean>;
+type ProjectChatStatus = "ready" | "submitted" | "streaming" | "error";
 
 type Listener = () => void;
 
@@ -14,6 +15,7 @@ type ProjectChatEntry = {
     projectId: string;
     sessionId: string;
     chat: Chat<ChatUIMessage>;
+    status: ProjectChatStatus;
     currentStep: string | null;
     streamError: string | null;
 };
@@ -36,6 +38,7 @@ type ChatSessionsStore = {
     clearNewChatDraft: () => void;
     setCurrentStep: (projectId: string, step: string | null) => void;
     setStreamError: (projectId: string, error: string | null) => void;
+    setStatus: (projectId: string, status: ProjectChatStatus) => void;
     subscribe: (projectId: string, listener: Listener) => () => void;
 };
 
@@ -78,6 +81,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 }),
                 sendAutomaticallyWhen: init.sendAutomaticallyWhen,
                 onData: (part) => {
+                    updateEntry(projectId, { status: "streaming" });
                     if (part.type === "data-step") {
                         const name =
                             part.data && typeof part.data === "object" && "name" in part.data ? part.data.name : null;
@@ -88,10 +92,10 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 },
                 onError: (error) => {
                     console.error("Chat stream error:", error);
-                    updateEntry(projectId, { streamError: error.message });
+                    updateEntry(projectId, { status: "error", streamError: error.message });
                 },
                 onFinish: () => {
-                    updateEntry(projectId, { currentStep: null });
+                    updateEntry(projectId, { status: "ready", currentStep: null });
                 },
             });
 
@@ -99,6 +103,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 projectId,
                 sessionId: init.sessionId,
                 chat,
+                status: "ready",
                 currentStep: null,
                 streamError: null,
             };
@@ -152,6 +157,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
             },
             setCurrentStep: (projectId, step) => updateEntry(projectId, { currentStep: step }),
             setStreamError: (projectId, error) => updateEntry(projectId, { streamError: error }),
+            setStatus: (projectId, status) => updateEntry(projectId, { status }),
             subscribe: (projectId, listener) => {
                 let listeners = listenersRef.current.get(projectId);
                 if (!listeners) {
@@ -192,6 +198,7 @@ type UseProjectChatSessionResult = {
     clearNewChatDraft: () => void;
     setStreamError: (error: string | null) => void;
     setCurrentStep: (step: string | null) => void;
+    setStatus: (status: ProjectChatStatus) => void;
 };
 
 /**
@@ -230,6 +237,7 @@ export function useProjectChatSession(projectId: string): UseProjectChatSessionR
         (step: string | null) => store.setCurrentStep(projectId, step),
         [projectId, store]
     );
+    const setStatus = useCallback((status: ProjectChatStatus) => store.setStatus(projectId, status), [projectId, store]);
 
     return {
         entry,
@@ -243,9 +251,10 @@ export function useProjectChatSession(projectId: string): UseProjectChatSessionR
         clearNewChatDraft: store.clearNewChatDraft,
         setStreamError,
         setCurrentStep,
+        setStatus,
     };
 }
 
-export type { ProjectChatEntry, EnsureEntryInit };
+export type { ProjectChatEntry, EnsureEntryInit, ProjectChatStatus };
 // Helper re-export so callers don't need to import from `ai` directly.
 export type ChatMessagesListener = (messages: UIMessage[]) => void;

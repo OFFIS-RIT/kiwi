@@ -64,6 +64,13 @@ const saveExpandedStateToStorage = (storageKey: string, expandedState: Record<st
     }
 };
 
+const areExpansionStatesEqual = (left: Record<string, boolean>, right: Record<string, boolean>) => {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) return false;
+    return leftKeys.every((key) => left[key] === right[key]);
+};
+
 /**
  * Manages sidebar group expansion state with localStorage persistence.
  * Provides utilities for search-related expansion (expand during search, restore after).
@@ -110,6 +117,7 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
                 newState[groupId] = storedState[groupId] ?? false;
             });
 
+            if (areExpansionStatesEqual(prev, newState)) return prev;
             return newState;
         });
     }, []);
@@ -119,9 +127,12 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
             const storedState =
                 Object.keys(prev).length === 0 ? loadExpandedStateFromStorage(PROJECT_STORAGE_KEY) : prev;
 
-            return Object.fromEntries(
+            const newState = Object.fromEntries(
                 projectIds.map((projectId) => [projectId, storedState[projectId] ?? false])
             );
+
+            if (areExpansionStatesEqual(prev, newState)) return prev;
+            return newState;
         });
     }, []);
 

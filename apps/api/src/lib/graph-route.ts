@@ -122,6 +122,7 @@ type RecentChatRow = {
     id: string;
     title: string;
     graphId: string;
+    updatedAt: Date | null;
 };
 
 const FILE_STEP_PROGRESS: Record<FileProcessStep, number> = {
@@ -415,7 +416,7 @@ async function listRecentChatsByGraphId(graphIds: string[], userId: string) {
             WHERE user_id = ${userId}
               AND project_id IN (${textList(graphIds)})
         )
-        SELECT id, title, "graphId"
+        SELECT id, title, "graphId", updated_at AS "updatedAt"
         FROM ranked
         WHERE row_number <= 6
         ORDER BY "graphId" ASC, updated_at DESC, created_at DESC
@@ -424,7 +425,11 @@ async function listRecentChatsByGraphId(graphIds: string[], userId: string) {
     const recentChatsByGraphId = new Map<string, GraphRecentChatItem[]>();
     for (const row of result.rows as RecentChatRow[]) {
         const recentChats = recentChatsByGraphId.get(row.graphId) ?? [];
-        recentChats.push({ id: row.id, title: row.title });
+        recentChats.push({
+            id: row.id,
+            title: row.title,
+            updatedAt: row.updatedAt?.toISOString() ?? null,
+        });
         recentChatsByGraphId.set(row.graphId, recentChats);
     }
 
