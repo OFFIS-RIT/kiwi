@@ -34,7 +34,7 @@ import {
 import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
 import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
-import { canCreateProjectInGroup, canDeleteTeam, canManageTeam, canMutateProjectInGroup } from "@/lib/capabilities";
+import { canCreateProjectInGroup, canDeleteTeam, canManageTeam, canOpenProjectEditorInGroup } from "@/lib/capabilities";
 import { useAuth } from "@/providers/AuthProvider";
 import { useProjectChatSession } from "@/providers/ChatSessionsProvider";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
@@ -727,7 +727,7 @@ function ProjectItem({
     const isProcessing = project.processPercentage !== undefined;
     const { isAdmin } = useAuth();
     const { startNewEntry } = useProjectChatSession(project.id);
-    const canMutateProject = canMutateProjectInGroup(group, { isAdmin });
+    const canOpenProjectEditor = canOpenProjectEditorInGroup(group, { isAdmin });
 
     const handleStartNewChat = () => {
         startNewEntry({
@@ -767,7 +767,7 @@ function ProjectItem({
                             </span>
                         </div>
                     </SidebarMenuButton>
-                    {canMutateProject && (
+                    {canOpenProjectEditor && (
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
                                 <SidebarMenuAction className="right-7 opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
@@ -780,15 +780,17 @@ function ProjectItem({
                                     <Edit className="mr-2 h-4 w-4" />
                                     <span>{t("edit")}</span>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem
-                                    className="text-destructive focus:text-destructive"
-                                    onSelect={() => {
-                                        onDeleteProject(project, group.id, group.name);
-                                    }}
-                                >
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    <span>{t("delete")}</span>
-                                </DropdownMenuItem>
+                                {canCreateProjectInGroup(group, { isAdmin }) && (
+                                    <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onSelect={() => {
+                                            onDeleteProject(project, group.id, group.name);
+                                        }}
+                                    >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        <span>{t("delete")}</span>
+                                    </DropdownMenuItem>
+                                )}
                             </DropdownMenuContent>
                         </DropdownMenu>
                     )}

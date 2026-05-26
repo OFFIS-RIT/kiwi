@@ -68,6 +68,10 @@ export function canMutateProjectInGroup(group: Group, context: RoleContext) {
     return canCreateProjectInGroup(group, context);
 }
 
+export function canOpenProjectEditorInGroup(group: Group, context: RoleContext) {
+    return canMutateProjectInGroup(group, context) || canManageProjectFilesInGroup(group, context);
+}
+
 export function canManageProjectFilesInGroup(group: Group, context: RoleContext) {
     if (group.scope === "organization") {
         return context.isAdmin;
