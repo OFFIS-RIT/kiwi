@@ -87,6 +87,18 @@ export function contentDispositionForFile(filename: string, mimeType: string): "
     return "attachment";
 }
 
+export function contentDispositionHeader(filename: string, disposition: "inline" | "attachment"): string {
+    const encodedFilename = encodeRFC5987HeaderValue(filename);
+
+    return `${disposition}; filename="${escapeHeaderValue(filename)}"; filename*=UTF-8''${encodedFilename}`;
+}
+
 export function escapeHeaderValue(value: string): string {
     return value.replace(/["\\\r\n]/g, "_");
+}
+
+function encodeRFC5987HeaderValue(value: string): string {
+    return encodeURIComponent(value).replace(/['()*]/g, (character) =>
+        `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    );
 }

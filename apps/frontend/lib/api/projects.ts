@@ -203,9 +203,14 @@ export function getProjectFileUrl(
     client: KiwiApiClient,
     projectId: string,
     fileId: string,
-    options: { page?: number | null } = {}
+    options: { fileName?: string | null; page?: number | null } = {}
 ): string {
-    const url = getApiAssetUrl(client, `/graphs/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}`);
+    const fileName = options.fileName?.trim();
+    const fileNamePath = fileName ? `/${encodeURIComponent(fileName)}` : "";
+    const url = getApiAssetUrl(
+        client,
+        `/graphs/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}${fileNamePath}`
+    );
     const page = options.page;
 
     if (typeof page !== "number" || !Number.isInteger(page) || page < 1) {

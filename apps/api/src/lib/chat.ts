@@ -311,7 +311,11 @@ export async function resolveCitationDocumentLink(
 
         const page = isPDFCitation(resolvedCitation) ? resolvedCitation.startPage : null;
         const token = options.signed ? await createProjectFileAccessToken(graphId, resolvedCitation.fileId) : undefined;
-        const url = getProjectFileProxyUrl(options.baseUrl, graphId, resolvedCitation.fileId, { page, token });
+        const url = getProjectFileProxyUrl(options.baseUrl, graphId, resolvedCitation.fileId, {
+            fileName: resolvedCitation.fileName,
+            page,
+            token,
+        });
         const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
 
         return `[${label}](${url})`;

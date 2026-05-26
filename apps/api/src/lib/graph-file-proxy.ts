@@ -1,10 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@kiwi/db";
 import { filesTable } from "@kiwi/db/tables/graph";
-import { getFileMetadata, getFileStream } from "@kiwi/files";
-import { contentDispositionForFile, escapeHeaderValue, parseByteRange } from "./file-proxy";
+import { getFileArrayBuffer, getFileMetadata, getFileStream } from "@kiwi/files";
+import { contentDispositionForFile, contentDispositionHeader, parseByteRange } from "./file-proxy";
 
-type GraphFileProxyRecord = {
+export type GraphFileProxyRecord = {
     key: string;
     name: string;
     mimeType: string;
@@ -23,9 +23,12 @@ export type GraphFileProxyResult =
           size: number;
       };
 
-export async function loadGraphFileByKey(graphId: string, fileKey: string): Promise<{ id: string } | null> {
+export async function loadGraphFileByKey(
+    graphId: string,
+    fileKey: string
+): Promise<{ id: string; name: string } | null> {
     const [file] = await db
-        .select({ id: filesTable.id })
+        .select({ id: filesTable.id, name: filesTable.name })
         .from(filesTable)
         .where(and(eq(filesTable.graphId, graphId), eq(filesTable.key, fileKey), eq(filesTable.deleted, false)))
         .limit(1);
@@ -33,7 +36,7 @@ export async function loadGraphFileByKey(graphId: string, fileKey: string): Prom
     return file ?? null;
 }
 
-async function loadGraphFileForProxy(graphId: string, fileId: string): Promise<GraphFileProxyRecord | null> {
+export async function loadGraphFileForProxy(graphId: string, fileId: string): Promise<GraphFileProxyRecord | null> {
     const [file] = await db
         .select({
             key: filesTable.key,
@@ -52,6 +55,7 @@ export async function getGraphFileProxyResponse(options: {
     fileId: string;
     request: Request;
     bucket: string;
+    head?: boolean;
 }): Promise<GraphFileProxyResult> {
     const file = await loadGraphFileForProxy(options.graphId, options.fileId);
     if (!file) {
@@ -68,21 +72,19 @@ export async function getGraphFileProxyResponse(options: {
         return { status: "invalid_range", size: metadata.size };
     }
 
-    const stream = await getFileStream(file.key, options.bucket, range ?? undefined);
-    if (!stream) {
-        return { status: "not_found" };
-    }
-
     const contentType = file.mimeType || metadata.type || "application/octet-stream";
     const disposition = contentDispositionForFile(file.name, contentType);
     const headers = new Headers({
         "Accept-Ranges": "bytes",
-        "Cache-Control": "private, no-store",
-        "Content-Disposition": `${disposition}; filename="${escapeHeaderValue(file.name)}"`,
+        "Cache-Control": "private, no-cache",
         "Content-Length": String(range ? range.end - range.start + 1 : metadata.size),
         "Content-Type": contentType,
         "X-Content-Type-Options": "nosniff",
     });
+
+    if (disposition === "attachment") {
+        headers.set("Content-Disposition", contentDispositionHeader(file.name, disposition));
+    }
 
     if (metadata.lastModified) {
         headers.set("Last-Modified", metadata.lastModified.toUTCString());
@@ -90,6 +92,37 @@ export async function getGraphFileProxyResponse(options: {
 
     if (range) {
         headers.set("Content-Range", `bytes ${range.start}-${range.end}/${metadata.size}`);
+    }
+
+    if (options.head) {
+        return {
+            status: "ok",
+            response: new Response(null, {
+                status: range ? 206 : 200,
+                headers,
+            }),
+        };
+    }
+
+    const isPdf = contentType.toLowerCase().split(";")[0]?.trim() === "application/pdf";
+    if (isPdf) {
+        const buffer = await getFileArrayBuffer(file.key, options.bucket, range ?? undefined);
+        if (!buffer) {
+            return { status: "not_found" };
+        }
+
+        return {
+            status: "ok",
+            response: new Response(buffer, {
+                status: range ? 206 : 200,
+                headers,
+            }),
+        };
+    }
+
+    const stream = await getFileStream(file.key, options.bucket, range ?? undefined);
+    if (!stream) {
+        return { status: "not_found" };
     }
 
     return {

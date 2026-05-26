@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { contentDispositionForFile, escapeHeaderValue, parseByteRange } from "../file-proxy";
+import { contentDispositionForFile, contentDispositionHeader, escapeHeaderValue, parseByteRange } from "../file-proxy";
 
 describe("file proxy helpers", () => {
     test("parses byte ranges", () => {
@@ -26,5 +26,8 @@ describe("file proxy helpers", () => {
 
     test("escapes content-disposition filename values", () => {
         expect(escapeHeaderValue('report"\r\n.pdf')).toBe("report___.pdf");
+        expect(contentDispositionHeader("Ihre Trinkwasser Versorgung.pdf", "inline")).toBe(
+            'inline; filename="Ihre Trinkwasser Versorgung.pdf"; filename*=UTF-8\'\'Ihre%20Trinkwasser%20Versorgung.pdf'
+        );
     });
 });

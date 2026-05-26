@@ -13,6 +13,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { openCitationSourceFile } from "./citation-file";
+import { buildSourceFileCitations, citationReferenceKey } from "./source-file-citations";
 import { TextReferenceBadge, TextReferenceDialog } from "./TextReferenceBadge";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
@@ -73,9 +74,10 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
     const apiClient = useApiClient();
     const [activeCitationSourceId, setActiveCitationSourceId] = React.useState<string | null>(null);
 
-    const { markdownContent, citations, thinkingItems } = React.useMemo(() => {
+    const { markdownContent, citations, citationIndexBySourceId, thinkingItems } = React.useMemo(() => {
         const citationOrder: ResolvedCitationFence[] = [];
-        const seenCitationIds = new Set<string>();
+        const citationIndexByReferenceKey = new Map<string, number>();
+        const sourceIndexMap = new Map<string, number>();
         const items: ThinkingItem[] = [];
         let markdown = "";
         let reasoningIndex = 0;
@@ -102,10 +104,14 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
                             continue;
                         }
 
-                        if (!seenCitationIds.has(segment.citation.sourceId)) {
-                            seenCitationIds.add(segment.citation.sourceId);
+                        const referenceKey = citationReferenceKey(segment.citation);
+                        let citationIndex = citationIndexByReferenceKey.get(referenceKey);
+                        if (citationIndex === undefined) {
+                            citationIndex = citationOrder.length;
+                            citationIndexByReferenceKey.set(referenceKey, citationIndex);
                             citationOrder.push(segment.citation);
                         }
+                        sourceIndexMap.set(segment.citation.sourceId, citationIndex);
                         markdown += `[[cite:${segment.citation.sourceId}]]`;
                     }
                     break;
@@ -123,15 +129,14 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
         return {
             markdownContent: normalizeLatexDelimitersForMarkdown(markdown),
             citations: citationOrder,
+            citationIndexBySourceId: sourceIndexMap,
             thinkingItems: items,
         };
     }, [parts]);
 
-    const citationIndexMap = React.useMemo(() => {
-        return new Map(citations.map((citation, index) => [citation.sourceId, index]));
-    }, [citations]);
-
-    const activeCitationIndex = activeCitationSourceId ? citationIndexMap.get(activeCitationSourceId) : undefined;
+    const activeCitationIndex = activeCitationSourceId
+        ? citationIndexBySourceId.get(activeCitationSourceId)
+        : undefined;
     const activeCitation = activeCitationIndex === undefined ? undefined : citations[activeCitationIndex];
 
     React.useEffect(() => {
@@ -164,7 +169,7 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
                     }
 
                     const sourceId = match[1]!;
-                    const citationIndex = citationIndexMap.get(sourceId);
+                    const citationIndex = citationIndexBySourceId.get(sourceId);
                     const citation = citationIndex === undefined ? undefined : citations[citationIndex];
 
                     if (citation && citationIndex !== undefined) {
@@ -221,14 +226,7 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
         }
     };
 
-    const uniqueSourceFiles = citations.reduce((unique, citation) => {
-        const citationFileRef = citation.fileId ?? citation.fileKey ?? citation.sourceId;
-        const existingFile = unique.find((file) => (file.fileId ?? file.fileKey ?? file.sourceId) === citationFileRef);
-        if (!existingFile) {
-            unique.push(citation);
-        }
-        return unique;
-    }, [] as ResolvedCitationFence[]);
+    const sourceFileCitations = React.useMemo(() => buildSourceFileCitations(citations), [citations]);
 
     const hasText = markdownContent.trim().length > 0;
     const toolThinkingItems = thinkingItems.filter(
@@ -346,20 +344,20 @@ export function MessageContent({ parts, projectId, isStreaming = false }: Messag
                 </div>
             )}
 
-            {uniqueSourceFiles.length > 0 && (
+            {sourceFileCitations.length > 0 && (
                 <div className="border-t border-border/50 pt-3">
                     <div className="mb-2 text-sm text-muted-foreground">Quellen:</div>
                     <div className="flex flex-wrap gap-2">
-                        {uniqueSourceFiles.map((citation) => (
+                        {sourceFileCitations.map((sourceFile) => (
                             <Button
-                                key={citation.sourceId}
+                                key={sourceFile.key}
                                 variant="outline"
                                 size="sm"
                                 className="h-7 px-2 py-1 text-xs"
-                                onClick={() => handleFileDownload(citation)}
+                                onClick={() => handleFileDownload(sourceFile.citation)}
                             >
                                 <FileText className="mr-1 h-3 w-3" />
-                                {citation.fileName}
+                                {sourceFile.label}
                             </Button>
                         ))}
                     </div>

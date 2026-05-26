@@ -1,9 +1,11 @@
 export function getProjectFileProxyPath(
     graphId: string,
     fileId: string,
-    options: { page?: number | null; token?: string | null } = {}
+    options: { fileName?: string | null; page?: number | null; token?: string | null } = {}
 ): string {
-    const path = `/graphs/${encodeURIComponent(graphId)}/files/${encodeURIComponent(fileId)}`;
+    const fileName = options.fileName?.trim();
+    const fileNamePath = fileName ? `/${encodeURIComponent(fileName)}` : "";
+    const path = `/graphs/${encodeURIComponent(graphId)}/files/${encodeURIComponent(fileId)}${fileNamePath}`;
     const searchParams = new URLSearchParams();
     if (options.token) {
         searchParams.set("token", options.token);
@@ -24,7 +26,7 @@ export function getProjectFileProxyUrl(
     baseUrl: string | undefined,
     graphId: string,
     fileId: string,
-    options: { page?: number | null; token?: string | null } = {}
+    options: { fileName?: string | null; page?: number | null; token?: string | null } = {}
 ): string {
     const path = getProjectFileProxyPath(graphId, fileId, options);
     if (!baseUrl) {

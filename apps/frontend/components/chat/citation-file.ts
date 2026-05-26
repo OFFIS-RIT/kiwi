@@ -12,8 +12,12 @@ export async function openCitationSourceFile(
     citation: ResolvedCitationFence
 ): Promise<void> {
     if (citation.fileId) {
-        const page = isPDFCitation(citation) ? citation.startPage : null;
-        window.open(getProjectFileUrl(apiClient, projectId, citation.fileId, { page }), "_blank");
+        const isPdf = isPDFCitation(citation);
+        const page = isPdf ? (citation.startPage ?? null) : null;
+        window.open(
+            getProjectFileUrl(apiClient, projectId, citation.fileId, { fileName: citation.fileName, page }),
+            "_blank"
+        );
         return;
     }
 

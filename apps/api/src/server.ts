@@ -28,9 +28,9 @@ const app = new Elysia({
             trustedOrigins.length > 0
                 ? {
                       origin: trustedOrigins,
-                      methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-                      allowedHeaders: ["Content-Type", "Authorization"],
-                      exposeHeaders: ["Content-Length", "Content-Range"],
+                      methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
+                      allowedHeaders: ["Content-Type", "Authorization", "Range", "If-Range"],
+                      exposeHeaders: ["Accept-Ranges", "Content-Disposition", "Content-Length", "Content-Range"],
                       credentials: true,
                   }
                 : undefined

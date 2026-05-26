@@ -145,19 +145,19 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-h-[80vh] w-full max-w-6xl overflow-hidden sm:max-w-[60vw]">
-                <div className="flex h-full flex-col overflow-hidden">
-                    <DialogHeader className="shrink-0">
-                        <DialogTitle className="flex items-center gap-2">
-                            <ExternalLink className="h-4 w-4" />
-                            {t("text.reference")} #{index + 1}
-                        </DialogTitle>
-                        <DialogDescription>
-                            {t("reference.id")}: {citation.sourceId}
-                        </DialogDescription>
-                    </DialogHeader>
+            <DialogContent className="flex h-[80vh] w-full max-w-6xl flex-col overflow-hidden sm:max-w-[60vw]">
+                <DialogHeader className="shrink-0">
+                    <DialogTitle className="flex items-center gap-2">
+                        <ExternalLink className="h-4 w-4" />
+                        {t("text.reference")} #{index + 1}
+                    </DialogTitle>
+                    <DialogDescription>
+                        {t("reference.id")}: {citation.sourceId}
+                    </DialogDescription>
+                </DialogHeader>
 
-                    <ScrollArea className="flex-1 pr-1">
+                <div className="min-h-0 flex-1">
+                    <ScrollArea className="h-full pr-1">
                         <div className="space-y-4">
                             {error && (
                                 <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">

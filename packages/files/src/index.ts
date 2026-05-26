@@ -156,6 +156,27 @@ export async function getFileStream(
     };
 }
 
+export async function getFileArrayBuffer(
+    key: string,
+    bucket: string,
+    range?: { start: number; end: number }
+): Promise<ArrayBuffer | null> {
+    const client = getClient(bucket);
+    const s3File = client.file(key);
+
+    const exists = await s3File.exists();
+    if (!exists) {
+        return null;
+    }
+
+    const file = range ? s3File.slice(range.start, range.end + 1) : s3File;
+    const bytes = await file.bytes();
+    const buffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(buffer).set(bytes);
+
+    return buffer;
+}
+
 export async function getFileMetadata(key: string, bucket: string): Promise<StoredFileMetadata | null> {
     const client = getClient(bucket);
     const s3File = client.file(key);
