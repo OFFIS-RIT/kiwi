@@ -33,8 +33,11 @@ import {
 } from "@/components/ui/sidebar";
 import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
 import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
+import { fetchProjectChats } from "@/lib/api";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { canCreateProjectInGroup, canDeleteTeam, canManageTeam, canOpenProjectEditorInGroup } from "@/lib/capabilities";
+import { queryKeys } from "@/lib/query-keys";
+import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useProjectChatSession } from "@/providers/ChatSessionsProvider";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
@@ -56,6 +59,7 @@ import {
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import type * as React from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 
@@ -74,6 +78,7 @@ type SearchResult = {
 };
 
 const MIN_SEARCH_LENGTH = 1;
+const RECENT_CHAT_LIMIT = 6;
 const EMPTY_GROUPS: Group[] = [];
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
@@ -180,14 +185,7 @@ export function AppSidebar({
 
     const isSearching = searchTerm.trim().length >= MIN_SEARCH_LENGTH;
 
-    const activeChatId = useMemo(() => {
-        if (!chatId) return null;
-        return groups.some((group) =>
-            group.projects.some((project) => project.recentChats.some((chat) => chat.id === chatId))
-        )
-            ? chatId
-            : null;
-    }, [chatId, groups]);
+    const activeChatId = chatId;
 
     // Build grouped results for display
     const groupedResults = useMemo(() => {
@@ -843,6 +841,7 @@ function ProjectItem({
 }: ProjectItemProps) {
     const router = useRouter();
     const t = useAppTranslations();
+    const apiClient = useApiClient();
     const href = `/${group.id}/${project.id}`;
     const prefetchProjectChat = usePrefetchProjectChat(project.id);
     const prefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(href, {
@@ -852,9 +851,18 @@ function ProjectItem({
     const { isAdmin } = useAuth();
     const { requestNewEntry } = useProjectChatSession(project.id);
     const canOpenProjectEditor = canOpenProjectEditorInGroup(group, { isAdmin });
+    const [showAllChats, setShowAllChats] = useState(false);
+    const { data: allChats, isFetching: isFetchingAllChats } = useQuery({
+        queryKey: queryKeys.projectChats(project.id),
+        queryFn: () => fetchProjectChats(apiClient, project.id),
+        enabled: showAllChats,
+        staleTime: 30 * 1000,
+    });
+    const visibleChats = showAllChats ? (allChats ?? project.recentChats) : project.recentChats;
     const chatsToShow = matchedChatIds
         ? project.recentChats.filter((chat) => matchedChatIds.has(chat.id))
-        : project.recentChats;
+        : visibleChats;
+    const canExpandChats = !matchedChatIds && project.recentChats.length >= RECENT_CHAT_LIMIT;
 
     const handleStartNewChat = () => {
         requestNewEntry({
@@ -955,6 +963,30 @@ function ProjectItem({
                                 <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no.chats")}</div>
                             </SidebarMenuSubItem>
                         )}
+                        {canExpandChats ? (
+                            <SidebarMenuSubItem>
+                                <SidebarMenuSubButton
+                                    asChild
+                                    size="sm"
+                                    className="w-full justify-start text-muted-foreground"
+                                    aria-disabled={isFetchingAllChats}
+                                >
+                                    <button
+                                        type="button"
+                                        disabled={isFetchingAllChats}
+                                        onClick={() => setShowAllChats((value) => !value)}
+                                    >
+                                        <span>
+                                            {isFetchingAllChats
+                                                ? t("loading")
+                                                : showAllChats
+                                                  ? t("show.less")
+                                                  : t("show.more")}
+                                        </span>
+                                    </button>
+                                </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                        ) : null}
                     </SidebarMenuSub>
                 </CollapsibleContent>
             </Collapsible>
