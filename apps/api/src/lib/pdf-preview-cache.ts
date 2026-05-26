@@ -60,7 +60,7 @@ export async function getOrRenderPDFPreviewPage(
         throw new Error(`PDF preview renderer returned no image for page ${options.page}`);
     }
 
-    await Promise.all(
+    await Promise.allSettled(
         [...renderedPages.entries()].map(([page, renderedImage]) =>
             saveNamedFile(
                 `page-${page}.png`,

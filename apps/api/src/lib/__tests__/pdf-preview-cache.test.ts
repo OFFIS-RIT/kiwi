@@ -54,6 +54,23 @@ describe("getOrRenderPDFPreviewPage", () => {
         );
     });
 
+    test("returns rendered image when cache writes fail", async () => {
+        const putNamedFile = mock(async () => {
+            throw new Error("Storage unavailable");
+        });
+        const renderPDFPagePreviews = mock(async () => new Map([[3, new Uint8Array([3])]]));
+
+        const result = await getOrRenderPDFPreviewPage(options, {
+            getFile: async (key) =>
+                key === "source.pdf" ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+            putNamedFile,
+            renderPDFPagePreviews,
+        });
+
+        expect(result).toEqual({ status: "ok", content: new Uint8Array([3]), cache: "miss" });
+        expect(putNamedFile).toHaveBeenCalledTimes(1);
+    });
+
     test("renders the requested page together with the preview window", async () => {
         const putNamedFile = mock(async () => ({ key: "saved", type: "image/png" }));
         const renderPDFPagePreviews = mock(
