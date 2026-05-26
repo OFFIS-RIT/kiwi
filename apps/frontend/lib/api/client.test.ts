@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { KiwiAuthClient } from "@kiwi/auth/client";
 
 const fetchSpy = vi.fn();
@@ -14,6 +14,10 @@ const apiClient = createKiwiApiClient("https://api.test", fakeAuthClient);
 describe("API client", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     test("GET includes cookies", async () => {
@@ -49,6 +53,7 @@ describe("API client", () => {
     });
 
     test("throws ApiError on non-ok response", async () => {
+        const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
         fetchSpy.mockResolvedValueOnce({
             ok: false,
             status: 500,
@@ -64,6 +69,39 @@ describe("API client", () => {
         });
 
         await expect(apiClient.get("/fail")).rejects.toThrow(ApiError);
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+            "API Error [/fail]:",
+            JSON.stringify({
+                status: "error",
+                message: "Internal server error",
+                code: "INTERNAL_SERVER_ERROR",
+            })
+        );
+    });
+
+    test("can suppress logging for expected API errors", async () => {
+        const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        fetchSpy.mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: "Not Found",
+            text: () =>
+                Promise.resolve(
+                    JSON.stringify({
+                        status: "error",
+                        message: "Chat not found",
+                        code: "CHAT_NOT_FOUND",
+                    })
+                ),
+        });
+
+        await expect(
+            apiClient.getQuietly("/chat/graph_1/missing", (error) => error.code === "CHAT_NOT_FOUND")
+        ).rejects.toMatchObject({
+            status: 404,
+            code: "CHAT_NOT_FOUND",
+        });
+        expect(consoleErrorSpy).not.toHaveBeenCalled();
     });
 
     test("signs out on 401", async () => {

@@ -16,6 +16,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
+import { ApiError } from "@/lib/api/client";
 import { deleteProjectChat } from "@/lib/api/projects";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
@@ -64,6 +65,10 @@ type ProjectChatProps = {
 type IntelligenceLevel = "default" | "high";
 
 const intelligenceLevels: IntelligenceLevel[] = ["default", "high"];
+
+function isMissingChatError(error: unknown) {
+    return error instanceof ApiError && (error.code === "CHAT_NOT_FOUND" || error.message.includes("CHAT_NOT_FOUND"));
+}
 
 type ClarificationState = {
     toolCallId: string;
@@ -318,6 +323,8 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     const { entry, ensureEntry, resetEntry, startNewEntry, consumeRequestedNewEntry } =
         useProjectChatSession(projectId);
     const queryKey = projectChatQueryKey(projectId, chatId);
+    const previousChatIdRef = useRef<string | null>(chatId);
+    const skipNextBaseSessionRef = useRef(false);
 
     // Hydrate once per project from the server and cache it in React Query so
     // switching back to a previously opened project is instant (cache hit) and
@@ -336,15 +343,41 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
 
     useEffect(() => {
         if (!chatId || !hydrationError) return;
-        router.replace(pathname);
-    }, [chatId, hydrationError, pathname, router]);
+        if (isMissingChatError(hydrationError)) {
+            startNewEntry({
+                sessionId: uuidv4(),
+                initialMessages: [],
+                sendAutomaticallyWhen: shouldAutoContinue,
+            });
+            skipNextBaseSessionRef.current = true;
+        } else {
+            resetEntry();
+        }
+        window.history.replaceState(null, "", pathname);
+    }, [chatId, hydrationError, pathname, resetEntry, router, startNewEntry]);
 
     useLayoutEffect(() => {
         if (chatId) return;
         const requestedEntry = consumeRequestedNewEntry();
         if (!requestedEntry) return;
+        skipNextBaseSessionRef.current = true;
         startNewEntry(requestedEntry);
     }, [chatId, consumeRequestedNewEntry, startNewEntry]);
+
+    useLayoutEffect(() => {
+        const previousChatId = previousChatIdRef.current;
+        previousChatIdRef.current = chatId;
+        if (chatId || !previousChatId) return;
+        if (skipNextBaseSessionRef.current) {
+            skipNextBaseSessionRef.current = false;
+            return;
+        }
+        startNewEntry({
+            sessionId: uuidv4(),
+            initialMessages: [],
+            sendAutomaticallyWhen: shouldAutoContinue,
+        });
+    }, [chatId, startNewEntry]);
 
     // Create the Chat instance before paint once hydration data is available.
     // With visible-project prefetching this avoids flashing the shell skeleton

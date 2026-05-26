@@ -74,6 +74,7 @@ type SearchResult = {
 };
 
 const MIN_SEARCH_LENGTH = 1;
+const EMPTY_GROUPS: Group[] = [];
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     onEditGroup: (group: Group) => void;
@@ -96,7 +97,7 @@ export function AppSidebar({
     const searchParams = useSearchParams();
     const chatId = searchParams.get("chatId");
     const { buildLabel } = useRuntimeConfig();
-    const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
+    const { data: groups = EMPTY_GROUPS, isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
     const { isAdmin } = useAuth();
     const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
@@ -179,6 +180,15 @@ export function AppSidebar({
 
     const isSearching = searchTerm.trim().length >= MIN_SEARCH_LENGTH;
 
+    const activeChatId = useMemo(() => {
+        if (!chatId) return null;
+        return groups.some((group) =>
+            group.projects.some((project) => project.recentChats.some((chat) => chat.id === chatId))
+        )
+            ? chatId
+            : null;
+    }, [chatId, groups]);
+
     // Build grouped results for display
     const groupedResults = useMemo(() => {
         if (!isSearching) return null;
@@ -242,22 +252,23 @@ export function AppSidebar({
 
     useEffect(() => {
         const projectIds = groups.flatMap((group) => group.projects.map((project) => project.id));
+        if (projectIds.length === 0) return;
         initializeExpandedProjects(projectIds);
     }, [groups, initializeExpandedProjects]);
 
     useEffect(() => {
-        if (!chatId) return;
+        if (!activeChatId) return;
 
         for (const group of groups) {
             const project = group.projects.find((candidate) =>
-                candidate.recentChats.some((chat) => chat.id === chatId)
+                candidate.recentChats.some((chat) => chat.id === activeChatId)
             );
             if (project) {
                 expandGroupsForSearch([group.id], [project.id]);
                 return;
             }
         }
-    }, [chatId, groups, expandGroupsForSearch]);
+    }, [activeChatId, groups, expandGroupsForSearch]);
 
     // Handle expansion state during search
     useEffect(() => {
@@ -442,7 +453,7 @@ export function AppSidebar({
                                                 group={organizationGroup}
                                                 isExpanded={expandedProjects[project.id] ?? false}
                                                 onToggleExpanded={() => toggleProjectExpanded(project.id)}
-                                                activeChatId={chatId}
+                                                activeChatId={activeChatId}
                                                 isMatched={
                                                     isSearching && "matchedProjectIds" in organizationGroup
                                                         ? (organizationGroup.matchedProjectIds as Set<string>).has(
@@ -553,7 +564,7 @@ export function AppSidebar({
                                                         group={group}
                                                         isExpanded={expandedProjects[project.id] ?? false}
                                                         onToggleExpanded={() => toggleProjectExpanded(project.id)}
-                                                        activeChatId={chatId}
+                                                        activeChatId={activeChatId}
                                                         isMatched={
                                                             isSearching && "matchedProjectIds" in group
                                                                 ? (group.matchedProjectIds as Set<string>).has(

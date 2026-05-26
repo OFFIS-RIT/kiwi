@@ -64,4 +64,24 @@ describe("SidebarExpansionProvider", () => {
         expect(result.current.expandedGroups.team_1).toBe(false);
         expect(result.current.expandedProjects.graph_1).toBe(false);
     });
+
+    it("does not clear stored graph expansion while project data is still empty", () => {
+        localStorage.setItem("sidebar-expanded-projects", JSON.stringify({ graph_1: true }));
+
+        const { result } = renderHook(() => useSidebarExpansion(), { wrapper });
+
+        act(() => {
+            result.current.initializeExpandedProjects([]);
+        });
+
+        expect(JSON.parse(localStorage.getItem("sidebar-expanded-projects") ?? "{}")).toEqual({
+            graph_1: true,
+        });
+
+        act(() => {
+            result.current.initializeExpandedProjects(["graph_1"]);
+        });
+
+        expect(result.current.expandedProjects.graph_1).toBe(true);
+    });
 });

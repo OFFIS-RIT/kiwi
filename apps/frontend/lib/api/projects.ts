@@ -25,7 +25,7 @@ import type {
     TextUnitResponse,
 } from "@kiwi/api/types";
 import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
-import { unwrapApiResponse, type KiwiApiClient } from "./client";
+import { ApiError, unwrapApiResponse, type KiwiApiClient } from "./client";
 
 export const ORGANIZATION_GROUP_ID = "__organization__";
 export const PERSONAL_GROUP_ID = "__personal__";
@@ -166,9 +166,18 @@ export async function fetchProjectChats(client: KiwiApiClient, projectId: string
 export async function fetchProjectChat(
     client: KiwiApiClient,
     projectId: string,
-    conversationId: string
+    conversationId: string,
+    options: { suppressNotFoundLog?: boolean } = {}
 ): Promise<ChatHistoryRecord> {
-    const response = await client.get<ChatDetailResponse>(`/chat/${projectId}/${conversationId}`);
+    const endpoint = `/chat/${projectId}/${conversationId}`;
+    const response = options.suppressNotFoundLog
+        ? await client.getQuietly<ChatDetailResponse>(
+              endpoint,
+              (error) =>
+                  error instanceof ApiError &&
+                  (error.code === "CHAT_NOT_FOUND" || error.message.includes("CHAT_NOT_FOUND"))
+          )
+        : await client.get<ChatDetailResponse>(endpoint);
     return unwrapApiResponse(response);
 }
 

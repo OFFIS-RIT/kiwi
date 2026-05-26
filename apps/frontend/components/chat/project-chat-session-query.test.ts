@@ -28,28 +28,20 @@ describe("project chat session query", () => {
         });
 
         expect(fetchProjectChats).not.toHaveBeenCalled();
-        expect(fetchProjectChat).toHaveBeenCalledWith(client, "graph_1", "chat_2");
+        expect(fetchProjectChat).toHaveBeenCalledWith(client, "graph_1", "chat_2", { suppressNotFoundLog: true });
     });
 
-    it("falls back to the latest chat when no chat id is provided", async () => {
-        vi.mocked(fetchProjectChats).mockResolvedValue([{ id: "chat_1", title: "Latest" }] as never);
-        vi.mocked(fetchProjectChat).mockResolvedValue({
-            id: "chat_1",
-            title: "Latest",
-            messages: [],
-        } as never);
+    it("starts an empty chat session when no chat id is provided", async () => {
+        const session = await hydrateProjectChatSession(client, "graph_1");
 
-        await expect(hydrateProjectChatSession(client, "graph_1")).resolves.toEqual({
-            id: "chat_1",
-            messages: [],
-        });
-
-        expect(fetchProjectChats).toHaveBeenCalledWith(client, "graph_1");
-        expect(fetchProjectChat).toHaveBeenCalledWith(client, "graph_1", "chat_1");
+        expect(session).toMatchObject({ messages: [] });
+        expect(session.id).toEqual(expect.any(String));
+        expect(fetchProjectChats).not.toHaveBeenCalled();
+        expect(fetchProjectChat).not.toHaveBeenCalled();
     });
 
-    it("keys latest and explicit chat sessions separately", () => {
-        expect(projectChatQueryKey("graph_1")).toEqual(["project-chat", "graph_1", "latest"]);
+    it("keys new and explicit chat sessions separately", () => {
+        expect(projectChatQueryKey("graph_1")).toEqual(["project-chat", "graph_1", "new"]);
         expect(projectChatQueryKey("graph_1", "chat_2")).toEqual(["project-chat", "graph_1", "chat_2"]);
     });
 });

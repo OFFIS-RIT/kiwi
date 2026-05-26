@@ -64,6 +64,13 @@ const saveExpandedStateToStorage = (storageKey: string, expandedState: Record<st
     }
 };
 
+const areExpansionStatesEqual = (first: Record<string, boolean>, second: Record<string, boolean>) => {
+    const firstKeys = Object.keys(first);
+    const secondKeys = Object.keys(second);
+
+    return firstKeys.length === secondKeys.length && firstKeys.every((key) => first[key] === second[key]);
+};
+
 /**
  * Manages sidebar group expansion state with localStorage persistence.
  * Provides utilities for search-related expansion (expand during search, restore after).
@@ -98,6 +105,7 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
 
     // Initialize expanded groups with all groups collapsed by default
     const initializeExpandedGroups = useCallback((groupIds: string[]) => {
+        if (groupIds.length === 0) return;
         setExpandedGroups((prev) => {
             const newState: Record<string, boolean> = {};
 
@@ -110,18 +118,21 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
                 newState[groupId] = storedState[groupId] ?? false;
             });
 
-            return newState;
+            return areExpansionStatesEqual(prev, newState) ? prev : newState;
         });
     }, []);
 
     const initializeExpandedProjects = useCallback((projectIds: string[]) => {
+        if (projectIds.length === 0) return;
         setExpandedProjects((prev) => {
             const storedState =
                 Object.keys(prev).length === 0 ? loadExpandedStateFromStorage(PROJECT_STORAGE_KEY) : prev;
 
-            return Object.fromEntries(
+            const newState = Object.fromEntries(
                 projectIds.map((projectId) => [projectId, storedState[projectId] ?? false])
             );
+
+            return areExpansionStatesEqual(prev, newState) ? prev : newState;
         });
     }, []);
 
@@ -149,9 +160,9 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
 
     // Restore expansion state after search
     const restoreExpansionAfterSearch = useCallback((originalGroups: Record<string, boolean>, originalProjects?: Record<string, boolean>) => {
-        setExpandedGroups(originalGroups);
+        setExpandedGroups((prev) => (areExpansionStatesEqual(prev, originalGroups) ? prev : originalGroups));
         if (originalProjects) {
-            setExpandedProjects(originalProjects);
+            setExpandedProjects((prev) => (areExpansionStatesEqual(prev, originalProjects) ? prev : originalProjects));
         }
     }, []);
 
@@ -162,14 +173,14 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
             groupIds.forEach((groupId) => {
                 newState[groupId] = true;
             });
-            return newState;
+            return areExpansionStatesEqual(prev, newState) ? prev : newState;
         });
         setExpandedProjects((prev) => {
             const newState = { ...prev };
             projectIds.forEach((projectId) => {
                 newState[projectId] = true;
             });
-            return newState;
+            return areExpansionStatesEqual(prev, newState) ? prev : newState;
         });
     }, []);
 
