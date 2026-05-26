@@ -63,8 +63,15 @@ export async function rasterizeSelectedPDFPagesWithPDFToImg(
     });
     const pageImages = new Map<number, Uint8Array>();
 
-    for (const page of pages) {
-        pageImages.set(page.index, await document.getPage(page.index + 1));
+    const renderedPages = await Promise.all(
+        pages.map(async (page) => ({
+            index: page.index,
+            image: await document.getPage(page.index + 1),
+        }))
+    );
+
+    for (const page of renderedPages) {
+        pageImages.set(page.index, page.image);
     }
 
     return pageImages;

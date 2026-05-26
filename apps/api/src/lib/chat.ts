@@ -22,6 +22,7 @@ import { db } from "@kiwi/db";
 import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
+import { Result } from "better-result";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
@@ -426,14 +427,20 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
         })
     );
 
-    await updateMessagePartsBatch(
-        chatId,
-        normalizedRows.flatMap(({ message, normalized }) =>
-            normalized.changed && normalized.unresolvedCitations.length === 0
-                ? [{ id: message.id, parts: normalized.parts }]
-                : []
-        )
+    const messagePartUpdates = normalizedRows.flatMap(({ message, normalized }) =>
+        normalized.changed && normalized.unresolvedCitations.length === 0
+            ? [{ id: message.id, parts: normalized.parts }]
+            : []
     );
+
+    const writeResult = await Result.tryPromise(async () => updateMessagePartsBatch(chatId, messagePartUpdates));
+    if (writeResult.isErr()) {
+        logError("failed to persist normalized citations", {
+            graphId,
+            chatId,
+            error: writeResult.error,
+        });
+    }
 
     const messages = normalizedRows.map(({ message, normalized }) =>
         toUIMessage({
