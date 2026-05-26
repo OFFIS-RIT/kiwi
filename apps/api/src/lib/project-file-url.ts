@@ -53,14 +53,5 @@ export function getPublicApiBaseUrl(request: Request, configuredApiUrl?: string)
 }
 
 function getRequestOrigin(request: Request): string {
-    const url = new URL(request.url);
-    const host = request.headers.get("host")?.trim();
-
-    if (!host) {
-        return url.origin;
-    }
-
-    const protocol = url.protocol.replace(/:$/u, "");
-
-    return `${protocol}://${host}`;
+    return new URL(request.url).origin;
 }

@@ -36,7 +36,7 @@ describe("project file proxy URLs", () => {
             },
         });
 
-        expect(getPublicApiBaseUrl(request, "/api")).toBe("http://internal:4321/api");
+        expect(getPublicApiBaseUrl(request, "/api")).toBe("http://server:4321/api");
         expect(getPublicApiBaseUrl(request, "https://api.example.com/")).toBe("https://api.example.com");
     });
 });
