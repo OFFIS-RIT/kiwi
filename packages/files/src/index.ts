@@ -135,24 +135,34 @@ export async function getFile(
 export async function getFileStream(
     key: string,
     bucket: string,
-    range?: { start: number; end: number }
+    range?: { start: number; end: number },
+    metadata?: StoredFileMetadata
 ): Promise<StoredFileStream | null> {
     const client = getClient(bucket);
     const s3File = client.file(key);
 
-    const exists = await s3File.exists();
-    if (!exists) {
-        return null;
+    let fileMetadata = metadata;
+    if (!fileMetadata) {
+        const exists = await s3File.exists();
+        if (!exists) {
+            return null;
+        }
+
+        const stat = await s3File.stat();
+        fileMetadata = {
+            size: stat.size,
+            type: s3File.type || getFileType(key),
+            lastModified: stat.lastModified ?? null,
+        };
     }
 
-    const stat = await s3File.stat();
     const file = range ? s3File.slice(range.start, range.end + 1) : s3File;
 
     return {
         content: file.stream(),
-        size: range ? range.end - range.start + 1 : stat.size,
-        type: s3File.type || getFileType(key),
-        lastModified: stat.lastModified ?? null,
+        size: range ? range.end - range.start + 1 : fileMetadata.size,
+        type: fileMetadata.type,
+        lastModified: fileMetadata.lastModified,
     };
 }
 

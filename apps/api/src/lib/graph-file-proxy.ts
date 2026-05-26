@@ -104,7 +104,7 @@ export async function getGraphFileProxyResponse(options: {
         };
     }
 
-    const stream = await getFileStream(file.key, options.bucket, range ?? undefined);
+    const stream = await getFileStream(file.key, options.bucket, range ?? undefined, metadata);
     if (!stream) {
         return { status: "not_found" };
     }
