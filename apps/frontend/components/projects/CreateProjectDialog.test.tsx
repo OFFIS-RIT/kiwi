@@ -144,7 +144,7 @@ describe("CreateProjectDialog", () => {
         expect(optionNames()).toEqual(["Organisation", "Team Admin"]);
     });
 
-    test("shows only team-admin destinations for non-organization admins", async () => {
+    test("shows team graph management destinations for non-organization admins", async () => {
         groups.value = [
             team("team_admin", "Team Admin", "admin"),
             team("team_mod", "Team Moderator", "moderator"),
@@ -155,7 +155,7 @@ describe("CreateProjectDialog", () => {
 
         await openGroupSelect();
 
-        expect(optionNames()).toEqual(["Team Admin"]);
+        expect(optionNames()).toEqual(["Team Admin", "Team Moderator"]);
     });
 
     test("expands the selected destination after project creation", async () => {
