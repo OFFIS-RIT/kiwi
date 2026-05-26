@@ -5,6 +5,7 @@ import {
     type CitationFence,
     type ResolvedCitationFence,
 } from "@kiwi/ai/citation";
+import type { MessagePart } from "@kiwi/db/tables/chats";
 
 export type CitationResolver = (citation: CitationFence) => Promise<ResolvedCitationFence | null>;
 
@@ -38,4 +39,28 @@ export async function normalizeCitationFencesInText(text: string, resolveCitatio
     );
 
     return normalizedSegments.join("");
+}
+
+export async function normalizeMessageCitationFences(
+    parts: MessagePart[],
+    resolveCitation: CitationResolver
+): Promise<{ parts: MessagePart[]; changed: boolean }> {
+    let changed = false;
+    const normalizedParts = await Promise.all(
+        parts.map(async (part) => {
+            if (part.type !== "text") {
+                return part;
+            }
+
+            const text = await normalizeCitationFencesInText(part.text, resolveCitation);
+            if (text === part.text) {
+                return part;
+            }
+
+            changed = true;
+            return { ...part, text };
+        })
+    );
+
+    return { parts: normalizedParts, changed };
 }

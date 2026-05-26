@@ -1,4 +1,5 @@
 import { PDF } from "@libpdf/core";
+import { PDF_PREVIEW_SCALE } from "@kiwi/files";
 import type { PDFDocumentLike, PDFPageLike } from "../loader/pdf/types";
 import { rasterizeSelectedPDFPages } from "../loader/pdf/rasterize";
 
@@ -12,7 +13,6 @@ type PDFPagePreviewDeps = {
     rasterizeSelectedPages?: typeof rasterizeSelectedPDFPages;
 };
 
-const DEFAULT_PREVIEW_SCALE = 1.5;
 const DEFAULT_MAX_DIMENSION_PIXELS = 2400;
 
 export async function renderPDFPagePreviews(
@@ -80,7 +80,7 @@ function selectPreviewPages(pages: PDFPageLike[], pageNumbers: number[]): PDFPag
 }
 
 function getPreviewScale(pages: Array<Pick<PDFPageLike, "width" | "height">>, options: PDFPagePreviewOptions): number {
-    const requestedScale = options.scale ?? DEFAULT_PREVIEW_SCALE;
+    const requestedScale = options.scale ?? PDF_PREVIEW_SCALE;
     const maxDimensionPixels = options.maxDimensionPixels ?? DEFAULT_MAX_DIMENSION_PIXELS;
 
     if (!Number.isFinite(requestedScale) || requestedScale <= 0) {

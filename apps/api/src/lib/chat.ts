@@ -26,7 +26,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
-import { normalizeCitationFencesInText, type CitationResolver } from "./chat-citation-normalization";
+import { normalizeMessageCitationFences, type CitationResolver } from "./chat-citation-normalization";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 
@@ -311,19 +311,6 @@ function createCachedCitationResolver(graphId: string): CitationResolver {
     };
 }
 
-async function normalizeMessageCitationFences(parts: MessagePart[], resolveCitation: CitationResolver) {
-    return Promise.all(
-        parts.map(async (part) => {
-            if (part.type !== "text") {
-                return part;
-            }
-
-            const text = await normalizeCitationFencesInText(part.text, resolveCitation);
-            return text === part.text ? part : { ...part, text };
-        })
-    );
-}
-
 export async function resolveCitationDocumentLink(
     graphId: string,
     citation: CitationFence,
@@ -384,12 +371,20 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
 
     const resolveCitation = createCachedCitationResolver(graphId);
     const messages = await Promise.all(
-        rows.map(async (message) =>
-            toUIMessage({
+        rows.map(async (message) => {
+            const normalized = await normalizeMessageCitationFences(message.parts, resolveCitation);
+            if (normalized.changed) {
+                await db
+                    .update(messageTable)
+                    .set({ parts: normalized.parts })
+                    .where(and(eq(messageTable.id, message.id), eq(messageTable.chatId, chatId)));
+            }
+
+            return toUIMessage({
                 ...message,
-                parts: await normalizeMessageCitationFences(message.parts, resolveCitation),
-            })
-        )
+                parts: normalized.parts,
+            });
+        })
     );
 
     return {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { splitTextWithCitationFences, stringifyCitationFence, type CitationFence } from "@kiwi/ai/citation";
-import { normalizeCitationFencesInText } from "../chat-citation-normalization";
+import { normalizeCitationFencesInText, normalizeMessageCitationFences } from "../chat-citation-normalization";
 
 function firstCitation(text: string): CitationFence {
     const segment = splitTextWithCitationFences(text).find((part) => part.type === "citation");
@@ -65,5 +65,48 @@ describe("chat citation normalization", () => {
 
         expect(normalized).toBe(text);
         expect(resolverCalls).toBe(0);
+    });
+
+    test("reports when stored message parts were normalized", async () => {
+        const legacyCitation = stringifyCitationFence({
+            type: "cite",
+            sourceId: "source-1",
+            unitId: "unit-legacy",
+            fileName: "document.pdf",
+            fileKey: "graphs/graph-1/document.pdf",
+        });
+
+        const result = await normalizeMessageCitationFences(
+            [
+                { type: "text", text: `Alpha ${legacyCitation}` },
+                { type: "reasoning", text: "thinking" },
+            ],
+            async () => ({
+                type: "cite",
+                sourceId: "source-1",
+                unitId: "unit-1",
+                fileId: "file-1",
+                fileName: "document.pdf",
+            })
+        );
+
+        expect(result.changed).toBe(true);
+        expect(result.parts[1]).toEqual({ type: "reasoning", text: "thinking" });
+        expect(firstCitation(result.parts[0]?.type === "text" ? result.parts[0].text : "").fileId).toBe("file-1");
+    });
+
+    test("reports unchanged message parts for canonical citations", async () => {
+        const canonicalCitation = stringifyCitationFence({
+            type: "cite",
+            sourceId: "source-1",
+            unitId: "unit-1",
+            fileId: "file-1",
+            fileName: "document.pdf",
+        });
+        const parts = [{ type: "text" as const, text: `Alpha ${canonicalCitation}` }];
+        const result = await normalizeMessageCitationFences(parts, async () => null);
+
+        expect(result.changed).toBe(false);
+        expect(result.parts).toEqual(parts);
     });
 });
