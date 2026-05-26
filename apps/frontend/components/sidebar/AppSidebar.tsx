@@ -98,6 +98,7 @@ export function AppSidebar({
     const { buildLabel } = useRuntimeConfig();
     const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
+    const { isAdmin } = useAuth();
     const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
     const homePrefetchRef = usePrefetchWhenVisible<HTMLButtonElement>("/");
     const {
@@ -113,6 +114,7 @@ export function AppSidebar({
 
     const [showSearch, setShowSearch] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [createProjectGroupId, setCreateProjectGroupId] = useState<string | null>(null);
     const [ready, setReady] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -473,59 +475,119 @@ export function AppSidebar({
                                 </SidebarGroupContent>
                             </SidebarGroup>
                         ) : null}
-                        {teamGroups.map((group) => (
-                            <SidebarGroup key={group.id}>
-                                <SidebarGroupLabel
-                                    asChild
-                                    className="cursor-pointer px-2"
-                                    onClick={() => toggleGroupExpanded(group.id)}
-                                >
-                                    <button type="button" title={group.name}>
-                                        <span className="truncate">{group.name}</span>
-                                    </button>
-                                </SidebarGroupLabel>
-                                <SidebarGroupContent>
-                                    {expandedGroups[group.id] ? (
-                                        <SidebarMenu>
-                                            {group.projects.map((project) => (
-                                                <ProjectItem
-                                                    key={project.id}
-                                                    project={project}
-                                                    group={group}
-                                                    isExpanded={expandedProjects[project.id] ?? false}
-                                                    onToggleExpanded={() => toggleProjectExpanded(project.id)}
-                                                    activeChatId={chatId}
-                                                    isMatched={
-                                                        isSearching && "matchedProjectIds" in group
-                                                            ? (group.matchedProjectIds as Set<string>).has(project.id)
-                                                            : false
-                                                    }
-                                                    matchedChatIds={
-                                                        isSearching && "matchedChatsByProject" in group
-                                                            ? (
-                                                                  group.matchedChatsByProject as Map<
-                                                                      string,
-                                                                      Set<string>
-                                                                  >
-                                                              ).get(project.id)
-                                                            : undefined
-                                                    }
-                                                    highlightTerm={isSearching ? searchTerm : undefined}
-                                                    onSelectProject={(groupId) => {
-                                                        if (isSearching) {
-                                                            projectSelectedDuringSearchRef.current = true;
-                                                            selectedGroupIdDuringSearchRef.current = groupId;
+                        {teamGroups.map((group) => {
+                            const context = { isAdmin };
+                            const canEditTeam = canManageTeam(group, context);
+                            const canCreateProject = canCreateProjectInGroup(group, context);
+                            const canDeleteGroup = canDeleteTeam(group, context);
+                            const showTeamMenu = canEditTeam || canCreateProject || canDeleteGroup;
+
+                            return (
+                                <SidebarGroup key={group.id}>
+                                    <SidebarGroupLabel asChild className="px-2">
+                                        <div className="group/team-row flex min-w-0 items-center gap-1">
+                                            <button
+                                                type="button"
+                                                className="min-w-0 flex-1 cursor-pointer text-left"
+                                                title={group.name}
+                                                onClick={() => toggleGroupExpanded(group.id)}
+                                            >
+                                                <span className="block truncate">{group.name}</span>
+                                            </button>
+                                            {showTeamMenu ? (
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-5 w-5 shrink-0 p-0 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/team-row:opacity-100 group-focus-within/team-row:opacity-100 data-[state=open]:opacity-100"
+                                                            aria-label={t("options")}
+                                                        >
+                                                            <MoreVertical className="h-4 w-4" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="start" side="right" className="w-48">
+                                                        {canEditTeam ? (
+                                                            <DropdownMenuItem onSelect={() => onEditGroup(group)}>
+                                                                <Edit className="mr-2 h-4 w-4" />
+                                                                <span>{t("edit")}</span>
+                                                            </DropdownMenuItem>
+                                                        ) : null}
+                                                        {canCreateProject ? (
+                                                            <DropdownMenuItem
+                                                                onSelect={() => setCreateProjectGroupId(group.id)}
+                                                            >
+                                                                <Plus className="mr-2 h-4 w-4" />
+                                                                <span>{t("create.new.project")}</span>
+                                                            </DropdownMenuItem>
+                                                        ) : null}
+                                                        {canDeleteGroup ? (
+                                                            <DropdownMenuItem
+                                                                className="text-destructive focus:text-destructive"
+                                                                onSelect={() => onDeleteGroup(group)}
+                                                            >
+                                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                                <span>{t("delete")}</span>
+                                                            </DropdownMenuItem>
+                                                        ) : null}
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            ) : null}
+                                        </div>
+                                    </SidebarGroupLabel>
+                                    <Suspense fallback={null}>
+                                        <CreateProjectDialog
+                                            open={createProjectGroupId === group.id}
+                                            onOpenChange={(open) => setCreateProjectGroupId(open ? group.id : null)}
+                                            groupId={group.id}
+                                            onProjectCreated={onProjectCreated}
+                                        />
+                                    </Suspense>
+                                    <SidebarGroupContent>
+                                        {expandedGroups[group.id] ? (
+                                            <SidebarMenu>
+                                                {group.projects.map((project) => (
+                                                    <ProjectItem
+                                                        key={project.id}
+                                                        project={project}
+                                                        group={group}
+                                                        isExpanded={expandedProjects[project.id] ?? false}
+                                                        onToggleExpanded={() => toggleProjectExpanded(project.id)}
+                                                        activeChatId={chatId}
+                                                        isMatched={
+                                                            isSearching && "matchedProjectIds" in group
+                                                                ? (group.matchedProjectIds as Set<string>).has(
+                                                                      project.id
+                                                                  )
+                                                                : false
                                                         }
-                                                    }}
-                                                    onEditProject={onEditProject}
-                                                    onDeleteProject={onDeleteProject}
-                                                />
-                                            ))}
-                                        </SidebarMenu>
-                                    ) : null}
-                                </SidebarGroupContent>
-                            </SidebarGroup>
-                        ))}
+                                                        matchedChatIds={
+                                                            isSearching && "matchedChatsByProject" in group
+                                                                ? (
+                                                                      group.matchedChatsByProject as Map<
+                                                                          string,
+                                                                          Set<string>
+                                                                      >
+                                                                  ).get(project.id)
+                                                                : undefined
+                                                        }
+                                                        highlightTerm={isSearching ? searchTerm : undefined}
+                                                        onSelectProject={(groupId) => {
+                                                            if (isSearching) {
+                                                                projectSelectedDuringSearchRef.current = true;
+                                                                selectedGroupIdDuringSearchRef.current = groupId;
+                                                            }
+                                                        }}
+                                                        onEditProject={onEditProject}
+                                                        onDeleteProject={onDeleteProject}
+                                                    />
+                                                ))}
+                                            </SidebarMenu>
+                                        ) : null}
+                                    </SidebarGroupContent>
+                                </SidebarGroup>
+                            );
+                        })}
                     </ScrollArea>
                 ) : null}
             </SidebarContent>
