@@ -192,7 +192,10 @@ export const chatRoute = new Elysia()
 
                                 const citation = await enrichCitation(params.id, segment.citation.sourceId);
                                 if (citation) {
-                                    citationFileIds.add(citation.fileId ?? citation.fileKey ?? citation.sourceId);
+                                    const citationFileId = citation.fileId ?? citation.fileKey;
+                                    if (citationFileId) {
+                                        citationFileIds.add(citationFileId);
+                                    }
                                     text += stringifyCitationFence(citation);
                                 } else {
                                     text += segment.raw;
@@ -391,7 +394,10 @@ export const chatRoute = new Elysia()
                                 return;
                             }
 
-                            citationFileIds.add(citation.fileId ?? citation.fileKey ?? citation.sourceId);
+                            const citationFileId = citation.fileId ?? citation.fileKey;
+                            if (citationFileId) {
+                                citationFileIds.add(citationFileId);
+                            }
                         };
 
                         try {

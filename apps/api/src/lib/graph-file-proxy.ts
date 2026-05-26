@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@kiwi/db";
 import { filesTable } from "@kiwi/db/tables/graph";
-import { getFileArrayBuffer, getFileMetadata, getFileStream } from "@kiwi/files";
+import { getFileMetadata, getFileStream } from "@kiwi/files";
 import { contentDispositionForFile, contentDispositionHeader, parseByteRange } from "./file-proxy";
 
 export type GraphFileProxyRecord = {
@@ -98,22 +98,6 @@ export async function getGraphFileProxyResponse(options: {
         return {
             status: "ok",
             response: new Response(null, {
-                status: range ? 206 : 200,
-                headers,
-            }),
-        };
-    }
-
-    const isPdf = contentType.toLowerCase().split(";")[0]?.trim() === "application/pdf";
-    if (isPdf) {
-        const buffer = await getFileArrayBuffer(file.key, options.bucket, range ?? undefined);
-        if (!buffer) {
-            return { status: "not_found" };
-        }
-
-        return {
-            status: "ok",
-            response: new Response(buffer, {
                 status: range ? 206 : 200,
                 headers,
             }),
