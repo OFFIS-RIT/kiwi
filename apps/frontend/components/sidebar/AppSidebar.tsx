@@ -36,6 +36,7 @@ import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { canCreateProjectInGroup, canDeleteTeam, canManageTeam, canMutateProjectInGroup } from "@/lib/capabilities";
 import { useAuth } from "@/providers/AuthProvider";
+import { useProjectChatSession } from "@/providers/ChatSessionsProvider";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
@@ -57,6 +58,7 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import type * as React from "react";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 
 const CreateProjectDialog = lazy(() =>
     import("@/components/projects").then((mod) => ({
@@ -724,7 +726,16 @@ function ProjectItem({
     });
     const isProcessing = project.processPercentage !== undefined;
     const { isAdmin } = useAuth();
+    const { startNewEntry } = useProjectChatSession(project.id);
     const canMutateProject = canMutateProjectInGroup(group, { isAdmin });
+
+    const handleStartNewChat = () => {
+        startNewEntry({
+            sessionId: uuidv4(),
+            initialMessages: [],
+        });
+        router.push(href);
+    };
 
     return (
         <SidebarMenuItem>
@@ -759,7 +770,7 @@ function ProjectItem({
                     {canMutateProject && (
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-                                <SidebarMenuAction className="opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
+                                <SidebarMenuAction className="right-7 opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
                                     <MoreVertical className="h-4 w-4" />
                                     <span className="sr-only">{t("options")}</span>
                                 </SidebarMenuAction>
@@ -781,6 +792,18 @@ function ProjectItem({
                             </DropdownMenuContent>
                         </DropdownMenu>
                     )}
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1.5 h-5 w-5 p-0 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            handleStartNewChat();
+                        }}
+                        aria-label={t("new.chat")}
+                    >
+                        <Plus className="h-4 w-4" />
+                    </Button>
                 </div>
                 <CollapsibleContent>
                     <SidebarMenuSub className="mr-0 pr-0">

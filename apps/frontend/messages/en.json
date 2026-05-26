@@ -61,6 +61,7 @@
     "delete.group.description": "Are you sure you want to delete the group \"{groupName}\"? This will also delete all projects within the group. This action cannot be undone.",
     "delete.group.error": "An error occurred while deleting the group.",
     "reset.chat": "Reset Chat",
+    "new.chat": "New chat",
     "reset.chat.confirm": "Reset Chat History?",
     "reset.chat.description": "Are you sure you want to reset the chat history for {projectName}? This will delete all messages and cannot be undone.",
     "copy.message": "Copy",

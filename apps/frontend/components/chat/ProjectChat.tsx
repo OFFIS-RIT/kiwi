@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { deleteProjectChat } from "@/lib/api/projects";
+import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
@@ -397,6 +398,9 @@ function ProjectChatSession({
     onReset: (chatId: string) => Promise<void>;
 }) {
     const t = useAppTranslations();
+    const queryClient = useQueryClient();
+    const router = useRouter();
+    const pathname = usePathname();
     const language = useLocale();
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<ChatInputHandle>(null);
@@ -408,7 +412,8 @@ function ProjectChatSession({
     const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const [interimTranscript, setInterimTranscript] = useState("");
     const [isTemplateSidebarOpen, setIsTemplateSidebarOpen] = useState(false);
-    const { setStreamError, setCurrentStep } = useProjectChatSession(projectId);
+    const { setStreamError, setCurrentStep, getNewChatDraft, setNewChatDraft, clearNewChatDraft } =
+        useProjectChatSession(projectId);
     const currentStep = entry.currentStep;
     const streamError = entry.streamError;
 
@@ -452,6 +457,14 @@ function ProjectChatSession({
     useEffect(() => {
         stopSpeaking();
     }, [stopSpeaking, entry.sessionId]);
+
+    useEffect(() => {
+        if (displayedMessages.length === 0) {
+            setInputValue(getNewChatDraft());
+        } else {
+            setInputValue("");
+        }
+    }, [displayedMessages.length, entry.sessionId, getNewChatDraft]);
 
     // Each time a different chat is opened, jump to the bottom without animation.
     useEffect(() => {
@@ -577,8 +590,36 @@ function ProjectChatSession({
         // reset after the await leaves the original text visible for the whole
         // response.
         setInputValue("");
+        clearNewChatDraft();
+        if (!displayedMessages.length) {
+            router.replace(`${pathname}?chatId=${encodeURIComponent(entry.sessionId)}`);
+        }
         await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
-    }, [inputValue, intelligenceLevel, isRecording, pendingClarification, sendMessage, setStreamError]);
+        await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+    }, [
+        clearNewChatDraft,
+        displayedMessages.length,
+        entry.sessionId,
+        inputValue,
+        intelligenceLevel,
+        isRecording,
+        pathname,
+        pendingClarification,
+        queryClient,
+        router,
+        sendMessage,
+        setStreamError,
+    ]);
+
+    const handleInputChange = useCallback(
+        (value: string) => {
+            setInputValue(value);
+            if (displayedMessages.length === 0) {
+                setNewChatDraft(value);
+            }
+        },
+        [displayedMessages.length, setNewChatDraft]
+    );
 
     const handleClarificationSubmit = useCallback(
         (toolCallId: string, questions: string[], answer: string) => {
@@ -634,7 +675,7 @@ function ProjectChatSession({
             <ChatInput
                 ref={inputRef}
                 value={inputValue}
-                onChange={setInputValue}
+                onChange={handleInputChange}
                 onSubmit={() => void handleSendMessage()}
                 disabled={isRecording || !!pendingClarification}
                 placeholder={t("ask.question")}

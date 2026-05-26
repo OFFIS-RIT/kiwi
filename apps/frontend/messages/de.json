@@ -61,6 +61,7 @@
     "delete.group.description": "Möchtest du die Gruppe \"{groupName}\" wirklich löschen? Dadurch werden auch alle Projekte in der Gruppe gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
     "delete.group.error": "Beim Löschen der Gruppe ist ein Fehler aufgetreten.",
     "reset.chat": "Chat zurücksetzen",
+    "new.chat": "Neuer Chat",
     "reset.chat.confirm": "Chat-Verlauf zurücksetzen?",
     "reset.chat.description": "Möchtest du den Chat-Verlauf für {projectName} wirklich zurücksetzen? Alle Nachrichten werden gelöscht und diese Aktion kann nicht rückgängig gemacht werden.",
     "copy.message": "Kopieren",
