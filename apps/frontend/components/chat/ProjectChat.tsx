@@ -343,12 +343,13 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     // on normal internal project navigation.
     useLayoutEffect(() => {
         if (!hydrated || entry?.sessionId === hydrated.id) return;
+        if (!chatId && entry) return;
         ensureEntry({
             sessionId: hydrated.id,
             initialMessages: hydrated.messages,
             sendAutomaticallyWhen: shouldAutoContinue,
         });
-    }, [entry, ensureEntry, hydrated]);
+    }, [chatId, entry, ensureEntry, hydrated]);
 
     const handleReset = useCallback(
         async (chatId: string) => {
