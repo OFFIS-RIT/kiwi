@@ -44,7 +44,7 @@ import {
 } from "lucide-react";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useLocale } from "next-intl";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { MessageContent } from "./MessageContent";
@@ -366,7 +366,6 @@ function stripMarkdown(text: string): string {
 export function ProjectChat({ projectName, groupName, projectId }: ProjectChatProps) {
     const queryClient = useQueryClient();
     const apiClient = useApiClient();
-    const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const chatId = searchParams.get("chatId");
@@ -404,7 +403,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
             resetEntry();
         }
         window.history.replaceState(null, "", pathname);
-    }, [chatId, hydrationError, pathname, resetEntry, router, startNewEntry]);
+    }, [chatId, hydrationError, pathname, resetEntry, startNewEntry]);
 
     useLayoutEffect(() => {
         if (chatId) return;
@@ -491,7 +490,6 @@ function ProjectChatSession({
 }) {
     const t = useAppTranslations();
     const queryClient = useQueryClient();
-    const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const chatId = searchParams.get("chatId");
@@ -719,7 +717,7 @@ function ProjectChatSession({
             upsertOptimisticChat(chats, optimisticChat)
         );
         if (isFirstMessage) {
-            router.replace(`${pathname}?chatId=${encodeURIComponent(entry.sessionId)}`);
+            window.history.replaceState(null, "", `${pathname}?chatId=${encodeURIComponent(entry.sessionId)}`);
         }
         setIsGenerating(true);
         setHasUnreadUpdate(false);
@@ -739,7 +737,6 @@ function ProjectChatSession({
         pendingClarification,
         projectId,
         queryClient,
-        router,
         sendMessage,
         setHasUnreadUpdate,
         setIsGenerating,

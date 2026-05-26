@@ -60,7 +60,7 @@ import {
     X,
 } from "lucide-react";
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
@@ -874,6 +874,7 @@ function ProjectItem({
     onDeleteProject,
 }: ProjectItemProps) {
     const router = useRouter();
+    const pathname = usePathname();
     const t = useAppTranslations();
     const apiClient = useApiClient();
     const href = `/${group.id}/${project.id}`;
@@ -925,6 +926,10 @@ function ProjectItem({
             sessionId: uuidv4(),
             initialMessages: [],
         });
+        if (pathname === href) {
+            window.history.pushState(null, "", href);
+            return;
+        }
         router.push(href);
     };
 
@@ -1012,7 +1017,12 @@ function ProjectItem({
                                                 type="button"
                                                 onClick={() => {
                                                     onSelectProject(group.id);
-                                                    router.push(`${href}?chatId=${encodeURIComponent(chat.id)}`);
+                                                    const chatHref = `${href}?chatId=${encodeURIComponent(chat.id)}`;
+                                                    if (pathname === href) {
+                                                        window.history.pushState(null, "", chatHref);
+                                                        return;
+                                                    }
+                                                    router.push(chatHref);
                                                 }}
                                                 title={chat.title}
                                             >
