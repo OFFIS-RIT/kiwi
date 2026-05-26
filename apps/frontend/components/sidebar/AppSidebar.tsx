@@ -49,6 +49,7 @@ import {
     ChevronRight,
     Edit,
     FolderSearch,
+    Loader2,
     MoreVertical,
     Archive,
     Pin,
@@ -882,7 +883,7 @@ function ProjectItem({
     });
     const isProcessing = project.processPercentage !== undefined;
     const { isAdmin } = useAuth();
-    const { requestNewEntry } = useProjectChatSession(project.id);
+    const { entries, requestNewEntry } = useProjectChatSession(project.id);
     const canOpenProjectEditor = canOpenProjectEditorInGroup(group, { isAdmin });
     const [showAllChats, setShowAllChats] = useState(false);
     const { data: allChats, isFetching: isFetchingAllChats } = useQuery({
@@ -896,6 +897,10 @@ function ProjectItem({
         ? project.recentChats.filter((chat) => matchedChatIds.has(chat.id))
         : visibleChats;
     const canExpandChats = !matchedChatIds && project.recentChats.length >= RECENT_CHAT_LIMIT;
+    const runningChatIds = useMemo(
+        () => new Set(entries.filter((entry) => entry.isGenerating).map((entry) => entry.sessionId)),
+        [entries]
+    );
     const [now, setNow] = useState(() => Date.now());
     const hasChatTimes = chatsToShow.some((chat) => chat.updatedAt);
 
@@ -983,6 +988,7 @@ function ProjectItem({
                     <SidebarMenuSub className="mr-0 pr-0">
                         {chatsToShow.length > 0 ? (
                             chatsToShow.map((chat) => {
+                                const isGenerating = runningChatIds.has(chat.id);
                                 const relativeUpdatedAt = chat.updatedAt
                                     ? formatRelativeChatTime(chat.updatedAt, now)
                                     : null;
@@ -994,8 +1000,8 @@ function ProjectItem({
                                             size="sm"
                                             isActive={activeChatId === chat.id}
                                             className="relative w-full justify-start"
-                                            onMouseEnter={prefetchProjectChat}
-                                            onFocus={prefetchProjectChat}
+                                            onMouseEnter={() => prefetchProjectChat(chat.id)}
+                                            onFocus={() => prefetchProjectChat(chat.id)}
                                         >
                                             <button
                                                 type="button"
@@ -1005,8 +1011,14 @@ function ProjectItem({
                                                 }}
                                                 title={chat.title}
                                             >
-                                                <span className="min-w-0 flex-1 truncate pr-9 text-left">{chat.title}</span>
-                                                {relativeUpdatedAt ? (
+                                                <span className="block w-0 min-w-0 flex-1 truncate pr-9 text-left">
+                                                    {chat.title}
+                                                </span>
+                                                {isGenerating ? (
+                                                    <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/chat-row:hidden">
+                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    </span>
+                                                ) : relativeUpdatedAt ? (
                                                     <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/chat-row:hidden">
                                                         {relativeUpdatedAt}
                                                     </span>
