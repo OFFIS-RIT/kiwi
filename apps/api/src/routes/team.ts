@@ -432,13 +432,18 @@ export const teamRoute = new Elysia({ prefix: "/teams" })
             const updateUsersResult = await Result.tryPromise(async () => {
                 const access = await requireTeamMemberManageAccess(user, params.id);
                 const normalizedUsers = normalizeUsers({ users: body.users });
-                ensureTeamHasAdmin(normalizedUsers);
                 await ensureOrganizationMembers(
                     access.team.organizationId,
                     normalizedUsers.map((teamUser) => teamUser.user_id)
                 );
 
                 await db.transaction(async (tx) => {
+                    await tx
+                        .select({ id: teamTable.id })
+                        .from(teamTable)
+                        .where(eq(teamTable.id, params.id))
+                        .for("update");
+
                     const currentMembers = await tx
                         .select({
                             user_id: teamMemberTable.userId,
@@ -446,7 +451,10 @@ export const teamRoute = new Elysia({ prefix: "/teams" })
                         })
                         .from(teamMemberTable)
                         .leftJoin(teamMemberRolesTable, eq(teamMemberRolesTable.teamMemberId, teamMemberTable.id))
-                        .where(eq(teamMemberTable.teamId, params.id));
+                        .where(eq(teamMemberTable.teamId, params.id))
+                        .for("update", { of: teamMemberTable });
+
+                    ensureTeamHasAdmin(normalizedUsers);
 
                     if (!access.organizationAdmin) {
                         const currentAdminIds = new Set(
