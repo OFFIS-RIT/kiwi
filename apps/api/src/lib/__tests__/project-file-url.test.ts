@@ -27,7 +27,7 @@ describe("project file proxy URLs", () => {
         ).toBe("https://api.example.com/graphs/graph-1/files/file-1/source.pdf#page=2");
     });
 
-    test("resolves configured relative API URLs against the external request origin", () => {
+    test("resolves configured relative API URLs against the request origin", () => {
         const request = new Request("http://server:4321/mcp", {
             headers: {
                 host: "internal:4321",
@@ -36,7 +36,7 @@ describe("project file proxy URLs", () => {
             },
         });
 
-        expect(getPublicApiBaseUrl(request, "/api")).toBe("https://kiwi.example.com/api");
+        expect(getPublicApiBaseUrl(request, "/api")).toBe("http://internal:4321/api");
         expect(getPublicApiBaseUrl(request, "https://api.example.com/")).toBe("https://api.example.com");
     });
 });

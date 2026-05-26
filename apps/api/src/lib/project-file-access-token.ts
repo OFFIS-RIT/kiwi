@@ -1,3 +1,5 @@
+import { env } from "../env";
+
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const TOKEN_TTL_SECONDS = 60 * 60;
@@ -9,24 +11,24 @@ type ProjectFileAccessTokenPayload = {
 };
 
 let signingKeyPromise: Promise<CryptoKey> | null = null;
+let signingKeySecret: string | null = null;
 
 function getSigningSecret(): string {
-    const secret = process.env.AUTH_SECRET;
-    if (!secret) {
-        throw new Error("AUTH_SECRET is required to sign project file links");
-    }
-
-    return secret;
+    return env.AUTH_SECRET;
 }
 
 function getSigningKey(): Promise<CryptoKey> {
-    signingKeyPromise ??= crypto.subtle.importKey(
-        "raw",
-        textEncoder.encode(getSigningSecret()),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign", "verify"]
-    );
+    const secret = getSigningSecret();
+    if (!signingKeyPromise || signingKeySecret !== secret) {
+        signingKeySecret = secret;
+        signingKeyPromise = crypto.subtle.importKey(
+            "raw",
+            textEncoder.encode(secret),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign", "verify"]
+        );
+    }
 
     return signingKeyPromise;
 }

@@ -1,7 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { createProjectFileAccessToken, verifyProjectFileAccessToken } from "../project-file-access-token";
 
 process.env.AUTH_SECRET ??= "test-project-file-access-token-secret";
+process.env.DATABASE_DIRECT_URL ??= "postgres://test:test@localhost:5432/test";
+process.env.S3_ACCESS_KEY_ID ??= "test";
+process.env.S3_SECRET_ACCESS_KEY ??= "test";
+process.env.S3_ENDPOINT ??= "http://localhost:9000";
+process.env.S3_REGION ??= "test";
+process.env.S3_BUCKET ??= "test";
+process.env.AI_TEXT_ADAPTER ??= "openai";
+process.env.AI_TEXT_MODEL ??= "test";
+process.env.AI_TEXT_KEY ??= "test";
+process.env.AI_EMBEDDING_ADAPTER ??= "openai";
+process.env.AI_EMBEDDING_MODEL ??= "test";
+process.env.AI_EMBEDDING_KEY ??= "test";
+
+const { createProjectFileAccessToken, verifyProjectFileAccessToken } = await import("../project-file-access-token");
 
 describe("project file access tokens", () => {
     test("creates tokens bound to a graph and file", async () => {

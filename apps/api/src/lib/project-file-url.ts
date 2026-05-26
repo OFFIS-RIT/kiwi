@@ -37,15 +37,15 @@ export function getProjectFileProxyUrl(
 }
 
 export function getPublicApiBaseUrl(request: Request, configuredApiUrl?: string): string {
-    const origin = getRequestOrigin(request);
     const apiUrl = configuredApiUrl?.trim();
-
-    if (!apiUrl) {
-        return origin;
-    }
 
     if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(apiUrl)) {
         return apiUrl.replace(/\/+$/u, "");
+    }
+
+    const origin = getRequestOrigin(request);
+    if (!apiUrl) {
+        return origin;
     }
 
     const path = apiUrl.startsWith("/") ? apiUrl : `/${apiUrl}`;
@@ -54,15 +54,13 @@ export function getPublicApiBaseUrl(request: Request, configuredApiUrl?: string)
 
 function getRequestOrigin(request: Request): string {
     const url = new URL(request.url);
-    const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-    const host = forwardedHost || request.headers.get("host")?.trim();
+    const host = request.headers.get("host")?.trim();
 
     if (!host) {
         return url.origin;
     }
 
-    const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-    const protocol = forwardedProto || url.protocol.replace(/:$/u, "");
+    const protocol = url.protocol.replace(/:$/u, "");
 
     return `${protocol}://${host}`;
 }

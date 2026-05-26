@@ -46,6 +46,22 @@ describe("renderPDFPagePreviews", () => {
         ).rejects.toThrow("Invalid PDF page number 0");
     });
 
+    test("skips pages beyond the PDF page count", async () => {
+        const rasterizeSelectedPages = mock(async () => new Map([[0, new Uint8Array([1])]]));
+        const previews = await renderPDFPagePreviewsWithDeps(
+            new Uint8Array([9]),
+            [1, 5],
+            {},
+            {
+                loadPDF: async () => pdfWithPages([{ index: 0, width: 600, height: 800 }]),
+                rasterizeSelectedPages,
+            }
+        );
+
+        expect([...previews.entries()]).toEqual([[1, new Uint8Array([1])]]);
+        expect(rasterizeSelectedPages.mock.calls[0]?.[1].map((page) => page.index)).toEqual([0]);
+    });
+
     test("caps preview scale by maximum page dimension", async () => {
         const rasterizeSelectedPages = mock(async () => new Map([[0, new Uint8Array([1])]]));
 

@@ -39,6 +39,10 @@ export async function renderPDFPagePreviewsWithDeps(
     const document = await loadPDF(content);
     const pages = document.getPages();
     const selectedPages = selectPreviewPages(pages, pageNumbers);
+    if (selectedPages.length === 0) {
+        return new Map();
+    }
+
     const scale = getPreviewScale(selectedPages, options);
     const renderedByIndex = await rasterizePages(content, selectedPages, scale);
     const renderedByPageNumber = new Map<number, Uint8Array>();
@@ -58,8 +62,11 @@ function selectPreviewPages(pages: PDFPageLike[], pageNumbers: number[]): PDFPag
     const seen = new Set<number>();
 
     for (const pageNumber of pageNumbers) {
-        if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > pages.length) {
+        if (!Number.isInteger(pageNumber) || pageNumber < 1) {
             throw new Error(`Invalid PDF page number ${pageNumber}`);
+        }
+        if (pageNumber > pages.length) {
+            continue;
         }
         if (seen.has(pageNumber)) {
             continue;

@@ -150,7 +150,7 @@ export async function getFileStream(
 
     return {
         content: file.stream(),
-        size: stat.size,
+        size: range ? range.end - range.start + 1 : stat.size,
         type: s3File.type || getFileType(key),
         lastModified: stat.lastModified ?? null,
     };
