@@ -5,7 +5,7 @@ import { useCurrentSelection } from "@/hooks/use-current-selection";
 import { useGroupsWithProjects } from "@/hooks/use-data";
 import type { Group, Project } from "@/types";
 
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -43,7 +43,6 @@ import { ProjectProgressChart } from "./ProjectProgressChart";
 import Fuse from "fuse.js";
 import {
     BookOpen,
-    ChevronRight,
     Edit,
     FolderSearch,
     MessageCircle,
@@ -476,40 +475,54 @@ export function AppSidebar({
                         ) : null}
                         {teamGroups.map((group) => (
                             <SidebarGroup key={group.id}>
-                                <SidebarGroupLabel>{group.name}</SidebarGroupLabel>
+                                <SidebarGroupLabel
+                                    asChild
+                                    className="cursor-pointer px-2"
+                                    onClick={() => toggleGroupExpanded(group.id)}
+                                >
+                                    <button type="button" title={group.name}>
+                                        <span className="truncate">{group.name}</span>
+                                    </button>
+                                </SidebarGroupLabel>
                                 <SidebarGroupContent>
-                                    <SidebarMenu>
-                                        <GroupItem
-                                            group={group}
-                                            isExpanded={expandedGroups[group.id]}
-                                            onToggleExpanded={() => toggleGroupExpanded(group.id)}
-                                            highlightTerm={isSearching ? searchTerm : undefined}
-                                            matchedProjectIds={
-                                                isSearching && "matchedProjectIds" in group
-                                                    ? (group.matchedProjectIds as Set<string>)
-                                                    : undefined
-                                            }
-                                            matchedChatsByProject={
-                                                isSearching && "matchedChatsByProject" in group
-                                                    ? (group.matchedChatsByProject as Map<string, Set<string>>)
-                                                    : undefined
-                                            }
-                                            expandedProjects={expandedProjects}
-                                            onToggleProjectExpanded={toggleProjectExpanded}
-                                            activeChatId={chatId}
-                                            onSelectProject={(groupId) => {
-                                                if (isSearching) {
-                                                    projectSelectedDuringSearchRef.current = true;
-                                                    selectedGroupIdDuringSearchRef.current = groupId;
-                                                }
-                                            }}
-                                            onEditProject={onEditProject}
-                                            onEditGroup={onEditGroup}
-                                            onDeleteGroup={onDeleteGroup}
-                                            onDeleteProject={onDeleteProject}
-                                            onProjectCreated={onProjectCreated}
-                                        />
-                                    </SidebarMenu>
+                                    {expandedGroups[group.id] ? (
+                                        <SidebarMenu>
+                                            {group.projects.map((project) => (
+                                                <ProjectItem
+                                                    key={project.id}
+                                                    project={project}
+                                                    group={group}
+                                                    isExpanded={expandedProjects[project.id] ?? false}
+                                                    onToggleExpanded={() => toggleProjectExpanded(project.id)}
+                                                    activeChatId={chatId}
+                                                    isMatched={
+                                                        isSearching && "matchedProjectIds" in group
+                                                            ? (group.matchedProjectIds as Set<string>).has(project.id)
+                                                            : false
+                                                    }
+                                                    matchedChatIds={
+                                                        isSearching && "matchedChatsByProject" in group
+                                                            ? (
+                                                                  group.matchedChatsByProject as Map<
+                                                                      string,
+                                                                      Set<string>
+                                                                  >
+                                                              ).get(project.id)
+                                                            : undefined
+                                                    }
+                                                    highlightTerm={isSearching ? searchTerm : undefined}
+                                                    onSelectProject={(groupId) => {
+                                                        if (isSearching) {
+                                                            projectSelectedDuringSearchRef.current = true;
+                                                            selectedGroupIdDuringSearchRef.current = groupId;
+                                                        }
+                                                    }}
+                                                    onEditProject={onEditProject}
+                                                    onDeleteProject={onDeleteProject}
+                                                />
+                                            ))}
+                                        </SidebarMenu>
+                                    ) : null}
                                 </SidebarGroupContent>
                             </SidebarGroup>
                         ))}
@@ -645,16 +658,6 @@ function GroupItem({
         <SidebarMenuItem>
             <Collapsible className="group/collapsible" open={isExpanded} onOpenChange={onToggleExpanded}>
                 <div className="group/group-row relative flex min-w-0 items-center gap-1">
-                    <CollapsibleTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 shrink-0 p-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            aria-label={isExpanded ? "Gruppe einklappen" : "Gruppe ausklappen"}
-                        >
-                            <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-                        </Button>
-                    </CollapsibleTrigger>
                     <SidebarMenuButton
                         className="min-w-0 flex-1 pr-8"
                         onClick={onToggleExpanded}
@@ -789,16 +792,6 @@ function ProjectItem({
         <SidebarMenuItem>
             <Collapsible className="group/project-collapsible" open={isExpanded} onOpenChange={onToggleExpanded}>
                 <div className="group/project-row relative flex min-w-0 items-center gap-1">
-                    <CollapsibleTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 shrink-0 p-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            aria-label={isExpanded ? t("graph.collapse") : t("graph.expand")}
-                        >
-                            <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-                        </Button>
-                    </CollapsibleTrigger>
                     <SidebarMenuButton
                         ref={prefetchRef}
                         className="min-w-0 flex-1 pr-8"
