@@ -157,6 +157,7 @@ async function ensureAdminMemberships(members: AdminMembershipInput[]) {
                 role: "admin",
                 systemRoleProvisioned: true,
             },
+            setWhere: eq(authTables.memberTable.systemRoleProvisioned, true),
         });
 }
 

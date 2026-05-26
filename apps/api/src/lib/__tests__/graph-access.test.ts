@@ -176,6 +176,15 @@ describe("graph access", () => {
         ).resolves.toEqual(graph);
     });
 
+    test("treats system admins as organization admins over manual member rows", async () => {
+        const graph = buildTeamGraph({ teamId: null });
+        queueDbResults([graph], [graph], [organizationMemberMembership]);
+
+        await expect(
+            assertCanPatchGraph(buildUser({ isSystemAdmin: true, role: "admin" }), graph.id)
+        ).resolves.toEqual(graph);
+    });
+
     test("rejects file management and mutation for personal graphs", async () => {
         const graph = buildTeamGraph({ organizationId: null, teamId: null, userId: "user-1" });
         queueDbResults([graph], [graph]);

@@ -45,16 +45,16 @@ export async function getOrganizationMembership(user: AuthUser, organizationId?:
         .where(and(eq(memberTable.organizationId, activeOrganizationId), eq(memberTable.userId, user.id)))
         .limit(1);
 
-    if (membership) {
-        return membership;
-    }
-
-    if (user.isSystemAdmin && (await organizationExists(activeOrganizationId))) {
+    if (user.isSystemAdmin && (membership || (await organizationExists(activeOrganizationId)))) {
         return {
             organizationId: activeOrganizationId,
             userId: user.id,
             role: "admin",
         };
+    }
+
+    if (membership) {
+        return membership;
     }
 
     return null;
