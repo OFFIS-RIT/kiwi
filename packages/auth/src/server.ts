@@ -154,7 +154,8 @@ async function ensureAdminMemberships(members: AdminMembershipInput[]) {
         .onConflictDoUpdate({
             target: [authTables.memberTable.organizationId, authTables.memberTable.userId],
             set: {
-                role: sql`CASE WHEN ${authTables.memberTable.systemRoleProvisioned} THEN 'admin' ELSE ${authTables.memberTable.role} END`,
+                role: "admin",
+                systemRoleProvisioned: true,
             },
         });
 }
