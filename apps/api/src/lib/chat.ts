@@ -409,7 +409,28 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
     const resolveCitation = createCachedCitationResolver(graphId);
     const normalizedRows = await Promise.all(
         rows.map(async (message) => {
-            const normalized = await normalizeMessageCitationFences(message.parts, resolveCitation);
+            const normalizedResult = await Result.tryPromise(async () =>
+                normalizeMessageCitationFences(message.parts, resolveCitation)
+            );
+            if (normalizedResult.isErr()) {
+                logError("failed to normalize chat citations", {
+                    graphId,
+                    chatId,
+                    messageId: message.id,
+                    error: normalizedResult.error,
+                });
+
+                return {
+                    message,
+                    normalized: {
+                        parts: message.parts,
+                        changed: false,
+                        unresolvedCitations: [],
+                    },
+                };
+            }
+
+            const normalized = normalizedResult.value;
             if (normalized.unresolvedCitations.length > 0) {
                 logWarn("chat citation normalization hid unresolved citations without persisting", {
                     graphId,
