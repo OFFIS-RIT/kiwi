@@ -27,6 +27,8 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
     SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
     SidebarRail,
 } from "@/components/ui/sidebar";
 import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
@@ -38,7 +40,19 @@ import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
 import Fuse from "fuse.js";
-import { BookOpen, ChevronRight, Edit, FolderSearch, MoreVertical, Plus, Search, Trash2, Users, X } from "lucide-react";
+import {
+    BookOpen,
+    ChevronRight,
+    Edit,
+    FolderSearch,
+    MessageCircle,
+    MoreVertical,
+    Plus,
+    Search,
+    Trash2,
+    Users,
+    X,
+} from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type * as React from "react";
@@ -93,6 +107,7 @@ export function AppSidebar({
     const [showSearch, setShowSearch] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [ready, setReady] = useState(false);
+    const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
     const searchInputRef = useRef<HTMLInputElement>(null);
 
     const originalExpandedStateRef = useRef<Record<string, boolean>>({});
@@ -192,6 +207,13 @@ export function AppSidebar({
         }
     }, [groups, initializeExpandedGroups]);
 
+    useEffect(() => {
+        const projectIds = groups.flatMap((group) => group.projects.map((project) => project.id));
+        setExpandedProjects((previous) =>
+            Object.fromEntries(projectIds.map((projectId) => [projectId, previous[projectId] ?? false]))
+        );
+    }, [groups]);
+
     // Handle expansion state during search
     useEffect(() => {
         if (!isSearching) {
@@ -258,6 +280,16 @@ export function AppSidebar({
             groupMatches,
         }));
     }, [groups, isSearching, groupedResults]);
+
+    const organizationGroup = displayGroups.find((group) => group.scope === "organization");
+    const teamGroups = displayGroups.filter((group) => group.scope === "team");
+
+    const toggleProjectExpanded = (projectId: string) => {
+        setExpandedProjects((previous) => ({
+            ...previous,
+            [projectId]: !previous[projectId],
+        }));
+    };
 
     return (
         <Sidebar {...props}>
@@ -338,27 +370,59 @@ export function AppSidebar({
                 )}
             </SidebarHeader>
             <SidebarContent>
-                <SidebarGroup>
-                    <SidebarGroupLabel>{t("knowledge.groups")}</SidebarGroupLabel>
-                    <SidebarGroupContent>
-                        {error ? (
-                            <div className="px-2 py-4 text-center text-sm text-destructive">{error}</div>
-                        ) : isSearching && searchResults.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-                                <FolderSearch className="h-10 w-10 text-muted-foreground/50 mb-3" />
-                                <p className="text-sm font-medium text-muted-foreground">{t("no.search.results")}</p>
-                                <p className="text-xs text-muted-foreground/70 mt-1">{t("search.try.different")}</p>
-                            </div>
-                        ) : !isLoading && groups.length === 0 ? (
-                            <div className="px-2 py-4 text-center text-sm text-muted-foreground">{t("no.groups")}</div>
-                        ) : groups.length > 0 ? (
-                            <ScrollArea
-                                className={`h-[calc(100vh-12rem)] transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}
-                            >
-                                <SidebarMenu>
-                                    {displayGroups.map((group) => (
+                {error ? (
+                    <div className="px-2 py-4 text-center text-sm text-destructive">{error}</div>
+                ) : isSearching && searchResults.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                        <FolderSearch className="h-10 w-10 text-muted-foreground/50 mb-3" />
+                        <p className="text-sm font-medium text-muted-foreground">{t("no.search.results")}</p>
+                        <p className="text-xs text-muted-foreground/70 mt-1">{t("search.try.different")}</p>
+                    </div>
+                ) : !isLoading && groups.length === 0 ? (
+                    <div className="px-2 py-4 text-center text-sm text-muted-foreground">{t("no.groups")}</div>
+                ) : groups.length > 0 ? (
+                    <ScrollArea
+                        className={`h-[calc(100vh-12rem)] transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}
+                    >
+                        {organizationGroup ? (
+                            <SidebarGroup>
+                                <SidebarGroupContent>
+                                    <SidebarMenu>
+                                        {organizationGroup.projects.map((project) => (
+                                            <ProjectItem
+                                                key={project.id}
+                                                project={project}
+                                                group={organizationGroup}
+                                                isExpanded={expandedProjects[project.id] ?? false}
+                                                onToggleExpanded={() => toggleProjectExpanded(project.id)}
+                                                isMatched={
+                                                    isSearching && "matchedProjectIds" in organizationGroup
+                                                        ? (organizationGroup.matchedProjectIds as Set<string>).has(
+                                                              project.id
+                                                          )
+                                                        : false
+                                                }
+                                                highlightTerm={isSearching ? searchTerm : undefined}
+                                                onSelectProject={(groupId) => {
+                                                    if (isSearching) {
+                                                        projectSelectedDuringSearchRef.current = true;
+                                                        selectedGroupIdDuringSearchRef.current = groupId;
+                                                    }
+                                                }}
+                                                onEditProject={onEditProject}
+                                                onDeleteProject={onDeleteProject}
+                                            />
+                                        ))}
+                                    </SidebarMenu>
+                                </SidebarGroupContent>
+                            </SidebarGroup>
+                        ) : null}
+                        {teamGroups.map((group) => (
+                            <SidebarGroup key={group.id}>
+                                <SidebarGroupLabel>{group.name}</SidebarGroupLabel>
+                                <SidebarGroupContent>
+                                    <SidebarMenu>
                                         <GroupItem
-                                            key={group.id}
                                             group={group}
                                             isExpanded={expandedGroups[group.id]}
                                             onToggleExpanded={() => toggleGroupExpanded(group.id)}
@@ -368,6 +432,8 @@ export function AppSidebar({
                                                     ? (group.matchedProjectIds as Set<string>)
                                                     : undefined
                                             }
+                                            expandedProjects={expandedProjects}
+                                            onToggleProjectExpanded={toggleProjectExpanded}
                                             onSelectProject={(groupId) => {
                                                 if (isSearching) {
                                                     projectSelectedDuringSearchRef.current = true;
@@ -380,12 +446,12 @@ export function AppSidebar({
                                             onDeleteProject={onDeleteProject}
                                             onProjectCreated={onProjectCreated}
                                         />
-                                    ))}
-                                </SidebarMenu>
-                            </ScrollArea>
-                        ) : null}
-                    </SidebarGroupContent>
-                </SidebarGroup>
+                                    </SidebarMenu>
+                                </SidebarGroupContent>
+                            </SidebarGroup>
+                        ))}
+                    </ScrollArea>
+                ) : null}
             </SidebarContent>
             {buildLabel ? (
                 <SidebarFooter className="gap-1 border-t border-sidebar-border group-data-[collapsible=icon]:hidden">
@@ -408,6 +474,8 @@ type GroupItemProps = {
     onToggleExpanded: () => void;
     highlightTerm?: string;
     matchedProjectIds?: Set<string>;
+    expandedProjects: Record<string, boolean>;
+    onToggleProjectExpanded: (projectId: string) => void;
     onSelectProject: (groupId: string) => void;
     onEditProject: (project: Project, groupId: string) => void;
     onEditGroup: (group: Group) => void;
@@ -487,6 +555,8 @@ function GroupItem({
     onToggleExpanded,
     highlightTerm,
     matchedProjectIds,
+    expandedProjects,
+    onToggleProjectExpanded,
     onSelectProject,
     onEditProject,
     onEditGroup,
@@ -494,13 +564,9 @@ function GroupItem({
     onDeleteProject,
     onProjectCreated,
 }: GroupItemProps) {
-    const router = useRouter();
-    const { group: selectedGroup, project: selectedProject } = useCurrentSelection();
     const t = useAppTranslations();
     const { isAdmin } = useAuth();
     const [showCreateProject, setShowCreateProject] = useState(false);
-    const groupHref = `/${group.id}`;
-    const groupPrefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(groupHref);
 
     const projectsToShow = group.projects;
     const context = { isAdmin };
@@ -523,10 +589,8 @@ function GroupItem({
                         </Button>
                     </CollapsibleTrigger>
                     <SidebarMenuButton
-                        ref={groupPrefetchRef}
                         className="min-w-0 flex-1 pr-8"
-                        isActive={selectedGroup?.id === group.id && !selectedProject}
-                        onClick={() => router.push(groupHref)}
+                        onClick={onToggleExpanded}
                         title={group.name}
                         tooltip={group.name}
                     >
@@ -586,8 +650,9 @@ function GroupItem({
                                 key={project.id}
                                 project={project}
                                 group={group}
+                                isExpanded={expandedProjects[project.id] ?? false}
+                                onToggleExpanded={() => onToggleProjectExpanded(project.id)}
                                 isMatched={matchedProjectIds?.has(project.id) ?? false}
-                                isActive={selectedProject?.id === project.id}
                                 highlightTerm={highlightTerm}
                                 onSelectProject={onSelectProject}
                                 onEditProject={onEditProject}
@@ -604,8 +669,9 @@ function GroupItem({
 type ProjectItemProps = {
     project: Project;
     group: Group;
+    isExpanded: boolean;
+    onToggleExpanded: () => void;
     isMatched: boolean;
-    isActive: boolean;
     highlightTerm?: string;
     onSelectProject: (groupId: string) => void;
     onEditProject: (project: Project, groupId: string) => void;
@@ -615,8 +681,9 @@ type ProjectItemProps = {
 function ProjectItem({
     project,
     group,
+    isExpanded,
+    onToggleExpanded,
     isMatched,
-    isActive,
     highlightTerm,
     onSelectProject,
     onEditProject,
@@ -626,58 +693,102 @@ function ProjectItem({
     const t = useAppTranslations();
     const href = `/${group.id}/${project.id}`;
     const prefetchProjectChat = usePrefetchProjectChat(project.id);
-    const prefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(href, { onVisible: prefetchProjectChat });
+    const prefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(href, {
+        onVisible: prefetchProjectChat,
+    });
     const isProcessing = project.processPercentage !== undefined;
     const { isAdmin } = useAuth();
     const canMutateProject = canMutateProjectInGroup(group, { isAdmin });
 
     return (
         <SidebarMenuItem>
-            <div className="group/project-row relative">
-                <SidebarMenuButton
-                    ref={prefetchRef}
-                    className="min-w-0 pr-8"
-                    isActive={isActive}
-                    onClick={() => {
-                        onSelectProject(group.id);
-                        router.push(href);
-                    }}
-                    title={project.name}
-                    tooltip={project.name}
-                >
-                    {isProcessing ? <ProjectProgressChart project={project} /> : <BookOpen className="shrink-0" />}
-                    <div className="w-0 min-w-0 flex-1 overflow-hidden">
-                        <span className="block truncate">
-                            {highlightTerm && isMatched ? fuzzyHighlight(project.name, highlightTerm) : project.name}
-                        </span>
-                    </div>
-                </SidebarMenuButton>
-                {canMutateProject && (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-                            <SidebarMenuAction className="opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
-                                <MoreVertical className="h-4 w-4" />
-                                <span className="sr-only">{t("options")}</span>
-                            </SidebarMenuAction>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" side="right" className="w-40">
-                            <DropdownMenuItem onSelect={() => onEditProject(project, group.id)}>
-                                <Edit className="mr-2 h-4 w-4" />
-                                <span>{t("edit")}</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onSelect={() => {
-                                    onDeleteProject(project, group.id, group.name);
-                                }}
-                            >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                <span>{t("delete")}</span>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                )}
-            </div>
+            <Collapsible className="group/project-collapsible" open={isExpanded} onOpenChange={onToggleExpanded}>
+                <div className="group/project-row relative flex min-w-0 items-center gap-1">
+                    <CollapsibleTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0 p-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                            aria-label={isExpanded ? t("graph.collapse") : t("graph.expand")}
+                        >
+                            <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                        </Button>
+                    </CollapsibleTrigger>
+                    <SidebarMenuButton
+                        ref={prefetchRef}
+                        className="min-w-0 flex-1 pr-8"
+                        onClick={onToggleExpanded}
+                        title={project.name}
+                        tooltip={project.name}
+                    >
+                        {isProcessing ? <ProjectProgressChart project={project} /> : <BookOpen className="shrink-0" />}
+                        <div className="w-0 min-w-0 flex-1 overflow-hidden">
+                            <span className="block truncate">
+                                {highlightTerm && isMatched
+                                    ? fuzzyHighlight(project.name, highlightTerm)
+                                    : project.name}
+                            </span>
+                        </div>
+                    </SidebarMenuButton>
+                    {canMutateProject && (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                                <SidebarMenuAction className="opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-[state=open]:opacity-100">
+                                    <MoreVertical className="h-4 w-4" />
+                                    <span className="sr-only">{t("options")}</span>
+                                </SidebarMenuAction>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" side="right" className="w-40">
+                                <DropdownMenuItem onSelect={() => onEditProject(project, group.id)}>
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    <span>{t("edit")}</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onSelect={() => {
+                                        onDeleteProject(project, group.id, group.name);
+                                    }}
+                                >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    <span>{t("delete")}</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    )}
+                </div>
+                <CollapsibleContent>
+                    <SidebarMenuSub className="mr-0 pr-0">
+                        {project.recentChats.length > 0 ? (
+                            project.recentChats.map((chat) => (
+                                <SidebarMenuSubItem key={chat.id}>
+                                    <SidebarMenuSubButton
+                                        asChild
+                                        size="sm"
+                                        onMouseEnter={prefetchProjectChat}
+                                        onFocus={prefetchProjectChat}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                onSelectProject(group.id);
+                                                router.push(href);
+                                            }}
+                                            title={chat.title}
+                                        >
+                                            <MessageCircle />
+                                            <span>{chat.title}</span>
+                                        </button>
+                                    </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                            ))
+                        ) : (
+                            <SidebarMenuSubItem>
+                                <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no.chats")}</div>
+                            </SidebarMenuSubItem>
+                        )}
+                    </SidebarMenuSub>
+                </CollapsibleContent>
+            </Collapsible>
         </SidebarMenuItem>
     );
 }
