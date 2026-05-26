@@ -55,6 +55,30 @@ describe("MessageContent", () => {
         expect(screen.getAllByRole("button", { name: /document.pdf/i })).toHaveLength(1);
     });
 
+    test("hides unresolved citation fences", () => {
+        const { container } = renderMessageContent([
+            { type: "text", text: 'Alpha :::{"type":"cite","id":"src-missing"}::: Omega' },
+        ]);
+
+        expect(container.textContent).toContain("Alpha");
+        expect(container.textContent).toContain("Omega");
+        expect(container.textContent).not.toContain(":::");
+        expect(container.textContent).not.toContain("src-missing");
+        expect(screen.queryByRole("button", { name: "1" })).not.toBeInTheDocument();
+    });
+
+    test("hides malformed citation fences", () => {
+        const { container } = renderMessageContent([
+            { type: "text", text: 'Alpha :::{ type: "cite", "id": <id> }::: Omega' },
+        ]);
+
+        expect(container.textContent).toContain("Alpha");
+        expect(container.textContent).toContain("Omega");
+        expect(container.textContent).not.toContain(":::");
+        expect(container.textContent).not.toContain("<id>");
+        expect(screen.queryByRole("button", { name: "1" })).not.toBeInTheDocument();
+    });
+
     test("keeps text reference dialog open across parent rerenders", async () => {
         const parts: ChatUIMessage["parts"] = [{ type: "text", text: `Alpha ${citationFence("src-1")} Omega` }];
         localStorage.setItem("language", "en");

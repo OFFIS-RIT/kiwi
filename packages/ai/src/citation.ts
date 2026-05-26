@@ -23,11 +23,10 @@ export type ParsedCitationSegment =
           type: "text";
           text: string;
       }
-    | {
-          type: "citation";
-          citation: CitationFence;
-          raw: string;
-      };
+      | {
+            type: "citation";
+            citation: CitationFence;
+        };
 
 export function isResolvedCitationFence(citation: CitationFence): citation is ResolvedCitationFence {
     return Boolean(citation.unitId && citation.fileName && citation.fileKey);
@@ -153,7 +152,6 @@ export function createCitationFenceStreamParser() {
                     segments.push({
                         type: "citation",
                         citation,
-                        raw: stringifyCitationFence(citation),
                     });
                 }
             }
