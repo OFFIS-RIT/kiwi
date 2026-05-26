@@ -10,11 +10,13 @@ import type { MessagePart } from "@kiwi/db/tables/chats";
 export type CitationResolver = (citation: CitationFence) => Promise<ResolvedCitationFence | null>;
 
 export const DEFAULT_CITATION_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
+export const DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES = 2048;
 
 export type CachingCitationResolverOptions = {
     resolveCitation: (sourceId: string) => Promise<ResolvedCitationFence | null>;
     negativeCache?: Map<string, number>;
     negativeCacheTtlMs?: number;
+    negativeCacheMaxEntries?: number;
     now?: () => number;
 };
 
@@ -40,12 +42,18 @@ export function createCachingCitationResolver(options: CachingCitationResolverOp
     const citationCache = new Map<string, Promise<ResolvedCitationFence | null>>();
     const negativeCache = options.negativeCache ?? new Map<string, number>();
     const negativeCacheTtlMs = options.negativeCacheTtlMs ?? DEFAULT_CITATION_NEGATIVE_CACHE_TTL_MS;
+    const negativeCacheMaxEntries = Math.max(
+        0,
+        Math.floor(options.negativeCacheMaxEntries ?? DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES)
+    );
     const now = options.now ?? Date.now;
 
     return (citation) => {
         const cachedMissingUntil = negativeCache.get(citation.sourceId);
         if (cachedMissingUntil !== undefined) {
             if (cachedMissingUntil > now()) {
+                negativeCache.delete(citation.sourceId);
+                negativeCache.set(citation.sourceId, cachedMissingUntil);
                 return Promise.resolve(null);
             }
 
@@ -60,7 +68,12 @@ export function createCachingCitationResolver(options: CachingCitationResolverOp
                     return resolved;
                 }
 
-                negativeCache.set(citation.sourceId, now() + negativeCacheTtlMs);
+                setNegativeCacheEntry(
+                    negativeCache,
+                    citation.sourceId,
+                    now() + negativeCacheTtlMs,
+                    negativeCacheMaxEntries
+                );
                 return null;
             });
             citationCache.set(citation.sourceId, resolvedCitation);
@@ -68,6 +81,30 @@ export function createCachingCitationResolver(options: CachingCitationResolverOp
 
         return resolvedCitation;
     };
+}
+
+function setNegativeCacheEntry(
+    negativeCache: Map<string, number>,
+    sourceId: string,
+    expiresAt: number,
+    maxEntries: number
+): void {
+    negativeCache.delete(sourceId);
+
+    if (maxEntries <= 0) {
+        return;
+    }
+
+    negativeCache.set(sourceId, expiresAt);
+
+    while (negativeCache.size > maxEntries) {
+        const oldestSourceId = negativeCache.keys().next().value;
+        if (oldestSourceId === undefined) {
+            return;
+        }
+
+        negativeCache.delete(oldestSourceId);
+    }
 }
 
 function toUnresolvedCitation(partIndex: number, citation: CitationFence): UnresolvedCitation {

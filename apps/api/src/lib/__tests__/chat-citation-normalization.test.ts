@@ -166,4 +166,19 @@ describe("chat citation normalization", () => {
         expect(await createResolver()({ type: "cite", sourceId: "missing-source" })).toBeNull();
         expect(resolveCalls).toBe(2);
     });
+
+    test("bounds unresolved citation cache size", async () => {
+        const negativeCache = new Map<string, number>();
+        const resolver = createCachingCitationResolver({
+            negativeCache,
+            negativeCacheMaxEntries: 2,
+            resolveCitation: async () => null,
+        });
+
+        expect(await resolver({ type: "cite", sourceId: "source-a" })).toBeNull();
+        expect(await resolver({ type: "cite", sourceId: "source-b" })).toBeNull();
+        expect(await resolver({ type: "cite", sourceId: "source-c" })).toBeNull();
+
+        expect([...negativeCache.keys()]).toEqual(["source-b", "source-c"]);
+    });
 });
