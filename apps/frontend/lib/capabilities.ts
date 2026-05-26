@@ -13,7 +13,7 @@ function hasTeamGraphWriteRole(group: Group) {
 }
 
 function hasTeamGraphAdminRole(group: Group) {
-    return group.scope === "team" && group.role === "admin";
+    return group.scope === "team" && (group.role === "admin" || group.role === "moderator");
 }
 
 export function canCreateTeam({ isAdmin }: RoleContext) {

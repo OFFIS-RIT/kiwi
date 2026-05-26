@@ -139,7 +139,7 @@ export async function requireTeamAccess(user: AuthUser, teamId: string) {
 
 export async function requireTeamGraphCreateAccess(user: AuthUser, teamId: string) {
     const access = await requireTeamAccess(user, teamId);
-    if (access.organizationAdmin || access.role === "admin") {
+    if (access.organizationAdmin || access.role === "admin" || access.role === "moderator") {
         return access;
     }
 

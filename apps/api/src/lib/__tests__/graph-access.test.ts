@@ -147,14 +147,17 @@ describe("graph access", () => {
         await expect(assertCanPatchGraph(buildUser(), graph.id)).resolves.toEqual(graph);
     });
 
-    test("allows team moderators to manage graph files but not mutate graphs", async () => {
+    test("allows team moderators to manage team graphs and graph files", async () => {
         const graph = buildTeamGraph();
         queueTeamGraphAccess(graph, organizationMemberMembership, teamModeratorRole);
 
         await expect(assertCanManageGraphFiles(buildUser(), graph.id)).resolves.toEqual(graph);
 
         queueTeamGraphAccess(graph, organizationMemberMembership, teamModeratorRole);
-        await expect(assertCanPatchGraph(buildUser(), graph.id)).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(assertCanPatchGraph(buildUser(), graph.id)).resolves.toEqual(graph);
+
+        queueDbResults([graph], [team], [organizationMemberMembership], [teamModeratorRole]);
+        await expect(assertCanCreateUnderParentGraph(buildUser(), graph.id)).resolves.toBeUndefined();
     });
 
     test("allows team members to view team graphs without managing files", async () => {

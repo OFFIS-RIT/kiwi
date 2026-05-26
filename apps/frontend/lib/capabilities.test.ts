@@ -57,13 +57,13 @@ describe("capabilities", () => {
         expect(canManageProjectFilesInGroup(team, memberContext)).toBe(true);
     });
 
-    test("limits team moderators to graph file management", () => {
+    test("lets team moderators manage graphs without member access", () => {
         const memberContext = { isAdmin: false };
         const team = group("moderator");
 
         expect(canManageTeam(team, memberContext)).toBe(false);
-        expect(canCreateProjectInGroup(team, memberContext)).toBe(false);
-        expect(canMutateProjectInGroup(team, memberContext)).toBe(false);
+        expect(canCreateProjectInGroup(team, memberContext)).toBe(true);
+        expect(canMutateProjectInGroup(team, memberContext)).toBe(true);
         expect(canManageProjectFilesInGroup(team, memberContext)).toBe(true);
         expect(canViewProjectFilesInGroup()).toBe(true);
     });
