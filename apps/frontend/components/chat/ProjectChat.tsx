@@ -21,6 +21,7 @@ import { deleteProjectChat } from "@/lib/api/projects";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
+import type { Group, ProjectChatSummary } from "@/types";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { useChat } from "@ai-sdk/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -55,6 +56,8 @@ const ResetChatDialog = lazy(() =>
 );
 
 const SILENCE_TIMEOUT_MS = 5000;
+const OPTIMISTIC_CHAT_TITLE_WORDS = 5;
+const OPTIMISTIC_RECENT_CHAT_LIMIT = 6;
 
 type ProjectChatProps = {
     projectName: string;
@@ -68,6 +71,35 @@ const intelligenceLevels: IntelligenceLevel[] = ["default", "high"];
 
 function isMissingChatError(error: unknown) {
     return error instanceof ApiError && (error.code === "CHAT_NOT_FOUND" || error.message.includes("CHAT_NOT_FOUND"));
+}
+
+function createOptimisticChatTitle(text: string) {
+    const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+    const title = words.slice(0, OPTIMISTIC_CHAT_TITLE_WORDS).join(" ");
+
+    if (!title) return "...";
+    return words.length > OPTIMISTIC_CHAT_TITLE_WORDS ? `${title}...` : title;
+}
+
+function upsertOptimisticChat(chats: ProjectChatSummary[] = [], chat: ProjectChatSummary, limit?: number) {
+    const nextChats = [chat, ...chats.filter((item) => item.id !== chat.id)];
+    return limit ? nextChats.slice(0, limit) : nextChats;
+}
+
+function upsertOptimisticProjectChat(groups: Group[] | undefined, projectId: string, chat: ProjectChatSummary) {
+    if (!groups) return groups;
+
+    return groups.map((group) => ({
+        ...group,
+        projects: group.projects.map((project) =>
+            project.id === projectId
+                ? {
+                      ...project,
+                      recentChats: upsertOptimisticChat(project.recentChats, chat, OPTIMISTIC_RECENT_CHAT_LIMIT),
+                  }
+                : project
+        ),
+    }));
 }
 
 type ClarificationState = {
@@ -632,6 +664,12 @@ function ProjectChatSession({
     const handleSendMessage = useCallback(async () => {
         const text = inputValue;
         if (!text.trim() || isRecording || pendingClarification) return;
+        const isFirstMessage = displayedMessages.length === 0;
+        const optimisticChat = {
+            id: entry.sessionId,
+            title: createOptimisticChatTitle(text),
+            updatedAt: new Date().toISOString(),
+        };
         setStreamError(null);
         // Clear the input synchronously before awaiting sendMessage: the AI
         // SDK's promise only resolves once the stream is done, so leaving the
@@ -639,11 +677,21 @@ function ProjectChatSession({
         // response.
         setInputValue("");
         clearNewChatDraft();
-        if (!displayedMessages.length) {
+        if (isFirstMessage) {
+            queryClient.setQueryData<Group[]>(queryKeys.groupsWithProjects, (groups) =>
+                upsertOptimisticProjectChat(groups, projectId, optimisticChat)
+            );
+            queryClient.setQueryData<ProjectChatSummary[]>(queryKeys.projectChats(projectId), (chats) =>
+                upsertOptimisticChat(chats, optimisticChat)
+            );
             router.replace(`${pathname}?chatId=${encodeURIComponent(entry.sessionId)}`);
         }
-        await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
-        await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+        setIsGenerating(true);
+        try {
+            await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
+        } finally {
+            await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+        }
     }, [
         clearNewChatDraft,
         displayedMessages.length,
@@ -653,9 +701,11 @@ function ProjectChatSession({
         isRecording,
         pathname,
         pendingClarification,
+        projectId,
         queryClient,
         router,
         sendMessage,
+        setIsGenerating,
         setStreamError,
     ]);
 
