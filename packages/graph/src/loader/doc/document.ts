@@ -26,7 +26,7 @@ const PLAIN_INLINE_FORMAT = { bold: false, italic: false, strike: false, underli
 type InlineSink = {
     onText: (text: string) => void;
     onImage: (id: string) => void;
-    onPageBreak: () => void;
+    onPageBreak: (source: "explicit" | "rendered") => void;
 };
 
 export function parseDOCX(content: ArrayBuffer, ocr: boolean): Promise<ParsedDOC> {
@@ -99,8 +99,9 @@ async function parseParagraph(paragraph: XMLNodeLike, context: DOCParseContext):
     const listInfo = getParagraphListInfo(properties, context.numbering);
     const blocks: DOCBlock[] = [];
     let textParts: string[] = [];
+    let canSkipInitialRenderedPageBreak = hasPageBreakBefore(properties);
 
-    if (hasPageBreakBefore(properties)) {
+    if (canSkipInitialRenderedPageBreak) {
         blocks.push({ kind: "pageBreak" });
     }
 
@@ -125,12 +126,22 @@ async function parseParagraph(paragraph: XMLNodeLike, context: DOCParseContext):
     };
 
     await collectParagraphContent(paragraph, context, {
-        onText: (text) => textParts.push(text),
+        onText: (text) => {
+            canSkipInitialRenderedPageBreak = false;
+            textParts.push(text);
+        },
         onImage: (id) => {
+            canSkipInitialRenderedPageBreak = false;
             flushText();
             blocks.push({ kind: "image", id });
         },
-        onPageBreak: () => {
+        onPageBreak: (source) => {
+            if (source === "rendered" && canSkipInitialRenderedPageBreak) {
+                canSkipInitialRenderedPageBreak = false;
+                return;
+            }
+
+            canSkipInitialRenderedPageBreak = false;
             flushText();
             blocks.push({ kind: "pageBreak" });
         },
@@ -268,14 +279,14 @@ async function parseRun(
             }
             case "br":
                 if (getAttribute(child, "w:type", "type") === "page") {
-                    sink.onPageBreak();
+                    sink.onPageBreak("explicit");
                     break;
                 }
 
                 sink.onText("\n");
                 break;
             case "lastRenderedPageBreak":
-                sink.onPageBreak();
+                sink.onPageBreak("rendered");
                 break;
             case "cr":
                 sink.onText("\n");

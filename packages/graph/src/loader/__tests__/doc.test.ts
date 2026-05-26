@@ -250,6 +250,19 @@ describe("DOCXLoader", () => {
         );
     });
 
+    test("does not double count rendered page breaks after pageBreakBefore", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                body: `
+    <w:p><w:r><w:t>Page one</w:t></w:r></w:p>
+    <w:p><w:pPr><w:pageBreakBefore/></w:pPr><w:r><w:lastRenderedPageBreak/><w:t>Page two</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Still page two</w:t></w:r></w:p>`,
+            })
+        );
+
+        expect(text).toBe(":::PAGE-1:::\n\nPage one\n\n:::PAGE-2:::\n\nPage two\n\nStill page two");
+    });
+
     test("uses anchor hyperlinks when a DOCX hyperlink has no relationship target", async () => {
         const text = await buildDOCXText(
             buildDOCXEntries({
