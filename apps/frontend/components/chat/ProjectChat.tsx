@@ -81,6 +81,10 @@ function createOptimisticChatTitle(text: string) {
     return words.length > OPTIMISTIC_CHAT_TITLE_WORDS ? `${title}...` : title;
 }
 
+function getExistingOptimisticChatTitle(chats: ProjectChatSummary[] | undefined, chatId: string) {
+    return chats?.find((chat) => chat.id === chatId)?.title;
+}
+
 function upsertOptimisticChat(chats: ProjectChatSummary[] = [], chat: ProjectChatSummary, limit?: number) {
     const nextChats = [chat, ...chats.filter((item) => item.id !== chat.id)];
     return limit ? nextChats.slice(0, limit) : nextChats;
@@ -100,6 +104,20 @@ function upsertOptimisticProjectChat(groups: Group[] | undefined, projectId: str
                 : project
         ),
     }));
+}
+
+function getCachedChatTitle(
+    groups: Group[] | undefined,
+    projectId: string,
+    chatId: string,
+    projectChats?: ProjectChatSummary[]
+) {
+    const groupChatTitle = groups
+        ?.flatMap((group) => group.projects)
+        .find((project) => project.id === projectId)
+        ?.recentChats.find((chat) => chat.id === chatId)?.title;
+
+    return groupChatTitle ?? getExistingOptimisticChatTitle(projectChats, chatId);
 }
 
 type ClarificationState = {
@@ -678,9 +696,13 @@ function ProjectChatSession({
         const text = inputValue;
         if (!text.trim() || isRecording || pendingClarification) return;
         const isFirstMessage = displayedMessages.length === 0;
+        const cachedGroups = queryClient.getQueryData<Group[]>(queryKeys.groupsWithProjects);
+        const cachedProjectChats = queryClient.getQueryData<ProjectChatSummary[]>(queryKeys.projectChats(projectId));
         const optimisticChat = {
             id: entry.sessionId,
-            title: createOptimisticChatTitle(text),
+            title:
+                getCachedChatTitle(cachedGroups, projectId, entry.sessionId, cachedProjectChats) ??
+                createOptimisticChatTitle(text),
             updatedAt: new Date().toISOString(),
         };
         setStreamError(null);
@@ -690,13 +712,13 @@ function ProjectChatSession({
         // response.
         setInputValue("");
         clearNewChatDraft();
+        queryClient.setQueryData<Group[]>(queryKeys.groupsWithProjects, (groups) =>
+            upsertOptimisticProjectChat(groups, projectId, optimisticChat)
+        );
+        queryClient.setQueryData<ProjectChatSummary[]>(queryKeys.projectChats(projectId), (chats) =>
+            upsertOptimisticChat(chats, optimisticChat)
+        );
         if (isFirstMessage) {
-            queryClient.setQueryData<Group[]>(queryKeys.groupsWithProjects, (groups) =>
-                upsertOptimisticProjectChat(groups, projectId, optimisticChat)
-            );
-            queryClient.setQueryData<ProjectChatSummary[]>(queryKeys.projectChats(projectId), (chats) =>
-                upsertOptimisticChat(chats, optimisticChat)
-            );
             router.replace(`${pathname}?chatId=${encodeURIComponent(entry.sessionId)}`);
         }
         setIsGenerating(true);
