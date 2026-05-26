@@ -75,7 +75,7 @@ describe("rasterizeSelectedPDFPages", () => {
         expect(ranges.map((range) => range.map((page) => page.index))).toEqual([[0, 1], [4, 5], [49]]);
     });
 
-    test("renders pdf-to-img fallback pages concurrently", async () => {
+    test("renders pdf-to-img fallback pages sequentially", async () => {
         const result = await rasterizeSelectedPDFPagesWithPDFToImg(
             new Uint8Array([9]),
             [{ index: 0 }, { index: 1 }, { index: 2 }],
@@ -89,7 +89,7 @@ describe("rasterizeSelectedPDFPages", () => {
                 [2, new Uint8Array([3])],
             ])
         );
-        expect(maxActivePageReads).toBe(3);
+        expect(maxActivePageReads).toBe(1);
         expect(pdfToImgMock).toHaveBeenCalledTimes(1);
     });
 });

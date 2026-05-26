@@ -307,6 +307,7 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
 function createCachedCitationResolver(graphId: string): CitationResolver {
     return createCachingCitationResolver({
         negativeCache: unresolvedCitationCache,
+        negativeCacheKey: (citation) => `${graphId}:${citation.sourceId}`,
         resolveCitation: (sourceId) => enrichCitation(graphId, sourceId),
     });
 }

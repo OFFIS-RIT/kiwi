@@ -61,11 +61,13 @@ export async function rasterizeSelectedPDFPagesWithPDFToImg(
         scale,
         docInitParams: getPDFJSWasmDocInitParams(),
     });
-    const renderedPages = await Promise.all(
-        pages.map(async (page) => [page.index, await document.getPage(page.index + 1)] as const)
-    );
+    const pageImages = new Map<number, Uint8Array>();
 
-    return new Map(renderedPages);
+    for (const page of pages) {
+        pageImages.set(page.index, await document.getPage(page.index + 1));
+    }
+
+    return pageImages;
 }
 
 export async function rasterizeSelectedPDFPagesWithGhostscript(

@@ -14,6 +14,7 @@ export const DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES = 2048;
 
 export type CachingCitationResolverOptions = {
     resolveCitation: (sourceId: string) => Promise<ResolvedCitationFence | null>;
+    negativeCacheKey?: (citation: CitationFence) => string;
     negativeCache?: Map<string, number>;
     negativeCacheTtlMs?: number;
     negativeCacheMaxEntries?: number;
@@ -46,30 +47,32 @@ export function createCachingCitationResolver(options: CachingCitationResolverOp
         0,
         Math.floor(options.negativeCacheMaxEntries ?? DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES)
     );
+    const getNegativeCacheKey = options.negativeCacheKey ?? ((citation: CitationFence) => citation.sourceId);
     const now = options.now ?? Date.now;
 
     return (citation) => {
         const sourceId = citation.sourceId;
-        const cachedMissingUntil = negativeCache.get(sourceId);
+        const cacheKey = getNegativeCacheKey(citation);
+        const cachedMissingUntil = negativeCache.get(cacheKey);
         if (cachedMissingUntil !== undefined) {
             if (cachedMissingUntil > now()) {
-                negativeCache.delete(sourceId);
-                negativeCache.set(sourceId, cachedMissingUntil);
+                negativeCache.delete(cacheKey);
+                negativeCache.set(cacheKey, cachedMissingUntil);
                 return Promise.resolve(null);
             }
 
-            negativeCache.delete(sourceId);
+            negativeCache.delete(cacheKey);
         }
 
         let resolvedCitation = citationCache.get(sourceId);
         if (!resolvedCitation) {
             resolvedCitation = options.resolveCitation(sourceId).then((resolved) => {
                 if (resolved) {
-                    negativeCache.delete(sourceId);
+                    negativeCache.delete(cacheKey);
                     return resolved;
                 }
 
-                setNegativeCacheEntry(negativeCache, sourceId, now() + negativeCacheTtlMs, negativeCacheMaxEntries);
+                setNegativeCacheEntry(negativeCache, cacheKey, now() + negativeCacheTtlMs, negativeCacheMaxEntries);
                 return null;
             });
             citationCache.set(sourceId, resolvedCitation);
@@ -81,25 +84,25 @@ export function createCachingCitationResolver(options: CachingCitationResolverOp
 
 function setNegativeCacheEntry(
     negativeCache: Map<string, number>,
-    sourceId: string,
+    cacheKey: string,
     expiresAt: number,
     maxEntries: number
 ): void {
-    negativeCache.delete(sourceId);
+    negativeCache.delete(cacheKey);
 
     if (maxEntries <= 0) {
         return;
     }
 
-    negativeCache.set(sourceId, expiresAt);
+    negativeCache.set(cacheKey, expiresAt);
 
     while (negativeCache.size > maxEntries) {
-        const oldestSourceId = negativeCache.keys().next().value;
-        if (oldestSourceId === undefined) {
+        const oldestCacheKey = negativeCache.keys().next().value;
+        if (oldestCacheKey === undefined) {
             return;
         }
 
-        negativeCache.delete(oldestSourceId);
+        negativeCache.delete(oldestCacheKey);
     }
 }
 

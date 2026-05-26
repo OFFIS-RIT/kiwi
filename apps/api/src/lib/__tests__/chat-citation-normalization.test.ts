@@ -167,6 +167,31 @@ describe("chat citation normalization", () => {
         expect(resolveCalls).toBe(2);
     });
 
+    test("scopes unresolved citation cache entries by custom key", async () => {
+        const negativeCache = new Map<string, number>();
+        const citation = { type: "cite" as const, sourceId: "shared-source" };
+        const graphBResolver = createCachingCitationResolver({
+            negativeCache,
+            negativeCacheKey: (citation) => `graph-b:${citation.sourceId}`,
+            resolveCitation: async () => null,
+        });
+        const graphAResolver = createCachingCitationResolver({
+            negativeCache,
+            negativeCacheKey: (citation) => `graph-a:${citation.sourceId}`,
+            resolveCitation: async () => ({
+                type: "cite",
+                sourceId: citation.sourceId,
+                unitId: "unit-1",
+                fileId: "file-1",
+                fileName: "document.pdf",
+            }),
+        });
+
+        expect(await graphBResolver(citation)).toBeNull();
+        expect([...negativeCache.keys()]).toEqual(["graph-b:shared-source"]);
+        expect(await graphAResolver(citation)).toMatchObject({ fileId: "file-1" });
+    });
+
     test("bounds unresolved citation cache size", async () => {
         const negativeCache = new Map<string, number>();
         const resolver = createCachingCitationResolver({
