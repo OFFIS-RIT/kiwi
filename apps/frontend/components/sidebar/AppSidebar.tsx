@@ -67,9 +67,10 @@ const CreateProjectDialog = lazy(() =>
 );
 
 type SearchResult = {
-    type: "group" | "project";
+    type: "group" | "project" | "chat";
     group: Group;
     project?: Project;
+    chat?: Project["recentChats"][number];
     score: number;
 };
 
@@ -127,16 +128,20 @@ export function AppSidebar({
     // Build flat list for Fuse.js search
     const searchableItems = useMemo(() => {
         const items: Array<{
-            type: "group" | "project";
+            type: "group" | "project" | "chat";
             name: string;
             group: Group;
             project?: Project;
+            chat?: Project["recentChats"][number];
         }> = [];
 
         groups.forEach((group) => {
             items.push({ type: "group", name: group.name, group });
             group.projects.forEach((project) => {
                 items.push({ type: "project", name: project.name, group, project });
+                project.recentChats.forEach((chat) => {
+                    items.push({ type: "chat", name: chat.title, group, project, chat });
+                });
             });
         });
 
@@ -166,6 +171,7 @@ export function AppSidebar({
             type: r.item.type,
             group: r.item.group,
             project: r.item.project,
+            chat: r.item.chat,
             score: r.score ?? 1,
         }));
     }, [fuse, searchTerm]);
@@ -176,7 +182,15 @@ export function AppSidebar({
     const groupedResults = useMemo(() => {
         if (!isSearching) return null;
 
-        const groupMap = new Map<string, { group: Group; matchedProjects: Set<string>; groupMatches: boolean }>();
+        const groupMap = new Map<
+            string,
+            {
+                group: Group;
+                matchedProjects: Set<string>;
+                matchedChatsByProject: Map<string, Set<string>>;
+                groupMatches: boolean;
+            }
+        >();
 
         searchResults.forEach((result) => {
             const groupId = result.group.id;
@@ -184,6 +198,7 @@ export function AppSidebar({
                 groupMap.set(groupId, {
                     group: result.group,
                     matchedProjects: new Set(),
+                    matchedChatsByProject: new Map(),
                     groupMatches: false,
                 });
             }
@@ -192,6 +207,11 @@ export function AppSidebar({
                 entry.groupMatches = true;
             } else if (result.project) {
                 entry.matchedProjects.add(result.project.id);
+                if (result.type === "chat" && result.chat) {
+                    const matchedChats = entry.matchedChatsByProject.get(result.project.id) ?? new Set<string>();
+                    matchedChats.add(result.chat.id);
+                    entry.matchedChatsByProject.set(result.project.id, matchedChats);
+                }
             }
         });
 
@@ -265,7 +285,9 @@ export function AppSidebar({
         if (groupedResults) {
             const groupIdsToExpand = Array.from(groupedResults.keys());
             const projectIdsToExpand = Array.from(groupedResults.values()).flatMap((entry) =>
-                entry.groupMatches ? [] : Array.from(entry.matchedProjects)
+                entry.groupMatches
+                    ? []
+                    : [...entry.matchedProjects, ...entry.matchedChatsByProject.keys()]
             );
             expandGroupsForSearch(groupIdsToExpand, projectIdsToExpand);
         }
@@ -301,10 +323,13 @@ export function AppSidebar({
     const displayGroups = useMemo(() => {
         if (!isSearching || !groupedResults) return groups;
 
-        return Array.from(groupedResults.values()).map(({ group, matchedProjects, groupMatches }) => ({
+        return Array.from(groupedResults.values()).map(({ group, matchedProjects, matchedChatsByProject, groupMatches }) => ({
             ...group,
-            projects: groupMatches ? group.projects : group.projects.filter((p) => matchedProjects.has(p.id)),
+            projects: groupMatches
+                ? group.projects
+                : group.projects.filter((p) => matchedProjects.has(p.id) || matchedChatsByProject.has(p.id)),
             matchedProjectIds: matchedProjects,
+            matchedChatsByProject,
             groupMatches,
         }));
     }, [groups, isSearching, groupedResults]);
@@ -424,6 +449,16 @@ export function AppSidebar({
                                                           )
                                                         : false
                                                 }
+                                                matchedChatIds={
+                                                    isSearching && "matchedChatsByProject" in organizationGroup
+                                                        ? (
+                                                              organizationGroup.matchedChatsByProject as Map<
+                                                                  string,
+                                                                  Set<string>
+                                                              >
+                                                          ).get(project.id)
+                                                        : undefined
+                                                }
                                                 highlightTerm={isSearching ? searchTerm : undefined}
                                                 onSelectProject={(groupId) => {
                                                     if (isSearching) {
@@ -452,6 +487,11 @@ export function AppSidebar({
                                             matchedProjectIds={
                                                 isSearching && "matchedProjectIds" in group
                                                     ? (group.matchedProjectIds as Set<string>)
+                                                    : undefined
+                                            }
+                                            matchedChatsByProject={
+                                                isSearching && "matchedChatsByProject" in group
+                                                    ? (group.matchedChatsByProject as Map<string, Set<string>>)
                                                     : undefined
                                             }
                                             expandedProjects={expandedProjects}
@@ -497,6 +537,7 @@ type GroupItemProps = {
     onToggleExpanded: () => void;
     highlightTerm?: string;
     matchedProjectIds?: Set<string>;
+    matchedChatsByProject?: Map<string, Set<string>>;
     expandedProjects: Record<string, boolean>;
     onToggleProjectExpanded: (projectId: string) => void;
     activeChatId: string | null;
@@ -579,6 +620,7 @@ function GroupItem({
     onToggleExpanded,
     highlightTerm,
     matchedProjectIds,
+    matchedChatsByProject,
     expandedProjects,
     onToggleProjectExpanded,
     activeChatId,
@@ -679,6 +721,7 @@ function GroupItem({
                                 onToggleExpanded={() => onToggleProjectExpanded(project.id)}
                                 activeChatId={activeChatId}
                                 isMatched={matchedProjectIds?.has(project.id) ?? false}
+                                matchedChatIds={matchedChatsByProject?.get(project.id)}
                                 highlightTerm={highlightTerm}
                                 onSelectProject={onSelectProject}
                                 onEditProject={onEditProject}
@@ -699,6 +742,7 @@ type ProjectItemProps = {
     onToggleExpanded: () => void;
     activeChatId: string | null;
     isMatched: boolean;
+    matchedChatIds?: Set<string>;
     highlightTerm?: string;
     onSelectProject: (groupId: string) => void;
     onEditProject: (project: Project, groupId: string) => void;
@@ -712,6 +756,7 @@ function ProjectItem({
     onToggleExpanded,
     activeChatId,
     isMatched,
+    matchedChatIds,
     highlightTerm,
     onSelectProject,
     onEditProject,
@@ -728,6 +773,9 @@ function ProjectItem({
     const { isAdmin } = useAuth();
     const { startNewEntry } = useProjectChatSession(project.id);
     const canOpenProjectEditor = canOpenProjectEditorInGroup(group, { isAdmin });
+    const chatsToShow = matchedChatIds
+        ? project.recentChats.filter((chat) => matchedChatIds.has(chat.id))
+        : project.recentChats;
 
     const handleStartNewChat = () => {
         startNewEntry({
@@ -809,8 +857,8 @@ function ProjectItem({
                 </div>
                 <CollapsibleContent>
                     <SidebarMenuSub className="mr-0 pr-0">
-                        {project.recentChats.length > 0 ? (
-                            project.recentChats.map((chat) => (
+                        {chatsToShow.length > 0 ? (
+                            chatsToShow.map((chat) => (
                                 <SidebarMenuSubItem key={chat.id}>
                                     <SidebarMenuSubButton
                                         asChild
