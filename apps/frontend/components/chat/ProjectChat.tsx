@@ -315,7 +315,8 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const chatId = searchParams.get("chatId");
-    const { entry, ensureEntry, resetEntry } = useProjectChatSession(projectId);
+    const { entry, ensureEntry, resetEntry, startNewEntry, consumeRequestedNewEntry } =
+        useProjectChatSession(projectId);
     const queryKey = projectChatQueryKey(projectId, chatId);
 
     // Hydrate once per project from the server and cache it in React Query so
@@ -337,6 +338,13 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
         if (!chatId || !hydrationError) return;
         router.replace(pathname);
     }, [chatId, hydrationError, pathname, router]);
+
+    useLayoutEffect(() => {
+        if (chatId) return;
+        const requestedEntry = consumeRequestedNewEntry();
+        if (!requestedEntry) return;
+        startNewEntry(requestedEntry);
+    }, [chatId, consumeRequestedNewEntry, startNewEntry]);
 
     // Create the Chat instance before paint once hydration data is available.
     // With visible-project prefetching this avoids flashing the shell skeleton

@@ -836,14 +836,14 @@ function ProjectItem({
     });
     const isProcessing = project.processPercentage !== undefined;
     const { isAdmin } = useAuth();
-    const { startNewEntry } = useProjectChatSession(project.id);
+    const { requestNewEntry } = useProjectChatSession(project.id);
     const canOpenProjectEditor = canOpenProjectEditorInGroup(group, { isAdmin });
     const chatsToShow = matchedChatIds
         ? project.recentChats.filter((chat) => matchedChatIds.has(chat.id))
         : project.recentChats;
 
     const handleStartNewChat = () => {
-        startNewEntry({
+        requestNewEntry({
             sessionId: uuidv4(),
             initialMessages: [],
         });
