@@ -164,7 +164,7 @@ describe("CreateProjectDialog", () => {
         renderWithProviders(<CreateProjectDialog open onOpenChange={vi.fn()} groupId="team_admin" />);
 
         const user = userEvent.setup();
-        await user.type(screen.getByLabelText("Projektname"), "Neues Projekt");
+        await user.type(screen.getByLabelText("Graphname"), "Neues Projekt");
         await user.click(screen.getByRole("button", { name: "Erstellen" }));
 
         expect(createProject).toHaveBeenCalledWith(expect.anything(), "team_admin", "Neues Projekt", [], expect.any(Function));
