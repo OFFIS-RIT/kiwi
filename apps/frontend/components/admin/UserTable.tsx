@@ -135,7 +135,7 @@ export function UserTable() {
         try {
             const { error } = await authClient.admin.setRole({
                 userId,
-                role: newRole as "user" | "admin" | "manager",
+                role: newRole as "user" | "admin",
             });
 
             if (error) {
@@ -233,7 +233,6 @@ export function UserTable() {
                                         </SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="admin">{t("admin.role.admin")}</SelectItem>
-                                            <SelectItem value="manager">{t("admin.role.manager")}</SelectItem>
                                             <SelectItem value="user">{t("admin.role.user")}</SelectItem>
                                         </SelectContent>
                                     </Select>

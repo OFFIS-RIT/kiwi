@@ -16,8 +16,10 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { queryKeys, useProjectFiles } from "@/hooks/use-data";
+import { useGroupsWithProjects, useProjectFiles } from "@/hooks/use-data";
 import { addFilesToProject, deleteProjectFiles, updateProject } from "@/lib/api/projects";
+import { canManageProjectFilesInGroup, canMutateProjectInGroup } from "@/lib/capabilities";
+import { queryKeys } from "@/lib/query-keys";
 import { cn, formatBytes } from "@/lib/utils";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
@@ -40,14 +42,19 @@ type EditProjectDialogProps = {
 
 const MAX_NAME_LENGTH = 40;
 
-export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDialogProps) {
+export function EditProjectDialog({ open, onOpenChange, project, groupId }: EditProjectDialogProps) {
     const apiClient = useApiClient();
     const queryClient = useQueryClient();
     const t = useAppTranslations();
-    const { hasPermission } = useAuth();
-    const canEdit = hasPermission("graph.update");
-    const canDeleteFiles = hasPermission("graph.delete:file");
-    const canAddFiles = hasPermission("graph.add:file");
+    const { isAdmin } = useAuth();
+    const { data: groups = [] } = useGroupsWithProjects();
+    const group = groups.find((candidate) => candidate.id === groupId);
+    const context = { isAdmin };
+    const canMutateProject = group ? canMutateProjectInGroup(group, context) : false;
+    const canManageFiles = group ? canManageProjectFilesInGroup(group, context) : false;
+    const canEdit = canMutateProject;
+    const canDeleteFiles = canManageFiles;
+    const canAddFiles = canManageFiles;
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [newFiles, setNewFiles] = useState<File[]>([]);

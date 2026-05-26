@@ -7,6 +7,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useGroupsWithProjects } from "@/hooks/use-data";
+import { canCreateAnyProject, canCreateTeam } from "@/lib/capabilities";
 import { useAuth } from "@/providers/AuthProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { BookOpen, Plus, Upload, Users } from "lucide-react";
@@ -25,9 +27,11 @@ const CreateProjectDialog = lazy(() =>
 
 export function CreateActions() {
     const t = useAppTranslations();
-    const { hasPermission } = useAuth();
-    const canCreateGroup = hasPermission("group.create");
-    const canCreateProject = hasPermission("graph.create");
+    const { isAdmin } = useAuth();
+    const { data: groups = [] } = useGroupsWithProjects();
+    const context = { isAdmin };
+    const canCreateGroup = canCreateTeam(context);
+    const canCreateProject = canCreateAnyProject(groups, context);
     const [showProjectDialog, setShowProjectDialog] = useState(false);
     const [showGroupDialog, setShowGroupDialog] = useState(false);
 

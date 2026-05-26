@@ -7,13 +7,14 @@ import {
     deleteGroup,
     deleteProject,
     deleteProjectFiles,
-    fetchGraphs,
-    fetchGroups,
     fetchProjectFiles,
     updateGroup,
     updateProject,
 } from "@/lib/api";
+import { fetchGraphs, fetchGroups } from "@/lib/api/groups";
+import { ORGANIZATION_GROUP_ID } from "@/lib/api/projects";
 import { determineProcessStep } from "@/lib/process-step";
+import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import type { ApiBatchStepProgress, ApiGraph, ApiGroup, ApiProjectFile, Group } from "@/types";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
@@ -32,43 +33,60 @@ function hasActiveProcessing(groups?: Group[]): boolean {
     );
 }
 
+function hasPendingChatTitles(groups?: Group[]): boolean {
+    return (
+        groups?.some((group) =>
+            group.projects.some((project) => project.recentChats.some((chat) => chat.title === "..."))
+        ) ?? false
+    );
+}
+
 function hasProcessingFiles(files?: ApiProjectFile[]): boolean {
     return files?.some((file) => file.status === "processing") ?? false;
 }
 
 function transformGroupsWithGraphs(apiGroups: ApiGroup[], apiGraphs: ApiGraph[]): Group[] {
-    return apiGroups.map((apiGroup) => {
-        const projects = apiGraphs
-            .filter((apiGraph) => apiGraph.group_id === apiGroup.group_id)
-            .map((apiGraph) => ({
-                id: apiGraph.graph_id,
-                name: apiGraph.graph_name,
-                state: apiGraph.graph_state,
-                processStep: determineProcessStep(apiGraph.process_step as ApiBatchStepProgress | undefined),
-                processProgress: apiGraph.process_step as ApiBatchStepProgress | undefined,
-                processPercentage: apiGraph.process_percentage ?? (apiGraph.graph_state === "update" ? 0 : undefined),
-                processEstimatedDuration: apiGraph.process_estimated_duration,
-                processTimeRemaining: apiGraph.process_time_remaining,
-            }));
+    const toProject = (apiGraph: ApiGraph) => ({
+        id: apiGraph.graph_id,
+        name: apiGraph.graph_name,
+        state: apiGraph.graph_state,
+        processStep: determineProcessStep(apiGraph.process_step as ApiBatchStepProgress | undefined),
+        processProgress: apiGraph.process_step as ApiBatchStepProgress | undefined,
+        processPercentage: apiGraph.process_percentage ?? (apiGraph.graph_state === "update" ? 0 : undefined),
+        processEstimatedDuration: apiGraph.process_estimated_duration,
+        processTimeRemaining: apiGraph.process_time_remaining,
+        recentChats: apiGraph.recent_chats ?? [],
+    });
+
+    const organizationProjects = apiGraphs
+        .filter((apiGraph) => apiGraph.scope === "organization" && !apiGraph.team_id)
+        .map(toProject);
+
+    const groups = apiGroups.map((apiGroup) => {
+        const projects = apiGraphs.filter((apiGraph) => apiGraph.team_id === apiGroup.team_id).map(toProject);
 
         return {
-            id: apiGroup.group_id,
-            name: apiGroup.group_name,
+            id: apiGroup.team_id,
+            name: apiGroup.team_name,
+            role: apiGroup.role,
+            scope: "team" as const,
             projects,
         };
     });
-}
 
-/**
- * Centralized query keys for React Query cache management.
- * Use these keys to ensure consistent cache invalidation across the application.
- */
-export const queryKeys = {
-    groups: ["groups"] as const,
-    projects: ["projects"] as const,
-    groupsWithProjects: ["groups", "with-projects"] as const,
-    projectFiles: (projectId: string) => ["project-files", projectId] as const,
-};
+    return organizationProjects.length > 0
+        ? [
+              {
+                  id: ORGANIZATION_GROUP_ID,
+                  name: "Organization",
+                  role: "member" as const,
+                  scope: "organization" as const,
+                  projects: organizationProjects,
+              },
+              ...groups,
+          ]
+        : groups;
+}
 
 const GROUPS_WITH_PROJECTS_STALE_TIME_MS = 30 * 1000;
 
@@ -87,7 +105,8 @@ export function useGroupsWithProjects() {
         staleTime: GROUPS_WITH_PROJECTS_STALE_TIME_MS,
         refetchInterval: (query) => {
             const groups = query.state.data as Group[] | undefined;
-            return hasActiveProcessing(groups) ? 5000 : false;
+            if (hasActiveProcessing(groups)) return 5000;
+            return hasPendingChatTitles(groups) ? 2000 : false;
         },
         refetchIntervalInBackground: false,
         queryFn: async () => {
@@ -122,7 +141,8 @@ export function useGroupsWithProjectsSuspense() {
         staleTime: GROUPS_WITH_PROJECTS_STALE_TIME_MS,
         refetchInterval: (query) => {
             const groups = query.state.data as Group[] | undefined;
-            return hasActiveProcessing(groups) ? 5000 : false;
+            if (hasActiveProcessing(groups)) return 5000;
+            return hasPendingChatTitles(groups) ? 2000 : false;
         },
         refetchIntervalInBackground: false,
         queryFn: async () => {

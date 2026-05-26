@@ -7,8 +7,8 @@ import { authMiddleware } from "./middleware/auth";
 import { authRoute } from "./routes/auth";
 import { chatRoute } from "./routes/chat";
 import { graphRoute } from "./routes/graph";
-import { groupRoute } from "./routes/group";
 import { mcpRoute } from "./routes/mcp";
+import { teamRoute } from "./routes/team";
 
 initLogger();
 
@@ -40,7 +40,7 @@ const app = new Elysia({
     .use(authRoute)
     .use(chatRoute)
     .use(graphRoute)
-    .use(groupRoute)
+    .use(teamRoute)
     .get("/health", () => ({ status: "ok" }))
     .listen(4321);
 

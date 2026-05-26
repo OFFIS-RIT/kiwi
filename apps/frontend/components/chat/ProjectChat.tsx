@@ -16,7 +16,9 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
+import { ApiError } from "@/lib/api/client";
 import { deleteProjectChat } from "@/lib/api/projects";
+import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
@@ -41,6 +43,7 @@ import {
 } from "lucide-react";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useLocale } from "next-intl";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { MessageContent } from "./MessageContent";
@@ -62,6 +65,10 @@ type ProjectChatProps = {
 type IntelligenceLevel = "default" | "high";
 
 const intelligenceLevels: IntelligenceLevel[] = ["default", "high"];
+
+function isMissingChatError(error: unknown) {
+    return error instanceof ApiError && (error.code === "CHAT_NOT_FOUND" || error.message.includes("CHAT_NOT_FOUND"));
+}
 
 type ClarificationState = {
     toolCallId: string;
@@ -309,30 +316,81 @@ function stripMarkdown(text: string): string {
 export function ProjectChat({ projectName, groupName, projectId }: ProjectChatProps) {
     const queryClient = useQueryClient();
     const apiClient = useApiClient();
-    const { entry, ensureEntry, resetEntry } = useProjectChatSession(projectId);
-    const queryKey = projectChatQueryKey(projectId);
+    const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const chatId = searchParams.get("chatId");
+    const { entry, ensureEntry, resetEntry, startNewEntry, consumeRequestedNewEntry } =
+        useProjectChatSession(projectId);
+    const queryKey = projectChatQueryKey(projectId, chatId);
+    const previousChatIdRef = useRef<string | null>(chatId);
+    const skipNextBaseSessionRef = useRef(false);
 
     // Hydrate once per project from the server and cache it in React Query so
     // switching back to a previously opened project is instant (cache hit) and
     // the stored Chat instance in the provider survives the trip.
-    const { data: hydrated, isLoading: isHydrating } = useQuery({
+    const {
+        data: hydrated,
+        error: hydrationError,
+        isLoading: isHydrating,
+    } = useQuery({
         queryKey,
-        queryFn: () => hydrateProjectChatSession(apiClient, projectId),
-        enabled: !entry,
+        queryFn: () => hydrateProjectChatSession(apiClient, projectId, chatId),
+        enabled: !entry || (!!chatId && entry.sessionId !== chatId),
+        retry: false,
         staleTime: Infinity,
     });
+
+    useEffect(() => {
+        if (!chatId || !hydrationError) return;
+        if (isMissingChatError(hydrationError)) {
+            startNewEntry({
+                sessionId: uuidv4(),
+                initialMessages: [],
+                sendAutomaticallyWhen: shouldAutoContinue,
+            });
+            skipNextBaseSessionRef.current = true;
+        } else {
+            resetEntry();
+        }
+        window.history.replaceState(null, "", pathname);
+    }, [chatId, hydrationError, pathname, resetEntry, router, startNewEntry]);
+
+    useLayoutEffect(() => {
+        if (chatId) return;
+        const requestedEntry = consumeRequestedNewEntry();
+        if (!requestedEntry) return;
+        skipNextBaseSessionRef.current = true;
+        startNewEntry(requestedEntry);
+    }, [chatId, consumeRequestedNewEntry, startNewEntry]);
+
+    useLayoutEffect(() => {
+        const previousChatId = previousChatIdRef.current;
+        previousChatIdRef.current = chatId;
+        if (chatId || !previousChatId) return;
+        if (skipNextBaseSessionRef.current) {
+            skipNextBaseSessionRef.current = false;
+            return;
+        }
+        startNewEntry({
+            sessionId: uuidv4(),
+            initialMessages: [],
+            sendAutomaticallyWhen: shouldAutoContinue,
+        });
+    }, [chatId, startNewEntry]);
 
     // Create the Chat instance before paint once hydration data is available.
     // With visible-project prefetching this avoids flashing the shell skeleton
     // on normal internal project navigation.
     useLayoutEffect(() => {
-        if (entry || !hydrated) return;
+        if (!hydrated || entry?.sessionId === hydrated.id) return;
+        if (!chatId && entry) return;
         ensureEntry({
             sessionId: hydrated.id,
             initialMessages: hydrated.messages,
             sendAutomaticallyWhen: shouldAutoContinue,
         });
-    }, [entry, ensureEntry, hydrated]);
+    }, [chatId, entry, ensureEntry, hydrated]);
 
     const handleReset = useCallback(
         async (chatId: string) => {
@@ -382,6 +440,11 @@ function ProjectChatSession({
     onReset: (chatId: string) => Promise<void>;
 }) {
     const t = useAppTranslations();
+    const queryClient = useQueryClient();
+    const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const chatId = searchParams.get("chatId");
     const language = useLocale();
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<ChatInputHandle>(null);
@@ -393,7 +456,8 @@ function ProjectChatSession({
     const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const [interimTranscript, setInterimTranscript] = useState("");
     const [isTemplateSidebarOpen, setIsTemplateSidebarOpen] = useState(false);
-    const { setStreamError, setCurrentStep } = useProjectChatSession(projectId);
+    const { setStreamError, setCurrentStep, getNewChatDraft, setNewChatDraft, clearNewChatDraft } =
+        useProjectChatSession(projectId);
     const currentStep = entry.currentStep;
     const streamError = entry.streamError;
 
@@ -437,6 +501,14 @@ function ProjectChatSession({
     useEffect(() => {
         stopSpeaking();
     }, [stopSpeaking, entry.sessionId]);
+
+    useEffect(() => {
+        if (!chatId && displayedMessages.length === 0) {
+            setInputValue(getNewChatDraft());
+        } else {
+            setInputValue("");
+        }
+    }, [chatId, displayedMessages.length, entry.sessionId, getNewChatDraft]);
 
     // Each time a different chat is opened, jump to the bottom without animation.
     useEffect(() => {
@@ -562,8 +634,36 @@ function ProjectChatSession({
         // reset after the await leaves the original text visible for the whole
         // response.
         setInputValue("");
+        clearNewChatDraft();
+        if (!displayedMessages.length) {
+            router.replace(`${pathname}?chatId=${encodeURIComponent(entry.sessionId)}`);
+        }
         await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
-    }, [inputValue, intelligenceLevel, isRecording, pendingClarification, sendMessage, setStreamError]);
+        await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+    }, [
+        clearNewChatDraft,
+        displayedMessages.length,
+        entry.sessionId,
+        inputValue,
+        intelligenceLevel,
+        isRecording,
+        pathname,
+        pendingClarification,
+        queryClient,
+        router,
+        sendMessage,
+        setStreamError,
+    ]);
+
+    const handleInputChange = useCallback(
+        (value: string) => {
+            setInputValue(value);
+            if (!chatId && displayedMessages.length === 0) {
+                setNewChatDraft(value);
+            }
+        },
+        [chatId, displayedMessages.length, setNewChatDraft]
+    );
 
     const handleClarificationSubmit = useCallback(
         (toolCallId: string, questions: string[], answer: string) => {
@@ -619,7 +719,7 @@ function ProjectChatSession({
             <ChatInput
                 ref={inputRef}
                 value={inputValue}
-                onChange={setInputValue}
+                onChange={handleInputChange}
                 onSubmit={() => void handleSendMessage()}
                 disabled={isRecording || !!pendingClarification}
                 placeholder={t("ask.question")}

@@ -1,6 +1,6 @@
 import type { Context } from "elysia";
 import type { KiwiPermissions } from "@kiwi/auth/permissions";
-import { auth } from "@kiwi/auth/server";
+import { auth, getDefaultOrganizationId, isSystemAdminRole } from "@kiwi/auth/server";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import { getApiKeyHeaders, getAuthHeaders, type AuthSession, type AuthUser } from "./auth";
 
@@ -12,11 +12,29 @@ type PermissionContext = Context & {
 export async function assertPermissions(
     headers: Headers,
     permissions: KiwiPermissions,
-    options?: { apiKeyOnly?: boolean }
+    options?: { apiKeyOnly?: boolean; organizationId?: string | null }
 ) {
-    const result = await auth.api.userHasPermission({
-        headers: options?.apiKeyOnly ? getApiKeyHeaders(headers) : getAuthHeaders(headers),
+    const headersToUse = options?.apiKeyOnly ? getApiKeyHeaders(headers) : getAuthHeaders(headers);
+    let organizationId = options?.organizationId ?? null;
+
+    if (!organizationId) {
+        const session = await auth.api.getSession({ headers: headersToUse });
+        if (isSystemAdminRole(session?.user.role)) {
+            return;
+        }
+
+        organizationId = session?.session.activeOrganizationId ?? (await getDefaultOrganizationId());
+    } else {
+        const session = await auth.api.getSession({ headers: headersToUse });
+        if (isSystemAdminRole(session?.user.role)) {
+            return;
+        }
+    }
+
+    const result = await auth.api.hasPermission({
+        headers: headersToUse,
         body: {
+            organizationId,
             permissions,
         },
     });
@@ -33,7 +51,9 @@ export function requirePermissions(permissions: KiwiPermissions) {
         }
 
         try {
-            await assertPermissions(request.headers, permissions);
+            await assertPermissions(request.headers, permissions, {
+                organizationId: session.session.activeOrganizationId,
+            });
         } catch (error) {
             if (error instanceof Error && error.message === API_ERROR_CODES.FORBIDDEN) {
                 return status(403, errorResponse("Forbidden", API_ERROR_CODES.FORBIDDEN));

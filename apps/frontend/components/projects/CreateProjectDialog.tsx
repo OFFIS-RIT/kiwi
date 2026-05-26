@@ -15,10 +15,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { queryKeys, useGroupsWithProjects } from "@/hooks/use-data";
-import { createProject } from "@/lib/api/projects";
+import { canCreateOrganizationProject, canCreatePersonalProject, canCreateProjectInGroup } from "@/lib/capabilities";
+import { useGroupsWithProjects } from "@/hooks/use-data";
+import { createProject, ORGANIZATION_GROUP_ID, PERSONAL_GROUP_ID } from "@/lib/api/projects";
+import { queryKeys } from "@/lib/query-keys";
 import { formatBytes } from "@/lib/utils";
 import { useApiClient } from "@/providers/ApiClientProvider";
+import { useAuth } from "@/providers/AuthProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { useQueryClient } from "@tanstack/react-query";
@@ -35,10 +38,13 @@ type CreateProjectDialogProps = {
 
 const MAX_NAME_LENGTH = 40;
 
+type ProjectDestination = { id: string; name: string; kind: "organization" | "personal" | "team" };
+
 export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCreated }: CreateProjectDialogProps) {
     const apiClient = useApiClient();
     const queryClient = useQueryClient();
     const t = useAppTranslations();
+    const { isAdmin } = useAuth();
     const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
     const { toggleGroupExpanded, expandedGroups } = useSidebarExpansion();
@@ -54,7 +60,45 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
     const [groupError, setGroupError] = useState(false);
 
     const nameTooLong = projectName.length > MAX_NAME_LENGTH;
-    const groupIdExists = groupId ? groups.some((group) => group.id === groupId) : false;
+    const context = { isAdmin };
+    const existingDestinations: ProjectDestination[] = groups
+        .filter((group) => canCreateProjectInGroup(group, context))
+        .map((group) =>
+            group.scope === "organization"
+                ? {
+                      id: group.id,
+                      name: t("organization"),
+                      kind: "organization",
+                  }
+                : {
+                      id: group.id,
+                      name: group.name,
+                      kind: "team",
+                  }
+        );
+    const hasOrganizationDestination = existingDestinations.some((destination) => destination.kind === "organization");
+    const creatableDestinations: ProjectDestination[] = [
+        ...(canCreateOrganizationProject(context) && !hasOrganizationDestination
+            ? [
+                  {
+                      id: ORGANIZATION_GROUP_ID,
+                      name: t("organization"),
+                      kind: "organization" as const,
+                  },
+              ]
+            : []),
+        ...(canCreatePersonalProject(context)
+            ? [
+                  {
+                      id: PERSONAL_GROUP_ID,
+                      name: t("personal"),
+                      kind: "personal" as const,
+                  },
+              ]
+            : []),
+        ...existingDestinations,
+    ];
+    const groupIdExists = groupId ? creatableDestinations.some((destination) => destination.id === groupId) : false;
 
     useEffect(() => {
         if (open && groupId && groupIdExists) {
@@ -176,7 +220,7 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
                                 value={selectedGroup}
                                 onValueChange={handleGroupChange}
                                 required
-                                disabled={isLoading || groups.length === 0}
+                                disabled={isLoading || creatableDestinations.length === 0}
                             >
                                 <SelectTrigger id="group" aria-invalid={groupError} className="w-full">
                                     {isLoading ? (
@@ -191,12 +235,12 @@ export function CreateProjectDialog({ open, onOpenChange, groupId, onProjectCrea
                                 <SelectContent>
                                     {error ? (
                                         <div className="p-2 text-sm text-destructive">{t("error.loading.groups")}</div>
-                                    ) : groups.length === 0 ? (
+                                    ) : creatableDestinations.length === 0 ? (
                                         <div className="p-2 text-sm text-muted-foreground">{t("no.groups")}</div>
                                     ) : (
-                                        groups.map((group) => (
-                                            <SelectItem key={group.id} value={group.id.toString()}>
-                                                {group.name}
+                                        creatableDestinations.map((destination) => (
+                                            <SelectItem key={destination.id} value={destination.id}>
+                                                {destination.name}
                                             </SelectItem>
                                         ))
                                     )}

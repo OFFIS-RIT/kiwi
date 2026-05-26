@@ -33,6 +33,7 @@ import {
     updateAssistantMessage,
     type ChatRequest,
 } from "../lib/chat";
+import { startChatTitleGeneration } from "../lib/chat-title";
 import { assertCanViewGraph } from "../lib/graph-access";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
@@ -156,9 +157,15 @@ export const chatRoute = new Elysia()
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
                 const deep = request.deep === true;
-                const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request, {
+                const { assistantId, client, tools, prompt, isNewChat } = await startReply(user.id, params.id, request, {
                     toolset: "server",
                     deep,
+                });
+                startChatTitleGeneration({
+                    chatId: request.id,
+                    messages: request.messages,
+                    client,
+                    isNewChat,
                 });
 
                 const startedAt = Date.now();
@@ -276,9 +283,20 @@ export const chatRoute = new Elysia()
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
                 const deep = request.deep === true;
-                const { assistantId, client, tools, prompt } = await startReply(user.id, params.id, request, {
-                    toolset: "server-and-client",
-                    deep,
+                const { assistantId, client, tools, prompt, isNewChat } = await startReply(
+                    user.id,
+                    params.id,
+                    request,
+                    {
+                        toolset: "server-and-client",
+                        deep,
+                    }
+                );
+                startChatTitleGeneration({
+                    chatId: request.id,
+                    messages: request.messages,
+                    client,
+                    isNewChat,
                 });
 
                 const startedAt = Date.now();

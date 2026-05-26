@@ -8,12 +8,13 @@ import {
     processRunsTable,
     processStatsTable,
 } from "@kiwi/db/tables/graph";
+import { teamTable } from "@kiwi/db/tables/auth";
 import { deleteFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { env } from "../env";
 import { API_ERROR_CODES, errorResponse } from "../types";
-import type { GraphDetailFileRecord, GraphFileRecord, GraphListItem } from "../types/routes";
+import type { GraphDetailFileRecord, GraphFileRecord, GraphListItem, GraphRecentChatItem } from "../types/routes";
 import { type GraphRecord } from "./graph-access";
 import { buildDeleteStepProgress, buildProcessStepProgress } from "./process-progress";
 import { findActiveDeleteGraphFilesProgress, findProcessDescriptionProgress } from "./workflow-progress";
@@ -37,11 +38,63 @@ export type GraphFileRow = Omit<GraphDetailFileRecord, "created_at" | "updated_a
     updated_at: Date | null;
 };
 
+export function inferGraphFileType(file: File): GraphFileType {
+    const normalizedMimeType = file.type?.trim().toLowerCase() ?? "";
+    const rawExtension = file.name.split(".").pop()?.trim().toLowerCase();
+    const extension = rawExtension && rawExtension !== file.name.toLowerCase() ? rawExtension : "";
+
+    if (normalizedMimeType === "application/pdf" || extension === "pdf") {
+        return "pdf";
+    }
+
+    if (
+        normalizedMimeType === "application/msword" ||
+        normalizedMimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+        extension === "doc" ||
+        extension === "docx"
+    ) {
+        return "doc";
+    }
+
+    if (
+        normalizedMimeType === "application/vnd.ms-excel" ||
+        normalizedMimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+        normalizedMimeType === "text/csv" ||
+        extension === "xls" ||
+        extension === "xlsx" ||
+        extension === "csv"
+    ) {
+        return "sheet";
+    }
+
+    if (
+        normalizedMimeType === "application/vnd.ms-powerpoint" ||
+        normalizedMimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+        extension === "ppt" ||
+        extension === "pptx"
+    ) {
+        return "ppt";
+    }
+
+    if (normalizedMimeType.startsWith("image/")) {
+        return "image";
+    }
+
+    if (normalizedMimeType === "application/json" || extension === "json") {
+        return "json";
+    }
+
+    return "text";
+}
+
 type GraphListRow = {
     graph_id: string;
     graph_name: string;
     graph_state: "ready" | "updating";
-    group_id: string | null;
+    organization_id: string | null;
+    team_id: string | null;
+    team_name: string | null;
+    user_id: string | null;
     hidden: boolean;
 };
 
@@ -63,6 +116,12 @@ type RunFile = {
 type Average = {
     duration: number;
     samples: number;
+};
+
+type RecentChatRow = {
+    id: string;
+    title: string;
+    graphId: string;
 };
 
 const FILE_STEP_PROGRESS: Record<FileProcessStep, number> = {
@@ -107,7 +166,10 @@ export const selectGraphListFields = {
     graph_id: graphTable.id,
     graph_name: graphTable.name,
     graph_state: graphTable.state,
-    group_id: graphTable.groupId,
+    organization_id: graphTable.organizationId,
+    team_id: graphTable.teamId,
+    team_name: teamTable.name,
+    user_id: graphTable.userId,
     hidden: graphTable.hidden,
 };
 
@@ -196,6 +258,13 @@ function buildTimeEstimate(
     };
 }
 
+function textList(values: readonly string[]) {
+    return sql.join(
+        values.map((value) => sql`${value}`),
+        sql`, `
+    );
+}
+
 export const cleanupUploadedKeys = async (uploadedKeys: string[]) => {
     const deleteResults = await Promise.allSettled(uploadedKeys.map((key) => deleteFile(key, env.S3_BUCKET)));
     return deleteResults.filter((result) => result.status === "rejected").length;
@@ -227,7 +296,7 @@ export const cleanupFailedGraphCreation = async (
     graphId: string,
     uploadedKeys: string[],
     phase: "upload" | "db_insert_files" | "enqueue",
-    ownerMode: "group" | "user" | "graph"
+    ownerMode: "organization" | "team" | "user" | "graph"
 ) => {
     const failedDeletes = await cleanupUploadedKeys(uploadedKeys);
 
@@ -310,8 +379,8 @@ export function mapGraphError(statusFn: StatusFn, error: unknown) {
         return statusFn(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
     }
 
-    if (error.message === API_ERROR_CODES.GROUP_NOT_FOUND) {
-        return statusFn(404, errorResponse("Group not found", API_ERROR_CODES.GROUP_NOT_FOUND));
+    if (error.message === API_ERROR_CODES.TEAM_NOT_FOUND) {
+        return statusFn(404, errorResponse("Team not found", API_ERROR_CODES.TEAM_NOT_FOUND));
     }
 
     if (error.message === API_ERROR_CODES.GRAPH_NOT_FOUND) {
@@ -329,17 +398,60 @@ export function mapGraphError(statusFn: StatusFn, error: unknown) {
     return statusFn(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
 }
 
-export const mapGraphListItem = (graph: GraphListRow, processing?: Partial<GraphListItem>): GraphListItem => {
-    if (!graph.group_id) {
+async function listRecentChatsByGraphId(graphIds: string[], userId: string) {
+    const result = await db.execute(sql<RecentChatRow>`
+        WITH ranked AS (
+            SELECT
+                id,
+                title,
+                project_id AS "graphId",
+                updated_at,
+                created_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY project_id
+                    ORDER BY updated_at DESC, created_at DESC
+                ) AS row_number
+            FROM chats
+            WHERE user_id = ${userId}
+              AND project_id IN (${textList(graphIds)})
+        )
+        SELECT id, title, "graphId"
+        FROM ranked
+        WHERE row_number <= 6
+        ORDER BY "graphId" ASC, updated_at DESC, created_at DESC
+    `);
+
+    const recentChatsByGraphId = new Map<string, GraphRecentChatItem[]>();
+    for (const row of result.rows as RecentChatRow[]) {
+        const recentChats = recentChatsByGraphId.get(row.graphId) ?? [];
+        recentChats.push({ id: row.id, title: row.title });
+        recentChatsByGraphId.set(row.graphId, recentChats);
+    }
+
+    return recentChatsByGraphId;
+}
+
+export const mapGraphListItem = (
+    graph: GraphListRow,
+    recentChats: GraphRecentChatItem[] = [],
+    processing?: Partial<GraphListItem>
+): GraphListItem => {
+    if (!graph.organization_id && !graph.user_id) {
         throw new Error(API_ERROR_CODES.INVALID_GRAPH_OWNER);
     }
+
+    const scope = graph.user_id ? "private" : graph.team_id ? "team" : "organization";
 
     return {
         graph_id: graph.graph_id,
         graph_name: graph.graph_name,
         graph_state: graph.graph_state === "updating" ? "update" : "ready",
-        group_id: graph.group_id,
+        organization_id: graph.organization_id,
+        team_id: graph.team_id,
+        team_name: graph.team_name,
+        scope,
         hidden: graph.hidden,
+        recent_chats: recentChats,
         ...(graph.graph_state === "updating"
             ? {
                   process_percentage: 0,
@@ -349,9 +461,9 @@ export const mapGraphListItem = (graph: GraphListRow, processing?: Partial<Graph
     };
 };
 
-export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): Promise<GraphListItem[]> {
+export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[], userId: string): Promise<GraphListItem[]> {
     if (graphs.length === 0) {
-        return graphs.map((graph) => mapGraphListItem(graph));
+        return [];
     }
 
     const graphIds = graphs.map((graph) => graph.graph_id);
@@ -362,48 +474,50 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
         WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 50000000 THEN 'large'
         ELSE 'huge'
     END`;
-    const [runs, bucketStats, typeStats, [globalStats], deleteProgressByGraphId] = await Promise.all([
-        db
-            .select({
-                id: processRunsTable.id,
-                graph_id: processRunsTable.graphId,
-                status: processRunsTable.status,
-            })
-            .from(processRunsTable)
-            .where(
-                and(
-                    inArray(processRunsTable.graphId, graphIds),
-                    inArray(processRunsTable.status, ["pending", "started"])
+    const [recentChatsByGraphId, runs, bucketStats, typeStats, [globalStats], deleteProgressByGraphId] =
+        await Promise.all([
+            listRecentChatsByGraphId(graphIds, userId),
+            db
+                .select({
+                    id: processRunsTable.id,
+                    graph_id: processRunsTable.graphId,
+                    status: processRunsTable.status,
+                })
+                .from(processRunsTable)
+                .where(
+                    and(
+                        inArray(processRunsTable.graphId, graphIds),
+                        inArray(processRunsTable.status, ["pending", "started"])
+                    )
                 )
-            )
-            .orderBy(asc(processRunsTable.graphId), asc(processRunsTable.createdAt)),
-        db
-            .select({
-                file_type: processStatsTable.fileType,
-                size_bucket: sizeBucket,
-                average_duration: sql<number>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
-                sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
-            })
-            .from(processStatsTable)
-            .groupBy(processStatsTable.fileType, sizeBucket),
-        db
-            .select({
-                file_type: processStatsTable.fileType,
-                average_duration: sql<number>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
-                sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
-            })
-            .from(processStatsTable)
-            .groupBy(processStatsTable.fileType),
-        db
-            .select({
-                average_duration: sql<
-                    number | null
-                >`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
-                sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
-            })
-            .from(processStatsTable),
-        findActiveDeleteGraphFilesProgress(graphIds),
-    ]);
+                .orderBy(asc(processRunsTable.graphId), asc(processRunsTable.createdAt)),
+            db
+                .select({
+                    file_type: processStatsTable.fileType,
+                    size_bucket: sizeBucket,
+                    average_duration: sql<number>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
+                    sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
+                })
+                .from(processStatsTable)
+                .groupBy(processStatsTable.fileType, sizeBucket),
+            db
+                .select({
+                    file_type: processStatsTable.fileType,
+                    average_duration: sql<number>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
+                    sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
+                })
+                .from(processStatsTable)
+                .groupBy(processStatsTable.fileType),
+            db
+                .select({
+                    average_duration: sql<
+                        number | null
+                    >`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
+                    sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
+                })
+                .from(processStatsTable),
+            findActiveDeleteGraphFilesProgress(graphIds),
+        ]);
 
     const runByGraphId = new Map<string, RunRow>();
     for (const run of runs) {
@@ -472,13 +586,14 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
                     ...graph,
                     graph_state: "updating",
                 },
+                recentChatsByGraphId.get(graph.graph_id) ?? [],
                 buildDeleteStepProgress(deleteProgress)
             );
         }
 
         const run = runByGraphId.get(graph.graph_id);
         if (!run) {
-            return mapGraphListItem(graph);
+            return mapGraphListItem(graph, recentChatsByGraphId.get(graph.graph_id) ?? []);
         }
         const files = filesByRunId.get(run.id) ?? [];
 
@@ -487,6 +602,7 @@ export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[]): P
                 ...graph,
                 graph_state: "updating",
             },
+            recentChatsByGraphId.get(graph.graph_id) ?? [],
             {
                 process_step: buildProcessStepProgress(run, files, descriptionProgressByRunId.get(run.id)),
                 process_percentage: buildProcessPercentage(files),

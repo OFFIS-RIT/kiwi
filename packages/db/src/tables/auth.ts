@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
 
 export const userTable = pgTable.withRLS("user", {
@@ -21,6 +21,42 @@ export const userTable = pgTable.withRLS("user", {
         .$onUpdate(() => sql`NOW()`),
 });
 
+export const organizationTable = pgTable.withRLS(
+    "organization",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        name: text("name").notNull(),
+        slug: text("slug").notNull().unique(),
+        logo: text("logo"),
+        metadata: text("metadata"),
+        createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    },
+    (table) => [index("organization_slug_idx").on(table.slug)]
+);
+
+export const teamTable = pgTable.withRLS(
+    "team",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        name: text("name").notNull(),
+        organizationId: text("organizationId")
+            .notNull()
+            .references(() => organizationTable.id, { onDelete: "cascade" }),
+        createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+        updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" })
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [
+        index("team_organization_idx").on(table.organizationId),
+        unique("team_id_organization_unique").on(table.id, table.organizationId),
+    ]
+);
+
 export const sessionTable = pgTable.withRLS("session", {
     id: text("id")
         .primaryKey()
@@ -38,6 +74,8 @@ export const sessionTable = pgTable.withRLS("session", {
         .defaultNow()
         .$onUpdate(() => sql`NOW()`),
     impersonatedBy: text("impersonatedBy").references(() => userTable.id, { onDelete: "set null" }),
+    activeOrganizationId: text("activeOrganizationId").references(() => organizationTable.id, { onDelete: "set null" }),
+    activeTeamId: text("activeTeamId").references(() => teamTable.id, { onDelete: "set null" }),
 });
 
 export const accountTable = pgTable.withRLS(
@@ -76,6 +114,93 @@ export const verificationTable = pgTable.withRLS("verification", {
     expiresAt: timestamp("expiresAt", { withTimezone: true, mode: "date" }).notNull(),
     createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" })
+        .notNull()
+        .defaultNow()
+        .$onUpdate(() => sql`NOW()`),
+});
+
+export const memberTable = pgTable.withRLS(
+    "member",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        organizationId: text("organizationId")
+            .notNull()
+            .references(() => organizationTable.id, { onDelete: "cascade" }),
+        userId: text("userId")
+            .notNull()
+            .references(() => userTable.id, { onDelete: "cascade" }),
+        role: text("role").notNull().default("member"),
+        systemRoleProvisioned: boolean("systemRoleProvisioned").notNull().default(false),
+        createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    },
+    (table) => [
+        index("member_organization_idx").on(table.organizationId),
+        index("member_user_idx").on(table.userId),
+        uniqueIndex("member_organization_user_unique").on(table.organizationId, table.userId),
+    ]
+);
+
+export const invitationTable = pgTable.withRLS(
+    "invitation",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        organizationId: text("organizationId")
+            .notNull()
+            .references(() => organizationTable.id, { onDelete: "cascade" }),
+        email: text("email").notNull(),
+        role: text("role").notNull(),
+        status: text("status").notNull().default("pending"),
+        teamId: text("teamId").references(() => teamTable.id, { onDelete: "set null" }),
+        expiresAt: timestamp("expiresAt", { withTimezone: true, mode: "date" }).notNull(),
+        inviterId: text("inviterId")
+            .notNull()
+            .references(() => userTable.id, { onDelete: "cascade" }),
+        createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    },
+    (table) => [
+        index("invitation_organization_idx").on(table.organizationId),
+        index("invitation_email_idx").on(table.email),
+        index("invitation_role_idx").on(table.role),
+        index("invitation_status_idx").on(table.status),
+        index("invitation_team_idx").on(table.teamId),
+    ]
+);
+
+export const teamMemberTable = pgTable.withRLS(
+    "teamMember",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        teamId: text("teamId")
+            .notNull()
+            .references(() => teamTable.id, { onDelete: "cascade" }),
+        userId: text("userId")
+            .notNull()
+            .references(() => userTable.id, { onDelete: "cascade" }),
+        createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).defaultNow(),
+    },
+    (table) => [
+        index("team_member_team_idx").on(table.teamId),
+        index("team_member_user_idx").on(table.userId),
+        uniqueIndex("team_member_team_user_unique").on(table.teamId, table.userId),
+    ]
+);
+
+export const TEAM_MEMBER_ROLE_VALUES = ["admin", "moderator", "member"] as const;
+export type TeamMemberRole = (typeof TEAM_MEMBER_ROLE_VALUES)[number];
+
+export const teamMemberRolesTable = pgTable("team_member_roles", {
+    teamMemberId: text("team_member_id")
+        .primaryKey()
+        .references(() => teamMemberTable.id, { onDelete: "cascade" }),
+    role: text("role", { enum: TEAM_MEMBER_ROLE_VALUES }).notNull().default("member"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
         .notNull()
         .defaultNow()
         .$onUpdate(() => sql`NOW()`),
