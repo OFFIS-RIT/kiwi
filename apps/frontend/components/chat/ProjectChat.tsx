@@ -488,8 +488,15 @@ function ProjectChatSession({
     const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const [interimTranscript, setInterimTranscript] = useState("");
     const [isTemplateSidebarOpen, setIsTemplateSidebarOpen] = useState(false);
-    const { setStreamError, setCurrentStep, setIsGenerating, getNewChatDraft, setNewChatDraft, clearNewChatDraft } =
-        useProjectChatSession(projectId);
+    const {
+        setStreamError,
+        setCurrentStep,
+        setIsGenerating,
+        setHasUnreadUpdate,
+        getNewChatDraft,
+        setNewChatDraft,
+        clearNewChatDraft,
+    } = useProjectChatSession(projectId);
     const currentStep = entry.currentStep;
     const streamError = entry.streamError;
 
@@ -560,6 +567,12 @@ function ProjectChatSession({
     useEffect(() => {
         setIsGenerating(isAssistantTyping);
     }, [isAssistantTyping, setIsGenerating]);
+
+    useEffect(() => {
+        if (!isAssistantTyping) {
+            setHasUnreadUpdate(false);
+        }
+    }, [isAssistantTyping, setHasUnreadUpdate]);
 
     useEffect(() => {
         inputRef.current?.focus();
@@ -687,6 +700,7 @@ function ProjectChatSession({
             router.replace(`${pathname}?chatId=${encodeURIComponent(entry.sessionId)}`);
         }
         setIsGenerating(true);
+        setHasUnreadUpdate(false);
         try {
             await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
         } finally {
@@ -705,6 +719,7 @@ function ProjectChatSession({
         queryClient,
         router,
         sendMessage,
+        setHasUnreadUpdate,
         setIsGenerating,
         setStreamError,
     ]);

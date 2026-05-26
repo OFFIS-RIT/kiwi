@@ -17,6 +17,7 @@ type ProjectChatEntry = {
     currentStep: string | null;
     streamError: string | null;
     isGenerating: boolean;
+    hasUnreadUpdate: boolean;
 };
 
 type EnsureEntryInit = {
@@ -44,6 +45,7 @@ type ChatSessionsStore = {
     setCurrentStep: (projectId: string, step: string | null) => void;
     setStreamError: (projectId: string, error: string | null) => void;
     setIsGenerating: (projectId: string, generating: boolean) => void;
+    setHasUnreadUpdate: (projectId: string, unread: boolean) => void;
     subscribe: (projectId: string, listener: Listener) => () => void;
 };
 
@@ -131,7 +133,11 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                     updateEntry(projectId, init.sessionId, { streamError: error.message, isGenerating: false });
                 },
                 onFinish: () => {
-                    updateEntry(projectId, init.sessionId, { currentStep: null, isGenerating: false });
+                    updateEntry(projectId, init.sessionId, {
+                        currentStep: null,
+                        isGenerating: false,
+                        hasUnreadUpdate: true,
+                    });
                 },
             });
 
@@ -142,6 +148,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 currentStep: null,
                 streamError: null,
                 isGenerating: false,
+                hasUnreadUpdate: false,
             };
             entriesRef.current.set(entryKey(projectId, init.sessionId), entry);
             setActiveEntry(projectId, init.sessionId);
@@ -209,6 +216,10 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 const entry = getActiveEntry(projectId);
                 if (entry) updateEntry(projectId, entry.sessionId, { isGenerating: generating });
             },
+            setHasUnreadUpdate: (projectId, unread) => {
+                const entry = getActiveEntry(projectId);
+                if (entry) updateEntry(projectId, entry.sessionId, { hasUnreadUpdate: unread });
+            },
             subscribe: (projectId, listener) => {
                 let listeners = listenersRef.current.get(projectId);
                 if (!listeners) {
@@ -251,6 +262,7 @@ type UseProjectChatSessionResult = {
     setStreamError: (error: string | null) => void;
     setCurrentStep: (step: string | null) => void;
     setIsGenerating: (generating: boolean) => void;
+    setHasUnreadUpdate: (unread: boolean) => void;
 };
 
 /**
@@ -294,6 +306,10 @@ export function useProjectChatSession(projectId: string): UseProjectChatSessionR
         (generating: boolean) => store.setIsGenerating(projectId, generating),
         [projectId, store]
     );
+    const setHasUnreadUpdate = useCallback(
+        (unread: boolean) => store.setHasUnreadUpdate(projectId, unread),
+        [projectId, store]
+    );
 
     return {
         entry,
@@ -309,6 +325,7 @@ export function useProjectChatSession(projectId: string): UseProjectChatSessionR
         setStreamError,
         setCurrentStep,
         setIsGenerating,
+        setHasUnreadUpdate,
     };
 }
 

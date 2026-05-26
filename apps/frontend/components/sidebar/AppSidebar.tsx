@@ -901,6 +901,10 @@ function ProjectItem({
         () => new Set(entries.filter((entry) => entry.isGenerating).map((entry) => entry.sessionId)),
         [entries]
     );
+    const unreadChatIds = useMemo(
+        () => new Set(entries.filter((entry) => entry.hasUnreadUpdate).map((entry) => entry.sessionId)),
+        [entries]
+    );
     const [now, setNow] = useState(() => Date.now());
     const hasChatTimes = chatsToShow.some((chat) => chat.updatedAt);
 
@@ -989,6 +993,7 @@ function ProjectItem({
                         {chatsToShow.length > 0 ? (
                             chatsToShow.map((chat) => {
                                 const isGenerating = runningChatIds.has(chat.id);
+                                const hasBackgroundUpdate = activeChatId !== chat.id && unreadChatIds.has(chat.id);
                                 const relativeUpdatedAt = chat.updatedAt
                                     ? formatRelativeChatTime(chat.updatedAt, now)
                                     : null;
@@ -1018,6 +1023,8 @@ function ProjectItem({
                                                     <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/chat-row:hidden">
                                                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                                     </span>
+                                                ) : hasBackgroundUpdate ? (
+                                                    <span className="absolute right-2 h-2 w-2 shrink-0 rounded-full bg-sky-400 group-hover/chat-row:hidden" />
                                                 ) : relativeUpdatedAt ? (
                                                     <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/chat-row:hidden">
                                                         {relativeUpdatedAt}
