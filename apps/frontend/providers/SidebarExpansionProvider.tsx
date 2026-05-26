@@ -9,26 +9,31 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 type SidebarExpansionContextType = {
     expandedGroups: Record<string, boolean>;
     setExpandedGroups: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+    expandedProjects: Record<string, boolean>;
+    setExpandedProjects: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
     toggleGroupExpanded: (groupId: string) => void;
+    toggleProjectExpanded: (projectId: string) => void;
     initializeExpandedGroups: (groupIds: string[]) => void;
+    initializeExpandedProjects: (projectIds: string[]) => void;
     preserveExpansionDuringSearch: () => Record<string, boolean>;
-    restoreExpansionAfterSearch: (originalState: Record<string, boolean>) => void;
-    expandGroupsForSearch: (groupIds: string[]) => void;
+    restoreExpansionAfterSearch: (originalGroups: Record<string, boolean>, originalProjects?: Record<string, boolean>) => void;
+    expandGroupsForSearch: (groupIds: string[], projectIds?: string[]) => void;
 };
 
 const SidebarExpansionContext = createContext<SidebarExpansionContextType | undefined>(undefined);
 
-const STORAGE_KEY = "sidebar-expanded-groups";
+const GROUP_STORAGE_KEY = "sidebar-expanded-groups";
+const PROJECT_STORAGE_KEY = "sidebar-expanded-projects";
 
 /**
- * Loads expanded group state from localStorage with validation.
- * @returns Record of group IDs to expansion state, or empty object on failure
+ * Loads expanded state from localStorage with validation.
+ * @returns Record of IDs to expansion state, or empty object on failure
  */
-const loadExpandedGroupsFromStorage = (): Record<string, boolean> => {
+const loadExpandedStateFromStorage = (storageKey: string): Record<string, boolean> => {
     if (typeof window === "undefined") return {};
 
     try {
-        const stored = localStorage.getItem(STORAGE_KEY);
+        const stored = localStorage.getItem(storageKey);
         if (stored) {
             const parsed = JSON.parse(stored);
             // Validate that parsed data is an object with boolean values
@@ -47,14 +52,13 @@ const loadExpandedGroupsFromStorage = (): Record<string, boolean> => {
 };
 
 /**
- * Persists expanded group state to localStorage.
- * @param expandedGroups - Record of group IDs to expansion state
+ * Persists expanded state to localStorage.
  */
-const saveExpandedGroupsToStorage = (expandedGroups: Record<string, boolean>) => {
+const saveExpandedStateToStorage = (storageKey: string, expandedState: Record<string, boolean>) => {
     if (typeof window === "undefined") return;
 
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(expandedGroups));
+        localStorage.setItem(storageKey, JSON.stringify(expandedState));
     } catch (error) {
         console.warn("Failed to save sidebar expansion state to localStorage:", error);
     }
@@ -65,16 +69,27 @@ const saveExpandedGroupsToStorage = (expandedGroups: Record<string, boolean>) =>
  * Provides utilities for search-related expansion (expand during search, restore after).
  */
 export function SidebarExpansionProvider({ children }: { children: React.ReactNode }) {
-    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(loadExpandedGroupsFromStorage);
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
+        loadExpandedStateFromStorage(GROUP_STORAGE_KEY)
+    );
+    const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(() =>
+        loadExpandedStateFromStorage(PROJECT_STORAGE_KEY)
+    );
     const originalExpandedStateRef = useRef<Record<string, boolean>>({});
     const isInitializedRef = useRef(false);
 
     // Save to localStorage whenever expandedGroups changes (but not on initial load)
     useEffect(() => {
         if (isInitializedRef.current) {
-            saveExpandedGroupsToStorage(expandedGroups);
+            saveExpandedStateToStorage(GROUP_STORAGE_KEY, expandedGroups);
         }
     }, [expandedGroups]);
+
+    useEffect(() => {
+        if (isInitializedRef.current) {
+            saveExpandedStateToStorage(PROJECT_STORAGE_KEY, expandedProjects);
+        }
+    }, [expandedProjects]);
 
     // Mark as initialized after first render
     useEffect(() => {
@@ -87,7 +102,8 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
             const newState: Record<string, boolean> = {};
 
             // Load from localStorage on first initialization if prev is empty
-            const storedState = Object.keys(prev).length === 0 ? loadExpandedGroupsFromStorage() : prev;
+            const storedState =
+                Object.keys(prev).length === 0 ? loadExpandedStateFromStorage(GROUP_STORAGE_KEY) : prev;
 
             // Preserve existing state for groups that still exist
             groupIds.forEach((groupId) => {
@@ -95,6 +111,17 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
             });
 
             return newState;
+        });
+    }, []);
+
+    const initializeExpandedProjects = useCallback((projectIds: string[]) => {
+        setExpandedProjects((prev) => {
+            const storedState =
+                Object.keys(prev).length === 0 ? loadExpandedStateFromStorage(PROJECT_STORAGE_KEY) : prev;
+
+            return Object.fromEntries(
+                projectIds.map((projectId) => [projectId, storedState[projectId] ?? false])
+            );
         });
     }, []);
 
@@ -106,6 +133,13 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
         }));
     }, []);
 
+    const toggleProjectExpanded = useCallback((projectId: string) => {
+        setExpandedProjects((prev) => ({
+            ...prev,
+            [projectId]: !prev[projectId],
+        }));
+    }, []);
+
     // Save current expansion state for search functionality
     const preserveExpansionDuringSearch = useCallback(() => {
         const currentState = { ...expandedGroups };
@@ -114,16 +148,26 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
     }, [expandedGroups]);
 
     // Restore expansion state after search
-    const restoreExpansionAfterSearch = useCallback((originalState: Record<string, boolean>) => {
-        setExpandedGroups(originalState);
+    const restoreExpansionAfterSearch = useCallback((originalGroups: Record<string, boolean>, originalProjects?: Record<string, boolean>) => {
+        setExpandedGroups(originalGroups);
+        if (originalProjects) {
+            setExpandedProjects(originalProjects);
+        }
     }, []);
 
     // Expand specific groups during search
-    const expandGroupsForSearch = useCallback((groupIds: string[]) => {
+    const expandGroupsForSearch = useCallback((groupIds: string[], projectIds: string[] = []) => {
         setExpandedGroups((prev) => {
             const newState = { ...prev };
             groupIds.forEach((groupId) => {
                 newState[groupId] = true;
+            });
+            return newState;
+        });
+        setExpandedProjects((prev) => {
+            const newState = { ...prev };
+            projectIds.forEach((projectId) => {
+                newState[projectId] = true;
             });
             return newState;
         });
@@ -134,8 +178,12 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
             value={{
                 expandedGroups,
                 setExpandedGroups,
+                expandedProjects,
+                setExpandedProjects,
                 toggleGroupExpanded,
+                toggleProjectExpanded,
                 initializeExpandedGroups,
+                initializeExpandedProjects,
                 preserveExpansionDuringSearch,
                 restoreExpansionAfterSearch,
                 expandGroupsForSearch,

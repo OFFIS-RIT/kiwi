@@ -54,7 +54,7 @@ import {
     X,
 } from "lucide-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type * as React from "react";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 
@@ -91,6 +91,8 @@ export function AppSidebar({
 }: AppSidebarProps) {
     const t = useAppTranslations();
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const chatId = searchParams.get("chatId");
     const { buildLabel } = useRuntimeConfig();
     const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
@@ -98,8 +100,11 @@ export function AppSidebar({
     const homePrefetchRef = usePrefetchWhenVisible<HTMLButtonElement>("/");
     const {
         expandedGroups,
+        expandedProjects,
         toggleGroupExpanded,
+        toggleProjectExpanded,
         initializeExpandedGroups,
+        initializeExpandedProjects,
         restoreExpansionAfterSearch,
         expandGroupsForSearch,
     } = useSidebarExpansion();
@@ -107,14 +112,15 @@ export function AppSidebar({
     const [showSearch, setShowSearch] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [ready, setReady] = useState(false);
-    const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
     const searchInputRef = useRef<HTMLInputElement>(null);
 
     const originalExpandedStateRef = useRef<Record<string, boolean>>({});
+    const originalExpandedProjectsRef = useRef<Record<string, boolean>>({});
     const projectSelectedDuringSearchRef = useRef(false);
     const wasSearchingRef = useRef(false);
     const selectedGroupIdDuringSearchRef = useRef<string | null>(null);
     const expandedGroupsRef = useRef(expandedGroups);
+    const expandedProjectsRef = useRef(expandedProjects);
 
     // Build flat list for Fuse.js search
     const searchableItems = useMemo(() => {
@@ -195,6 +201,10 @@ export function AppSidebar({
     }, [expandedGroups]);
 
     useEffect(() => {
+        expandedProjectsRef.current = expandedProjects;
+    }, [expandedProjects]);
+
+    useEffect(() => {
         if (!isLoading && !error) {
             requestAnimationFrame(() => setReady(true));
         }
@@ -209,10 +219,22 @@ export function AppSidebar({
 
     useEffect(() => {
         const projectIds = groups.flatMap((group) => group.projects.map((project) => project.id));
-        setExpandedProjects((previous) =>
-            Object.fromEntries(projectIds.map((projectId) => [projectId, previous[projectId] ?? false]))
-        );
-    }, [groups]);
+        initializeExpandedProjects(projectIds);
+    }, [groups, initializeExpandedProjects]);
+
+    useEffect(() => {
+        if (!chatId) return;
+
+        for (const group of groups) {
+            const project = group.projects.find((candidate) =>
+                candidate.recentChats.some((chat) => chat.id === chatId)
+            );
+            if (project) {
+                expandGroupsForSearch([group.id], [project.id]);
+                return;
+            }
+        }
+    }, [chatId, groups, expandGroupsForSearch]);
 
     // Handle expansion state during search
     useEffect(() => {
@@ -221,9 +243,9 @@ export function AppSidebar({
                 if (projectSelectedDuringSearchRef.current && selectedGroupIdDuringSearchRef.current) {
                     const stateToRestore = { ...originalExpandedStateRef.current };
                     stateToRestore[selectedGroupIdDuringSearchRef.current] = true;
-                    restoreExpansionAfterSearch(stateToRestore);
+                    restoreExpansionAfterSearch(stateToRestore, originalExpandedProjectsRef.current);
                 } else {
-                    restoreExpansionAfterSearch(originalExpandedStateRef.current);
+                    restoreExpansionAfterSearch(originalExpandedStateRef.current, originalExpandedProjectsRef.current);
                 }
             }
             wasSearchingRef.current = false;
@@ -232,6 +254,7 @@ export function AppSidebar({
 
         if (!wasSearchingRef.current) {
             originalExpandedStateRef.current = { ...expandedGroupsRef.current };
+            originalExpandedProjectsRef.current = { ...expandedProjectsRef.current };
             projectSelectedDuringSearchRef.current = false;
             selectedGroupIdDuringSearchRef.current = null;
         }
@@ -239,7 +262,10 @@ export function AppSidebar({
 
         if (groupedResults) {
             const groupIdsToExpand = Array.from(groupedResults.keys());
-            expandGroupsForSearch(groupIdsToExpand);
+            const projectIdsToExpand = Array.from(groupedResults.values()).flatMap((entry) =>
+                entry.groupMatches ? [] : Array.from(entry.matchedProjects)
+            );
+            expandGroupsForSearch(groupIdsToExpand, projectIdsToExpand);
         }
     }, [isSearching, groupedResults, expandGroupsForSearch, restoreExpansionAfterSearch]);
 
@@ -283,13 +309,6 @@ export function AppSidebar({
 
     const organizationGroup = displayGroups.find((group) => group.scope === "organization");
     const teamGroups = displayGroups.filter((group) => group.scope === "team");
-
-    const toggleProjectExpanded = (projectId: string) => {
-        setExpandedProjects((previous) => ({
-            ...previous,
-            [projectId]: !previous[projectId],
-        }));
-    };
 
     return (
         <Sidebar {...props}>
