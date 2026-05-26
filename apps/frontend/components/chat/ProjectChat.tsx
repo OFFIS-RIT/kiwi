@@ -724,7 +724,10 @@ function ProjectChatSession({
         try {
             await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
         } finally {
-            await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects }),
+                queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(projectId) }),
+            ]);
         }
     }, [
         clearNewChatDraft,

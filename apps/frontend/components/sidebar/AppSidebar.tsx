@@ -62,7 +62,7 @@ import {
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 
@@ -877,6 +877,7 @@ function ProjectItem({
     const pathname = usePathname();
     const t = useAppTranslations();
     const apiClient = useApiClient();
+    const queryClient = useQueryClient();
     const href = `/${group.id}/${project.id}`;
     const prefetchProjectChat = usePrefetchProjectChat(project.id);
     const prefetchRef = usePrefetchWhenVisible<HTMLButtonElement>(href, {
@@ -893,7 +894,7 @@ function ProjectItem({
         enabled: showAllChats,
         staleTime: 30 * 1000,
     });
-    const visibleChats = showAllChats ? (allChats ?? project.recentChats) : project.recentChats;
+    const visibleChats = showAllChats && allChats && !isFetchingAllChats ? allChats : project.recentChats;
     const chatsToShow = matchedChatIds
         ? project.recentChats.filter((chat) => matchedChatIds.has(chat.id))
         : visibleChats;
@@ -931,6 +932,13 @@ function ProjectItem({
             return;
         }
         router.push(href);
+    };
+
+    const handleToggleAllChats = () => {
+        if (!showAllChats) {
+            queryClient.removeQueries({ queryKey: queryKeys.projectChats(project.id), exact: true });
+        }
+        setShowAllChats((value) => !value);
     };
 
     return (
@@ -1072,7 +1080,7 @@ function ProjectItem({
                                     <button
                                         type="button"
                                         disabled={isFetchingAllChats}
-                                        onClick={() => setShowAllChats((value) => !value)}
+                                        onClick={handleToggleAllChats}
                                     >
                                         <span>
                                             {isFetchingAllChats
