@@ -691,13 +691,19 @@ export const chatRoute = new Elysia()
                                 }
 
                                 retriedAfterCompaction = true;
-                                const refreshed = await refreshReplyContext({
-                                    chatId: request.id,
-                                    graphId: params.id,
-                                    runtime: { client, prompt },
-                                    promptOptions,
-                                    forceCompaction: true,
-                                });
+                                let refreshed;
+                                try {
+                                    refreshed = await refreshReplyContext({
+                                        chatId: request.id,
+                                        graphId: params.id,
+                                        runtime: { client, prompt },
+                                        promptOptions,
+                                        forceCompaction: true,
+                                    });
+                                } catch (compactionError) {
+                                    await updateAssistantMessage(assistantId, [], "failed");
+                                    throw compactionError;
+                                }
                                 activeContextMessages = refreshed.contextMessages;
                                 activeSystemPrompt = refreshed.systemPrompt;
                             }

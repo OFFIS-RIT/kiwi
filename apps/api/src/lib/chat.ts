@@ -442,7 +442,9 @@ export async function loadChatSummary(userId: string, graphId: string, chatId: s
 export async function loadChatHistory(userId: string, graphId: string, chatId: string) {
     const chat = await loadChatSummary(userId, graphId, chatId);
 
-    const rows = (await loadChatRows(chatId)).filter((message) => !isCompactionMessage(message));
+    const rows = (await loadChatRows(chatId, { includeFailed: true })).filter(
+        (message) => !isCompactionMessage(message)
+    );
 
     const resolveCitation = createCachedCitationResolver(graphId);
     const normalizedRows = await Promise.all(

@@ -135,11 +135,19 @@ export function normalizeChatRequest(request: ChatRequest): NormalizedChatReques
     throw new Error(API_ERROR_CODES.INVALID_CHAT_REQUEST);
 }
 
-export async function loadChatRows(chatId: string) {
+export async function loadChatRows(chatId: string, options?: { includeFailed?: boolean }) {
     return db
         .select()
         .from(messageTable)
-        .where(and(eq(messageTable.chatId, chatId), ne(messageTable.status, "pending")))
+        .where(
+            options?.includeFailed
+                ? and(eq(messageTable.chatId, chatId), ne(messageTable.status, "pending"))
+                : and(
+                      eq(messageTable.chatId, chatId),
+                      ne(messageTable.status, "pending"),
+                      ne(messageTable.status, "failed")
+                  )
+        )
         .orderBy(asc(messageTable.createdAt), asc(messageTable.id));
 }
 
