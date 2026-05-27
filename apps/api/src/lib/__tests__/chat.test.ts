@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { ChatUIMessage } from "@kiwi/ai";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 
 mock.module("@kiwi/db", () => ({
@@ -28,6 +29,7 @@ const {
     normalizeChatRequest,
     replaceOrAppendMessage,
 } = await import("../chat");
+const { serializeCompactionTranscript } = await import("../chat-compaction");
 
 const largeText = "token ".repeat(7000);
 
@@ -186,6 +188,30 @@ describe("chat context helpers", () => {
         );
 
         expect(getProtectedTailStartIndex(rows)).toBe(4);
+    });
+
+    test("keeps db-shaped tool parts in the compaction transcript even without AI SDK state fields", () => {
+        const transcript = serializeCompactionTranscript([
+            {
+                id: "msg-1",
+                role: "assistant",
+                parts: [
+                    {
+                        type: "tool",
+                        toolCallId: "tool-1",
+                        toolName: "ask_clarifying_questions",
+                        status: "completed",
+                        args: { questions: ["Which region?"] },
+                        result: { answers: ["EMEA"] },
+                    },
+                ],
+            } as unknown as ChatUIMessage,
+        ]);
+
+        expect(transcript).toContain("Tool: ask_clarifying_questions");
+        expect(transcript).toContain("State: completed");
+        expect(transcript).toContain('Input: {"questions":["Which region?"]}');
+        expect(transcript).toContain('Output: {"answers":["EMEA"]}');
     });
 
     test("detects provider context overflow errors for retry-after-compaction", () => {

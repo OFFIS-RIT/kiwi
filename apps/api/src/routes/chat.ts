@@ -150,7 +150,7 @@ export const chatRoute = new Elysia()
     )
     .post(
         "/chat/:id",
-        async ({ params, body, user, status }) => {
+        async ({ params, body, user, status, request: httpRequest }) => {
             if (!user) {
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
@@ -169,6 +169,7 @@ export const chatRoute = new Elysia()
                         toolset: "server",
                         deep,
                         promptOptions,
+                        abortSignal: httpRequest.signal,
                     });
                 startChatTitleGeneration({
                     chatId: request.id,
@@ -207,6 +208,7 @@ export const chatRoute = new Elysia()
                                 runtime: { client, prompt },
                                 promptOptions,
                                 forceCompaction: true,
+                                abortSignal: httpRequest.signal,
                             });
                         } catch (compactionError) {
                             await updateAssistantMessage(assistantId, [], "failed");
@@ -317,7 +319,7 @@ export const chatRoute = new Elysia()
     )
     .post(
         "/stream/:id",
-        async ({ params, body, user, status }) => {
+        async ({ params, body, user, status, request: httpRequest }) => {
             if (!user) {
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
@@ -340,6 +342,7 @@ export const chatRoute = new Elysia()
                         toolset: "server-and-client",
                         deep,
                         promptOptions,
+                        abortSignal: httpRequest.signal,
                     }
                 );
                 startChatTitleGeneration({
@@ -699,6 +702,7 @@ export const chatRoute = new Elysia()
                                         runtime: { client, prompt },
                                         promptOptions,
                                         forceCompaction: true,
+                                        abortSignal: httpRequest.signal,
                                     });
                                 } catch (compactionError) {
                                     await updateAssistantMessage(assistantId, [], "failed");

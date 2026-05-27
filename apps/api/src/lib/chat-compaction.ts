@@ -281,7 +281,7 @@ export function getProtectedTailStartIndex(rows: ChatMessage[]) {
     return startIndex;
 }
 
-function serializeCompactionTranscript(messages: ChatUIMessage[]) {
+export function serializeCompactionTranscript(messages: ChatUIMessage[]) {
     return messages
         .map((message, index) => {
             const lines = [`## Message ${index + 1}`, `Role: ${message.role}`];
@@ -295,21 +295,49 @@ function serializeCompactionTranscript(messages: ChatUIMessage[]) {
                     continue;
                 }
 
-                if (part.type === "reasoning" || !("toolCallId" in part) || !("state" in part)) {
+                if (part.type === "reasoning" || !("toolCallId" in part)) {
                     continue;
                 }
 
-                const input = "input" in part && part.input !== undefined ? JSON.stringify(part.input) : undefined;
-                const output = "output" in part && part.output !== undefined ? JSON.stringify(part.output) : undefined;
-                const errorText = "errorText" in part && part.errorText ? part.errorText : undefined;
+                const toolPart = part as {
+                    type: string;
+                    toolCallId: string;
+                    toolName?: string;
+                    state?: string;
+                    input?: unknown;
+                    output?: unknown;
+                    errorText?: string;
+                    args?: unknown;
+                    result?: unknown;
+                    status?: "pending" | "completed" | "failed";
+                };
 
-                lines.push(`Tool: ${"toolName" in part ? part.toolName : part.type}`);
-                lines.push(`State: ${part.state}`);
-                if (input) {
-                    lines.push(`Input: ${input}`);
+                const inputValue = toolPart.input ?? toolPart.args;
+                const outputValue =
+                    toolPart.output !== undefined
+                        ? toolPart.output
+                        : toolPart.status === "completed"
+                          ? toolPart.result
+                          : undefined;
+                const errorText =
+                    toolPart.errorText ??
+                    (toolPart.status === "failed"
+                        ? typeof toolPart.result === "string"
+                            ? toolPart.result
+                            : JSON.stringify(toolPart.result)
+                        : undefined);
+                const state =
+                    toolPart.state ??
+                    toolPart.status ??
+                    (outputValue !== undefined ? "output-available" : "input-available");
+
+                lines.push(`Tool: ${toolPart.toolName ?? toolPart.type}`);
+                lines.push(`State: ${state}`);
+                if (inputValue !== undefined) {
+                    lines.push(`Input: ${JSON.stringify(inputValue)}`);
                 }
-                if (output) {
-                    lines.push(`Output: ${output}`);
+                if (outputValue !== undefined) {
+                    lines.push(`Output: ${JSON.stringify(outputValue)}`);
                 }
                 if (errorText) {
                     lines.push(`Error: ${errorText}`);
@@ -329,6 +357,7 @@ async function insertCheckpoint(options: {
     basedOnCompactionMessageId?: string;
     summarizedMessages: ChatUIMessage[];
     summarizedThroughMessageId: string;
+    abortSignal?: AbortSignal;
 }) {
     const transcript = serializeCompactionTranscript(options.summarizedMessages);
     const summary = await compactConversationHistory({
@@ -336,7 +365,9 @@ async function insertCheckpoint(options: {
         graphPrompt: options.graphPrompt,
         previousSummary: options.previousSummary,
         transcript,
+        abortSignal: options.abortSignal,
     });
+    options.abortSignal?.throwIfAborted();
     const compactionPart: MessageCompactionPart = {
         type: "compaction",
         version: 1,
@@ -360,6 +391,7 @@ export async function maybeCompactConversation(options: {
     rows: ChatMessage[];
     promptOptions?: PromptOptions;
     forceCompaction?: boolean;
+    abortSignal?: AbortSignal;
 }) {
     const systemPrompt = createChatSystemPrompt(options.runtime.prompt, options.promptOptions ?? {});
     let context = await buildActiveChatContext({
@@ -391,6 +423,7 @@ export async function maybeCompactConversation(options: {
             basedOnCompactionMessageId: context.activeCompaction?.messageId,
             summarizedMessages: summarizedRows.map((message) => toUIMessage(message)),
             summarizedThroughMessageId: summarizedThroughMessage.id,
+            abortSignal: options.abortSignal,
         });
 
         context = await buildActiveChatContext({

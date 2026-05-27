@@ -66,6 +66,7 @@ type StartReplyOptions = {
     toolset: "server" | "server-and-client";
     deep?: boolean;
     promptOptions?: PromptOptions;
+    abortSignal?: AbortSignal;
 };
 
 export const DEFAULT_CHAT_TITLE = "...";
@@ -254,6 +255,7 @@ export async function refreshReplyContext(options: {
     runtime: ChatRuntime;
     promptOptions?: PromptOptions;
     forceCompaction?: boolean;
+    abortSignal?: AbortSignal;
 }) {
     const { context, systemPrompt } = await maybeCompactConversation({
         chatId: options.chatId,
@@ -262,6 +264,7 @@ export async function refreshReplyContext(options: {
         rows: await loadChatRows(options.chatId),
         promptOptions: options.promptOptions,
         forceCompaction: options.forceCompaction,
+        abortSignal: options.abortSignal,
     });
 
     return {
@@ -298,6 +301,7 @@ export async function startReply(userId: string, graphId: string, request: ChatR
         graphId,
         runtime,
         promptOptions: options.promptOptions,
+        abortSignal: options.abortSignal,
     });
     const assistantId = await createPendingAssistantMessage(normalizedRequest.id);
     await touchChat(normalizedRequest.id);
