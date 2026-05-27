@@ -13,16 +13,18 @@ type ProjectFileAccessTokenPayload = {
 let signingKeyPromise: Promise<CryptoKey> | null = null;
 let signingKeySecret: string | null = null;
 
+async function deriveHmacKeyBytes(secret: string) {
+    const secretBytes = textEncoder.encode(secret);
+    const digest = await crypto.subtle.digest("SHA-256", secretBytes);
+    return new Uint8Array(digest);
+}
+
 function getSigningKey(): Promise<CryptoKey> {
     const secret = env.AUTH_SECRET;
     if (!signingKeyPromise || signingKeySecret !== secret) {
         signingKeySecret = secret;
-        signingKeyPromise = crypto.subtle.importKey(
-            "raw",
-            textEncoder.encode(secret),
-            { name: "HMAC", hash: "SHA-256" },
-            false,
-            ["sign", "verify"]
+        signingKeyPromise = deriveHmacKeyBytes(secret).then((keyBytes) =>
+            crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"])
         );
     }
 
