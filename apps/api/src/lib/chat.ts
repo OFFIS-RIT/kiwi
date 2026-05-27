@@ -73,7 +73,6 @@ export const DEFAULT_CHAT_TITLE = "...";
 const unresolvedCitationCache = new Map<string, number>();
 const CONTEXT_OVERFLOW_PATTERNS = [
     "maximum context length",
-    "context length",
     "context window",
     "context_window_exceeded",
     "prompt is too long",
