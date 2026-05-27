@@ -16,6 +16,7 @@ import { ORGANIZATION_GROUP_ID } from "@/lib/api/projects";
 import { determineProcessStep } from "@/lib/process-step";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
+import { useAuth } from "@/providers/AuthProvider";
 import type { ApiBatchStepProgress, ApiGraph, ApiGroup, ApiProjectFile, Group } from "@/types";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 
@@ -99,9 +100,11 @@ const GROUPS_WITH_PROJECTS_STALE_TIME_MS = 30 * 1000;
 export function useGroupsWithProjects() {
     const queryClient = useQueryClient();
     const apiClient = useApiClient();
+    const { isAuthenticated } = useAuth();
 
     return useQuery({
         queryKey: queryKeys.groupsWithProjects,
+        enabled: isAuthenticated,
         staleTime: GROUPS_WITH_PROJECTS_STALE_TIME_MS,
         refetchInterval: (query) => {
             const groups = query.state.data as Group[] | undefined;
@@ -128,7 +131,11 @@ export function useGroupsWithProjects() {
 /**
  * Suspense-enabled version of {@link useGroupsWithProjects}.
  * Throws a promise during loading, allowing React Suspense to handle loading states.
- * Use this when the component is wrapped in a Suspense boundary.
+ *
+ * Must be rendered within the authenticated `(app)` boundary: useSuspenseQuery cannot be
+ * disabled, so it assumes a session exists. The protected layout redirects unauthenticated
+ * requests before this can mount, and sign-out clears the query cache, so there is no
+ * unauthenticated render to guard against here (unlike the `enabled`-gated {@link useGroupsWithProjects}).
  *
  * @returns Query result (never in loading state due to suspense behavior)
  */

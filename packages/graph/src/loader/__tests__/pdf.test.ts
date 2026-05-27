@@ -44,6 +44,7 @@ mock.module("ai", () => ({
 
 mock.module("@kiwi/files", () => ({
     putNamedFile: putNamedFileMock,
+    PDF_PREVIEW_SCALE: 1.5,
 }));
 
 mock.module("pdf-to-img", () => ({

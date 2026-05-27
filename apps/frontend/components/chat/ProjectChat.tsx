@@ -21,6 +21,7 @@ import { deleteProjectChat } from "@/lib/api/projects";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
+import type { Group, ProjectChatSummary } from "@/types";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { useChat } from "@ai-sdk/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -43,7 +44,7 @@ import {
 } from "lucide-react";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useLocale } from "next-intl";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { MessageContent } from "./MessageContent";
@@ -55,6 +56,8 @@ const ResetChatDialog = lazy(() =>
 );
 
 const SILENCE_TIMEOUT_MS = 5000;
+const OPTIMISTIC_CHAT_TITLE_WORDS = 5;
+const OPTIMISTIC_RECENT_CHAT_LIMIT = 6;
 
 type ProjectChatProps = {
     projectName: string;
@@ -68,6 +71,53 @@ const intelligenceLevels: IntelligenceLevel[] = ["default", "high"];
 
 function isMissingChatError(error: unknown) {
     return error instanceof ApiError && (error.code === "CHAT_NOT_FOUND" || error.message.includes("CHAT_NOT_FOUND"));
+}
+
+function createOptimisticChatTitle(text: string) {
+    const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+    const title = words.slice(0, OPTIMISTIC_CHAT_TITLE_WORDS).join(" ");
+
+    if (!title) return "...";
+    return words.length > OPTIMISTIC_CHAT_TITLE_WORDS ? `${title}...` : title;
+}
+
+function getExistingOptimisticChatTitle(chats: ProjectChatSummary[] | undefined, chatId: string) {
+    return chats?.find((chat) => chat.id === chatId)?.title;
+}
+
+function upsertOptimisticChat(chats: ProjectChatSummary[] = [], chat: ProjectChatSummary, limit?: number) {
+    const nextChats = [chat, ...chats.filter((item) => item.id !== chat.id)];
+    return limit ? nextChats.slice(0, limit) : nextChats;
+}
+
+function upsertOptimisticProjectChat(groups: Group[] | undefined, projectId: string, chat: ProjectChatSummary) {
+    if (!groups) return groups;
+
+    return groups.map((group) => ({
+        ...group,
+        projects: group.projects.map((project) =>
+            project.id === projectId
+                ? {
+                      ...project,
+                      recentChats: upsertOptimisticChat(project.recentChats, chat, OPTIMISTIC_RECENT_CHAT_LIMIT),
+                  }
+                : project
+        ),
+    }));
+}
+
+function getCachedChatTitle(
+    groups: Group[] | undefined,
+    projectId: string,
+    chatId: string,
+    projectChats?: ProjectChatSummary[]
+) {
+    const groupChatTitle = groups
+        ?.flatMap((group) => group.projects)
+        .find((project) => project.id === projectId)
+        ?.recentChats.find((chat) => chat.id === chatId)?.title;
+
+    return groupChatTitle ?? getExistingOptimisticChatTitle(projectChats, chatId);
 }
 
 type ClarificationState = {
@@ -316,7 +366,6 @@ function stripMarkdown(text: string): string {
 export function ProjectChat({ projectName, groupName, projectId }: ProjectChatProps) {
     const queryClient = useQueryClient();
     const apiClient = useApiClient();
-    const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const chatId = searchParams.get("chatId");
@@ -354,7 +403,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
             resetEntry();
         }
         window.history.replaceState(null, "", pathname);
-    }, [chatId, hydrationError, pathname, resetEntry, router, startNewEntry]);
+    }, [chatId, hydrationError, pathname, resetEntry, startNewEntry]);
 
     useLayoutEffect(() => {
         if (chatId) return;
@@ -441,7 +490,6 @@ function ProjectChatSession({
 }) {
     const t = useAppTranslations();
     const queryClient = useQueryClient();
-    const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const chatId = searchParams.get("chatId");
@@ -456,8 +504,15 @@ function ProjectChatSession({
     const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const [interimTranscript, setInterimTranscript] = useState("");
     const [isTemplateSidebarOpen, setIsTemplateSidebarOpen] = useState(false);
-    const { setStreamError, setCurrentStep, getNewChatDraft, setNewChatDraft, clearNewChatDraft } =
-        useProjectChatSession(projectId);
+    const {
+        setStreamError,
+        setCurrentStep,
+        setIsGenerating,
+        setHasUnreadUpdate,
+        getNewChatDraft,
+        setNewChatDraft,
+        clearNewChatDraft,
+    } = useProjectChatSession(projectId);
     const currentStep = entry.currentStep;
     const streamError = entry.streamError;
 
@@ -526,8 +581,23 @@ function ProjectChatSession({
     }, [status, setCurrentStep]);
 
     useEffect(() => {
+        setIsGenerating(isAssistantTyping);
+    }, [isAssistantTyping, setIsGenerating]);
+
+    useEffect(() => {
+        if (!isAssistantTyping && chatId === entry.sessionId) {
+            setHasUnreadUpdate(entry.sessionId, false);
+        }
+    }, [chatId, entry.sessionId, isAssistantTyping, setHasUnreadUpdate]);
+
+    useEffect(() => {
         inputRef.current?.focus();
     }, [projectName]);
+
+    useEffect(() => {
+        if (pendingClarification || isRecording) return;
+        inputRef.current?.focus();
+    }, [entry.sessionId, isRecording, pendingClarification]);
 
     const resetSilenceTimeout = useCallback(() => {
         if (silenceTimeoutRef.current) {
@@ -628,6 +698,16 @@ function ProjectChatSession({
     const handleSendMessage = useCallback(async () => {
         const text = inputValue;
         if (!text.trim() || isRecording || pendingClarification) return;
+        const isFirstMessage = displayedMessages.length === 0;
+        const cachedGroups = queryClient.getQueryData<Group[]>(queryKeys.groupsWithProjects);
+        const cachedProjectChats = queryClient.getQueryData<ProjectChatSummary[]>(queryKeys.projectChats(projectId));
+        const optimisticChat = {
+            id: entry.sessionId,
+            title:
+                getCachedChatTitle(cachedGroups, projectId, entry.sessionId, cachedProjectChats) ??
+                createOptimisticChatTitle(text),
+            updatedAt: new Date().toISOString(),
+        };
         setStreamError(null);
         // Clear the input synchronously before awaiting sendMessage: the AI
         // SDK's promise only resolves once the stream is done, so leaving the
@@ -635,11 +715,25 @@ function ProjectChatSession({
         // response.
         setInputValue("");
         clearNewChatDraft();
-        if (!displayedMessages.length) {
-            router.replace(`${pathname}?chatId=${encodeURIComponent(entry.sessionId)}`);
+        queryClient.setQueryData<Group[]>(queryKeys.groupsWithProjects, (groups) =>
+            upsertOptimisticProjectChat(groups, projectId, optimisticChat)
+        );
+        queryClient.setQueryData<ProjectChatSummary[]>(queryKeys.projectChats(projectId), (chats) =>
+            upsertOptimisticChat(chats, optimisticChat)
+        );
+        if (isFirstMessage) {
+            window.history.replaceState(null, "", `${pathname}?chatId=${encodeURIComponent(entry.sessionId)}`);
         }
-        await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
-        await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+        setIsGenerating(true);
+        setHasUnreadUpdate(entry.sessionId, false);
+        try {
+            await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
+        } finally {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects }),
+                queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(projectId) }),
+            ]);
+        }
     }, [
         clearNewChatDraft,
         displayedMessages.length,
@@ -649,9 +743,11 @@ function ProjectChatSession({
         isRecording,
         pathname,
         pendingClarification,
+        projectId,
         queryClient,
-        router,
         sendMessage,
+        setHasUnreadUpdate,
+        setIsGenerating,
         setStreamError,
     ]);
 
@@ -724,6 +820,7 @@ function ProjectChatSession({
                 disabled={isRecording || !!pendingClarification}
                 placeholder={t("ask.question")}
                 projectId={projectId}
+                autoFocus={!pendingClarification && !isRecording}
                 interimTranscript={isRecording ? interimTranscript : undefined}
                 editorClassName={
                     isEmptyChat
