@@ -467,7 +467,9 @@ export const chatRoute = new Elysia()
                             let retryRequested = false;
 
                             generationStream: for await (const part of result.fullStream) {
-                                if (part.type !== "start" && part.type !== "start-step" && firstOutputAt === null) {
+                                const isBookkeepingPart =
+                                    part.type === "start" || part.type === "start-step" || part.type === "error";
+                                if (!isBookkeepingPart && firstOutputAt === null) {
                                     firstOutputAt = Date.now();
                                 }
 
