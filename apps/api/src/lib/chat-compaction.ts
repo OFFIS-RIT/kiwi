@@ -230,10 +230,7 @@ function estimateStoredMessageTokens(message: ChatMessage) {
 }
 
 function shouldCompact(estimatedPromptTokens: number) {
-    return (
-        estimatedPromptTokens >= SOFT_COMPACTION_THRESHOLD ||
-        estimatedPromptTokens + REPLY_RESERVE_TOKENS > MAX_CONTEXT_TOKENS - SAFETY_MARGIN_TOKENS
-    );
+    return estimatedPromptTokens >= SOFT_COMPACTION_THRESHOLD;
 }
 
 function hasClientToolPart(message: Pick<ChatMessage, "parts">) {
