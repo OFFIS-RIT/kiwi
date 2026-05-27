@@ -40,9 +40,9 @@ export function prepareLatestMessageRequest({
 
     return {
         body: {
+            ...(body ?? {}),
             id,
             message: latestMessage,
-            ...(body ?? {}),
         },
     };
 }
