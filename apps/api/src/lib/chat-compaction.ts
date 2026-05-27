@@ -249,6 +249,7 @@ export function getProtectedTailStartIndex(rows: ChatMessage[]) {
 
     let startIndex = rows.length;
     let protectedTokens = 0;
+    const minimumProtectedTailStartIndex = Math.max(0, rows.length - MIN_RAW_VISIBLE_MESSAGES);
 
     for (let index = rows.length - 1; index >= 0; index -= 1) {
         startIndex = index;
@@ -258,6 +259,10 @@ export function getProtectedTailStartIndex(rows: ChatMessage[]) {
         if (protectedCount >= MIN_RAW_VISIBLE_MESSAGES && protectedTokens >= RAW_TAIL_TARGET_TOKENS) {
             break;
         }
+    }
+
+    if (protectedTokens < RAW_TAIL_TARGET_TOKENS) {
+        startIndex = minimumProtectedTailStartIndex;
     }
 
     const latestClientToolIndex = findLatestClientToolIndex(rows);
@@ -469,7 +474,7 @@ export async function syncChatMessage(options: {
                 parts,
                 ...metrics,
             })
-            .where(eq(messageTable.id, options.message.id));
+            .where(and(eq(messageTable.chatId, options.chatId), eq(messageTable.id, options.message.id)));
         return;
     }
 

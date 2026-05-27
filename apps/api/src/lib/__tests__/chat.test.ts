@@ -180,6 +180,14 @@ describe("chat context helpers", () => {
         expect(getProtectedTailStartIndex(rows)).toBe(2);
     });
 
+    test("falls back to the minimum protected tail when messages stay below the raw tail token target", () => {
+        const rows: ChatMessage[] = Array.from({ length: 10 }, (_, index) =>
+            textMessage(`msg-${index + 1}`, index % 2 === 0 ? "user" : "assistant", `short ${index + 1}`)
+        );
+
+        expect(getProtectedTailStartIndex(rows)).toBe(4);
+    });
+
     test("detects provider context overflow errors for retry-after-compaction", () => {
         expect(
             isContextOverflowError(new Error("This model's maximum context length is 256000 tokens."))
