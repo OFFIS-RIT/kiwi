@@ -73,7 +73,5 @@ export function createCompactionTaskPrompt(options: { previousSummary?: string; 
             : "Create a new anchored summary from the conversation history.",
         `Transcript to compact:\n${options.transcript.trim()}`,
         "Return only the compacted summary described in your instructions.",
-    ]
-        .filter((value): value is string => typeof value === "string")
-        .join("\n\n");
+    ].join("\n\n");
 }
