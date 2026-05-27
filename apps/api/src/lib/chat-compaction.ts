@@ -136,7 +136,11 @@ export function normalizeChatRequest(request: ChatRequest): NormalizedChatReques
 }
 
 export async function loadChatRows(chatId: string) {
-    return db.select().from(messageTable).where(eq(messageTable.chatId, chatId)).orderBy(asc(messageTable.createdAt), asc(messageTable.id));
+    return db
+        .select()
+        .from(messageTable)
+        .where(and(eq(messageTable.chatId, chatId), eq(messageTable.status, "completed")))
+        .orderBy(asc(messageTable.createdAt), asc(messageTable.id));
 }
 
 export function deriveActiveCompaction(rows: ChatMessage[]) {
