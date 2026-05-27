@@ -29,7 +29,7 @@ const {
     normalizeChatRequest,
     replaceOrAppendMessage,
 } = await import("../chat");
-const { serializeCompactionTranscript } = await import("../chat-compaction");
+const { normalizeCompactionSummary, serializeCompactionTranscript } = await import("../chat-compaction");
 
 const largeText = "token ".repeat(7000);
 
@@ -212,6 +212,10 @@ describe("chat context helpers", () => {
         expect(transcript).toContain("State: completed");
         expect(transcript).toContain('Input: {"questions":["Which region?"]}');
         expect(transcript).toContain('Output: {"answers":["EMEA"]}');
+    });
+
+    test("rejects empty compaction summaries instead of silently checkpointing them", () => {
+        expect(() => normalizeCompactionSummary("   \n\t  ")).toThrow("Compaction summary was empty");
     });
 
     test("detects provider context overflow errors for retry-after-compaction", () => {

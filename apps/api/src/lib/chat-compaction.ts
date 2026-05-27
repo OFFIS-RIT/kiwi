@@ -346,6 +346,15 @@ export function serializeCompactionTranscript(messages: ChatUIMessage[]) {
         .join("\n\n");
 }
 
+export function normalizeCompactionSummary(summary: string) {
+    const trimmedSummary = summary.trim();
+    if (trimmedSummary.length === 0) {
+        throw new Error("Compaction summary was empty");
+    }
+
+    return prepareCitationFencesForModel(trimmedSummary);
+}
+
 async function insertCheckpoint(options: {
     chatId: string;
     graphPrompt?: string;
@@ -368,7 +377,7 @@ async function insertCheckpoint(options: {
     const compactionPart: MessageCompactionPart = {
         type: "compaction",
         version: 1,
-        summary: prepareCitationFencesForModel(summary.trim()),
+        summary: normalizeCompactionSummary(summary),
         summarizedThroughMessageId: options.summarizedThroughMessageId,
         basedOnCompactionMessageId: options.basedOnCompactionMessageId,
     };
@@ -497,32 +506,26 @@ export async function syncChatMessage(options: {
     const parts = options.toParts(options.message);
     const createdAt = options.parseCreatedAt(options.message.metadata?.createdAt);
     const metrics = options.getMetrics(options.message.metadata);
-    const [existing] = await db
-        .select({ id: messageTable.id })
-        .from(messageTable)
-        .where(and(eq(messageTable.chatId, options.chatId), eq(messageTable.id, options.message.id)))
-        .limit(1);
 
-    if (existing) {
-        await db
-            .update(messageTable)
-            .set({
+    await db
+        .insert(messageTable)
+        .values({
+            id: options.message.id,
+            chatId: options.chatId,
+            role: options.message.role,
+            status: "completed",
+            parts,
+            createdAt,
+            ...metrics,
+        })
+        .onConflictDoUpdate({
+            target: messageTable.id,
+            set: {
                 role: options.message.role,
                 status: "completed",
                 parts,
                 ...metrics,
-            })
-            .where(and(eq(messageTable.chatId, options.chatId), eq(messageTable.id, options.message.id)));
-        return;
-    }
-
-    await db.insert(messageTable).values({
-        id: options.message.id,
-        chatId: options.chatId,
-        role: options.message.role,
-        status: "completed",
-        parts,
-        createdAt,
-        ...metrics,
-    });
+            },
+            setWhere: eq(messageTable.chatId, options.chatId),
+        });
 }
