@@ -21,7 +21,7 @@ import {
     type MessagePart,
 } from "@kiwi/db/tables/chats";
 import { validateUIMessages, type ModelMessage } from "ai";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { API_ERROR_CODES } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 
@@ -139,7 +139,7 @@ export async function loadChatRows(chatId: string) {
     return db
         .select()
         .from(messageTable)
-        .where(and(eq(messageTable.chatId, chatId), eq(messageTable.status, "completed")))
+        .where(and(eq(messageTable.chatId, chatId), ne(messageTable.status, "pending")))
         .orderBy(asc(messageTable.createdAt), asc(messageTable.id));
 }
 
