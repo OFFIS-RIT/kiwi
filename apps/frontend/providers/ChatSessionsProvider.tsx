@@ -98,6 +98,19 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
             activeSessionIdsRef.current.set(projectId, sessionId);
         };
 
+        // Reclaim Chat instances (and their WebSocket resources) for entries that
+        // are no longer needed: not the active session, not streaming, and already
+        // read. Without this, background sessions accumulate without bound.
+        const reclaimInertEntries = () => {
+            for (const [key, entry] of entriesRef.current) {
+                const isActive = activeSessionIdsRef.current.get(entry.projectId) === entry.sessionId;
+                if (isActive || entry.isGenerating || entry.hasUnreadUpdate) continue;
+                void entry.chat.stop().catch(() => undefined);
+                entriesRef.current.delete(key);
+                notify(entry.projectId);
+            }
+        };
+
         const getSnapshot = (projectId: string) => {
             const cached = snapshotsRef.current.get(projectId);
             if (cached) return cached;
@@ -152,6 +165,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
             };
             entriesRef.current.set(entryKey(projectId, init.sessionId), entry);
             setActiveEntry(projectId, init.sessionId);
+            reclaimInertEntries();
             notify(projectId);
             return entry;
         };
@@ -163,6 +177,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 const existing = entriesRef.current.get(key);
                 if (existing) {
                     setActiveEntry(projectId, init.sessionId);
+                    reclaimInertEntries();
                     notify(projectId);
                     return existing;
                 }
@@ -183,6 +198,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 const existing = entriesRef.current.get(key);
                 if (existing) {
                     setActiveEntry(projectId, init.sessionId);
+                    reclaimInertEntries();
                     notify(projectId);
                     return existing;
                 }
