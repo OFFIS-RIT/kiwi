@@ -131,14 +131,17 @@ export function useGroupsWithProjects() {
 /**
  * Suspense-enabled version of {@link useGroupsWithProjects}.
  * Throws a promise during loading, allowing React Suspense to handle loading states.
- * Use this when the component is wrapped in a Suspense boundary.
+ *
+ * Must be rendered within the authenticated `(app)` boundary: useSuspenseQuery cannot be
+ * disabled, so it assumes a session exists. The protected layout redirects unauthenticated
+ * requests before this can mount, and sign-out clears the query cache, so there is no
+ * unauthenticated render to guard against here (unlike the `enabled`-gated {@link useGroupsWithProjects}).
  *
  * @returns Query result (never in loading state due to suspense behavior)
  */
 export function useGroupsWithProjectsSuspense() {
     const queryClient = useQueryClient();
     const apiClient = useApiClient();
-    const { isAuthenticated } = useAuth();
 
     return useSuspenseQuery({
         queryKey: queryKeys.groupsWithProjects,
@@ -150,8 +153,6 @@ export function useGroupsWithProjectsSuspense() {
         },
         refetchIntervalInBackground: false,
         queryFn: async () => {
-            if (!isAuthenticated) return [];
-
             const cachedGroups = queryClient.getQueryData<ApiGroup[]>(queryKeys.groups);
             const [apiGroups, apiGraphs] = await Promise.all([
                 cachedGroups ?? fetchGroups(apiClient),
