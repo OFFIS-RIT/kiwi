@@ -589,7 +589,7 @@ function ProjectItem({
         : null;
     const visibleChats = showAllChats && allChats && !isFetchingAllChats ? allChats : project.recentChats;
     const chatsToShow = visibleChats;
-    const canExpandChats = project.recentChats.length >= RECENT_CHAT_LIMIT;
+    const canExpandChats = project.recentChats.length > RECENT_CHAT_LIMIT;
     const runningChatIds = useMemo(
         () => new Set(entries.filter((entry) => entry.isGenerating).map((entry) => entry.sessionId)),
         [entries]
