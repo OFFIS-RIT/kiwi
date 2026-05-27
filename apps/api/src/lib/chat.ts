@@ -19,36 +19,59 @@ import {
     uiMessageToMessageParts,
 } from "@kiwi/ai";
 import { db } from "@kiwi/db";
-import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats";
+import {
+    chatTable,
+    messageTable,
+    type MessagePart,
+} from "@kiwi/db/tables/chats";
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { Result } from "better-result";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
+import {
+    createPendingAssistantMessage,
+    ensureChatRecord,
+    isCompactionMessage,
+    loadChatRows,
+    maybeCompactConversation,
+    normalizeChatRequest,
+    syncChatMessage,
+    type ChatRequest,
+    type PromptOptions,
+} from "./chat-compaction";
 import {
     createCachingCitationResolver,
     normalizeMessageCitationFences,
     type CitationResolver,
 } from "./chat-citation-normalization";
 import { API_ERROR_CODES, errorResponse } from "../types";
-import type { ChatRequestBody } from "../types/routes";
 
 type RouteStatus = (code: number, body: unknown) => unknown;
 
-export type ChatRequest = ChatRequestBody;
+export {
+    type ChatRequest,
+    deriveActiveCompaction,
+    getProtectedTailStartIndex,
+    normalizeChatRequest,
+    replaceOrAppendMessage,
+} from "./chat-compaction";
+
+type RuntimeToolset = "server" | "server-and-client" | "mcp";
 
 type StartReplyOptions = {
-    toolset: "server" | "server-and-client" | "mcp";
+    toolset: "server" | "server-and-client";
     deep?: boolean;
+    promptOptions?: PromptOptions;
 };
 
 export const DEFAULT_CHAT_TITLE = "...";
 
 const unresolvedCitationCache = new Map<string, number>();
 
-function buildBaseToolset(options: GraphToolsetOptions, toolset: StartReplyOptions["toolset"]) {
+function buildBaseToolset(options: GraphToolsetOptions, toolset: RuntimeToolset) {
     switch (toolset) {
         case "server-and-client":
             return buildServerAndClientToolset(options);
@@ -125,75 +148,14 @@ export function toolPart<
     };
 }
 
-async function ensureChat(userId: string, graphId: string, request: ChatRequest) {
-    const [existingChat] = await db
-        .select({
-            id: chatTable.id,
-            userId: chatTable.userId,
-            graphId: chatTable.graphId,
-        })
-        .from(chatTable)
-        .where(eq(chatTable.id, request.id))
-        .limit(1);
-
-    if (!existingChat) {
-        await db.insert(chatTable).values({
-            id: request.id,
-            userId,
-            graphId,
-            title: DEFAULT_CHAT_TITLE,
-        });
-        return { isNewChat: true };
-    }
-
-    if (existingChat.userId !== userId || existingChat.graphId !== graphId) {
-        throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
-    }
-
-    return { isNewChat: false };
-}
-
 export async function touchChat(chatId: string) {
     await db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId));
 }
 
-async function syncMessages(chatId: string, messages: ChatUIMessage[]) {
-    for (const message of messages) {
-        const parts = uiMessageToMessageParts(message);
-        const createdAt = parseCreatedAt(message.metadata?.createdAt);
-        const metrics = getMetrics(message.metadata);
-        const [existing] = await db
-            .select({ id: messageTable.id })
-            .from(messageTable)
-            .where(and(eq(messageTable.chatId, chatId), eq(messageTable.id, message.id)))
-            .limit(1);
-
-        if (existing) {
-            await db
-                .update(messageTable)
-                .set({
-                    role: message.role,
-                    status: "completed",
-                    parts,
-                    ...metrics,
-                })
-                .where(eq(messageTable.id, message.id));
-            continue;
-        }
-
-        await db.insert(messageTable).values({
-            id: message.id,
-            chatId,
-            role: message.role,
-            status: "completed",
-            parts,
-            createdAt,
-            ...metrics,
-        });
-    }
-}
-
-export async function getGraphResearchRuntime(graphId: string, options: StartReplyOptions = { toolset: "server" }) {
+export async function getGraphResearchRuntime(
+    graphId: string,
+    options: { toolset: RuntimeToolset; deep?: boolean } = { toolset: "server" }
+) {
     const [promptRow] = await db
         .select({ prompt: systemPromptsTable.prompt })
         .from(systemPromptsTable)
@@ -229,44 +191,66 @@ export async function getGraphResearchRuntime(graphId: string, options: StartRep
         throw new Error("Text and embedding models are required");
     }
 
-    const toolsetOptions = { graphId, embeddingModel: client.embedding };
+    const requiredClient = {
+        ...client,
+        text: client.text,
+        embedding: client.embedding,
+    };
+
+    const toolsetOptions = { graphId, embeddingModel: requiredClient.embedding };
     const baseToolset = buildBaseToolset(toolsetOptions, options.toolset);
     const tools = options.deep
         ? buildDeepResearchToolset(
               buildSubagentToolset({
                   ...toolsetOptions,
-                  model: client.subagent ?? client.text,
+                  model: requiredClient.subagent ?? requiredClient.text,
                   graphPrompt: promptRow?.prompt ?? undefined,
               })
           )
         : baseToolset;
 
     return {
-        client,
+        client: requiredClient,
         tools,
         prompt: promptRow?.prompt ?? undefined,
     };
 }
 
+
 export async function startReply(userId: string, graphId: string, request: ChatRequest, options: StartReplyOptions) {
-    const { isNewChat } = await ensureChat(userId, graphId, request);
-    await syncMessages(request.id, request.messages);
-
-    const assistantId = crypto.randomUUID();
-    await db.insert(messageTable).values({
-        id: assistantId,
-        chatId: request.id,
-        role: "assistant",
-        status: "pending",
-        parts: [],
+    const normalizedRequest = normalizeChatRequest(request);
+    const { isNewChat } = await ensureChatRecord({
+        chatId: normalizedRequest.id,
+        userId,
+        graphId,
+        defaultTitle: DEFAULT_CHAT_TITLE,
     });
-    await touchChat(request.id);
-
+    await syncChatMessage({
+        chatId: normalizedRequest.id,
+        message: normalizedRequest.latestMessage,
+        toParts: uiMessageToMessageParts,
+        getMetrics,
+        parseCreatedAt,
+    });
     const runtime = await getGraphResearchRuntime(graphId, options);
+    const { context, systemPrompt } = await maybeCompactConversation({
+        chatId: normalizedRequest.id,
+        graphId,
+        runtime,
+        rows: await loadChatRows(normalizedRequest.id),
+        promptOptions: options.promptOptions,
+    });
+    const assistantId = await createPendingAssistantMessage(normalizedRequest.id);
+    await touchChat(normalizedRequest.id);
 
     return {
         assistantId,
         isNewChat,
+        titleMessages: normalizedRequest.titleMessages,
+        systemPrompt,
+        contextMessages: context.contextMessages,
+        validatedMessages: context.validatedMessages,
+        estimatedPromptTokens: context.estimatedPromptTokens,
         ...runtime,
     };
 }
@@ -399,11 +383,7 @@ export async function loadChatSummary(userId: string, graphId: string, chatId: s
 export async function loadChatHistory(userId: string, graphId: string, chatId: string) {
     const chat = await loadChatSummary(userId, graphId, chatId);
 
-    const rows = await db
-        .select()
-        .from(messageTable)
-        .where(eq(messageTable.chatId, chatId))
-        .orderBy(asc(messageTable.createdAt), asc(messageTable.id));
+    const rows = (await loadChatRows(chatId)).filter((message) => !isCompactionMessage(message));
 
     const resolveCitation = createCachedCitationResolver(graphId);
     const normalizedRows = await Promise.all(
@@ -559,6 +539,17 @@ export function mapChatError(status: RouteStatus, error: unknown) {
 
     if (hasErrorCode(API_ERROR_CODES.CHAT_NOT_FOUND)) {
         return status(404, errorResponse("Chat not found", API_ERROR_CODES.CHAT_NOT_FOUND));
+    }
+
+    if (hasErrorCode(API_ERROR_CODES.INVALID_CHAT_REQUEST)) {
+        return status(400, errorResponse("Invalid chat request", API_ERROR_CODES.INVALID_CHAT_REQUEST));
+    }
+
+    if (hasErrorCode(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE)) {
+        return status(
+            413,
+            errorResponse("Chat context is too large to continue without losing the protected recent tail", API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE)
+        );
     }
 
     return status(500, errorResponse(error.message || "Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));

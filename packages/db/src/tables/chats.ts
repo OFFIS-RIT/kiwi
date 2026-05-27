@@ -60,7 +60,20 @@ export type MessageMetadataPart = {
     };
 };
 
-export type MessagePart = MessageTextPart | MessageReasoningPart | MessageToolPart | MessageMetadataPart;
+export type MessageCompactionPart = {
+    type: "compaction";
+    version: 1;
+    summary: string;
+    summarizedThroughMessageId: string;
+    basedOnCompactionMessageId?: string;
+};
+
+export type MessagePart =
+    | MessageTextPart
+    | MessageReasoningPart
+    | MessageToolPart
+    | MessageMetadataPart
+    | MessageCompactionPart;
 
 export const messageTable = pgTable.withRLS(
     "messages",

@@ -24,6 +24,29 @@ type EnsureEntryInit = {
     sendAutomaticallyWhen?: SendAutomaticallyWhen;
 };
 
+export function prepareLatestMessageRequest({
+    id,
+    messages,
+    body,
+}: {
+    id: string;
+    messages: UIMessage[];
+    body?: Record<string, unknown>;
+}) {
+    const latestMessage = messages[messages.length - 1];
+    if (!latestMessage) {
+        throw new Error("Cannot send chat request without a latest message");
+    }
+
+    return {
+        body: {
+            id,
+            message: latestMessage,
+            ...(body ?? {}),
+        },
+    };
+}
+
 type ChatSessionsStore = {
     getEntry: (projectId: string) => ProjectChatEntry | undefined;
     ensureEntry: (projectId: string, init: EnsureEntryInit) => ProjectChatEntry;
@@ -75,6 +98,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 transport: new DefaultChatTransport({
                     api: `${apiUrl}/stream/${projectId}`,
                     credentials: "include",
+                    prepareSendMessagesRequest: prepareLatestMessageRequest,
                 }),
                 sendAutomaticallyWhen: init.sendAutomaticallyWhen,
                 onData: (part) => {

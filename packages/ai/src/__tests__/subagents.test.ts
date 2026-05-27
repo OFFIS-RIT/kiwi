@@ -3,9 +3,13 @@ import { describe, expect, mock, test } from "bun:test";
 const generateMock = mock(async ({ prompt }: { prompt: string }) => ({
     text: `generated:${prompt}`,
 }));
+const generateTextMock = mock(async ({ prompt }: { prompt: string }) => ({
+    text: `compacted:${prompt}`,
+}));
 
 mock.module("ai", async () => {
     return {
+        generateText: generateTextMock,
         stepCountIs: () => Symbol("stop"),
         ToolLoopAgent: class {
             generate = generateMock;
@@ -32,7 +36,7 @@ mock.module("../tools/toolsets", () => ({
     buildSourceCurationToolset: () => ({}),
 }));
 
-const { buildSubagentToolset } = await import("../agents/subagents");
+const { buildSubagentToolset, compactConversationHistory } = await import("../agents/subagents");
 
 describe("subagent tools", () => {
     test("delegates graph exploration with the specialized task prompt", async () => {
@@ -84,5 +88,35 @@ describe("subagent tools", () => {
         expect(result).toBe(
             'generated:curate-task:{"task":"Find source evidence","entityIds":["entity-1"],"relationshipIds":["rel-1"],"query":"roadmap","files":["file-1"]}'
         );
+    });
+
+    test("runs the compaction helper with the dedicated prompt and output cap", async () => {
+        generateTextMock.mockClear();
+        const model = {} as never;
+
+        const result = await compactConversationHistory({
+            model,
+            graphPrompt: "Prefer decisions.",
+            previousSummary: "Earlier summary",
+            transcript: "User: hi",
+        });
+
+        const call = generateTextMock.mock.calls[0]?.[0] as {
+            model: unknown;
+            system: string;
+            prompt: string;
+            temperature: number;
+            maxOutputTokens: number;
+            abortSignal?: AbortSignal;
+        };
+
+        expect(call.model).toBe(model);
+        expect(call.system).toContain("chat compaction agent");
+        expect(call.prompt).toContain("Previous summary:");
+        expect(call.prompt).toContain("Transcript to compact:");
+        expect(call.temperature).toBe(0.1);
+        expect(call.maxOutputTokens).toBe(6000);
+        expect(call.abortSignal).toBeUndefined();
+        expect(result).toContain("compacted:");
     });
 });

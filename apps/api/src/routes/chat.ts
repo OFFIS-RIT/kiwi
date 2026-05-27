@@ -1,10 +1,8 @@
 import {
-    createChatSystemPrompt,
     createCitationFenceStreamParser,
     getProviderOptions,
     stringifyCitationFence,
     type ChatUIMessage,
-    uiMessagesToModelMessages,
 } from "@kiwi/ai";
 import { db } from "@kiwi/db";
 import { Result } from "better-result";
@@ -42,7 +40,8 @@ import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
 
 const requestBodySchema = t.Object({
     id: t.String(),
-    messages: t.Array(t.Any()),
+    message: t.Optional(t.Any()),
+    messages: t.Optional(t.Array(t.Any())),
     deep: t.Optional(t.Boolean()),
 });
 
@@ -158,13 +157,19 @@ export const chatRoute = new Elysia()
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
                 const deep = request.deep === true;
-                const { assistantId, client, tools, prompt, isNewChat } = await startReply(user.id, params.id, request, {
-                    toolset: "server",
-                    deep,
-                });
+                const { assistantId, client, contextMessages, systemPrompt, tools, isNewChat, titleMessages } =
+                    await startReply(user.id, params.id, request, {
+                        toolset: "server",
+                        deep,
+                        promptOptions: {
+                            includeGraphTools: !deep,
+                            includeClientTools: false,
+                            includeSubagentTools: deep,
+                        },
+                    });
                 startChatTitleGeneration({
                     chatId: request.id,
-                    messages: request.messages,
+                    messages: titleMessages,
                     client,
                     isNewChat,
                 });
@@ -173,12 +178,8 @@ export const chatRoute = new Elysia()
                 const citationFileIds = new Set<string>();
                 const result = await generateText({
                     model: client.text!,
-                    messages: uiMessagesToModelMessages(request.messages),
-                    system: createChatSystemPrompt(prompt, {
-                        includeGraphTools: !deep,
-                        includeClientTools: false,
-                        includeSubagentTools: deep,
-                    }),
+                    messages: contextMessages,
+                    system: systemPrompt,
                     tools,
                     temperature: 0.3,
                     stopWhen: stepCountIs(50),
@@ -285,18 +286,24 @@ export const chatRoute = new Elysia()
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
                 const deep = request.deep === true;
-                const { assistantId, client, tools, prompt, isNewChat } = await startReply(
+                const { assistantId, client, contextMessages, systemPrompt, tools, isNewChat, titleMessages } =
+                    await startReply(
                     user.id,
                     params.id,
                     request,
                     {
                         toolset: "server-and-client",
                         deep,
+                        promptOptions: {
+                            includeGraphTools: !deep,
+                            includeClientTools: !deep,
+                            includeSubagentTools: deep,
+                        },
                     }
                 );
                 startChatTitleGeneration({
                     chatId: request.id,
-                    messages: request.messages,
+                    messages: titleMessages,
                     client,
                     isNewChat,
                 });
@@ -332,12 +339,8 @@ export const chatRoute = new Elysia()
 
                 const result = streamText({
                     model: client.text!,
-                    messages: uiMessagesToModelMessages(request.messages),
-                    system: createChatSystemPrompt(prompt, {
-                        includeGraphTools: !deep,
-                        includeClientTools: !deep,
-                        includeSubagentTools: deep,
-                    }),
+                    messages: contextMessages,
+                    system: systemPrompt,
                     tools,
                     temperature: 0.3,
                     stopWhen: stepCountIs(50),

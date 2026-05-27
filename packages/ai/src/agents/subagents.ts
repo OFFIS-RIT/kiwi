@@ -1,6 +1,7 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { stepCountIs, ToolLoopAgent, tool, type ToolSet } from "ai";
+import { generateText, stepCountIs, ToolLoopAgent, tool, type ToolSet } from "ai";
 import { z } from "zod";
+import { createCompactionPrompt, createCompactionTaskPrompt } from "../prompts/compaction.prompt";
 import {
     createExploreSubagentPrompt,
     createExploreSubagentTaskPrompt,
@@ -84,4 +85,26 @@ export function buildSubagentToolset(options: SubagentOptions) {
             },
         }),
     } satisfies ToolSet;
+}
+
+export async function compactConversationHistory(options: {
+    model: LanguageModelV3;
+    transcript: string;
+    graphPrompt?: string;
+    previousSummary?: string;
+    abortSignal?: AbortSignal;
+}) {
+    const result = await generateText({
+        model: options.model,
+        system: createCompactionPrompt(options.graphPrompt),
+        prompt: createCompactionTaskPrompt({
+            previousSummary: options.previousSummary,
+            transcript: options.transcript,
+        }),
+        temperature: 0.1,
+        maxOutputTokens: 6_000,
+        abortSignal: options.abortSignal,
+    });
+
+    return result.text;
 }
