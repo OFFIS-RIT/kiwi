@@ -15,9 +15,7 @@ type SidebarExpansionContextType = {
     toggleProjectExpanded: (projectId: string) => void;
     initializeExpandedGroups: (groupIds: string[]) => void;
     initializeExpandedProjects: (projectIds: string[]) => void;
-    preserveExpansionDuringSearch: () => Record<string, boolean>;
-    restoreExpansionAfterSearch: (originalGroups: Record<string, boolean>, originalProjects?: Record<string, boolean>) => void;
-    expandGroupsForSearch: (groupIds: string[], projectIds?: string[]) => void;
+    expandSidebarPath: (groupIds: string[], projectIds?: string[]) => void;
 };
 
 const SidebarExpansionContext = createContext<SidebarExpansionContextType | undefined>(undefined);
@@ -82,7 +80,6 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
     const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(() =>
         loadExpandedStateFromStorage(PROJECT_STORAGE_KEY)
     );
-    const originalExpandedStateRef = useRef<Record<string, boolean>>({});
     const isInitializedRef = useRef(false);
 
     // Save to localStorage whenever expandedGroups changes (but not on initial load)
@@ -151,23 +148,7 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
         }));
     }, []);
 
-    // Save current expansion state for search functionality
-    const preserveExpansionDuringSearch = useCallback(() => {
-        const currentState = { ...expandedGroups };
-        originalExpandedStateRef.current = currentState;
-        return currentState;
-    }, [expandedGroups]);
-
-    // Restore expansion state after search
-    const restoreExpansionAfterSearch = useCallback((originalGroups: Record<string, boolean>, originalProjects?: Record<string, boolean>) => {
-        setExpandedGroups((prev) => (areExpansionStatesEqual(prev, originalGroups) ? prev : originalGroups));
-        if (originalProjects) {
-            setExpandedProjects((prev) => (areExpansionStatesEqual(prev, originalProjects) ? prev : originalProjects));
-        }
-    }, []);
-
-    // Expand specific groups during search
-    const expandGroupsForSearch = useCallback((groupIds: string[], projectIds: string[] = []) => {
+    const expandSidebarPath = useCallback((groupIds: string[], projectIds: string[] = []) => {
         setExpandedGroups((prev) => {
             const newState = { ...prev };
             groupIds.forEach((groupId) => {
@@ -195,9 +176,7 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
                 toggleProjectExpanded,
                 initializeExpandedGroups,
                 initializeExpandedProjects,
-                preserveExpansionDuringSearch,
-                restoreExpansionAfterSearch,
-                expandGroupsForSearch,
+                expandSidebarPath,
             }}
         >
             {children}

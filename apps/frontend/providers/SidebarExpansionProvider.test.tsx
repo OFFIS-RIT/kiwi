@@ -39,7 +39,7 @@ describe("SidebarExpansionProvider", () => {
         expect(result.current.expandedProjects.graph_1).toBe(true);
     });
 
-    it("temporarily expands groups and graphs for search and restores both states", () => {
+    it("expands groups and graphs for selected navigation targets", () => {
         const { result } = renderHook(() => useSidebarExpansion(), { wrapper });
 
         act(() => {
@@ -47,22 +47,12 @@ describe("SidebarExpansionProvider", () => {
             result.current.initializeExpandedProjects(["graph_1"]);
         });
 
-        const originalGroups = result.current.expandedGroups;
-        const originalProjects = result.current.expandedProjects;
-
         act(() => {
-            result.current.expandGroupsForSearch(["team_1"], ["graph_1"]);
+            result.current.expandSidebarPath(["team_1"], ["graph_1"]);
         });
 
         expect(result.current.expandedGroups.team_1).toBe(true);
         expect(result.current.expandedProjects.graph_1).toBe(true);
-
-        act(() => {
-            result.current.restoreExpansionAfterSearch(originalGroups, originalProjects);
-        });
-
-        expect(result.current.expandedGroups.team_1).toBe(false);
-        expect(result.current.expandedProjects.graph_1).toBe(false);
     });
 
     it("does not clear stored graph expansion while project data is still empty", () => {
