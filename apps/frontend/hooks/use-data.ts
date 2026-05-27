@@ -16,6 +16,7 @@ import { ORGANIZATION_GROUP_ID } from "@/lib/api/projects";
 import { determineProcessStep } from "@/lib/process-step";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
+import { useAuth } from "@/providers/AuthProvider";
 import type { ApiBatchStepProgress, ApiGraph, ApiGroup, ApiProjectFile, Group } from "@/types";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 
@@ -99,9 +100,11 @@ const GROUPS_WITH_PROJECTS_STALE_TIME_MS = 30 * 1000;
 export function useGroupsWithProjects() {
     const queryClient = useQueryClient();
     const apiClient = useApiClient();
+    const { isAuthenticated } = useAuth();
 
     return useQuery({
         queryKey: queryKeys.groupsWithProjects,
+        enabled: isAuthenticated,
         staleTime: GROUPS_WITH_PROJECTS_STALE_TIME_MS,
         refetchInterval: (query) => {
             const groups = query.state.data as Group[] | undefined;
@@ -135,6 +138,7 @@ export function useGroupsWithProjects() {
 export function useGroupsWithProjectsSuspense() {
     const queryClient = useQueryClient();
     const apiClient = useApiClient();
+    const { isAuthenticated } = useAuth();
 
     return useSuspenseQuery({
         queryKey: queryKeys.groupsWithProjects,
@@ -146,6 +150,8 @@ export function useGroupsWithProjectsSuspense() {
         },
         refetchIntervalInBackground: false,
         queryFn: async () => {
+            if (!isAuthenticated) return [];
+
             const cachedGroups = queryClient.getQueryData<ApiGroup[]>(queryKeys.groups);
             const [apiGroups, apiGraphs] = await Promise.all([
                 cachedGroups ?? fetchGroups(apiClient),
