@@ -25,12 +25,9 @@ import { and, asc, eq, ne } from "drizzle-orm";
 import { API_ERROR_CODES } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 
-const MAX_CONTEXT_TOKENS = 256_000;
-const SAFETY_MARGIN_TOKENS = 8_000;
-const REPLY_RESERVE_TOKENS = 24_000;
 const RAW_TAIL_TARGET_TOKENS = 32_000;
 const MIN_RAW_VISIBLE_MESSAGES = 6;
-const SOFT_COMPACTION_THRESHOLD = MAX_CONTEXT_TOKENS - SAFETY_MARGIN_TOKENS - REPLY_RESERVE_TOKENS;
+const SOFT_COMPACTION_THRESHOLD = 224_000;
 
 export type ChatRequest = ChatRequestBody;
 
@@ -506,26 +503,24 @@ export async function syncChatMessage(options: {
     const parts = options.toParts(options.message);
     const createdAt = options.parseCreatedAt(options.message.metadata?.createdAt);
     const metrics = options.getMetrics(options.message.metadata);
+    const persistedMessage = {
+        role: options.message.role,
+        status: "completed" as const,
+        parts,
+        ...metrics,
+    };
 
     await db
         .insert(messageTable)
         .values({
             id: options.message.id,
             chatId: options.chatId,
-            role: options.message.role,
-            status: "completed",
-            parts,
+            ...persistedMessage,
             createdAt,
-            ...metrics,
         })
         .onConflictDoUpdate({
             target: messageTable.id,
-            set: {
-                role: options.message.role,
-                status: "completed",
-                parts,
-                ...metrics,
-            },
+            set: persistedMessage,
             setWhere: eq(messageTable.chatId, options.chatId),
         });
 }
