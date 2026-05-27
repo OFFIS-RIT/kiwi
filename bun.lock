@@ -28,6 +28,7 @@
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",
         "@kiwi/logger": "workspace:*",
+        "@kiwi/routes": "workspace:*",
         "@kiwi/worker": "workspace:*",
         "@modelcontextprotocol/sdk": "catalog:",
         "@t3-oss/env-core": "catalog:",
@@ -59,6 +60,7 @@
         "@kiwi/ai": "workspace:*",
         "@kiwi/api": "workspace:*",
         "@kiwi/auth": "workspace:*",
+        "@kiwi/routes": "workspace:*",
         "@radix-ui/react-avatar": "^1.1.11",
         "@radix-ui/react-collapsible": "^1.1.12",
         "@radix-ui/react-dialog": "1.1.15",
@@ -244,6 +246,15 @@
         "@opentelemetry/sdk-logs": "^0.217.0",
         "@opentelemetry/semantic-conventions": "^1.40.0",
       },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+      },
+      "peerDependencies": {
+        "typescript": "catalog:",
+      },
+    },
+    "packages/routes": {
+      "name": "@kiwi/routes",
       "devDependencies": {
         "@types/bun": "catalog:",
       },
@@ -595,6 +606,8 @@
     "@kiwi/graph": ["@kiwi/graph@workspace:packages/graph"],
 
     "@kiwi/logger": ["@kiwi/logger@workspace:packages/logger"],
+
+    "@kiwi/routes": ["@kiwi/routes@workspace:packages/routes"],
 
     "@kiwi/worker": ["@kiwi/worker@workspace:apps/worker"],
 

@@ -24,6 +24,7 @@ import type {
     GraphPatchSuccessData,
     TextUnitResponse,
 } from "@kiwi/api/types";
+import { getProjectFileProxyPath } from "@kiwi/routes";
 import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
 import { ApiError, unwrapApiResponse, type KiwiApiClient } from "./client";
 
@@ -213,27 +214,13 @@ export async function downloadProjectFile(client: KiwiApiClient, projectId: stri
     return isAbsoluteUrl(url) ? url : getApiAssetUrl(client, url);
 }
 
-// NOTE: this path format mirrors getProjectFileProxyPath in apps/api/src/lib/project-file-url.ts.
-// Keep both in sync if the path structure changes.
 export function getProjectFileUrl(
     client: KiwiApiClient,
     projectId: string,
     fileId: string,
     options: { fileName?: string | null; page?: number | null } = {}
 ): string {
-    const fileName = options.fileName?.trim();
-    const fileNamePath = fileName ? `/${encodeURIComponent(fileName)}` : "";
-    const url = getApiAssetUrl(
-        client,
-        `/graphs/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}${fileNamePath}`
-    );
-    const page = options.page;
-
-    if (typeof page !== "number" || !Number.isInteger(page) || page < 1) {
-        return url;
-    }
-
-    return `${url}#page=${page}`;
+    return getApiAssetUrl(client, getProjectFileProxyPath(projectId, fileId, options));
 }
 
 export function getApiAssetUrl(client: KiwiApiClient, path: string): string {
