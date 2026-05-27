@@ -86,7 +86,7 @@ const CreateProjectDialog = lazy(() =>
     }))
 );
 
-const RECENT_CHAT_LIMIT = 6;
+const RECENT_CHAT_LIMIT = 5;
 const EMPTY_GROUPS: Group[] = [];
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -587,9 +587,9 @@ function ProjectItem({
             ? deleteChatMutation.error.message
             : t("delete.chat.error")
         : null;
-    const visibleChats = showAllChats && allChats && !isFetchingAllChats ? allChats : project.recentChats;
-    const chatsToShow = visibleChats;
-    const canExpandChats = project.recentChats.length > RECENT_CHAT_LIMIT;
+    const hasExpandedData = showAllChats && allChats && !isFetchingAllChats;
+    const chatsToShow = hasExpandedData ? allChats : project.recentChats.slice(0, RECENT_CHAT_LIMIT);
+    const canExpandChats = project.recentChats.length >= RECENT_CHAT_LIMIT;
     const runningChatIds = useMemo(
         () => new Set(entries.filter((entry) => entry.isGenerating).map((entry) => entry.sessionId)),
         [entries]
@@ -632,10 +632,15 @@ function ProjectItem({
         router.push(href);
     };
 
+    const prefetchAllChats = () => {
+        queryClient.prefetchQuery({
+            queryKey: queryKeys.projectChats(project.id),
+            queryFn: () => fetchProjectChats(apiClient, project.id),
+            staleTime: 30 * 1000,
+        });
+    };
+
     const handleToggleAllChats = () => {
-        if (!showAllChats) {
-            queryClient.removeQueries({ queryKey: queryKeys.projectChats(project.id), exact: true });
-        }
         setShowAllChats((value) => !value);
     };
 
@@ -828,15 +833,16 @@ function ProjectItem({
                                     asChild
                                     size="sm"
                                     className="w-full justify-start text-muted-foreground"
-                                    aria-disabled={isFetchingAllChats}
+                                    aria-disabled={showAllChats && isFetchingAllChats}
                                 >
                                     <button
                                         type="button"
-                                        disabled={isFetchingAllChats}
+                                        disabled={showAllChats && isFetchingAllChats}
                                         onClick={handleToggleAllChats}
+                                        onMouseEnter={!showAllChats ? prefetchAllChats : undefined}
                                     >
                                         <span>
-                                            {isFetchingAllChats
+                                            {showAllChats && isFetchingAllChats
                                                 ? t("loading")
                                                 : showAllChats
                                                   ? t("show.less")
