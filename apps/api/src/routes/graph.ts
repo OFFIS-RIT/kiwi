@@ -1,10 +1,10 @@
-import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
 import { db } from "@kiwi/db";
-import { filesTable, graphTable, processRunFilesTable, processRunsTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
 import { teamTable } from "@kiwi/db/tables/auth";
-import { deleteFile, getPresignedDownloadUrl, listFiles, putFile } from "@kiwi/files";
+import { deleteFile, listFiles, putFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { deleteGraphFilesSpec } from "@kiwi/worker/delete-graph-files-spec";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
@@ -12,7 +12,6 @@ import { env } from "../env";
 import { chunk } from "../lib/array";
 import { collectGraphClosure } from "../lib/graph";
 import { listAccessibleGraphs } from "../lib/graph-list";
-import { mapUnitError } from "../lib/unit";
 import { cancelActiveFileProcessingWorkflowRuns, cancelActiveGraphWorkflowRuns } from "../lib/workflow-cancellation";
 import {
     assertCanCreateTopLevelGraph,
@@ -63,139 +62,6 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             return status(200, successResponse(graphsResult.value));
         },
         {
-            beforeHandle: requirePermissions({
-                graph: ["view"],
-            }),
-        }
-    )
-    .get(
-        "/:id/files",
-        async ({ params, user, status }) => {
-            if (!user) {
-                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
-            }
-
-            const filesResult = await Result.tryPromise(async () => {
-                await assertCanViewGraph(user, params.id);
-
-                const fileRows: GraphFileRow[] = await db
-                    .select(selectGraphDetailFileFields)
-                    .from(filesTable)
-                    .where(and(eq(filesTable.graphId, params.id), eq(filesTable.deleted, false)))
-                    .orderBy(asc(filesTable.createdAt), asc(filesTable.name));
-
-                return fileRows.map(toGraphFileRecord);
-            });
-
-            if (filesResult.isErr()) {
-                return mapGraphError(status, filesResult.error);
-            }
-
-            return status(200, successResponse(filesResult.value));
-        },
-        {
-            params: t.Object({
-                id: t.String(),
-            }),
-            beforeHandle: requirePermissions({
-                graph: ["list:file"],
-            }),
-        }
-    )
-    .post(
-        "/:id/file",
-        async ({ body, params, user, status }) => {
-            if (!user) {
-                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
-            }
-
-            const fileResult = await Result.tryPromise(async () => {
-                await assertCanViewGraph(user, params.id);
-
-                const [file] = await db
-                    .select({ key: filesTable.key })
-                    .from(filesTable)
-                    .where(
-                        and(
-                            eq(filesTable.graphId, params.id),
-                            eq(filesTable.key, body.file_key),
-                            eq(filesTable.deleted, false)
-                        )
-                    )
-                    .limit(1);
-
-                if (!file) {
-                    return status(400, errorResponse("Invalid file IDs", API_ERROR_CODES.INVALID_FILE_IDS));
-                }
-
-                return status(200, successResponse({ url: getPresignedDownloadUrl(file.key, env.S3_BUCKET) }));
-            });
-
-            if (fileResult.isErr()) {
-                return mapGraphError(status, fileResult.error);
-            }
-
-            return fileResult.value;
-        },
-        {
-            params: t.Object({
-                id: t.String(),
-            }),
-            body: t.Object({
-                file_key: t.String(),
-            }),
-            beforeHandle: requirePermissions({
-                graph: ["view"],
-            }),
-        }
-    )
-    .get(
-        "/:id/units/:unitId",
-        async ({ params, user, status }) => {
-            if (!user) {
-                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
-            }
-
-            const unitResult = await Result.tryPromise(async () => {
-                await assertCanViewGraph(user, params.id);
-
-                const [unit] = await db
-                    .select({
-                        id: textUnitTable.id,
-                        project_file_id: textUnitTable.fileId,
-                        text: textUnitTable.text,
-                        created_at: textUnitTable.createdAt,
-                        updated_at: textUnitTable.updatedAt,
-                    })
-                    .from(textUnitTable)
-                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                    .where(and(eq(textUnitTable.id, params.unitId), eq(filesTable.graphId, params.id)))
-                    .limit(1);
-
-                if (!unit) {
-                    throw new Error(API_ERROR_CODES.TEXT_UNIT_NOT_FOUND);
-                }
-
-                return {
-                    id: unit.id,
-                    project_file_id: unit.project_file_id,
-                    text: unit.text,
-                    created_at: unit.created_at?.toISOString() ?? null,
-                    updated_at: unit.updated_at?.toISOString() ?? null,
-                };
-            });
-
-            if (unitResult.isErr()) {
-                return mapUnitError(status, unitResult.error);
-            }
-
-            return status(200, successResponse(unitResult.value));
-        },
-        {
-            params: t.Object({
-                id: t.String(),
-                unitId: t.String(),
-            }),
             beforeHandle: requirePermissions({
                 graph: ["view"],
             }),

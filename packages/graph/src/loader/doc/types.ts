@@ -17,7 +17,8 @@ export type DOCBlock =
     | { kind: "paragraph"; text: string }
     | { kind: "bullet"; text: string; level: number; ordered: boolean }
     | { kind: "table"; rows: string[][] }
-    | { kind: "image"; id: string };
+    | { kind: "image"; id: string }
+    | { kind: "pageBreak" };
 
 export type DOCStyles = Map<string, { name: string | null; headingLevel: number | null }>;
 

@@ -1,4 +1,5 @@
 import { squashWhitespace } from "../ooxml/xml";
+import { renderPageFence } from "../../lib/page-fence";
 import type { SlideContent } from "./types";
 
 export function renderMarkdown(slides: SlideContent[]): string {
@@ -8,6 +9,8 @@ export function renderMarkdown(slides: SlideContent[]): string {
         if (slide.blocks.length === 0) {
             continue;
         }
+
+        builder.append(renderPageFence(slide.index + 1));
 
         if (!slide.hasTitle) {
             builder.append(`## Slide ${slide.index + 1}`);

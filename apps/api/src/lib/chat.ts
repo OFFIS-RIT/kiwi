@@ -7,6 +7,7 @@ import {
     buildServerToolset,
     buildSubagentToolset,
     getClient,
+    isPDFCitation,
     isResolvedCitationFence,
     messagePartsToUIMessage,
     toUIMessage,
@@ -20,10 +21,17 @@ import {
 import { db } from "@kiwi/db";
 import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats";
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
-import { getPresignedDownloadUrl } from "@kiwi/files";
-import { error as logError } from "@kiwi/logger";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { error as logError, warn as logWarn } from "@kiwi/logger";
+import { Result } from "better-result";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { env } from "../env";
+import { createProjectFileAccessToken } from "./project-file-access-token";
+import { getProjectFileProxyUrl } from "./project-file-url";
+import {
+    createCachingCitationResolver,
+    normalizeMessageCitationFences,
+    type CitationResolver,
+} from "./chat-citation-normalization";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 
@@ -37,6 +45,8 @@ type StartReplyOptions = {
 };
 
 export const DEFAULT_CHAT_TITLE = "...";
+
+const unresolvedCitationCache = new Map<string, number>();
 
 function buildBaseToolset(options: GraphToolsetOptions, toolset: StartReplyOptions["toolset"]) {
     switch (toolset) {
@@ -266,8 +276,11 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
         .select({
             sourceId: sourcesTable.id,
             unitId: textUnitTable.id,
+            fileId: filesTable.id,
             fileName: filesTable.name,
-            fileKey: filesTable.key,
+            fileType: filesTable.type,
+            startPage: textUnitTable.startPage,
+            endPage: textUnitTable.endPage,
         })
         .from(sourcesTable)
         .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
@@ -283,22 +296,70 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
         type: "cite",
         sourceId: row.sourceId,
         unitId: row.unitId,
+        fileId: row.fileId,
         fileName: row.fileName,
-        fileKey: row.fileKey,
+        fileType: row.fileType,
+        startPage: row.startPage ?? undefined,
+        endPage: row.endPage ?? undefined,
     };
 }
 
-export async function resolveCitationDocumentLink(graphId: string, citation: CitationFence) {
-    try {
-        const resolvedCitation = isResolvedCitationFence(citation)
-            ? citation
-            : await enrichCitation(graphId, citation.sourceId);
+function createCachedCitationResolver(graphId: string): CitationResolver {
+    return createCachingCitationResolver({
+        negativeCache: unresolvedCitationCache,
+        negativeCacheKey: (citation) => `${graphId}:${citation.sourceId}`,
+        resolveCitation: (sourceId) => enrichCitation(graphId, sourceId),
+    });
+}
 
-        if (!resolvedCitation) {
+async function updateMessagePartsBatch(chatId: string, updates: Array<{ id: string; parts: MessagePart[] }>) {
+    if (updates.length === 0) {
+        return;
+    }
+
+    const cases = sql.join(
+        updates.map(
+            (update) => sql`when ${messageTable.id} = ${update.id} then ${JSON.stringify(update.parts)}::jsonb`
+        ),
+        sql.raw(" ")
+    );
+
+    await db
+        .update(messageTable)
+        .set({ parts: sql<MessagePart[]>`case ${cases} else ${messageTable.parts} end` })
+        .where(
+            and(
+                eq(messageTable.chatId, chatId),
+                inArray(
+                    messageTable.id,
+                    updates.map((update) => update.id)
+                )
+            )
+        );
+}
+
+export async function resolveCitationDocumentLink(
+    graphId: string,
+    citation: CitationFence,
+    options: { baseUrl?: string; signed?: boolean } = {}
+) {
+    try {
+        const resolvedCitation =
+            isResolvedCitationFence(citation) && citation.fileId
+                ? citation
+                : await enrichCitation(graphId, citation.sourceId);
+
+        if (!resolvedCitation?.fileId) {
             return "[source unavailable]";
         }
 
-        const url = getPresignedDownloadUrl(resolvedCitation.fileKey, env.S3_BUCKET);
+        const page = isPDFCitation(resolvedCitation) ? resolvedCitation.startPage : null;
+        const token = options.signed ? await createProjectFileAccessToken(graphId, resolvedCitation.fileId) : undefined;
+        const url = getProjectFileProxyUrl(options.baseUrl, graphId, resolvedCitation.fileId, {
+            fileName: resolvedCitation.fileName,
+            page,
+            token,
+        });
         const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
 
         return `[${label}](${url})`;
@@ -313,7 +374,7 @@ export async function resolveCitationDocumentLink(graphId: string, citation: Cit
     }
 }
 
-export async function loadChatHistory(userId: string, graphId: string, chatId: string) {
+export async function loadChatSummary(userId: string, graphId: string, chatId: string) {
     const [chat] = await db
         .select({
             id: chatTable.id,
@@ -329,16 +390,89 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
         throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
     }
 
+    return {
+        id: chat.id,
+        title: chat.title,
+    };
+}
+
+export async function loadChatHistory(userId: string, graphId: string, chatId: string) {
+    const chat = await loadChatSummary(userId, graphId, chatId);
+
     const rows = await db
         .select()
         .from(messageTable)
         .where(eq(messageTable.chatId, chatId))
         .orderBy(asc(messageTable.createdAt), asc(messageTable.id));
 
+    const resolveCitation = createCachedCitationResolver(graphId);
+    const normalizedRows = await Promise.all(
+        rows.map(async (message) => {
+            const normalizedResult = await Result.tryPromise(async () =>
+                normalizeMessageCitationFences(message.parts, resolveCitation)
+            );
+            if (normalizedResult.isErr()) {
+                logError("failed to normalize chat citations", {
+                    graphId,
+                    chatId,
+                    messageId: message.id,
+                    error: normalizedResult.error,
+                });
+
+                return {
+                    message,
+                    normalized: {
+                        parts: message.parts,
+                        changed: false,
+                        unresolvedCitations: [],
+                    },
+                };
+            }
+
+            const normalized = normalizedResult.value;
+            if (normalized.unresolvedCitations.length > 0) {
+                logWarn("chat citation normalization hid unresolved citations without persisting", {
+                    graphId,
+                    chatId,
+                    messageId: message.id,
+                    unresolvedCitationCount: normalized.unresolvedCitations.length,
+                    sourceIds: normalized.unresolvedCitations.map((citation) => citation.sourceId).join(","),
+                });
+            }
+
+            return {
+                message,
+                normalized,
+            };
+        })
+    );
+
+    const messagePartUpdates = normalizedRows.flatMap(({ message, normalized }) =>
+        normalized.changed && normalized.unresolvedCitations.length === 0
+            ? [{ id: message.id, parts: normalized.parts }]
+            : []
+    );
+
+    const writeResult = await Result.tryPromise(async () => updateMessagePartsBatch(chatId, messagePartUpdates));
+    if (writeResult.isErr()) {
+        logError("failed to persist normalized citations", {
+            graphId,
+            chatId,
+            error: writeResult.error,
+        });
+    }
+
+    const messages = normalizedRows.map(({ message, normalized }) =>
+        toUIMessage({
+            ...message,
+            parts: normalized.parts,
+        })
+    );
+
     return {
         id: chat.id,
         title: chat.title,
-        messages: rows.map((message) => toUIMessage(message)),
+        messages,
     };
 }
 

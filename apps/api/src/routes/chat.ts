@@ -25,6 +25,7 @@ import {
     getFinishMetadata,
     listChats,
     loadChatHistory,
+    loadChatSummary,
     mapChatError,
     startReply,
     toolPart,
@@ -128,8 +129,8 @@ export const chatRoute = new Elysia()
 
             const deleteResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
-                const history = await loadChatHistory(user.id, params.id, params.chatId);
-                await db.delete(chatTable).where(eq(chatTable.id, history.id));
+                const chat = await loadChatSummary(user.id, params.id, params.chatId);
+                await db.delete(chatTable).where(eq(chatTable.id, chat.id));
             });
 
             if (deleteResult.isErr()) {
@@ -169,7 +170,7 @@ export const chatRoute = new Elysia()
                 });
 
                 const startedAt = Date.now();
-                const citationFileKeys = new Set<string>();
+                const citationFileIds = new Set<string>();
                 const result = await generateText({
                     model: client.text!,
                     messages: uiMessagesToModelMessages(request.messages),
@@ -199,7 +200,10 @@ export const chatRoute = new Elysia()
 
                                 const citation = await enrichCitation(params.id, segment.citation.sourceId);
                                 if (citation) {
-                                    citationFileKeys.add(citation.fileKey);
+                                    const citationFileId = citation.fileId ?? citation.fileKey;
+                                    if (citationFileId) {
+                                        citationFileIds.add(citationFileId);
+                                    }
                                     text += stringifyCitationFence(citation);
                                 }
                             }
@@ -243,7 +247,7 @@ export const chatRoute = new Elysia()
                     inputTokens: result.totalUsage.inputTokens,
                     outputTokens: result.totalUsage.outputTokens,
                     modelId: env.AI_TEXT_MODEL,
-                    usedFileCount: citationFileKeys.size,
+                    usedFileCount: citationFileIds.size,
                 });
                 parts.push({ type: "metadata", metadata: finishMetadata });
 
@@ -300,7 +304,7 @@ export const chatRoute = new Elysia()
                 const startedAt = Date.now();
                 let firstOutputAt: number | null = null;
                 const assistantParts: MessagePart[] = [];
-                const citationFileKeys = new Set<string>();
+                const citationFileIds = new Set<string>();
                 const reasoningBuffers = new Map<string, string>();
                 // The AI SDK flips the `dynamic` flag between `tool-input-*`
                 // and `tool-output-*` events when a tool input fails schema
@@ -404,7 +408,10 @@ export const chatRoute = new Elysia()
                                 return;
                             }
 
-                            citationFileKeys.add(citation.fileKey);
+                            const citationFileId = citation.fileId ?? citation.fileKey;
+                            if (citationFileId) {
+                                citationFileIds.add(citationFileId);
+                            }
                             appendText(modelPartId, stringifyCitationFence(citation));
                         };
 
@@ -575,7 +582,7 @@ export const chatRoute = new Elysia()
                                             inputTokens: part.totalUsage.inputTokens,
                                             outputTokens: part.totalUsage.outputTokens,
                                             modelId: env.AI_TEXT_MODEL,
-                                            usedFileCount: citationFileKeys.size,
+                                            usedFileCount: citationFileIds.size,
                                         });
                                         assistantParts.push({
                                             type: "metadata",

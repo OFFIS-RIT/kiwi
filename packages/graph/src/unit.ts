@@ -4,16 +4,19 @@ import { extractPrompt } from "@kiwi/ai/prompts/extract.prompt";
 import { generateText, Output } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { Graph, GraphFile, Unit } from ".";
+import { toPageAwareChunks } from "./lib/page-fence";
 import z from "zod";
 
 export async function createUnits(file: GraphFile): Promise<Unit[]> {
     const text = await file.loader.getText();
-    const chunks = await file.chunker.getChunks(text);
+    const chunks = toPageAwareChunks(await file.chunker.getChunks(text));
 
     return chunks.map((chunk) => ({
         id: ulid(),
         fileId: file.id,
-        content: chunk,
+        content: chunk.content,
+        startPage: chunk.startPage,
+        endPage: chunk.endPage,
     }));
 }
 

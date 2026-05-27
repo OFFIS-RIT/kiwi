@@ -6,6 +6,7 @@ import { initLogger, shutdownLogger } from "./logger";
 import { authMiddleware } from "./middleware/auth";
 import { authRoute } from "./routes/auth";
 import { chatRoute } from "./routes/chat";
+import { graphFilesRoute } from "./routes/graph-files";
 import { graphRoute } from "./routes/graph";
 import { mcpRoute } from "./routes/mcp";
 import { teamRoute } from "./routes/team";
@@ -27,9 +28,9 @@ const app = new Elysia({
             trustedOrigins.length > 0
                 ? {
                       origin: trustedOrigins,
-                      methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-                      allowedHeaders: ["Content-Type", "Authorization"],
-                      exposeHeaders: ["Content-Length", "Content-Range"],
+                      methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
+                      allowedHeaders: ["Content-Type", "Authorization", "Range", "If-Range"],
+                      exposeHeaders: ["Accept-Ranges", "Content-Disposition", "Content-Length", "Content-Range"],
                       credentials: true,
                   }
                 : undefined
@@ -39,6 +40,7 @@ const app = new Elysia({
     .use(authMiddleware)
     .use(authRoute)
     .use(chatRoute)
+    .use(graphFilesRoute)
     .use(graphRoute)
     .use(teamRoute)
     .get("/health", () => ({ status: "ok" }))

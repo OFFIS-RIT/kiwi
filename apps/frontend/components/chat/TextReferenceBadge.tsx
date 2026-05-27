@@ -4,12 +4,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { downloadProjectFile, fetchTextUnit } from "@/lib/api/projects";
-import { useApiClient } from "@/providers/ApiClientProvider";
+import { fetchTextUnit, getApiAssetUrl } from "@/lib/api/projects";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { useApiClient } from "@/providers/ApiClientProvider";
+import type { ApiTextUnit } from "@/types/api";
 import type { ResolvedCitationFence } from "@kiwi/ai/citation";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
+import Image from "next/image";
 import { useEffect, useEffectEvent, useState } from "react";
+import { openCitationSourceFile } from "./citation-file";
 
 type TextReferenceBadgeProps = {
     citation: ResolvedCitationFence;
@@ -45,6 +48,35 @@ export function TextReferenceBadge({ citation, index, onSelect }: TextReferenceB
     );
 }
 
+function PDFPreviewPageImage({ src, alt }: { src: string; alt: string }) {
+    const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+
+    return (
+        <div className="relative overflow-hidden rounded-md border bg-white">
+            {status === "loading" ? (
+                <div className="absolute inset-0 flex min-h-40 items-center justify-center bg-muted/30 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                </div>
+            ) : null}
+            {status === "error" ? (
+                <div className="flex min-h-40 items-center justify-center p-4 text-sm text-destructive">{alt}</div>
+            ) : (
+                <Image
+                    src={src}
+                    alt={alt}
+                    width={1200}
+                    height={1600}
+                    unoptimized
+                    crossOrigin="use-credentials"
+                    className="h-auto w-full"
+                    onLoad={() => setStatus("loaded")}
+                    onError={() => setStatus("error")}
+                />
+            )}
+        </div>
+    );
+}
+
 export function TextReferenceDialog({ citation, index, projectId, open, onOpenChange }: TextReferenceDialogProps) {
     const t = useAppTranslations();
     const apiClient = useApiClient();
@@ -52,7 +84,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
     const [isLoadingUnit, setIsLoadingUnit] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [unitText, setUnitText] = useState<string | null>(null);
+    const [unit, setUnit] = useState<ApiTextUnit | null>(null);
 
     useEffect(() => {
         if (!open || !projectId) {
@@ -64,11 +96,11 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         const loadUnit = async () => {
             setIsLoadingUnit(true);
             setError(null);
-            setUnitText(null);
+            setUnit(null);
             try {
-                const unit = await fetchTextUnit(apiClient, projectId, citation.unitId);
+                const loadedUnit = await fetchTextUnit(apiClient, projectId, citation.unitId);
                 if (!isCancelled) {
-                    setUnitText(unit.text);
+                    setUnit(loadedUnit);
                 }
             } catch (err) {
                 if (!isCancelled) {
@@ -88,6 +120,10 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         };
     }, [apiClient, citation.unitId, open, projectId]);
 
+    const unitText = unit?.text ?? null;
+    const preview = unit?.preview;
+    const pdfPreview = preview?.type === "pdf_pages" ? preview : null;
+
     const copyToClipboard = () => {
         if (unitText) {
             navigator.clipboard.writeText(unitText);
@@ -100,8 +136,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         setIsDownloading(true);
         setError(null);
         try {
-            const downloadUrl = await downloadProjectFile(apiClient, projectId, citation.fileKey);
-            window.open(downloadUrl, "_blank");
+            await openCitationSourceFile(apiClient, projectId, citation);
         } catch (err) {
             setError(err instanceof Error ? err.message : t("error.unknown"));
         } finally {
@@ -111,19 +146,19 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-h-[80vh] w-full max-w-6xl overflow-hidden sm:max-w-[60vw]">
-                <div className="flex h-full flex-col overflow-hidden">
-                    <DialogHeader className="shrink-0">
-                        <DialogTitle className="flex items-center gap-2">
-                            <ExternalLink className="h-4 w-4" />
-                            {t("text.reference")} #{index + 1}
-                        </DialogTitle>
-                        <DialogDescription>
-                            {t("reference.id")}: {citation.sourceId}
-                        </DialogDescription>
-                    </DialogHeader>
+            <DialogContent className="flex h-[80vh] w-full max-w-6xl flex-col overflow-hidden sm:max-w-[60vw]">
+                <DialogHeader className="shrink-0">
+                    <DialogTitle className="flex items-center gap-2">
+                        <ExternalLink className="h-4 w-4" />
+                        {t("text.reference")} #{index + 1}
+                    </DialogTitle>
+                    <DialogDescription>
+                        {t("reference.id")}: {citation.sourceId}
+                    </DialogDescription>
+                </DialogHeader>
 
-                    <ScrollArea className="flex-1 pr-1">
+                <div className="min-h-0 flex-1">
+                    <ScrollArea className="h-full pr-1">
                         <div className="space-y-4">
                             {error && (
                                 <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
@@ -133,38 +168,49 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                             )}
 
                             <div className="space-y-4">
-                                <div className="flex items-center justify-between gap-2">
-                                    <h4 className="font-medium">{t("text.content")}</h4>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={copyToClipboard}
-                                        disabled={!unitText}
-                                        className="flex items-center gap-2"
-                                    >
-                                        <Copy className="h-3 w-3" />
-                                        {t("copy")}
-                                    </Button>
-                                </div>
-
-                                <div className="max-h-[50vh] w-full overflow-auto rounded-md border">
-                                    <div className="whitespace-pre-wrap break-words p-4 text-sm leading-relaxed">
-                                        {isLoadingUnit ? (
-                                            <div className="flex items-center gap-2 text-muted-foreground">
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                {t("loading")}
-                                            </div>
-                                        ) : (
-                                            (unitText ?? "")
-                                        )}
+                                {isLoadingUnit ? (
+                                    <div className="flex min-h-40 items-center justify-center rounded-md border text-muted-foreground">
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        {t("loading")}
                                     </div>
-                                </div>
+                                ) : pdfPreview ? (
+                                    <div className="space-y-3">
+                                        {pdfPreview.pages.map((page) => (
+                                            <PDFPreviewPageImage
+                                                key={page.page}
+                                                src={getApiAssetUrl(apiClient, page.image_path)}
+                                                alt={`${unit?.file_name ?? citation.fileName} page ${page.page}`}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <h4 className="font-medium">{t("text.content")}</h4>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={copyToClipboard}
+                                                disabled={!unitText}
+                                                className="flex items-center gap-2"
+                                            >
+                                                <Copy className="h-3 w-3" />
+                                                {t("copy")}
+                                            </Button>
+                                        </div>
+
+                                        <div className="max-h-[50vh] w-full overflow-auto rounded-md border">
+                                            <div className="whitespace-pre-wrap break-words p-4 text-sm leading-relaxed">
+                                                {unitText ?? ""}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
 
                                 <div className="space-y-1 text-xs text-muted-foreground">
                                     <p>
-                                        {t("file")}: {citation.fileName}
+                                        {t("file")}: {unit?.file_name ?? citation.fileName}
                                     </p>
-                                    <p>S3: {citation.fileKey}</p>
                                 </div>
 
                                 {projectId && (

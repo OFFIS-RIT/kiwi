@@ -7,8 +7,14 @@ describe("dedupe", () => {
         const graph: Graph = {
             id: "graph-1",
             units: [
-                { id: "unit-1", fileId: "file-1", content: "Apple announced a product." },
-                { id: "unit-2", fileId: "file-1", content: "Apple Inc hired Alice." },
+                {
+                    id: "unit-1",
+                    fileId: "file-1",
+                    content: "Apple announced a product.",
+                    startPage: null,
+                    endPage: null,
+                },
+                { id: "unit-2", fileId: "file-1", content: "Apple Inc hired Alice.", startPage: null, endPage: null },
             ],
             entities: [
                 {
@@ -83,7 +89,15 @@ describe("dedupe", () => {
     test("merges acronym variants for organizations", () => {
         const graph: Graph = {
             id: "graph-2",
-            units: [{ id: "unit-1", fileId: "file-1", content: "IBM is short for International Business Machines." }],
+            units: [
+                {
+                    id: "unit-1",
+                    fileId: "file-1",
+                    content: "IBM is short for International Business Machines.",
+                    startPage: null,
+                    endPage: null,
+                },
+            ],
             entities: [
                 {
                     id: "entity-ibm",
@@ -119,7 +133,15 @@ describe("dedupe", () => {
     test("merges compatible person names", () => {
         const graph: Graph = {
             id: "graph-3",
-            units: [{ id: "unit-1", fileId: "file-1", content: "John A. Smith met John Smith." }],
+            units: [
+                {
+                    id: "unit-1",
+                    fileId: "file-1",
+                    content: "John A. Smith met John Smith.",
+                    startPage: null,
+                    endPage: null,
+                },
+            ],
             entities: [
                 {
                     id: "entity-john-short",
@@ -153,7 +175,15 @@ describe("dedupe", () => {
     test("does not merge exact-only types unless names match exactly after normalization", () => {
         const graph: Graph = {
             id: "graph-4",
-            units: [{ id: "unit-1", fileId: "file-1", content: "Two facts exist." }],
+            units: [
+                {
+                    id: "unit-1",
+                    fileId: "file-1",
+                    content: "Two facts exist.",
+                    startPage: null,
+                    endPage: null,
+                },
+            ],
             entities: [
                 {
                     id: "entity-fact-a",
@@ -197,7 +227,15 @@ describe("dedupe", () => {
     test("does not merge same name across different types", () => {
         const graph: Graph = {
             id: "graph-5",
-            units: [{ id: "unit-1", fileId: "file-1", content: "Apple can be a company or a product." }],
+            units: [
+                {
+                    id: "unit-1",
+                    fileId: "file-1",
+                    content: "Apple can be a company or a product.",
+                    startPage: null,
+                    endPage: null,
+                },
+            ],
             entities: [
                 {
                     id: "entity-org",

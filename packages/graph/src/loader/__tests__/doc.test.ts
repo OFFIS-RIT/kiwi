@@ -109,6 +109,7 @@ describe("DOCXLoader", () => {
     test("returns plain text without image fences", async () => {
         const fixture = await buildFixture();
 
+        expect(fixture.plain).toMatch(/^:::PAGE-1:::$/m);
         expect(fixture.plain).toContain("Doc Loader Title");
         expect(fixture.plain).toContain("Alpha before image.");
         expect(fixture.plain).toContain("Omega after image.");
@@ -232,7 +233,34 @@ describe("DOCXLoader", () => {
             })
         );
 
-        expect(text).toBe("Alpha Beta");
+        expect(text).toBe(":::PAGE-1:::\n\nAlpha Beta");
+    });
+
+    test("emits page fences for explicit DOCX page breaks", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                body: `
+    <w:p><w:r><w:t>Page one</w:t><w:br w:type="page"/><w:t>Page two</w:t><w:lastRenderedPageBreak/><w:t>Page three</w:t></w:r></w:p>
+    <w:p><w:pPr><w:pageBreakBefore/></w:pPr><w:r><w:t>Page four</w:t></w:r></w:p>`,
+            })
+        );
+
+        expect(text).toBe(
+            ":::PAGE-1:::\n\nPage one\n\n:::PAGE-2:::\n\nPage two\n\n:::PAGE-3:::\n\nPage three\n\n:::PAGE-4:::\n\nPage four"
+        );
+    });
+
+    test("does not double count rendered page breaks after pageBreakBefore", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                body: `
+    <w:p><w:r><w:t>Page one</w:t></w:r></w:p>
+    <w:p><w:pPr><w:pageBreakBefore/></w:pPr><w:r><w:lastRenderedPageBreak/><w:t>Page two</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Still page two</w:t></w:r></w:p>`,
+            })
+        );
+
+        expect(text).toBe(":::PAGE-1:::\n\nPage one\n\n:::PAGE-2:::\n\nPage two\n\nStill page two");
     });
 
     test("uses anchor hyperlinks when a DOCX hyperlink has no relationship target", async () => {
@@ -243,7 +271,7 @@ describe("DOCXLoader", () => {
             { ocr: true }
         );
 
-        expect(text).toBe("[Jump](#section-2)");
+        expect(text).toBe(":::PAGE-1:::\n\n[Jump](#section-2)");
     });
 
     test("extracts multiple inline OCR images with stable ids and content types", async () => {
@@ -313,7 +341,7 @@ describe("DOCXLoader", () => {
 
         expect(text).toContain("Large paragraph 1");
         expect(text).toContain(`Large paragraph ${paragraphCount}`);
-        expect(text.split("\n\n")).toHaveLength(paragraphCount);
+        expect(text.split("\n\n")).toHaveLength(paragraphCount + 1);
     });
 
     test("ignores images inside DOCX tables instead of creating orphan OCR assets", async () => {

@@ -50,7 +50,6 @@ import {
     Plus,
     Search,
     Trash2,
-    Users,
     X,
 } from "lucide-react";
 import Image from "next/image";
@@ -620,24 +619,6 @@ export function AppSidebar({
     );
 }
 
-type GroupItemProps = {
-    group: Group;
-    isExpanded: boolean;
-    onToggleExpanded: () => void;
-    highlightTerm?: string;
-    matchedProjectIds?: Set<string>;
-    matchedChatsByProject?: Map<string, Set<string>>;
-    expandedProjects: Record<string, boolean>;
-    onToggleProjectExpanded: (projectId: string) => void;
-    activeChatId: string | null;
-    onSelectProject: (groupId: string) => void;
-    onEditProject: (project: Project, groupId: string) => void;
-    onEditGroup: (group: Group) => void;
-    onDeleteGroup: (group: Group) => void;
-    onDeleteProject: (project: Project, groupId: string, groupName: string) => void;
-    onProjectCreated?: (projectId: string, groupId: string, projectName: string) => void;
-};
-
 // Modern highlight: finds best matching substring and highlights it subtly
 function fuzzyHighlight(text: string, term: string): React.ReactNode {
     if (!term.trim()) return text;
@@ -701,117 +682,6 @@ function fuzzyHighlight(text: string, term: string): React.ReactNode {
 
     // No good match found, return text as-is
     return text;
-}
-
-function GroupItem({
-    group,
-    isExpanded,
-    onToggleExpanded,
-    highlightTerm,
-    matchedProjectIds,
-    matchedChatsByProject,
-    expandedProjects,
-    onToggleProjectExpanded,
-    activeChatId,
-    onSelectProject,
-    onEditProject,
-    onEditGroup,
-    onDeleteGroup,
-    onDeleteProject,
-    onProjectCreated,
-}: GroupItemProps) {
-    const t = useAppTranslations();
-    const { isAdmin } = useAuth();
-    const [showCreateProject, setShowCreateProject] = useState(false);
-
-    const projectsToShow = group.projects;
-    const context = { isAdmin };
-    const canEditTeam = canManageTeam(group, context);
-    const canCreateProject = canCreateProjectInGroup(group, context);
-    const canDeleteGroup = canDeleteTeam(group, context);
-
-    return (
-        <SidebarMenuItem>
-            <Collapsible className="group/collapsible" open={isExpanded} onOpenChange={onToggleExpanded}>
-                <div className="group/group-row relative flex min-w-0 items-center gap-1">
-                    <SidebarMenuButton
-                        className="min-w-0 flex-1 pr-8"
-                        onClick={onToggleExpanded}
-                        title={group.name}
-                        tooltip={group.name}
-                    >
-                        <Users className="shrink-0" />
-                        <div className="w-0 min-w-0 flex-1 overflow-hidden">
-                            <span className="block truncate">
-                                {highlightTerm ? fuzzyHighlight(group.name, highlightTerm) : group.name}
-                            </span>
-                        </div>
-                    </SidebarMenuButton>
-                    {(canEditTeam || canCreateProject || canDeleteGroup) && (
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-                                <SidebarMenuAction className="opacity-0 group-hover/group-row:opacity-100 group-focus-within/group-row:opacity-100 data-[state=open]:opacity-100">
-                                    <MoreVertical className="h-4 w-4" />
-                                    <span className="sr-only">{t("options")}</span>
-                                </SidebarMenuAction>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" side="right" className="w-48">
-                                {canEditTeam && (
-                                    <DropdownMenuItem onSelect={() => onEditGroup(group)}>
-                                        <Edit className="mr-2 h-4 w-4" />
-                                        <span>{t("edit")}</span>
-                                    </DropdownMenuItem>
-                                )}
-                                {canCreateProject && (
-                                    <DropdownMenuItem onSelect={() => setShowCreateProject(true)}>
-                                        <Plus className="mr-2 h-4 w-4" />
-                                        <span>{t("create.new.project")}</span>
-                                    </DropdownMenuItem>
-                                )}
-                                {canDeleteGroup && (
-                                    <DropdownMenuItem
-                                        className="text-destructive focus:text-destructive"
-                                        onSelect={() => onDeleteGroup(group)}
-                                    >
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        <span>{t("delete")}</span>
-                                    </DropdownMenuItem>
-                                )}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    )}
-                </div>
-                <Suspense fallback={null}>
-                    <CreateProjectDialog
-                        open={showCreateProject}
-                        onOpenChange={setShowCreateProject}
-                        groupId={group.id}
-                        onProjectCreated={onProjectCreated}
-                    />
-                </Suspense>
-                <CollapsibleContent>
-                    <SidebarMenuSub className="mr-0 pr-0">
-                        {projectsToShow.map((project) => (
-                            <ProjectItem
-                                key={project.id}
-                                project={project}
-                                group={group}
-                                isExpanded={expandedProjects[project.id] ?? false}
-                                onToggleExpanded={() => onToggleProjectExpanded(project.id)}
-                                activeChatId={activeChatId}
-                                isMatched={matchedProjectIds?.has(project.id) ?? false}
-                                matchedChatIds={matchedChatsByProject?.get(project.id)}
-                                highlightTerm={highlightTerm}
-                                onSelectProject={onSelectProject}
-                                onEditProject={onEditProject}
-                                onDeleteProject={onDeleteProject}
-                            />
-                        ))}
-                    </SidebarMenuSub>
-                </CollapsibleContent>
-            </Collapsible>
-        </SidebarMenuItem>
-    );
 }
 
 type ProjectItemProps = {
