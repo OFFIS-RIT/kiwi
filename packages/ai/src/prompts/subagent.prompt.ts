@@ -7,6 +7,11 @@ function appendProjectGuidance(sections: string[], graphPrompt?: string) {
     return sections.join("\n");
 }
 
+function line(label: string, values?: string[]) {
+    const uniqueValues = [...new Set(values?.map((value) => value.trim()).filter(Boolean) ?? [])];
+    return uniqueValues.length > 0 ? `${label}: ${uniqueValues.join(", ")}` : undefined;
+}
+
 export function createExploreSubagentPrompt(graphPrompt?: string) {
     return appendProjectGuidance(
         [
@@ -102,4 +107,40 @@ export function createSourceCuratorSubagentPrompt(graphPrompt?: string) {
         ],
         graphPrompt
     );
+}
+
+export function createExploreSubagentTaskPrompt(task: string) {
+    return [
+        "Complete this graph exploration task for the parent agent.",
+        `Task: ${task.trim()}`,
+        "Return only the specialized exploration report described in your instructions.",
+    ].join("\n");
+}
+
+type SourceCuratorTaskPromptOptions = {
+    task: string;
+    entityIds?: string[];
+    relationshipIds?: string[];
+    query?: string;
+    files?: string[];
+};
+
+export function createSourceCuratorTaskPrompt({
+    task,
+    entityIds,
+    relationshipIds,
+    query,
+    files,
+}: SourceCuratorTaskPromptOptions) {
+    return [
+        "Find the best source evidence for the parent agent.",
+        `Task: ${task.trim()}`,
+        line("Entity IDs", entityIds),
+        line("Relationship IDs", relationshipIds),
+        line("File IDs", files),
+        query?.trim() ? `Refinement query: ${query.trim()}` : undefined,
+        "Return only the curated source report described in your instructions.",
+    ]
+        .filter((entry): entry is string => typeof entry === "string")
+        .join("\n");
 }
