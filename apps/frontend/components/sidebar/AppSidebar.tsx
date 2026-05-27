@@ -7,9 +7,18 @@ import type { Group, Project } from "@/types";
 
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -33,7 +42,7 @@ import {
 } from "@/components/ui/sidebar";
 import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
 import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
-import { fetchProjectChats } from "@/lib/api";
+import { deleteProjectChat, fetchProjectChats } from "@/lib/api";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { canCreateProjectInGroup, canDeleteTeam, canManageTeam, canOpenProjectEditorInGroup } from "@/lib/capabilities";
 import { queryKeys } from "@/lib/query-keys";
@@ -50,6 +59,7 @@ import {
     Edit,
     FolderSearch,
     Loader2,
+    Mail,
     MoreVertical,
     Archive,
     Pin,
@@ -62,7 +72,7 @@ import {
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type * as React from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 
@@ -885,15 +895,44 @@ function ProjectItem({
     });
     const isProcessing = project.processPercentage !== undefined;
     const { isAdmin } = useAuth();
-    const { entries, requestNewEntry } = useProjectChatSession(project.id);
+    const { entries, requestNewEntry, resetEntry, setHasUnreadUpdate } = useProjectChatSession(project.id);
     const canOpenProjectEditor = canOpenProjectEditorInGroup(group, { isAdmin });
     const [showAllChats, setShowAllChats] = useState(false);
+    const [manuallyUnreadChatIds, setManuallyUnreadChatIds] = useState<Set<string>>(() => new Set());
+    const [openChatMenuId, setOpenChatMenuId] = useState<string | null>(null);
+    const [chatToDelete, setChatToDelete] = useState<Project["recentChats"][number] | null>(null);
     const { data: allChats, isFetching: isFetchingAllChats } = useQuery({
         queryKey: queryKeys.projectChats(project.id),
         queryFn: () => fetchProjectChats(apiClient, project.id),
         enabled: showAllChats,
         staleTime: 30 * 1000,
     });
+    const deleteChatMutation = useMutation({
+        mutationFn: (conversationId: string) => deleteProjectChat(apiClient, project.id, conversationId),
+        onSuccess: (_data, conversationId) => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+            queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(project.id) });
+            setManuallyUnreadChatIds((current) => {
+                const next = new Set(current);
+                next.delete(conversationId);
+                return next;
+            });
+
+            if (activeChatId === conversationId) {
+                resetEntry();
+                if (pathname === href) {
+                    window.history.pushState(null, "", href);
+                    return;
+                }
+                router.push(href);
+            }
+        },
+    });
+    const deleteChatError = deleteChatMutation.error
+        ? deleteChatMutation.error instanceof Error
+            ? deleteChatMutation.error.message
+            : t("delete.chat.error")
+        : null;
     const visibleChats = showAllChats && allChats && !isFetchingAllChats ? allChats : project.recentChats;
     const chatsToShow = matchedChatIds
         ? project.recentChats.filter((chat) => matchedChatIds.has(chat.id))
@@ -922,6 +961,12 @@ function ProjectItem({
         return () => window.clearInterval(intervalId);
     }, [hasChatTimes]);
 
+    useEffect(() => {
+        if (!chatToDelete) {
+            deleteChatMutation.reset();
+        }
+    }, [chatToDelete, deleteChatMutation]);
+
     const handleStartNewChat = () => {
         requestNewEntry({
             sessionId: uuidv4(),
@@ -939,6 +984,31 @@ function ProjectItem({
             queryClient.removeQueries({ queryKey: queryKeys.projectChats(project.id), exact: true });
         }
         setShowAllChats((value) => !value);
+    };
+
+    const markChatAsUnread = (conversationId: string) => {
+        setHasUnreadUpdate(conversationId, true);
+        setManuallyUnreadChatIds((current) => new Set(current).add(conversationId));
+    };
+
+    const markChatAsRead = (conversationId: string) => {
+        setManuallyUnreadChatIds((current) => {
+            if (!current.has(conversationId)) return current;
+            const next = new Set(current);
+            next.delete(conversationId);
+            return next;
+        });
+    };
+
+    const handleDeleteChat = async () => {
+        if (!chatToDelete) return;
+
+        try {
+            await deleteChatMutation.mutateAsync(chatToDelete.id);
+            setChatToDelete(null);
+        } catch (error) {
+            console.error("Failed to delete chat:", error);
+        }
     };
 
     return (
@@ -1006,10 +1076,13 @@ function ProjectItem({
                         {chatsToShow.length > 0 ? (
                             chatsToShow.map((chat) => {
                                 const isGenerating = runningChatIds.has(chat.id);
-                                const hasBackgroundUpdate = activeChatId !== chat.id && unreadChatIds.has(chat.id);
+                                const hasBackgroundUpdate =
+                                    activeChatId !== chat.id &&
+                                    (unreadChatIds.has(chat.id) || manuallyUnreadChatIds.has(chat.id));
                                 const relativeUpdatedAt = chat.updatedAt
                                     ? formatRelativeChatTime(chat.updatedAt, now)
                                     : null;
+                                const isChatMenuOpen = openChatMenuId === chat.id;
 
                                 return (
                                     <SidebarMenuSubItem key={chat.id} className="group/chat-row">
@@ -1017,13 +1090,14 @@ function ProjectItem({
                                             asChild
                                             size="sm"
                                             isActive={activeChatId === chat.id}
-                                            className="relative w-full justify-start"
+                                            className="relative w-full justify-start pr-8"
                                             onMouseEnter={() => prefetchProjectChat(chat.id)}
                                             onFocus={() => prefetchProjectChat(chat.id)}
                                         >
                                             <button
                                                 type="button"
                                                 onClick={() => {
+                                                    markChatAsRead(chat.id);
                                                     onSelectProject(group.id);
                                                     const chatHref = `${href}?chatId=${encodeURIComponent(chat.id)}`;
                                                     if (pathname === href) {
@@ -1037,30 +1111,61 @@ function ProjectItem({
                                                 <span className="block w-0 min-w-0 flex-1 truncate pr-9 text-left">
                                                     {chat.title}
                                                 </span>
-                                                {isGenerating ? (
+                                                {!isChatMenuOpen && isGenerating ? (
                                                     <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/chat-row:hidden">
                                                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                                     </span>
-                                                ) : hasBackgroundUpdate ? (
+                                                ) : !isChatMenuOpen && hasBackgroundUpdate ? (
                                                     <span className="absolute right-2 h-2 w-2 shrink-0 rounded-full bg-sky-400 group-hover/chat-row:hidden" />
-                                                ) : relativeUpdatedAt ? (
+                                                ) : !isChatMenuOpen && relativeUpdatedAt ? (
                                                     <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/chat-row:hidden">
                                                         {relativeUpdatedAt}
                                                     </span>
                                                 ) : null}
                                             </button>
                                         </SidebarMenuSubButton>
-                                        <div
-                                            className="pointer-events-none absolute right-1 top-1/2 hidden -translate-y-1/2 items-center gap-1 text-muted-foreground group-hover/chat-row:flex"
-                                            aria-hidden="true"
+                                        <DropdownMenu
+                                            open={isChatMenuOpen}
+                                            onOpenChange={(open) => setOpenChatMenuId(open ? chat.id : null)}
                                         >
-                                            <span className="flex h-5 w-5 items-center justify-center">
-                                                <Pin className="h-3.5 w-3.5" />
-                                            </span>
-                                            <span className="flex h-5 w-5 items-center justify-center">
-                                                <Archive className="h-3.5 w-3.5" />
-                                            </span>
-                                        </div>
+                                            <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className={`absolute right-1 top-1/2 h-5 w-5 -translate-y-1/2 p-0 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/chat-row:opacity-100 ${isChatMenuOpen ? "opacity-100" : ""}`}
+                                                    aria-label="Chat options"
+                                                >
+                                                    <MoreVertical className="h-4 w-4" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="start" side="right" className="w-44">
+                                                <DropdownMenuItem>
+                                                    <Pin className="mr-2 h-4 w-4" />
+                                                    <span>Pin chat</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem>
+                                                    <Edit className="mr-2 h-4 w-4" />
+                                                    <span>Rename chat</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem>
+                                                    <Archive className="mr-2 h-4 w-4" />
+                                                    <span>Archive chat</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onSelect={() => markChatAsUnread(chat.id)}>
+                                                    <Mail className="mr-2 h-4 w-4" />
+                                                    <span>Mark as unread</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuSeparator />
+                                                <DropdownMenuItem
+                                                    variant="destructive"
+                                                    disabled={deleteChatMutation.isPending}
+                                                    onSelect={() => setChatToDelete(chat)}
+                                                >
+                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                    <span>Delete Chat</span>
+                                                </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
                                     </SidebarMenuSubItem>
                                 );
                             })
@@ -1096,6 +1201,45 @@ function ProjectItem({
                     </SidebarMenuSub>
                 </CollapsibleContent>
             </Collapsible>
+            <Dialog open={chatToDelete !== null} onOpenChange={(open) => !open && setChatToDelete(null)}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>{t("delete.chat.confirm")}</DialogTitle>
+                        <DialogDescription>
+                            {t("delete.chat.description", {
+                                chatTitle: chatToDelete?.title || "",
+                            })}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {deleteChatError && (
+                        <div className="bg-destructive/15 text-destructive rounded-md px-4 py-2 text-sm">
+                            {deleteChatError}
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setChatToDelete(null)}
+                            disabled={deleteChatMutation.isPending}
+                        >
+                            {t("cancel")}
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDeleteChat}
+                            disabled={deleteChatMutation.isPending}
+                        >
+                            {deleteChatMutation.isPending ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : null}
+                            {t("delete")}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </SidebarMenuItem>
     );
 }
