@@ -594,6 +594,11 @@ function ProjectChatSession({
         inputRef.current?.focus();
     }, [projectName]);
 
+    useEffect(() => {
+        if (pendingClarification || isRecording) return;
+        inputRef.current?.focus();
+    }, [entry.sessionId, isRecording, pendingClarification]);
+
     const resetSilenceTimeout = useCallback(() => {
         if (silenceTimeoutRef.current) {
             clearTimeout(silenceTimeoutRef.current);
@@ -815,6 +820,7 @@ function ProjectChatSession({
                 disabled={isRecording || !!pendingClarification}
                 placeholder={t("ask.question")}
                 projectId={projectId}
+                autoFocus={!pendingClarification && !isRecording}
                 interimTranscript={isRecording ? interimTranscript : undefined}
                 editorClassName={
                     isEmptyChat
