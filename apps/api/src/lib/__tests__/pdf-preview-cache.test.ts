@@ -103,4 +103,19 @@ describe("getOrRenderPDFPreviewPage", () => {
 
         expect(result).toEqual({ status: "source_missing" });
     });
+
+    test("reports missing rendered page without throwing", async () => {
+        const putNamedFile = mock(async () => ({ key: "unused", type: "image/png" }));
+        const renderPDFPagePreviews = mock(async () => new Map<number, Uint8Array>());
+
+        const result = await getOrRenderPDFPreviewPage(options, {
+            getFile: async (key) =>
+                key === "source.pdf" ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+            putNamedFile,
+            renderPDFPagePreviews,
+        });
+
+        expect(result).toEqual({ status: "page_missing" });
+        expect(putNamedFile).not.toHaveBeenCalled();
+    });
 });

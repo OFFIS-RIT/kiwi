@@ -10,6 +10,9 @@ export type PDFPreviewPageResult =
       }
     | {
           status: "source_missing";
+      }
+    | {
+          status: "page_missing";
       };
 
 type GetBytes = (key: string, bucket: string, type: "bytes") => Promise<{ type: "bytes"; content: ArrayBuffer } | null>;
@@ -57,7 +60,7 @@ export async function getOrRenderPDFPreviewPage(
     const renderedPages = await renderPreview(new Uint8Array(sourceFile.content), pagesToRender);
     const image = renderedPages.get(options.page);
     if (!image) {
-        throw new Error(`PDF preview renderer returned no image for page ${options.page}`);
+        return { status: "page_missing" };
     }
 
     await Promise.allSettled(

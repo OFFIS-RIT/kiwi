@@ -342,6 +342,9 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
             if (previewResult.value.status === "source_missing") {
                 return status(404, errorResponse("File not found", API_ERROR_CODES.INVALID_FILE_IDS));
             }
+            if (previewResult.value.status === "page_missing") {
+                return status(404, errorResponse("PDF preview page not found", API_ERROR_CODES.INVALID_PAGE_RANGE));
+            }
 
             return pngResponse(previewResult.value.content);
         },
