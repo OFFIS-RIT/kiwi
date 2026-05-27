@@ -1,6 +1,6 @@
-import { getProjectFileProxyPath, type ProjectFileProxyPathOptions } from "@kiwi/routes";
+import { getProjectFileProxyPath, type ProjectFileProxyPathOptions } from "@kiwi/files/project-file-proxy-path";
 
-export { getProjectFileProxyPath } from "@kiwi/routes";
+export { getProjectFileProxyPath } from "@kiwi/files/project-file-proxy-path";
 
 export function getProjectFileProxyUrl(
     baseUrl: string | undefined,

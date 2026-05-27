@@ -19,7 +19,6 @@
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",
         "@kiwi/logger": "workspace:*",
-        "@kiwi/routes": "workspace:*",
         "@kiwi/worker": "workspace:*",
         "@modelcontextprotocol/sdk": "catalog:",
         "@t3-oss/env-core": "catalog:",

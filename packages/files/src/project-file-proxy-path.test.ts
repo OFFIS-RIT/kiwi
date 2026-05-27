@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getProjectFileProxyPath } from ".";
+import { getProjectFileProxyPath } from "./project-file-proxy-path";
 
 describe("project file proxy paths", () => {
     test("builds filename-bearing page-aware paths", () => {

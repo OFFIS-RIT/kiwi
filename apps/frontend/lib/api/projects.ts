@@ -24,7 +24,7 @@ import type {
     GraphPatchSuccessData,
     TextUnitResponse,
 } from "@kiwi/api/types";
-import { getProjectFileProxyPath } from "@kiwi/routes";
+import { getProjectFileProxyPath } from "@kiwi/files/project-file-proxy-path";
 import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
 import { ApiError, unwrapApiResponse, type KiwiApiClient } from "./client";
 
