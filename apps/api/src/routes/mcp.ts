@@ -7,8 +7,10 @@ import { z } from "zod/v4";
 import { assertCanViewGraph } from "../lib/graph-access";
 import { listAccessibleGraphs } from "../lib/graph-list";
 import { getGraphResearchRuntime, resolveCitationDocumentLink } from "../lib/chat";
+import { getPublicApiBaseUrl } from "../lib/project-file-url";
 import { mcpAuthMiddleware } from "../middleware/auth";
 import { assertPermissions } from "../middleware/permissions";
+import { env } from "../env";
 import { API_ERROR_CODES } from "../types";
 
 const getGraphsOutput = z.object({
@@ -121,7 +123,12 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
                     tools,
                     providerOptions: getProviderOptions({ thinking: "medium" }),
                     transformAnswer: (text) =>
-                        linkifyResearchCitations(text, (citation) => resolveCitationDocumentLink(graphId, citation)),
+                        linkifyResearchCitations(text, (citation) =>
+                            resolveCitationDocumentLink(graphId, citation, {
+                                baseUrl: getPublicApiBaseUrl(request, env.API_URL),
+                                signed: true,
+                            })
+                        ),
                 });
 
                 return {

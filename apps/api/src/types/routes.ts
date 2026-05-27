@@ -126,9 +126,29 @@ export type TextUnitRecord = {
     id: string;
     project_file_id: string;
     text: string;
+    start_page: number | null;
+    end_page: number | null;
+    file_name: string;
+    file_type: string;
+    mime_type: string;
+    preview: TextUnitPreview;
     created_at: string | null;
     updated_at: string | null;
 };
+
+export type TextUnitPreview =
+    | {
+          type: "pdf_pages";
+          start_page: number;
+          end_page: number;
+          pages: Array<{
+              page: number;
+              image_path: string;
+          }>;
+      }
+    | {
+          type: "none";
+      };
 
 export type ChatRequestBody = {
     id: string;

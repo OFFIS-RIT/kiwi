@@ -8,14 +8,17 @@ export type CitationFence = {
     type: "cite";
     sourceId: string;
     unitId?: string;
+    fileId?: string;
     fileName?: string;
     fileKey?: string;
+    fileType?: string;
+    startPage?: number;
+    endPage?: number;
 };
 
 export type ResolvedCitationFence = CitationFence & {
     unitId: string;
     fileName: string;
-    fileKey: string;
 };
 
 export type ParsedCitationSegment =
@@ -23,13 +26,17 @@ export type ParsedCitationSegment =
           type: "text";
           text: string;
       }
-      | {
-            type: "citation";
-            citation: CitationFence;
-        };
+    | {
+          type: "citation";
+          citation: CitationFence;
+      };
 
 export function isResolvedCitationFence(citation: CitationFence): citation is ResolvedCitationFence {
-    return Boolean(citation.unitId && citation.fileName && citation.fileKey);
+    return Boolean(citation.unitId && citation.fileName && (citation.fileId || citation.fileKey));
+}
+
+export function isPDFCitation(citation: Pick<CitationFence, "fileName" | "fileType">): boolean {
+    return citation.fileType === "pdf" || citation.fileName?.toLowerCase().endsWith(".pdf") === true;
 }
 
 export function stringifyCitationFence(citation: CitationFence, options?: { forModel?: boolean }) {
@@ -40,8 +47,12 @@ export function stringifyCitationFence(citation: CitationFence, options?: { forM
                   type: "cite",
                   sourceId: citation.sourceId,
                   unitId: citation.unitId,
+                  fileId: citation.fileId,
                   fileName: citation.fileName,
-                  fileKey: citation.fileKey,
+                  fileKey: citation.fileId ? undefined : citation.fileKey,
+                  fileType: citation.fileType,
+                  startPage: citation.startPage,
+                  endPage: citation.endPage,
               };
 
     return `:::${JSON.stringify(payload)}:::`;
@@ -74,25 +85,46 @@ export function parseCitationFence(rawFence: string): CitationFence | null {
             return null;
         }
 
-        const unitId =
-            typeof parsed.unitId === "string" && parsed.unitId.trim().length > 0 ? parsed.unitId.trim() : undefined;
-        const fileNameValue = parsed.fileName ?? parsed.filename;
-        const fileName =
-            typeof fileNameValue === "string" && fileNameValue.trim().length > 0 ? fileNameValue.trim() : undefined;
-        const fileKeyValue = parsed.fileKey ?? parsed.filekey;
-        const fileKey =
-            typeof fileKeyValue === "string" && fileKeyValue.trim().length > 0 ? fileKeyValue.trim() : undefined;
+        const unitId = optionalString(parsed.unitId);
+        const fileId = optionalString(parsed.fileId);
+        const fileName = optionalString(parsed.fileName ?? parsed.filename);
+        const fileKey = optionalString(parsed.fileKey ?? parsed.filekey);
+        const fileType = optionalString(parsed.fileType);
+        const startPage = toPositiveInteger(parsed.startPage);
+        const endPage = toPositiveInteger(parsed.endPage);
 
         return {
             type: "cite",
             sourceId,
             unitId,
+            fileId,
             fileName,
             fileKey,
+            fileType,
+            startPage,
+            endPage,
         };
     } catch {
         return null;
     }
+}
+
+function optionalString(value: unknown): string | undefined {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function toPositiveInteger(value: unknown): number | undefined {
+    const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+    if (!Number.isInteger(parsed) || parsed < 1) {
+        return undefined;
+    }
+
+    return parsed;
 }
 
 export function splitTextWithCitationFences(text: string): ParsedCitationSegment[] {

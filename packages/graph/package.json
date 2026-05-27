@@ -6,6 +6,7 @@
         ".": "./src/index.ts",
         "./loader/*": "./src/loader/*.ts",
         "./chunker/*": "./src/chunking/*.ts",
+        "./lib/*": "./src/lib/*.ts",
         "./unit": "./src/unit.ts",
         "./merge": "./src/merge.ts",
         "./dedupe": "./src/dedupe.ts"

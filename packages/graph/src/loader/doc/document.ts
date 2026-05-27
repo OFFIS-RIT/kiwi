@@ -26,6 +26,7 @@ const PLAIN_INLINE_FORMAT = { bold: false, italic: false, strike: false, underli
 type InlineSink = {
     onText: (text: string) => void;
     onImage: (id: string) => void;
+    onPageBreak: (source: "explicit" | "rendered") => void;
 };
 
 export function parseDOCX(content: ArrayBuffer, ocr: boolean): Promise<ParsedDOC> {
@@ -98,6 +99,11 @@ async function parseParagraph(paragraph: XMLNodeLike, context: DOCParseContext):
     const listInfo = getParagraphListInfo(properties, context.numbering);
     const blocks: DOCBlock[] = [];
     let textParts: string[] = [];
+    let canSkipInitialRenderedPageBreak = hasPageBreakBefore(properties);
+
+    if (canSkipInitialRenderedPageBreak) {
+        blocks.push({ kind: "pageBreak" });
+    }
 
     const flushText = () => {
         const text = cleanInlineText(textParts.join(""));
@@ -120,10 +126,24 @@ async function parseParagraph(paragraph: XMLNodeLike, context: DOCParseContext):
     };
 
     await collectParagraphContent(paragraph, context, {
-        onText: (text) => textParts.push(text),
+        onText: (text) => {
+            canSkipInitialRenderedPageBreak = false;
+            textParts.push(text);
+        },
         onImage: (id) => {
+            canSkipInitialRenderedPageBreak = false;
             flushText();
             blocks.push({ kind: "image", id });
+        },
+        onPageBreak: (source) => {
+            if (source === "rendered" && canSkipInitialRenderedPageBreak) {
+                canSkipInitialRenderedPageBreak = false;
+                return;
+            }
+
+            canSkipInitialRenderedPageBreak = false;
+            flushText();
+            blocks.push({ kind: "pageBreak" });
         },
     });
 
@@ -169,6 +189,7 @@ async function extractTableCellText(cell: XMLNodeLike, context: DOCParseContext)
         await collectParagraphContent(node, textOnlyContext, {
             onText: (text) => textParts.push(text),
             onImage: () => undefined,
+            onPageBreak: () => undefined,
         });
 
         const text = cleanInlineText(textParts.join(""));
@@ -257,6 +278,16 @@ async function parseRun(
                 break;
             }
             case "br":
+                if (getAttribute(child, "w:type", "type") === "page") {
+                    sink.onPageBreak("explicit");
+                    break;
+                }
+
+                sink.onText("\n");
+                break;
+            case "lastRenderedPageBreak":
+                sink.onPageBreak("rendered");
+                break;
             case "cr":
                 sink.onText("\n");
                 break;
@@ -283,6 +314,10 @@ async function parseRun(
                 break;
         }
     }
+}
+
+function hasPageBreakBefore(properties: XMLNodeLike | null): boolean {
+    return properties ? findFirstChild(properties, "pageBreakBefore") !== null : false;
 }
 
 function getRunFormat(run: XMLNodeLike): typeof PLAIN_INLINE_FORMAT {

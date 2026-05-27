@@ -8,6 +8,7 @@ import type {
     PDFParserOptions,
     PreparedPage,
 } from "./types";
+import { renderPageFence } from "../../lib/page-fence";
 import { analyzePageContent } from "./content";
 import { extractOCRTextFromPDFPages } from "./ocr";
 import { findRepeatedEdgeLinePatterns, renderPageMarkdown } from "./render";
@@ -65,7 +66,7 @@ export async function extractPDFHybridFromDocument(
         if (entry.ocrFallback) {
             const ocrText = ocrFallbackTexts.get(page.index)?.trim();
             if (ocrText) {
-                pageMarkdown.push(ocrText);
+                pageMarkdown.push(withPageFence(page.index, ocrText));
             }
 
             continue;
@@ -88,7 +89,7 @@ export async function extractPDFHybridFromDocument(
         }
 
         if (markdown.trim().length > 0) {
-            pageMarkdown.push(markdown.trim());
+            pageMarkdown.push(withPageFence(page.index, markdown.trim()));
         }
     }
 
@@ -161,9 +162,13 @@ export function extractPlainTextFromDocument(pdf: PDFDocumentLike): string {
         const pageText = tidyPageText(actualTextApplied);
         const text = pageText.text.trim();
         if (text) {
-            pageTexts.push(text);
+            pageTexts.push(withPageFence(page.index, text));
         }
     }
 
     return pageTexts.join("\n\n");
+}
+
+function withPageFence(pageIndex: number, text: string): string {
+    return `${renderPageFence(pageIndex + 1)}\n\n${text}`;
 }

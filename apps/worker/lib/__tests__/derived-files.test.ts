@@ -4,6 +4,7 @@ import {
     deleteDerivedFileArtifacts,
     getDerivedFilePrefix,
     getDerivedImagePrefix,
+    getDerivedPdfPreviewPrefix,
     getDerivedSourceKey,
 } from "../derived-files";
 
@@ -12,6 +13,9 @@ describe("derived-files", () => {
         expect(getDerivedFilePrefix("graph-1", "file-1")).toBe("graphs/graph-1/derived/file-1");
         expect(getDerivedImagePrefix("graph-1", "file-1")).toBe("graphs/graph-1/derived/file-1/images");
         expect(getDerivedSourceKey("graph-1", "file-1")).toBe("graphs/graph-1/derived/file-1/source.txt");
+        expect(getDerivedPdfPreviewPrefix("graph-1", "file-1")).toBe(
+            "graphs/graph-1/derived/file-1/pdf-preview/v1/scale-1.5"
+        );
     });
 
     test("deletes every derived key for a file prefix", async () => {

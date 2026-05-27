@@ -36,6 +36,7 @@ COPY packages/ai/src packages/ai/src
 COPY packages/ai/tsconfig.json packages/ai/tsconfig.json
 COPY packages/auth/src packages/auth/src
 COPY packages/auth/tsconfig.json packages/auth/tsconfig.json
+COPY packages/files/src/project-file-proxy-path.ts packages/files/src/project-file-proxy-path.ts
 
 WORKDIR /app/apps/frontend
 RUN bun run build

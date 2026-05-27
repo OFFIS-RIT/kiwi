@@ -47,9 +47,13 @@ RUN bun build \
 
 FROM busybox:1.37.0-uclibc AS busybox
 
-FROM gcr.io/distroless/base
+FROM debian:bookworm-slim
 
 WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates ghostscript \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/apps/api/server server
 COPY --from=busybox /bin/busybox /busybox

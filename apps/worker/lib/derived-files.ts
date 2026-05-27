@@ -1,16 +1,11 @@
-import { deleteFile, listFiles } from "@kiwi/files";
+import { deleteFile, getDerivedFilePrefix, listFiles } from "@kiwi/files";
 
-export function getDerivedFilePrefix(graphId: string, fileId: string): string {
-    return `graphs/${graphId}/derived/${fileId}`;
-}
-
-export function getDerivedImagePrefix(graphId: string, fileId: string): string {
-    return `${getDerivedFilePrefix(graphId, fileId)}/images`;
-}
-
-export function getDerivedSourceKey(graphId: string, fileId: string): string {
-    return `${getDerivedFilePrefix(graphId, fileId)}/source.txt`;
-}
+export {
+    getDerivedFilePrefix,
+    getDerivedImagePrefix,
+    getDerivedPdfPreviewPrefix,
+    getDerivedSourceKey,
+} from "@kiwi/files";
 
 type DerivedCleanupDeps = {
     listFiles?: (path: string, bucket: string) => Promise<string[]>;

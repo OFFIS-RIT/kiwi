@@ -7,6 +7,19 @@ type StoredFile = {
     type: string;
 };
 
+export type StoredFileStream = {
+    content: ReadableStream<Uint8Array>;
+    size: number;
+    type: string;
+    lastModified: Date | null;
+};
+
+export type StoredFileMetadata = {
+    size: number;
+    type: string;
+    lastModified: Date | null;
+};
+
 const getClient = (bucket: string) => {
     return new S3Client({
         region: process.env.S3_REGION as string,
@@ -28,6 +41,25 @@ const joinPath = (path: string, name: string) => {
 
     return normalizedPath === "" ? normalizedName : `${normalizedPath}/${normalizedName}`;
 };
+
+export function getDerivedFilePrefix(graphId: string, fileId: string): string {
+    return `graphs/${graphId}/derived/${fileId}`;
+}
+
+export function getDerivedImagePrefix(graphId: string, fileId: string): string {
+    return `${getDerivedFilePrefix(graphId, fileId)}/images`;
+}
+
+export function getDerivedSourceKey(graphId: string, fileId: string): string {
+    return `${getDerivedFilePrefix(graphId, fileId)}/source.txt`;
+}
+
+export const PDF_PREVIEW_SCALE = 1.5;
+const PDF_PREVIEW_VERSION = `v1/scale-${PDF_PREVIEW_SCALE}`;
+
+export function getDerivedPdfPreviewPrefix(graphId: string, fileId: string): string {
+    return `${getDerivedFilePrefix(graphId, fileId)}/pdf-preview/${PDF_PREVIEW_VERSION}`;
+}
 
 async function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket: string): Promise<StoredFile> {
     const client = getClient(bucket);
@@ -101,6 +133,79 @@ export async function getFile(
             return { type, content: bytes };
         }
     }
+}
+
+export async function getFileStream(
+    key: string,
+    bucket: string,
+    range?: { start: number; end: number },
+    metadata?: StoredFileMetadata
+): Promise<StoredFileStream | null> {
+    const client = getClient(bucket);
+    const s3File = client.file(key);
+
+    let fileMetadata = metadata;
+    if (!fileMetadata) {
+        const exists = await s3File.exists();
+        if (!exists) {
+            return null;
+        }
+
+        const stat = await s3File.stat();
+        fileMetadata = {
+            size: stat.size,
+            type: s3File.type || getFileType(key),
+            lastModified: stat.lastModified ?? null,
+        };
+    }
+
+    const file = range ? s3File.slice(range.start, range.end + 1) : s3File;
+
+    return {
+        content: file.stream(),
+        size: range ? range.end - range.start + 1 : fileMetadata.size,
+        type: fileMetadata.type,
+        lastModified: fileMetadata.lastModified,
+    };
+}
+
+export async function getFileArrayBuffer(
+    key: string,
+    bucket: string,
+    range?: { start: number; end: number }
+): Promise<ArrayBuffer | null> {
+    const client = getClient(bucket);
+    const s3File = client.file(key);
+
+    const exists = await s3File.exists();
+    if (!exists) {
+        return null;
+    }
+
+    const file = range ? s3File.slice(range.start, range.end + 1) : s3File;
+    const bytes = await file.bytes();
+    const buffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(buffer).set(bytes);
+
+    return buffer;
+}
+
+export async function getFileMetadata(key: string, bucket: string): Promise<StoredFileMetadata | null> {
+    const client = getClient(bucket);
+    const s3File = client.file(key);
+
+    const exists = await s3File.exists();
+    if (!exists) {
+        return null;
+    }
+
+    const stat = await s3File.stat();
+
+    return {
+        size: stat.size,
+        type: s3File.type || getFileType(key),
+        lastModified: stat.lastModified ?? null,
+    };
 }
 
 export async function deleteFile(key: string, bucket: string) {

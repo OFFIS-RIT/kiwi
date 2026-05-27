@@ -12,6 +12,8 @@ export const env = createEnv({
         MASTER_USER_PASSWORD: z.string().optional(),
         MASTER_USER_API_KEY: z.string().optional(),
         TRUSTED_ORIGINS: z.string().optional(),
+        API_URL: z.string().optional(),
+        AUTH_SECRET: z.string(),
         AUTH_CROSS_SUBDOMAIN_COOKIES: z.string().optional(),
         AUTH_COOKIE_DOMAIN: z.string().optional(),
 

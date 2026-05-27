@@ -23,6 +23,7 @@ import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
 import { env } from "../env";
 import { type Graph, type GraphChunker, type GraphFile, type GraphLoader, type Unit } from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
+import { stripPageFences } from "@kiwi/graph/lib/page-fence";
 import { mergeGraphs } from "@kiwi/graph/merge";
 import { createUnits, processUnit } from "@kiwi/graph/unit";
 import { DOCXLoader } from "@kiwi/graph/loader/doc";
@@ -40,6 +41,7 @@ import { buildPDFLoaderOptions } from "../lib/pdf-loader";
 import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
+import { toTextUnitRows } from "../lib/text-unit-rows";
 
 const WORKFLOW_STORAGE_VERSION = "v1";
 const FILE_DELETED = "__file_deleted__" as const;
@@ -384,7 +386,8 @@ export const processFile = defineWorkflow(
                 }
 
                 const duration = performance.now() - start;
-                const tokens = estimateToken(text);
+                const contentText = stripPageFences(text);
+                const tokens = estimateToken(contentText);
 
                 await db
                     .update(filesTable)
@@ -398,7 +401,7 @@ export const processFile = defineWorkflow(
                     sourceKey,
                     duration,
                     tokenCount: tokens,
-                    metadataExcerpt: buildMetadataExcerpt(text),
+                    metadataExcerpt: buildMetadataExcerpt(contentText),
                 };
             });
             if (baseFile === FILE_DELETED) {
@@ -534,11 +537,7 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "saving", "processing");
 
                 const graph = loadedGraph.content;
-                const unitRows = graph.units.map((unit) => ({
-                    id: unit.id,
-                    fileId: unit.fileId,
-                    text: unit.content,
-                }));
+                const unitRows = toTextUnitRows(graph.units);
                 const entityRows = graph.entities.map((entity) => ({
                     id: entity.id,
                     graphId: input.graphId,
@@ -597,6 +596,8 @@ export const processFile = defineWorkflow(
                                 set: {
                                     fileId: sql`excluded.file_id`,
                                     text: sql`excluded.text`,
+                                    startPage: sql`excluded.start_page`,
+                                    endPage: sql`excluded.end_page`,
                                     updatedAt: sql`NOW()`,
                                 },
                             });
