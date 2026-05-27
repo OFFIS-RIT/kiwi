@@ -780,7 +780,7 @@ function ProjectItem({
                                                     variant="ghost"
                                                     size="icon"
                                                     className={`absolute right-1 top-1/2 h-5 w-5 -translate-y-1/2 p-0 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/chat-row:opacity-100 ${isChatMenuOpen ? "opacity-100" : ""}`}
-                                                    aria-label="Chat options"
+                                                    aria-label={t("chat.options")}
                                                 >
                                                     <MoreVertical className="h-4 w-4" />
                                                 </Button>
@@ -788,19 +788,19 @@ function ProjectItem({
                                             <DropdownMenuContent align="start" side="right" className="w-44">
                                                 <DropdownMenuItem>
                                                     <Pin className="mr-2 h-4 w-4" />
-                                                    <span>Pin chat</span>
+                                                    <span>{t("chat.pin")}</span>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem>
                                                     <Edit className="mr-2 h-4 w-4" />
-                                                    <span>Rename chat</span>
+                                                    <span>{t("chat.rename")}</span>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem>
                                                     <Archive className="mr-2 h-4 w-4" />
-                                                    <span>Archive chat</span>
+                                                    <span>{t("chat.archive")}</span>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem onSelect={() => markChatAsUnread(chat.id)}>
                                                     <Mail className="mr-2 h-4 w-4" />
-                                                    <span>Mark as unread</span>
+                                                    <span>{t("chat.mark.unread")}</span>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <DropdownMenuItem
@@ -809,7 +809,7 @@ function ProjectItem({
                                                     onSelect={() => setChatToDelete(chat)}
                                                 >
                                                     <Trash2 className="mr-2 h-4 w-4" />
-                                                    <span>Delete Chat</span>
+                                                    <span>{t("chat.delete")}</span>
                                                 </DropdownMenuItem>
                                             </DropdownMenuContent>
                                         </DropdownMenu>
