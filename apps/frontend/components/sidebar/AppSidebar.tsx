@@ -613,11 +613,12 @@ function ProjectItem({
         return () => window.clearInterval(intervalId);
     }, [hasChatTimes]);
 
+    const resetDeleteMutation = deleteChatMutation.reset;
     useEffect(() => {
         if (!chatToDelete) {
-            deleteChatMutation.reset();
+            resetDeleteMutation();
         }
-    }, [chatToDelete, deleteChatMutation]);
+    }, [chatToDelete, resetDeleteMutation]);
 
     const handleStartNewChat = () => {
         requestNewEntry({
