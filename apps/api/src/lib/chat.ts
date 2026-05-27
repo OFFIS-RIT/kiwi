@@ -41,6 +41,7 @@ import {
     syncChatMessage,
     type ChatRequest,
     type PromptOptions,
+    type ChatRuntime,
 } from "./chat-compaction";
 import {
     createCachingCitationResolver,
@@ -70,6 +71,16 @@ type StartReplyOptions = {
 export const DEFAULT_CHAT_TITLE = "...";
 
 const unresolvedCitationCache = new Map<string, number>();
+const CONTEXT_OVERFLOW_PATTERNS = [
+    "maximum context length",
+    "context length",
+    "context window",
+    "context_window_exceeded",
+    "prompt is too long",
+    "input is too long",
+    "input length exceeds",
+    "too many input tokens",
+];
 
 function buildBaseToolset(options: GraphToolsetOptions, toolset: RuntimeToolset) {
     switch (toolset) {
@@ -216,6 +227,51 @@ export async function getGraphResearchRuntime(
     };
 }
 
+export function isContextOverflowError(error: unknown): boolean {
+    const messages = [error]
+        .flatMap((value) => {
+            if (value instanceof Error) {
+                return [
+                    value.message,
+                    value.cause instanceof Error ? value.cause.message : undefined,
+                ];
+            }
+
+            if (typeof value === "object" && value && "message" in value && typeof value.message === "string") {
+                return [value.message];
+            }
+
+            return [typeof value === "string" ? value : undefined];
+        })
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.toLowerCase());
+
+    return messages.some((message) => CONTEXT_OVERFLOW_PATTERNS.some((pattern) => message.includes(pattern)));
+}
+
+export async function refreshReplyContext(options: {
+    chatId: string;
+    graphId: string;
+    runtime: ChatRuntime;
+    promptOptions?: PromptOptions;
+    forceCompaction?: boolean;
+}) {
+    const { context, systemPrompt } = await maybeCompactConversation({
+        chatId: options.chatId,
+        graphId: options.graphId,
+        runtime: options.runtime,
+        rows: await loadChatRows(options.chatId),
+        promptOptions: options.promptOptions,
+        forceCompaction: options.forceCompaction,
+    });
+
+    return {
+        systemPrompt,
+        contextMessages: context.contextMessages,
+        validatedMessages: context.validatedMessages,
+        estimatedPromptTokens: context.estimatedPromptTokens,
+    };
+}
 
 export async function startReply(userId: string, graphId: string, request: ChatRequest, options: StartReplyOptions) {
     const normalizedRequest = normalizeChatRequest(request);
@@ -233,11 +289,15 @@ export async function startReply(userId: string, graphId: string, request: ChatR
         parseCreatedAt,
     });
     const runtime = await getGraphResearchRuntime(graphId, options);
-    const { context, systemPrompt } = await maybeCompactConversation({
+    const {
+        contextMessages,
+        validatedMessages,
+        estimatedPromptTokens,
+        systemPrompt,
+    } = await refreshReplyContext({
         chatId: normalizedRequest.id,
         graphId,
         runtime,
-        rows: await loadChatRows(normalizedRequest.id),
         promptOptions: options.promptOptions,
     });
     const assistantId = await createPendingAssistantMessage(normalizedRequest.id);
@@ -248,9 +308,9 @@ export async function startReply(userId: string, graphId: string, request: ChatR
         isNewChat,
         titleMessages: normalizedRequest.titleMessages,
         systemPrompt,
-        contextMessages: context.contextMessages,
-        validatedMessages: context.validatedMessages,
-        estimatedPromptTokens: context.estimatedPromptTokens,
+        contextMessages,
+        validatedMessages,
+        estimatedPromptTokens,
         ...runtime,
     };
 }

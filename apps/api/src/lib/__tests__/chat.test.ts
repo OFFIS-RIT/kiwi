@@ -24,6 +24,7 @@ mock.module("../../env", () => ({
 const {
     deriveActiveCompaction,
     getProtectedTailStartIndex,
+    isContextOverflowError,
     normalizeChatRequest,
     replaceOrAppendMessage,
 } = await import("../chat");
@@ -177,5 +178,17 @@ describe("chat context helpers", () => {
         };
 
         expect(getProtectedTailStartIndex(rows)).toBe(2);
+    });
+
+    test("detects provider context overflow errors for retry-after-compaction", () => {
+        expect(
+            isContextOverflowError(new Error("This model's maximum context length is 256000 tokens."))
+        ).toBe(true);
+        expect(
+            isContextOverflowError({
+                message: "context_window_exceeded: input length exceeds the context window",
+            })
+        ).toBe(true);
+        expect(isContextOverflowError(new Error("Temporary upstream failure"))).toBe(false);
     });
 });

@@ -7,8 +7,9 @@ describe("compaction prompts", () => {
         const prompt = createCompactionPrompt("Prefer binding decisions.");
 
         expect(prompt).toContain("chat compaction agent");
-        expect(prompt).toContain("## Active Goals");
-        expect(prompt).toContain("## Established Facts");
+        expect(prompt).toContain("## User Objective");
+        expect(prompt).toContain("## Key Entities, Relationships, and Sources");
+        expect(prompt).toContain("Preserve exact entity IDs, relationship IDs, source IDs, file IDs");
         expect(prompt).toContain('# Project-Specific Guidance\nPrefer binding decisions.');
     });
 
@@ -18,6 +19,7 @@ describe("compaction prompts", () => {
             transcript: "Role: user\nText: hello",
         });
 
+        expect(prompt).toContain("Update the anchored summary below");
         expect(prompt).toContain("Previous summary:");
         expect(prompt).toContain("Transcript to compact:");
         expect(prompt).toContain("Return only the compacted summary");

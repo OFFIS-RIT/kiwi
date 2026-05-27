@@ -23,9 +23,21 @@ function getSigningKey(): Promise<CryptoKey> {
     const secret = env.AUTH_SECRET;
     if (!signingKeyPromise || signingKeySecret !== secret) {
         signingKeySecret = secret;
-        signingKeyPromise = deriveHmacKeyBytes(secret).then((keyBytes) =>
-            crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"])
-        );
+        signingKeyPromise = crypto.subtle
+            .importKey("raw", textEncoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
+                "sign",
+                "verify",
+            ])
+            .catch(async () => {
+                const keyBytes = await deriveHmacKeyBytes(secret);
+                return crypto.subtle.importKey(
+                    "raw",
+                    keyBytes,
+                    { name: "HMAC", hash: "SHA-256" },
+                    false,
+                    ["sign", "verify"]
+                );
+            });
     }
 
     return signingKeyPromise;

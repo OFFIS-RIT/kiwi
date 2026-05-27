@@ -21,10 +21,12 @@ import { env } from "../env";
 import {
     enrichCitation,
     getFinishMetadata,
+    isContextOverflowError,
     listChats,
     loadChatHistory,
     loadChatSummary,
     mapChatError,
+    refreshReplyContext,
     startReply,
     toolPart,
     toAssistantReply,
@@ -157,15 +159,16 @@ export const chatRoute = new Elysia()
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
                 const deep = request.deep === true;
-                const { assistantId, client, contextMessages, systemPrompt, tools, isNewChat, titleMessages } =
+                const promptOptions = {
+                    includeGraphTools: !deep,
+                    includeClientTools: false,
+                    includeSubagentTools: deep,
+                } as const;
+                const { assistantId, client, contextMessages, systemPrompt, tools, prompt, isNewChat, titleMessages } =
                     await startReply(user.id, params.id, request, {
                         toolset: "server",
                         deep,
-                        promptOptions: {
-                            includeGraphTools: !deep,
-                            includeClientTools: false,
-                            includeSubagentTools: deep,
-                        },
+                        promptOptions,
                     });
                 startChatTitleGeneration({
                     chatId: request.id,
@@ -176,15 +179,46 @@ export const chatRoute = new Elysia()
 
                 const startedAt = Date.now();
                 const citationFileIds = new Set<string>();
-                const result = await generateText({
-                    model: client.text!,
-                    messages: contextMessages,
-                    system: systemPrompt,
-                    tools,
-                    temperature: 0.3,
-                    stopWhen: stepCountIs(50),
-                    providerOptions: getProviderOptions({ thinking: "medium" }),
-                });
+                let activeContextMessages = contextMessages;
+                let activeSystemPrompt = systemPrompt;
+                let retriedAfterCompaction = false;
+                let result;
+                const runGeneration = () =>
+                    generateText({
+                        model: client.text!,
+                        messages: activeContextMessages,
+                        system: activeSystemPrompt,
+                        tools,
+                        temperature: 0.3,
+                        stopWhen: stepCountIs(50),
+                        providerOptions: getProviderOptions({ thinking: "medium" }),
+                    });
+
+                try {
+                    result = await runGeneration();
+                } catch (error) {
+                    if (!retriedAfterCompaction && isContextOverflowError(error)) {
+                        retriedAfterCompaction = true;
+                        const refreshed = await refreshReplyContext({
+                            chatId: request.id,
+                            graphId: params.id,
+                            runtime: { client, prompt },
+                            promptOptions,
+                            forceCompaction: true,
+                        });
+                        activeContextMessages = refreshed.contextMessages;
+                        activeSystemPrompt = refreshed.systemPrompt;
+                        try {
+                            result = await runGeneration();
+                        } catch (retryError) {
+                            await updateAssistantMessage(assistantId, [], "failed");
+                            throw retryError;
+                        }
+                    } else {
+                        await updateAssistantMessage(assistantId, [], "failed");
+                        throw error;
+                    }
+                }
 
                 const parts: MessagePart[] = [];
                 for (const contentPart of result.content) {
@@ -286,7 +320,12 @@ export const chatRoute = new Elysia()
                 const request = body as ChatRequest;
                 await assertCanViewGraph(user, params.id);
                 const deep = request.deep === true;
-                const { assistantId, client, contextMessages, systemPrompt, tools, isNewChat, titleMessages } =
+                const promptOptions = {
+                    includeGraphTools: !deep,
+                    includeClientTools: !deep,
+                    includeSubagentTools: deep,
+                } as const;
+                const { assistantId, client, contextMessages, systemPrompt, tools, prompt, isNewChat, titleMessages } =
                     await startReply(
                     user.id,
                     params.id,
@@ -294,11 +333,7 @@ export const chatRoute = new Elysia()
                     {
                         toolset: "server-and-client",
                         deep,
-                        promptOptions: {
-                            includeGraphTools: !deep,
-                            includeClientTools: !deep,
-                            includeSubagentTools: deep,
-                        },
+                        promptOptions,
                     }
                 );
                 startChatTitleGeneration({
@@ -337,20 +372,6 @@ export const chatRoute = new Elysia()
                     return value;
                 };
 
-                const result = streamText({
-                    model: client.text!,
-                    messages: contextMessages,
-                    system: systemPrompt,
-                    tools,
-                    temperature: 0.3,
-                    stopWhen: stepCountIs(50),
-                    experimental_transform: smoothStream({
-                        delayInMs: 20,
-                        chunking: "word",
-                    }),
-                    providerOptions: getProviderOptions({ thinking: "medium" }),
-                });
-
                 const stream = createUIMessageStream<ChatUIMessage>({
                     execute: async ({ writer }) => {
                         writer.write({
@@ -370,6 +391,9 @@ export const chatRoute = new Elysia()
                         type ActiveUIText = { uiId: string; buffer: string };
                         const activeUITexts = new Map<string, ActiveUIText>();
                         let uiTextBlockCounter = 0;
+                        let activeContextMessages = contextMessages;
+                        let activeSystemPrompt = systemPrompt;
+                        let retriedAfterCompaction = false;
 
                         const createUITextId = (modelPartId: string) => `${modelPartId}::${uiTextBlockCounter++}`;
 
@@ -418,8 +442,25 @@ export const chatRoute = new Elysia()
                             appendText(modelPartId, stringifyCitationFence(citation));
                         };
 
-                        try {
-                            for await (const part of result.fullStream) {
+                        const createResult = () =>
+                            streamText({
+                                model: client.text!,
+                                messages: activeContextMessages,
+                                system: activeSystemPrompt,
+                                tools,
+                                temperature: 0.3,
+                                stopWhen: stepCountIs(50),
+                                experimental_transform: smoothStream({
+                                    delayInMs: 20,
+                                    chunking: "word",
+                                }),
+                                providerOptions: getProviderOptions({ thinking: "medium" }),
+                            });
+
+                        const processResult = async (result: ReturnType<typeof streamText>) => {
+                            let retryRequested = false;
+
+                            generationStream: for await (const part of result.fullStream) {
                                 if (part.type !== "start" && part.type !== "start-step" && firstOutputAt === null) {
                                     firstOutputAt = Date.now();
                                 }
@@ -606,6 +647,11 @@ export const chatRoute = new Elysia()
                                         break;
                                     }
                                     case "error": {
+                                        if (!retriedAfterCompaction && firstOutputAt === null && isContextOverflowError(part.error)) {
+                                            retryRequested = true;
+                                            break generationStream;
+                                        }
+
                                         const errorText =
                                             part.error instanceof Error ? part.error.message : String(part.error);
                                         await updateAssistantMessage(assistantId, assistantParts, "failed");
@@ -613,6 +659,39 @@ export const chatRoute = new Elysia()
                                         break;
                                     }
                                 }
+                            }
+
+                            return retryRequested;
+                        };
+
+                        try {
+                            generationAttempt: while (true) {
+                                let retryRequested = false;
+
+                                try {
+                                    retryRequested = await processResult(createResult());
+                                } catch (error) {
+                                    if (!retriedAfterCompaction && firstOutputAt === null && isContextOverflowError(error)) {
+                                        retryRequested = true;
+                                    } else {
+                                        throw error;
+                                    }
+                                }
+
+                                if (!retryRequested) {
+                                    break generationAttempt;
+                                }
+
+                                retriedAfterCompaction = true;
+                                const refreshed = await refreshReplyContext({
+                                    chatId: request.id,
+                                    graphId: params.id,
+                                    runtime: { client, prompt },
+                                    promptOptions,
+                                    forceCompaction: true,
+                                });
+                                activeContextMessages = refreshed.contextMessages;
+                                activeSystemPrompt = refreshed.systemPrompt;
                             }
                         } catch (error) {
                             // Flush any still-open UI text block so partial content

@@ -26,11 +26,11 @@ import { API_ERROR_CODES } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 
 const MAX_CONTEXT_TOKENS = 256_000;
-const SOFT_COMPACTION_THRESHOLD = 230_400;
 const SAFETY_MARGIN_TOKENS = 8_000;
 const REPLY_RESERVE_TOKENS = 24_000;
 const RAW_TAIL_TARGET_TOKENS = 32_000;
 const MIN_RAW_VISIBLE_MESSAGES = 6;
+const SOFT_COMPACTION_THRESHOLD = MAX_CONTEXT_TOKENS - SAFETY_MARGIN_TOKENS - REPLY_RESERVE_TOKENS;
 
 export type ChatRequest = ChatRequestBody;
 
@@ -68,6 +68,8 @@ export type ActiveChatContext = {
     activeSummary?: string;
     estimatedPromptTokens: number;
 };
+
+type ValidationTools = NonNullable<Parameters<typeof validateUIMessages>[0]["tools"]>;
 
 function isCompactionPart(part: MessagePart): part is MessageCompactionPart {
     return part.type === "compaction";
@@ -169,14 +171,16 @@ async function validateTailMessages(options: {
     rawTailRows: ChatMessage[];
     runtime: ChatRuntime;
 }) {
+    const tools = buildChatValidationToolset({
+        graphId: options.graphId,
+        embeddingModel: options.runtime.client.embedding,
+        model: options.runtime.client.subagent ?? options.runtime.client.text,
+        graphPrompt: options.runtime.prompt,
+    }) as unknown as ValidationTools;
+
     return (await validateUIMessages({
         messages: options.rawTailRows.map((message) => toUIMessage(message)),
-        tools: buildChatValidationToolset({
-            graphId: options.graphId,
-            embeddingModel: options.runtime.client.embedding,
-            model: options.runtime.client.subagent ?? options.runtime.client.text,
-            graphPrompt: options.runtime.prompt,
-        }) as never,
+        tools,
         metadataSchema: chatMessageMetadataSchema,
         dataSchemas: chatDataPartSchemas,
     })) as ChatUIMessage[];
@@ -282,7 +286,7 @@ function serializeCompactionTranscript(messages: ChatUIMessage[]) {
                 const output = "output" in part && part.output !== undefined ? JSON.stringify(part.output) : undefined;
                 const errorText = "errorText" in part && part.errorText ? part.errorText : undefined;
 
-                lines.push(`Tool: ${part.type}`);
+                lines.push(`Tool: ${"toolName" in part ? part.toolName : part.type}`);
                 lines.push(`State: ${part.state}`);
                 if (input) {
                     lines.push(`Input: ${input}`);
@@ -325,7 +329,6 @@ async function insertCheckpoint(options: {
     };
 
     await db.insert(messageTable).values({
-        id: crypto.randomUUID(),
         chatId: options.chatId,
         role: "system",
         status: "completed",
@@ -339,6 +342,7 @@ export async function maybeCompactConversation(options: {
     runtime: ChatRuntime;
     rows: ChatMessage[];
     promptOptions?: PromptOptions;
+    forceCompaction?: boolean;
 }) {
     const systemPrompt = createChatSystemPrompt(options.runtime.prompt, options.promptOptions ?? {});
     let context = await buildActiveChatContext({
@@ -347,8 +351,10 @@ export async function maybeCompactConversation(options: {
         runtime: options.runtime,
         systemPrompt,
     });
+    let forceCompaction = options.forceCompaction === true;
 
-    while (shouldCompact(context.estimatedPromptTokens)) {
+    while (forceCompaction || shouldCompact(context.estimatedPromptTokens)) {
+        forceCompaction = false;
         const protectedTailStartIndex = getProtectedTailStartIndex(context.activeRawTailRows);
         if (protectedTailStartIndex <= 0) {
             throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
@@ -415,16 +421,17 @@ export async function ensureChatRecord(options: {
 }
 
 export async function createPendingAssistantMessage(chatId: string) {
-    const assistantId = crypto.randomUUID();
-    await db.insert(messageTable).values({
-        id: assistantId,
-        chatId,
-        role: "assistant",
-        status: "pending",
-        parts: [],
-    });
+    const [assistantMessage] = await db
+        .insert(messageTable)
+        .values({
+            chatId,
+            role: "assistant",
+            status: "pending",
+            parts: [],
+        })
+        .returning({ id: messageTable.id });
 
-    return assistantId;
+    return assistantMessage!.id;
 }
 
 export async function syncChatMessage(options: {
