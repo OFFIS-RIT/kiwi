@@ -144,7 +144,7 @@ describe("CreateProjectDialog", () => {
         expect(optionNames()).toEqual(["Organisation", "Team Admin"]);
     });
 
-    test("shows team graph management destinations for non-organization admins", async () => {
+    test("shows team project management destinations for non-organization admins", async () => {
         groups.value = [
             team("team_admin", "Team Admin", "admin"),
             team("team_mod", "Team Moderator", "moderator"),
@@ -164,7 +164,7 @@ describe("CreateProjectDialog", () => {
         renderWithProviders(<CreateProjectDialog open onOpenChange={vi.fn()} groupId="team_admin" />);
 
         const user = userEvent.setup();
-        await user.type(screen.getByLabelText("Graphname"), "Neues Projekt");
+        await user.type(screen.getByLabelText("Projektname"), "Neues Projekt");
         await user.click(screen.getByRole("button", { name: "Erstellen" }));
 
         expect(createProject).toHaveBeenCalledWith(expect.anything(), "team_admin", "Neues Projekt", [], expect.any(Function));

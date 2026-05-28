@@ -43,6 +43,8 @@ export type ChatInputProps = {
     editorClassName?: string;
     /** Project whose files back the @-mention picker. */
     projectId: string;
+    /** Move focus into the editor after it becomes ready. */
+    autoFocus?: boolean;
     /**
      * Live (non-final) speech-to-text preview. Rendered as a muted overlay
      * below the editor — the editor document itself is never mutated, so
@@ -65,7 +67,17 @@ export const projectFilesQueryKey = (projectId: string) => ["projectFiles", proj
  * surrounding providers — i18n, query client, theme, etc.
  */
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
-    { value, onChange, onSubmit, disabled = false, placeholder, editorClassName, projectId, interimTranscript },
+    {
+        value,
+        onChange,
+        onSubmit,
+        disabled = false,
+        placeholder,
+        editorClassName,
+        projectId,
+        autoFocus,
+        interimTranscript,
+    },
     ref
 ) {
     const apiClient = useApiClient();
@@ -186,6 +198,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         editable: !disabled,
         content: value,
     });
+
+    useEffect(() => {
+        if (!editor || !autoFocus || disabled) return;
+        editor.commands.focus();
+    }, [autoFocus, disabled, editor]);
 
     // Toggle editability whenever `disabled` changes.
     useEffect(() => {

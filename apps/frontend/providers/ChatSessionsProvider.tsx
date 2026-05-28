@@ -16,6 +16,8 @@ type ProjectChatEntry = {
     chat: Chat<ChatUIMessage>;
     currentStep: string | null;
     streamError: string | null;
+    isGenerating: boolean;
+    hasUnreadUpdate: boolean;
 };
 
 type EnsureEntryInit = {
@@ -23,7 +25,6 @@ type EnsureEntryInit = {
     initialMessages: ChatUIMessage[];
     sendAutomaticallyWhen?: SendAutomaticallyWhen;
 };
-
 export function prepareLatestMessageRequest({
     id,
     messages,
@@ -47,8 +48,14 @@ export function prepareLatestMessageRequest({
     };
 }
 
+type ProjectChatSnapshot = {
+    entry: ProjectChatEntry | undefined;
+    entries: ProjectChatEntry[];
+    version: number;
+};
+
 type ChatSessionsStore = {
-    getEntry: (projectId: string) => ProjectChatEntry | undefined;
+    getSnapshot: (projectId: string) => ProjectChatSnapshot;
     ensureEntry: (projectId: string, init: EnsureEntryInit) => ProjectChatEntry;
     resetEntry: (projectId: string) => void;
     startNewEntry: (projectId: string, init: EnsureEntryInit) => ProjectChatEntry;
@@ -59,10 +66,14 @@ type ChatSessionsStore = {
     clearNewChatDraft: () => void;
     setCurrentStep: (projectId: string, step: string | null) => void;
     setStreamError: (projectId: string, error: string | null) => void;
+    setIsGenerating: (projectId: string, generating: boolean) => void;
+    setHasUnreadUpdate: (projectId: string, sessionId: string, unread: boolean) => void;
     subscribe: (projectId: string, listener: Listener) => () => void;
 };
 
 const ChatSessionsContext = createContext<ChatSessionsStore | null>(null);
+
+const entryKey = (projectId: string, sessionId: string) => `${projectId}:${sessionId}`;
 
 export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     const { apiUrl } = useRuntimeConfig();
@@ -70,27 +81,70 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     // when a single project's stream progresses. Subscribers per projectId opt in
     // to their own updates via useSyncExternalStore below.
     const entriesRef = useRef<Map<string, ProjectChatEntry>>(new Map());
+    const activeSessionIdsRef = useRef<Map<string, string>>(new Map());
     const requestedNewEntriesRef = useRef<Map<string, EnsureEntryInit>>(new Map());
     const listenersRef = useRef<Map<string, Set<Listener>>>(new Map());
+    const versionsRef = useRef<Map<string, number>>(new Map());
+    const snapshotsRef = useRef<Map<string, ProjectChatSnapshot>>(new Map());
     const newChatDraftRef = useRef("");
 
     const notify = useCallback((projectId: string) => {
+        versionsRef.current.set(projectId, (versionsRef.current.get(projectId) ?? 0) + 1);
+        snapshotsRef.current.delete(projectId);
         const listeners = listenersRef.current.get(projectId);
         if (!listeners) return;
         for (const listener of listeners) listener();
     }, []);
 
     const updateEntry = useCallback(
-        (projectId: string, patch: Partial<Omit<ProjectChatEntry, "projectId" | "chat">>) => {
-            const existing = entriesRef.current.get(projectId);
+        (projectId: string, sessionId: string, patch: Partial<Omit<ProjectChatEntry, "projectId" | "chat">>) => {
+            const key = entryKey(projectId, sessionId);
+            const existing = entriesRef.current.get(key);
             if (!existing) return;
-            entriesRef.current.set(projectId, { ...existing, ...patch });
+            entriesRef.current.set(key, { ...existing, ...patch });
             notify(projectId);
         },
         [notify]
     );
 
     const store = useMemo<ChatSessionsStore>(() => {
+        const getProjectEntries = (projectId: string) =>
+            [...entriesRef.current.values()].filter((entry) => entry.projectId === projectId);
+
+        const getActiveEntry = (projectId: string) => {
+            const sessionId = activeSessionIdsRef.current.get(projectId);
+            return sessionId ? entriesRef.current.get(entryKey(projectId, sessionId)) : undefined;
+        };
+
+        const setActiveEntry = (projectId: string, sessionId: string) => {
+            activeSessionIdsRef.current.set(projectId, sessionId);
+        };
+
+        // Reclaim Chat instances (and their WebSocket resources) for entries that
+        // are no longer needed: not the active session, not streaming, and already
+        // read. Without this, background sessions accumulate without bound.
+        const reclaimInertEntries = () => {
+            for (const [key, entry] of entriesRef.current) {
+                const isActive = activeSessionIdsRef.current.get(entry.projectId) === entry.sessionId;
+                if (isActive || entry.isGenerating || entry.hasUnreadUpdate) continue;
+                void entry.chat.stop().catch(() => undefined);
+                entriesRef.current.delete(key);
+                notify(entry.projectId);
+            }
+        };
+
+        const getSnapshot = (projectId: string) => {
+            const cached = snapshotsRef.current.get(projectId);
+            if (cached) return cached;
+            const snapshot = {
+                entry: getActiveEntry(projectId),
+                entries: getProjectEntries(projectId),
+                version: versionsRef.current.get(projectId) ?? 0,
+            };
+            snapshotsRef.current.set(projectId, snapshot);
+            return snapshot;
+        };
+
         const createEntry = (projectId: string, init: EnsureEntryInit) => {
             const chat = new Chat<ChatUIMessage>({
                 id: init.sessionId,
@@ -105,17 +159,21 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                     if (part.type === "data-step") {
                         const name =
                             part.data && typeof part.data === "object" && "name" in part.data ? part.data.name : null;
-                        updateEntry(projectId, {
+                        updateEntry(projectId, init.sessionId, {
                             currentStep: typeof name === "string" ? name : null,
                         });
                     }
                 },
                 onError: (error) => {
                     console.error("Chat stream error:", error);
-                    updateEntry(projectId, { streamError: error.message });
+                    updateEntry(projectId, init.sessionId, { streamError: error.message, isGenerating: false });
                 },
                 onFinish: () => {
-                    updateEntry(projectId, { currentStep: null });
+                    updateEntry(projectId, init.sessionId, {
+                        currentStep: null,
+                        isGenerating: false,
+                        hasUnreadUpdate: true,
+                    });
                 },
             });
 
@@ -125,36 +183,47 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                 chat,
                 currentStep: null,
                 streamError: null,
+                isGenerating: false,
+                hasUnreadUpdate: false,
             };
-            entriesRef.current.set(projectId, entry);
+            entriesRef.current.set(entryKey(projectId, init.sessionId), entry);
+            setActiveEntry(projectId, init.sessionId);
+            reclaimInertEntries();
             notify(projectId);
             return entry;
         };
 
         return {
-            getEntry: (projectId) => entriesRef.current.get(projectId),
+            getSnapshot,
             ensureEntry: (projectId, init) => {
-                const existing = entriesRef.current.get(projectId);
-                if (existing?.sessionId === init.sessionId) return existing;
+                const key = entryKey(projectId, init.sessionId);
+                const existing = entriesRef.current.get(key);
                 if (existing) {
-                    void existing.chat.stop().catch(() => undefined);
+                    setActiveEntry(projectId, init.sessionId);
+                    reclaimInertEntries();
+                    notify(projectId);
+                    return existing;
                 }
 
                 return createEntry(projectId, init);
             },
             resetEntry: (projectId) => {
-                const entry = entriesRef.current.get(projectId);
+                const entry = getActiveEntry(projectId);
                 if (entry) {
                     void entry.chat.stop().catch(() => undefined);
+                    entriesRef.current.delete(entryKey(projectId, entry.sessionId));
                 }
-                entriesRef.current.delete(projectId);
+                activeSessionIdsRef.current.delete(projectId);
                 notify(projectId);
             },
             startNewEntry: (projectId, init) => {
-                const entry = entriesRef.current.get(projectId);
-                if (entry) {
-                    void entry.chat.stop().catch(() => undefined);
-                    entriesRef.current.delete(projectId);
+                const key = entryKey(projectId, init.sessionId);
+                const existing = entriesRef.current.get(key);
+                if (existing) {
+                    setActiveEntry(projectId, init.sessionId);
+                    reclaimInertEntries();
+                    notify(projectId);
+                    return existing;
                 }
                 return createEntry(projectId, init);
             },
@@ -174,8 +243,21 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
             clearNewChatDraft: () => {
                 newChatDraftRef.current = "";
             },
-            setCurrentStep: (projectId, step) => updateEntry(projectId, { currentStep: step }),
-            setStreamError: (projectId, error) => updateEntry(projectId, { streamError: error }),
+            setCurrentStep: (projectId, step) => {
+                const entry = getActiveEntry(projectId);
+                if (entry) updateEntry(projectId, entry.sessionId, { currentStep: step });
+            },
+            setStreamError: (projectId, error) => {
+                const entry = getActiveEntry(projectId);
+                if (entry) updateEntry(projectId, entry.sessionId, { streamError: error });
+            },
+            setIsGenerating: (projectId, generating) => {
+                const entry = getActiveEntry(projectId);
+                if (entry) updateEntry(projectId, entry.sessionId, { isGenerating: generating });
+            },
+            setHasUnreadUpdate: (projectId, sessionId, unread) => {
+                updateEntry(projectId, sessionId, { hasUnreadUpdate: unread });
+            },
             subscribe: (projectId, listener) => {
                 let listeners = listenersRef.current.get(projectId);
                 if (!listeners) {
@@ -206,6 +288,7 @@ function useChatSessionsStore(): ChatSessionsStore {
 
 type UseProjectChatSessionResult = {
     entry: ProjectChatEntry | undefined;
+    entries: ProjectChatEntry[];
     ensureEntry: (init: EnsureEntryInit) => ProjectChatEntry;
     resetEntry: () => void;
     startNewEntry: (init: EnsureEntryInit) => ProjectChatEntry;
@@ -216,6 +299,8 @@ type UseProjectChatSessionResult = {
     clearNewChatDraft: () => void;
     setStreamError: (error: string | null) => void;
     setCurrentStep: (step: string | null) => void;
+    setIsGenerating: (generating: boolean) => void;
+    setHasUnreadUpdate: (sessionId: string, unread: boolean) => void;
 };
 
 /**
@@ -228,9 +313,10 @@ export function useProjectChatSession(projectId: string): UseProjectChatSessionR
     const store = useChatSessionsStore();
 
     const subscribe = useCallback((listener: Listener) => store.subscribe(projectId, listener), [projectId, store]);
-    const getSnapshot = useCallback(() => store.getEntry(projectId), [projectId, store]);
+    const getSnapshot = useCallback(() => store.getSnapshot(projectId), [projectId, store]);
 
-    const entry = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const { entry, entries } = snapshot;
 
     const ensureEntry = useCallback((init: EnsureEntryInit) => store.ensureEntry(projectId, init), [projectId, store]);
     const resetEntry = useCallback(() => store.resetEntry(projectId), [projectId, store]);
@@ -254,9 +340,18 @@ export function useProjectChatSession(projectId: string): UseProjectChatSessionR
         (step: string | null) => store.setCurrentStep(projectId, step),
         [projectId, store]
     );
+    const setIsGenerating = useCallback(
+        (generating: boolean) => store.setIsGenerating(projectId, generating),
+        [projectId, store]
+    );
+    const setHasUnreadUpdate = useCallback(
+        (sessionId: string, unread: boolean) => store.setHasUnreadUpdate(projectId, sessionId, unread),
+        [projectId, store]
+    );
 
     return {
         entry,
+        entries,
         ensureEntry,
         resetEntry,
         startNewEntry,
@@ -267,6 +362,8 @@ export function useProjectChatSession(projectId: string): UseProjectChatSessionR
         clearNewChatDraft: store.clearNewChatDraft,
         setStreamError,
         setCurrentStep,
+        setIsGenerating,
+        setHasUnreadUpdate,
     };
 }
 

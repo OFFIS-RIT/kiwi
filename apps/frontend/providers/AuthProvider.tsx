@@ -4,7 +4,7 @@ import type React from "react";
 import { useRouter } from "next/navigation";
 import { getUserRoles, hasRole } from "@kiwi/auth/permissions";
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { InitialClientSession } from "@/lib/auth/types";
 import { useAuthClient } from "./AuthClientProvider";
 
@@ -20,7 +20,9 @@ type AuthContextType = {
     role: string | null;
     isAdmin: boolean;
     isSystemAdmin: boolean;
+    isAuthenticated: boolean;
     isPending: boolean;
+    isSigningOut: boolean;
     signOut: () => Promise<void>;
 };
 
@@ -37,21 +39,25 @@ export function AuthProvider({
     const queryClient = useQueryClient();
     const router = useRouter();
     const prevUserIdRef = useRef<string | null>(null);
+    const [isSigningOut, setIsSigningOut] = useState(false);
     const { data: liveSession, isPending } = authClient.useSession();
     const { data: activeMemberRole, isPending: isRolePending } = authClient.useActiveMemberRole();
 
-    const sessionUser = liveSession?.user ?? initialSession.user;
+    const initialUser = initialSession.user.id ? initialSession.user : null;
+    const isSignedOut = !isPending && !liveSession;
+    const sessionUser = isSigningOut || isSignedOut ? null : (liveSession?.user ?? initialUser);
     const organizationRoles = getUserRoles(activeMemberRole?.role ?? null);
     const isSystemAdmin = hasRole(sessionUser?.role ?? null, "admin");
     const role = isSystemAdmin ? "admin" : (organizationRoles[0] ?? null);
     const isAdmin = isSystemAdmin || organizationRoles.includes("admin");
-    const pending = isPending || (!!sessionUser && isRolePending);
+    const isAuthenticated = !!sessionUser && !isSigningOut;
+    const pending = !isSigningOut && (isPending || (!!sessionUser && isRolePending));
 
     useEffect(() => {
-        if (!isPending && !liveSession) {
+        if (!isPending && !liveSession && !isSigningOut) {
             router.refresh();
         }
-    }, [isPending, liveSession, router]);
+    }, [isPending, isSigningOut, liveSession, router]);
 
     useEffect(() => {
         if (sessionUser?.id && prevUserIdRef.current && sessionUser.id !== prevUserIdRef.current) {
@@ -62,10 +68,17 @@ export function AuthProvider({
     }, [sessionUser?.id]);
 
     const signOut = useCallback(async () => {
-        await authClient.signOut();
+        setIsSigningOut(true);
+        await queryClient.cancelQueries();
         queryClient.clear();
         localStorage.removeItem("kiwi-navigation-state");
-        router.replace("/login");
+        try {
+            await authClient.signOut();
+            router.replace("/login");
+        } catch (error) {
+            setIsSigningOut(false);
+            throw error;
+        }
     }, [authClient, queryClient, router]);
 
     const value = useMemo<AuthContextType>(
@@ -81,10 +94,12 @@ export function AuthProvider({
             role,
             isAdmin,
             isSystemAdmin,
+            isAuthenticated,
             isPending: pending,
+            isSigningOut,
             signOut,
         }),
-        [sessionUser, role, isAdmin, isSystemAdmin, pending, signOut]
+        [sessionUser, role, isAdmin, isSystemAdmin, isAuthenticated, pending, isSigningOut, signOut]
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -16,6 +16,7 @@ mock.module("ai", () => ({
 
 mock.module("@kiwi/files", () => ({
     putNamedFile: putNamedFileMock,
+    PDF_PREVIEW_SCALE: 1.5,
 }));
 
 const { DOCXLoader } = await import("../doc.ts");

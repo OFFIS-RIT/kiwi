@@ -85,7 +85,7 @@ describe("EditProjectDialog", () => {
             />
         );
 
-        const nameInput = screen.getByLabelText("Graphname");
+        const nameInput = screen.getByLabelText("Projektname");
         const fileName = screen.getByText("README.pdf");
         const scrollArea = fileName.closest('[data-slot="scroll-area"]');
 
