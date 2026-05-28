@@ -1,5 +1,7 @@
-import type { UIMessage, UITools } from "ai";
+import type { InferUITools, UIMessage } from "ai";
 import { z } from "zod";
+import type { buildSubagentToolset } from "./agents/subagents";
+import type { buildServerAndClientToolset } from "./tools/toolsets";
 
 export type ChatMessageMetadata = {
     createdAt?: string;
@@ -20,7 +22,9 @@ export type ChatDataParts = {
     };
 };
 
-export type ChatUIMessage = UIMessage<ChatMessageMetadata, ChatDataParts, UITools>;
+type ChatValidationToolset = ReturnType<typeof buildServerAndClientToolset> & ReturnType<typeof buildSubagentToolset>;
+
+export type ChatUIMessage = UIMessage<ChatMessageMetadata, ChatDataParts, InferUITools<ChatValidationToolset>>;
 
 export const chatMessageMetadataSchema = z.object({
     createdAt: z.string().optional(),

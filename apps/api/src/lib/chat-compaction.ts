@@ -66,8 +66,6 @@ export type ActiveChatContext = {
     estimatedPromptTokens: number;
 };
 
-type ValidationTools = NonNullable<Parameters<typeof validateUIMessages<ChatUIMessage>>[0]["tools"]>;
-
 function isCompactionPart(part: MessagePart): part is MessageCompactionPart {
     return part.type === "compaction";
 }
@@ -99,10 +97,6 @@ function estimateContextTokens(systemPrompt: string, activeSummary: string | und
             messages: contextMessages,
         })
     );
-}
-
-function toValidationTools(toolset: ReturnType<typeof buildChatValidationToolset>): ValidationTools {
-    return toolset as unknown as ValidationTools;
 }
 
 export function replaceOrAppendMessage<T extends { id: string }>(messages: T[], next: T) {
@@ -194,7 +188,7 @@ async function validateTailMessages(options: {
 
     return await validateUIMessages<ChatUIMessage>({
         messages,
-        tools: toValidationTools(validationToolset),
+        tools: validationToolset,
         metadataSchema: chatMessageMetadataSchema,
         dataSchemas: chatDataPartSchemas,
     });
