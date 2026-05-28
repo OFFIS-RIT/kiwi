@@ -85,7 +85,8 @@ export async function rasterizeAllPDFPagesWithGhostscript(content: Uint8Array, s
             throw new Error("Ghostscript produced no page images");
         }
 
-        return Promise.all(pageFiles.map((file) => readFile(join(directory, file.name))));
+        const pages = await Promise.all(pageFiles.map((file) => readFile(join(directory, file.name))));
+        return pages;
     } finally {
         await rm(directory, { recursive: true, force: true });
     }

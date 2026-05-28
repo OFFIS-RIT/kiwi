@@ -27,9 +27,8 @@ mock.module("../prompts/subagent.prompt", () => ({
     }) => `curate-task:${JSON.stringify(input)}`,
 }));
 
-mock.module("../tools/toolsets", () => ({
-    buildGraphExplorationToolset: () => ({}),
-    buildSourceCurationToolset: () => ({}),
+mock.module("@kiwi/db", () => ({
+    db: {},
 }));
 
 const { buildSubagentToolset } = await import("../agents/subagents");
