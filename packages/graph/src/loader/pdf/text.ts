@@ -3,14 +3,14 @@ import {
     INLINE_TOKEN_CONNECTORS,
     LIGATURE_EXPANSIONS,
     TEXT_CHAR_DEDUPE_TOLERANCE,
-    TEXT_DEFAULT_X_TOLERANCE,
     TEXT_DEFAULT_X_TOLERANCE_RATIO,
     TEXT_DEFAULT_Y_TOLERANCE,
-    TEXT_DEFAULT_Y_TOLERANCE_RATIO,
     WORD_BOUNDARY_PUNCTUATION,
 } from "./constants";
 import { average, getTop, median, squashWhitespace, unionBoxes } from "./geometry";
 import { orderItemsByReadingLayout } from "./layout";
+
+const STRONG_INLINE_TOKEN_CONNECTORS = new Set(["_", "/", "\\", "+", "=", "^", "~", "*"]);
 
 export function tidyPageText(pageText: PageText): PageText {
     const horizontalLines: TextLine[] = [];
@@ -656,25 +656,19 @@ export function cleanupExtractedTextSpacing(value: string): string {
     return value
         .replace(/\s+([,;:!?])/g, "$1")
         .replace(/\s+\.(?!\.)/g, ".")
+        .replace(/\s+([+*=^~])/g, "$1")
+        .replace(/([+*=^~])\s+/g, "$1")
         .replace(/([([{])\s+/g, "$1")
         .replace(/\s+([)\]}])/g, "$1")
         .trim();
 }
 
-export function getAdaptiveTextXTolerance(previous: TextChar, current: TextChar): number {
-    return Math.max(
-        TEXT_DEFAULT_X_TOLERANCE,
-        previous.fontSize * TEXT_DEFAULT_X_TOLERANCE_RATIO,
-        current.fontSize * TEXT_DEFAULT_X_TOLERANCE_RATIO,
-        Math.max(previous.bbox.width, current.bbox.width) * 0.75
-    );
+export function getAdaptiveTextXTolerance(previous: TextChar, _current: TextChar): number {
+    return previous.fontSize * TEXT_DEFAULT_X_TOLERANCE_RATIO;
 }
 
-export function getAdaptiveTextYTolerance(previous: TextChar, current: TextChar): number {
-    return Math.max(
-        TEXT_DEFAULT_Y_TOLERANCE,
-        Math.min(previous.fontSize, current.fontSize) * TEXT_DEFAULT_Y_TOLERANCE_RATIO
-    );
+export function getAdaptiveTextYTolerance(_previous: TextChar, _current: TextChar): number {
+    return TEXT_DEFAULT_Y_TOLERANCE;
 }
 
 export function textCharBeginsNewWord(previous: TextChar, current: TextChar): boolean {
@@ -692,7 +686,7 @@ export function textCharBeginsNewWord(previous: TextChar, current: TextChar): bo
         const cx = current.bbox.y;
         const ay = previous.bbox.x;
         const cy = current.bbox.x;
-        return cx < ax - xTolerance * 0.25 || cx > bx + xTolerance || Math.abs(cy - ay) > yTolerance;
+        return cx < ax || cx > bx + yTolerance || Math.abs(cy - ay) > xTolerance;
     }
 
     const ax = previous.bbox.x;
@@ -700,7 +694,7 @@ export function textCharBeginsNewWord(previous: TextChar, current: TextChar): bo
     const cx = current.bbox.x;
     const ay = previous.bbox.y;
     const cy = current.bbox.y;
-    return cx < ax - xTolerance * 0.25 || cx > bx + xTolerance || Math.abs(cy - ay) > yTolerance;
+    return cx < ax || cx > bx + xTolerance || Math.abs(cy - ay) > yTolerance;
 }
 
 export function isWordBoundaryPunctuation(text: string): boolean {
@@ -711,6 +705,21 @@ export function isInlineTokenConnector(text: string): boolean {
     return text.length === 1 && INLINE_TOKEN_CONNECTORS.has(text);
 }
 
+export function hasBoundaryInlineConnector(text: string): boolean {
+    return (
+        text.length > 0 &&
+        (INLINE_TOKEN_CONNECTORS.has(text[0] as string) || INLINE_TOKEN_CONNECTORS.has(text[text.length - 1] as string))
+    );
+}
+
+export function hasStrongBoundaryInlineConnector(text: string): boolean {
+    return (
+        text.length > 0 &&
+        (STRONG_INLINE_TOKEN_CONNECTORS.has(text[0] as string) ||
+            STRONG_INLINE_TOKEN_CONNECTORS.has(text[text.length - 1] as string))
+    );
+}
+
 export function shouldKeepCharsJoined(previous: TextChar, current: TextChar, gap: number): boolean {
     if (shouldTightlyJoinChars(previous, current)) {
         return true;
@@ -719,13 +728,17 @@ export function shouldKeepCharsJoined(previous: TextChar, current: TextChar, gap
     const left = getExpandedCharText(previous.char);
     const right = getExpandedCharText(current.char);
     const joinTolerance = getAdaptiveTextXTolerance(previous, current) * 1.35;
+    const connectorJoinTolerance =
+        hasStrongBoundaryInlineConnector(left) || hasStrongBoundaryInlineConnector(right)
+            ? Math.max(joinTolerance, Math.min(previous.fontSize, current.fontSize) * 1.25)
+            : joinTolerance;
 
-    if ((isInlineTokenConnector(left) || isInlineTokenConnector(right)) && gap <= joinTolerance) {
+    if ((hasBoundaryInlineConnector(left) || hasBoundaryInlineConnector(right)) && gap <= connectorJoinTolerance) {
         return true;
     }
 
     if (
-        ((/^[A-Za-z]$/.test(left) && /^\d+$/.test(right)) || (/^\d+$/.test(left) && /^[A-Za-z]$/.test(right))) &&
+        ((isLetter(left) && /^\d+$/.test(right)) || (/^\d+$/.test(left) && isLetter(right))) &&
         gap <= joinTolerance
     ) {
         return true;
@@ -734,7 +747,11 @@ export function shouldKeepCharsJoined(previous: TextChar, current: TextChar, gap
     return false;
 }
 
-export function shouldInsertSpaceBetweenChars(previous: TextChar, current: TextChar, gap: number): boolean {
+export function shouldInsertSpaceBetweenChars(
+    previous: TextChar,
+    current: TextChar,
+    gap: number
+): boolean {
     if (gap <= 0 || shouldKeepCharsJoined(previous, current, gap)) {
         return false;
     }
@@ -866,6 +883,10 @@ export function reconstructTextFromChars(chars: TextChar[]): string {
     }
 
     return parts.join("");
+}
+
+function isLetter(value: string): boolean {
+    return /^\p{L}+$/u.test(value);
 }
 
 export function shouldReplaceOverlappingChar(previous: TextChar, current: TextChar): boolean {
