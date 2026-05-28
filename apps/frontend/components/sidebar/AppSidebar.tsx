@@ -615,6 +615,9 @@ function ProjectItem({
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(project.id) });
         },
+        onError: () => {
+            toast.error(t("error.unexpected.try.again"));
+        },
     });
     const archiveChatMutation = useMutation({
         mutationFn: (conversationId: string) => archiveProjectChat(apiClient, project.id, conversationId),
@@ -631,6 +634,9 @@ function ProjectItem({
                 }
                 router.push(href);
             }
+        },
+        onError: () => {
+            toast.error(t("error.unexpected.try.again"));
         },
     });
     const deleteChatMutation = useMutation({
@@ -691,7 +697,9 @@ function ProjectItem({
     }, [chatToDelete, resetDeleteMutation]);
 
     useEffect(() => {
-        setLoadedChats((current) => (current ? mergeUniqueProjectChats(project.recentChats, current) : current));
+        setLoadedChats((current) =>
+            current ? sortProjectChats(mergeUniqueProjectChats(project.recentChats, current)) : current
+        );
     }, [project.recentChats]);
 
     useEffect(() => {
