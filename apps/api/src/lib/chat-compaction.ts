@@ -451,6 +451,21 @@ export async function ensureChatRecord(options: {
     graphId: string;
     defaultTitle: string;
 }) {
+    const [insertedChat] = await db
+        .insert(chatTable)
+        .values({
+            id: options.chatId,
+            userId: options.userId,
+            graphId: options.graphId,
+            title: options.defaultTitle,
+        })
+        .onConflictDoNothing()
+        .returning({ id: chatTable.id });
+
+    if (insertedChat) {
+        return { isNewChat: true };
+    }
+
     const [existingChat] = await db
         .select({
             id: chatTable.id,
@@ -461,17 +476,7 @@ export async function ensureChatRecord(options: {
         .where(eq(chatTable.id, options.chatId))
         .limit(1);
 
-    if (!existingChat) {
-        await db.insert(chatTable).values({
-            id: options.chatId,
-            userId: options.userId,
-            graphId: options.graphId,
-            title: options.defaultTitle,
-        });
-        return { isNewChat: true };
-    }
-
-    if (existingChat.userId !== options.userId || existingChat.graphId !== options.graphId) {
+    if (!existingChat || existingChat.userId !== options.userId || existingChat.graphId !== options.graphId) {
         throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
     }
 
