@@ -89,6 +89,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, lazy, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
 
 const CreateProjectDialog = lazy(() =>
@@ -748,6 +749,7 @@ function ProjectItem({
                 setShowAllChats(false);
             }
             console.error("Failed to load more chats:", error);
+            toast.error(t("error.unexpected.try.again"));
         } finally {
             setIsLoadingMoreChats(false);
         }
