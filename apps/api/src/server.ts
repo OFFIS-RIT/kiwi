@@ -9,6 +9,7 @@ import { chatRoute } from "./routes/chat";
 import { graphFilesRoute } from "./routes/graph-files";
 import { graphRoute } from "./routes/graph";
 import { mcpRoute } from "./routes/mcp";
+import { searchRoute } from "./routes/search";
 import { teamRoute } from "./routes/team";
 
 initLogger();
@@ -42,6 +43,7 @@ const app = new Elysia({
     .use(chatRoute)
     .use(graphFilesRoute)
     .use(graphRoute)
+    .use(searchRoute)
     .use(teamRoute)
     .get("/health", () => ({ status: "ok" }))
     .listen(4321);

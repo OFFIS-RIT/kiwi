@@ -122,6 +122,7 @@ type RecentChatRow = {
     id: string;
     title: string;
     graphId: string;
+    isPinned: boolean;
     updatedAt: Date | string | null;
 };
 
@@ -406,20 +407,29 @@ async function listRecentChatsByGraphId(graphIds: string[], userId: string) {
                 id,
                 title,
                 project_id AS "graphId",
+                pinned_at IS NOT NULL AS "isPinned",
                 updated_at,
                 created_at,
                 ROW_NUMBER() OVER (
                     PARTITION BY project_id
-                    ORDER BY updated_at DESC, created_at DESC
+                    ORDER BY
+                        CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END,
+                        updated_at DESC,
+                        created_at DESC
                 ) AS row_number
             FROM chats
             WHERE user_id = ${userId}
               AND project_id IN (${textList(graphIds)})
+              AND archived_at IS NULL
         )
-        SELECT id, title, "graphId", updated_at AS "updatedAt"
+        SELECT id, title, "graphId", "isPinned", updated_at AS "updatedAt"
         FROM ranked
         WHERE row_number <= 6
-        ORDER BY "graphId" ASC, updated_at DESC, created_at DESC
+        ORDER BY
+            "graphId" ASC,
+            CASE WHEN "isPinned" THEN 0 ELSE 1 END,
+            updated_at DESC,
+            created_at DESC
     `);
 
     const recentChatsByGraphId = new Map<string, GraphRecentChatItem[]>();
@@ -429,6 +439,7 @@ async function listRecentChatsByGraphId(graphIds: string[], userId: string) {
         recentChats.push({
             id: row.id,
             title: row.title,
+            isPinned: row.isPinned,
             updatedAt: updatedAt ?? null,
         });
         recentChatsByGraphId.set(row.graphId, recentChats);

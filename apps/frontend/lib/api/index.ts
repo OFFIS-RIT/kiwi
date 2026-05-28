@@ -13,6 +13,11 @@ export type {
     ChatHistoryRecord,
     ChatListResponse,
     ChatRequestBody,
+    SearchChatItem,
+    SearchProjectItem,
+    SearchResponse,
+    SearchSuccessData,
+    SearchTeamItem,
     ChatSummaryItem,
     ErrorResponse,
     GraphAddFilesResponse,
@@ -51,6 +56,7 @@ export {
 // Re-export projects API
 export {
     addFilesToProject,
+    archiveProjectChat,
     createProject,
     deleteProject,
     deleteProjectChat,
@@ -58,11 +64,16 @@ export {
     downloadProjectFile,
     fetchProjectChat,
     fetchProjectChats,
+    fetchProjectChatsPage,
     fetchProjectDetail,
     fetchProjectFiles,
     fetchTextUnit,
     getApiAssetUrl,
     getProjectFileUrl,
+    pinProjectChat,
+    searchSidebarTargets,
+    unarchiveProjectChat,
+    unpinProjectChat,
     updateProject,
 } from "./projects";
 

@@ -17,6 +17,7 @@
     "chats": "Chats",
     "chat.options": "Chat options",
     "chat.pin": "Pin chat",
+    "chat.unpin": "Unpin chat",
     "chat.rename": "Rename chat",
     "chat.archive": "Archive chat",
     "chat.mark.unread": "Mark as unread",

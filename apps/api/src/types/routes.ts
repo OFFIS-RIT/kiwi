@@ -103,6 +103,7 @@ export type OrganizationMemberListItem = {
 export type GraphRecentChatItem = {
     id: string;
     title: string;
+    isPinned: boolean;
     updatedAt: string | null;
 };
 
@@ -159,7 +160,38 @@ export type ChatRequestBody = {
 export type ChatSummaryItem = {
     id: string;
     title: string;
+    isPinned: boolean;
     updatedAt: string | null;
+};
+
+export type SearchProjectItem = {
+    id: string;
+    name: string;
+    scope: "organization" | "team" | "private";
+    teamId: string | null;
+    teamName: string | null;
+};
+
+export type SearchTeamItem = {
+    id: string;
+    name: string;
+};
+
+export type SearchChatItem = {
+    id: string;
+    title: string;
+    isPinned: boolean;
+    projectId: string;
+    projectName: string;
+    scope: "organization" | "team" | "private";
+    teamId: string | null;
+    teamName: string | null;
+};
+
+export type SearchSuccessData = {
+    projects: SearchProjectItem[];
+    teams: SearchTeamItem[];
+    chats: SearchChatItem[];
 };
 
 export type ChatHistoryRecord = {
@@ -383,3 +415,5 @@ export type ChatCreateResponse = ApiResponse<
     | "CHAT_NOT_FOUND"
     | "INTERNAL_SERVER_ERROR"
 >;
+
+export type SearchResponse = ApiResponse<SearchSuccessData, "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;

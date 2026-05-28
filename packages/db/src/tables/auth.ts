@@ -53,6 +53,7 @@ export const teamTable = pgTable.withRLS(
     },
     (table) => [
         index("team_organization_idx").on(table.organizationId),
+        index("team_name_trgm_idx").using("gin", table.name.op("gin_trgm_ops")),
         unique("team_id_organization_unique").on(table.id, table.organizationId),
     ]
 );

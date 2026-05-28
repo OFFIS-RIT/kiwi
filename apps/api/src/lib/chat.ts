@@ -23,7 +23,7 @@ import { chatTable, messageTable, type MessagePart } from "@kiwi/db/tables/chats
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { Result } from "better-result";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
@@ -155,6 +155,26 @@ async function ensureChat(userId: string, graphId: string, request: ChatRequest)
 
 export async function touchChat(chatId: string) {
     await db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId));
+}
+
+export async function setChatPinned(chatId: string, pinned: boolean) {
+    await db
+        .update(chatTable)
+        .set({
+            pinnedAt: pinned ? new Date() : null,
+            updatedAt: sql`${chatTable.updatedAt}`,
+        })
+        .where(eq(chatTable.id, chatId));
+}
+
+export async function setChatArchived(chatId: string, archived: boolean) {
+    await db
+        .update(chatTable)
+        .set({
+            archivedAt: archived ? new Date() : null,
+            updatedAt: sql`${chatTable.updatedAt}`,
+        })
+        .where(eq(chatTable.id, chatId));
 }
 
 async function syncMessages(chatId: string, messages: ChatUIMessage[]) {
@@ -476,20 +496,30 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
     };
 }
 
-export async function listChats(userId: string, graphId: string) {
-    const rows = await db
+export async function listChats(userId: string, graphId: string, options: { offset?: number; limit?: number } = {}) {
+    const baseQuery = db
         .select({
             id: chatTable.id,
             title: chatTable.title,
+            isPinned: sql<boolean>`${chatTable.pinnedAt} IS NOT NULL`,
             updatedAt: chatTable.updatedAt,
         })
         .from(chatTable)
-        .where(and(eq(chatTable.userId, userId), eq(chatTable.graphId, graphId)))
-        .orderBy(desc(chatTable.updatedAt), desc(chatTable.createdAt));
+        .where(and(eq(chatTable.userId, userId), eq(chatTable.graphId, graphId), isNull(chatTable.archivedAt)))
+        .orderBy(sql`case when ${chatTable.pinnedAt} is null then 1 else 0 end`, desc(chatTable.updatedAt), desc(chatTable.createdAt));
+
+    const rows = await (typeof options.limit === "number" && options.limit > 0
+        ? typeof options.offset === "number" && options.offset > 0
+            ? baseQuery.limit(options.limit).offset(options.offset)
+            : baseQuery.limit(options.limit)
+        : typeof options.offset === "number" && options.offset > 0
+          ? baseQuery.offset(options.offset)
+          : baseQuery);
 
     return rows.map((row) => ({
         id: row.id,
         title: row.title,
+        isPinned: row.isPinned,
         updatedAt: row.updatedAt?.toISOString() ?? null,
     }));
 }

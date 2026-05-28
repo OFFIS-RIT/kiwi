@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { ApiError } from "@/lib/api/client";
+import { upsertProjectChatSummary } from "@/lib/chat-summaries";
 import { deleteProjectChat } from "@/lib/api/projects";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
@@ -86,8 +87,7 @@ function getExistingOptimisticChatTitle(chats: ProjectChatSummary[] | undefined,
 }
 
 function upsertOptimisticChat(chats: ProjectChatSummary[] = [], chat: ProjectChatSummary, limit?: number) {
-    const nextChats = [chat, ...chats.filter((item) => item.id !== chat.id)];
-    return limit ? nextChats.slice(0, limit) : nextChats;
+    return upsertProjectChatSummary(chats, chat, { limit });
 }
 
 function upsertOptimisticProjectChat(groups: Group[] | undefined, projectId: string, chat: ProjectChatSummary) {
@@ -706,6 +706,13 @@ function ProjectChatSession({
             title:
                 getCachedChatTitle(cachedGroups, projectId, entry.sessionId, cachedProjectChats) ??
                 createOptimisticChatTitle(text),
+            isPinned:
+                cachedGroups
+                    ?.flatMap((group) => group.projects)
+                    .find((project) => project.id === projectId)
+                    ?.recentChats.find((chat) => chat.id === entry.sessionId)?.isPinned ??
+                cachedProjectChats?.find((chat) => chat.id === entry.sessionId)?.isPinned ??
+                false,
             updatedAt: new Date().toISOString(),
         };
         setStreamError(null);

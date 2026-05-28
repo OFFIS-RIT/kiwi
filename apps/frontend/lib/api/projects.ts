@@ -7,6 +7,10 @@ import type {
     ChatDetailResponse,
     ChatHistoryRecord,
     ChatListResponse,
+    SearchChatItem,
+    SearchProjectItem,
+    SearchResponse,
+    SearchTeamItem,
     ChatSummaryItem,
     GraphAddFilesResponse,
     GraphAddFilesSuccessData,
@@ -158,6 +162,24 @@ export async function fetchProjectChats(client: KiwiApiClient, projectId: string
     return unwrapApiResponse(response);
 }
 
+export async function fetchProjectChatsPage(
+    client: KiwiApiClient,
+    projectId: string,
+    options: { offset?: number; limit?: number } = {}
+): Promise<ChatSummaryItem[]> {
+    const searchParams = new URLSearchParams();
+    if (typeof options.offset === "number") {
+        searchParams.set("offset", String(options.offset));
+    }
+    if (typeof options.limit === "number") {
+        searchParams.set("limit", String(options.limit));
+    }
+
+    const query = searchParams.toString();
+    const response = await client.get<ChatListResponse>(`/chat/${projectId}${query ? `?${query}` : ""}`);
+    return unwrapApiResponse(response);
+}
+
 /**
  * Fetches the full chat transcript for a specific conversation.
  */
@@ -188,6 +210,46 @@ export async function deleteProjectChat(
     conversationId: string
 ): Promise<void> {
     await client.delete(`/chat/${projectId}/${conversationId}`);
+}
+
+export async function pinProjectChat(client: KiwiApiClient, projectId: string, conversationId: string): Promise<void> {
+    await client.post(`/chat/${projectId}/${conversationId}/pin`);
+}
+
+export async function unpinProjectChat(
+    client: KiwiApiClient,
+    projectId: string,
+    conversationId: string
+): Promise<void> {
+    await client.post(`/chat/${projectId}/${conversationId}/unpin`);
+}
+
+export async function archiveProjectChat(
+    client: KiwiApiClient,
+    projectId: string,
+    conversationId: string
+): Promise<void> {
+    await client.post(`/chat/${projectId}/${conversationId}/archive`);
+}
+
+export async function unarchiveProjectChat(
+    client: KiwiApiClient,
+    projectId: string,
+    conversationId: string
+): Promise<void> {
+    await client.post(`/chat/${projectId}/${conversationId}/unarchive`);
+}
+
+export type SidebarSearchResults = {
+    projects: SearchProjectItem[];
+    teams: SearchTeamItem[];
+    chats: SearchChatItem[];
+};
+
+export async function searchSidebarTargets(client: KiwiApiClient, query: string): Promise<SidebarSearchResults> {
+    const searchParams = new URLSearchParams({ q: query });
+    const response = await client.get<SearchResponse>(`/search?${searchParams.toString()}`);
+    return unwrapApiResponse(response);
 }
 
 /**
