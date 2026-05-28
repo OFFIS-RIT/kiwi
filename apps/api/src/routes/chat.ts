@@ -40,12 +40,18 @@ import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
 
-const requestBodySchema = t.Object({
-    id: t.String(),
-    message: t.Optional(t.Any()),
-    messages: t.Optional(t.Array(t.Any())),
-    deep: t.Optional(t.Boolean()),
-});
+const requestBodySchema = t.Union([
+    t.Object({
+        id: t.String(),
+        message: t.Any(),
+        deep: t.Optional(t.Boolean()),
+    }),
+    t.Object({
+        id: t.String(),
+        messages: t.Array(t.Any()),
+        deep: t.Optional(t.Boolean()),
+    }),
+]);
 
 /**
  * Replace the existing tool entry that shares `toolCallId` in-place, or append
