@@ -23,7 +23,7 @@ function buildSearchScore(column: AnyPgColumn, query: string) {
     return sql<number>`
         (
             CASE
-                WHEN ${column} ILIKE ${query} THEN 3
+                WHEN ${column} ILIKE ${escapedQuery} THEN 3
                 WHEN ${column} ILIKE ${prefixQuery} THEN 2
                 WHEN ${column} ILIKE ${containsQuery} THEN 1
                 ELSE 0

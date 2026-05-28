@@ -725,6 +725,7 @@ function ProjectItem({
         const currentChats = loadedChats ?? project.recentChats;
         const preloadedExtraCount = loadedChats ? 0 : Math.max(0, project.recentChats.length - RECENT_CHAT_LIMIT);
         const limit = loadedChats ? CHAT_PAGE_SIZE : CHAT_PAGE_SIZE - preloadedExtraCount;
+        const wasCollapsed = !showAllChats;
         setShowAllChats(true);
 
         if (limit <= 0 || isLoadingMoreChats) {
@@ -742,6 +743,11 @@ function ProjectItem({
             setLoadedChats(nextChats);
             queryClient.setQueryData(queryKeys.projectChats(project.id), nextChats);
             setHasMoreChats(nextPage.length === limit);
+        } catch (error) {
+            if (wasCollapsed) {
+                setShowAllChats(false);
+            }
+            console.error("Failed to load more chats:", error);
         } finally {
             setIsLoadingMoreChats(false);
         }
