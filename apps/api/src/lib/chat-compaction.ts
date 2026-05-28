@@ -66,7 +66,7 @@ export type ActiveChatContext = {
     estimatedPromptTokens: number;
 };
 
-type ValidationTools = NonNullable<Parameters<typeof validateUIMessages>[0]["tools"]>;
+type ValidationTools = NonNullable<Parameters<typeof validateUIMessages<ChatUIMessage>>[0]["tools"]>;
 
 function isCompactionPart(part: MessagePart): part is MessageCompactionPart {
     return part.type === "compaction";
@@ -99,6 +99,10 @@ function estimateContextTokens(systemPrompt: string, activeSummary: string | und
             messages: contextMessages,
         })
     );
+}
+
+function toValidationTools(toolset: ReturnType<typeof buildChatValidationToolset>): ValidationTools {
+    return toolset as unknown as ValidationTools;
 }
 
 export function replaceOrAppendMessage<T extends { id: string }>(messages: T[], next: T) {
@@ -180,19 +184,20 @@ async function validateTailMessages(options: {
     rawTailRows: ChatMessage[];
     runtime: ChatRuntime;
 }) {
-    const tools = buildChatValidationToolset({
+    const messages: ChatUIMessage[] = options.rawTailRows.map((message) => toUIMessage(message));
+    const validationToolset = buildChatValidationToolset({
         graphId: options.graphId,
         embeddingModel: options.runtime.client.embedding,
         model: options.runtime.client.subagent ?? options.runtime.client.text,
         graphPrompt: options.runtime.prompt,
-    }) as unknown as ValidationTools;
+    });
 
-    return (await validateUIMessages({
-        messages: options.rawTailRows.map((message) => toUIMessage(message)),
-        tools,
+    return await validateUIMessages<ChatUIMessage>({
+        messages,
+        tools: toValidationTools(validationToolset),
         metadataSchema: chatMessageMetadataSchema,
         dataSchemas: chatDataPartSchemas,
-    })) as ChatUIMessage[];
+    });
 }
 
 export async function buildActiveChatContext(options: {

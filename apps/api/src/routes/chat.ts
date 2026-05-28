@@ -409,6 +409,7 @@ export const chatRoute = new Elysia()
                         let activeContextMessages = contextMessages;
                         let activeSystemPrompt = systemPrompt;
                         let retriedAfterCompaction = false;
+                        let discardAssistantPartsOnFailure = false;
 
                         const createUITextId = (modelPartId: string) => `${modelPartId}::${uiTextBlockCounter++}`;
 
@@ -711,21 +712,27 @@ export const chatRoute = new Elysia()
                                         abortSignal: httpRequest.signal,
                                     });
                                 } catch (compactionError) {
-                                    await updateAssistantMessage(assistantId, [], "failed");
+                                    discardAssistantPartsOnFailure = true;
                                     throw compactionError;
                                 }
                                 activeContextMessages = refreshed.contextMessages;
                                 activeSystemPrompt = refreshed.systemPrompt;
                             }
                         } catch (error) {
-                            // Flush any still-open UI text block so partial content
-                            // survives in the persisted message even when the stream
-                            // aborts mid-way.
-                            for (const modelPartId of [...activeUITexts.keys()]) {
-                                await closeUIText(modelPartId);
+                            if (!discardAssistantPartsOnFailure) {
+                                // Flush any still-open UI text block so partial content
+                                // survives in the persisted message even when the stream
+                                // aborts mid-way.
+                                for (const modelPartId of [...activeUITexts.keys()]) {
+                                    await closeUIText(modelPartId);
+                                }
                             }
                             const errorText = error instanceof Error ? error.message : "Unknown stream error";
-                            await updateAssistantMessage(assistantId, assistantParts, "failed");
+                            await updateAssistantMessage(
+                                assistantId,
+                                discardAssistantPartsOnFailure ? [] : assistantParts,
+                                "failed"
+                            );
                             writer.write({ type: "error", errorText });
                             writer.write({ type: "finish", finishReason: "error" });
                         }
