@@ -675,7 +675,7 @@ function ProjectItem({
                 <div className="group/project-row relative flex min-w-0 items-center gap-1">
                     <SidebarMenuButton
                         ref={prefetchRef}
-                        className="min-w-0 flex-1 pr-8"
+                        className="min-w-0 flex-1 pr-8 text-xs"
                         onClick={onToggleExpanded}
                         title={project.name}
                         tooltip={project.name}

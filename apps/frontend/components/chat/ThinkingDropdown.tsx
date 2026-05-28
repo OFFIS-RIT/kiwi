@@ -1,66 +1,73 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Brain, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 
 type ThinkingDropdownProps = {
     children: React.ReactNode;
-    thinkingDuration?: number;
-    isLive?: boolean;
-    startTime?: number;
-    /** Overrides the default "Thought for Xs" / "Show reasoning" label. */
-    label?: string;
+    /** Total assistant message duration in ms, populated from metadata once the stream finishes. */
+    durationMs?: number;
+    /** True while the assistant message is still streaming. Drives the live counter and auto-open. */
+    isStreaming?: boolean;
+    /**
+     *  Wall-clock ms when the message started — must be a stable value (e.g. derived
+     *  from message metadata) so the timer keeps counting from the same anchor when
+     *  the component remounts (chat switch, hydration).
+     */
+    startedAtMs?: number;
 };
+
+function computeElapsedSeconds(startedAtMs: number | undefined): number {
+    if (startedAtMs === undefined) return 0;
+    return Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
+}
 
 export function ThinkingDropdown({
     children,
-    thinkingDuration,
-    isLive = false,
-    startTime,
-    label,
+    durationMs,
+    isStreaming = false,
+    startedAtMs,
 }: ThinkingDropdownProps) {
-    const [isOpen, setIsOpen] = useState(false);
-    const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const t = useAppTranslations();
+    const [isOpen, setIsOpen] = useState(isStreaming);
+    const [elapsedSeconds, setElapsedSeconds] = useState(() =>
+        isStreaming ? computeElapsedSeconds(startedAtMs) : 0
+    );
+    const previousStreamingRef = useRef(isStreaming);
 
     useEffect(() => {
-        if (!isLive || !startTime) return;
-
-        const updateElapsed = () => {
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            setElapsedSeconds(elapsed);
-        };
-
-        updateElapsed();
-        const interval = setInterval(updateElapsed, 1000);
-
+        if (!isStreaming) return;
+        const tick = () => setElapsedSeconds(computeElapsedSeconds(startedAtMs));
+        tick();
+        const interval = setInterval(tick, 1000);
         return () => clearInterval(interval);
-    }, [isLive, startTime]);
+    }, [isStreaming, startedAtMs]);
 
-    const displaySeconds = isLive
-        ? elapsedSeconds.toString()
-        : thinkingDuration
-          ? (thinkingDuration / 1000).toFixed(1)
-          : undefined;
+    // Auto-collapse exactly once when the stream finishes so the final answer
+    // can read cleanly. The user can still toggle the dropdown manually
+    // before or after — we only force the state on the streaming→idle edge.
+    useEffect(() => {
+        if (previousStreamingRef.current && !isStreaming) {
+            setIsOpen(false);
+        }
+        previousStreamingRef.current = isStreaming;
+    }, [isStreaming]);
 
-    const labelText =
-        label ?? (displaySeconds ? t("thinking.collapsed", { seconds: displaySeconds }) : t("thinking.show"));
+    const displaySeconds =
+        durationMs !== undefined ? Math.max(0, Math.round(durationMs / 1000)) : elapsedSeconds;
+
+    const showLiveLabel = isStreaming && durationMs === undefined && displaySeconds === 0;
+    const labelText = showLiveLabel
+        ? t("worked.live")
+        : t("worked.label", { seconds: displaySeconds.toString() });
+
     const hasBody = React.Children.count(children) > 0;
 
     if (!hasBody) {
-        // Render a non-interactive header (same visual rhythm as the expanded
-        // version) so the UI doesn't lie about being expandable when there is
-        // nothing to reveal yet.
-        return (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                {isLive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
-                <span>{labelText}</span>
-            </div>
-        );
+        return <div className="text-sm text-muted-foreground">{labelText}</div>;
     }
 
     return (
@@ -68,23 +75,18 @@ export function ThinkingDropdown({
             <CollapsibleTrigger asChild>
                 <button
                     type="button"
-                    className={cn(
-                        "text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2 w-full justify-between cursor-pointer"
-                    )}
+                    className="flex cursor-pointer items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
-                    <div className="flex items-center gap-2">
-                        {isLive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
-                        <span>{labelText}</span>
-                    </div>
+                    <span>{labelText}</span>
                     {isOpen ? (
-                        <ChevronUp className="h-4 w-4 transition-transform" />
+                        <ChevronDown className="h-3.5 w-3.5" />
                     ) : (
-                        <ChevronDown className="h-4 w-4 transition-transform" />
+                        <ChevronRight className="h-3.5 w-3.5" />
                     )}
                 </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-                <div className="mt-2 space-y-2 rounded-md border border-border/30 bg-muted/20 p-3 text-sm text-muted-foreground">
+                <div className="mt-3 space-y-2 border-t border-border/40 pt-3 text-sm text-muted-foreground">
                     {children}
                 </div>
             </CollapsibleContent>
