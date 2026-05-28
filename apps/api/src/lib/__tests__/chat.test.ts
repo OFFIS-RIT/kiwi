@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { ChatUIMessage } from "@kiwi/ai";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
+import { API_ERROR_CODES } from "../../types";
 
 mock.module("@kiwi/db", () => ({
     db: {},
@@ -29,7 +30,11 @@ const {
     normalizeChatRequest,
     replaceOrAppendMessage,
 } = await import("../chat");
-const { normalizeCompactionSummary, serializeCompactionTranscript } = await import("../chat-compaction");
+const {
+    assertCompactionAttemptsRemaining,
+    normalizeCompactionSummary,
+    serializeCompactionTranscript,
+} = await import("../chat-compaction");
 
 const largeText = "token ".repeat(7000);
 
@@ -228,5 +233,10 @@ describe("chat context helpers", () => {
             })
         ).toBe(true);
         expect(isContextOverflowError(new Error("Temporary upstream failure"))).toBe(false);
+    });
+
+    test("bounds repeated compaction attempts", () => {
+        expect(() => assertCompactionAttemptsRemaining(4)).not.toThrow();
+        expect(() => assertCompactionAttemptsRemaining(5)).toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
     });
 });

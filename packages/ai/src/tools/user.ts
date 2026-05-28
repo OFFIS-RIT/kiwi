@@ -19,7 +19,8 @@ const askQuestionOutputSchema = z
         message: z.string().trim().min(1).optional(),
         answers: z.array(z.string()).optional(),
         questions: z.array(z.string()).optional(),
-    });
+    })
+    .catch(() => ({}));
 
 export const askQuestionTool = () =>
     tool({

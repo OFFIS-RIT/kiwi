@@ -28,6 +28,7 @@ import type { ChatRequestBody } from "../types/routes";
 const RAW_TAIL_TARGET_TOKENS = 32_000;
 const MIN_RAW_VISIBLE_MESSAGES = 6;
 const SOFT_COMPACTION_THRESHOLD = 224_000;
+const MAX_COMPACTION_ATTEMPTS = 5;
 
 export type ChatRequest = ChatRequestBody;
 
@@ -229,6 +230,12 @@ function shouldCompact(estimatedPromptTokens: number) {
     return estimatedPromptTokens >= SOFT_COMPACTION_THRESHOLD;
 }
 
+export function assertCompactionAttemptsRemaining(attemptCount: number) {
+    if (attemptCount >= MAX_COMPACTION_ATTEMPTS) {
+        throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+    }
+}
+
 function hasClientToolPart(message: Pick<ChatMessage, "parts">) {
     return message.parts.some((part) => part.type === "tool" && part.execution === "client");
 }
@@ -403,8 +410,11 @@ export async function maybeCompactConversation(options: {
         systemPrompt,
     });
     let forceCompaction = options.forceCompaction === true;
+    let compactionAttempts = 0;
 
     while (forceCompaction || shouldCompact(context.estimatedPromptTokens)) {
+        assertCompactionAttemptsRemaining(compactionAttempts);
+        compactionAttempts += 1;
         forceCompaction = false;
         const protectedTailStartIndex = getProtectedTailStartIndex(context.activeRawTailRows);
         if (protectedTailStartIndex <= 0) {
