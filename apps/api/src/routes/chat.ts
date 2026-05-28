@@ -211,7 +211,7 @@ export const chatRoute = new Elysia()
                             refreshed = await refreshReplyContext({
                                 chatId: request.id,
                                 graphId: params.id,
-                                runtime: { client, prompt },
+                                runtime: { client, tools, prompt },
                                 promptOptions,
                                 forceCompaction: true,
                                 abortSignal: httpRequest.signal,
@@ -706,7 +706,7 @@ export const chatRoute = new Elysia()
                                     refreshed = await refreshReplyContext({
                                         chatId: request.id,
                                         graphId: params.id,
-                                        runtime: { client, prompt },
+                                        runtime: { client, tools, prompt },
                                         promptOptions,
                                         forceCompaction: true,
                                         abortSignal: httpRequest.signal,

@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { ChatUIMessage } from "@kiwi/ai";
+import { estimateToken, type ChatUIMessage } from "@kiwi/ai";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { API_ERROR_CODES } from "../../types";
 
@@ -32,6 +32,7 @@ const {
 } = await import("../chat");
 const {
     assertCompactionAttemptsRemaining,
+    buildActiveChatContext,
     normalizeCompactionSummary,
     serializeCompactionTranscript,
 } = await import("../chat-compaction");
@@ -238,5 +239,37 @@ describe("chat context helpers", () => {
     test("bounds repeated compaction attempts", () => {
         expect(() => assertCompactionAttemptsRemaining(4)).not.toThrow();
         expect(() => assertCompactionAttemptsRemaining(5)).toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+    });
+
+    test("includes tool definitions in the prompt token estimate", async () => {
+        const runtime = {
+            client: {
+                text: {} as never,
+                embedding: {} as never,
+            },
+            tools: {
+                ask_clarifying_questions: {
+                    description: "Ask follow-up questions",
+                    inputSchema: { type: "object" },
+                },
+            },
+        };
+
+        const context = await buildActiveChatContext({
+            graphId: "graph-1",
+            rows: [textMessage("msg-tool-estimate", "user", "hello")],
+            runtime,
+            systemPrompt: "system prompt",
+        });
+
+        expect(context.estimatedPromptTokens).toBe(
+            estimateToken(
+                JSON.stringify({
+                    system: "system prompt",
+                    messages: context.contextMessages,
+                    tools: runtime.tools,
+                })
+            )
+        );
     });
 });

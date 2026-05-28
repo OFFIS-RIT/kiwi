@@ -55,6 +55,7 @@ export type ChatRuntime = {
         text: NonNullable<Client["text"]>;
         embedding: NonNullable<Client["embedding"]>;
     };
+    tools: Record<string, unknown>;
     prompt?: string;
 };
 
@@ -86,7 +87,12 @@ function createCompactionSystemMessage(summary: string): ModelMessage {
     };
 }
 
-function estimateContextTokens(systemPrompt: string, activeSummary: string | undefined, messages: ChatUIMessage[]) {
+function estimateContextTokens(
+    systemPrompt: string,
+    activeSummary: string | undefined,
+    messages: ChatUIMessage[],
+    tools?: Record<string, unknown>
+) {
     const contextMessages = [
         ...(activeSummary ? [createCompactionSystemMessage(activeSummary)] : []),
         ...uiMessagesToModelMessages(messages),
@@ -96,6 +102,7 @@ function estimateContextTokens(systemPrompt: string, activeSummary: string | und
         JSON.stringify({
             system: systemPrompt,
             messages: contextMessages,
+            ...(tools ? { tools } : {}),
         })
     );
 }
@@ -218,7 +225,12 @@ export async function buildActiveChatContext(options: {
             ...uiMessagesToModelMessages(validatedMessages),
         ],
         activeSummary,
-        estimatedPromptTokens: estimateContextTokens(options.systemPrompt, activeSummary, validatedMessages),
+        estimatedPromptTokens: estimateContextTokens(
+            options.systemPrompt,
+            activeSummary,
+            validatedMessages,
+            options.runtime.tools
+        ),
     } satisfies ActiveChatContext;
 }
 
