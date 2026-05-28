@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -16,9 +16,33 @@ type RasterizeSelectedDeps = {
     pdfToImg?: typeof rasterizeSelectedPDFPagesWithPDFToImg;
 };
 
+type RasterizeAllDeps = {
+    ghostscript?: typeof rasterizeAllPDFPagesWithGhostscript;
+    pdfToImg?: typeof rasterizeAllPDFPagesWithPDFToImg;
+};
+
 type PageSelection = Pick<PDFPageLike, "index">;
 
-export async function rasterizeAllPDFPages(content: Uint8Array, scale: number): Promise<Uint8Array[]> {
+export async function rasterizeAllPDFPages(
+    content: Uint8Array,
+    scale: number,
+    deps: RasterizeAllDeps = {}
+): Promise<Uint8Array[]> {
+    const renderWithGhostscript = deps.ghostscript ?? rasterizeAllPDFPagesWithGhostscript;
+    const renderWithPDFToImg = deps.pdfToImg ?? rasterizeAllPDFPagesWithPDFToImg;
+
+    try {
+        return await renderWithGhostscript(content, scale);
+    } catch (error) {
+        if (!(error instanceof GhostscriptUnavailableError)) {
+            throw error;
+        }
+    }
+
+    return renderWithPDFToImg(content, scale);
+}
+
+export async function rasterizeAllPDFPagesWithPDFToImg(content: Uint8Array, scale: number): Promise<Uint8Array[]> {
     const document = await pdf(Buffer.from(content), {
         scale,
         docInitParams: getPDFJSWasmDocInitParams(),
@@ -30,6 +54,41 @@ export async function rasterizeAllPDFPages(content: Uint8Array, scale: number): 
     }
 
     return pageImages;
+}
+
+export async function rasterizeAllPDFPagesWithGhostscript(content: Uint8Array, scale: number): Promise<Uint8Array[]> {
+    const directory = await mkdtemp(join(tmpdir(), "kiwi-pdf-raster-"));
+
+    try {
+        const inputPath = join(directory, "input.pdf");
+        const outputPattern = join(directory, "page-%d.png");
+        await writeFile(inputPath, content);
+        await runGhostscript([
+            "-q",
+            "-dSAFER",
+            "-dBATCH",
+            "-dNOPAUSE",
+            "-sDEVICE=pngalpha",
+            `-r${getRasterDPI(scale)}`,
+            `-sOutputFile=${outputPattern}`,
+            inputPath,
+        ]);
+
+        const pageFiles = (await readdir(directory))
+            .map((name) => {
+                const match = /^page-(\d+)\.png$/.exec(name);
+                return match ? { name, pageNumber: Number(match[1]) } : null;
+            })
+            .filter((file): file is { name: string; pageNumber: number } => file !== null)
+            .sort((left, right) => left.pageNumber - right.pageNumber);
+        if (pageFiles.length === 0) {
+            throw new Error("Ghostscript produced no page images");
+        }
+
+        return Promise.all(pageFiles.map((file) => readFile(join(directory, file.name))));
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
 }
 
 export async function rasterizeSelectedPDFPages(
@@ -82,8 +141,6 @@ export async function rasterizeSelectedPDFPagesWithGhostscript(
         await writeFile(inputPath, content);
 
         const pageImages = new Map<number, Uint8Array>();
-        const dpi = Math.max(1, Math.round(72 * scale));
-
         for (const [rangeIndex, pageRange] of splitPagesIntoContiguousRanges(pages).entries()) {
             const firstPage = pageRange[0]!.index + 1;
             const lastPage = pageRange[pageRange.length - 1]!.index + 1;
@@ -94,7 +151,7 @@ export async function rasterizeSelectedPDFPagesWithGhostscript(
                 "-dBATCH",
                 "-dNOPAUSE",
                 "-sDEVICE=pngalpha",
-                `-r${dpi}`,
+                `-r${getRasterDPI(scale)}`,
                 `-dFirstPage=${firstPage}`,
                 `-dLastPage=${lastPage}`,
                 `-sOutputFile=${outputPattern}`,
@@ -128,6 +185,10 @@ export function splitPagesIntoContiguousRanges<T extends PageSelection>(pages: T
     }
 
     return ranges;
+}
+
+function getRasterDPI(scale: number): number {
+    return Math.max(1, Math.round(72 * scale));
 }
 
 async function runGhostscript(args: string[]): Promise<void> {

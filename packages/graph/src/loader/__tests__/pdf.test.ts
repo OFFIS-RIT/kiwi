@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { PDF, degrees, measureText, rgb } from "@libpdf/core";
 import { transcribePrompt } from "@kiwi/ai/prompts/transcribe.prompt";
+import { EventEmitter } from "node:events";
 import { inflateSync } from "node:zlib";
 
 let fullOCRPageOutputs: string[] = [];
@@ -22,6 +23,29 @@ const putNamedFileMock = mock(async (name: string, _file: Uint8Array, path: stri
     key: `${path}/${name}`,
     type: "image/png",
 }));
+
+function createProcessStream() {
+    const stream = new EventEmitter() as EventEmitter & { setEncoding: (encoding: string) => void };
+    stream.setEncoding = () => {};
+    return stream;
+}
+
+const ghostscriptSpawnMock = mock(() => {
+    const child = new EventEmitter() as EventEmitter & {
+        stdout: ReturnType<typeof createProcessStream>;
+        stderr: ReturnType<typeof createProcessStream>;
+    };
+    child.stdout = createProcessStream();
+    child.stderr = createProcessStream();
+
+    queueMicrotask(() => {
+        const error = new Error("Ghostscript is not available") as Error & { code: string };
+        error.code = "ENOENT";
+        child.emit("error", error);
+    });
+
+    return child;
+});
 
 const pdfToImgMock = mock(async (_content: Buffer, _options?: { scale?: number }) => {
     const pages = rasterizedPages.map((page) => Buffer.from(page));
@@ -45,6 +69,10 @@ mock.module("ai", () => ({
 mock.module("@kiwi/files", () => ({
     putNamedFile: putNamedFileMock,
     PDF_PREVIEW_SCALE: 1.5,
+}));
+
+mock.module("node:child_process", () => ({
+    spawn: ghostscriptSpawnMock,
 }));
 
 mock.module("pdf-to-img", () => ({
@@ -841,6 +869,7 @@ describe("PDFLoader", () => {
         rasterizedPages = [new Uint8Array([1])];
         generateTextMock.mockClear();
         putNamedFileMock.mockClear();
+        ghostscriptSpawnMock.mockClear();
         pdfToImgMock.mockClear();
     });
 
