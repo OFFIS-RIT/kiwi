@@ -33,6 +33,21 @@ describe("buildPDFLoaderOptions", () => {
         expect(options.storage).toBeUndefined();
     });
 
+    test("builds full OCR PDF loader options from explicit mode", async () => {
+        const loader = {
+            getText: async () => "",
+            getBinary: async () => new Uint8Array([1]).buffer,
+        };
+        const model = {} as never;
+        const storage = { bucket: "bucket", imagePrefix: "graphs/graph-1/files/file-1/images" };
+
+        const options = buildPDFLoaderOptions(loader, model, storage, "ocr");
+
+        expect(options.loader).toBe(loader);
+        expect(options.mode).toBe("ocr");
+        expect(options.model).toBe(model);
+    });
+
     test("throws when the image model is missing", () => {
         const loader = {
             getText: async () => "",
