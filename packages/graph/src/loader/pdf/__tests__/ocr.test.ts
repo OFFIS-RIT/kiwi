@@ -66,6 +66,44 @@ describe("shouldUsePageOCRFallback", () => {
         expect(shouldUsePageOCRFallback(pageText([]), contentWithImages(1))).toBe(false);
         expect(shouldUsePageOCRFallback(pageText([]), contentWithImages(0))).toBe(false);
     });
+
+    test("uses full-page OCR for alpha-fragmented extracted text", () => {
+        const fragmentedLines = Array.from({ length: 24 }, (_, index) =>
+            [
+                "Th e sa mp le co mp on en t is de si gn ed fo r ac cu ra te te st re su lt s",
+                "with ca li br at ed pi ec es and ge ne ri c ap pl ic at io n no te s",
+                `line ${index}`,
+            ].join(" ")
+        );
+
+        expect(shouldUsePageOCRFallback(pageText(fragmentedLines), contentWithImages(0))).toBe(true);
+    });
+
+    test("uses full-page OCR for alpha-fragmented long paragraphs", () => {
+        const fragmentedLines = [
+            Array.from({ length: 10 }, () =>
+                [
+                    "S y n th et ic De mo Pa ra gr ap h th ro ug h a te st fi xt ur e",
+                    "de li ve rs a cl ea n si gn al wi th a sm al l ga p si ze",
+                    "to va li da te ma nu al sp ac in g and wo rd bo un da ri es.",
+                ].join(" ")
+            ).join(" "),
+        ];
+
+        expect(shouldUsePageOCRFallback(pageText(fragmentedLines), contentWithImages(0))).toBe(true);
+    });
+
+    test("keeps normal technical prose on the hybrid text path", () => {
+        const proseLines = Array.from({ length: 24 }, (_, index) =>
+            [
+                "The generic component is designed for repeatable measurements with stable mounting.",
+                "Calibration values and interface notes are listed in the following sections.",
+                `Reference line ${index}`,
+            ].join(" ")
+        );
+
+        expect(shouldUsePageOCRFallback(pageText(proseLines), contentWithImages(0))).toBe(false);
+    });
 });
 
 describe("getPageRasterScale", () => {

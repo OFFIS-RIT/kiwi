@@ -136,6 +136,22 @@ function drawTrackedText(
     }
 }
 
+function drawCompactWordLine(
+    page: ReturnType<PDF["addPage"]>,
+    words: string[],
+    x: number,
+    y: number,
+    size = 9.5,
+    wordGap = 2.3,
+    font: Parameters<typeof measureText>[1] = "Helvetica"
+): void {
+    let cursor = x;
+    for (const word of words) {
+        page.drawText(word, { x: cursor, y, size, font });
+        cursor += measureText(word, font, size) + wordGap;
+    }
+}
+
 async function buildPDFBinary(build: (pdf: PDF) => Promise<void> | void): Promise<Uint8Array> {
     const pdf = PDF.create();
     await build(pdf);
@@ -664,12 +680,35 @@ async function buildAdaptiveBoundaryFixture() {
         const page = pdf.addPage({ size: "letter" });
 
         page.drawText("Adaptive Boundaries", { x: 170, y: 740, size: 22 });
-        drawTrackedText(page, "TrackedWord", 60, 660, 12, 3.6);
+        drawTrackedText(page, "TrackedWord", 60, 660, 12, 1.2);
         page.drawText("Alpha", { x: 60, y: 628, size: 12 });
         page.drawText("Beta", { x: 104, y: 628, size: 12 });
-        drawTrackedText(page, "api_v1/test.ts", 60, 596, 12, 2.6);
-        drawTrackedText(page, "H2SO4", 60, 564, 12, 2.8);
-        drawTrackedText(page, "f(x,y)=n+1", 60, 532, 12, 2.2);
+        drawTrackedText(page, "api_v1/test.ts", 60, 596, 12, 1.2);
+        drawTrackedText(page, "H2SO4", 60, 564, 12, 1.2);
+        drawTrackedText(page, "f(x,y)=n+1", 60, 532, 12, 1.2);
+    });
+}
+
+async function buildCompactWordGapFixture() {
+    return buildHybridFixture((pdf) => {
+        const page = pdf.addPage({ size: "a4" });
+
+        drawCompactWordLine(page, ["GENERIC", "ALPHA", "Boundary", "Fixture"], 56, 760, 18.9, 4.9);
+        drawCompactWordLine(
+            page,
+            ["This", "synthetic", "line", "is", "intended", "to", "test", "compact", "generic", "tokens", "-"],
+            56,
+            556
+        );
+        drawCompactWordLine(
+            page,
+            ["continued,", "without", "joining", "the", "neighboring", "same", "baseline"],
+            305,
+            556
+        );
+        drawCompactWordLine(page, ["A", "nearby", "column", "stays", "separate"], 305, 568);
+        drawTrackedText(page, "TrackedWord", 56, 520, 12, 1.2);
+        drawTrackedText(page, "api_v1/test.ts", 56, 496, 12, 1.2);
     });
 }
 
@@ -688,8 +727,8 @@ async function buildAdaptiveWhitespaceTableFixture() {
 
             rows.forEach((row, rowIndex) => {
                 const y = 620 - rowIndex * 28;
-                drawTrackedText(page, row[0]!, 50, y, 12, rowIndex === 0 ? 0 : 2.6);
-                drawTrackedText(page, row[1]!, 190, y, 12, rowIndex === 0 ? 0 : 2.2);
+                drawTrackedText(page, row[0]!, 50, y, 12, rowIndex === 0 ? 0 : 1.2);
+                drawTrackedText(page, row[1]!, 190, y, 12, rowIndex === 0 ? 0 : 1.2);
                 page.drawText(row[2]!, { x: 330, y, size: 12 });
             });
         },
@@ -1080,6 +1119,18 @@ describe("PDFLoader", () => {
         expect(fixture.hybrid).toContain("api_v1/test.ts");
         expect(fixture.hybrid).toContain("H2SO4");
         expect(fixture.hybrid).toContain("f(x,y)=n+1");
+    });
+
+    test("infers compact word gaps without joining same-baseline columns", async () => {
+        const fixture = await buildCompactWordGapFixture();
+
+        expect(fixture.hybrid).toContain("GENERIC ALPHA Boundary Fixture");
+        expect(fixture.hybrid).toContain("This synthetic line is intended to test compact generic tokens -");
+        expect(fixture.hybrid).toContain("continued, without joining the neighboring same baseline");
+        expect(fixture.hybrid).not.toContain("GENERICALPHABoundaryFixture");
+        expect(fixture.hybrid).not.toContain("tokens - continued, without");
+        expect(fixture.hybrid).toContain("TrackedWord");
+        expect(fixture.hybrid).toContain("api_v1/test.ts");
     });
 
     test("detects whitespace tables without splitting tracked identifiers and formulas", async () => {

@@ -118,15 +118,37 @@ export function shouldUsePageOCRFallback(pageText: PreparedPage["pageText"], con
         lines.filter((line) => !/\s/.test(line.text) && line.text.length <= 24).length / lineCount;
     const verticalLineRatio = lines.filter((line) => line.direction === "vertical").length / lineCount;
     const averageLineLength = characterCount / lineCount;
-    const fragmentedText =
+    const alphaFragmentedText = hasAlphaFragmentedText(lines.map((line) => line.text));
+    const lineFragmentedText =
         lineCount >= 20 &&
         characterCount >= 200 &&
         (averageLineLength <= 18 || shortLineRatio >= 0.65 || isolatedTokenRatio >= 0.6);
+    const fragmentedText = lineFragmentedText || (characterCount >= 200 && alphaFragmentedText);
     const verticalFragments =
         lineCount >= 12 && verticalLineRatio >= 0.25 && (averageLineLength <= 24 || shortLineRatio >= 0.5);
     const imageDominantPage = content.images.length >= 4 && characterCount < 500 && lineCount < 12;
 
     return fragmentedText || verticalFragments || imageDominantPage;
+}
+
+function hasAlphaFragmentedText(lines: string[]): boolean {
+    const text = lines.join(" ");
+    const alphaTokens = text.match(/\p{L}+/gu) ?? [];
+
+    if (alphaTokens.length < 80) {
+        return false;
+    }
+
+    const shortAlphaTokens = alphaTokens.filter((token) => token.length <= 2).length;
+    const singleAlphaTokens = alphaTokens.filter((token) => token.length === 1).length;
+    const shortAlphaTokenRatio = shortAlphaTokens / alphaTokens.length;
+    const singleAlphaTokenRatio = singleAlphaTokens / alphaTokens.length;
+    const fragmentedRunCount = [...text.matchAll(/(?:\b\p{L}{1,2}\b\s+){4,}\b\p{L}{1,2}\b/gu)].length;
+
+    return (
+        (singleAlphaTokenRatio >= 0.18 && shortAlphaTokenRatio >= 0.45) ||
+        (fragmentedRunCount >= 4 && singleAlphaTokenRatio >= 0.12 && shortAlphaTokenRatio >= 0.35)
+    );
 }
 
 function imageAreaRatio(pageText: PreparedPage["pageText"], content: PageContentAnalysis): number {
