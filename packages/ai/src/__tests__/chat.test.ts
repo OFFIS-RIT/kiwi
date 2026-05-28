@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { simulateReadableStream } from "ai";
+import { simulateReadableStream, validateUIMessages } from "ai";
 
 mock.module("@kiwi/db", () => ({
     db: {},
@@ -343,5 +343,46 @@ describe("citation fences", () => {
         expect(Object.keys(toolset)).toContain("explore_graph_with_subagent");
         expect(chatMessageMetadataSchema.parse({ totalTokens: 12 })).toEqual({ totalTokens: 12 });
         expect(chatDataPartSchemas.step.parse({ name: "thinking" })).toEqual({ name: "thinking" });
+    });
+
+    test("validation toolset accepts legacy clarification outputs", async () => {
+        const toolset = buildChatValidationToolset({
+            graphId: "graph-1",
+            embeddingModel: {} as never,
+            model: {} as never,
+        });
+        const message = toUIMessage({
+            id: "msg-legacy-clarification",
+            chatId: "chat-1",
+            status: "completed",
+            role: "assistant",
+            parts: [
+                {
+                    type: "tool",
+                    toolCallId: "tool-1",
+                    toolName: "ask_clarifying_questions",
+                    execution: "client",
+                    status: "completed",
+                    args: { questions: ["Which region?"] },
+                    result: { questions: ["Which region?"] },
+                },
+            ],
+            tokensPerSecond: null,
+            timeToFirstToken: null,
+            inputTokens: null,
+            outputTokens: null,
+            totalTokens: null,
+            createdAt: new Date("2026-01-05T00:00:00.000Z"),
+            updatedAt: new Date("2026-01-05T00:00:01.000Z"),
+        });
+
+        await expect(
+            validateUIMessages({
+                messages: [message],
+                tools: toolset,
+                metadataSchema: chatMessageMetadataSchema,
+                dataSchemas: chatDataPartSchemas,
+            })
+        ).resolves.toEqual([message]);
     });
 });
