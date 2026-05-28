@@ -74,6 +74,17 @@ function upsertToolPart(parts: MessagePart[], next: MessagePart) {
     parts[idx] = next;
 }
 
+function startsAssistantOutput(partType: string) {
+    return (
+        partType === "text-start" ||
+        partType === "text-delta" ||
+        partType === "text-end" ||
+        partType === "tool-call" ||
+        partType === "tool-result" ||
+        partType === "tool-error"
+    );
+}
+
 export const chatRoute = new Elysia()
     .use(authMiddleware)
     .get(
@@ -477,9 +488,7 @@ export const chatRoute = new Elysia()
                             let retryRequested = false;
 
                             generationStream: for await (const part of result.fullStream) {
-                                const isBookkeepingPart =
-                                    part.type === "start" || part.type === "start-step" || part.type === "error";
-                                if (!isBookkeepingPart && firstOutputAt === null) {
+                                if (startsAssistantOutput(part.type) && firstOutputAt === null) {
                                     firstOutputAt = Date.now();
                                 }
 
