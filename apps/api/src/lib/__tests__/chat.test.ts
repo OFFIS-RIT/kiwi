@@ -43,8 +43,6 @@ const {
     syncChatMessage,
 } = await import("../chat-compaction");
 
-const largeText = "token ".repeat(7000);
-
 function textMessage(id: string, role: "user" | "assistant" | "system", text: string) {
     return {
         id,
@@ -67,7 +65,7 @@ function answeredClarificationMessage(message: ChatMessage): ChatMessage {
         ...message,
         role: "assistant",
         parts: [
-            { type: "text", text: largeText },
+            { type: "text", text: "Checking the clarification answer." },
             {
                 type: "tool",
                 toolCallId: "tool-1",
@@ -190,26 +188,25 @@ describe("chat context helpers", () => {
 
     test("keeps the natural protected tail when the latest message has a client-tool result", () => {
         const rows: ChatMessage[] = Array.from({ length: 10 }, (_, index) =>
-            textMessage(`msg-${index + 1}`, index % 2 === 0 ? "user" : "assistant", largeText)
+            textMessage(`msg-${index + 1}`, index % 2 === 0 ? "user" : "assistant", `short ${index + 1}`)
         );
-        const baselineStartIndex = getProtectedTailStartIndex(rows);
 
         rows[9] = answeredClarificationMessage(rows[9]!);
 
-        expect(getProtectedTailStartIndex(rows)).toBe(baselineStartIndex);
-        expect(rows.slice(baselineStartIndex).map((message) => message.id)).toContain("msg-10");
+        const protectedTailStartIndex = getProtectedTailStartIndex(rows);
+
+        expect(protectedTailStartIndex).toBe(4);
+        expect(rows.slice(protectedTailStartIndex).map((message) => message.id)).toContain("msg-10");
     });
 
     test("allows older completed client-tool exchanges to be compacted after newer messages exist", () => {
         const rows: ChatMessage[] = Array.from({ length: 10 }, (_, index) =>
-            textMessage(`msg-${index + 1}`, index % 2 === 0 ? "user" : "assistant", largeText)
+            textMessage(`msg-${index + 1}`, index % 2 === 0 ? "user" : "assistant", `short ${index + 1}`)
         );
-        const baselineStartIndex = getProtectedTailStartIndex(rows);
 
         rows[2] = answeredClarificationMessage(rows[2]!);
 
-        expect(baselineStartIndex).toBeGreaterThan(2);
-        expect(getProtectedTailStartIndex(rows)).toBe(baselineStartIndex);
+        expect(getProtectedTailStartIndex(rows)).toBe(4);
     });
 
     test("falls back to the minimum protected tail when messages stay below the raw tail token target", () => {

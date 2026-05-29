@@ -1,6 +1,6 @@
 import type { LanguageModel } from "ai";
 import { generateText } from "ai";
-import { withAiSlot } from "@kiwi/ai";
+import { withAiSlot } from "@kiwi/ai/lock";
 import { metadataPrompt } from "@kiwi/ai/prompts/metadata.prompt";
 
 const METADATA_WORD_LIMIT = 250;
