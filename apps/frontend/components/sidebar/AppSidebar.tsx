@@ -665,7 +665,7 @@ function ProjectItem({
         togglePinChatMutation.isPending || archiveChatMutation.isPending || deleteChatMutation.isPending;
     const chatsToShow = showAllChats ? loadedChats ?? project.recentChats : project.recentChats.slice(0, RECENT_CHAT_LIMIT);
     const canExpandChats =
-        project.recentChats.length > RECENT_CHAT_LIMIT || (loadedChats?.length ?? 0) > RECENT_CHAT_LIMIT;
+        hasMoreChats || project.recentChats.length > RECENT_CHAT_LIMIT || (loadedChats?.length ?? 0) > RECENT_CHAT_LIMIT;
     const runningChatIds = useMemo(
         () => new Set(entries.filter((entry) => entry.isGenerating).map((entry) => entry.sessionId)),
         [entries]
