@@ -268,6 +268,7 @@ Copy `.env.sample` to `.env` and configure:
 | `S3_ACCESS_KEY_ID`                 | S3 access key                                                           |
 | `S3_SECRET_ACCESS_KEY`             | S3 secret key                                                           |
 | `S3_BUCKET`                        | S3 bucket name                                                          |
+| `CONTEXT_WINDOW`                   | Text/chat model context window; compaction starts at 70%, default 250000 |
 | `AI_TEXT_ADAPTER`                  | Text model adapter: `openai`, `azure`, `anthropic`, `openaiAPI`         |
 | `AI_TEXT_MODEL`                    | Text model name                                                         |
 | `AI_TEXT_KEY`                      | Text model API key                                                      |

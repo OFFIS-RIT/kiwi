@@ -23,12 +23,14 @@ import {
 } from "@kiwi/db/tables/chats";
 import { validateUIMessages, type ModelMessage } from "ai";
 import { and, asc, eq, ne } from "drizzle-orm";
+import { env } from "../env";
 import { API_ERROR_CODES } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 
 const RAW_TAIL_TARGET_TOKENS = 32_000;
 const MIN_RAW_VISIBLE_MESSAGES = 6;
-const SOFT_COMPACTION_THRESHOLD = 224_000;
+const SOFT_COMPACTION_THRESHOLD_RATIO = 0.7;
+const SOFT_COMPACTION_THRESHOLD = env.CONTEXT_WINDOW * SOFT_COMPACTION_THRESHOLD_RATIO;
 const MAX_COMPACTION_ATTEMPTS = 5;
 
 export type ChatRequest = ChatRequestBody;

@@ -11,6 +11,7 @@ mock.module("../../env", () => ({
     env: {
         AI_TEXT_ADAPTER: "openai",
         AI_TEXT_MODEL: "gpt-test",
+        CONTEXT_WINDOW: 250_000,
         AI_TEXT_KEY: "key",
         AI_TEXT_URL: undefined,
         AI_TEXT_RESOURCE_NAME: undefined,
