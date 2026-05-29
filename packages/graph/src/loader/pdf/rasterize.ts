@@ -3,7 +3,6 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { pdf } from "pdf-to-img";
 import type { PDFPageLike } from "./types";
 
 const require = createRequire(import.meta.url);
@@ -43,7 +42,8 @@ export async function rasterizeAllPDFPages(
 }
 
 export async function rasterizeAllPDFPagesWithPDFToImg(content: Uint8Array, scale: number): Promise<Uint8Array[]> {
-    const document = await pdf(Buffer.from(content), {
+    const pdfToImg = await loadPDFToImg();
+    const document = await pdfToImg(Buffer.from(content), {
         scale,
         docInitParams: getPDFJSWasmDocInitParams(),
     });
@@ -117,7 +117,8 @@ export async function rasterizeSelectedPDFPagesWithPDFToImg(
     pages: PageSelection[],
     scale: number
 ): Promise<Map<number, Uint8Array>> {
-    const document = await pdf(Buffer.from(content), {
+    const pdfToImg = await loadPDFToImg();
+    const document = await pdfToImg(Buffer.from(content), {
         scale,
         docInitParams: getPDFJSWasmDocInitParams(),
     });
@@ -190,6 +191,11 @@ export function splitPagesIntoContiguousRanges<T extends PageSelection>(pages: T
 
 function getRasterDPI(scale: number): number {
     return Math.max(1, Math.round(72 * scale));
+}
+
+async function loadPDFToImg() {
+    const { pdf } = await import("pdf-to-img");
+    return pdf;
 }
 
 async function runGhostscript(args: string[]): Promise<void> {
