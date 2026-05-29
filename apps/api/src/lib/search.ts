@@ -34,7 +34,8 @@ function buildSearchScore(column: AnyPgColumn, query: string) {
 }
 
 function buildSearchWhere(column: AnyPgColumn, query: string) {
-    const containsQuery = `%${escapeLike(query)}%`;
+    const escapedQuery = escapeLike(query);
+    const containsQuery = `%${escapedQuery}%`;
 
     return sql<boolean>`
         (

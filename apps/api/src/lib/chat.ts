@@ -172,6 +172,7 @@ export async function setChatArchived(chatId: string, archived: boolean) {
         .update(chatTable)
         .set({
             archivedAt: archived ? new Date() : null,
+            // Preserve updatedAt so archive state changes do not reorder chats.
             updatedAt: sql`${chatTable.updatedAt}`,
         })
         .where(eq(chatTable.id, chatId));
