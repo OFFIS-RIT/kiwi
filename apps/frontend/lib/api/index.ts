@@ -12,6 +12,7 @@ export type {
     ChatDetailResponse,
     ChatHistoryRecord,
     ChatListResponse,
+    ChatListSuccessData,
     ChatRequestBody,
     SearchChatItem,
     SearchProjectItem,

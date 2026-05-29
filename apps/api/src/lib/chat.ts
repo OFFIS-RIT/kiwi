@@ -508,20 +508,29 @@ export async function listChats(userId: string, graphId: string, options: { offs
         .where(and(eq(chatTable.userId, userId), eq(chatTable.graphId, graphId), isNull(chatTable.archivedAt)))
         .orderBy(sql`case when ${chatTable.pinnedAt} is null then 1 else 0 end`, desc(chatTable.updatedAt), desc(chatTable.createdAt));
 
-    const rows = await (typeof options.limit === "number" && options.limit > 0
+    const effectiveLimit =
+        typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
+
+    const rows = await (typeof effectiveLimit === "number"
         ? typeof options.offset === "number" && options.offset > 0
-            ? baseQuery.limit(options.limit).offset(options.offset)
-            : baseQuery.limit(options.limit)
+            ? baseQuery.limit(effectiveLimit).offset(options.offset)
+            : baseQuery.limit(effectiveLimit)
         : typeof options.offset === "number" && options.offset > 0
           ? baseQuery.offset(options.offset)
           : baseQuery);
 
-    return rows.map((row) => ({
+    const hasMore = typeof options.limit === "number" && options.limit > 0 ? rows.length > options.limit : false;
+    const items = (hasMore ? rows.slice(0, options.limit) : rows).map((row) => ({
         id: row.id,
         title: row.title,
         isPinned: row.isPinned,
         updatedAt: row.updatedAt?.toISOString() ?? null,
     }));
+
+    return {
+        items,
+        hasMore,
+    };
 }
 
 export function getFinishMetadata(options: {

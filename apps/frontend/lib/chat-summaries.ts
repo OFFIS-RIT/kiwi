@@ -19,7 +19,7 @@ export function compareProjectChats(left: ProjectChatSummary, right: ProjectChat
         return updatedAtDiff;
     }
 
-    return left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
+    return right.id.localeCompare(left.id);
 }
 
 export function sortProjectChats<T extends ProjectChatSummary>(chats: T[]) {

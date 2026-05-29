@@ -164,6 +164,11 @@ export type ChatSummaryItem = {
     updatedAt: string | null;
 };
 
+export type ChatListSuccessData = {
+    items: ChatSummaryItem[];
+    hasMore: boolean;
+};
+
 export type SearchProjectItem = {
     id: string;
     name: string;
@@ -387,7 +392,7 @@ export type TextUnitResponse = ApiResponse<
 >;
 
 export type ChatListResponse = ApiResponse<
-    ChatSummaryItem[],
+    ChatListSuccessData,
     | "UNAUTHORIZED"
     | "FORBIDDEN"
     | "GRAPH_NOT_FOUND"

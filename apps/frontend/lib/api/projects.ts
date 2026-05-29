@@ -4,6 +4,7 @@
  */
 
 import type {
+    ChatListSuccessData,
     ChatDetailResponse,
     ChatHistoryRecord,
     ChatListResponse,
@@ -159,14 +160,14 @@ export type {
  */
 export async function fetchProjectChats(client: KiwiApiClient, projectId: string): Promise<ChatSummaryItem[]> {
     const response = await client.get<ChatListResponse>(`/chat/${projectId}`);
-    return unwrapApiResponse(response);
+    return unwrapApiResponse(response).items;
 }
 
 export async function fetchProjectChatsPage(
     client: KiwiApiClient,
     projectId: string,
     options: { offset?: number; limit?: number } = {}
-): Promise<ChatSummaryItem[]> {
+): Promise<ChatListSuccessData> {
     const searchParams = new URLSearchParams();
     if (typeof options.offset === "number") {
         searchParams.set("offset", String(options.offset));

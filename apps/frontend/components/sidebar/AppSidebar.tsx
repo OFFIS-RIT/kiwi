@@ -748,10 +748,10 @@ function ProjectItem({
                 offset: currentChats.length,
                 limit,
             });
-            const nextChats = sortProjectChats(mergeUniqueProjectChats(currentChats, nextPage));
+            const nextChats = sortProjectChats(mergeUniqueProjectChats(currentChats, nextPage.items));
             setLoadedChats(nextChats);
             queryClient.setQueryData(queryKeys.projectChats(project.id), nextChats);
-            setHasMoreChats(nextPage.length === limit);
+            setHasMoreChats(nextPage.hasMore);
         } catch (error) {
             if (wasCollapsed) {
                 setShowAllChats(false);
