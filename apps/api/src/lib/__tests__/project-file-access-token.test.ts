@@ -7,6 +7,7 @@ process.env.S3_SECRET_ACCESS_KEY ??= "test";
 process.env.S3_ENDPOINT ??= "http://localhost:9000";
 process.env.S3_REGION ??= "test";
 process.env.S3_BUCKET ??= "test";
+process.env.CONTEXT_WINDOW ??= "250000";
 process.env.AI_TEXT_ADAPTER ??= "openai";
 process.env.AI_TEXT_MODEL ??= "test";
 process.env.AI_TEXT_KEY ??= "test";
