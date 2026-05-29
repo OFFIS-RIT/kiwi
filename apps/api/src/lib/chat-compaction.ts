@@ -241,20 +241,6 @@ export function assertCompactionAttemptsRemaining(attemptCount: number) {
     }
 }
 
-function hasClientToolPart(message: Pick<ChatMessage, "parts">) {
-    return message.parts.some((part) => part.type === "tool" && part.execution === "client");
-}
-
-function findLatestClientToolIndex(rows: ChatMessage[]) {
-    for (let index = rows.length - 1; index >= 0; index -= 1) {
-        if (hasClientToolPart(rows[index]!)) {
-            return index;
-        }
-    }
-
-    return -1;
-}
-
 export function getProtectedTailStartIndex(rows: ChatMessage[]) {
     if (rows.length === 0) {
         return 0;
@@ -277,11 +263,6 @@ export function getProtectedTailStartIndex(rows: ChatMessage[]) {
 
     if (protectedTokens < RAW_TAIL_TARGET_TOKENS) {
         startIndex = minimumProtectedTailStartIndex;
-    }
-
-    const latestClientToolIndex = findLatestClientToolIndex(rows);
-    if (latestClientToolIndex !== -1) {
-        startIndex = Math.min(startIndex, latestClientToolIndex);
     }
 
     return startIndex;

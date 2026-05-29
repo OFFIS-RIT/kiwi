@@ -57,6 +57,25 @@ function textMessage(id: string, role: "user" | "assistant" | "system", text: st
     };
 }
 
+function answeredClarificationMessage(message: ChatMessage): ChatMessage {
+    return {
+        ...message,
+        role: "assistant",
+        parts: [
+            { type: "text", text: largeText },
+            {
+                type: "tool",
+                toolCallId: "tool-1",
+                toolName: "ask_clarifying_questions",
+                execution: "client",
+                status: "completed",
+                args: { questions: ["Which region?"] },
+                result: { answers: ["EMEA"] },
+            },
+        ],
+    };
+}
+
 describe("chat request normalization", () => {
     test("uses the explicit latest message request shape", () => {
         const latestMessage = {
@@ -164,29 +183,28 @@ describe("chat context helpers", () => {
         expect(context.activeRawTailRows.map((message) => message.id)).toEqual(["msg-5"]);
     });
 
-    test("protects the newest client-tool exchange from compaction", () => {
+    test("keeps the natural protected tail when the latest message has a client-tool result", () => {
         const rows: ChatMessage[] = Array.from({ length: 10 }, (_, index) =>
             textMessage(`msg-${index + 1}`, index % 2 === 0 ? "user" : "assistant", largeText)
         );
+        const baselineStartIndex = getProtectedTailStartIndex(rows);
 
-        rows[2] = {
-            ...rows[2]!,
-            role: "assistant",
-            parts: [
-                { type: "text", text: largeText },
-                {
-                    type: "tool",
-                    toolCallId: "tool-1",
-                    toolName: "ask_clarifying_questions",
-                    execution: "client",
-                    status: "completed",
-                    args: { questions: ["Which region?"] },
-                    result: { answers: ["EMEA"] },
-                },
-            ],
-        };
+        rows[9] = answeredClarificationMessage(rows[9]!);
 
-        expect(getProtectedTailStartIndex(rows)).toBe(2);
+        expect(getProtectedTailStartIndex(rows)).toBe(baselineStartIndex);
+        expect(rows.slice(baselineStartIndex).map((message) => message.id)).toContain("msg-10");
+    });
+
+    test("allows older completed client-tool exchanges to be compacted after newer messages exist", () => {
+        const rows: ChatMessage[] = Array.from({ length: 10 }, (_, index) =>
+            textMessage(`msg-${index + 1}`, index % 2 === 0 ? "user" : "assistant", largeText)
+        );
+        const baselineStartIndex = getProtectedTailStartIndex(rows);
+
+        rows[2] = answeredClarificationMessage(rows[2]!);
+
+        expect(baselineStartIndex).toBeGreaterThan(2);
+        expect(getProtectedTailStartIndex(rows)).toBe(baselineStartIndex);
     });
 
     test("falls back to the minimum protected tail when messages stay below the raw tail token target", () => {
