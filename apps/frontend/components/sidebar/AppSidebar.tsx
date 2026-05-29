@@ -726,7 +726,7 @@ function ProjectItem({
             return;
         }
 
-        if (!showAllChats && loadedChats && loadedChats.length > project.recentChats.length) {
+        if (!showAllChats && loadedChats && (loadedChats.length > project.recentChats.length || !hasMoreChats)) {
             setShowAllChats(true);
             return;
         }
