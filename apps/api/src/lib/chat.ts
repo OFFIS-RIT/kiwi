@@ -157,17 +157,17 @@ export async function touchChat(chatId: string) {
     await db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId));
 }
 
-export async function setChatPinned(chatId: string, pinned: boolean) {
+export async function setChatPinned(chatId: string, userId: string, pinned: boolean) {
     await db
         .update(chatTable)
         .set({
             pinnedAt: pinned ? new Date() : null,
             updatedAt: sql`${chatTable.updatedAt}`,
         })
-        .where(eq(chatTable.id, chatId));
+        .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)));
 }
 
-export async function setChatArchived(chatId: string, archived: boolean) {
+export async function setChatArchived(chatId: string, userId: string, archived: boolean) {
     await db
         .update(chatTable)
         .set({
@@ -175,7 +175,7 @@ export async function setChatArchived(chatId: string, archived: boolean) {
             // Preserve updatedAt so archive state changes do not reorder chats.
             updatedAt: sql`${chatTable.updatedAt}`,
         })
-        .where(eq(chatTable.id, chatId));
+        .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)));
 }
 
 async function syncMessages(chatId: string, messages: ChatUIMessage[]) {
@@ -507,7 +507,7 @@ export async function listChats(userId: string, graphId: string, options: { offs
         })
         .from(chatTable)
         .where(and(eq(chatTable.userId, userId), eq(chatTable.graphId, graphId), isNull(chatTable.archivedAt)))
-        .orderBy(sql`case when ${chatTable.pinnedAt} is null then 1 else 0 end`, desc(chatTable.updatedAt), desc(chatTable.createdAt));
+        .orderBy(sql`${chatTable.pinnedAt} is null`, desc(chatTable.updatedAt), desc(chatTable.id));
 
     const effectiveLimit =
         typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;

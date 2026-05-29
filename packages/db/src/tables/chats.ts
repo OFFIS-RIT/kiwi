@@ -27,9 +27,10 @@ export const chatTable = pgTable.withRLS(
         index("idx_user_chats_user_project_archived_updated_at").on(
             table.userId,
             table.graphId,
-            table.archivedAt,
-            table.updatedAt.desc()
-        ),
+            sql`(${table.pinnedAt} is null)`,
+            table.updatedAt.desc(),
+            table.id.desc()
+        ).where(sql`${table.archivedAt} IS NULL`),
         index("chats_title_trgm_idx").using("gin", table.title.op("gin_trgm_ops")),
     ]
 );

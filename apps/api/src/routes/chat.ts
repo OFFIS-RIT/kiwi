@@ -179,7 +179,7 @@ export const chatRoute = new Elysia()
             const pinResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
                 const chat = await loadChatSummary(user.id, params.id, params.chatId);
-                await setChatPinned(chat.id, true);
+                await setChatPinned(chat.id, user.id, true);
             });
 
             if (pinResult.isErr()) {
@@ -206,7 +206,7 @@ export const chatRoute = new Elysia()
             const unpinResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
                 const chat = await loadChatSummary(user.id, params.id, params.chatId);
-                await setChatPinned(chat.id, false);
+                await setChatPinned(chat.id, user.id, false);
             });
 
             if (unpinResult.isErr()) {
@@ -233,7 +233,7 @@ export const chatRoute = new Elysia()
             const archiveResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
                 const chat = await loadChatSummary(user.id, params.id, params.chatId);
-                await setChatArchived(chat.id, true);
+                await setChatArchived(chat.id, user.id, true);
             });
 
             if (archiveResult.isErr()) {
@@ -260,7 +260,7 @@ export const chatRoute = new Elysia()
             const unarchiveResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
                 const chat = await loadChatSummary(user.id, params.id, params.chatId);
-                await setChatArchived(chat.id, false);
+                await setChatArchived(chat.id, user.id, false);
             });
 
             if (unarchiveResult.isErr()) {
