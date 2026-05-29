@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import { AI_REQUEST_TIMEOUT_MS, createProviderFetch } from "../index";
+mock.module("@kiwi/db", () => ({
+    db: {},
+}));
+
+const { AI_REQUEST_TIMEOUT_MS, createProviderFetch } = await import("../index");
 
 describe("createProviderFetch", () => {
     test("disables Bun's default timeout and applies the shared request timeout", async () => {

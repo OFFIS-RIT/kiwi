@@ -1,6 +1,6 @@
 import type { LanguageModel } from "ai";
 import { generateText } from "ai";
-import { withAiSlot } from "@kiwi/ai";
+import { withAiSlot } from "@kiwi/ai/lock";
 import { descriptionPromp, updateDescriptionPromp } from "@kiwi/ai/prompts/description.prompt";
 
 const DESCRIPTION_SOURCE_CHUNK_SIZE = 300;
