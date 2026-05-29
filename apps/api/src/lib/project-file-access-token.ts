@@ -13,31 +13,32 @@ type ProjectFileAccessTokenPayload = {
 let signingKeyPromise: Promise<CryptoKey> | null = null;
 let signingKeySecret: string | null = null;
 
-async function deriveHmacKeyBytes(secret: string) {
-    const secretBytes = textEncoder.encode(secret);
-    const digest = await crypto.subtle.digest("SHA-256", secretBytes);
-    return new Uint8Array(digest);
+export async function importProjectFileAccessTokenSigningKey(
+    secret: string,
+    keyImporter: Pick<SubtleCrypto, "importKey"> = crypto.subtle
+): Promise<CryptoKey> {
+    try {
+        return await keyImporter.importKey(
+            "raw",
+            textEncoder.encode(secret),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign", "verify"]
+        );
+    } catch (error) {
+        throw new Error("Failed to import AUTH_SECRET as an HMAC signing key", { cause: error });
+    }
 }
 
 function getSigningKey(): Promise<CryptoKey> {
     const secret = env.AUTH_SECRET;
     if (!signingKeyPromise || signingKeySecret !== secret) {
         signingKeySecret = secret;
-        signingKeyPromise = crypto.subtle
-            .importKey("raw", textEncoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
-                "sign",
-                "verify",
-            ])
-            .catch(async () => {
-                const keyBytes = await deriveHmacKeyBytes(secret);
-                return crypto.subtle.importKey(
-                    "raw",
-                    keyBytes,
-                    { name: "HMAC", hash: "SHA-256" },
-                    false,
-                    ["sign", "verify"]
-                );
-            });
+        signingKeyPromise = importProjectFileAccessTokenSigningKey(secret).catch((error) => {
+            signingKeyPromise = null;
+            signingKeySecret = null;
+            throw error;
+        });
     }
 
     return signingKeyPromise;

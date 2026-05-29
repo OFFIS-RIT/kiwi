@@ -1,23 +1,41 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-process.env.AUTH_SECRET ??= "test-project-file-access-token-secret";
-process.env.DATABASE_DIRECT_URL ??= "postgres://test:test@localhost:5432/test";
-process.env.S3_ACCESS_KEY_ID ??= "test";
-process.env.S3_SECRET_ACCESS_KEY ??= "test";
-process.env.S3_ENDPOINT ??= "http://localhost:9000";
-process.env.S3_REGION ??= "test";
-process.env.S3_BUCKET ??= "test";
-process.env.CONTEXT_WINDOW ??= "250000";
-process.env.AI_TEXT_ADAPTER ??= "openai";
-process.env.AI_TEXT_MODEL ??= "test";
-process.env.AI_TEXT_KEY ??= "test";
-process.env.AI_EMBEDDING_ADAPTER ??= "openai";
-process.env.AI_EMBEDDING_MODEL ??= "test";
-process.env.AI_EMBEDDING_KEY ??= "test";
+mock.module("../../env", () => ({
+    env: {
+        AUTH_SECRET: "test-project-file-access-token-secret",
+        DATABASE_DIRECT_URL: "postgres://test:test@localhost:5432/test",
+        S3_ACCESS_KEY_ID: "test",
+        S3_SECRET_ACCESS_KEY: "test",
+        S3_ENDPOINT: "http://localhost:9000",
+        S3_REGION: "test",
+        S3_BUCKET: "test",
+        CONTEXT_WINDOW: 250_000,
+        AI_TEXT_ADAPTER: "openai",
+        AI_TEXT_MODEL: "test",
+        AI_TEXT_KEY: "test",
+        AI_EMBEDDING_ADAPTER: "openai",
+        AI_EMBEDDING_MODEL: "test",
+        AI_EMBEDDING_KEY: "test",
+    },
+}));
 
-const { createProjectFileAccessToken, verifyProjectFileAccessToken } = await import("../project-file-access-token");
+const {
+    createProjectFileAccessToken,
+    importProjectFileAccessTokenSigningKey,
+    verifyProjectFileAccessToken,
+} = await import("../project-file-access-token");
 
 describe("project file access tokens", () => {
+    test("surfaces HMAC key import failures instead of changing key derivation", async () => {
+        await expect(
+            importProjectFileAccessTokenSigningKey("secret", {
+                importKey: async () => {
+                    throw new Error("import failed");
+                },
+            })
+        ).rejects.toThrow("Failed to import AUTH_SECRET as an HMAC signing key");
+    });
+
     test("creates tokens bound to a graph and file", async () => {
         const now = new Date("2026-01-01T00:00:00Z");
         const token = await createProjectFileAccessToken("graph-1", "file-1", { now, expiresInSeconds: 60 });

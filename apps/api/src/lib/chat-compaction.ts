@@ -454,6 +454,7 @@ export async function maybeCompactConversation(options: {
             runtime: options.runtime,
             systemPrompt,
         });
+        options.abortSignal?.throwIfAborted();
     }
 
     return { context, systemPrompt };

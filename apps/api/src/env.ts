@@ -4,6 +4,9 @@ import { z } from "zod";
 const adapterEnum = z.enum(["openai", "azure", "anthropic", "openaiAPI"]);
 const embeddingAdapterEnum = z.enum(["openai", "azure", "openaiAPI"]);
 
+export const DEFAULT_CONTEXT_WINDOW = 250_000;
+export const isContextWindowDefaulted = process.env.CONTEXT_WINDOW === undefined;
+
 export const env = createEnv({
     server: {
         MASTER_USER_ID: z.string().optional(),
@@ -25,7 +28,7 @@ export const env = createEnv({
         S3_BUCKET: z.string(),
 
         // Text / Chat
-        CONTEXT_WINDOW: z.coerce.number().int().positive(),
+        CONTEXT_WINDOW: z.coerce.number().int().positive().default(DEFAULT_CONTEXT_WINDOW),
         AI_TEXT_ADAPTER: adapterEnum,
         AI_TEXT_MODEL: z.string(),
         AI_TEXT_KEY: z.string(),
