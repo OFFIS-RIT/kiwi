@@ -249,6 +249,26 @@ export function isContextOverflowError(error: unknown): boolean {
     return messages.some((message) => CONTEXT_OVERFLOW_PATTERNS.some((pattern) => message.includes(pattern)));
 }
 
+export function startsAssistantOutput(partType: string) {
+    return (
+        partType === "start-step" ||
+        partType === "finish-step" ||
+        partType === "text-start" ||
+        partType === "text-delta" ||
+        partType === "text-end" ||
+        partType === "reasoning-start" ||
+        partType === "reasoning-delta" ||
+        partType === "reasoning-end" ||
+        partType === "tool-input-start" ||
+        partType === "tool-input-delta" ||
+        partType === "tool-call" ||
+        partType === "tool-result" ||
+        partType === "tool-error" ||
+        partType === "tool-output-denied" ||
+        partType === "tool-approval-request"
+    );
+}
+
 export async function refreshReplyContext(options: {
     chatId: string;
     graphId: string;

@@ -28,6 +28,7 @@ import {
     mapChatError,
     refreshReplyContext,
     startReply,
+    startsAssistantOutput,
     toolPart,
     toAssistantReply,
     touchChat,
@@ -72,26 +73,6 @@ function upsertToolPart(parts: MessagePart[], next: MessagePart) {
         return;
     }
     parts[idx] = next;
-}
-
-export function startsAssistantOutput(partType: string) {
-    return (
-        partType === "start-step" ||
-        partType === "finish-step" ||
-        partType === "text-start" ||
-        partType === "text-delta" ||
-        partType === "text-end" ||
-        partType === "reasoning-start" ||
-        partType === "reasoning-delta" ||
-        partType === "reasoning-end" ||
-        partType === "tool-input-start" ||
-        partType === "tool-input-delta" ||
-        partType === "tool-call" ||
-        partType === "tool-result" ||
-        partType === "tool-error" ||
-        partType === "tool-output-denied" ||
-        partType === "tool-approval-request"
-    );
 }
 
 export const chatRoute = new Elysia()

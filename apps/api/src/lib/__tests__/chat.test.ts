@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { estimateToken, type ChatUIMessage } from "@kiwi/ai";
+import type { ChatUIMessage } from "@kiwi/ai";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { API_ERROR_CODES } from "../../types";
 
@@ -26,12 +26,14 @@ mock.module("../../env", () => ({
     },
 }));
 
+const { estimateToken } = await import("@kiwi/ai");
 const {
     deriveActiveCompaction,
     getProtectedTailStartIndex,
     isContextOverflowError,
     normalizeChatRequest,
     replaceOrAppendMessage,
+    startsAssistantOutput,
 } = await import("../chat");
 const {
     assertCompactionAttemptsRemaining,
@@ -40,7 +42,6 @@ const {
     serializeCompactionTranscript,
     syncChatMessage,
 } = await import("../chat-compaction");
-const { startsAssistantOutput } = await import("../../routes/chat");
 
 const largeText = "token ".repeat(7000);
 
