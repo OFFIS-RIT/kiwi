@@ -25,6 +25,32 @@ const {
     verifyProjectFileAccessToken,
 } = await import("../project-file-access-token");
 
+const testSecret = "test-project-file-access-token-secret";
+const textEncoder = new TextEncoder();
+
+function base64UrlEncode(bytes: Uint8Array): string {
+    let binary = "";
+    for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+    }
+
+    return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+async function createLegacyRawSecretToken(payload: { graphId: string; fileId: string; exp: number }) {
+    const encodedPayload = base64UrlEncode(textEncoder.encode(JSON.stringify(payload)));
+    const key = await crypto.subtle.importKey(
+        "raw",
+        textEncoder.encode(testSecret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+    );
+    const signature = await crypto.subtle.sign("HMAC", key, textEncoder.encode(encodedPayload));
+
+    return `${encodedPayload}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
 describe("project file access tokens", () => {
     test("surfaces HMAC key import failures instead of changing key derivation", async () => {
         await expect(
@@ -34,6 +60,17 @@ describe("project file access tokens", () => {
                 },
             })
         ).rejects.toThrow("Failed to import AUTH_SECRET as an HMAC signing key");
+    });
+
+    test("verifies tokens signed with legacy raw AUTH_SECRET bytes", async () => {
+        const now = new Date("2026-01-01T00:00:00Z");
+        const token = await createLegacyRawSecretToken({
+            graphId: "graph-1",
+            fileId: "file-1",
+            exp: Math.floor(now.getTime() / 1000) + 60,
+        });
+
+        await expect(verifyProjectFileAccessToken(token, "graph-1", "file-1", { now })).resolves.toBe(true);
     });
 
     test("creates tokens bound to a graph and file", async () => {

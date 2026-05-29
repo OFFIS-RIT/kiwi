@@ -267,7 +267,7 @@ describe("chat context helpers", () => {
         expect(startsAssistantOutput("text-start")).toBe(false);
         expect(startsAssistantOutput("reasoning-start")).toBe(false);
         expect(startsAssistantOutput("text-delta")).toBe(true);
-        expect(startsAssistantOutput("reasoning-delta")).toBe(true);
+        expect(startsAssistantOutput("reasoning-delta")).toBe(false);
         expect(startsAssistantOutput("tool-input-start")).toBe(true);
         expect(startsAssistantOutput("start")).toBe(false);
         expect(startsAssistantOutput("error")).toBe(false);

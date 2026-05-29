@@ -252,7 +252,6 @@ export function isContextOverflowError(error: unknown): boolean {
 export function startsAssistantOutput(partType: string) {
     return (
         partType === "text-delta" ||
-        partType === "reasoning-delta" ||
         partType === "tool-input-start" ||
         partType === "tool-input-delta" ||
         partType === "tool-call" ||
