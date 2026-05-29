@@ -3,8 +3,10 @@ import { estimateToken, type ChatUIMessage } from "@kiwi/ai";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { API_ERROR_CODES } from "../../types";
 
+const dbMock: { insert?: ReturnType<typeof mock> } = {};
+
 mock.module("@kiwi/db", () => ({
-    db: {},
+    db: dbMock,
 }));
 
 mock.module("../../env", () => ({
@@ -36,7 +38,9 @@ const {
     buildActiveChatContext,
     normalizeCompactionSummary,
     serializeCompactionTranscript,
+    syncChatMessage,
 } = await import("../chat-compaction");
+const { startsAssistantOutput } = await import("../../routes/chat");
 
 const largeText = "token ".repeat(7000);
 
@@ -255,6 +259,14 @@ describe("chat context helpers", () => {
         expect(isContextOverflowError(new Error("Temporary upstream failure"))).toBe(false);
     });
 
+    test("treats stream-state events as retry boundaries", () => {
+        expect(startsAssistantOutput("reasoning-start")).toBe(true);
+        expect(startsAssistantOutput("tool-input-start")).toBe(true);
+        expect(startsAssistantOutput("start-step")).toBe(true);
+        expect(startsAssistantOutput("start")).toBe(false);
+        expect(startsAssistantOutput("error")).toBe(false);
+    });
+
     test("bounds repeated compaction attempts", () => {
         expect(() => assertCompactionAttemptsRemaining(4)).not.toThrow();
         expect(() => assertCompactionAttemptsRemaining(5)).toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
@@ -290,5 +302,36 @@ describe("chat context helpers", () => {
                 })
             )
         );
+    });
+
+    test("rejects a latest message id that belongs to another chat", async () => {
+        const returning = mock(async () => []);
+        const onConflictDoUpdate = mock(() => ({ returning }));
+        const values = mock(() => ({ onConflictDoUpdate }));
+        const insert = mock(() => ({ values }));
+        dbMock.insert = insert;
+
+        await expect(
+            syncChatMessage({
+                chatId: "chat-1",
+                message: {
+                    id: "msg-cross-chat",
+                    role: "user",
+                    parts: [{ type: "text", text: "hello" }],
+                },
+                toParts: () => [{ type: "text", text: "hello" }],
+                getMetrics: () => ({
+                    tokensPerSecond: null,
+                    timeToFirstToken: null,
+                    inputTokens: null,
+                    outputTokens: null,
+                    totalTokens: null,
+                }),
+                parseCreatedAt: () => undefined,
+            })
+        ).rejects.toThrow(API_ERROR_CODES.INVALID_CHAT_REQUEST);
+
+        expect(onConflictDoUpdate).toHaveBeenCalled();
+        dbMock.insert = undefined;
     });
 });

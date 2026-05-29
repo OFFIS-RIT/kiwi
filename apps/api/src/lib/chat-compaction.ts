@@ -515,7 +515,7 @@ export async function syncChatMessage(options: {
         ...metrics,
     };
 
-    await db
+    const [syncedMessage] = await db
         .insert(messageTable)
         .values({
             id: options.message.id,
@@ -527,5 +527,10 @@ export async function syncChatMessage(options: {
             target: messageTable.id,
             set: persistedMessage,
             setWhere: eq(messageTable.chatId, options.chatId),
-        });
+        })
+        .returning({ id: messageTable.id });
+
+    if (!syncedMessage) {
+        throw new Error(API_ERROR_CODES.INVALID_CHAT_REQUEST);
+    }
 }
