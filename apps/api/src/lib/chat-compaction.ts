@@ -27,10 +27,10 @@ import { env } from "../env";
 import { API_ERROR_CODES } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 
-const RAW_TAIL_TARGET_TOKENS = 32_000;
+const MAX_RAW_TAIL_TARGET_TOKENS = 32_000;
 const MIN_RAW_VISIBLE_MESSAGES = 6;
 const SOFT_COMPACTION_THRESHOLD_RATIO = 0.7;
-const SOFT_COMPACTION_THRESHOLD = env.CONTEXT_WINDOW * SOFT_COMPACTION_THRESHOLD_RATIO;
+const RAW_TAIL_TARGET_CONTEXT_RATIO = 1 - SOFT_COMPACTION_THRESHOLD_RATIO;
 const MAX_COMPACTION_ATTEMPTS = 5;
 
 export type ChatRequest = ChatRequestBody;
@@ -231,8 +231,19 @@ function estimateStoredMessageTokens(message: ChatMessage) {
     return estimateToken(JSON.stringify(toModelMessage(message)));
 }
 
+export function getSoftCompactionThreshold(contextWindow = env.CONTEXT_WINDOW) {
+    return Math.max(1, Math.floor(contextWindow * SOFT_COMPACTION_THRESHOLD_RATIO));
+}
+
+export function getRawTailTargetTokens(contextWindow = env.CONTEXT_WINDOW) {
+    return Math.max(
+        1,
+        Math.floor(Math.min(MAX_RAW_TAIL_TARGET_TOKENS, contextWindow * RAW_TAIL_TARGET_CONTEXT_RATIO))
+    );
+}
+
 function shouldCompact(estimatedPromptTokens: number) {
-    return estimatedPromptTokens >= SOFT_COMPACTION_THRESHOLD;
+    return estimatedPromptTokens >= getSoftCompactionThreshold();
 }
 
 export function assertCompactionAttemptsRemaining(attemptCount: number) {
@@ -250,18 +261,19 @@ export function getProtectedTailStartIndex(rows: ChatMessage[]) {
     let startIndex = rows.length;
     let protectedTokens = 0;
     const minimumProtectedTailStartIndex = Math.max(0, rows.length - MIN_RAW_VISIBLE_MESSAGES);
+    const rawTailTargetTokens = getRawTailTargetTokens();
 
     for (let index = rows.length - 1; index >= 0; index -= 1) {
         startIndex = index;
         protectedTokens += messageTokenCounts[index]!;
 
         const protectedCount = rows.length - index;
-        if (protectedCount >= MIN_RAW_VISIBLE_MESSAGES && protectedTokens >= RAW_TAIL_TARGET_TOKENS) {
+        if (protectedCount >= MIN_RAW_VISIBLE_MESSAGES && protectedTokens >= rawTailTargetTokens) {
             break;
         }
     }
 
-    if (protectedTokens < RAW_TAIL_TARGET_TOKENS) {
+    if (protectedTokens < rawTailTargetTokens) {
         startIndex = minimumProtectedTailStartIndex;
     }
 
@@ -404,17 +416,24 @@ export async function maybeCompactConversation(options: {
     }
 
     while (forceCompaction || shouldCompact(context.estimatedPromptTokens)) {
+        const isForcedCompaction = forceCompaction;
         assertCompactionAttemptsRemaining(compactionAttempts);
         compactionAttempts += 1;
         forceCompaction = false;
         const protectedTailStartIndex = getProtectedTailStartIndex(context.activeRawTailRows);
         if (protectedTailStartIndex <= 0) {
+            if (!isForcedCompaction) {
+                break;
+            }
             throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
         }
 
         const summarizedRows = context.activeRawTailRows.slice(0, protectedTailStartIndex);
         const summarizedThroughMessage = summarizedRows[summarizedRows.length - 1];
         if (!summarizedThroughMessage) {
+            if (!isForcedCompaction) {
+                break;
+            }
             throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
         }
 

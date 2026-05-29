@@ -251,14 +251,8 @@ export function isContextOverflowError(error: unknown): boolean {
 
 export function startsAssistantOutput(partType: string) {
     return (
-        partType === "start-step" ||
-        partType === "finish-step" ||
-        partType === "text-start" ||
         partType === "text-delta" ||
-        partType === "text-end" ||
-        partType === "reasoning-start" ||
         partType === "reasoning-delta" ||
-        partType === "reasoning-end" ||
         partType === "tool-input-start" ||
         partType === "tool-input-delta" ||
         partType === "tool-call" ||

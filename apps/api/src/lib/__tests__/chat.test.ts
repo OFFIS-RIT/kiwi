@@ -4,26 +4,27 @@ import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { API_ERROR_CODES } from "../../types";
 
 const dbMock: { insert?: ReturnType<typeof mock> } = {};
+const envMock = {
+    AI_TEXT_ADAPTER: "openai",
+    AI_TEXT_MODEL: "gpt-test",
+    CONTEXT_WINDOW: 250_000,
+    AI_TEXT_KEY: "key",
+    AI_TEXT_URL: undefined,
+    AI_TEXT_RESOURCE_NAME: undefined,
+    AI_SUBAGENT_MODEL: "gpt-subagent",
+    AI_EMBEDDING_ADAPTER: "openai",
+    AI_EMBEDDING_MODEL: "text-embedding-3-small",
+    AI_EMBEDDING_KEY: "key",
+    AI_EMBEDDING_URL: undefined,
+    AI_EMBEDDING_RESOURCE_NAME: undefined,
+};
 
 mock.module("@kiwi/db", () => ({
     db: dbMock,
 }));
 
 mock.module("../../env", () => ({
-    env: {
-        AI_TEXT_ADAPTER: "openai",
-        AI_TEXT_MODEL: "gpt-test",
-        CONTEXT_WINDOW: 250_000,
-        AI_TEXT_KEY: "key",
-        AI_TEXT_URL: undefined,
-        AI_TEXT_RESOURCE_NAME: undefined,
-        AI_SUBAGENT_MODEL: "gpt-subagent",
-        AI_EMBEDDING_ADAPTER: "openai",
-        AI_EMBEDDING_MODEL: "text-embedding-3-small",
-        AI_EMBEDDING_KEY: "key",
-        AI_EMBEDDING_URL: undefined,
-        AI_EMBEDDING_RESOURCE_NAME: undefined,
-    },
+    env: envMock,
 }));
 
 const { estimateToken } = await import("@kiwi/ai");
@@ -38,6 +39,9 @@ const {
 const {
     assertCompactionAttemptsRemaining,
     buildActiveChatContext,
+    getRawTailTargetTokens,
+    getSoftCompactionThreshold,
+    maybeCompactConversation,
     normalizeCompactionSummary,
     serializeCompactionTranscript,
     syncChatMessage,
@@ -257,10 +261,14 @@ describe("chat context helpers", () => {
         expect(isContextOverflowError(new Error("Temporary upstream failure"))).toBe(false);
     });
 
-    test("treats stream-state events as retry boundaries", () => {
-        expect(startsAssistantOutput("reasoning-start")).toBe(true);
+    test("does not treat lifecycle-only stream events as retry boundaries", () => {
+        expect(startsAssistantOutput("start-step")).toBe(false);
+        expect(startsAssistantOutput("finish-step")).toBe(false);
+        expect(startsAssistantOutput("text-start")).toBe(false);
+        expect(startsAssistantOutput("reasoning-start")).toBe(false);
+        expect(startsAssistantOutput("text-delta")).toBe(true);
+        expect(startsAssistantOutput("reasoning-delta")).toBe(true);
         expect(startsAssistantOutput("tool-input-start")).toBe(true);
-        expect(startsAssistantOutput("start-step")).toBe(true);
         expect(startsAssistantOutput("start")).toBe(false);
         expect(startsAssistantOutput("error")).toBe(false);
     });
@@ -268,6 +276,74 @@ describe("chat context helpers", () => {
     test("bounds repeated compaction attempts", () => {
         expect(() => assertCompactionAttemptsRemaining(4)).not.toThrow();
         expect(() => assertCompactionAttemptsRemaining(5)).toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+    });
+
+    test("keeps the protected tail target below the soft threshold for smaller context windows", () => {
+        expect(getSoftCompactionThreshold(32_000)).toBe(22_400);
+        expect(getRawTailTargetTokens(32_000)).toBeLessThan(getSoftCompactionThreshold(32_000));
+        expect(getRawTailTargetTokens(250_000)).toBe(32_000);
+    });
+
+    test("does not turn the soft threshold into a hard failure when only protected tail remains", async () => {
+        const originalContextWindow = envMock.CONTEXT_WINDOW;
+        envMock.CONTEXT_WINDOW = 100;
+        dbMock.insert = mock(() => {
+            throw new Error("soft compaction should not insert a checkpoint");
+        });
+
+        try {
+            const rows: ChatMessage[] = Array.from({ length: 6 }, (_, index) =>
+                textMessage(`msg-soft-${index + 1}`, index % 2 === 0 ? "user" : "assistant", "token ".repeat(30))
+            );
+
+            await expect(
+                maybeCompactConversation({
+                    chatId: "chat-1",
+                    graphId: "graph-1",
+                    rows,
+                    runtime: {
+                        client: {
+                            text: {} as never,
+                            embedding: {} as never,
+                        },
+                        tools: {},
+                    },
+                })
+            ).resolves.toHaveProperty("context");
+
+            expect(dbMock.insert).not.toHaveBeenCalled();
+        } finally {
+            envMock.CONTEXT_WINDOW = originalContextWindow;
+            dbMock.insert = undefined;
+        }
+    });
+
+    test("keeps forced compaction strict when the protected tail cannot be reduced", async () => {
+        const originalContextWindow = envMock.CONTEXT_WINDOW;
+        envMock.CONTEXT_WINDOW = 100;
+        try {
+            const rows: ChatMessage[] = Array.from({ length: 6 }, (_, index) =>
+                textMessage(`msg-forced-${index + 1}`, index % 2 === 0 ? "user" : "assistant", "token ".repeat(30))
+            );
+
+            await expect(
+                maybeCompactConversation({
+                    chatId: "chat-1",
+                    graphId: "graph-1",
+                    rows,
+                    runtime: {
+                        client: {
+                            text: {} as never,
+                            embedding: {} as never,
+                        },
+                        tools: {},
+                    },
+                    forceCompaction: true,
+                })
+            ).rejects.toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+        } finally {
+            envMock.CONTEXT_WINDOW = originalContextWindow;
+        }
     });
 
     test("includes tool definitions in the prompt token estimate", async () => {

@@ -361,6 +361,7 @@ export const chatRoute = new Elysia()
 
                 const startedAt = Date.now();
                 let firstOutputAt: number | null = null;
+                let hasStreamedAssistantOutput = false;
                 const assistantParts: MessagePart[] = [];
                 const citationFileIds = new Set<string>();
                 const reasoningBuffers = new Map<string, string>();
@@ -478,8 +479,12 @@ export const chatRoute = new Elysia()
                             let retryRequested = false;
 
                             generationStream: for await (const part of result.fullStream) {
-                                if (startsAssistantOutput(part.type) && firstOutputAt === null) {
+                                const assistantOutputStarted = startsAssistantOutput(part.type);
+                                if (assistantOutputStarted && firstOutputAt === null) {
                                     firstOutputAt = Date.now();
+                                }
+                                if (assistantOutputStarted) {
+                                    hasStreamedAssistantOutput = true;
                                 }
 
                                 switch (part.type) {
@@ -664,7 +669,11 @@ export const chatRoute = new Elysia()
                                         break;
                                     }
                                     case "error": {
-                                        if (!retriedAfterCompaction && firstOutputAt === null && isContextOverflowError(part.error)) {
+                                        if (
+                                            !retriedAfterCompaction &&
+                                            !hasStreamedAssistantOutput &&
+                                            isContextOverflowError(part.error)
+                                        ) {
                                             retryRequested = true;
                                             break generationStream;
                                         }
@@ -688,7 +697,11 @@ export const chatRoute = new Elysia()
                                 try {
                                     retryRequested = await processResult(createResult());
                                 } catch (error) {
-                                    if (!retriedAfterCompaction && firstOutputAt === null && isContextOverflowError(error)) {
+                                    if (
+                                        !retriedAfterCompaction &&
+                                        !hasStreamedAssistantOutput &&
+                                        isContextOverflowError(error)
+                                    ) {
                                         retryRequested = true;
                                     } else {
                                         throw error;
