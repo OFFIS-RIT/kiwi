@@ -595,7 +595,9 @@ function ProjectItem({
     };
 
     const removeChatFromCaches = (conversationId: string) => {
-        updateCachedChats((chats) => chats.filter((chat) => chat.id !== conversationId), { mayHaveMore: true });
+        updateCachedChats((chats) => chats.filter((chat) => chat.id !== conversationId), {
+            mayHaveMore: !hasMoreChats,
+        });
         setManuallyUnreadChatIds((current) => {
             const next = new Set(current);
             next.delete(conversationId);
@@ -968,11 +970,11 @@ function ProjectItem({
                                     asChild
                                     size="sm"
                                     className="w-full justify-start text-muted-foreground"
-                                    aria-disabled={isLoadingMoreChats}
+                                    aria-disabled={isLoadingMoreChats || isMutatingChat}
                                 >
                                     <button
                                         type="button"
-                                        disabled={isLoadingMoreChats}
+                                        disabled={isLoadingMoreChats || isMutatingChat}
                                         onClick={() => void handleToggleAllChats()}
                                     >
                                         <span>
