@@ -1,21 +1,13 @@
 {
-    "name": "@kiwi/db",
+    "name": "@kiwi/contracts",
     "private": true,
     "type": "module",
     "exports": {
-        "./utils": "./src/utils.ts",
-        ".": "./src/index.ts",
-        "./tables/*": "./src/tables/*.ts"
+        ".": "./src/index.ts"
     },
     "scripts": {
         "build": "bunx tsc --noEmit",
         "test": "bun test --pass-with-no-tests"
-    },
-    "dependencies": {
-        "@kiwi/contracts": "workspace:*",
-        "drizzle-orm": "catalog:",
-        "pg": "catalog:",
-        "ulid": "^3.0.2"
     },
     "devDependencies": {
         "@types/bun": "catalog:"

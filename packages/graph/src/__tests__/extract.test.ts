@@ -2,19 +2,20 @@ import { describe, expect, test } from "bun:test";
 import type { Graph } from "../index.ts";
 import { mergeGraphs } from "../merge.ts";
 
+const textUnit = (id: string, fileId: string, content: string) => ({
+    id,
+    fileId,
+    content,
+    startPage: null,
+    endPage: null,
+    chunks: [{ id: 1, type: "text" as const, text: content, startPage: null, endPage: null }],
+});
+
 describe("mergeGraphs", () => {
     test("merges matching entities and remaps matching relationships", () => {
         const left: Graph = {
             id: "graph-left",
-            units: [
-                {
-                    id: "unit-1",
-                    fileId: "file-1",
-                    content: "Alice works at Acme.",
-                    startPage: null,
-                    endPage: null,
-                },
-            ],
+            units: [textUnit("unit-1", "file-1", "Alice works at Acme.")],
             entities: [
                 {
                     id: "entity-acme-left",
@@ -63,15 +64,7 @@ describe("mergeGraphs", () => {
 
         const right: Graph = {
             id: "graph-right",
-            units: [
-                {
-                    id: "unit-2",
-                    fileId: "file-1",
-                    content: "Acme employs Alice.",
-                    startPage: null,
-                    endPage: null,
-                },
-            ],
+            units: [textUnit("unit-2", "file-1", "Acme employs Alice.")],
             entities: [
                 {
                     id: "entity-acme-right",
@@ -143,15 +136,7 @@ describe("mergeGraphs", () => {
     test("merges multiple graphs passed as an array", () => {
         const graphA: Graph = {
             id: "graph-a",
-            units: [
-                {
-                    id: "unit-a",
-                    fileId: "file-a",
-                    content: "Alice founded Acme.",
-                    startPage: null,
-                    endPage: null,
-                },
-            ],
+            units: [textUnit("unit-a", "file-a", "Alice founded Acme.")],
             entities: [
                 {
                     id: "entity-alice-a",
@@ -200,15 +185,7 @@ describe("mergeGraphs", () => {
 
         const graphB: Graph = {
             id: "graph-b",
-            units: [
-                {
-                    id: "unit-b",
-                    fileId: "file-b",
-                    content: "Acme hired Bob.",
-                    startPage: null,
-                    endPage: null,
-                },
-            ],
+            units: [textUnit("unit-b", "file-b", "Acme hired Bob.")],
             entities: [
                 {
                     id: "entity-acme-b",
@@ -257,15 +234,7 @@ describe("mergeGraphs", () => {
 
         const graphC: Graph = {
             id: "graph-c",
-            units: [
-                {
-                    id: "unit-c",
-                    fileId: "file-c",
-                    content: "Bob partnered with Alice.",
-                    startPage: null,
-                    endPage: null,
-                },
-            ],
+            units: [textUnit("unit-c", "file-c", "Bob partnered with Alice.")],
             entities: [
                 {
                     id: "entity-alice-c",

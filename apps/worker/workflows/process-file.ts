@@ -21,11 +21,18 @@ import { JSONChunker } from "@kiwi/graph/chunker/json";
 import { SingleChunker } from "@kiwi/graph/chunker/single";
 import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
 import { env } from "../env";
-import { type Graph, type GraphChunker, type GraphFile, type GraphLoader, type Unit } from "@kiwi/graph";
+import {
+    type Graph,
+    type GraphChunker,
+    type GraphFile,
+    type GraphLoader,
+    type Unit,
+} from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
+import { loadGraphDocument } from "@kiwi/graph/loader/document";
 import { stripPageFences } from "@kiwi/graph/lib/page-fence";
 import { mergeGraphs } from "@kiwi/graph/merge";
-import { createUnits, processUnit } from "@kiwi/graph/unit";
+import { createUnitsFromText, processUnit } from "@kiwi/graph/unit";
 import { DOCXLoader } from "@kiwi/graph/loader/doc";
 import { estimateToken, getClient } from "@kiwi/ai";
 import { ExcelLoader } from "@kiwi/graph/loader/excel";
@@ -39,6 +46,7 @@ import { processFilesSpec } from "./process-files-spec";
 import { getDerivedFilePrefix, getDerivedImagePrefix } from "../lib/derived-files";
 import { buildPDFLoaderOptions } from "../lib/pdf-loader";
 import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
+import { loadSourceMap } from "../lib/source-map";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { toTextUnitRows } from "../lib/text-unit-rows";
@@ -371,8 +379,10 @@ export const processFile = defineWorkflow(
                     ...baseGraphFile,
                     loader,
                 } satisfies Omit<GraphFile, "chunker">;
-                const text = await graphFile.loader.getText();
+                const document = await loadGraphDocument(graphFile.loader);
+                const text = document.text;
                 let sourceKey = fileData.key;
+                let sourceMapKey: string | undefined;
 
                 if (
                     graphFile.filetype === "pdf" ||
@@ -383,6 +393,16 @@ export const processFile = defineWorkflow(
                 ) {
                     const uploadedFile = await putNamedFile("source.txt", text, derivedPrefix, env.S3_BUCKET);
                     sourceKey = uploadedFile.key;
+                }
+
+                if (document.sourceChunks && document.sourceChunks.length > 0) {
+                    const uploadedSourceMap = await putNamedFile(
+                        "source-map.json",
+                        JSON.stringify(document.sourceChunks),
+                        derivedPrefix,
+                        env.S3_BUCKET
+                    );
+                    sourceMapKey = uploadedSourceMap.key;
                 }
 
                 const duration = performance.now() - start;
@@ -399,6 +419,7 @@ export const processFile = defineWorkflow(
                 return {
                     ...baseGraphFile,
                     sourceKey,
+                    sourceMapKey,
                     duration,
                     tokenCount: tokens,
                     metadataExcerpt: buildMetadataExcerpt(contentText),
@@ -455,7 +476,17 @@ export const processFile = defineWorkflow(
                     loader: new S3Loader(baseFile.sourceKey, env.S3_BUCKET),
                     chunker,
                 } satisfies GraphFile;
-                const units = await createUnits(unitsFile);
+                const sourceText = await unitsFile.loader.getText();
+                const loaderSourceChunks = baseFile.sourceMapKey
+                    ? await loadSourceMap(baseFile.sourceMapKey, env.S3_BUCKET)
+                    : undefined;
+                const units = await createUnitsFromText({
+                    fileId: unitsFile.id,
+                    fileType: unitsFile.filetype,
+                    text: sourceText,
+                    chunker,
+                    loaderSourceChunks,
+                });
 
                 const unitsPath = `graphs/${input.graphId}/workflows/${WORKFLOW_STORAGE_VERSION}/${input.fileId}`;
                 const uploadedUnitsFile = await putNamedFile(
@@ -556,6 +587,7 @@ export const processFile = defineWorkflow(
                             textUnitId: source.unitId,
                             active: false,
                             description: source.description,
+                            sourceChunkIds: source.sourceChunkIds ?? [],
                             embedding: EMPTY_VECTOR_SQL,
                         }))
                     ),
@@ -567,6 +599,7 @@ export const processFile = defineWorkflow(
                             textUnitId: source.unitId,
                             active: false,
                             description: source.description,
+                            sourceChunkIds: source.sourceChunkIds ?? [],
                             embedding: EMPTY_VECTOR_SQL,
                         }))
                     ),
@@ -598,6 +631,7 @@ export const processFile = defineWorkflow(
                                     text: sql`excluded.text`,
                                     startPage: sql`excluded.start_page`,
                                     endPage: sql`excluded.end_page`,
+                                    chunks: sql`excluded.chunks`,
                                     updatedAt: sql`NOW()`,
                                 },
                             });

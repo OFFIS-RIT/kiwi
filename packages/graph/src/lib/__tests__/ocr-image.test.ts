@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import { getExtensionForMimeType, processOCRImages } from "../ocr-image";
+import { describeOCRImages, getExtensionForMimeType, processOCRImages } from "../ocr-image";
 
 describe("processOCRImages", () => {
     test("uploads extracted images and replaces fences with escaped image tags", async () => {
@@ -174,5 +174,29 @@ describe("processOCRImages", () => {
         expect(getExtensionForMimeType("image/svg+xml")).toBe("svg");
         expect(getExtensionForMimeType("image/tiff")).toBe("tiff");
         expect(getExtensionForMimeType("application/octet-stream")).toBe("bin");
+    });
+});
+
+describe("describeOCRImages", () => {
+    test("describes duplicate image content once and maps the result to every image id", async () => {
+        const content = new Uint8Array([1, 2, 3]);
+        const describeImage = mock(async (image: { id: string }) => ` Description for ${image.id} `);
+
+        const descriptions = await describeOCRImages(
+            [
+                { id: "img-1", type: "image/png", content },
+                { id: "img-2", type: "image/png", content: content.slice() },
+            ],
+            {} as never,
+            { describeImage }
+        );
+
+        expect(describeImage).toHaveBeenCalledTimes(1);
+        expect(descriptions).toEqual(
+            new Map([
+                ["img-1", "Description for img-1"],
+                ["img-2", "Description for img-1"],
+            ])
+        );
     });
 });

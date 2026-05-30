@@ -150,6 +150,62 @@ export type TextUnitPreview =
           type: "none";
       };
 
+export type SourceReferenceUnitRecord = {
+    id: string;
+    project_file_id: string;
+    start_page: number | null;
+    end_page: number | null;
+    file_name: string;
+    file_type: string;
+    mime_type: string;
+    created_at: string | null;
+    updated_at: string | null;
+};
+
+export type SourceReferenceChunk =
+    | {
+          type: "text";
+          chunk_id: number;
+          text: string;
+      }
+    | {
+          type: "image";
+          chunk_id: number;
+          image_path: string;
+          alt: string;
+      };
+
+export type SourceReferencePdfRegionRect = {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+};
+
+export type SourceReferencePdfRegion = {
+    kind: "text" | "image" | "page";
+    chunk_id: number;
+    page: number;
+    width: number;
+    height: number;
+    image_path: string;
+    crop: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    };
+    rectangles: SourceReferencePdfRegionRect[];
+};
+
+export type SourceReferenceRecord = {
+    source_id: string;
+    description: string;
+    unit: SourceReferenceUnitRecord;
+    chunks: SourceReferenceChunk[];
+    pdf_regions: SourceReferencePdfRegion[];
+};
+
 export type ChatRequestBody =
     | {
           id: string;
@@ -357,6 +413,16 @@ export type TextUnitResponse = ApiResponse<
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "TEXT_UNIT_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type SourceReferenceResponse = ApiResponse<
+    SourceReferenceRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "SOURCE_NOT_FOUND"
     | "INTERNAL_SERVER_ERROR"
 >;
 

@@ -1,18 +1,16 @@
 import { PDF } from "@libpdf/core";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import type { GraphBinaryLoader, GraphLoader } from "..";
-import { processOCRImages } from "../lib/ocr-image";
-import { extractPDFHybridFromDocument, extractPlainTextFromDocument } from "./pdf/document";
-import { extractFullOCRTextFromPDF } from "./pdf/ocr";
+import type { GraphBinaryLoader, GraphDocumentLoader, LoadedGraphDocument } from "..";
+import { extractFullOCRDocumentFromPDF, extractPDFDocumentFromDocument } from "./pdf/document";
 import type { PDFDocumentLike, PDFTableMode } from "./pdf/types";
 
 export { extractFullOCRTextFromPDF } from "./pdf/ocr";
 export type PDFMode = "plain" | "hybrid" | "ocr";
 export type { PDFTableMode } from "./pdf/types";
 
-export class PDFLoader implements GraphLoader {
+export class PDFLoader implements GraphDocumentLoader {
     readonly filetype = "pdf";
-    private cachedModeText?: Promise<string>;
+    private cachedDocument?: Promise<LoadedGraphDocument>;
 
     constructor(
         private options: {
@@ -25,52 +23,58 @@ export class PDFLoader implements GraphLoader {
     ) {}
 
     async getText(): Promise<string> {
+        return (await this.getDocument()).text;
+    }
+
+    async getDocument(): Promise<LoadedGraphDocument> {
         const mode = this.options.mode ?? "plain";
+        this.cachedDocument ??= this.getModeDocument(mode);
+        return this.cachedDocument;
+    }
 
-        if (mode !== "plain") {
-            this.cachedModeText ??= this.getModeText(mode);
-            return this.cachedModeText;
+    private async getModeDocument(mode: PDFMode): Promise<LoadedGraphDocument> {
+        switch (mode) {
+            case "hybrid":
+                return this.getHybridDocument();
+            case "ocr":
+                return this.getFullOCRDocument();
+            case "plain":
+                return this.getPlainDocument();
         }
-
-        return this.getPlainText();
     }
 
-    private async getModeText(mode: Exclude<PDFMode, "plain">): Promise<string> {
-        return mode === "hybrid" ? this.getHybridText() : this.getFullOCRText();
-    }
-
-    private async getPlainText(): Promise<string> {
+    private async getPlainDocument(): Promise<LoadedGraphDocument> {
         const pdf = await this.loadPDF();
-        return extractPlainTextFromDocument(pdf);
+        return extractPDFDocumentFromDocument(pdf, { mode: "plain" });
     }
 
-    private async getHybridText(): Promise<string> {
+    private async getHybridDocument(): Promise<LoadedGraphDocument> {
         const model = this.options.model;
-        const storage = this.options.storage;
-        if (!model || !storage) {
-            throw new Error("PDF hybrid mode requires an image model and storage configuration");
+        if (!model) {
+            throw new Error("PDF hybrid mode requires an image model");
         }
 
         const content = await this.options.loader.getBinary();
         const pdf = await this.loadPDF(content);
-        const result = await extractPDFHybridFromDocument(pdf, {
+        return extractPDFDocumentFromDocument(pdf, {
+            mode: "hybrid",
             tableMode: this.options.tableMode,
             ocrFallback: {
                 content: new Uint8Array(content),
                 model,
             },
         });
-        return processOCRImages(result.text, result.images, model, storage);
     }
 
-    private async getFullOCRText(): Promise<string> {
+    private async getFullOCRDocument(): Promise<LoadedGraphDocument> {
         const model = this.options.model;
         if (!model) {
             throw new Error("PDF full OCR requires an image-capable model");
         }
 
         const content = await this.options.loader.getBinary();
-        return extractFullOCRTextFromPDF(content, model);
+        const pdf = await this.loadPDF(content);
+        return extractFullOCRDocumentFromPDF(new Uint8Array(content), pdf, model);
     }
 
     private async loadPDF(content?: ArrayBuffer): Promise<PDFDocumentLike> {

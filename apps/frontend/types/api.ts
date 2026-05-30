@@ -9,6 +9,7 @@ import type {
     GraphFileListItem,
     GraphListItem,
     OrganizationMemberListItem,
+    SourceReferenceRecord,
     TeamUserListItem,
     TeamListItem,
     TextUnitRecord,
@@ -68,6 +69,11 @@ export type ApiOrganizationMember = OrganizationMemberListItem;
  * Text unit (chunk) from the knowledge graph.
  */
 export type ApiTextUnit = TextUnitRecord;
+
+/**
+ * Source reference payload including selected chunks and optional PDF crop regions.
+ */
+export type ApiSourceReference = SourceReferenceRecord;
 
 /**
  * Wrapper response for text unit fetch.

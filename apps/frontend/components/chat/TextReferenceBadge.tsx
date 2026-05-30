@@ -4,14 +4,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { fetchTextUnit, getApiAssetUrl } from "@/lib/api/projects";
+import { fetchSourceReference, getApiAssetUrl } from "@/lib/api/projects";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useApiClient } from "@/providers/ApiClientProvider";
-import type { ApiTextUnit } from "@/types/api";
+import type { ApiSourceReference } from "@/types/api";
 import type { ResolvedCitationFence } from "@kiwi/ai/citation";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { openCitationSourceFile } from "./citation-file";
 
 type TextReferenceBadgeProps = {
@@ -27,6 +27,12 @@ type TextReferenceDialogProps = {
     open: boolean;
     onOpenChange: (open: boolean) => void;
 };
+
+type SourceReferenceChunk = ApiSourceReference["chunks"][number];
+type SourceReferencePdfRegion = ApiSourceReference["pdf_regions"][number];
+type SourceReferencePdfRegionRect = SourceReferencePdfRegion["rectangles"][number];
+type SourceTextChunk = Extract<SourceReferenceChunk, { type: "text" }>;
+type SourceImageChunkRecord = Extract<SourceReferenceChunk, { type: "image" }>;
 
 export function TextReferenceBadge({ citation, index, onSelect }: TextReferenceBadgeProps) {
     const t = useAppTranslations();
@@ -48,27 +54,60 @@ export function TextReferenceBadge({ citation, index, onSelect }: TextReferenceB
     );
 }
 
-function PDFPreviewPageImage({ src, alt }: { src: string; alt: string }) {
+function TextChunksPanel({ chunks, onCopy }: { chunks: SourceTextChunk[]; onCopy: () => void }) {
+    const t = useAppTranslations();
+
+    if (chunks.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+                <h4 className="font-medium">{t("text.content")}</h4>
+                <Button variant="outline" size="sm" onClick={onCopy} className="flex items-center gap-2">
+                    <Copy data-icon="inline-start" />
+                    {t("copy")}
+                </Button>
+            </div>
+
+            <div className="flex max-h-[50vh] flex-col gap-2 overflow-auto rounded-md border p-3">
+                {chunks.map((chunk) => (
+                    <div
+                        key={chunk.chunk_id}
+                        className="whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-sm leading-relaxed"
+                    >
+                        {chunk.text}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function SourceImageChunk({ chunk, src }: { chunk: SourceImageChunkRecord; src: string }) {
     const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
 
     return (
         <div className="relative overflow-hidden rounded-md border bg-white">
             {status === "loading" ? (
                 <div className="absolute inset-0 flex min-h-40 items-center justify-center bg-muted/30 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="animate-spin" />
                 </div>
             ) : null}
             {status === "error" ? (
-                <div className="flex min-h-40 items-center justify-center p-4 text-sm text-destructive">{alt}</div>
+                <div className="flex min-h-40 items-center justify-center p-4 text-sm text-destructive">
+                    {chunk.alt}
+                </div>
             ) : (
                 <Image
                     src={src}
-                    alt={alt}
+                    alt={chunk.alt}
                     width={1200}
-                    height={1600}
+                    height={900}
                     unoptimized
                     crossOrigin="use-credentials"
-                    className="h-auto w-full"
+                    className="block h-auto w-full"
                     onLoad={() => setStatus("loaded")}
                     onError={() => setStatus("error")}
                 />
@@ -77,14 +116,113 @@ function PDFPreviewPageImage({ src, alt }: { src: string; alt: string }) {
     );
 }
 
+function PDFRegionPreview({ alt, region, src }: { alt: string; region: SourceReferencePdfRegion; src: string }) {
+    const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+    const imageWidth = getPositiveImageDimension(region.width, 1200);
+    const imageHeight = getPositiveImageDimension(region.height, 1600);
+    const cropWidth = Math.max(region.crop.width, 0.01);
+    const cropHeight = Math.max(region.crop.height, 0.01);
+
+    return (
+        <div
+            className="relative overflow-hidden rounded-md border bg-white"
+            style={{
+                aspectRatio: `${Math.max(1, imageWidth * cropWidth)} / ${Math.max(1, imageHeight * cropHeight)}`,
+            }}
+        >
+            {status === "loading" ? (
+                <div className="absolute inset-0 flex min-h-40 items-center justify-center bg-muted/30 text-muted-foreground">
+                    <Loader2 className="animate-spin" />
+                </div>
+            ) : null}
+            {status === "error" ? (
+                <div className="flex min-h-40 items-center justify-center p-4 text-sm text-destructive">{alt}</div>
+            ) : (
+                <Image
+                    src={src}
+                    alt={alt}
+                    width={imageWidth}
+                    height={imageHeight}
+                    unoptimized
+                    crossOrigin="use-credentials"
+                    className="absolute max-w-none"
+                    style={{
+                        left: `${(-region.crop.left / cropWidth) * 100}%`,
+                        top: `${(-region.crop.top / cropHeight) * 100}%`,
+                        width: `${100 / cropWidth}%`,
+                        height: `${100 / cropHeight}%`,
+                    }}
+                    onLoad={() => setStatus("loaded")}
+                    onError={() => setStatus("error")}
+                />
+            )}
+            {status !== "error"
+                ? region.rectangles.map((rectangle, index) => {
+                      const relative = toCropRelativeRect(rectangle, region.crop);
+
+                      return (
+                          <div
+                              key={`${region.chunk_id}-${index}`}
+                              data-testid="pdf-source-region-highlight"
+                              aria-hidden="true"
+                              className="pointer-events-none absolute rounded-[2px] border border-yellow-500/70 bg-yellow-300/35 shadow-[0_0_0_1px_rgba(250,204,21,0.2)]"
+                              style={{
+                                  left: toPercent(relative.left),
+                                  top: toPercent(relative.top),
+                                  width: toPercent(relative.width),
+                                  height: toPercent(relative.height),
+                              }}
+                          />
+                      );
+                  })
+                : null}
+        </div>
+    );
+}
+
+function toCropRelativeRect(
+    rectangle: SourceReferencePdfRegionRect,
+    crop: SourceReferencePdfRegion["crop"]
+): SourceReferencePdfRegionRect {
+    const cropWidth = Math.max(crop.width, 0.01);
+    const cropHeight = Math.max(crop.height, 0.01);
+    const left = clampRatio((rectangle.left - crop.left) / cropWidth);
+    const top = clampRatio((rectangle.top - crop.top) / cropHeight);
+    const right = clampRatio((rectangle.left + rectangle.width - crop.left) / cropWidth);
+    const bottom = clampRatio((rectangle.top + rectangle.height - crop.top) / cropHeight);
+
+    return {
+        left,
+        top,
+        width: Math.max(0, right - left),
+        height: Math.max(0, bottom - top),
+    };
+}
+
+function clampRatio(value: number): number {
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+
+    return Math.max(0, Math.min(1, value));
+}
+
+function toPercent(value: number): string {
+    return `${Number((value * 100).toFixed(4))}%`;
+}
+
+function getPositiveImageDimension(value: number | undefined, fallback: number): number {
+    return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.max(1, Math.round(value)) : fallback;
+}
+
 export function TextReferenceDialog({ citation, index, projectId, open, onOpenChange }: TextReferenceDialogProps) {
     const t = useAppTranslations();
     const apiClient = useApiClient();
     const getUnknownErrorLabel = useEffectEvent(() => t("error.unknown"));
-    const [isLoadingUnit, setIsLoadingUnit] = useState(false);
+    const [isLoadingReference, setIsLoadingReference] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [unit, setUnit] = useState<ApiTextUnit | null>(null);
+    const [reference, setReference] = useState<ApiSourceReference | null>(null);
 
     useEffect(() => {
         if (!open || !projectId) {
@@ -93,14 +231,14 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
 
         let isCancelled = false;
 
-        const loadUnit = async () => {
-            setIsLoadingUnit(true);
+        const loadReference = async () => {
+            setIsLoadingReference(true);
             setError(null);
-            setUnit(null);
+            setReference(null);
             try {
-                const loadedUnit = await fetchTextUnit(apiClient, projectId, citation.unitId);
+                const loadedReference = await fetchSourceReference(apiClient, projectId, citation.sourceId);
                 if (!isCancelled) {
-                    setUnit(loadedUnit);
+                    setReference(loadedReference);
                 }
             } catch (err) {
                 if (!isCancelled) {
@@ -108,25 +246,32 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                 }
             } finally {
                 if (!isCancelled) {
-                    setIsLoadingUnit(false);
+                    setIsLoadingReference(false);
                 }
             }
         };
 
-        void loadUnit();
+        void loadReference();
 
         return () => {
             isCancelled = true;
         };
-    }, [apiClient, citation.unitId, open, projectId]);
+    }, [apiClient, citation.sourceId, open, projectId]);
 
-    const unitText = unit?.text ?? null;
-    const preview = unit?.preview;
-    const pdfPreview = preview?.type === "pdf_pages" ? preview : null;
+    const unit = reference?.unit ?? null;
+    const textChunks = useMemo(
+        () => reference?.chunks.filter((chunk): chunk is SourceTextChunk => chunk.type === "text") ?? [],
+        [reference?.chunks]
+    );
+    const imageChunks = useMemo(
+        () => reference?.chunks.filter((chunk): chunk is SourceImageChunkRecord => chunk.type === "image") ?? [],
+        [reference?.chunks]
+    );
+    const copyText = useMemo(() => textChunks.map((chunk) => chunk.text).join("\n\n"), [textChunks]);
 
     const copyToClipboard = () => {
-        if (unitText) {
-            navigator.clipboard.writeText(unitText);
+        if (copyText) {
+            void navigator.clipboard.writeText(copyText);
         }
     };
 
@@ -159,7 +304,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
 
                 <div className="min-h-0 flex-1">
                     <ScrollArea className="h-full pr-1">
-                        <div className="space-y-4">
+                        <div className="flex flex-col gap-4">
                             {error && (
                                 <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
                                     <p className="font-medium text-destructive">{t("error.loading")}</p>
@@ -167,47 +312,34 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                                 </div>
                             )}
 
-                            <div className="space-y-4">
-                                {isLoadingUnit ? (
+                            <div className="flex flex-col gap-4">
+                                {isLoadingReference ? (
                                     <div className="flex min-h-40 items-center justify-center rounded-md border text-muted-foreground">
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                         {t("loading")}
                                     </div>
-                                ) : pdfPreview ? (
-                                    <div className="space-y-3">
-                                        {pdfPreview.pages.map((page) => (
-                                            <PDFPreviewPageImage
-                                                key={page.page}
-                                                src={getApiAssetUrl(apiClient, page.image_path)}
-                                                alt={`${unit?.file_name ?? citation.fileName} page ${page.page}`}
-                                            />
-                                        ))}
-                                    </div>
                                 ) : (
                                     <>
-                                        <div className="flex items-center justify-between gap-2">
-                                            <h4 className="font-medium">{t("text.content")}</h4>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={copyToClipboard}
-                                                disabled={!unitText}
-                                                className="flex items-center gap-2"
-                                            >
-                                                <Copy className="h-3 w-3" />
-                                                {t("copy")}
-                                            </Button>
-                                        </div>
-
-                                        <div className="max-h-[50vh] w-full overflow-auto rounded-md border">
-                                            <div className="whitespace-pre-wrap break-words p-4 text-sm leading-relaxed">
-                                                {unitText ?? ""}
-                                            </div>
-                                        </div>
+                                        {reference?.pdf_regions.map((region, regionIndex) => (
+                                            <PDFRegionPreview
+                                                key={`${region.chunk_id}-${region.page}-${regionIndex}`}
+                                                region={region}
+                                                src={getApiAssetUrl(apiClient, region.image_path)}
+                                                alt={`${unit?.file_name ?? citation.fileName} page ${region.page}`}
+                                            />
+                                        ))}
+                                        {imageChunks.map((chunk) => (
+                                            <SourceImageChunk
+                                                key={chunk.chunk_id}
+                                                chunk={chunk}
+                                                src={getApiAssetUrl(apiClient, chunk.image_path)}
+                                            />
+                                        ))}
+                                        <TextChunksPanel chunks={textChunks} onCopy={copyToClipboard} />
                                     </>
                                 )}
 
-                                <div className="space-y-1 text-xs text-muted-foreground">
+                                <div className="flex flex-col gap-1 text-xs text-muted-foreground">
                                     <p>
                                         {t("file")}: {unit?.file_name ?? citation.fileName}
                                     </p>
@@ -221,7 +353,9 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                                             onClick={handleDownload}
                                             disabled={isDownloading}
                                         >
-                                            {isDownloading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : null}
+                                            {isDownloading ? (
+                                                <Loader2 data-icon="inline-start" className="animate-spin" />
+                                            ) : null}
                                             {citation.fileName}
                                         </Button>
                                     </div>

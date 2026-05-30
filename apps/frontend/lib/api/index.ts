@@ -31,6 +31,7 @@ export type {
     TeamListResponse,
     TeamUsersResponse,
     TeamPatchResponse,
+    SourceReferenceResponse,
     TextUnitResponse,
 } from "@kiwi/api/types";
 
@@ -60,6 +61,7 @@ export {
     fetchProjectChats,
     fetchProjectDetail,
     fetchProjectFiles,
+    fetchSourceReference,
     fetchTextUnit,
     getApiAssetUrl,
     getProjectFileUrl,
@@ -67,4 +69,12 @@ export {
 } from "./projects";
 
 // Re-export types for convenience
-export type { ApiGraph, ApiGroup, ApiGroupUser, ApiProjectFile, ApiTextUnit, ApiTextUnitResponse } from "@/types/api";
+export type {
+    ApiGraph,
+    ApiGroup,
+    ApiGroupUser,
+    ApiProjectFile,
+    ApiSourceReference,
+    ApiTextUnit,
+    ApiTextUnitResponse,
+} from "@/types/api";

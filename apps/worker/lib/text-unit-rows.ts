@@ -7,5 +7,6 @@ export function toTextUnitRows(units: Unit[]) {
         text: unit.content,
         startPage: unit.startPage,
         endPage: unit.endPage,
+        chunks: unit.chunks,
     }));
 }

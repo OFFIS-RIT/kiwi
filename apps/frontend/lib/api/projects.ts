@@ -22,10 +22,11 @@ import type {
     GraphFilesResponse,
     GraphPatchResponse,
     GraphPatchSuccessData,
+    SourceReferenceResponse,
     TextUnitResponse,
 } from "@kiwi/api/types";
 import { getProjectFileProxyPath } from "@kiwi/files/project-file-proxy-path";
-import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
+import type { ApiProjectFile, ApiSourceReference, ApiTextUnit } from "@/types/api";
 import { ApiError, unwrapApiResponse, type KiwiApiClient } from "./client";
 
 export const ORGANIZATION_GROUP_ID = "__organization__";
@@ -197,6 +198,18 @@ export async function deleteProjectChat(
  */
 export async function fetchTextUnit(client: KiwiApiClient, projectId: string, unitId: string): Promise<ApiTextUnit> {
     const response = await client.get<TextUnitResponse>(`/graphs/${projectId}/units/${unitId}`);
+    return unwrapApiResponse(response);
+}
+
+/**
+ * Fetches selected source chunks and preview metadata for a reference dialog.
+ */
+export async function fetchSourceReference(
+    client: KiwiApiClient,
+    projectId: string,
+    sourceId: string
+): Promise<ApiSourceReference> {
+    const response = await client.get<SourceReferenceResponse>(`/graphs/${projectId}/sources/${sourceId}/reference`);
     return unwrapApiResponse(response);
 }
 

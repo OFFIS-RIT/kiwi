@@ -1,6 +1,7 @@
-import type { GraphChunker } from "..";
+import type { GraphChunker, GraphTextChunk } from "..";
 import { Tiktoken } from "js-tiktoken/lite";
 import o200k_base from "js-tiktoken/ranks/o200k_base";
+import { resolveTextChunkSpans } from "./span";
 
 type JSONChunkerOptions = {
     maxChunkSize: number;
@@ -45,6 +46,10 @@ export class JSONChunker implements GraphChunker {
         }
 
         return [text];
+    }
+
+    async getChunkSpans(input: string): Promise<GraphTextChunk[]> {
+        return resolveTextChunkSpans(input, await this.getChunks(input));
     }
 
     private chunkObject(

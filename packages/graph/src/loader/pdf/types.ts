@@ -6,11 +6,6 @@ export type PDFOCRImage = {
     content: Uint8Array;
 };
 
-export type PDFHybridResult = {
-    text: string;
-    images: PDFOCRImage[];
-};
-
 export type PDFTableMode = "lines" | "lines_strict";
 
 export type PDFParserOptions = {

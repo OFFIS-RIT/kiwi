@@ -38,4 +38,16 @@ describe("CSVChunker", () => {
 
         expect(chunks).toEqual(["1,Alice", "2,Bob", "3,Charlie"]);
     });
+
+    test("returns source spans for verbatim chunks", async () => {
+        const input = ["1,Alice", "2,Bob", "3,Charlie"].join("\n");
+
+        const spans = await new CSVChunker({ maxChunkSize: 1 }).getChunkSpans(input);
+
+        expect(spans.map(({ content, startOffset, endOffset }) => ({ content, startOffset, endOffset }))).toEqual([
+            { content: "1,Alice", startOffset: 0, endOffset: 7 },
+            { content: "2,Bob", startOffset: 8, endOffset: 13 },
+            { content: "3,Charlie", startOffset: 14, endOffset: 23 },
+        ]);
+    });
 });

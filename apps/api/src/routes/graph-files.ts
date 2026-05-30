@@ -11,6 +11,7 @@ import { getGraphFileProxyResponse, loadGraphFileByKey, loadGraphFileForProxy } 
 import { mapGraphError, selectGraphDetailFileFields, toGraphFileRecord, type GraphFileRow } from "../lib/graph-route";
 import { getOrRenderPDFPreviewPage } from "../lib/pdf-preview-cache";
 import { getProjectFileProxyPath } from "../lib/project-file-url";
+import { loadSourceReference, loadSourceReferenceImage, type SourceReferenceImage } from "../lib/source-reference";
 import { getPdfPreviewPageNumbers, parsePageImageParam } from "../lib/text-unit-preview";
 import { loadTextUnitWithFile, pngResponse, toTextUnitRecord } from "../lib/text-unit-record";
 import { mapUnitError } from "../lib/unit";
@@ -43,6 +44,29 @@ function mapFileRouteError(status: FileRouteStatus, error: unknown) {
     }
 
     return mapGraphError(status, error);
+}
+
+function mapSourceReferenceError(status: FileRouteStatus, error: unknown) {
+    if (error instanceof Error && error.message === API_ERROR_CODES.SOURCE_NOT_FOUND) {
+        return status(404, errorResponse("Source not found", API_ERROR_CODES.SOURCE_NOT_FOUND));
+    }
+
+    return mapUnitError(status, error);
+}
+
+function sourceReferenceImageResponse(image: SourceReferenceImage): Response {
+    const body = new ArrayBuffer(image.content.byteLength);
+    new Uint8Array(body).set(image.content);
+
+    return new Response(body, {
+        status: 200,
+        headers: {
+            "Cache-Control": "private, max-age=86400",
+            "Content-Length": String(image.content.byteLength),
+            "Content-Type": image.contentType,
+            "X-Content-Type-Options": "nosniff",
+        },
+    });
 }
 
 async function serveGraphFile({
@@ -239,6 +263,68 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
             }),
             body: t.Object({
                 file_key: t.String(),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["view"],
+            }),
+        }
+    )
+    .get(
+        "/:id/sources/:sourceId/chunks/:chunkId/image",
+        async ({ params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const chunkId = Number(params.chunkId);
+            if (!Number.isInteger(chunkId) || chunkId < 1) {
+                return status(404, errorResponse("Source not found", API_ERROR_CODES.SOURCE_NOT_FOUND));
+            }
+
+            const imageResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                return loadSourceReferenceImage(params.id, params.sourceId, chunkId);
+            });
+
+            if (imageResult.isErr()) {
+                return mapSourceReferenceError(status, imageResult.error);
+            }
+
+            return sourceReferenceImageResponse(imageResult.value);
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+                sourceId: t.String(),
+                chunkId: t.String(),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["view"],
+            }),
+        }
+    )
+    .get(
+        "/:id/sources/:sourceId/reference",
+        async ({ params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const referenceResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                return loadSourceReference(params.id, params.sourceId);
+            });
+
+            if (referenceResult.isErr()) {
+                return mapSourceReferenceError(status, referenceResult.error);
+            }
+
+            return status(200, successResponse(referenceResult.value));
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+                sourceId: t.String(),
             }),
             beforeHandle: requirePermissions({
                 graph: ["view"],

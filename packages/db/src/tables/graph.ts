@@ -16,6 +16,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
+import type { TextUnitSourceChunk } from "@kiwi/contracts";
 import { organizationTable, teamTable, userTable } from "./auth";
 import { tsvector, weightedTsvectorGenerated } from "./tsvector";
 
@@ -170,6 +171,10 @@ export const textUnitTable = pgTable.withRLS(
         text: text("text").notNull(),
         startPage: integer("start_page"),
         endPage: integer("end_page"),
+        chunks: json("chunks")
+            .$type<TextUnitSourceChunk[]>()
+            .notNull()
+            .default(sql`'[]'::json`),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
         updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
             .defaultNow()
@@ -260,6 +265,10 @@ export const sourcesTable = pgTable.withRLS(
             .references(() => textUnitTable.id, { onDelete: "cascade" }),
         active: boolean("active").notNull().default(false),
         description: text("description").notNull(),
+        sourceChunkIds: json("source_chunk_ids")
+            .$type<number[]>()
+            .notNull()
+            .default(sql`'[]'::json`),
         embedding: vector("embedding", { dimensions: 4096 }).notNull(),
         searchTsv: tsvector("search_tsv").generatedAlwaysAs(() => weightedTsvectorGenerated(["description"])),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),

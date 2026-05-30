@@ -236,39 +236,55 @@ function isPNG(bytes: Uint8Array): boolean {
     return PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
 }
 
+function getGeneratedImageBytes(callIndex = 0): Uint8Array {
+    const message = generateTextMock.mock.calls[callIndex]?.[0]?.messages?.[0];
+    const image = Array.isArray(message?.content) ? message.content.find((part) => part.type === "image")?.image : null;
+    if (typeof image !== "string") {
+        return new Uint8Array();
+    }
+
+    return Uint8Array.from(Buffer.from(image.split(",")[1] ?? "", "base64"));
+}
+
 async function buildLineTableFixture() {
-    return buildHybridFixture(async (pdf) => {
-        const pngBytes = Uint8Array.from(Buffer.from(PNG_BASE64, "base64"));
-        const page = pdf.addPage({ size: "letter" });
+    return buildHybridFixture(buildLineTablePDF);
+}
 
-        page.drawText("Main Title", { x: 50, y: 740, size: 24 });
-        page.drawText("Alpha Omega", { x: 50, y: 680, size: 12, color: rgb(0, 0, 0) });
+async function buildLineTableFixtureBytes() {
+    return buildPDFBinary(buildLineTablePDF);
+}
 
-        const image = pdf.embedPng(pngBytes);
-        page.drawImage(image, { x: 78, y: 676, width: 18, height: 18 });
+async function buildLineTablePDF(pdf: PDF) {
+    const pngBytes = Uint8Array.from(Buffer.from(PNG_BASE64, "base64"));
+    const page = pdf.addPage({ size: "letter" });
 
-        const x0 = 50;
-        const x1 = 170;
-        const x2 = 290;
-        const y0 = 520;
-        const y1 = 548;
-        const y2 = 576;
-        const y3 = 604;
+    page.drawText("Main Title", { x: 50, y: 740, size: 24 });
+    page.drawText("Alpha Omega", { x: 50, y: 680, size: 12, color: rgb(0, 0, 0) });
 
-        for (const x of [x0, x1, x2]) {
-            page.drawLine({ start: { x, y: y0 }, end: { x, y: y3 }, thickness: 1, color: rgb(0, 0, 0) });
-        }
+    const image = pdf.embedPng(pngBytes);
+    page.drawImage(image, { x: 78, y: 676, width: 18, height: 18 });
 
-        for (const y of [y0, y1, y2, y3]) {
-            page.drawLine({ start: { x: x0, y }, end: { x: x2, y }, thickness: 1, color: rgb(0, 0, 0) });
-        }
+    const x0 = 50;
+    const x1 = 170;
+    const x2 = 290;
+    const y0 = 520;
+    const y1 = 548;
+    const y2 = 576;
+    const y3 = 604;
 
-        drawPositionedTable(page, [60, 180], 585, [
-            ["Name", "Value"],
-            ["Foo", "42"],
-            ["Bar", "84"],
-        ]);
-    });
+    for (const x of [x0, x1, x2]) {
+        page.drawLine({ start: { x, y: y0 }, end: { x, y: y3 }, thickness: 1, color: rgb(0, 0, 0) });
+    }
+
+    for (const y of [y0, y1, y2, y3]) {
+        page.drawLine({ start: { x: x0, y }, end: { x: x2, y }, thickness: 1, color: rgb(0, 0, 0) });
+    }
+
+    drawPositionedTable(page, [60, 180], 585, [
+        ["Name", "Value"],
+        ["Foo", "42"],
+        ["Bar", "84"],
+    ]);
 }
 
 async function buildCurvePathTableFixture(options: { tableMode?: TestPDFTableMode } = {}) {
@@ -923,22 +939,50 @@ describe("PDFLoader", () => {
         expect(fixture.plain).not.toContain("<image ");
     });
 
-    test("returns hybrid markdown with headings tables and persisted image tags", async () => {
+    test("returns hybrid markdown with headings tables and PDF image tags", async () => {
         const fixture = await buildLineTableFixture();
 
         expect(fixture.hybrid).toMatch(/^:::PAGE-1:::$/m);
         expect(fixture.hybrid).toMatch(/^# Main Title$/m);
-        expect(fixture.hybrid).toContain(
-            '<image id="img-1" key="graphs/graph-1/derived/file-1/images/img-1.png">PDF figure summary</image>'
-        );
+        expect(fixture.hybrid).toContain('<image id="img-1">PDF figure summary</image>');
         expect(fixture.hybrid).not.toMatch(/:::IMG-img-1:::/);
         expect(fixture.hybrid).toMatch(/\| Name \| Value \|/);
         expect(fixture.hybrid).toMatch(/\| Foo \| 42 \|/);
         expect(fixture.hybrid).toMatch(/\| Bar \| 84 \|/);
         expect(generateTextMock).toHaveBeenCalledTimes(1);
-        expect(putNamedFileMock).toHaveBeenCalledTimes(1);
-        expect(isPNG(putNamedFileMock.mock.calls[0]?.[1] as Uint8Array)).toBe(true);
+        expect(putNamedFileMock).not.toHaveBeenCalled();
         expect(pdfToImgMock).not.toHaveBeenCalled();
+    });
+
+    test("returns coordinate-backed PDF source chunks without chunk markers", async () => {
+        const bytes = await buildLineTableFixtureBytes();
+        const loader = {
+            getText: async () => Buffer.from(bytes).toString(),
+            getBinary: async () => bytes.slice().buffer,
+        };
+
+        const document = await new PDFLoader({
+            loader,
+            mode: "hybrid",
+            model: {} as never,
+            storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
+        }).getDocument();
+
+        expect(document.text).toContain('<image id="img-1">PDF figure summary</image>');
+        expect(document.text).not.toContain(":::CHUNK-");
+        expect(
+            document.sourceChunks?.some((chunk) => chunk.type === "text" && chunk.regions?.[0]?.kind === "text")
+        ).toBe(true);
+        expect(document.sourceChunks).toContainEqual(
+            expect.objectContaining({
+                type: "image",
+                text: "PDF figure summary",
+                imageId: "img-1",
+                imageKey: null,
+                regions: [expect.objectContaining({ kind: "image", page: 1 })],
+            })
+        );
+        expect(putNamedFileMock).not.toHaveBeenCalled();
     });
 
     test("uses full-page OCR for fragmented hybrid pages", async () => {
@@ -1021,28 +1065,24 @@ describe("PDFLoader", () => {
         const fixture = await buildHybridFixtureFromBytes(buildRawFlateImagePDF());
 
         expect(fixture.hybrid).toMatch(/^Raw PDF Image$/m);
-        expect(fixture.hybrid).toContain(
-            '<image id="img-1" key="graphs/graph-1/derived/file-1/images/img-1.png">PDF figure summary</image>'
-        );
+        expect(fixture.hybrid).toContain('<image id="img-1">PDF figure summary</image>');
         expect(generateTextMock).toHaveBeenCalledTimes(1);
-        expect(putNamedFileMock).toHaveBeenCalledTimes(1);
+        expect(putNamedFileMock).not.toHaveBeenCalled();
         expect(isPNG(Buffer.from(AWIFOE_RAW_IMAGE_BASE64, "base64"))).toBe(false);
-        expect(isPNG(putNamedFileMock.mock.calls[0]?.[1] as Uint8Array)).toBe(true);
     });
 
     test("converts raw CMYK image samples to RGB without additive black clipping", async () => {
         await buildHybridFixtureFromBytes(buildRawCMYKImagePDF());
 
-        expect(putNamedFileMock).toHaveBeenCalledTimes(1);
-        expect(readFirstPNGPixel(putNamedFileMock.mock.calls[0]?.[1] as Uint8Array)).toEqual([63, 63, 63]);
+        expect(putNamedFileMock).not.toHaveBeenCalled();
+        expect(readFirstPNGPixel(getGeneratedImageBytes())).toEqual([63, 63, 63]);
     });
 
     test("decodes filters before DCTDecode instead of uploading encoded wrapper bytes", async () => {
         await buildHybridFixtureFromBytes(buildAsciiHexJPEGImagePDF());
 
-        expect(putNamedFileMock).toHaveBeenCalledTimes(1);
-        expect(putNamedFileMock.mock.calls[0]?.[0]).toBe("img-1.jpg");
-        expect(isJPEG(putNamedFileMock.mock.calls[0]?.[1] as Uint8Array)).toBe(true);
+        expect(putNamedFileMock).not.toHaveBeenCalled();
+        expect(isJPEG(getGeneratedImageBytes())).toBe(true);
     });
 
     test("detects aligned text tables as markdown in hybrid mode", async () => {
@@ -1277,9 +1317,13 @@ describe("PDFLoader", () => {
     });
 
     test("transcribes rasterized pages in full OCR mode and preserves page order", async () => {
+        const bytes = await buildPDFBinary((pdf) => {
+            pdf.addPage({ size: "letter" });
+            pdf.addPage({ size: "letter" });
+        });
         const loader = {
             getText: async () => "",
-            getBinary: async () => new Uint8Array([1, 2, 3]).buffer,
+            getBinary: async () => bytes.slice().buffer,
         };
         rasterizedPages = [new Uint8Array([1]), new Uint8Array([2])];
         fullOCRPageOutputs = ["# Page 1\nAlpha", "## Page 2\n<image>Diagram</image>"];
@@ -1294,6 +1338,28 @@ describe("PDFLoader", () => {
         expect(pdfToImgMock).toHaveBeenCalledTimes(1);
         expect(generateTextMock).toHaveBeenCalledTimes(2);
         expect(putNamedFileMock).not.toHaveBeenCalled();
+    });
+
+    test("splits full OCR pages into smaller page-region source chunks", async () => {
+        const bytes = await buildPDFBinary((pdf) => {
+            pdf.addPage({ size: "letter" });
+        });
+        const loader = {
+            getText: async () => "",
+            getBinary: async () => bytes.slice().buffer,
+        };
+        rasterizedPages = [new Uint8Array([1])];
+        fullOCRPageOutputs = [Array.from({ length: 260 }, (_, index) => `word${index}`).join(" ")];
+
+        const document = await new PDFLoader({
+            loader,
+            mode: "ocr",
+            model: {} as never,
+        }).getDocument();
+
+        expect(document.sourceChunks?.length).toBeGreaterThan(1);
+        expect(document.sourceChunks?.every((chunk) => chunk.regions?.[0]?.kind === "page")).toBe(true);
+        expect(document.sourceChunks?.map((chunk) => chunk.text).join(" ")).toContain("word259");
     });
 
     test("scales oversized pages to 0.75 for full OCR rasterization", async () => {
@@ -1352,18 +1418,18 @@ describe("PDFLoader", () => {
         ).rejects.toThrow("PDF full OCR requires an image-capable model");
     });
 
-    test("throws when hybrid mode is missing storage", async () => {
+    test("does not require storage in hybrid mode", async () => {
+        const bytes = await buildPDFBinary((pdf) => {
+            const page = pdf.addPage({ size: "letter" });
+            page.drawText("Hybrid text", { x: 50, y: 740, size: 12 });
+        });
         const loader = {
             getText: async () => "",
-            getBinary: async () => new Uint8Array([1]).buffer,
+            getBinary: async () => bytes.slice().buffer,
         };
 
-        await expect(
-            new PDFLoader({
-                loader,
-                mode: "hybrid",
-                model: {} as never,
-            }).getText()
-        ).rejects.toThrow("PDF hybrid mode requires an image model and storage configuration");
+        await expect(new PDFLoader({ loader, mode: "hybrid", model: {} as never }).getText()).resolves.toContain(
+            "Hybrid text"
+        );
     });
 });
