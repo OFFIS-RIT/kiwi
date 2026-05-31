@@ -1,6 +1,3 @@
-# Default owner for everything not matched by a later rule.
-* @m43i
-
 # Applications.
 /apps/frontend/ @bjrump
 /apps/api/ @m43i
