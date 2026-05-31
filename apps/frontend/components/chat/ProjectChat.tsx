@@ -20,6 +20,7 @@ import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { ApiError } from "@/lib/api/client";
 import { upsertProjectChatSummary } from "@/lib/chat-summaries";
 import { deleteProjectChat } from "@/lib/api/projects";
+import type { ChatLibraryItem } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
@@ -88,6 +89,10 @@ function getExistingOptimisticChatTitle(chats: ProjectChatSummary[] | undefined,
 }
 
 function upsertOptimisticChat(chats: ProjectChatSummary[] = [], chat: ProjectChatSummary, limit?: number) {
+    if (chat.isPinned) {
+        return chats.filter((item) => item.id !== chat.id);
+    }
+
     return upsertProjectChatSummary(chats, chat, { limit });
 }
 
@@ -740,6 +745,7 @@ function ProjectChatSession({
         const isFirstMessage = displayedMessages.length === 0;
         const cachedGroups = queryClient.getQueryData<Group[]>(queryKeys.groupsWithProjects);
         const cachedProjectChats = queryClient.getQueryData<ProjectChatSummary[]>(queryKeys.projectChats(projectId));
+        const cachedPinnedChats = queryClient.getQueryData<ChatLibraryItem[]>(queryKeys.pinnedChats);
         const optimisticChat = {
             id: entry.sessionId,
             title:
@@ -751,6 +757,7 @@ function ProjectChatSession({
                     .find((project) => project.id === projectId)
                     ?.recentChats.find((chat) => chat.id === entry.sessionId)?.isPinned ??
                 cachedProjectChats?.find((chat) => chat.id === entry.sessionId)?.isPinned ??
+                cachedPinnedChats?.some((chat) => chat.id === entry.sessionId) ??
                 false,
             updatedAt: new Date().toISOString(),
         };
