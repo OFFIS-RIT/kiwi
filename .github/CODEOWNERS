@@ -1,0 +1,16 @@
+# Default owner for everything not matched by a later rule.
+* @m43i
+
+# Applications.
+/apps/frontend/ @bjrump
+/apps/api/ @m43i
+/apps/worker/ @m43i
+
+# Packages.
+/packages/ai/ @m43i
+/packages/auth/ @m43i @bjrump
+/packages/contracts/ @m43i
+/packages/db/ @m43i
+/packages/files/ @m43i
+/packages/graph/ @m43i
+/packages/logger/ @m43i
