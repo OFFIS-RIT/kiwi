@@ -30,6 +30,7 @@ export function ArchivedChatList() {
         mutationFn: (chat: ChatLibraryItem) => unarchiveProjectChat(apiClient, chat.projectId, chat.id),
         onSuccess: (_data, chat) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.archivedChats });
+            queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(chat.projectId) });
         },

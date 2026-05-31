@@ -560,7 +560,7 @@ export async function listChats(userId: string, graphId: string, options: { offs
         .select({
             id: chatTable.id,
             title: chatTable.title,
-            isPinned: sql<boolean>`${chatTable.pinnedAt} IS NOT NULL`,
+            isPinned: sql<boolean>`false`,
             updatedAt: chatTable.updatedAt,
         })
         .from(chatTable)

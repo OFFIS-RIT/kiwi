@@ -407,7 +407,7 @@ async function listRecentChatsByGraphId(graphIds: string[], userId: string) {
                 id,
                 title,
                 project_id AS "graphId",
-                pinned_at IS NOT NULL AS "isPinned",
+                FALSE AS "isPinned",
                 updated_at,
                 created_at,
                 ROW_NUMBER() OVER (
