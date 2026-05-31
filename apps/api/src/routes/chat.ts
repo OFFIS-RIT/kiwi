@@ -38,6 +38,7 @@ import {
 } from "../lib/chat";
 import { startChatTitleGeneration } from "../lib/chat-title";
 import { assertCanViewGraph } from "../lib/graph-access";
+import { parseListNumber } from "../lib/parse-query-params";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
@@ -67,19 +68,6 @@ function upsertToolPart(parts: MessagePart[], next: MessagePart) {
         return;
     }
     parts[idx] = next;
-}
-
-function parseListNumber(value: string | undefined, options: { minimum: number; maximum: number }) {
-    if (!value) {
-        return undefined;
-    }
-
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < options.minimum) {
-        return undefined;
-    }
-
-    return Math.min(parsed, options.maximum);
 }
 
 export const chatRoute = new Elysia()

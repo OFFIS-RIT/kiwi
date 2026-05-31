@@ -1,5 +1,6 @@
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
+import { parseListNumber } from "../lib/parse-query-params";
 import { listArchivedChats, listPinnedChats } from "../lib/search";
 import { authMiddleware } from "../middleware/auth";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
@@ -10,19 +11,6 @@ function mapLibraryError(status: (code: number, body: unknown) => unknown, error
     }
 
     return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
-}
-
-function parseListNumber(value: string | undefined, options: { minimum: number; maximum: number }) {
-    if (!value) {
-        return undefined;
-    }
-
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < options.minimum) {
-        return undefined;
-    }
-
-    return Math.min(parsed, options.maximum);
 }
 
 export const chatLibraryRoute = new Elysia({ prefix: "/chats" })
