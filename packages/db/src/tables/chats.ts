@@ -15,12 +15,24 @@ export const chatTable = pgTable.withRLS(
             .references(() => userTable.id, { onDelete: "cascade" }),
         graphId: text("project_id").references(() => graphTable.id, { onDelete: "cascade" }),
         title: text("title").notNull(),
+        pinnedAt: timestamp("pinned_at", { withTimezone: true, mode: "date" }),
+        archivedAt: timestamp("archived_at", { withTimezone: true, mode: "date" }),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
         updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
             .defaultNow()
             .$onUpdate(() => sql`NOW()`),
     },
-    (table) => [index("idx_user_chats_user_project_updated_at").on(table.userId, table.graphId, table.updatedAt.desc())]
+    (table) => [
+        index("idx_user_chats_user_project_updated_at").on(table.userId, table.graphId, table.updatedAt.desc()),
+        index("idx_user_chats_user_project_archived_updated_at").on(
+            table.userId,
+            table.graphId,
+            sql`(${table.pinnedAt} is null)`,
+            table.updatedAt.desc(),
+            table.id.desc()
+        ).where(sql`${table.archivedAt} IS NULL`),
+        index("chats_title_trgm_idx").using("gin", table.title.op("gin_trgm_ops")),
+    ]
 );
 
 export type MessageTextPart = {

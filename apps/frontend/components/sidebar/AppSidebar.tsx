@@ -48,10 +48,23 @@ import {
 } from "@/components/ui/sidebar";
 import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
 import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
-import { deleteProjectChat, fetchProjectChats } from "@/lib/api";
-import type { ChatSummaryItem } from "@/lib/api";
+import {
+    archiveProjectChat,
+    deleteProjectChat,
+    fetchPinnedChats,
+    fetchProjectChatsPage,
+    pinProjectChat,
+    searchSidebarTargets,
+    unpinProjectChat,
+    type ChatLibraryItem,
+    type SearchChatItem,
+    type SearchProjectItem,
+    type SearchTeamItem,
+} from "@/lib/api";
+import { mergeUniqueProjectChats, sortProjectChats } from "@/lib/chat-summaries";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { canCreateProjectInGroup, canDeleteTeam, canManageTeam, canOpenProjectEditorInGroup } from "@/lib/capabilities";
+import { ORGANIZATION_GROUP_ID, PERSONAL_GROUP_ID } from "@/lib/api/projects";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
@@ -76,8 +89,9 @@ import {
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type * as React from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Suspense, lazy, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
 
 const CreateProjectDialog = lazy(() =>
@@ -87,7 +101,15 @@ const CreateProjectDialog = lazy(() =>
 );
 
 const RECENT_CHAT_LIMIT = 5;
+const PRELOADED_CHAT_LIMIT = RECENT_CHAT_LIMIT + 1;
+const CHAT_PAGE_SIZE = 12;
 const EMPTY_GROUPS: Group[] = [];
+const EMPTY_SEARCH_RESULTS = {
+    projects: [] as SearchProjectItem[],
+    teams: [] as SearchTeamItem[],
+    chats: [] as SearchChatItem[],
+};
+const EMPTY_PINNED_CHATS: ChatLibraryItem[] = [];
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
@@ -128,19 +150,22 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     onProjectCreated?: (projectId: string, groupId: string, projectName: string) => void;
 };
 
-type SearchTarget = {
-    id: string;
-    type: "group" | "project" | "chat";
-    label: string;
-    group: Group;
-    project?: Project;
-    chat?: ChatSummaryItem;
-};
+type SearchTarget =
+    | ({ type: "team" } & SearchTeamItem)
+    | ({ type: "project" } & SearchProjectItem)
+    | ({ type: "chat" } & SearchChatItem);
 
-type ProjectSearchScope = {
-    group: Group;
-    project: Project;
-};
+function getProjectGroupRouteId(scope: SearchProjectItem["scope"], teamId: string | null) {
+    if (scope === "organization") {
+        return ORGANIZATION_GROUP_ID;
+    }
+
+    if (scope === "private") {
+        return PERSONAL_GROUP_ID;
+    }
+
+    return teamId ?? ORGANIZATION_GROUP_ID;
+}
 
 export function AppSidebar({
     onEditGroup,
@@ -171,67 +196,16 @@ export function AppSidebar({
     } = useSidebarExpansion();
 
     const [searchOpen, setSearchOpen] = useState(false);
+    const [searchValue, setSearchValue] = useState("");
     const [createProjectGroupId, setCreateProjectGroupId] = useState<string | null>(null);
     const [ready, setReady] = useState(false);
-
-    const projectSearchScopes = useMemo(
-        () =>
-            groups.flatMap((group) =>
-                group.projects.map((project): ProjectSearchScope => ({
-                    group,
-                    project,
-                }))
-            ),
-        [groups]
-    );
-
-    const projectChatQueries = useQueries({
-        queries: projectSearchScopes.map(({ project }) => ({
-            queryKey: queryKeys.projectChats(project.id),
-            queryFn: () => fetchProjectChats(apiClient, project.id),
-            enabled: searchOpen,
-            staleTime: 5 * MINUTE_MS,
-        })),
+    const deferredSearchValue = useDeferredValue(searchValue.trim());
+    const { data: searchResults = EMPTY_SEARCH_RESULTS, isFetching: isSearching } = useQuery({
+        queryKey: queryKeys.search(deferredSearchValue),
+        queryFn: () => searchSidebarTargets(apiClient, deferredSearchValue),
+        enabled: searchOpen && deferredSearchValue.length >= 2,
+        staleTime: 30 * 1000,
     });
-
-    const searchTargets = useMemo(() => {
-        const groupsTargets: SearchTarget[] = [];
-        const projectTargets: SearchTarget[] = [];
-        const chatTargets: SearchTarget[] = [];
-
-        for (const group of groups) {
-            groupsTargets.push({
-                id: `group:${group.id}`,
-                type: "group",
-                label: group.name,
-                group,
-            });
-        }
-
-        projectSearchScopes.forEach(({ group, project }, index) => {
-            projectTargets.push({
-                id: `project:${project.id}`,
-                type: "project",
-                label: project.name,
-                group,
-                project,
-            });
-
-            const chats = projectChatQueries[index]?.data ?? project.recentChats;
-            chats.forEach((chat) => {
-                chatTargets.push({
-                    id: `chat:${chat.id}`,
-                    type: "chat",
-                    label: chat.title,
-                    group,
-                    project,
-                    chat,
-                });
-            });
-        });
-
-        return { groups: groupsTargets, projects: projectTargets, chats: chatTargets };
-    }, [groups, projectChatQueries, projectSearchScopes]);
 
     const activeChatId = chatId;
 
@@ -268,22 +242,33 @@ export function AppSidebar({
         }
     }, [activeChatId, groups, expandSidebarPath]);
 
+    useEffect(() => {
+        if (searchOpen) {
+            return;
+        }
+
+        setSearchValue("");
+    }, [searchOpen]);
+
     const openSearchTarget = (target: SearchTarget) => {
-        const projectIds = target.project ? [target.project.id] : [];
-        expandSidebarPath([target.group.id], projectIds);
         setSearchOpen(false);
 
-        if (target.type === "chat" && target.project && target.chat) {
-            router.push(`/${target.group.id}/${target.project.id}?chatId=${encodeURIComponent(target.chat.id)}`);
+        if (target.type === "team") {
+            expandSidebarPath([target.id]);
+            router.push(`/${target.id}`);
             return;
         }
 
-        if (target.type === "project" && target.project) {
-            router.push(`/${target.group.id}/${target.project.id}`);
+        const groupId = getProjectGroupRouteId(target.scope, target.teamId);
+        const projectId = target.type === "project" ? target.id : target.projectId;
+        expandSidebarPath([groupId], [projectId]);
+
+        if (target.type === "project") {
+            router.push(`/${groupId}/${projectId}`);
             return;
         }
 
-        router.push(`/${target.group.id}`);
+        router.push(`/${groupId}/${target.projectId}?chatId=${encodeURIComponent(target.id)}`);
     };
 
     const organizationGroup = groups.find((group) => group.scope === "organization");
@@ -328,54 +313,78 @@ export function AppSidebar({
                     onOpenChange={setSearchOpen}
                     title={t("search")}
                     description={t("search.placeholder")}
+                    commandProps={{ shouldFilter: false }}
                 >
-                    <CommandInput placeholder={t("search.placeholder")} />
+                    <CommandInput
+                        placeholder={t("search.placeholder")}
+                        value={searchValue}
+                        onValueChange={setSearchValue}
+                    />
                     <CommandList>
-                        <CommandEmpty>{t("no.search.results")}</CommandEmpty>
-                        <CommandGroup heading={t("knowledge.groups")}>
-                            {searchTargets.groups.map((target) => (
-                                <CommandItem
-                                    key={target.id}
-                                    value={`${target.label} ${target.group.name}`}
-                                    onSelect={() => openSearchTarget(target)}
-                                >
-                                    <Users />
-                                    <span>{target.label}</span>
-                                </CommandItem>
-                            ))}
-                        </CommandGroup>
-                        <CommandGroup heading={t("knowledge.projects")}>
-                            {searchTargets.projects.map((target) => (
-                                <CommandItem
-                                    key={target.id}
-                                    value={`${target.label} ${target.group.name}`}
-                                    onSelect={() => openSearchTarget(target)}
-                                >
-                                    <BookOpen />
-                                    <div className="flex min-w-0 flex-col">
-                                        <span className="truncate">{target.label}</span>
-                                        <span className="truncate text-xs text-muted-foreground">{target.group.name}</span>
-                                    </div>
-                                </CommandItem>
-                            ))}
-                        </CommandGroup>
-                        <CommandGroup heading={t("chats")}>
-                            {searchTargets.chats.map((target) => (
-                                <CommandItem
-                                    key={target.id}
-                                    value={`${target.label} ${target.project?.name ?? ""} ${target.group.name}`}
-                                    onSelect={() => openSearchTarget(target)}
-                                >
-                                    <Mail />
-                                    <div className="flex min-w-0 flex-col">
-                                        <span className="truncate">{target.label}</span>
-                                        <span className="truncate text-xs text-muted-foreground">
-                                            {target.project?.name}
-                                        </span>
-                                    </div>
-                                </CommandItem>
-                            ))}
-                        </CommandGroup>
+                        <CommandEmpty>
+                            {deferredSearchValue.length < 2
+                                ? t("search.min.chars", { count: 2 })
+                                : isSearching
+                                  ? t("loading")
+                                  : t("search.try.different")}
+                        </CommandEmpty>
+                        {searchResults.projects.length > 0 ? (
+                            <CommandGroup heading={t("knowledge.projects")}>
+                                {searchResults.projects.map((target) => (
+                                    <CommandItem
+                                        key={target.id}
+                                        value={`${target.name} ${target.teamName ?? ""}`}
+                                        onSelect={() => openSearchTarget({ ...target, type: "project" })}
+                                    >
+                                        <BookOpen />
+                                        <div className="flex min-w-0 flex-col">
+                                            <span className="truncate">{target.name}</span>
+                                            <span className="truncate text-xs text-muted-foreground">
+                                                {target.teamName ??
+                                                    (target.scope === "organization"
+                                                        ? t("organization")
+                                                        : target.scope === "private"
+                                                          ? t("personal")
+                                                          : "")}
+                                            </span>
+                                        </div>
+                                    </CommandItem>
+                                ))}
+                            </CommandGroup>
+                        ) : null}
+                        {searchResults.teams.length > 0 ? (
+                            <CommandGroup heading={t("knowledge.groups")}>
+                                {searchResults.teams.map((target) => (
+                                    <CommandItem
+                                        key={target.id}
+                                        value={target.name}
+                                        onSelect={() => openSearchTarget({ ...target, type: "team" })}
+                                    >
+                                        <Users />
+                                        <span>{target.name}</span>
+                                    </CommandItem>
+                                ))}
+                            </CommandGroup>
+                        ) : null}
+                        {searchResults.chats.length > 0 ? (
+                            <CommandGroup heading={t("chats")}>
+                                {searchResults.chats.map((target) => (
+                                    <CommandItem
+                                        key={target.id}
+                                        value={`${target.title} ${target.projectName} ${target.teamName ?? ""}`}
+                                        onSelect={() => openSearchTarget({ ...target, type: "chat" })}
+                                    >
+                                        <Mail />
+                                        <div className="flex min-w-0 flex-col">
+                                            <span className="truncate">{target.title}</span>
+                                            <span className="truncate text-xs text-muted-foreground">
+                                                {target.projectName}
+                                            </span>
+                                        </div>
+                                    </CommandItem>
+                                ))}
+                            </CommandGroup>
+                        ) : null}
                     </CommandList>
                 </CommandDialog>
             </SidebarHeader>
@@ -388,6 +397,7 @@ export function AppSidebar({
                     <ScrollArea
                         className={`h-[calc(100vh-12rem)] transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}
                     >
+                        <PinnedChatsSection activeChatId={activeChatId} />
                         {organizationGroup ? (
                             <SidebarGroup>
                                 <SidebarGroupContent>
@@ -518,6 +528,227 @@ export function AppSidebar({
     );
 }
 
+function PinnedChatsSection({ activeChatId }: { activeChatId: string | null }) {
+    const t = useAppTranslations();
+    const apiClient = useApiClient();
+    const { data: pinnedChats = EMPTY_PINNED_CHATS } = useQuery({
+        queryKey: queryKeys.pinnedChats,
+        queryFn: () => fetchPinnedChats(apiClient),
+        staleTime: 30 * 1000,
+    });
+    const [now, setNow] = useState(() => Date.now());
+    const hasChatTimes = pinnedChats.some((chat) => chat.updatedAt);
+
+    useEffect(() => {
+        if (!hasChatTimes) return;
+
+        setNow(Date.now());
+
+        const intervalId = window.setInterval(() => {
+            setNow(Date.now());
+        }, MINUTE_MS);
+
+        return () => window.clearInterval(intervalId);
+    }, [hasChatTimes]);
+
+    if (pinnedChats.length === 0) {
+        return null;
+    }
+
+    return (
+        <SidebarGroup>
+            <SidebarGroupLabel className="px-2">{t("chats.pinned")}</SidebarGroupLabel>
+            <SidebarGroupContent>
+                <SidebarMenu>
+                    {pinnedChats.map((chat) => (
+                        <PinnedChatItem key={chat.id} chat={chat} activeChatId={activeChatId} now={now} />
+                    ))}
+                </SidebarMenu>
+            </SidebarGroupContent>
+        </SidebarGroup>
+    );
+}
+
+function PinnedChatItem({
+    chat,
+    activeChatId,
+    now,
+}: {
+    chat: ChatLibraryItem;
+    activeChatId: string | null;
+    now: number;
+}) {
+    const t = useAppTranslations();
+    const router = useRouter();
+    const pathname = usePathname();
+    const apiClient = useApiClient();
+    const queryClient = useQueryClient();
+    const { expandSidebarPath } = useSidebarExpansion();
+    const { entries, resetEntry, setHasUnreadUpdate } = useProjectChatSession(chat.projectId);
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+    const isGenerating = entries.some((entry) => entry.sessionId === chat.id && entry.isGenerating);
+    const hasBackgroundUpdate =
+        activeChatId !== chat.id && entries.some((entry) => entry.sessionId === chat.id && entry.hasUnreadUpdate);
+    const relativeUpdatedAt = chat.updatedAt ? formatRelativeChatTime(chat.updatedAt, now) : null;
+
+    const groupId = getProjectGroupRouteId(chat.scope, chat.teamId);
+    const projectHref = `/${groupId}/${chat.projectId}`;
+
+    const invalidateChatCaches = () => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
+        queryClient.invalidateQueries({ queryKey: queryKeys.archivedChats });
+        queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+        queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(chat.projectId) });
+    };
+
+    const leaveChatIfActive = () => {
+        if (activeChatId !== chat.id) {
+            return;
+        }
+        resetEntry();
+        if (pathname === projectHref) {
+            window.history.pushState(null, "", projectHref);
+            return;
+        }
+        router.push(projectHref);
+    };
+
+    const unpinMutation = useMutation({
+        mutationFn: () => unpinProjectChat(apiClient, chat.projectId, chat.id),
+        onSuccess: () => invalidateChatCaches(),
+        onError: () => {
+            toast.error(t("error.unexpected.try.again"));
+        },
+    });
+    const archiveMutation = useMutation({
+        mutationFn: () => archiveProjectChat(apiClient, chat.projectId, chat.id),
+        onSuccess: () => {
+            invalidateChatCaches();
+            leaveChatIfActive();
+        },
+        onError: () => {
+            toast.error(t("error.unexpected.try.again"));
+        },
+    });
+    const deleteMutation = useMutation({
+        mutationFn: () => deleteProjectChat(apiClient, chat.projectId, chat.id),
+        onSuccess: () => {
+            invalidateChatCaches();
+            leaveChatIfActive();
+            setShowDeleteDialog(false);
+        },
+        onError: () => {
+            toast.error(t("error.unexpected.try.again"));
+        },
+    });
+
+    const isMutating = unpinMutation.isPending || archiveMutation.isPending || deleteMutation.isPending;
+
+    const openChat = () => {
+        expandSidebarPath([groupId], [chat.projectId]);
+        const chatHref = `${projectHref}?chatId=${encodeURIComponent(chat.id)}`;
+        if (pathname === projectHref) {
+            window.history.pushState(null, "", chatHref);
+            return;
+        }
+        router.push(chatHref);
+    };
+
+    return (
+        <SidebarMenuItem className="group/pinned-row relative">
+            <SidebarMenuButton
+                size="sm"
+                isActive={activeChatId === chat.id}
+                className="relative w-full justify-start pr-8"
+                title={chat.title}
+                onClick={openChat}
+            >
+                <span className="truncate">{chat.title}</span>
+                {!isMenuOpen && isGenerating ? (
+                    <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/pinned-row:hidden">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    </span>
+                ) : !isMenuOpen && hasBackgroundUpdate ? (
+                    <span className="absolute right-2 h-2 w-2 shrink-0 rounded-full bg-sky-400 group-hover/pinned-row:hidden" />
+                ) : !isMenuOpen && relativeUpdatedAt ? (
+                    <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/pinned-row:hidden">
+                        {relativeUpdatedAt}
+                    </span>
+                ) : null}
+            </SidebarMenuButton>
+            <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+                <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`absolute right-1 top-1/2 h-5 w-5 -translate-y-1/2 p-0 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/pinned-row:opacity-100 ${isMenuOpen ? "opacity-100" : ""}`}
+                        aria-label={t("chat.options")}
+                    >
+                        <MoreVertical className="h-4 w-4" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" side="right" className="w-44">
+                    <DropdownMenuItem disabled={isMutating} onSelect={() => unpinMutation.mutate()}>
+                        <Pin className="mr-2 h-4 w-4" />
+                        <span>{t("chat.unpin")}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                        <Edit className="mr-2 h-4 w-4" />
+                        <span>{t("chat.rename")}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={isMutating} onSelect={() => archiveMutation.mutate()}>
+                        <Archive className="mr-2 h-4 w-4" />
+                        <span>{t("chat.archive")}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setHasUnreadUpdate(chat.id, true)}>
+                        <Mail className="mr-2 h-4 w-4" />
+                        <span>{t("chat.mark.unread")}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        variant="destructive"
+                        disabled={deleteMutation.isPending}
+                        onSelect={() => setShowDeleteDialog(true)}
+                    >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        <span>{t("chat.delete")}</span>
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <Dialog open={showDeleteDialog} onOpenChange={(open) => !open && setShowDeleteDialog(false)}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>{t("delete.chat.confirm")}</DialogTitle>
+                        <DialogDescription>
+                            {t("delete.chat.description", { chatTitle: chat.title })}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setShowDeleteDialog(false)}
+                            disabled={deleteMutation.isPending}
+                        >
+                            {t("cancel")}
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => deleteMutation.mutate()}
+                            disabled={deleteMutation.isPending}
+                        >
+                            {deleteMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {t("delete")}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </SidebarMenuItem>
+    );
+}
+
 type ProjectItemProps = {
     project: Project;
     group: Group;
@@ -552,25 +783,103 @@ function ProjectItem({
     const { entries, requestNewEntry, resetEntry, setHasUnreadUpdate } = useProjectChatSession(project.id);
     const canOpenProjectEditor = canOpenProjectEditorInGroup(group, { isAdmin });
     const [showAllChats, setShowAllChats] = useState(false);
+    const [loadedChats, setLoadedChats] = useState<Project["recentChats"] | null>(null);
+    const [hasMoreChats, setHasMoreChats] = useState(project.recentChats.length > RECENT_CHAT_LIMIT);
+    const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
     const [manuallyUnreadChatIds, setManuallyUnreadChatIds] = useState<Set<string>>(() => new Set());
     const [openChatMenuId, setOpenChatMenuId] = useState<string | null>(null);
     const [chatToDelete, setChatToDelete] = useState<Project["recentChats"][number] | null>(null);
-    const { data: allChats, isFetching: isFetchingAllChats } = useQuery({
-        queryKey: queryKeys.projectChats(project.id),
-        queryFn: () => fetchProjectChats(apiClient, project.id),
-        enabled: showAllChats,
-        staleTime: 30 * 1000,
+    const updateCachedChats = (
+        updater: (chats: Project["recentChats"]) => Project["recentChats"],
+        options: { mayHaveMore?: boolean } = {}
+    ) => {
+        setLoadedChats((current) => (current ? sortProjectChats(updater(current)) : current));
+        queryClient.setQueryData<Project["recentChats"]>(queryKeys.projectChats(project.id), (current) =>
+            current ? sortProjectChats(updater(current)) : current
+        );
+        queryClient.setQueryData<Group[]>(queryKeys.groupsWithProjects, (groups) =>
+            groups?.map((candidateGroup) => ({
+                ...candidateGroup,
+                projects: candidateGroup.projects.map((candidateProject) =>
+                    candidateProject.id === project.id
+                        ? {
+                              ...candidateProject,
+                              recentChats: sortProjectChats(updater(candidateProject.recentChats)).slice(
+                                  0,
+                                  PRELOADED_CHAT_LIMIT
+                              ),
+                          }
+                        : candidateProject
+                ),
+            }))
+        );
+
+        if (options.mayHaveMore) {
+            setHasMoreChats(true);
+        }
+    };
+
+    const removeChatFromCaches = (conversationId: string) => {
+        updateCachedChats((chats) => chats.filter((chat) => chat.id !== conversationId), {
+            mayHaveMore: !hasMoreChats,
+        });
+        setManuallyUnreadChatIds((current) => {
+            const next = new Set(current);
+            next.delete(conversationId);
+            return next;
+        });
+    };
+
+    const togglePinChatMutation = useMutation({
+        mutationFn: ({ conversationId, isPinned }: { conversationId: string; isPinned: boolean }) =>
+            isPinned
+                ? unpinProjectChat(apiClient, project.id, conversationId)
+                : pinProjectChat(apiClient, project.id, conversationId),
+        onSuccess: (_data, { conversationId, isPinned }) => {
+            if (isPinned) {
+                // Unpinned from elsewhere — let the project list refetch so it can reappear.
+                queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(project.id) });
+            } else {
+                // Newly pinned chats live only in the global pinned section, not in the project.
+                removeChatFromCaches(conversationId);
+            }
+            queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+            queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
+        },
+        onError: () => {
+            toast.error(t("error.unexpected.try.again"));
+        },
+    });
+    const archiveChatMutation = useMutation({
+        mutationFn: (conversationId: string) => archiveProjectChat(apiClient, project.id, conversationId),
+        onSuccess: (_data, conversationId) => {
+            removeChatFromCaches(conversationId);
+            queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+            queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(project.id) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
+            queryClient.invalidateQueries({ queryKey: queryKeys.archivedChats });
+
+            if (activeChatId === conversationId) {
+                resetEntry();
+                if (pathname === href) {
+                    window.history.pushState(null, "", href);
+                    return;
+                }
+                router.push(href);
+            }
+        },
+        onError: () => {
+            toast.error(t("error.unexpected.try.again"));
+        },
     });
     const deleteChatMutation = useMutation({
         mutationFn: (conversationId: string) => deleteProjectChat(apiClient, project.id, conversationId),
         onSuccess: (_data, conversationId) => {
+            removeChatFromCaches(conversationId);
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(project.id) });
-            setManuallyUnreadChatIds((current) => {
-                const next = new Set(current);
-                next.delete(conversationId);
-                return next;
-            });
+            queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
+            queryClient.invalidateQueries({ queryKey: queryKeys.archivedChats });
 
             if (activeChatId === conversationId) {
                 resetEntry();
@@ -587,9 +896,11 @@ function ProjectItem({
             ? deleteChatMutation.error.message
             : t("delete.chat.error")
         : null;
-    const hasExpandedData = showAllChats && allChats && !isFetchingAllChats;
-    const chatsToShow = hasExpandedData ? allChats : project.recentChats.slice(0, RECENT_CHAT_LIMIT);
-    const canExpandChats = project.recentChats.length > RECENT_CHAT_LIMIT;
+    const isMutatingChat =
+        togglePinChatMutation.isPending || archiveChatMutation.isPending || deleteChatMutation.isPending;
+    const chatsToShow = showAllChats ? loadedChats ?? project.recentChats : project.recentChats.slice(0, RECENT_CHAT_LIMIT);
+    const canExpandChats =
+        hasMoreChats || project.recentChats.length > RECENT_CHAT_LIMIT || (loadedChats?.length ?? 0) > RECENT_CHAT_LIMIT;
     const runningChatIds = useMemo(
         () => new Set(entries.filter((entry) => entry.isGenerating).map((entry) => entry.sessionId)),
         [entries]
@@ -620,6 +931,18 @@ function ProjectItem({
         }
     }, [chatToDelete, resetDeleteMutation]);
 
+    useEffect(() => {
+        setLoadedChats((current) =>
+            current ? sortProjectChats(mergeUniqueProjectChats(project.recentChats, current)) : current
+        );
+    }, [project.recentChats]);
+
+    useEffect(() => {
+        if (!loadedChats) {
+            setHasMoreChats(project.recentChats.length > RECENT_CHAT_LIMIT);
+        }
+    }, [loadedChats, project.recentChats.length]);
+
     const handleStartNewChat = () => {
         requestNewEntry({
             sessionId: uuidv4(),
@@ -632,16 +955,47 @@ function ProjectItem({
         router.push(href);
     };
 
-    const prefetchAllChats = () => {
-        queryClient.prefetchQuery({
-            queryKey: queryKeys.projectChats(project.id),
-            queryFn: () => fetchProjectChats(apiClient, project.id),
-            staleTime: 30 * 1000,
-        });
-    };
+    const handleToggleAllChats = async () => {
+        if (showAllChats && !hasMoreChats) {
+            setShowAllChats(false);
+            return;
+        }
 
-    const handleToggleAllChats = () => {
-        setShowAllChats((value) => !value);
+        if (!showAllChats && loadedChats && (loadedChats.length > project.recentChats.length || !hasMoreChats)) {
+            setShowAllChats(true);
+            return;
+        }
+
+        const currentChats = loadedChats ?? project.recentChats;
+        const preloadedExtraCount = loadedChats ? 0 : Math.max(0, project.recentChats.length - RECENT_CHAT_LIMIT);
+        const limit = loadedChats ? CHAT_PAGE_SIZE : CHAT_PAGE_SIZE - preloadedExtraCount;
+        const wasCollapsed = !showAllChats;
+        setShowAllChats(true);
+
+        if (limit <= 0 || isLoadingMoreChats) {
+            return;
+        }
+
+        setIsLoadingMoreChats(true);
+
+        try {
+            const nextPage = await fetchProjectChatsPage(apiClient, project.id, {
+                offset: currentChats.length,
+                limit,
+            });
+            const nextChats = sortProjectChats(mergeUniqueProjectChats(currentChats, nextPage.items));
+            setLoadedChats(nextChats);
+            queryClient.setQueryData(queryKeys.projectChats(project.id), nextChats);
+            setHasMoreChats(nextPage.hasMore);
+        } catch (error) {
+            if (wasCollapsed) {
+                setShowAllChats(false);
+            }
+            console.error("Failed to load more chats:", error);
+            toast.error(t("error.unexpected.try.again"));
+        } finally {
+            setIsLoadingMoreChats(false);
+        }
     };
 
     const markChatAsUnread = (conversationId: string) => {
@@ -762,7 +1116,7 @@ function ProjectItem({
                                                 title={chat.title}
                                             >
                                                 <span className="block w-0 min-w-0 flex-1 truncate pr-9 text-left">
-                                                    {chat.title}
+                                                    <span className="truncate">{chat.title}</span>
                                                 </span>
                                                 {!isChatMenuOpen && isGenerating ? (
                                                     <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/chat-row:hidden">
@@ -792,15 +1146,26 @@ function ProjectItem({
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="start" side="right" className="w-44">
-                                                <DropdownMenuItem>
+                                                <DropdownMenuItem
+                                                    disabled={isMutatingChat}
+                                                    onSelect={() =>
+                                                        togglePinChatMutation.mutate({
+                                                            conversationId: chat.id,
+                                                            isPinned: chat.isPinned,
+                                                        })
+                                                    }
+                                                >
                                                     <Pin className="mr-2 h-4 w-4" />
-                                                    <span>{t("chat.pin")}</span>
+                                                    <span>{chat.isPinned ? t("chat.unpin") : t("chat.pin")}</span>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem>
                                                     <Edit className="mr-2 h-4 w-4" />
                                                     <span>{t("chat.rename")}</span>
                                                 </DropdownMenuItem>
-                                                <DropdownMenuItem>
+                                                <DropdownMenuItem
+                                                    disabled={isMutatingChat}
+                                                    onSelect={() => archiveChatMutation.mutate(chat.id)}
+                                                >
                                                     <Archive className="mr-2 h-4 w-4" />
                                                     <span>{t("chat.archive")}</span>
                                                 </DropdownMenuItem>
@@ -833,18 +1198,17 @@ function ProjectItem({
                                     asChild
                                     size="sm"
                                     className="w-full justify-start text-muted-foreground"
-                                    aria-disabled={showAllChats && isFetchingAllChats}
+                                    aria-disabled={isLoadingMoreChats || isMutatingChat}
                                 >
                                     <button
                                         type="button"
-                                        disabled={showAllChats && isFetchingAllChats}
-                                        onClick={handleToggleAllChats}
-                                        onMouseEnter={!showAllChats ? prefetchAllChats : undefined}
+                                        disabled={isLoadingMoreChats || isMutatingChat}
+                                        onClick={() => void handleToggleAllChats()}
                                     >
                                         <span>
-                                            {showAllChats && isFetchingAllChats
+                                            {isLoadingMoreChats
                                                 ? t("loading")
-                                                : showAllChats
+                                                : showAllChats && !hasMoreChats
                                                   ? t("show.less")
                                                   : t("show.more")}
                                         </span>

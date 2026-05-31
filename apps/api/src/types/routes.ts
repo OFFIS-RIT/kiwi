@@ -103,6 +103,7 @@ export type OrganizationMemberListItem = {
 export type GraphRecentChatItem = {
     id: string;
     title: string;
+    isPinned: boolean;
     updatedAt: string | null;
 };
 
@@ -165,7 +166,43 @@ export type ChatRequestBody =
 export type ChatSummaryItem = {
     id: string;
     title: string;
+    isPinned: boolean;
     updatedAt: string | null;
+};
+
+export type ChatListSuccessData = {
+    items: ChatSummaryItem[];
+    hasMore: boolean;
+};
+
+export type SearchProjectItem = {
+    id: string;
+    name: string;
+    scope: "organization" | "team" | "private";
+    teamId: string | null;
+    teamName: string | null;
+};
+
+export type SearchTeamItem = {
+    id: string;
+    name: string;
+};
+
+export type SearchChatItem = {
+    id: string;
+    title: string;
+    isPinned: boolean;
+    projectId: string;
+    projectName: string;
+    scope: "organization" | "team" | "private";
+    teamId: string | null;
+    teamName: string | null;
+};
+
+export type SearchSuccessData = {
+    projects: SearchProjectItem[];
+    teams: SearchTeamItem[];
+    chats: SearchChatItem[];
 };
 
 export type ChatHistoryRecord = {
@@ -361,7 +398,7 @@ export type TextUnitResponse = ApiResponse<
 >;
 
 export type ChatListResponse = ApiResponse<
-    ChatSummaryItem[],
+    ChatListSuccessData,
     | "UNAUTHORIZED"
     | "FORBIDDEN"
     | "GRAPH_NOT_FOUND"
@@ -390,4 +427,25 @@ export type ChatCreateResponse = ApiResponse<
     | "CHAT_NOT_FOUND"
     | "CHAT_CONTEXT_TOO_LARGE"
     | "INTERNAL_SERVER_ERROR"
+>;
+
+export type SearchResponse = ApiResponse<SearchSuccessData, "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;
+
+export type ChatLibraryItem = SearchChatItem & {
+    updatedAt: string | null;
+};
+
+export type ChatLibrarySuccessData = {
+    items: ChatLibraryItem[];
+    hasMore: boolean;
+};
+
+export type PinnedChatsResponse = ApiResponse<
+    ChatLibrarySuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type ArchivedChatsResponse = ApiResponse<
+    ChatLibrarySuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
 >;
