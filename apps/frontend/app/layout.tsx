@@ -39,7 +39,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                         <AppMessagesProvider messages={messages}>
                             <NextThemesProvider
                                 attribute="class"
-                                defaultTheme="light"
+                                defaultTheme="system"
                                 enableSystem
                                 disableTransitionOnChange
                             >
