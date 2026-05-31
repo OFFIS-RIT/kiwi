@@ -151,11 +151,17 @@ export type TextUnitPreview =
           type: "none";
       };
 
-export type ChatRequestBody = {
-    id: string;
-    messages: ChatUIMessage[];
-    deep?: boolean;
-};
+export type ChatRequestBody =
+    | {
+          id: string;
+          message: ChatUIMessage;
+          deep?: boolean;
+      }
+    | {
+          id: string;
+          messages: ChatUIMessage[];
+          deep?: boolean;
+      };
 
 export type ChatSummaryItem = {
     id: string;
@@ -417,7 +423,9 @@ export type ChatCreateResponse = ApiResponse<
     | "FORBIDDEN"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
+    | "INVALID_CHAT_REQUEST"
     | "CHAT_NOT_FOUND"
+    | "CHAT_CONTEXT_TOO_LARGE"
     | "INTERNAL_SERVER_ERROR"
 >;
 

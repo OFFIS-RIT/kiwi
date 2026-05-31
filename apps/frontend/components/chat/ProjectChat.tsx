@@ -4,6 +4,7 @@ import { chatTemplates } from "@/components/chat/chat-templates";
 import { ChatInput, type ChatInputHandle } from "@/components/chat/ChatInput";
 import { ChatTemplateSidebar } from "@/components/chat/ChatTemplateSidebar";
 import { ClarificationBlock } from "@/components/chat/ClarificationBlock";
+import { shouldAutoContinue, withDefaultAutoContinue } from "@/components/chat/chat-auto-continue";
 import { hydrateProjectChatSession, projectChatQueryKey } from "@/components/chat/project-chat-session-query";
 import { UserMessageText } from "@/components/chat/UserMessageText";
 import { Button } from "@/components/ui/button";
@@ -23,10 +24,10 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
 import type { Group, ProjectChatSummary } from "@/types";
+import { splitTextWithCitationFences } from "@kiwi/ai/citation";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { useChat } from "@ai-sdk/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { UIMessage } from "ai";
 import {
     AlertCircle,
     Brain,
@@ -163,31 +164,6 @@ function getLiveToolName(messages: ChatUIMessage[]): string | null {
 }
 
 /**
- * Auto-send trigger predicate for `useChat`.
- *
- * We only want to auto-continue when the user has JUST answered a client-side
- * clarification and the LLM has not responded to it yet. The AI SDK mutates
- * the last assistant message in place when a response streams in, appending
- * new parts after the existing ones. That means the answered clarification
- * tool part stays exactly where it was – as long as it is the very last part
- * of the message we know no follow-up response exists yet.
- *
- * Checking `.some()` (or the SDK built-in) instead fires repeatedly for every
- * completed tool result in the same message and causes an infinite loop of
- * assistant continuations.
- */
-function shouldAutoContinue({ messages }: { messages: UIMessage[] }): boolean {
-    const last = messages.at(-1);
-    if (!last || last.role !== "assistant") return false;
-
-    const lastPart = last.parts.at(-1);
-    if (!lastPart || !("type" in lastPart)) return false;
-    if (lastPart.type !== "tool-ask_clarifying_questions") return false;
-    if (!("state" in lastPart)) return false;
-    return lastPart.state === "output-available";
-}
-
-/**
  * When `shouldAutoContinue` triggers a follow-up turn after the user has
  * answered a client-side tool call (e.g. `ask_clarifying_questions`), the AI
  * SDK seeds the streaming state of the new assistant bubble with a
@@ -239,6 +215,43 @@ function getMessageText(message: ChatUIMessage): string {
         .filter((part): part is Extract<ChatUIMessage["parts"][number], { type: "text" }> => part.type === "text")
         .map((part) => part.text)
         .join("");
+}
+
+/**
+ * Plain text for copy/TTS: for assistants, only text after the last
+ * non-clarification tool call (i.e. the final answer); for user messages,
+ * the entire text. Citation fences (`:::{...}:::`) are stripped.
+ */
+function getCopyableMessageText(message: ChatUIMessage): string {
+    const textOnly = (raw: string) =>
+        splitTextWithCitationFences(raw)
+            .filter((segment) => segment.type === "text")
+            .map((segment) => segment.text)
+            .join("");
+
+    if (message.role !== "assistant") {
+        return message.parts
+            .filter((part): part is Extract<ChatUIMessage["parts"][number], { type: "text" }> => part.type === "text")
+            .map((part) => textOnly(part.text))
+            .join("");
+    }
+
+    let lastToolIdx = -1;
+    for (let i = message.parts.length - 1; i >= 0; i--) {
+        const part = message.parts[i];
+        if (part && isToolPart(part) && getToolName(part) !== "ask_clarifying_questions") {
+            lastToolIdx = i;
+            break;
+        }
+    }
+
+    let text = "";
+    for (let i = lastToolIdx + 1; i < message.parts.length; i++) {
+        const part = message.parts[i];
+        if (!part || part.type !== "text") continue;
+        text += textOnly(part.text);
+    }
+    return text;
 }
 
 const fallbackTimestamps = new WeakMap<ChatUIMessage, Date>();
@@ -410,7 +423,7 @@ export function ProjectChat({ projectName, groupName, projectId }: ProjectChatPr
         const requestedEntry = consumeRequestedNewEntry();
         if (!requestedEntry) return;
         skipNextBaseSessionRef.current = true;
-        startNewEntry(requestedEntry);
+        startNewEntry(withDefaultAutoContinue(requestedEntry));
     }, [chatId, consumeRequestedNewEntry, startNewEntry]);
 
     useLayoutEffect(() => {
@@ -495,6 +508,8 @@ function ProjectChatSession({
     const chatId = searchParams.get("chatId");
     const language = useLocale();
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const isAtBottomRef = useRef(true);
     const inputRef = useRef<ChatInputHandle>(null);
     const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -504,6 +519,7 @@ function ProjectChatSession({
     const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const [interimTranscript, setInterimTranscript] = useState("");
     const [isTemplateSidebarOpen, setIsTemplateSidebarOpen] = useState(false);
+    const [isAtBottom, setIsAtBottom] = useState(true);
     const {
         setStreamError,
         setCurrentStep,
@@ -550,7 +566,7 @@ function ProjectChatSession({
     const liveStepLabel = useMemo(() => {
         if (liveToolName) return t(`step.${liveToolName}`);
         if (currentStep) return t(`step.${currentStep}`);
-        return t("thinking.processing");
+        return t("worked.live");
     }, [liveToolName, currentStep, t]);
 
     useEffect(() => {
@@ -565,12 +581,35 @@ function ProjectChatSession({
         }
     }, [chatId, displayedMessages.length, entry.sessionId, getNewChatDraft]);
 
+    useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const handleScroll = () => {
+            const threshold = 64;
+            const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+            const atBottom = distanceFromBottom <= threshold;
+            isAtBottomRef.current = atBottom;
+            setIsAtBottom((prev) => (prev === atBottom ? prev : atBottom));
+        };
+
+        container.addEventListener("scroll", handleScroll, { passive: true });
+        return () => container.removeEventListener("scroll", handleScroll);
+    }, []);
+
+    const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+        messagesEndRef.current?.scrollIntoView({ behavior });
+        isAtBottomRef.current = true;
+        setIsAtBottom(true);
+    }, []);
+
     // Each time a different chat is opened, jump to the bottom without animation.
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
-    }, [entry.sessionId]);
+        scrollToBottom("instant");
+    }, [entry.sessionId, scrollToBottom]);
 
     useEffect(() => {
+        if (!isAtBottomRef.current) return;
         messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
     }, [displayedMessages, status]);
 
@@ -733,6 +772,8 @@ function ProjectChatSession({
         }
         setIsGenerating(true);
         setHasUnreadUpdate(entry.sessionId, false);
+        isAtBottomRef.current = true;
+        setIsAtBottom(true);
         try {
             await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
         } finally {
@@ -790,7 +831,7 @@ function ProjectChatSession({
 
     const handleCopyMessage = useCallback(async (message: ChatUIMessage) => {
         try {
-            const plainText = stripMarkdown(getMessageText(message));
+            const plainText = stripMarkdown(getCopyableMessageText(message));
             await navigator.clipboard.writeText(plainText);
             setCopiedMessageId(message.id);
             setTimeout(() => setCopiedMessageId(null), 2000);
@@ -801,7 +842,7 @@ function ProjectChatSession({
 
     const handlePlayMessage = useCallback(
         (message: ChatUIMessage) => {
-            const plainText = stripMarkdown(getMessageText(message));
+            const plainText = stripMarkdown(getCopyableMessageText(message));
 
             if (speakingMessageId === message.id) {
                 stopSpeaking();
@@ -922,8 +963,12 @@ function ProjectChatSession({
                 <Card
                     className="flex min-w-0 flex-1 flex-col gap-0 overflow-hidden border-0 bg-transparent py-0 shadow-none"
                 >
-                    <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-                        <div className="mx-auto h-full w-full max-w-4xl space-y-4 p-4">
+                    <div
+                        ref={scrollContainerRef}
+                        className="flex-1 overflow-y-auto"
+                        style={{ scrollbarWidth: "thin" }}
+                    >
+                        <div className="mx-auto h-full w-full max-w-4xl space-y-4 px-4 pt-4">
                             {isEmptyChat && (
                                 <div className="flex min-h-full items-center justify-center pb-20">
                                     <div className="w-full max-w-4xl">
@@ -948,14 +993,18 @@ function ProjectChatSession({
                                             key={message.id}
                                             className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                                         >
-                                            <div className="group max-w-[80%]">
+                                            <div
+                                                className={`group ${
+                                                    message.role === "user" ? "max-w-[80%]" : "w-full"
+                                                }`}
+                                            >
                                                 <div>
                                                     <div
-                                                        className={`rounded-lg p-3 ${
+                                                        className={
                                                             message.role === "user"
-                                                                ? "bg-primary text-primary-foreground"
-                                                                : "bg-muted"
-                                                        }`}
+                                                                ? "rounded-lg bg-[#f3f3f4] px-4 py-2 dark:bg-[#242424]"
+                                                                : ""
+                                                        }
                                                     >
                                                         {message.role === "assistant" ? (
                                                             <>
@@ -963,6 +1012,8 @@ function ProjectChatSession({
                                                                     parts={message.parts}
                                                                     projectId={projectId}
                                                                     isStreaming={isStreamingMessage}
+                                                                    durationMs={message.metadata?.durationMs}
+                                                                    startedAtMs={timestamp.getTime()}
                                                                 />
                                                                 {clarification && (
                                                                     <ClarificationBlock
@@ -990,25 +1041,14 @@ function ProjectChatSession({
                                                             />
                                                         )}
                                                     </div>
-                                                    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                                    {!isStreamingMessage && (
+                                                    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
                                                         <span>
                                                             {timestamp.toLocaleTimeString([], {
                                                                 hour: "2-digit",
                                                                 minute: "2-digit",
                                                             })}
                                                         </span>
-                                                        {message.role === "assistant" &&
-                                                            message.metadata?.durationMs && (
-                                                                <>
-                                                                    <span>•</span>
-                                                                    <span>
-                                                                        {(message.metadata.durationMs / 1000).toFixed(
-                                                                            1
-                                                                        )}
-                                                                        s
-                                                                    </span>
-                                                                </>
-                                                            )}
                                                         {message.role === "assistant" &&
                                                             message.metadata?.consideredFileCount !== undefined && (
                                                                 <>
@@ -1033,7 +1073,7 @@ function ProjectChatSession({
                                                             )}
                                                         {message.role === "assistant" &&
                                                             message.metadata?.totalTokens && (
-                                                                <span className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                                                                <>
                                                                     <span>•</span>
                                                                     <span>{message.metadata.totalTokens} tokens</span>
                                                                     {message.metadata.tokensPerSecond && (
@@ -1047,15 +1087,13 @@ function ProjectChatSession({
                                                                             </span>
                                                                         </>
                                                                     )}
-                                                                </span>
+                                                                </>
                                                             )}
-                                                        <span className="opacity-0 transition-opacity group-hover:opacity-100">
-                                                            •
-                                                        </span>
+                                                        <span>•</span>
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
-                                                            className="h-5 px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                                                            className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground"
                                                             onClick={() => handleCopyMessage(message)}
                                                             aria-label={
                                                                 copiedMessageId === message.id
@@ -1064,26 +1102,18 @@ function ProjectChatSession({
                                                             }
                                                         >
                                                             {copiedMessageId === message.id ? (
-                                                                <>
-                                                                    <Check className="mr-1 h-3 w-3" />
-                                                                    {t("copied.message")}
-                                                                </>
+                                                                <Check className="h-3 w-3" />
                                                             ) : (
-                                                                <>
-                                                                    <Copy className="mr-1 h-3 w-3" />
-                                                                    {t("copy.message")}
-                                                                </>
+                                                                <Copy className="h-3 w-3" />
                                                             )}
                                                         </Button>
                                                         {ttsSupported && (
                                                             <>
-                                                                <span className="opacity-0 transition-opacity group-hover:opacity-100">
-                                                                    •
-                                                                </span>
+                                                                <span>•</span>
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="sm"
-                                                                    className="h-5 px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                                                                    className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground"
                                                                     onClick={() => handlePlayMessage(message)}
                                                                     aria-label={
                                                                         speakingMessageId === message.id
@@ -1092,20 +1122,15 @@ function ProjectChatSession({
                                                                     }
                                                                 >
                                                                     {speakingMessageId === message.id ? (
-                                                                        <>
-                                                                            <VolumeX className="mr-1 h-3 w-3" />
-                                                                            {t("stop.speaking")}
-                                                                        </>
+                                                                        <VolumeX className="h-3 w-3" />
                                                                     ) : (
-                                                                        <>
-                                                                            <Volume2 className="mr-1 h-3 w-3" />
-                                                                            {t("play.message")}
-                                                                        </>
+                                                                        <Volume2 className="h-3 w-3" />
                                                                     )}
                                                                 </Button>
                                                             </>
                                                         )}
                                                     </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -1115,11 +1140,9 @@ function ProjectChatSession({
                             {isAssistantTyping &&
                                 displayedMessages[displayedMessages.length - 1]?.role !== "assistant" && (
                                     <div className="flex justify-start">
-                                        <div className="w-full max-w-[80%] min-w-[200px] rounded-lg bg-muted p-3">
-                                            <div className="flex w-full items-center gap-2 text-sm text-muted-foreground">
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                <span>{liveStepLabel}</span>
-                                            </div>
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                            <span>{liveStepLabel}</span>
                                         </div>
                                     </div>
                                 )}
@@ -1150,7 +1173,19 @@ function ProjectChatSession({
                     </div>
 
                     {!isEmptyChat && (
-                        <div className="mx-auto w-full max-w-4xl p-4 pt-3">
+                        <div className="relative mx-auto w-full max-w-4xl px-4 pb-4">
+                            {!isAtBottom && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => scrollToBottom()}
+                                    className="absolute -top-12 left-1/2 z-10 h-8 -translate-x-1/2 gap-1.5 rounded-full px-3 text-xs shadow-md"
+                                >
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                    {t("scroll.to.bottom")}
+                                </Button>
+                            )}
                             <div className="rounded-2xl border bg-card p-2 shadow-sm">{inputControls}</div>
                         </div>
                     )}

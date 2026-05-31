@@ -1,11 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
-import { simulateReadableStream } from "ai";
+import { simulateReadableStream, validateUIMessages } from "ai";
 
 mock.module("@kiwi/db", () => ({
     db: {},
 }));
 
 const {
+    buildChatValidationToolset,
+    chatDataPartSchemas,
+    chatMessageMetadataSchema,
     createCitationFenceStreamParser,
     messagePartsToUIMessage,
     parseCitationFence,
@@ -283,5 +286,109 @@ describe("citation fences", () => {
                 ],
             },
         ]);
+    });
+
+    test("keeps compaction parts server-only in UI and model conversions", () => {
+        const uiMessage = messagePartsToUIMessage(
+            {
+                id: "msg-4",
+                role: "system",
+                createdAt: new Date("2026-01-04T00:00:00.000Z"),
+                parts: [
+                    {
+                        type: "compaction",
+                        version: 1,
+                        summary: "Summarized history",
+                        summarizedThroughMessageId: "msg-2",
+                    },
+                ],
+            },
+            { modelId: "gpt-test" }
+        );
+
+        expect(uiMessage.parts).toEqual([]);
+        expect(
+            toModelMessage({
+                id: "msg-4",
+                chatId: "chat-1",
+                status: "completed",
+                role: "system",
+                parts: [
+                    {
+                        type: "compaction",
+                        version: 1,
+                        summary: "Summarized history",
+                        summarizedThroughMessageId: "msg-2",
+                    },
+                ],
+                tokensPerSecond: null,
+                timeToFirstToken: null,
+                inputTokens: null,
+                outputTokens: null,
+                totalTokens: null,
+                createdAt: new Date("2026-01-04T00:00:00.000Z"),
+                updatedAt: new Date("2026-01-04T00:00:01.000Z"),
+            })
+        ).toEqual([]);
+    });
+
+    test("builds a validation toolset and exports validation schemas", () => {
+        const toolset = buildChatValidationToolset({
+            graphId: "graph-1",
+            embeddingModel: {} as never,
+            model: {} as never,
+        });
+
+        expect(Object.keys(toolset)).toContain("ask_clarifying_questions");
+        expect(Object.keys(toolset)).toContain("explore_graph_with_subagent");
+        expect(chatMessageMetadataSchema.parse({ totalTokens: 12 })).toEqual({ totalTokens: 12 });
+        expect(chatDataPartSchemas.step.parse({ name: "thinking" })).toEqual({ name: "thinking" });
+    });
+
+    test("validation toolset accepts legacy clarification outputs", async () => {
+        const toolset = buildChatValidationToolset({
+            graphId: "graph-1",
+            embeddingModel: {} as never,
+            model: {} as never,
+        });
+        const legacyResults = [{ questions: ["Which region?"] }, {}, null, "EMEA", ["EMEA"]];
+
+        await Promise.all(
+            legacyResults.map(async (result, index) => {
+                const message = toUIMessage({
+                    id: `msg-legacy-clarification-${index + 1}`,
+                    chatId: "chat-1",
+                    status: "completed",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "tool",
+                            toolCallId: "tool-1",
+                            toolName: "ask_clarifying_questions",
+                            execution: "client",
+                            status: "completed",
+                            args: { questions: ["Which region?"] },
+                            result,
+                        },
+                    ],
+                    tokensPerSecond: null,
+                    timeToFirstToken: null,
+                    inputTokens: null,
+                    outputTokens: null,
+                    totalTokens: null,
+                    createdAt: new Date("2026-01-05T00:00:00.000Z"),
+                    updatedAt: new Date("2026-01-05T00:00:01.000Z"),
+                });
+
+                await expect(
+                    validateUIMessages({
+                        messages: [message],
+                        tools: toolset,
+                        metadataSchema: chatMessageMetadataSchema,
+                        dataSchemas: chatDataPartSchemas,
+                    })
+                ).resolves.toHaveLength(1);
+            })
+        );
     });
 });

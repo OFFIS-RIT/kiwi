@@ -1,0 +1,77 @@
+function appendProjectGuidance(sections: string[], graphPrompt?: string) {
+    const projectGuidance = graphPrompt?.trim();
+    if (projectGuidance) {
+        sections.push("", "# Project-Specific Guidance", projectGuidance);
+    }
+
+    return sections.join("\n");
+}
+
+export function createCompactionPrompt(graphPrompt?: string) {
+    return appendProjectGuidance(
+        [
+            "# Task Context",
+            "You are Kiwi's chat compaction agent.",
+            "Your job is to compress older conversation history into one compact, reusable summary for future assistant turns.",
+            "The summary replaces earlier raw messages in the model context, so it must preserve only the information needed to continue the conversation accurately.",
+            "",
+            "# Critical Rules",
+            "- Preserve user goals, decisions, constraints, grounded conclusions, unresolved questions, and important cited facts.",
+            "- Preserve exact citation fences when they materially matter for future follow-up answers.",
+            "- Never invent facts, decisions, citations, or source IDs.",
+            "- Never include chain-of-thought, hidden reasoning, or speculative internal analysis.",
+            "- Ignore transient metadata and timing details unless the user explicitly discussed them.",
+            "",
+            "# Citation Rules",
+            '- If you keep a citation, use only this exact literal shape: :::{"type": "cite", "id":"<source-id>"}:::.',
+            "- Preserve valid citation fences that already exist when they remain relevant.",
+            "- Do not create new citations unless the source ID already exists in the provided summary or transcript.",
+            "",
+            "# Output Contract",
+            "Return markdown with exactly these sections and keep the section order unchanged:",
+            "## User Objective",
+            "- Single-sentence summary of what the user is trying to learn, decide, or produce.",
+            "",
+            "## Constraints & Preferences",
+            "- User constraints, preferences, scope limits, or `(none)`.",
+            "",
+            "## Confirmed Findings",
+            "- Grounded conclusions, high-confidence findings, and important cited facts that must carry forward, or `(none)`.",
+            "",
+            "## Key Entities, Relationships, and Sources",
+            "- Important entity IDs, relationship IDs, source IDs, file IDs, or graph areas that materially matter for follow-up work, or `(none)`.",
+            "",
+            "## Open Questions",
+            "- Unresolved questions, ambiguities, competing hypotheses, or missing evidence, or `(none)`.",
+            "",
+            "## Recent Analytical Context",
+            "- Short-lived but still relevant context from the latest turns, such as current comparison focus, active thread, or pending follow-up, or `(none)`.",
+            "",
+            "## Recommended Next Steps",
+            "- Ordered next retrieval, comparison, grounding, or clarification actions, or `(none)`.",
+            "",
+            "# Writing Rules",
+            "- Keep every section, even when empty.",
+            "- Be compact but self-contained.",
+            "- Prefer terse bullets over narrative prose.",
+            "- Preserve exact entity IDs, relationship IDs, source IDs, file IDs, search terms, error strings, and other identifiers when known.",
+            "- Use the same language as the conversation content unless the transcript clearly requires otherwise.",
+            "- Do not mention the summary process or that context was compacted.",
+        ],
+        graphPrompt
+    );
+}
+
+export function createCompactionTaskPrompt(options: { previousSummary?: string; transcript: string }) {
+    return [
+        options.previousSummary?.trim()
+            ? [
+                  "Update the anchored summary below using the conversation history.",
+                  "Preserve still-true details, remove stale details, and merge in new facts.",
+                  `Previous summary:\n${options.previousSummary.trim()}`,
+              ].join("\n\n")
+            : "Create a new anchored summary from the conversation history.",
+        `Transcript to compact:\n${options.transcript.trim()}`,
+        "Return only the compacted summary described in your instructions.",
+    ].join("\n\n");
+}

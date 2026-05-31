@@ -1,12 +1,19 @@
 import type { ModelMessage } from "ai";
-import type { EmbeddingModelV3 } from "@ai-sdk/provider";
+import type { EmbeddingModelV3, LanguageModelV3 } from "@ai-sdk/provider";
 import type { ChatMessage, MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
 import { toModelMessage } from "./index";
+import { buildSubagentToolset } from "./agents/subagents";
 import { createChatPrompt, type ChatPromptOptions } from "./prompts/chat.prompt";
 import { buildServerAndClientToolset } from "./tools/toolsets";
 import type { Adapter, EmbeddingAdapter } from "./index";
 import type { ChatMessageMetadata, ChatUIMessage } from "./ui";
-export type { ChatDataParts, ChatMessageMetadata, ChatUIMessage } from "./ui";
+export {
+    chatDataPartSchemas,
+    chatMessageMetadataSchema,
+    type ChatDataParts,
+    type ChatMessageMetadata,
+    type ChatUIMessage,
+} from "./ui";
 export {
     createCitationFenceStreamParser,
     prepareCitationFencesForModel,
@@ -65,6 +72,26 @@ export function buildEmbeddingAdapter(
 
 export function buildChatTools(graphId: string, embeddingModel: EmbeddingModelV3) {
     return buildServerAndClientToolset({ graphId, embeddingModel });
+}
+
+export function buildChatValidationToolset(options: {
+    graphId: string;
+    embeddingModel: EmbeddingModelV3;
+    model: LanguageModelV3;
+    graphPrompt?: string;
+}) {
+    return {
+        ...buildServerAndClientToolset({
+            graphId: options.graphId,
+            embeddingModel: options.embeddingModel,
+        }),
+        ...buildSubagentToolset({
+            graphId: options.graphId,
+            embeddingModel: options.embeddingModel,
+            model: options.model,
+            graphPrompt: options.graphPrompt,
+        }),
+    };
 }
 
 export function createChatSystemPrompt(graphPrompt?: string, options?: ChatPromptOptions) {
@@ -228,6 +255,8 @@ export function messagePartsToUIMessage(
                 uiParts.push(toToolUIPart(part) as ChatUIMessage["parts"][number]);
                 break;
             case "metadata":
+                break;
+            case "compaction":
                 break;
         }
     }

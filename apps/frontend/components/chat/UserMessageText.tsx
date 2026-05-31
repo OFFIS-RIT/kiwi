@@ -43,5 +43,5 @@ export function UserMessageText({ projectId, text }: { projectId: string; text: 
 
     const segments = useMemo(() => buildSegments(text, (files ?? []).filter(isMentionableFile)), [text, files]);
 
-    return <p className="whitespace-pre-wrap">{segments}</p>;
+    return <p className="whitespace-pre-wrap text-sm">{segments}</p>;
 }

@@ -14,11 +14,20 @@ const askQuestionSchema = z.object({
         .optional(),
 });
 
+const askQuestionOutputSchema = z
+    .object({
+        message: z.string().trim().min(1).optional(),
+        answers: z.array(z.string()).optional(),
+        questions: z.array(z.string()).optional(),
+    })
+    .catch(() => ({}));
+
 export const askQuestionTool = () =>
     tool({
         description:
             "Ask the user up to 3 clarification questions when required information is missing and cannot be reliably inferred from the graph, sources, or prior messages. This is a client-executed tool: call it to display questions to the user, then continue only after the user's answers are returned as the tool result.",
         inputSchema: askQuestionSchema,
+        outputSchema: askQuestionOutputSchema,
     });
 
 const tools = {

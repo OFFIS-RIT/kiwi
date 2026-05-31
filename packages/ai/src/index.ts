@@ -398,6 +398,8 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
                     }
                     case "metadata":
                         break;
+                    case "compaction":
+                        break;
                 }
             }
 
