@@ -370,6 +370,8 @@ export function useDeleteProject() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+            queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
+            queryClient.invalidateQueries({ queryKey: queryKeys.archivedChats });
         },
     });
 }
