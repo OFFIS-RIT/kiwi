@@ -4,10 +4,14 @@
  */
 
 import type {
+    ArchivedChatsResponse,
+    ChatLibraryItem,
+    ChatLibrarySuccessData,
     ChatListSuccessData,
     ChatDetailResponse,
     ChatHistoryRecord,
     ChatListResponse,
+    PinnedChatsResponse,
     SearchChatItem,
     SearchProjectItem,
     SearchResponse,
@@ -239,6 +243,34 @@ export async function unarchiveProjectChat(
     conversationId: string
 ): Promise<void> {
     await client.post(`/chat/${projectId}/${conversationId}/unarchive`);
+}
+
+/**
+ * Fetches the user's pinned chats across all accessible projects.
+ */
+export async function fetchPinnedChats(client: KiwiApiClient): Promise<ChatLibraryItem[]> {
+    const response = await client.get<PinnedChatsResponse>("/chats/pinned");
+    return unwrapApiResponse(response).items;
+}
+
+/**
+ * Fetches a page of the user's archived chats across all accessible projects.
+ */
+export async function fetchArchivedChats(
+    client: KiwiApiClient,
+    options: { offset?: number; limit?: number } = {}
+): Promise<ChatLibrarySuccessData> {
+    const searchParams = new URLSearchParams();
+    if (typeof options.offset === "number") {
+        searchParams.set("offset", String(options.offset));
+    }
+    if (typeof options.limit === "number") {
+        searchParams.set("limit", String(options.limit));
+    }
+
+    const query = searchParams.toString();
+    const response = await client.get<ArchivedChatsResponse>(`/chats/archived${query ? `?${query}` : ""}`);
+    return unwrapApiResponse(response);
 }
 
 export type SidebarSearchResults = {

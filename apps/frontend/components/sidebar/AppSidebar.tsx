@@ -51,10 +51,12 @@ import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
 import {
     archiveProjectChat,
     deleteProjectChat,
+    fetchPinnedChats,
     fetchProjectChatsPage,
     pinProjectChat,
     searchSidebarTargets,
     unpinProjectChat,
+    type ChatLibraryItem,
     type SearchChatItem,
     type SearchProjectItem,
     type SearchTeamItem,
@@ -107,6 +109,7 @@ const EMPTY_SEARCH_RESULTS = {
     teams: [] as SearchTeamItem[],
     chats: [] as SearchChatItem[],
 };
+const EMPTY_PINNED_CHATS: ChatLibraryItem[] = [];
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
@@ -394,6 +397,7 @@ export function AppSidebar({
                     <ScrollArea
                         className={`h-[calc(100vh-12rem)] transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"}`}
                     >
+                        <PinnedChatsSection activeChatId={activeChatId} />
                         {organizationGroup ? (
                             <SidebarGroup>
                                 <SidebarGroupContent>
@@ -524,6 +528,227 @@ export function AppSidebar({
     );
 }
 
+function PinnedChatsSection({ activeChatId }: { activeChatId: string | null }) {
+    const t = useAppTranslations();
+    const apiClient = useApiClient();
+    const { data: pinnedChats = EMPTY_PINNED_CHATS } = useQuery({
+        queryKey: queryKeys.pinnedChats,
+        queryFn: () => fetchPinnedChats(apiClient),
+        staleTime: 30 * 1000,
+    });
+    const [now, setNow] = useState(() => Date.now());
+    const hasChatTimes = pinnedChats.some((chat) => chat.updatedAt);
+
+    useEffect(() => {
+        if (!hasChatTimes) return;
+
+        setNow(Date.now());
+
+        const intervalId = window.setInterval(() => {
+            setNow(Date.now());
+        }, MINUTE_MS);
+
+        return () => window.clearInterval(intervalId);
+    }, [hasChatTimes]);
+
+    if (pinnedChats.length === 0) {
+        return null;
+    }
+
+    return (
+        <SidebarGroup>
+            <SidebarGroupLabel className="px-2">{t("chats.pinned")}</SidebarGroupLabel>
+            <SidebarGroupContent>
+                <SidebarMenu>
+                    {pinnedChats.map((chat) => (
+                        <PinnedChatItem key={chat.id} chat={chat} activeChatId={activeChatId} now={now} />
+                    ))}
+                </SidebarMenu>
+            </SidebarGroupContent>
+        </SidebarGroup>
+    );
+}
+
+function PinnedChatItem({
+    chat,
+    activeChatId,
+    now,
+}: {
+    chat: ChatLibraryItem;
+    activeChatId: string | null;
+    now: number;
+}) {
+    const t = useAppTranslations();
+    const router = useRouter();
+    const pathname = usePathname();
+    const apiClient = useApiClient();
+    const queryClient = useQueryClient();
+    const { expandSidebarPath } = useSidebarExpansion();
+    const { entries, resetEntry, setHasUnreadUpdate } = useProjectChatSession(chat.projectId);
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+    const isGenerating = entries.some((entry) => entry.sessionId === chat.id && entry.isGenerating);
+    const hasBackgroundUpdate =
+        activeChatId !== chat.id && entries.some((entry) => entry.sessionId === chat.id && entry.hasUnreadUpdate);
+    const relativeUpdatedAt = chat.updatedAt ? formatRelativeChatTime(chat.updatedAt, now) : null;
+
+    const groupId = getProjectGroupRouteId(chat.scope, chat.teamId);
+    const projectHref = `/${groupId}/${chat.projectId}`;
+
+    const invalidateChatCaches = () => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
+        queryClient.invalidateQueries({ queryKey: queryKeys.archivedChats });
+        queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+        queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(chat.projectId) });
+    };
+
+    const leaveChatIfActive = () => {
+        if (activeChatId !== chat.id) {
+            return;
+        }
+        resetEntry();
+        if (pathname === projectHref) {
+            window.history.pushState(null, "", projectHref);
+            return;
+        }
+        router.push(projectHref);
+    };
+
+    const unpinMutation = useMutation({
+        mutationFn: () => unpinProjectChat(apiClient, chat.projectId, chat.id),
+        onSuccess: () => invalidateChatCaches(),
+        onError: () => {
+            toast.error(t("error.unexpected.try.again"));
+        },
+    });
+    const archiveMutation = useMutation({
+        mutationFn: () => archiveProjectChat(apiClient, chat.projectId, chat.id),
+        onSuccess: () => {
+            invalidateChatCaches();
+            leaveChatIfActive();
+        },
+        onError: () => {
+            toast.error(t("error.unexpected.try.again"));
+        },
+    });
+    const deleteMutation = useMutation({
+        mutationFn: () => deleteProjectChat(apiClient, chat.projectId, chat.id),
+        onSuccess: () => {
+            invalidateChatCaches();
+            leaveChatIfActive();
+            setShowDeleteDialog(false);
+        },
+        onError: () => {
+            toast.error(t("error.unexpected.try.again"));
+        },
+    });
+
+    const isMutating = unpinMutation.isPending || archiveMutation.isPending || deleteMutation.isPending;
+
+    const openChat = () => {
+        expandSidebarPath([groupId], [chat.projectId]);
+        const chatHref = `${projectHref}?chatId=${encodeURIComponent(chat.id)}`;
+        if (pathname === projectHref) {
+            window.history.pushState(null, "", chatHref);
+            return;
+        }
+        router.push(chatHref);
+    };
+
+    return (
+        <SidebarMenuItem className="group/pinned-row relative">
+            <SidebarMenuButton
+                size="sm"
+                isActive={activeChatId === chat.id}
+                className="relative w-full justify-start pr-8"
+                title={chat.title}
+                onClick={openChat}
+            >
+                <span className="truncate">{chat.title}</span>
+                {!isMenuOpen && isGenerating ? (
+                    <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/pinned-row:hidden">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    </span>
+                ) : !isMenuOpen && hasBackgroundUpdate ? (
+                    <span className="absolute right-2 h-2 w-2 shrink-0 rounded-full bg-sky-400 group-hover/pinned-row:hidden" />
+                ) : !isMenuOpen && relativeUpdatedAt ? (
+                    <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/pinned-row:hidden">
+                        {relativeUpdatedAt}
+                    </span>
+                ) : null}
+            </SidebarMenuButton>
+            <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+                <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`absolute right-1 top-1/2 h-5 w-5 -translate-y-1/2 p-0 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/pinned-row:opacity-100 ${isMenuOpen ? "opacity-100" : ""}`}
+                        aria-label={t("chat.options")}
+                    >
+                        <MoreVertical className="h-4 w-4" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" side="right" className="w-44">
+                    <DropdownMenuItem disabled={isMutating} onSelect={() => unpinMutation.mutate()}>
+                        <Pin className="mr-2 h-4 w-4" />
+                        <span>{t("chat.unpin")}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                        <Edit className="mr-2 h-4 w-4" />
+                        <span>{t("chat.rename")}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={isMutating} onSelect={() => archiveMutation.mutate()}>
+                        <Archive className="mr-2 h-4 w-4" />
+                        <span>{t("chat.archive")}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setHasUnreadUpdate(chat.id, true)}>
+                        <Mail className="mr-2 h-4 w-4" />
+                        <span>{t("chat.mark.unread")}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        variant="destructive"
+                        disabled={deleteMutation.isPending}
+                        onSelect={() => setShowDeleteDialog(true)}
+                    >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        <span>{t("chat.delete")}</span>
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <Dialog open={showDeleteDialog} onOpenChange={(open) => !open && setShowDeleteDialog(false)}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>{t("delete.chat.confirm")}</DialogTitle>
+                        <DialogDescription>
+                            {t("delete.chat.description", { chatTitle: chat.title })}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setShowDeleteDialog(false)}
+                            disabled={deleteMutation.isPending}
+                        >
+                            {t("cancel")}
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => deleteMutation.mutate()}
+                            disabled={deleteMutation.isPending}
+                        >
+                            {deleteMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {t("delete")}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </SidebarMenuItem>
+    );
+}
+
 type ProjectItemProps = {
     project: Project;
     group: Group;
@@ -611,11 +836,15 @@ function ProjectItem({
                 ? unpinProjectChat(apiClient, project.id, conversationId)
                 : pinProjectChat(apiClient, project.id, conversationId),
         onSuccess: (_data, { conversationId, isPinned }) => {
-            updateCachedChats((chats) =>
-                chats.map((chat) => (chat.id === conversationId ? { ...chat, isPinned: !isPinned } : chat))
-            );
+            if (isPinned) {
+                // Unpinned from elsewhere — let the project list refetch so it can reappear.
+                queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(project.id) });
+            } else {
+                // Newly pinned chats live only in the global pinned section, not in the project.
+                removeChatFromCaches(conversationId);
+            }
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
-            queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(project.id) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
         },
         onError: () => {
             toast.error(t("error.unexpected.try.again"));
@@ -627,6 +856,8 @@ function ProjectItem({
             removeChatFromCaches(conversationId);
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(project.id) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
+            queryClient.invalidateQueries({ queryKey: queryKeys.archivedChats });
 
             if (activeChatId === conversationId) {
                 resetEntry();
@@ -647,6 +878,8 @@ function ProjectItem({
             removeChatFromCaches(conversationId);
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(project.id) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
+            queryClient.invalidateQueries({ queryKey: queryKeys.archivedChats });
 
             if (activeChatId === conversationId) {
                 resetEntry();
@@ -883,12 +1116,7 @@ function ProjectItem({
                                                 title={chat.title}
                                             >
                                                 <span className="block w-0 min-w-0 flex-1 truncate pr-9 text-left">
-                                                    <span className="flex min-w-0 items-center gap-1.5">
-                                                        {chat.isPinned ? (
-                                                            <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                                        ) : null}
-                                                        <span className="truncate">{chat.title}</span>
-                                                    </span>
+                                                    <span className="truncate">{chat.title}</span>
                                                 </span>
                                                 {!isChatMenuOpen && isGenerating ? (
                                                     <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/chat-row:hidden">

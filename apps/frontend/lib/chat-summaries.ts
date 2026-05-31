@@ -10,10 +10,6 @@ function getUpdatedAtValue(updatedAt: string | null | undefined) {
 }
 
 export function compareProjectChats(left: ProjectChatSummary, right: ProjectChatSummary) {
-    if (left.isPinned !== right.isPinned) {
-        return left.isPinned ? -1 : 1;
-    }
-
     const updatedAtDiff = getUpdatedAtValue(right.updatedAt) - getUpdatedAtValue(left.updatedAt);
     if (updatedAtDiff !== 0) {
         return updatedAtDiff;

@@ -506,8 +506,15 @@ export async function listChats(userId: string, graphId: string, options: { offs
             updatedAt: chatTable.updatedAt,
         })
         .from(chatTable)
-        .where(and(eq(chatTable.userId, userId), eq(chatTable.graphId, graphId), isNull(chatTable.archivedAt)))
-        .orderBy(sql`${chatTable.pinnedAt} is null`, desc(chatTable.updatedAt), desc(chatTable.id));
+        .where(
+            and(
+                eq(chatTable.userId, userId),
+                eq(chatTable.graphId, graphId),
+                isNull(chatTable.archivedAt),
+                isNull(chatTable.pinnedAt)
+            )
+        )
+        .orderBy(desc(chatTable.updatedAt), desc(chatTable.id));
 
     const effectiveLimit =
         typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;

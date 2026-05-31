@@ -413,7 +413,6 @@ async function listRecentChatsByGraphId(graphIds: string[], userId: string) {
                 ROW_NUMBER() OVER (
                     PARTITION BY project_id
                     ORDER BY
-                        CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END,
                         updated_at DESC,
                         created_at DESC
                 ) AS row_number
@@ -421,13 +420,13 @@ async function listRecentChatsByGraphId(graphIds: string[], userId: string) {
             WHERE user_id = ${userId}
               AND project_id IN (${textList(graphIds)})
               AND archived_at IS NULL
+              AND pinned_at IS NULL
         )
         SELECT id, title, "graphId", "isPinned", updated_at AS "updatedAt"
         FROM ranked
         WHERE row_number <= 6
         ORDER BY
             "graphId" ASC,
-            CASE WHEN "isPinned" THEN 0 ELSE 1 END,
             updated_at DESC,
             created_at DESC
     `);

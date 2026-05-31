@@ -6,6 +6,7 @@ import { initLogger, shutdownLogger } from "./logger";
 import { authMiddleware } from "./middleware/auth";
 import { authRoute } from "./routes/auth";
 import { chatRoute } from "./routes/chat";
+import { chatLibraryRoute } from "./routes/chat-library";
 import { graphFilesRoute } from "./routes/graph-files";
 import { graphRoute } from "./routes/graph";
 import { mcpRoute } from "./routes/mcp";
@@ -41,6 +42,7 @@ const app = new Elysia({
     .use(authMiddleware)
     .use(authRoute)
     .use(chatRoute)
+    .use(chatLibraryRoute)
     .use(graphFilesRoute)
     .use(graphRoute)
     .use(searchRoute)

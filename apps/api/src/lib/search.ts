@@ -4,9 +4,9 @@ import { chatTable } from "@kiwi/db/tables/chats";
 import { teamMemberTable, teamTable } from "@kiwi/db/tables/auth";
 import { graphTable } from "@kiwi/db/tables/graph";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { AuthUser } from "../middleware/auth";
-import type { SearchSuccessData } from "../types/routes";
+import type { ChatLibrarySuccessData, SearchSuccessData } from "../types/routes";
 import { requireOrganizationMembership } from "./team-access";
 
 const SEARCH_LIMIT = 8;
@@ -199,4 +199,79 @@ export async function searchWorkspace(user: AuthUser, rawQuery: string): Promise
         teams: teams.map(({ score: _score, ...team }) => team),
         chats: chats.map(({ score: _score, updatedAt: _updatedAt, ...chat }) => chat),
     };
+}
+
+async function listAccessibleChats(
+    user: AuthUser,
+    options: { filter: SQL; orderBy: SQL[]; offset?: number; limit?: number }
+): Promise<ChatLibrarySuccessData> {
+    const membership = await requireOrganizationMembership(user);
+    const organizationId = membership.organizationId;
+    const organizationAdmin = roleIncludes(membership.role, "admin");
+    const accessibleTeamIds = organizationAdmin ? [] : await listAccessibleTeamIds(user.id, organizationId);
+    const accessibleGraphWhere = buildAccessibleGraphWhere(user.id, organizationId, accessibleTeamIds, organizationAdmin);
+    const graphScope = buildGraphScope();
+
+    const baseQuery = db
+        .select({
+            id: chatTable.id,
+            title: chatTable.title,
+            isPinned: sql<boolean>`${chatTable.pinnedAt} IS NOT NULL`,
+            projectId: graphTable.id,
+            projectName: graphTable.name,
+            scope: graphScope,
+            teamId: graphTable.teamId,
+            teamName: teamTable.name,
+            updatedAt: chatTable.updatedAt,
+        })
+        .from(chatTable)
+        .innerJoin(graphTable, eq(graphTable.id, chatTable.graphId))
+        .leftJoin(teamTable, eq(teamTable.id, graphTable.teamId))
+        .where(
+            and(
+                eq(chatTable.userId, user.id),
+                isNull(graphTable.graphId),
+                eq(graphTable.hidden, false),
+                accessibleGraphWhere,
+                options.filter
+            )
+        )
+        .orderBy(...options.orderBy);
+
+    const effectiveLimit = typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
+
+    const rows = await (typeof effectiveLimit === "number"
+        ? typeof options.offset === "number" && options.offset > 0
+            ? baseQuery.limit(effectiveLimit).offset(options.offset)
+            : baseQuery.limit(effectiveLimit)
+        : typeof options.offset === "number" && options.offset > 0
+          ? baseQuery.offset(options.offset)
+          : baseQuery);
+
+    const hasMore = typeof options.limit === "number" && options.limit > 0 ? rows.length > options.limit : false;
+    const items = (hasMore ? rows.slice(0, options.limit) : rows).map((row) => ({
+        ...row,
+        updatedAt: row.updatedAt?.toISOString() ?? null,
+    }));
+
+    return { items, hasMore };
+}
+
+export async function listPinnedChats(user: AuthUser): Promise<ChatLibrarySuccessData> {
+    return listAccessibleChats(user, {
+        filter: and(isNotNull(chatTable.pinnedAt), isNull(chatTable.archivedAt))!,
+        orderBy: [desc(chatTable.pinnedAt), desc(chatTable.updatedAt), asc(chatTable.title)],
+    });
+}
+
+export async function listArchivedChats(
+    user: AuthUser,
+    options: { offset?: number; limit?: number } = {}
+): Promise<ChatLibrarySuccessData> {
+    return listAccessibleChats(user, {
+        filter: isNotNull(chatTable.archivedAt),
+        orderBy: [desc(chatTable.archivedAt), desc(chatTable.updatedAt), asc(chatTable.title)],
+        offset: options.offset,
+        limit: options.limit,
+    });
 }

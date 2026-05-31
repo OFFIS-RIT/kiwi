@@ -422,3 +422,22 @@ export type ChatCreateResponse = ApiResponse<
 >;
 
 export type SearchResponse = ApiResponse<SearchSuccessData, "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;
+
+export type ChatLibraryItem = SearchChatItem & {
+    updatedAt: string | null;
+};
+
+export type ChatLibrarySuccessData = {
+    items: ChatLibraryItem[];
+    hasMore: boolean;
+};
+
+export type PinnedChatsResponse = ApiResponse<
+    ChatLibrarySuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type ArchivedChatsResponse = ApiResponse<
+    ChatLibrarySuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
