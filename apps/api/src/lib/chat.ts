@@ -27,7 +27,7 @@ import {
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { Result } from "better-result";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
@@ -161,6 +161,27 @@ export function toolPart<
 
 export async function touchChat(chatId: string) {
     await db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId));
+}
+
+export async function setChatPinned(chatId: string, userId: string, pinned: boolean) {
+    await db
+        .update(chatTable)
+        .set({
+            pinnedAt: pinned ? new Date() : null,
+            updatedAt: sql`${chatTable.updatedAt}`,
+        })
+        .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)));
+}
+
+export async function setChatArchived(chatId: string, userId: string, archived: boolean) {
+    await db
+        .update(chatTable)
+        .set({
+            archivedAt: archived ? new Date() : null,
+            // Preserve updatedAt so archive state changes do not reorder chats.
+            updatedAt: sql`${chatTable.updatedAt}`,
+        })
+        .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)));
 }
 
 export async function getGraphResearchRuntime(
@@ -534,22 +555,48 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
     };
 }
 
-export async function listChats(userId: string, graphId: string) {
-    const rows = await db
+export async function listChats(userId: string, graphId: string, options: { offset?: number; limit?: number } = {}) {
+    const baseQuery = db
         .select({
             id: chatTable.id,
             title: chatTable.title,
+            isPinned: sql<boolean>`false`,
             updatedAt: chatTable.updatedAt,
         })
         .from(chatTable)
-        .where(and(eq(chatTable.userId, userId), eq(chatTable.graphId, graphId)))
-        .orderBy(desc(chatTable.updatedAt), desc(chatTable.createdAt));
+        .where(
+            and(
+                eq(chatTable.userId, userId),
+                eq(chatTable.graphId, graphId),
+                isNull(chatTable.archivedAt),
+                isNull(chatTable.pinnedAt)
+            )
+        )
+        .orderBy(desc(chatTable.updatedAt), desc(chatTable.id));
 
-    return rows.map((row) => ({
+    const effectiveLimit =
+        typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
+
+    const rows = await (typeof effectiveLimit === "number"
+        ? typeof options.offset === "number" && options.offset > 0
+            ? baseQuery.limit(effectiveLimit).offset(options.offset)
+            : baseQuery.limit(effectiveLimit)
+        : typeof options.offset === "number" && options.offset > 0
+          ? baseQuery.offset(options.offset)
+          : baseQuery);
+
+    const hasMore = typeof options.limit === "number" && options.limit > 0 ? rows.length > options.limit : false;
+    const items = (hasMore ? rows.slice(0, options.limit) : rows).map((row) => ({
         id: row.id,
         title: row.title,
+        isPinned: row.isPinned,
         updatedAt: row.updatedAt?.toISOString() ?? null,
     }));
+
+    return {
+        items,
+        hasMore,
+    };
 }
 
 export function getFinishMetadata(options: {

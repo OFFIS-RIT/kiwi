@@ -28,6 +28,8 @@ import {
     mapChatError,
     refreshReplyContext,
     startReply,
+    setChatArchived,
+    setChatPinned,
     startsAssistantOutput,
     toolPart,
     toAssistantReply,
@@ -37,6 +39,7 @@ import {
 } from "../lib/chat";
 import { startChatTitleGeneration } from "../lib/chat-title";
 import { assertCanViewGraph } from "../lib/graph-access";
+import { parseListNumber } from "../lib/parse-query-params";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
@@ -79,14 +82,17 @@ export const chatRoute = new Elysia()
     .use(authMiddleware)
     .get(
         "/chat/:id",
-        async ({ params, user, status }) => {
+        async ({ params, query, user, status }) => {
             if (!user) {
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
             const chatsResult = await Result.tryPromise(async () => {
                 await assertCanViewGraph(user, params.id);
-                return listChats(user.id, params.id);
+                return listChats(user.id, params.id, {
+                    offset: parseListNumber(query.offset, { minimum: 0, maximum: 10_000 }),
+                    limit: parseListNumber(query.limit, { minimum: 1, maximum: 100 }),
+                });
             });
 
             if (chatsResult.isErr()) {
@@ -99,6 +105,10 @@ export const chatRoute = new Elysia()
             beforeHandle: requirePermissions({ graph: ["view"] }),
             params: t.Object({
                 id: t.String(),
+            }),
+            query: t.Object({
+                offset: t.Optional(t.String()),
+                limit: t.Optional(t.String()),
             }),
         }
     )
@@ -143,6 +153,114 @@ export const chatRoute = new Elysia()
 
             if (deleteResult.isErr()) {
                 return mapChatError(status, deleteResult.error);
+            }
+
+            return status(204, null);
+        },
+        {
+            beforeHandle: requirePermissions({ graph: ["view"] }),
+            params: t.Object({
+                id: t.String(),
+                chatId: t.String(),
+            }),
+        }
+    )
+    .post(
+        "/chat/:id/:chatId/pin",
+        async ({ params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const pinResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                const chat = await loadChatSummary(user.id, params.id, params.chatId);
+                await setChatPinned(chat.id, user.id, true);
+            });
+
+            if (pinResult.isErr()) {
+                return mapChatError(status, pinResult.error);
+            }
+
+            return status(204, null);
+        },
+        {
+            beforeHandle: requirePermissions({ graph: ["view"] }),
+            params: t.Object({
+                id: t.String(),
+                chatId: t.String(),
+            }),
+        }
+    )
+    .post(
+        "/chat/:id/:chatId/unpin",
+        async ({ params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const unpinResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                const chat = await loadChatSummary(user.id, params.id, params.chatId);
+                await setChatPinned(chat.id, user.id, false);
+            });
+
+            if (unpinResult.isErr()) {
+                return mapChatError(status, unpinResult.error);
+            }
+
+            return status(204, null);
+        },
+        {
+            beforeHandle: requirePermissions({ graph: ["view"] }),
+            params: t.Object({
+                id: t.String(),
+                chatId: t.String(),
+            }),
+        }
+    )
+    .post(
+        "/chat/:id/:chatId/archive",
+        async ({ params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const archiveResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                const chat = await loadChatSummary(user.id, params.id, params.chatId);
+                await setChatArchived(chat.id, user.id, true);
+            });
+
+            if (archiveResult.isErr()) {
+                return mapChatError(status, archiveResult.error);
+            }
+
+            return status(204, null);
+        },
+        {
+            beforeHandle: requirePermissions({ graph: ["view"] }),
+            params: t.Object({
+                id: t.String(),
+                chatId: t.String(),
+            }),
+        }
+    )
+    .post(
+        "/chat/:id/:chatId/unarchive",
+        async ({ params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const unarchiveResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                const chat = await loadChatSummary(user.id, params.id, params.chatId);
+                await setChatArchived(chat.id, user.id, false);
+            });
+
+            if (unarchiveResult.isErr()) {
+                return mapChatError(status, unarchiveResult.error);
             }
 
             return status(204, null);
@@ -341,17 +459,12 @@ export const chatRoute = new Elysia()
                     includeSubagentTools: deep,
                 } as const;
                 const { assistantId, client, contextMessages, systemPrompt, tools, prompt, isNewChat, titleMessages } =
-                    await startReply(
-                    user.id,
-                    params.id,
-                    request,
-                    {
+                    await startReply(user.id, params.id, request, {
                         toolset: "server-and-client",
                         deep,
                         promptOptions,
                         abortSignal: httpRequest.signal,
-                    }
-                );
+                    });
                 startChatTitleGeneration({
                     chatId: request.id,
                     messages: titleMessages,

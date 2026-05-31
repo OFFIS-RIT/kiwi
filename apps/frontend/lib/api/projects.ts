@@ -4,9 +4,18 @@
  */
 
 import type {
+    ArchivedChatsResponse,
+    ChatLibraryItem,
+    ChatLibrarySuccessData,
+    ChatListSuccessData,
     ChatDetailResponse,
     ChatHistoryRecord,
     ChatListResponse,
+    PinnedChatsResponse,
+    SearchChatItem,
+    SearchProjectItem,
+    SearchResponse,
+    SearchTeamItem,
     ChatSummaryItem,
     GraphAddFilesResponse,
     GraphAddFilesSuccessData,
@@ -156,6 +165,24 @@ export type {
  */
 export async function fetchProjectChats(client: KiwiApiClient, projectId: string): Promise<ChatSummaryItem[]> {
     const response = await client.get<ChatListResponse>(`/chat/${projectId}`);
+    return unwrapApiResponse(response).items;
+}
+
+export async function fetchProjectChatsPage(
+    client: KiwiApiClient,
+    projectId: string,
+    options: { offset?: number; limit?: number } = {}
+): Promise<ChatListSuccessData> {
+    const searchParams = new URLSearchParams();
+    if (typeof options.offset === "number") {
+        searchParams.set("offset", String(options.offset));
+    }
+    if (typeof options.limit === "number") {
+        searchParams.set("limit", String(options.limit));
+    }
+
+    const query = searchParams.toString();
+    const response = await client.get<ChatListResponse>(`/chat/${projectId}${query ? `?${query}` : ""}`);
     return unwrapApiResponse(response);
 }
 
@@ -189,6 +216,74 @@ export async function deleteProjectChat(
     conversationId: string
 ): Promise<void> {
     await client.delete(`/chat/${projectId}/${conversationId}`);
+}
+
+export async function pinProjectChat(client: KiwiApiClient, projectId: string, conversationId: string): Promise<void> {
+    await client.post(`/chat/${projectId}/${conversationId}/pin`);
+}
+
+export async function unpinProjectChat(
+    client: KiwiApiClient,
+    projectId: string,
+    conversationId: string
+): Promise<void> {
+    await client.post(`/chat/${projectId}/${conversationId}/unpin`);
+}
+
+export async function archiveProjectChat(
+    client: KiwiApiClient,
+    projectId: string,
+    conversationId: string
+): Promise<void> {
+    await client.post(`/chat/${projectId}/${conversationId}/archive`);
+}
+
+export async function unarchiveProjectChat(
+    client: KiwiApiClient,
+    projectId: string,
+    conversationId: string
+): Promise<void> {
+    await client.post(`/chat/${projectId}/${conversationId}/unarchive`);
+}
+
+/**
+ * Fetches the user's pinned chats across all accessible projects.
+ */
+export async function fetchPinnedChats(client: KiwiApiClient): Promise<ChatLibraryItem[]> {
+    const response = await client.get<PinnedChatsResponse>("/chats/pinned");
+    return unwrapApiResponse(response).items;
+}
+
+/**
+ * Fetches a page of the user's archived chats across all accessible projects.
+ */
+export async function fetchArchivedChats(
+    client: KiwiApiClient,
+    options: { offset?: number; limit?: number } = {}
+): Promise<ChatLibrarySuccessData> {
+    const searchParams = new URLSearchParams();
+    if (typeof options.offset === "number") {
+        searchParams.set("offset", String(options.offset));
+    }
+    if (typeof options.limit === "number") {
+        searchParams.set("limit", String(options.limit));
+    }
+
+    const query = searchParams.toString();
+    const response = await client.get<ArchivedChatsResponse>(`/chats/archived${query ? `?${query}` : ""}`);
+    return unwrapApiResponse(response);
+}
+
+export type SidebarSearchResults = {
+    projects: SearchProjectItem[];
+    teams: SearchTeamItem[];
+    chats: SearchChatItem[];
+};
+
+export async function searchSidebarTargets(client: KiwiApiClient, query: string): Promise<SidebarSearchResults> {
+    const searchParams = new URLSearchParams({ q: query });
+    const response = await client.get<SearchResponse>(`/search?${searchParams.toString()}`);
+    return unwrapApiResponse(response);
 }
 
 /**

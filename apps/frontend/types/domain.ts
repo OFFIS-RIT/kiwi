@@ -16,6 +16,7 @@ export type { ProcessStep };
 export type ProjectChatSummary = {
     id: string;
     title: string;
+    isPinned: boolean;
     updatedAt: string | null;
 };
 

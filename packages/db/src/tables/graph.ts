@@ -79,6 +79,7 @@ export const graphTable = pgTable.withRLS(
         index("graphs_team_type_idx").on(table.teamId, table.type),
         index("graphs_user_type_idx").on(table.userId, table.type),
         index("graphs_graph_type_idx").on(table.graphId, table.type),
+        index("graphs_name_trgm_idx").using("gin", table.name.op("gin_trgm_ops")),
         index("graphs_visible_root_organization_name_idx")
             .on(table.organizationId, table.name)
             .where(sql`${table.graphId} IS NULL AND ${table.teamId} IS NULL AND ${table.hidden} = false`),

@@ -3,6 +3,7 @@
 import { ApiKeyList } from "@/components/api-keys/ApiKeyList";
 import { ApiKeyRevealDialog } from "@/components/api-keys/ApiKeyRevealDialog";
 import { CreateApiKeyDialog } from "@/components/api-keys/CreateApiKeyDialog";
+import { ArchivedChatList } from "./ArchivedChatList";
 import { LanguageSwitcher } from "@/components/header/LanguageSwitcher";
 import { ThemeToggle } from "@/components/header/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,13 @@ export function SettingsView() {
                             </Button>
                         </div>
                         <ApiKeyList key={refreshKey} />
+                    </section>
+                    <section className="space-y-3">
+                        <div>
+                            <h2 className="text-lg font-semibold">{t("settings.archived.title")}</h2>
+                            <p className="text-sm text-muted-foreground">{t("settings.archived.description")}</p>
+                        </div>
+                        <ArchivedChatList />
                     </section>
                 </div>
             </div>
