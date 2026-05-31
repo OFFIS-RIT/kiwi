@@ -42,7 +42,7 @@
     "personal": "Personal",
     "welcome.message": "Welcome to the {projectName} knowledge base. How can I help you today?",
     "empty.chat.prompt": "What would you like to know about {projectName}?",
-    "ask.question": "Ask a question about this project...",
+    "ask.question": "Ask a question about this project... (@ to mention files)",
     "send.message": "Send message",
     "scroll.to.bottom": "Scroll to bottom",
     "error.chat.api": "Sorry, I couldn't get a response. Please try again.",

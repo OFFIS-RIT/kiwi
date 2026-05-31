@@ -6,6 +6,7 @@ import { useApiClient } from "@/providers/ApiClientProvider";
 import type { ApiProjectFile } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import Placeholder from "@tiptap/extension-placeholder";
+import { Fragment, Slice, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
@@ -56,7 +57,10 @@ export type ChatInputProps = {
 export const projectFilesQueryKey = (projectId: string) => ["projectFiles", projectId] as const;
 
 /**
- * Single-line chat input backed by TipTap. Renders @-file mentions as inline
+ * Chat input backed by TipTap. Enter submits; Shift+Enter (or Cmd/Ctrl+Enter)
+ * inserts a newline so longer queries can be structured across lines, with the
+ * editable surface growing up to `max-h-[15lh]` before it scrolls. Renders
+ * @-file mentions as inline
  * `Badge` nodes (icon + filename) that the caret navigates over as a single
  * unit and that Backspace deletes whole. `editor.getText()` serializes those
  * nodes back to their bare filename, so the message body that flows to the
@@ -156,7 +160,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 code: false,
                 horizontalRule: false,
                 strike: false,
-                hardBreak: false,
             }),
             Placeholder.configure({ placeholder }),
             InterimDecoration,
@@ -184,8 +187,18 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 if (!pastedText) return false;
 
                 event.preventDefault();
-                const inlineText = pastedText.replace(/\s*\r?\n\s*/g, " ");
-                view.dispatch(view.state.tr.insertText(inlineText));
+                // Insert as plain text (ignoring any rich clipboard HTML), but
+                // turn each newline into a <br> hardBreak so multi-line pastes
+                // keep their structure — matching Shift+Enter rather than
+                // collapsing into a single line.
+                const { schema } = view.state;
+                const nodes: ProseMirrorNode[] = [];
+                pastedText.split(/\r\n?|\n/).forEach((line, index) => {
+                    if (index > 0) nodes.push(schema.nodes.hardBreak.create());
+                    if (line) nodes.push(schema.text(line));
+                });
+                const slice = new Slice(Fragment.fromArray(nodes), 0, 0);
+                view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
                 return true;
             },
         },
