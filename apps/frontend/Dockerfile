@@ -36,6 +36,10 @@ COPY packages/ai/src packages/ai/src
 COPY packages/ai/tsconfig.json packages/ai/tsconfig.json
 COPY packages/auth/src packages/auth/src
 COPY packages/auth/tsconfig.json packages/auth/tsconfig.json
+COPY packages/db/src packages/db/src
+COPY packages/db/tsconfig.json packages/db/tsconfig.json
+COPY packages/logger/src packages/logger/src
+COPY packages/logger/tsconfig.json packages/logger/tsconfig.json
 COPY packages/files/src/project-file-proxy-path.ts packages/files/src/project-file-proxy-path.ts
 
 WORKDIR /app/apps/frontend
