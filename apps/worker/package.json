@@ -14,6 +14,7 @@
     },
     "dependencies": {
         "@kiwi/ai": "workspace:*",
+        "@kiwi/contracts": "workspace:*",
         "@kiwi/db": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",

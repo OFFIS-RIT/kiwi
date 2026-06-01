@@ -42,23 +42,59 @@ const joinPath = (path: string, name: string) => {
     return normalizedPath === "" ? normalizedName : `${normalizedPath}/${normalizedName}`;
 };
 
-export function getDerivedFilePrefix(graphId: string, fileId: string): string {
-    return `graphs/${graphId}/derived/${fileId}`;
+const LEGACY_WORKFLOW_STORAGE_VERSION = "v1";
+
+function getFileExtension(name: string): string {
+    const extension = name.split(".").pop()?.trim().toLowerCase() ?? "";
+    return extension && extension !== name.toLowerCase() ? extension : "";
 }
 
-export function getDerivedImagePrefix(graphId: string, fileId: string): string {
-    return `${getDerivedFilePrefix(graphId, fileId)}/images`;
+export function getGraphFileKey(graphId: string, fileId: string, name: string): string {
+    const extension = getFileExtension(name);
+    const storedName = extension === "" ? fileId : `${fileId}.${extension}`;
+
+    return joinPath(`graphs/${graphId}`, storedName);
 }
 
-export function getDerivedSourceKey(graphId: string, fileId: string): string {
-    return `${getDerivedFilePrefix(graphId, fileId)}/source.txt`;
+export function getDerivedFilePrefix(fileKey: string, fileId: string): string {
+    return `${fileKey.replace(/\/+$/u, "")}/${fileId}`;
+}
+
+export function getDerivedImagePrefix(fileKey: string, fileId: string): string {
+    return `${getDerivedFilePrefix(fileKey, fileId)}/images`;
+}
+
+export function getDerivedSourceKey(fileKey: string, fileId: string): string {
+    return `${getDerivedFilePrefix(fileKey, fileId)}/source.txt`;
+}
+
+export function getProcessingArtifactPrefix(fileKey: string, fileId: string): string {
+    return `${getDerivedFilePrefix(fileKey, fileId)}/derived`;
 }
 
 export const PDF_PREVIEW_SCALE = 1.5;
 const PDF_PREVIEW_VERSION = `v1/scale-${PDF_PREVIEW_SCALE}`;
 
-export function getDerivedPdfPreviewPrefix(graphId: string, fileId: string): string {
-    return `${getDerivedFilePrefix(graphId, fileId)}/pdf-preview/${PDF_PREVIEW_VERSION}`;
+export function getDerivedPdfPreviewPrefix(fileKey: string, fileId: string): string {
+    return `${getDerivedFilePrefix(fileKey, fileId)}/pdf-preview/${PDF_PREVIEW_VERSION}`;
+}
+
+export function getGraphFileArtifactPaths(input: { graphId: string; fileId: string; fileKey: string }) {
+    const derivedPrefix = getDerivedFilePrefix(input.fileKey, input.fileId);
+    const processingPrefix = getProcessingArtifactPrefix(input.fileKey, input.fileId);
+
+    return {
+        derivedPrefix,
+        derivedImagePrefix: getDerivedImagePrefix(input.fileKey, input.fileId),
+        derivedSourceKey: getDerivedSourceKey(input.fileKey, input.fileId),
+        derivedPdfPreviewPrefix: getDerivedPdfPreviewPrefix(input.fileKey, input.fileId),
+        processingPrefix,
+        cleanupPrefixes: [
+            derivedPrefix,
+            `graphs/${input.graphId}/derived/${input.fileId}`,
+            `graphs/${input.graphId}/workflows/${LEGACY_WORKFLOW_STORAGE_VERSION}/${input.fileId}`,
+        ],
+    };
 }
 
 async function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket: string): Promise<StoredFile> {
@@ -79,6 +115,16 @@ export async function putFile(name: string, file: File | Blob | Uint8Array | str
     const filename = extension === "" ? key : `${key}.${extension}`;
 
     return writeFile(joinPath(path, filename), file, bucket);
+}
+
+export async function putGraphFile(
+    graphId: string,
+    fileId: string,
+    name: string,
+    file: File | Blob | Uint8Array | string,
+    bucket: string
+) {
+    return writeFile(getGraphFileKey(graphId, fileId, name), file, bucket);
 }
 
 export async function putNamedFile(

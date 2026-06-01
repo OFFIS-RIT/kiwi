@@ -3,21 +3,116 @@ import { withAiSlot } from "@kiwi/ai/lock";
 import { extractPrompt } from "@kiwi/ai/prompts/extract.prompt";
 import { generateText, Output } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import type { Graph, GraphFile, Unit } from ".";
-import { toPageAwareChunks } from "./lib/page-fence";
+import type { Graph, GraphChunker, GraphFile, GraphTextChunk, LoaderSourceChunk, TextUnitSourceChunk, Unit } from ".";
+import { SemanticChunker } from "./chunking/semantic";
+import { loadGraphDocument } from "./loader/document";
+import { toPageAwareChunksWithSource } from "./lib/page-fence";
+import { createSourceChunks, DEFAULT_SOURCE_CHUNK_TOKENS } from "./lib/source-chunk";
 import z from "zod";
 
-export async function createUnits(file: GraphFile): Promise<Unit[]> {
-    const text = await file.loader.getText();
-    const chunks = toPageAwareChunks(await file.chunker.getChunks(text));
+export const MAX_SOURCE_CHUNKS_PER_SOURCE = 8;
 
-    return chunks.map((chunk) => ({
-        id: ulid(),
+export async function createUnits(file: GraphFile): Promise<Unit[]> {
+    const document = await loadGraphDocument(file.loader);
+    return createUnitsFromText({
         fileId: file.id,
-        content: chunk.content,
-        startPage: chunk.startPage,
-        endPage: chunk.endPage,
-    }));
+        fileType: file.filetype,
+        text: document.text,
+        chunker: file.chunker,
+        loaderSourceChunks: document.sourceChunks,
+    });
+}
+
+export async function createUnitsFromText(options: {
+    fileId: string;
+    fileType: string;
+    text: string;
+    chunker: GraphChunker;
+    loaderSourceChunks?: LoaderSourceChunk[];
+}): Promise<Unit[]> {
+    const textChunks = await options.chunker.getChunkSpans(options.text);
+    const chunks = toPageAwareChunksWithSource(textChunks, (chunk) => chunk.content);
+    const loaderSourceChunks = prepareLoaderSourceChunks(options.loaderSourceChunks ?? []);
+    let fallbackTextChunker: GraphChunker | undefined;
+    const units: Unit[] = [];
+
+    for (const chunk of chunks) {
+        const unit: Unit = {
+            id: ulid(),
+            fileId: options.fileId,
+            content: chunk.content,
+            startPage: chunk.startPage,
+            endPage: chunk.endPage,
+            chunks: sourceChunksForUnit(loaderSourceChunks, chunk.source),
+        };
+
+        if (unit.chunks.length === 0) {
+            unit.chunks = await createSourceChunks(chunk.content, {
+                fileType: options.fileType,
+                startPage: chunk.startPage,
+                endPage: chunk.endPage,
+                textChunker: (fallbackTextChunker ??= new SemanticChunker(DEFAULT_SOURCE_CHUNK_TOKENS)),
+            });
+        }
+
+        units.push(unit);
+    }
+
+    return units;
+}
+
+function prepareLoaderSourceChunks(loaderSourceChunks: LoaderSourceChunk[]): LoaderSourceChunk[] {
+    return [...loaderSourceChunks].sort(
+        (left, right) => left.startOffset - right.startOffset || left.endOffset - right.endOffset
+    );
+}
+
+function sourceChunksForUnit(loaderSourceChunks: LoaderSourceChunk[], span: GraphTextChunk): TextUnitSourceChunk[] {
+    if (span.endOffset <= span.startOffset) {
+        return [];
+    }
+
+    const startIndex = firstOverlappingSourceChunkIndex(loaderSourceChunks, span.startOffset);
+    const chunks: TextUnitSourceChunk[] = [];
+
+    for (let index = startIndex; index < loaderSourceChunks.length; index += 1) {
+        const chunk = loaderSourceChunks[index]!;
+        if (chunk.startOffset >= span.endOffset) {
+            break;
+        }
+
+        if (chunk.endOffset <= span.startOffset) {
+            continue;
+        }
+
+        const { startOffset: _startOffset, endOffset: _endOffset, ...sourceChunk } = chunk;
+        chunks.push({
+            ...sourceChunk,
+            id: chunks.length + 1,
+        } as TextUnitSourceChunk);
+    }
+
+    return chunks;
+}
+
+function firstOverlappingSourceChunkIndex(chunks: LoaderSourceChunk[], startOffset: number): number {
+    let low = 0;
+    let high = chunks.length;
+
+    while (low < high) {
+        const mid = Math.floor((low + high) / 2);
+        if (chunks[mid]!.startOffset < startOffset) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+
+    while (low > 0 && chunks[low - 1]!.endOffset > startOffset) {
+        low -= 1;
+    }
+
+    return low;
 }
 
 const extractOutputSchema = z.object({
@@ -26,6 +121,7 @@ const extractOutputSchema = z.object({
             name: z.string().describe("The name of the entity all uppercase."),
             type: z.string().describe("The type of the entity, must be one of the provided ones or FACT"),
             description: z.string().describe("A brief description of the entity. Capturing every detail."),
+            sourceChunkIds: z.array(z.number()).default([]).describe("Source chunk ids that support this entity."),
         })
     ),
     relationships: z.array(
@@ -34,9 +130,53 @@ const extractOutputSchema = z.object({
             targetEntity: z.string().describe("The name of the target entity in uppercase."),
             description: z.string().describe("A brief description of the relationship. Capturing every detail."),
             strength: z.number().describe("A number between 0 and 1 indicating the strength of the relationship."),
+            sourceChunkIds: z
+                .array(z.number())
+                .default([])
+                .describe("Source chunk ids that support this relationship."),
         })
     ),
 });
+
+export function normalizeSourceChunkIds(sourceChunkIds: number[], unit: Pick<Unit, "chunks">): number[] {
+    const validChunkIds = new Set(unit.chunks.map((chunk) => chunk.id));
+    const normalized: number[] = [];
+
+    for (const sourceChunkId of sourceChunkIds) {
+        if (
+            !Number.isInteger(sourceChunkId) ||
+            !validChunkIds.has(sourceChunkId) ||
+            normalized.includes(sourceChunkId)
+        ) {
+            continue;
+        }
+
+        normalized.push(sourceChunkId);
+        if (normalized.length >= MAX_SOURCE_CHUNKS_PER_SOURCE) {
+            break;
+        }
+    }
+
+    if (normalized.length === 0 && unit.chunks.length === 1) {
+        return [unit.chunks[0]!.id];
+    }
+
+    return normalized;
+}
+
+function buildExtractionInput(unit: Unit): string {
+    if (unit.chunks.length <= 1) {
+        return unit.content;
+    }
+
+    return unit.chunks
+        .map((chunk) =>
+            [`:::SOURCE-CHUNK-${chunk.id} type=${chunk.type}:::`, chunk.text, `:::END-SOURCE-CHUNK-${chunk.id}:::`].join(
+                "\n"
+            )
+        )
+        .join("\n\n");
+}
 
 export async function processUnit(
     unit: Unit,
@@ -51,7 +191,7 @@ export async function processUnit(
         generateText({
             model,
             system: prompt,
-            prompt: unit.content,
+            prompt: buildExtractionInput(unit),
             temperature: 0.1,
             output: Output.object({
                 description: "The extracted entities and relationships from the text.",
@@ -76,6 +216,7 @@ export async function processUnit(
                     id: ulid(),
                     unitId: unit.id,
                     description: entity.description,
+                    sourceChunkIds: normalizeSourceChunkIds(entity.sourceChunkIds, unit),
                 },
             ],
         };
@@ -101,6 +242,7 @@ export async function processUnit(
                         id: ulid(),
                         unitId: unit.id,
                         description: relationship.description,
+                        sourceChunkIds: normalizeSourceChunkIds(relationship.sourceChunkIds, unit),
                     },
                 ],
             },

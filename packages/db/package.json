@@ -12,6 +12,7 @@
         "test": "bun test --pass-with-no-tests"
     },
     "dependencies": {
+        "@kiwi/contracts": "workspace:*",
         "drizzle-orm": "catalog:",
         "pg": "catalog:",
         "ulid": "^3.0.2"

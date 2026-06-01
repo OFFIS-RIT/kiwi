@@ -4,6 +4,10 @@ export type PageAwareChunk = {
     endPage: number | null;
 };
 
+export type PageAwareChunkWithSource<T> = PageAwareChunk & {
+    source: T;
+};
+
 export type PageFence = {
     page: number;
     index: number;
@@ -55,10 +59,18 @@ export function stripPageFences(text: string): string {
 }
 
 export function toPageAwareChunks(rawChunks: string[]): PageAwareChunk[] {
-    const chunks: PageAwareChunk[] = [];
+    return toPageAwareChunksWithSource(rawChunks, (rawChunk) => rawChunk).map(({ source: _source, ...chunk }) => chunk);
+}
+
+export function toPageAwareChunksWithSource<T>(
+    rawChunks: T[],
+    getRawChunk: (rawChunk: T) => string
+): Array<PageAwareChunkWithSource<T>> {
+    const chunks: Array<PageAwareChunkWithSource<T>> = [];
     let currentPage: number | null = null;
 
-    for (const rawChunk of rawChunks) {
+    for (const source of rawChunks) {
+        const rawChunk = getRawChunk(source);
         const fences = extractPageFences(rawChunk);
         const content = stripPageFences(rawChunk);
 
@@ -68,6 +80,7 @@ export function toPageAwareChunks(rawChunks: string[]): PageAwareChunk[] {
                     content,
                     startPage: currentPage,
                     endPage: currentPage,
+                    source,
                 });
             }
             continue;
@@ -84,6 +97,7 @@ export function toPageAwareChunks(rawChunks: string[]): PageAwareChunk[] {
             content,
             startPage: span.startPage,
             endPage: span.endPage,
+            source,
         });
     }
 

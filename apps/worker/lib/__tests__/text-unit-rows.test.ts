@@ -11,6 +11,7 @@ describe("toTextUnitRows", () => {
                 content: "Alpha",
                 startPage: 2,
                 endPage: 3,
+                chunks: [{ id: 1, type: "text", text: "Alpha", startPage: 2, endPage: 3 }],
             },
             {
                 id: "unit-2",
@@ -18,6 +19,7 @@ describe("toTextUnitRows", () => {
                 content: "Beta",
                 startPage: null,
                 endPage: null,
+                chunks: [{ id: 1, type: "text", text: "Beta", startPage: null, endPage: null }],
             },
         ];
 
@@ -28,6 +30,7 @@ describe("toTextUnitRows", () => {
                 text: "Alpha",
                 startPage: 2,
                 endPage: 3,
+                chunks: [{ id: 1, type: "text", text: "Alpha", startPage: 2, endPage: 3 }],
             },
             {
                 id: "unit-2",
@@ -35,6 +38,7 @@ describe("toTextUnitRows", () => {
                 text: "Beta",
                 startPage: null,
                 endPage: null,
+                chunks: [{ id: 1, type: "text", text: "Beta", startPage: null, endPage: null }],
             },
         ]);
     });

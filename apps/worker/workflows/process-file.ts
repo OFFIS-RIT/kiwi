@@ -21,11 +21,19 @@ import { JSONChunker } from "@kiwi/graph/chunker/json";
 import { SingleChunker } from "@kiwi/graph/chunker/single";
 import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
 import { env } from "../env";
-import { type Graph, type GraphChunker, type GraphFile, type GraphLoader, type Unit } from "@kiwi/graph";
+import {
+    type Graph,
+    type GraphChunker,
+    type GraphFile,
+    type GraphLoader,
+    type LoadedGraphDocument,
+    type Unit,
+} from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
+import { loadGraphDocument } from "@kiwi/graph/loader/document";
 import { stripPageFences } from "@kiwi/graph/lib/page-fence";
 import { mergeGraphs } from "@kiwi/graph/merge";
-import { createUnits, processUnit } from "@kiwi/graph/unit";
+import { createUnitsFromText, processUnit } from "@kiwi/graph/unit";
 import { DOCXLoader } from "@kiwi/graph/loader/doc";
 import { estimateToken, getClient } from "@kiwi/ai";
 import { ExcelLoader } from "@kiwi/graph/loader/excel";
@@ -36,14 +44,13 @@ import { buildAdapter, buildEmbeddingAdapter, buildWorkerTextAdapter } from "../
 import { EMPTY_VECTOR_SQL, entityCompactNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
-import { getDerivedFilePrefix, getDerivedImagePrefix } from "../lib/derived-files";
+import { deleteGraphFileProcessingArtifacts, getGraphFileArtifactPaths } from "../lib/derived-files";
 import { buildPDFLoaderOptions } from "../lib/pdf-loader";
 import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { toTextUnitRows } from "../lib/text-unit-rows";
 
-const WORKFLOW_STORAGE_VERSION = "v1";
 const FILE_DELETED = "__file_deleted__" as const;
 const NO_RETRY = { maximumAttempts: 1 } as const;
 const PROCESS_UNIT_BATCH_SIZE = 100;
@@ -269,6 +276,11 @@ export const processFile = defineWorkflow(
                 return;
             }
 
+            const paths = getGraphFileArtifactPaths({
+                graphId: input.graphId,
+                fileId: input.fileId,
+                fileKey: fileData.key,
+            });
             const client = getClient({
                 text: buildWorkerTextAdapter(),
                 embedding: buildEmbeddingAdapter(
@@ -298,11 +310,9 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "preprocessing", "processing");
                 const start = performance.now();
                 const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
-                const derivedPrefix = getDerivedFilePrefix(input.graphId, input.fileId);
-                const derivedImagePrefix = getDerivedImagePrefix(input.graphId, input.fileId);
                 const derivedImageStorage = {
                     bucket: env.S3_BUCKET,
-                    imagePrefix: derivedImagePrefix,
+                    imagePrefix: paths.derivedImagePrefix,
                 };
                 const baseGraphFile = {
                     id: input.fileId,
@@ -371,19 +381,14 @@ export const processFile = defineWorkflow(
                     ...baseGraphFile,
                     loader,
                 } satisfies Omit<GraphFile, "chunker">;
-                const text = await graphFile.loader.getText();
-                let sourceKey = fileData.key;
-
-                if (
-                    graphFile.filetype === "pdf" ||
-                    graphFile.filetype === "image" ||
-                    graphFile.filetype === "doc" ||
-                    graphFile.filetype === "sheet" ||
-                    graphFile.filetype === "ppt"
-                ) {
-                    const uploadedFile = await putNamedFile("source.txt", text, derivedPrefix, env.S3_BUCKET);
-                    sourceKey = uploadedFile.key;
-                }
+                const document = await loadGraphDocument(graphFile.loader);
+                const text = document.text;
+                const uploadedDocument = await putNamedFile(
+                    "document.json",
+                    JSON.stringify(document),
+                    paths.processingPrefix,
+                    env.S3_BUCKET
+                );
 
                 const duration = performance.now() - start;
                 const contentText = stripPageFences(text);
@@ -398,7 +403,7 @@ export const processFile = defineWorkflow(
 
                 return {
                     ...baseGraphFile,
-                    sourceKey,
+                    documentKey: uploadedDocument.key,
                     duration,
                     tokenCount: tokens,
                     metadataExcerpt: buildMetadataExcerpt(contentText),
@@ -449,26 +454,29 @@ export const processFile = defineWorkflow(
                         chunker = new SemanticChunker(2000);
                 }
 
-                const unitsFile = {
-                    ...baseFile,
-                    key: baseFile.sourceKey,
-                    loader: new S3Loader(baseFile.sourceKey, env.S3_BUCKET),
-                    chunker,
-                } satisfies GraphFile;
-                const units = await createUnits(unitsFile);
+                const loadedDocument = await getFile<LoadedGraphDocument>(baseFile.documentKey, env.S3_BUCKET, "json");
+                if (!loadedDocument) {
+                    throw new Error(`Failed to load document from ${baseFile.documentKey}`);
+                }
 
-                const unitsPath = `graphs/${input.graphId}/workflows/${WORKFLOW_STORAGE_VERSION}/${input.fileId}`;
-                const uploadedUnitsFile = await putNamedFile(
+                const units = await createUnitsFromText({
+                    fileId: baseFile.id,
+                    fileType: baseFile.filetype,
+                    text: loadedDocument.content.text,
+                    chunker,
+                    loaderSourceChunks: loadedDocument.content.sourceChunks,
+                });
+                const uploadedUnits = await putNamedFile(
                     "units.json",
                     JSON.stringify(units),
-                    unitsPath,
+                    paths.processingPrefix,
                     env.S3_BUCKET
                 );
 
                 const duration = performance.now() - start;
 
                 return {
-                    key: uploadedUnitsFile.key,
+                    unitsKey: uploadedUnits.key,
                     duration,
                 };
             });
@@ -484,9 +492,9 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "extracting", "processing");
                 const start = performance.now();
 
-                const loadedUnits = await getFile<Unit[]>(unitsResult.key, env.S3_BUCKET, "json");
+                const loadedUnits = await getFile<Unit[]>(unitsResult.unitsKey, env.S3_BUCKET, "json");
                 if (!loadedUnits) {
-                    throw new Error(`Failed to load units from ${unitsResult.key}`);
+                    throw new Error(`Failed to load units from ${unitsResult.unitsKey}`);
                 }
 
                 const graphs: Graph[] = [];
@@ -501,19 +509,17 @@ export const processFile = defineWorkflow(
                 }
                 const mergedGraph = mergeGraphs(graphs);
                 const graph = dedupe(mergedGraph);
-
-                const graphPath = `graphs/${input.graphId}/workflows/${WORKFLOW_STORAGE_VERSION}/${input.fileId}`;
-                const uploadedGraphFile = await putNamedFile(
+                const uploadedGraph = await putNamedFile(
                     "graph.json",
                     JSON.stringify(graph),
-                    graphPath,
+                    paths.processingPrefix,
                     env.S3_BUCKET
                 );
 
                 const duration = performance.now() - start;
 
                 return {
-                    key: uploadedGraphFile.key,
+                    graphKey: uploadedGraph.key,
                     duration,
                 };
             });
@@ -529,12 +535,12 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "deduplicating", "processing");
                 const start = performance.now();
 
-                const loadedGraph = await getFile<Graph>(graphResult.key, env.S3_BUCKET, "json");
-                if (!loadedGraph) {
-                    throw new Error(`Failed to load graph from ${graphResult.key}`);
-                }
-
                 await updateFileProcessingState(input.fileId, "saving", "processing");
+
+                const loadedGraph = await getFile<Graph>(graphResult.graphKey, env.S3_BUCKET, "json");
+                if (!loadedGraph) {
+                    throw new Error(`Failed to load graph from ${graphResult.graphKey}`);
+                }
 
                 const graph = loadedGraph.content;
                 const unitRows = toTextUnitRows(graph.units);
@@ -556,6 +562,7 @@ export const processFile = defineWorkflow(
                             textUnitId: source.unitId,
                             active: false,
                             description: source.description,
+                            sourceChunkIds: source.sourceChunkIds ?? [],
                             embedding: EMPTY_VECTOR_SQL,
                         }))
                     ),
@@ -567,6 +574,7 @@ export const processFile = defineWorkflow(
                             textUnitId: source.unitId,
                             active: false,
                             description: source.description,
+                            sourceChunkIds: source.sourceChunkIds ?? [],
                             embedding: EMPTY_VECTOR_SQL,
                         }))
                     ),
@@ -598,6 +606,7 @@ export const processFile = defineWorkflow(
                                     text: sql`excluded.text`,
                                     startPage: sql`excluded.start_page`,
                                     endPage: sql`excluded.end_page`,
+                                    chunks: sql`excluded.chunks`,
                                     updatedAt: sql`NOW()`,
                                 },
                             });
@@ -857,7 +866,12 @@ export const processFile = defineWorkflow(
                 const duration = performance.now() - start;
 
                 return {
-                    graphKey: graphResult.key,
+                    summary: {
+                        fileId: input.fileId,
+                        units: graph.units.length,
+                        entities: graph.entities.length,
+                        relationships: graph.relationships.length,
+                    },
                     duration,
                     metrics,
                 };
@@ -898,7 +912,25 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "completed", "processed");
             });
 
-            return saveGraphResult.graphKey;
+            await step.run({ name: "cleanup-processing-artifacts" }, async () => {
+                try {
+                    return await deleteGraphFileProcessingArtifacts({
+                        graphId: input.graphId,
+                        fileId: input.fileId,
+                        fileKey: fileData.key,
+                        bucket: env.S3_BUCKET,
+                    });
+                } catch (error) {
+                    logError("failed to cleanup processing artifacts", {
+                        graphId: input.graphId,
+                        fileId: input.fileId,
+                        error,
+                    });
+                    return { deletedKeyCount: 0 };
+                }
+            });
+
+            return saveGraphResult.summary;
         } catch (error) {
             if (run.retryTerminal) {
                 await updateFileProcessingState(input.fileId, "failed", "failed");

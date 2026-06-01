@@ -1,6 +1,7 @@
-import type { GraphChunker } from "..";
+import type { GraphChunker, GraphTextChunk } from "..";
 import { Tiktoken } from "js-tiktoken/lite";
 import o200k_base from "js-tiktoken/ranks/o200k_base";
+import { resolveTextChunkSpans } from "./span";
 
 type CSVChunkerOptions = {
     maxChunkSize: number;
@@ -14,6 +15,14 @@ export class CSVChunker implements GraphChunker {
     }
 
     async getChunks(input: string): Promise<string[]> {
+        return (await this.getChunkSpans(input)).map((chunk) => chunk.content);
+    }
+
+    async getChunkSpans(input: string): Promise<GraphTextChunk[]> {
+        return resolveTextChunkSpans(input, await this.getChunkContents(input));
+    }
+
+    private async getChunkContents(input: string): Promise<string[]> {
         const text = input.trim();
         if (text === "") {
             return [];

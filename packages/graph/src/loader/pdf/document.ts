@@ -1,17 +1,30 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LoadedGraphDocument } from "../..";
+import { describeOCRImages } from "../../lib/ocr-image";
 import type {
     FullOCRDeps,
+    ImageOccurrence,
     PageContentAnalysis,
     PDFDocumentLike,
-    PDFHybridResult,
     PDFOCRImage,
     PDFParserOptions,
+    PDFPageLike,
     PreparedPage,
+    RenderBlock,
 } from "./types";
-import { renderPageFence } from "../../lib/page-fence";
 import { analyzePageContent } from "./content";
 import { extractOCRTextFromPDFPages } from "./ocr";
-import { findRepeatedEdgeLinePatterns, renderPageMarkdown } from "./render";
+import { findRepeatedEdgeLinePatterns, renderPageBlocks } from "./render";
+import {
+    extractImageFenceId,
+    materializePageEntries,
+    PDFDocumentBuilder,
+    regionForBoundingBox,
+    renderImageTag,
+    sourceChunksForMaterializedEntries,
+    sourceChunksForWholePageText,
+    type PDFPageContentEntry as PageContentEntry,
+} from "./source-reference";
 import { applyActualTextToPageText, getLineText, inferLineDirection, tidyPageText } from "./text";
 
 type PDFHybridOCRFallbackOptions = Pick<FullOCRDeps, "rasterizeSelectedPages" | "transcribePage"> & {
@@ -19,84 +32,219 @@ type PDFHybridOCRFallbackOptions = Pick<FullOCRDeps, "rasterizeSelectedPages" | 
     model: LanguageModelV3;
 };
 
-type PDFHybridExtractionOptions = PDFParserOptions & {
+type PDFDocumentExtractionOptions = PDFParserOptions & {
+    mode?: "plain" | "hybrid";
     ocrFallback?: PDFHybridOCRFallbackOptions;
 };
 
-export async function extractPDFHybridFromDocument(
+export async function extractPDFDocumentFromDocument(
     pdf: PDFDocumentLike,
-    options: PDFHybridExtractionOptions = {}
-): Promise<PDFHybridResult> {
+    options: PDFDocumentExtractionOptions = {}
+): Promise<LoadedGraphDocument> {
+    const mode = options.mode ?? "plain";
+    return mode === "hybrid"
+        ? extractPDFHybridDocumentFromDocument(pdf, options)
+        : extractPDFPlainDocumentFromDocument(pdf);
+}
+
+export async function extractFullOCRDocumentFromPDF(
+    content: Uint8Array,
+    pdf: PDFDocumentLike,
+    model: LanguageModelV3,
+    deps: Pick<FullOCRDeps, "rasterizeSelectedPages" | "transcribePage"> = {}
+): Promise<LoadedGraphDocument> {
+    const builder = new PDFDocumentBuilder();
     const pages = pdf.getPages();
-    const images: PDFOCRImage[] = [];
-    const pageMarkdown: string[] = [];
-    const preparedPages: PreparedPage[] = [];
-    let imageCounter = 0;
+    const pageTexts = await extractOCRTextFromPDFPages(content, pages, model, deps);
 
     for (const page of pages) {
-        const content = analyzePageContent(pdf, page, () => {
-            imageCounter += 1;
-            return `img-${imageCounter}`;
-        });
-        const extractedText = page.extractText();
-        const actualTextApplied = applyActualTextToPageText(extractedText, content.actualTextSpans);
-        const pageText = tidyPageText(actualTextApplied);
+        const text = pageTexts.get(page.index)?.trim();
+        if (!text) {
+            continue;
+        }
 
-        preparedPages.push({
-            page,
-            pageText,
-            content,
-            ocrFallback: Boolean(options.ocrFallback && shouldUsePageOCRFallback(pageText, content)),
-        });
+        builder.appendPage(page.index, text, sourceChunksForWholePageText(text, page));
     }
 
-    const repeatedEdgePatterns = findRepeatedEdgeLinePatterns(preparedPages.map((entry) => entry.pageText));
+    return builder.build();
+}
+
+function extractPDFPlainDocumentFromDocument(pdf: PDFDocumentLike): LoadedGraphDocument {
+    const builder = new PDFDocumentBuilder();
+
+    for (const page of pdf.getPages()) {
+        const pageText = preparePageText(pdf, page);
+        const entries = pageText.lines
+            .map((line): PageContentEntry | null => {
+                const text = getLineText(line);
+                if (!text) {
+                    return null;
+                }
+
+                return {
+                    type: "text",
+                    text,
+                    region: regionForBoundingBox("text", page.index + 1, pageText.width, pageText.height, line.bbox),
+                };
+            })
+            .filter((entry): entry is PageContentEntry => entry !== null);
+        const { content, entries: materializedEntries } = materializePageEntries(entries, "\n");
+        builder.appendPage(page.index, content, sourceChunksForMaterializedEntries(materializedEntries));
+    }
+
+    return builder.build();
+}
+
+async function extractPDFHybridDocumentFromDocument(
+    pdf: PDFDocumentLike,
+    options: PDFDocumentExtractionOptions
+): Promise<LoadedGraphDocument> {
+    const pages = preparePages(pdf, Boolean(options.ocrFallback));
+    const repeatedEdgePatterns = findRepeatedEdgeLinePatterns(pages.map((entry) => entry.pageText));
+    const builder = new PDFDocumentBuilder();
     const ocrFallbackTexts = options.ocrFallback
         ? await extractOCRTextFromPDFPages(
               options.ocrFallback.content,
-              preparedPages.filter((entry) => entry.ocrFallback).map((entry) => entry.page),
+              pages.filter((entry) => entry.ocrFallback).map((entry) => entry.page),
               options.ocrFallback.model,
               options.ocrFallback
           )
         : new Map<number, string>();
+    const renderedPages = pages.map((entry) => {
+        if (entry.ocrFallback) {
+            return { entry, blocks: [] };
+        }
 
-    for (const entry of preparedPages) {
-        const { page, pageText, content } = entry;
+        return {
+            entry,
+            blocks: renderPageBlocks(
+                entry.pageText,
+                entry.content.images,
+                entry.content.explicitEdges,
+                repeatedEdgePatterns,
+                options
+            ),
+        };
+    });
+    const referencedImages = collectReferencedImages(renderedPages);
+    const imageDescriptions =
+        referencedImages.length > 0 && options.ocrFallback
+            ? await describeOCRImages(referencedImages, options.ocrFallback.model)
+            : new Map<string, string>();
+
+    for (const renderedPage of renderedPages) {
+        const { entry, blocks } = renderedPage;
+        const page = entry.page;
 
         if (entry.ocrFallback) {
             const ocrText = ocrFallbackTexts.get(page.index)?.trim();
             if (ocrText) {
-                pageMarkdown.push(withPageFence(page.index, ocrText));
+                builder.appendPage(page.index, ocrText, sourceChunksForWholePageText(ocrText, page));
             }
 
             continue;
         }
 
-        const markdown = renderPageMarkdown(
-            pageText,
-            content.images,
-            content.explicitEdges,
-            repeatedEdgePatterns,
-            options
+        const { content, entries } = materializePageEntries(
+            blocks.flatMap((block) =>
+                pageContentEntriesForBlock(block, entry.pageText, entry.content.images, imageDescriptions)
+            ),
+            "\n\n"
         );
-        const referencedImageIds = extractReferencedImageIds(markdown);
-        for (const image of content.images) {
-            if (!referencedImageIds.has(image.id)) {
+        builder.appendPage(page.index, content, sourceChunksForMaterializedEntries(entries));
+    }
+
+    return builder.build();
+}
+
+function preparePages(pdf: PDFDocumentLike, allowOCRFallback: boolean): PreparedPage[] {
+    const pages: PreparedPage[] = [];
+    let imageCounter = 0;
+
+    for (const page of pdf.getPages()) {
+        const content = analyzePageContent(pdf, page, () => {
+            imageCounter += 1;
+            return `img-${imageCounter}`;
+        });
+        const pageText = preparePageText(pdf, page, content);
+
+        pages.push({
+            page,
+            pageText,
+            content,
+            ocrFallback: allowOCRFallback && shouldUsePageOCRFallback(pageText, content),
+        });
+    }
+
+    return pages;
+}
+
+function preparePageText(pdf: PDFDocumentLike, page: PDFPageLike, content?: PageContentAnalysis) {
+    const pageContent = content ?? analyzePageContent(pdf, page, () => "ignored-image");
+    const extractedText = page.extractText();
+    const actualTextApplied = applyActualTextToPageText(extractedText, pageContent.actualTextSpans);
+    return tidyPageText(actualTextApplied);
+}
+
+function collectReferencedImages(
+    pages: Array<{ entry: PreparedPage; blocks: RenderBlock[] }>
+): Array<PDFOCRImage & Pick<ImageOccurrence, "bbox" | "pageIndex">> {
+    const images: Array<PDFOCRImage & Pick<ImageOccurrence, "bbox" | "pageIndex">> = [];
+    const seen = new Set<string>();
+
+    for (const { entry, blocks } of pages) {
+        const referencedImageIds = extractReferencedImageIds(blocks.map((block) => block.text).join("\n\n"));
+        for (const image of entry.content.images) {
+            if (!referencedImageIds.has(image.id) || seen.has(image.id)) {
                 continue;
             }
 
-            images.push({ id: image.id, type: image.type, content: image.content });
-        }
-
-        if (markdown.trim().length > 0) {
-            pageMarkdown.push(withPageFence(page.index, markdown.trim()));
+            seen.add(image.id);
+            images.push(image);
         }
     }
 
-    return {
-        text: pageMarkdown.join("\n\n"),
-        images,
-    };
+    return images;
+}
+
+function pageContentEntriesForBlock(
+    block: RenderBlock,
+    pageText: PreparedPage["pageText"],
+    images: ImageOccurrence[],
+    imageDescriptions: Map<string, string>
+): PageContentEntry[] {
+    if (block.kind !== "image") {
+        return [
+            {
+                type: "text",
+                text: block.text.trim(),
+                region: regionForBoundingBox(
+                    "text",
+                    pageText.pageIndex + 1,
+                    pageText.width,
+                    pageText.height,
+                    block.bbox
+                ),
+            },
+        ];
+    }
+
+    const imageId = extractImageFenceId(block.text);
+    const image = imageId ? images.find((candidate) => candidate.id === imageId) : undefined;
+    if (!image) {
+        return [];
+    }
+
+    const description = imageDescriptions.get(image.id) ?? "";
+    return [
+        {
+            type: "image",
+            text: renderImageTag(image.id, description),
+            sourceText: description,
+            imageId: image.id,
+            region: regionForBoundingBox("image", image.pageIndex + 1, pageText.width, pageText.height, image.bbox),
+        },
+    ];
 }
 
 export function shouldUsePageOCRFallback(pageText: PreparedPage["pageText"], content: PageContentAnalysis): boolean {
@@ -174,23 +322,5 @@ export function extractReferencedImageIds(markdown: string): Set<string> {
 }
 
 export function extractPlainTextFromDocument(pdf: PDFDocumentLike): string {
-    const pages = pdf.getPages();
-    const pageTexts: string[] = [];
-
-    for (const page of pages) {
-        const content = analyzePageContent(pdf, page, () => "ignored-image");
-        const extractedText = page.extractText();
-        const actualTextApplied = applyActualTextToPageText(extractedText, content.actualTextSpans);
-        const pageText = tidyPageText(actualTextApplied);
-        const text = pageText.text.trim();
-        if (text) {
-            pageTexts.push(withPageFence(page.index, text));
-        }
-    }
-
-    return pageTexts.join("\n\n");
-}
-
-function withPageFence(pageIndex: number, text: string): string {
-    return `${renderPageFence(pageIndex + 1)}\n\n${text}`;
+    return extractPDFPlainDocumentFromDocument(pdf).text;
 }

@@ -31,10 +31,13 @@ import type {
     GraphFilesResponse,
     GraphPatchResponse,
     GraphPatchSuccessData,
+    SourceReferenceResponse,
+    SourceReferenceBatchResponse,
+    SourceReferenceBatchSuccessData,
     TextUnitResponse,
-} from "@kiwi/api/types";
+} from "@kiwi/contracts";
 import { getProjectFileProxyPath } from "@kiwi/files/project-file-proxy-path";
-import type { ApiProjectFile, ApiTextUnit } from "@/types/api";
+import type { ApiProjectFile, ApiSourceReference, ApiTextUnit } from "@/types/api";
 import { ApiError, unwrapApiResponse, type KiwiApiClient } from "./client";
 
 export const ORGANIZATION_GROUP_ID = "__organization__";
@@ -292,6 +295,37 @@ export async function searchSidebarTargets(client: KiwiApiClient, query: string)
  */
 export async function fetchTextUnit(client: KiwiApiClient, projectId: string, unitId: string): Promise<ApiTextUnit> {
     const response = await client.get<TextUnitResponse>(`/graphs/${projectId}/units/${unitId}`);
+    return unwrapApiResponse(response);
+}
+
+/**
+ * Fetches selected source chunks and preview metadata for a reference dialog.
+ */
+export async function fetchSourceReference(
+    client: KiwiApiClient,
+    projectId: string,
+    sourceId: string
+): Promise<ApiSourceReference> {
+    const response = await client.get<SourceReferenceResponse>(`/graphs/${projectId}/sources/${sourceId}/reference`);
+    return unwrapApiResponse(response);
+}
+
+/**
+ * Fetches multiple source references in a single graph-scoped request.
+ */
+export async function fetchSourceReferences(
+    client: KiwiApiClient,
+    projectId: string,
+    sourceIds: string[]
+): Promise<SourceReferenceBatchSuccessData> {
+    const uniqueSourceIds = [...new Set(sourceIds.map((sourceId) => sourceId.trim()).filter(Boolean))];
+    if (uniqueSourceIds.length === 0) {
+        return { items: [], missing_source_ids: [] };
+    }
+
+    const response = await client.post<SourceReferenceBatchResponse>(`/graphs/${projectId}/sources/references`, {
+        source_ids: uniqueSourceIds,
+    });
     return unwrapApiResponse(response);
 }
 

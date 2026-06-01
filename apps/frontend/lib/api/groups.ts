@@ -14,7 +14,7 @@ import type {
     TeamPatchResponse,
     TeamPatchSuccessData,
     TeamUsersResponse,
-} from "@kiwi/api/types";
+} from "@kiwi/contracts";
 import type { ApiGraph, ApiGroup, ApiGroupUser, ApiOrganizationMember } from "@/types/api";
 import { unwrapApiResponse, type KiwiApiClient } from "./client";
 

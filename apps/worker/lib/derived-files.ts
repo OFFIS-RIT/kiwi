@@ -1,10 +1,12 @@
-import { deleteFile, getDerivedFilePrefix, listFiles } from "@kiwi/files";
+import { deleteFile, getGraphFileArtifactPaths, listFiles } from "@kiwi/files";
 
 export {
     getDerivedFilePrefix,
     getDerivedImagePrefix,
     getDerivedPdfPreviewPrefix,
     getDerivedSourceKey,
+    getGraphFileArtifactPaths,
+    getProcessingArtifactPrefix,
 } from "@kiwi/files";
 
 type DerivedCleanupDeps = {
@@ -12,18 +14,41 @@ type DerivedCleanupDeps = {
     deleteFile?: (key: string, bucket: string) => Promise<boolean>;
 };
 
-export async function deleteDerivedFileArtifacts(
-    graphId: string,
-    fileId: string,
-    bucket: string,
+export async function deleteGraphFileArtifacts(
+    options: {
+        graphId: string;
+        fileId: string;
+        fileKey: string;
+        bucket: string;
+    },
     deps: DerivedCleanupDeps = {}
 ): Promise<string[]> {
-    const derivedPrefix = getDerivedFilePrefix(graphId, fileId);
     const loadKeys = deps.listFiles ?? listFiles;
     const removeKey = deps.deleteFile ?? deleteFile;
-    const derivedKeys = await loadKeys(derivedPrefix, bucket);
+    const paths = getGraphFileArtifactPaths(options);
+    const listedKeys = await Promise.all(paths.cleanupPrefixes.map((prefix) => loadKeys(prefix, options.bucket)));
+    const artifactKeys = [...new Set(listedKeys.flat())];
 
-    await Promise.all(derivedKeys.map((key) => removeKey(key, bucket)));
+    await Promise.all(artifactKeys.map((key) => removeKey(key, options.bucket)));
 
-    return derivedKeys;
+    return artifactKeys;
+}
+
+export async function deleteGraphFileProcessingArtifacts(
+    options: {
+        graphId: string;
+        fileId: string;
+        fileKey: string;
+        bucket: string;
+    },
+    deps: DerivedCleanupDeps = {}
+): Promise<{ deletedKeyCount: number }> {
+    const loadKeys = deps.listFiles ?? listFiles;
+    const removeKey = deps.deleteFile ?? deleteFile;
+    const paths = getGraphFileArtifactPaths(options);
+    const artifactKeys = [...new Set(await loadKeys(paths.processingPrefix, options.bucket))];
+
+    await Promise.all(artifactKeys.map((key) => removeKey(key, options.bucket)));
+
+    return { deletedKeyCount: artifactKeys.length };
 }

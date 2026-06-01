@@ -1,6 +1,7 @@
-import type { GraphChunker } from "..";
+import type { GraphChunker, GraphTextChunk } from "..";
 import { Tiktoken } from "js-tiktoken/lite";
 import o200k_base from "js-tiktoken/ranks/o200k_base";
+import { resolveTextChunkSpans } from "./span";
 
 const MARKDOWN_TABLE_DELIMITER_PATTERN = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
 const MARKDOWN_HEADING_PATTERN = /^\s{0,3}#{1,6}\s*\S+/;
@@ -71,6 +72,14 @@ export class SemanticChunker implements GraphChunker {
     constructor(private readonly maxChunkSize: number) {}
 
     async getChunks(input: string): Promise<string[]> {
+        return (await this.getChunkSpans(input)).map((chunk) => chunk.content);
+    }
+
+    async getChunkSpans(input: string): Promise<GraphTextChunk[]> {
+        return resolveTextChunkSpans(input, await this.getChunkContents(input));
+    }
+
+    private async getChunkContents(input: string): Promise<string[]> {
         const text = input.trim();
         if (text === "") {
             return [];

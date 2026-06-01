@@ -53,4 +53,18 @@ describe("SemanticChunker", () => {
         expect(chunks[0]).toContain("Dr. Smith measured 3.14 meters.");
         expect(chunks.some((chunk) => chunk.includes("01.01.2024."))).toBe(true);
     });
+
+    test("returns source spans for trimmed semantic chunks", async () => {
+        const input = "  Alpha paragraph.\n\nBeta paragraph.  ";
+
+        const spans = await new SemanticChunker(100).getChunkSpans(input);
+
+        expect(spans).toEqual([
+            {
+                content: "Alpha paragraph.\n\nBeta paragraph.",
+                startOffset: 2,
+                endOffset: input.length - 2,
+            },
+        ]);
+    });
 });

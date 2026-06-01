@@ -24,6 +24,7 @@
         "@elysiajs/cors": "^1.4.2",
         "@kiwi/ai": "workspace:*",
         "@kiwi/auth": "workspace:*",
+        "@kiwi/contracts": "workspace:*",
         "@kiwi/db": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",
@@ -39,6 +40,7 @@
         "elysia": "1.4.28",
         "ldap-authentication": "4.0.4",
         "openworkflow": "catalog:",
+        "ulid": "^3.0.2",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -57,8 +59,8 @@
       "dependencies": {
         "@ai-sdk/react": "catalog:",
         "@kiwi/ai": "workspace:*",
-        "@kiwi/api": "workspace:*",
         "@kiwi/auth": "workspace:*",
+        "@kiwi/contracts": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@radix-ui/react-avatar": "^1.1.11",
         "@radix-ui/react-collapsible": "^1.1.12",
@@ -122,6 +124,7 @@
       "name": "@kiwi/worker",
       "dependencies": {
         "@kiwi/ai": "workspace:*",
+        "@kiwi/contracts": "workspace:*",
         "@kiwi/db": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",
@@ -150,6 +153,7 @@
         "@ai-sdk/openai": "catalog:",
         "@ai-sdk/openai-compatible": "catalog:",
         "@ai-sdk/provider": "catalog:",
+        "@kiwi/contracts": "workspace:*",
         "@kiwi/db": "workspace:*",
         "@kiwi/logger": "workspace:*",
         "ai": "catalog:",
@@ -185,9 +189,22 @@
         "typescript": "catalog:",
       },
     },
+    "packages/contracts": {
+      "name": "@kiwi/contracts",
+      "dependencies": {
+        "ai": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+      },
+      "peerDependencies": {
+        "typescript": "catalog:",
+      },
+    },
     "packages/db": {
       "name": "@kiwi/db",
       "dependencies": {
+        "@kiwi/contracts": "workspace:*",
         "drizzle-orm": "catalog:",
         "pg": "catalog:",
         "ulid": "^3.0.2",
@@ -218,6 +235,7 @@
       "dependencies": {
         "@ai-sdk/provider": "catalog:",
         "@kiwi/ai": "workspace:*",
+        "@kiwi/contracts": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@libpdf/core": "^0.3.6",
         "@platformatic/vfs": "^0.4.0",
@@ -588,6 +606,8 @@
     "@kiwi/api": ["@kiwi/api@workspace:apps/api"],
 
     "@kiwi/auth": ["@kiwi/auth@workspace:packages/auth"],
+
+    "@kiwi/contracts": ["@kiwi/contracts@workspace:packages/contracts"],
 
     "@kiwi/db": ["@kiwi/db@workspace:packages/db"],
 

@@ -13,13 +13,12 @@ import {
     type ChatUIMessage,
     type Client,
 } from "@kiwi/ai";
+import type { MessageCompactionPart, MessagePart } from "@kiwi/contracts/chat";
 import { db } from "@kiwi/db";
 import {
     chatTable,
     messageTable,
     type ChatMessage,
-    type MessageCompactionPart,
-    type MessagePart,
 } from "@kiwi/db/tables/chats";
 import { validateUIMessages, type ModelMessage } from "ai";
 import { and, asc, eq, ne } from "drizzle-orm";

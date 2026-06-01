@@ -1,0 +1,25 @@
+{
+    "name": "@kiwi/contracts",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./chat": "./src/chat.ts",
+        "./responses": "./src/responses.ts",
+        "./routes": "./src/routes.ts",
+        "./source": "./src/source.ts"
+    },
+    "scripts": {
+        "build": "bunx tsc --noEmit",
+        "test": "bun test --pass-with-no-tests"
+    },
+    "dependencies": {
+        "ai": "catalog:"
+    },
+    "devDependencies": {
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

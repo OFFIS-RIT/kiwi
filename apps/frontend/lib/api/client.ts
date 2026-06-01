@@ -1,5 +1,5 @@
 import type { KiwiAuthClient } from "@kiwi/auth/client";
-import type { ApiErrorCode, ApiResponse, ErrorResponse, SuccessfulResponse } from "@kiwi/api/types";
+import type { ApiErrorCode, ApiResponse, ErrorResponse, SuccessfulResponse } from "@kiwi/contracts";
 
 export class ApiError extends Error {
     constructor(

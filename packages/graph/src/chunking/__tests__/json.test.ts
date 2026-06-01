@@ -47,4 +47,33 @@ describe("JSONChunker", () => {
 
         expect(chunks).toEqual([input]);
     });
+
+    test("returns source spans for chunks that remain verbatim JSON", async () => {
+        const input = '{"name":"Alice","age":30}';
+
+        const spans = await new JSONChunker({ maxChunkSize: 100 }).getChunkSpans(input);
+
+        expect(spans).toEqual([
+            {
+                content: input,
+                startOffset: 0,
+                endOffset: input.length,
+            },
+        ]);
+    });
+
+    test("marks path-prefixed synthetic chunks as unmatched spans", async () => {
+        const input = JSON.stringify({
+            data: {
+                a: "x".repeat(120),
+                b: "y".repeat(120),
+            },
+        });
+
+        const spans = await new JSONChunker({ maxChunkSize: 20 }).getChunkSpans(input);
+
+        expect(spans.length).toBeGreaterThan(1);
+        expect(spans.every((span) => span.content.startsWith("Path: $.data"))).toBe(true);
+        expect(spans.every((span) => span.startOffset === 0 && span.endOffset === 0)).toBe(true);
+    });
 });

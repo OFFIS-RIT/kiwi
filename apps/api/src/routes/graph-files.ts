@@ -5,12 +5,19 @@ import { db } from "@kiwi/db";
 import { filesTable } from "@kiwi/db/tables/graph";
 import { error as logError } from "@kiwi/logger";
 import { env } from "../env";
+import { binaryResponse } from "../lib/binary-response";
 import { verifyProjectFileAccessToken } from "../lib/project-file-access-token";
 import { assertCanViewGraph } from "../lib/graph-access";
 import { getGraphFileProxyResponse, loadGraphFileByKey, loadGraphFileForProxy } from "../lib/graph-file-proxy";
 import { mapGraphError, selectGraphDetailFileFields, toGraphFileRecord, type GraphFileRow } from "../lib/graph-route";
 import { getOrRenderPDFPreviewPage } from "../lib/pdf-preview-cache";
 import { getProjectFileProxyPath } from "../lib/project-file-url";
+import {
+    loadSourceReference,
+    loadSourceReferenceImage,
+    loadSourceReferences,
+    type SourceReferenceImage,
+} from "../lib/source-reference";
 import { getPdfPreviewPageNumbers, parsePageImageParam } from "../lib/text-unit-preview";
 import { loadTextUnitWithFile, pngResponse, toTextUnitRecord } from "../lib/text-unit-record";
 import { mapUnitError } from "../lib/unit";
@@ -43,6 +50,18 @@ function mapFileRouteError(status: FileRouteStatus, error: unknown) {
     }
 
     return mapGraphError(status, error);
+}
+
+function mapSourceReferenceError(status: FileRouteStatus, error: unknown) {
+    if (error instanceof Error && error.message === API_ERROR_CODES.SOURCE_NOT_FOUND) {
+        return status(404, errorResponse("Source not found", API_ERROR_CODES.SOURCE_NOT_FOUND));
+    }
+
+    return mapUnitError(status, error);
+}
+
+function sourceReferenceImageResponse(image: SourceReferenceImage): Response {
+    return binaryResponse(image.content, { contentType: image.contentType });
 }
 
 async function serveGraphFile({
@@ -239,6 +258,98 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
             }),
             body: t.Object({
                 file_key: t.String(),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["view"],
+            }),
+        }
+    )
+    .get(
+        "/:id/sources/:sourceId/chunks/:chunkId/image",
+        async ({ params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const chunkId = Number(params.chunkId);
+            if (!Number.isInteger(chunkId) || chunkId < 1) {
+                return status(404, errorResponse("Source not found", API_ERROR_CODES.SOURCE_NOT_FOUND));
+            }
+
+            const imageResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                return loadSourceReferenceImage(params.id, params.sourceId, chunkId);
+            });
+
+            if (imageResult.isErr()) {
+                return mapSourceReferenceError(status, imageResult.error);
+            }
+
+            return sourceReferenceImageResponse(imageResult.value);
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+                sourceId: t.String(),
+                chunkId: t.String(),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["view"],
+            }),
+        }
+    )
+    .get(
+        "/:id/sources/:sourceId/reference",
+        async ({ params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const referenceResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                return loadSourceReference(params.id, params.sourceId);
+            });
+
+            if (referenceResult.isErr()) {
+                return mapSourceReferenceError(status, referenceResult.error);
+            }
+
+            return status(200, successResponse(referenceResult.value));
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+                sourceId: t.String(),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["view"],
+            }),
+        }
+    )
+    .post(
+        "/:id/sources/references",
+        async ({ body, params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const referenceResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                return loadSourceReferences(params.id, body.source_ids);
+            });
+
+            if (referenceResult.isErr()) {
+                return mapSourceReferenceError(status, referenceResult.error);
+            }
+
+            return status(200, successResponse(referenceResult.value));
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+            }),
+            body: t.Object({
+                source_ids: t.Array(t.String()),
             }),
             beforeHandle: requirePermissions({
                 graph: ["view"],

@@ -39,7 +39,7 @@ async function buildFixture(): Promise<{
         loader,
         ocr: true,
         model: {} as never,
-        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
+        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/file-1.pdf/file-1/images" },
     }).getText();
 
     return { plain, ocrText };
@@ -64,7 +64,7 @@ async function buildPPTXText(
         loader,
         ocr: options.ocr,
         model: {} as never,
-        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
+        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/file-1.pdf/file-1/images" },
     }).getText();
 }
 
@@ -135,7 +135,7 @@ describe("PPTXLoader", () => {
         const fixture = await buildFixture();
 
         expect(fixture.ocrText).toContain(
-            '<image id="img-1" key="graphs/graph-1/derived/file-1/images/img-1.png">Slide image summary</image>'
+            '<image id="img-1" key="graphs/graph-1/file-1.pdf/file-1/images/img-1.png">Slide image summary</image>'
         );
         expect(fixture.ocrText).not.toMatch(/:::IMG-img-1:::/);
         expect(fixture.ocrText).toContain("Omega after table.");
@@ -221,8 +221,8 @@ ${shapeXml("Before images")}
         );
 
         expect(text).toContain("Before images");
-        expect(text).toContain('<image id="img-1" key="graphs/graph-1/derived/file-1/images/img-1.png">');
-        expect(text).toContain('<image id="img-2" key="graphs/graph-1/derived/file-1/images/img-2.png">');
+        expect(text).toContain('<image id="img-1" key="graphs/graph-1/file-1.pdf/file-1/images/img-1.png">');
+        expect(text).toContain('<image id="img-2" key="graphs/graph-1/file-1.pdf/file-1/images/img-2.png">');
         expect(putNamedFileMock.mock.calls.map((call) => call[0])).toEqual(["img-1.png", "img-2.png"]);
         expect(generateTextMock).toHaveBeenCalledTimes(2);
     });

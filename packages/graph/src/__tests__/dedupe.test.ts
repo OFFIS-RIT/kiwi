@@ -2,19 +2,22 @@ import { describe, expect, test } from "bun:test";
 import type { Graph } from "../index.ts";
 import { dedupe } from "../dedupe.ts";
 
+const textUnit = (id: string, fileId: string, content: string) => ({
+    id,
+    fileId,
+    content,
+    startPage: null,
+    endPage: null,
+    chunks: [{ id: 1, type: "text" as const, text: content, startPage: null, endPage: null }],
+});
+
 describe("dedupe", () => {
     test("merges organization aliases and remaps relationships", () => {
         const graph: Graph = {
             id: "graph-1",
             units: [
-                {
-                    id: "unit-1",
-                    fileId: "file-1",
-                    content: "Apple announced a product.",
-                    startPage: null,
-                    endPage: null,
-                },
-                { id: "unit-2", fileId: "file-1", content: "Apple Inc hired Alice.", startPage: null, endPage: null },
+                textUnit("unit-1", "file-1", "Apple announced a product."),
+                textUnit("unit-2", "file-1", "Apple Inc hired Alice."),
             ],
             entities: [
                 {
@@ -89,15 +92,7 @@ describe("dedupe", () => {
     test("merges acronym variants for organizations", () => {
         const graph: Graph = {
             id: "graph-2",
-            units: [
-                {
-                    id: "unit-1",
-                    fileId: "file-1",
-                    content: "IBM is short for International Business Machines.",
-                    startPage: null,
-                    endPage: null,
-                },
-            ],
+            units: [textUnit("unit-1", "file-1", "IBM is short for International Business Machines.")],
             entities: [
                 {
                     id: "entity-ibm",
@@ -185,15 +180,7 @@ describe("dedupe", () => {
     test("merges compatible person names", () => {
         const graph: Graph = {
             id: "graph-3",
-            units: [
-                {
-                    id: "unit-1",
-                    fileId: "file-1",
-                    content: "John A. Smith met John Smith.",
-                    startPage: null,
-                    endPage: null,
-                },
-            ],
+            units: [textUnit("unit-1", "file-1", "John A. Smith met John Smith.")],
             entities: [
                 {
                     id: "entity-john-short",
@@ -227,15 +214,7 @@ describe("dedupe", () => {
     test("does not merge exact-only types unless names match exactly after normalization", () => {
         const graph: Graph = {
             id: "graph-4",
-            units: [
-                {
-                    id: "unit-1",
-                    fileId: "file-1",
-                    content: "Two facts exist.",
-                    startPage: null,
-                    endPage: null,
-                },
-            ],
+            units: [textUnit("unit-1", "file-1", "Two facts exist.")],
             entities: [
                 {
                     id: "entity-fact-a",
@@ -279,15 +258,7 @@ describe("dedupe", () => {
     test("does not merge same name across different types", () => {
         const graph: Graph = {
             id: "graph-5",
-            units: [
-                {
-                    id: "unit-1",
-                    fileId: "file-1",
-                    content: "Apple can be a company or a product.",
-                    startPage: null,
-                    endPage: null,
-                },
-            ],
+            units: [textUnit("unit-1", "file-1", "Apple can be a company or a product.")],
             entities: [
                 {
                     id: "entity-org",

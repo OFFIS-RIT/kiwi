@@ -11,6 +11,15 @@ import { average, getTop, median, squashWhitespace, unionBoxes } from "./geometr
 import { orderItemsByReadingLayout } from "./layout";
 
 const STRONG_INLINE_TOKEN_CONNECTORS = new Set(["_", "/", "\\", "+", "=", "^", "~", "*"]);
+const STREAM_ORDER_BACKWARD_MOVEMENT_RATIO = 0.25;
+const RTL_BACKWARD_MOVEMENT_RATIO = 0.8;
+
+type LineInfo = {
+    line: TextLine;
+    chars: TextChar[];
+    visibleChars: TextChar[];
+    medianFontSize: number;
+};
 
 export function tidyPageText(pageText: PageText): PageText {
     const horizontalLines: TextLine[] = [];
@@ -58,7 +67,7 @@ export function tidyPageText(pageText: PageText): PageText {
     }
 
     const lines = orderItemsByReadingLayout(
-        [...horizontalLines, ...buildVerticalTextLines(verticalChars)],
+        [...mergeDetachedScriptLines(horizontalLines), ...buildVerticalTextLines(verticalChars)],
         (line) => line.bbox,
         pageText.width
     );
@@ -417,6 +426,117 @@ export function createSyntheticTextLine(chars: TextChar[], direction: TextDirect
     };
 }
 
+function mergeDetachedScriptLines(lines: TextLine[]): TextLine[] {
+    const lineInfos = lines.map((line) => {
+        const chars = getPreparedLineChars(line);
+        const visibleChars = chars.filter((char) => getExpandedCharText(char.char).trim().length > 0);
+        return {
+            line,
+            chars,
+            visibleChars,
+            medianFontSize: median(visibleChars.map((char) => char.fontSize)) || 0,
+        };
+    });
+    const additions = new Map<number, TextChar[]>();
+    const consumed = new Set<number>();
+
+    for (let index = 0; index < lineInfos.length; index += 1) {
+        const candidate = lineInfos[index];
+        if (!candidate || !isDetachedScriptLineCandidate(candidate.visibleChars)) {
+            continue;
+        }
+
+        const targetIndex = findDetachedScriptLineTarget(index, lineInfos);
+        if (targetIndex === null) {
+            continue;
+        }
+
+        consumed.add(index);
+        additions.set(targetIndex, [...(additions.get(targetIndex) ?? []), ...candidate.chars]);
+    }
+
+    return lineInfos
+        .map((entry, index) => {
+            if (consumed.has(index)) {
+                return null;
+            }
+
+            const extraChars = additions.get(index);
+            if (!extraChars || extraChars.length === 0) {
+                return entry.line;
+            }
+
+            return createSyntheticTextLine([...entry.chars, ...extraChars], "horizontal") ?? entry.line;
+        })
+        .filter((line): line is TextLine => line !== null);
+}
+
+function isDetachedScriptLineCandidate(chars: TextChar[]): boolean {
+    return (
+        chars.length > 0 &&
+        chars.length <= 4 &&
+        chars.every((char) => getExpandedCharText(char.char).trim().length > 0)
+    );
+}
+
+function findDetachedScriptLineTarget(candidateIndex: number, lineInfos: LineInfo[]): number | null {
+    const candidate = lineInfos[candidateIndex];
+    if (!candidate || candidate.medianFontSize <= 0) {
+        return null;
+    }
+
+    const candidateBox = unionBoxes(candidate.visibleChars.map((char) => char.bbox));
+    if (!candidateBox) {
+        return null;
+    }
+
+    let best: { index: number; distance: number } | null = null;
+    for (let index = 0; index < lineInfos.length; index += 1) {
+        if (index === candidateIndex) {
+            continue;
+        }
+
+        const target = lineInfos[index];
+        if (!target || target.medianFontSize <= 0 || candidate.medianFontSize > target.medianFontSize * 0.9) {
+            continue;
+        }
+
+        if (!isDetachedScriptLineTarget(candidate, candidateBox, target)) {
+            continue;
+        }
+
+        const distance = Math.abs(candidate.line.baseline - target.line.baseline);
+        if (!best || distance < best.distance) {
+            best = { index, distance };
+        }
+    }
+
+    return best?.index ?? null;
+}
+
+function isDetachedScriptLineTarget(
+    candidate: LineInfo,
+    candidateBox: TextChar["bbox"],
+    target: LineInfo
+): boolean {
+    const horizontalSlack = Math.max(4, target.medianFontSize * 0.5);
+    const candidateCenterX = candidateBox.x + candidateBox.width / 2;
+    const targetRight = target.line.bbox.x + target.line.bbox.width;
+    if (candidateCenterX < target.line.bbox.x - horizontalSlack || candidateCenterX > targetRight + horizontalSlack) {
+        return false;
+    }
+
+    const verticalOverlap = Math.min(getTop(candidateBox), getTop(target.line.bbox)) - Math.max(candidateBox.y, target.line.bbox.y);
+    const baselineDelta = Math.abs(candidate.line.baseline - target.line.baseline);
+    if (verticalOverlap <= 0 && baselineDelta > Math.max(6, target.medianFontSize * 0.6)) {
+        return false;
+    }
+
+    return candidate.visibleChars.some((candidateChar) =>
+        target.visibleChars.some((targetChar) => isScriptLikeTextChar(targetChar, candidateChar))
+    );
+}
+
 export function sortVerticalTextChars(chars: TextChar[]): TextChar[] {
     return [...chars].sort((left, right) => {
         if (typeof left.sequenceIndex === "number" && typeof right.sequenceIndex === "number") {
@@ -564,17 +684,11 @@ export function getPreparedLineChars(line: TextLine): TextChar[] {
 }
 
 export function sortTextChars(chars: TextChar[]): TextChar[] {
-    if (!chars.some((char) => typeof char.sequenceIndex === "number")) {
-        return [...chars];
+    if (shouldUseStreamOrder(chars)) {
+        return sortTextCharsBySequence(chars);
     }
 
     return [...chars].sort((left, right) => {
-        if (typeof left.sequenceIndex === "number" && typeof right.sequenceIndex === "number") {
-            if (left.sequenceIndex !== right.sequenceIndex) {
-                return left.sequenceIndex - right.sequenceIndex;
-            }
-        }
-
         if (Math.abs(left.bbox.x - right.bbox.x) > 0.001) {
             return left.bbox.x - right.bbox.x;
         }
@@ -587,8 +701,51 @@ export function sortTextChars(chars: TextChar[]): TextChar[] {
             return left.baseline - right.baseline;
         }
 
+        if (typeof left.sequenceIndex === "number" && typeof right.sequenceIndex === "number") {
+            if (left.sequenceIndex !== right.sequenceIndex) {
+                return left.sequenceIndex - right.sequenceIndex;
+            }
+        }
+
         return left.bbox.y - right.bbox.y;
     });
+}
+
+export function shouldUseStreamOrder(chars: TextChar[]): boolean {
+    if (chars.length <= 1 || !chars.every((char) => typeof char.sequenceIndex === "number")) {
+        return false;
+    }
+
+    const visible = sortTextCharsBySequence(chars).filter((char) => getExpandedCharText(char.char).trim().length > 0);
+    if (visible.length <= 1) {
+        return true;
+    }
+
+    let decreasing = 0;
+    let hasLargeBackwardJump = false;
+    for (let index = 1; index < visible.length; index += 1) {
+        const previous = visible[index - 1]!;
+        const current = visible[index]!;
+        if (current.bbox.x < previous.bbox.x) {
+            decreasing += 1;
+            const jump = previous.bbox.x - current.bbox.x;
+            const jumpThreshold = Math.max(12, Math.min(previous.fontSize, current.fontSize) * 2);
+            if (jump > jumpThreshold) {
+                hasLargeBackwardJump = true;
+            }
+        }
+    }
+
+    const decreasingRatio = decreasing / (visible.length - 1);
+
+    return (
+        decreasingRatio >= RTL_BACKWARD_MOVEMENT_RATIO ||
+        (!hasLargeBackwardJump && decreasingRatio < STREAM_ORDER_BACKWARD_MOVEMENT_RATIO)
+    );
+}
+
+function sortTextCharsBySequence(chars: TextChar[]): TextChar[] {
+    return [...chars].sort((left, right) => (left.sequenceIndex ?? 0) - (right.sequenceIndex ?? 0));
 }
 
 export function dedupeTextChars(chars: TextChar[], tolerance = TEXT_CHAR_DEDUPE_TOLERANCE): TextChar[] {

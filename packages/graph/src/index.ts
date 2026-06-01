@@ -1,3 +1,5 @@
+import type { LoadedGraphDocument, TextUnitSourceChunk } from "@kiwi/contracts/source";
+
 export type Entity = {
     id: string;
     name: string;
@@ -19,7 +21,11 @@ export type Source = {
     id: string;
     unitId: string;
     description: string;
+    sourceChunkIds?: number[];
 };
+
+export type { LoadedGraphDocument, LoaderSourceChunk, SourceChunkRegion, TextUnitSourceChunk } from "@kiwi/contracts/source";
+export { isLoaderSourceChunk, isSourceChunkRegion, isTextUnitSourceChunk } from "@kiwi/contracts/source";
 
 export type Unit = {
     id: string;
@@ -27,6 +33,7 @@ export type Unit = {
     content: string;
     startPage: number | null;
     endPage: number | null;
+    chunks: TextUnitSourceChunk[];
 };
 
 export type Graph = {
@@ -40,11 +47,22 @@ export interface GraphLoader {
     getText: () => Promise<string>;
 }
 
+export interface GraphDocumentLoader extends GraphLoader {
+    getDocument: () => Promise<LoadedGraphDocument>;
+}
+
 export interface GraphBinaryLoader extends GraphLoader {
     getBinary: () => Promise<ArrayBuffer>;
 }
 
+export type GraphTextChunk = {
+    content: string;
+    startOffset: number;
+    endOffset: number;
+};
+
 export interface GraphChunker {
+    getChunkSpans: (content: string) => Promise<GraphTextChunk[]>;
     getChunks: (content: string) => Promise<string[]>;
 }
 

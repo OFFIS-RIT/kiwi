@@ -18,6 +18,7 @@
     "dependencies": {
         "@ai-sdk/provider": "catalog:",
         "@kiwi/ai": "workspace:*",
+        "@kiwi/contracts": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@libpdf/core": "^0.3.6",
         "@platformatic/vfs": "^0.4.0",

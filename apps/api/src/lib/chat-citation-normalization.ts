@@ -5,7 +5,7 @@ import {
     type CitationFence,
     type ResolvedCitationFence,
 } from "@kiwi/ai/citation";
-import type { MessagePart } from "@kiwi/db/tables/chats";
+import type { MessagePart } from "@kiwi/contracts/chat";
 
 export type CitationResolver = (citation: CitationFence) => Promise<ResolvedCitationFence | null>;
 

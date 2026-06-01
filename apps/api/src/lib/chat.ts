@@ -19,11 +19,8 @@ import {
     uiMessageToMessageParts,
 } from "@kiwi/ai";
 import { db } from "@kiwi/db";
-import {
-    chatTable,
-    messageTable,
-    type MessagePart,
-} from "@kiwi/db/tables/chats";
+import type { MessagePart } from "@kiwi/contracts/chat";
+import { chatTable, messageTable } from "@kiwi/db/tables/chats";
 import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { Result } from "better-result";

@@ -5,7 +5,7 @@ import { embeddedImagePrompt } from "@kiwi/ai/prompts/image.prompt";
 import { putNamedFile } from "@kiwi/files";
 import { generateText } from "ai";
 
-type OCRImageAsset = {
+export type OCRImageAsset = {
     id: string;
     type: string;
     content: Uint8Array;
@@ -23,6 +23,56 @@ type OCRImageDeps = {
 
 const IMAGE_FENCE_PATTERN = /:::IMG-([^:]+):::/g;
 const DEFAULT_IMAGE_BATCH_SIZE = 64;
+
+export async function describeOCRImages(
+    images: OCRImageAsset[],
+    model: LanguageModelV3,
+    deps: Pick<OCRImageDeps, "describeImage"> = {}
+): Promise<Map<string, string>> {
+    const describeImage = deps.describeImage ?? defaultDescribeImage;
+    const checksumById = new Map<string, string>();
+    const uniqueImages: Array<{ checksum: string; image: OCRImageAsset }> = [];
+    const seenChecksums = new Set<string>();
+
+    for (const image of images) {
+        const checksum = checksumImageContent(image.content);
+        checksumById.set(image.id, checksum);
+
+        if (!seenChecksums.has(checksum)) {
+            seenChecksums.add(checksum);
+            uniqueImages.push({ checksum, image });
+        }
+    }
+
+    const descriptionByChecksum = new Map<string, string>();
+    const batchSize = getImageBatchSize();
+    for (let index = 0; index < uniqueImages.length; index += batchSize) {
+        const batch = uniqueImages.slice(index, index + batchSize);
+        const processedImages = await Promise.all(
+            batch.map(async ({ checksum, image }) => ({
+                checksum,
+                description: (await describeImage(image, model)).trim(),
+            }))
+        );
+
+        for (const processedImage of processedImages) {
+            descriptionByChecksum.set(processedImage.checksum, processedImage.description);
+        }
+    }
+
+    const descriptions = new Map<string, string>();
+    for (const image of images) {
+        const checksum = checksumById.get(image.id);
+        const description = checksum ? descriptionByChecksum.get(checksum) : undefined;
+        if (description === undefined) {
+            throw new Error(`Missing OCR image description for ${image.id}`);
+        }
+
+        descriptions.set(image.id, description);
+    }
+
+    return descriptions;
+}
 
 export async function processOCRImages(
     text: string,

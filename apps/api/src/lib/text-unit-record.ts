@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@kiwi/db";
 import { filesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import type { TextUnitRecord } from "../types/routes";
+import { binaryResponse } from "./binary-response";
 import { buildTextUnitPreview } from "./text-unit-preview";
 
 export type TextUnitWithFile = {
@@ -64,16 +65,5 @@ export function toTextUnitRecord(graphId: string, unit: TextUnitWithFile): TextU
 }
 
 export function pngResponse(content: Uint8Array): Response {
-    const body = new ArrayBuffer(content.byteLength);
-    new Uint8Array(body).set(content);
-
-    return new Response(body, {
-        status: 200,
-        headers: {
-            "Cache-Control": "private, max-age=86400",
-            "Content-Length": String(content.byteLength),
-            "Content-Type": "image/png",
-            "X-Content-Type-Options": "nosniff",
-        },
-    });
+    return binaryResponse(content, { contentType: "image/png" });
 }

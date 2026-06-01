@@ -11,6 +11,19 @@ export function renderPageMarkdown(
     repeatedEdgePatterns: Set<string>,
     options: PDFParserOptions = {}
 ): string {
+    return renderPageBlocks(pageText, images, explicitEdges, repeatedEdgePatterns, options)
+        .map((block) => block.text.trim())
+        .filter(Boolean)
+        .join("\n\n");
+}
+
+export function renderPageBlocks(
+    pageText: PageText,
+    images: ImageOccurrence[],
+    explicitEdges: Edge[],
+    repeatedEdgePatterns: Set<string>,
+    options: PDFParserOptions = {}
+): RenderBlock[] {
     const words = extractWords(pageText);
     const tables = detectTables(pageText, words, pageText.lines, explicitEdges, options.tableMode);
     const lineFontSizes = pageText.lines
@@ -62,12 +75,7 @@ export function renderPageMarkdown(
         }
     }
 
-    const orderedBlocks = orderItemsByReadingLayout(blocks, (block) => block.bbox, pageText.width);
-
-    return orderedBlocks
-        .map((block) => block.text.trim())
-        .filter(Boolean)
-        .join("\n\n");
+    return orderItemsByReadingLayout(blocks, (block) => block.bbox, pageText.width);
 }
 
 export function findRepeatedEdgeLinePatterns(pageTexts: PageText[]): Set<string> {

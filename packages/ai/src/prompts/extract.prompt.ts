@@ -20,27 +20,34 @@ The document name may contain hints about the primary entity (e.g., *“House Da
 - If the text primarily consists of **factual, tabular, or key–value data** (e.g., “Size: 120m2”, “Bathrooms: 3”) and does not explicitly name multiple entities or relationships, you must still extract the information by **inferring a single implicit entity**.
 - This implicit entity should represent the main subject of the text (e.g., “HOUSE”, “CAR”, “PRODUCT”, “PROJECT”) based on context, document type, or the document name.
 - For non-English technical, legal, or domain-specific terms, keep the original term and add a short English explanation in parentheses (e.g., "Hundesteuer (dog license fee)"). Do not translate every non-English word; apply this only to specialized terms.
+- The text may contain <image>...</image> wrappers. Use the inner description as document content. Do not treat tag names, IDs, or attributes as entities or facts.
+- The input may contain source attribution fences in the form \`:::SOURCE-CHUNK-<id> type=<text|image>:::\` and \`:::END-SOURCE-CHUNK-<id>:::\`.
+- Source attribution fences are not document content. Do not treat the marker text, ids, or type labels as entities, relationships, headings, or facts.
+- Read the text between source attribution fences in order as one continuous document. The fences only label which source chunk supports each part of the text.
+- When the text inside a source chunk supports an entity or relationship description, include that chunk's integer id in \`sourceChunkIds\`. Use the smallest set of supporting chunk ids. Use only ids that appear in source attribution fences. If the input has no source attribution fences, return an empty \`sourceChunkIds\` array.
 
 ## Entity Extraction
 1. Identify all entities of the specified types ${entityTypes.join(", ")}.
 2. For each entity, extract:
-    - **entity_name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
+    - **name:** The name of the entity, written in **ALL CAPITAL LETTERS**.
       - If the text does not explicitly name any entity, infer one implicit entity representing the subject of the document.
       - If using type FACT, use the format "FACT: <SHORT TITLE>" (all-caps).
       - Use the **document_name** as a hint.
 
-   - **entity_type:** One of the provided types ${entityTypes.join(", ")}.
-   - **entity_description:** A comprehensive description of all attributes, roles, activities, events, timelines, frequencies, or other explicit details in the text.
+   - **type:** One of the provided types ${entityTypes.join(", ")}.
+   - **description:** A comprehensive description of all attributes, roles, activities, events, timelines, frequencies, or other explicit details in the text.
      - Include factual or key–value information if present.
      - Do **not** omit any explicit information.
+   - **sourceChunkIds:** the smallest set of source chunk ids supporting the entity description. Use only ids present in source attribution fences. If the input has no source attribution fences, return an empty array.
 
 ## Relationship Extraction
 1. From the identified entities, determine all clear relationships between pairs of entities.
 2. For each relationship, extract:
-   - **source_entity:** name of the source entity.
-   - **target_entity:** name of the target entity.
-   - **relationship_description:** detailed explanation of how and why the entities are related, based strictly on the text.
-   - **relationship_strength:** a numeric score (0.0–1.0) indicating the strength of the relationship (higher = stronger).
+   - **sourceEntity:** name of the source entity.
+   - **targetEntity:** name of the target entity.
+   - **description:** detailed explanation of how and why the entities are related, based strictly on the text.
+   - **strength:** a numeric score (0.0–1.0) indicating the strength of the relationship (higher = stronger).
+   - **sourceChunkIds:** the smallest set of source chunk ids supporting the relationship description. Use multiple ids only when the relationship combines details from multiple chunks. Use only ids present in source attribution fences.
 3. If the text only describes a single implicit entity (e.g., factual data only), return an **empty array** for "relationships".
 
 # Examples
@@ -58,31 +65,36 @@ Investors expect the Market Strategy Committee to keep its benchmark interest ra
     {
       "name": "VERDANTIS CENTRAL INSTITUTION",
       "type": "ORGANIZATION",
-      "description": "The Verdantis Central Institution is an organization that meets on Mondays and Thursdays, issues policy decisions including one scheduled for Thursday at 1:30 p.m. PDT, and hosts press conferences after policy releases."
+      "description": "The Verdantis Central Institution is an organization that meets on Mondays and Thursdays, issues policy decisions including one scheduled for Thursday at 1:30 p.m. PDT, and hosts press conferences after policy releases.",
+      "sourceChunkIds": []
     },
     {
       "name": "MARTIN SMITH",
       "type": "PERSON",
-      "description": "Martin Smith is the Chair of the Verdantis Central Institution and is scheduled to answer questions at a press conference following the Thursday policy release."
+      "description": "Martin Smith is the Chair of the Verdantis Central Institution and is scheduled to answer questions at a press conference following the Thursday policy release.",
+      "sourceChunkIds": []
     },
     {
       "name": "MARKET STRATEGY COMMITTEE",
       "type": "ORGANIZATION",
-      "description": "The Market Strategy Committee is part of the Verdantis Central Institution and is expected to keep the benchmark interest rate steady in the range of 3.5 Percent - 3.75 Percent."
+      "description": "The Market Strategy Committee is part of the Verdantis Central Institution and is expected to keep the benchmark interest rate steady in the range of 3.5 Percent - 3.75 Percent.",
+      "sourceChunkIds": []
     }
   ],
   "relationships": [
     {
-      "source_entity": "MARTIN SMITH",
-      "target_entity": "VERDANTIS CENTRAL INSTITUTION",
+      "sourceEntity": "MARTIN SMITH",
+      "targetEntity": "VERDANTIS CENTRAL INSTITUTION",
       "description": "Martin Smith serves as the Chair of the Verdantis Central Institution and represents the institution in public press conferences.",
-      "strength": 0.9
+      "strength": 0.9,
+      "sourceChunkIds": []
     },
     {
-      "source_entity": "MARKET STRATEGY COMMITTEE",
-      "target_entity": "VERDANTIS CENTRAL INSTITUTION",
+      "sourceEntity": "MARKET STRATEGY COMMITTEE",
+      "targetEntity": "VERDANTIS CENTRAL INSTITUTION",
       "description": "The Market Strategy Committee operates under the Verdantis Central Institution and makes decisions about the benchmark interest rate.",
-      "strength": 0.8
+      "strength": 0.8,
+      "sourceChunkIds": []
     }
   ]
 }
@@ -101,7 +113,39 @@ Bathrooms: 3
     {
       "name": "HOUSE X",
       "type": "PROPERTY",
-      "description": "A house named X with a size of 120 square meters, suitable for 4 persons, and containing 3 bathrooms."
+      "description": "A house named X with a size of 120 square meters, suitable for 4 persons, and containing 3 bathrooms.",
+      "sourceChunkIds": []
+    }
+  ],
+  "relationships": []
+}
+
+## Example 3 — Source chunk attribution fences
+**Entity_types:** FACT
+**Document_name:** “Lease”
+**Text:**
+:::SOURCE-CHUNK-1 type=text:::
+Lease starts on January 1.
+:::END-SOURCE-CHUNK-1:::
+
+:::SOURCE-CHUNK-2 type=text:::
+Rent is 1200 EUR per month.
+:::END-SOURCE-CHUNK-2:::
+
+**Output:**
+{
+  "entities": [
+    {
+      "name": "FACT: MONTHLY RENT",
+      "type": "FACT",
+      "description": "The monthly rent is 1200 EUR.",
+      "sourceChunkIds": [2]
+    },
+    {
+      "name": "FACT: LEASE START",
+      "type": "FACT",
+      "description": "The lease starts on January 1.",
+      "sourceChunkIds": [1]
     }
   ],
   "relationships": []
@@ -117,15 +161,17 @@ The output must be a single valid JSON object in this structure:
     {
       "name": "string",
       "type": "string",
-      "description": "string"
+      "description": "string",
+      "sourceChunkIds": [1]
     }
   ],
   "relationships": [
     {
-      "source_entity": "string",
-      "target_entity": "string",
+      "sourceEntity": "string",
+      "targetEntity": "string",
       "description": "string",
-      "strength": "float"
+      "strength": 0.0,
+      "sourceChunkIds": [1]
     }
   ]
 }

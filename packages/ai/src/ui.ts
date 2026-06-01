@@ -1,30 +1,5 @@
-import type { InferUITools, UIMessage } from "ai";
 import { z } from "zod";
-import type { buildSubagentToolset } from "./agents/subagents";
-import type { buildServerAndClientToolset } from "./tools/toolsets";
-
-export type ChatMessageMetadata = {
-    createdAt?: string;
-    modelId?: string;
-    totalTokens?: number;
-    inputTokens?: number;
-    outputTokens?: number;
-    tokensPerSecond?: number;
-    timeToFirstToken?: number;
-    durationMs?: number;
-    consideredFileCount?: number;
-    usedFileCount?: number;
-};
-
-export type ChatDataParts = {
-    step: {
-        name: string;
-    };
-};
-
-type ChatValidationToolset = ReturnType<typeof buildServerAndClientToolset> & ReturnType<typeof buildSubagentToolset>;
-
-export type ChatUIMessage = UIMessage<ChatMessageMetadata, ChatDataParts, InferUITools<ChatValidationToolset>>;
+export type { ChatDataParts, ChatMessageMetadata, ChatUIMessage } from "@kiwi/contracts/chat";
 
 export const chatMessageMetadataSchema = z.object({
     createdAt: z.string().optional(),

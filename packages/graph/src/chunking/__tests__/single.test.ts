@@ -13,4 +13,16 @@ describe("SingleChunker", () => {
 
         expect(chunks).toEqual([""]);
     });
+
+    test("returns a source span for the full input", async () => {
+        const spans = await new SingleChunker().getChunkSpans("hello\nworld");
+
+        expect(spans).toEqual([
+            {
+                content: "hello\nworld",
+                startOffset: 0,
+                endOffset: 11,
+            },
+        ]);
+    });
 });

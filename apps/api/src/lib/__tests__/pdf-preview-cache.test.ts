@@ -4,7 +4,7 @@ import { getOrRenderPDFPreviewPage } from "../pdf-preview-cache";
 const options = {
     graphId: "graph-1",
     fileId: "file-1",
-    fileKey: "source.pdf",
+    fileKey: "graphs/graph-1/file-1.pdf",
     page: 3,
     bucket: "bucket-1",
 };
@@ -38,7 +38,7 @@ describe("getOrRenderPDFPreviewPage", () => {
 
         const result = await getOrRenderPDFPreviewPage(options, {
             getFile: async (key) =>
-                key === "source.pdf" ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+                key === options.fileKey ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
             putNamedFile,
             renderPDFPagePreviews,
         });
@@ -49,9 +49,60 @@ describe("getOrRenderPDFPreviewPage", () => {
         expect(putNamedFile).toHaveBeenCalledWith(
             "page-3.png",
             new Uint8Array([3]),
-            "graphs/graph-1/derived/file-1/pdf-preview/v1/scale-1.5",
+            "graphs/graph-1/file-1.pdf/file-1/pdf-preview/v1/scale-1.5",
             "bucket-1"
         );
+    });
+
+    test("deduplicates concurrent renders for the same preview page", async () => {
+        const putNamedFile = mock(async () => ({ key: "saved", type: "image/png" }));
+        const getFile = mock(async (key: string) =>
+            key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null
+        );
+        const renderPDFPagePreviews = mock(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            return new Map([[3, new Uint8Array([3])]]);
+        });
+
+        const [first, second] = await Promise.all([
+            getOrRenderPDFPreviewPage(options, { getFile, putNamedFile, renderPDFPagePreviews }),
+            getOrRenderPDFPreviewPage(options, { getFile, putNamedFile, renderPDFPagePreviews }),
+        ]);
+
+        expect(first).toEqual({ status: "ok", content: new Uint8Array([3]), cache: "miss" });
+        expect(second).toEqual(first);
+        expect(renderPDFPagePreviews).toHaveBeenCalledTimes(1);
+        expect(putNamedFile).toHaveBeenCalledTimes(1);
+    });
+
+    test("shares concurrent renders for different requested pages in the same preview window", async () => {
+        let releaseRender!: () => void;
+        const renderGate = new Promise<void>((resolve) => {
+            releaseRender = resolve;
+        });
+        const putNamedFile = mock(async () => ({ key: "saved", type: "image/png" }));
+        const getFile = mock(async (key: string) =>
+            key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null
+        );
+        const renderPDFPagePreviews = mock(async () => {
+            await renderGate;
+            return new Map([
+                [3, new Uint8Array([3])],
+                [4, new Uint8Array([4])],
+            ]);
+        });
+        const deps = { getFile, putNamedFile, renderPDFPagePreviews };
+
+        const first = getOrRenderPDFPreviewPage({ ...options, page: 3, pagesToRender: [3, 4] }, deps);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const second = getOrRenderPDFPreviewPage({ ...options, page: 4, pagesToRender: [3, 4] }, deps);
+        releaseRender();
+
+        await expect(first).resolves.toEqual({ status: "ok", content: new Uint8Array([3]), cache: "miss" });
+        await expect(second).resolves.toEqual({ status: "ok", content: new Uint8Array([4]), cache: "miss" });
+        expect(renderPDFPagePreviews).toHaveBeenCalledTimes(1);
+        expect(renderPDFPagePreviews).toHaveBeenCalledWith(new Uint8Array([9]), [3, 4]);
+        expect(putNamedFile).toHaveBeenCalledTimes(2);
     });
 
     test("returns rendered image when cache writes fail", async () => {
@@ -62,7 +113,7 @@ describe("getOrRenderPDFPreviewPage", () => {
 
         const result = await getOrRenderPDFPreviewPage(options, {
             getFile: async (key) =>
-                key === "source.pdf" ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+                key === options.fileKey ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
             putNamedFile,
             renderPDFPagePreviews,
         });
@@ -85,7 +136,7 @@ describe("getOrRenderPDFPreviewPage", () => {
             { ...options, pagesToRender: [3, 4] },
             {
                 getFile: async (key) =>
-                    key === "source.pdf" ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+                    key === options.fileKey ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
                 putNamedFile,
                 renderPDFPagePreviews,
             }
@@ -110,7 +161,7 @@ describe("getOrRenderPDFPreviewPage", () => {
 
         const result = await getOrRenderPDFPreviewPage(options, {
             getFile: async (key) =>
-                key === "source.pdf" ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+                key === options.fileKey ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
             putNamedFile,
             renderPDFPagePreviews,
         });

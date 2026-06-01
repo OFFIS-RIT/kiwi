@@ -39,7 +39,7 @@ async function buildFixture(): Promise<{
         loader,
         ocr: true,
         model: {} as never,
-        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
+        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/file-1.pdf/file-1/images" },
     }).getText();
 
     return {
@@ -67,7 +67,7 @@ async function buildDOCXText(
         loader,
         ocr: options.ocr,
         model: {} as never,
-        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
+        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/file-1.pdf/file-1/images" },
     }).getText();
 }
 
@@ -126,7 +126,7 @@ describe("DOCXLoader", () => {
         expect(fixture.ocrText).toMatch(/^# Doc Loader Title$/m);
         expect(fixture.ocrText).toMatch(/Alpha before image\./);
         expect(fixture.ocrText).toContain(
-            '<image id="img-1" key="graphs/graph-1/derived/file-1/images/img-1.png">Embedded &lt;diagram&gt; &amp; &quot;caption&quot;</image>'
+            '<image id="img-1" key="graphs/graph-1/file-1.pdf/file-1/images/img-1.png">Embedded &lt;diagram&gt; &amp; &quot;caption&quot;</image>'
         );
         expect(fixture.ocrText).not.toMatch(/:::IMG-img-1:::/);
         expect(fixture.ocrText).toMatch(/Omega after image\./);
@@ -301,8 +301,8 @@ describe("DOCXLoader", () => {
 
         expect(text).toContain("Before");
         expect(text).toContain("After");
-        expect(text).toContain('<image id="img-1" key="graphs/graph-1/derived/file-1/images/img-1.png">');
-        expect(text).toContain('<image id="img-2" key="graphs/graph-1/derived/file-1/images/img-2.png">');
+        expect(text).toContain('<image id="img-1" key="graphs/graph-1/file-1.pdf/file-1/images/img-1.png">');
+        expect(text).toContain('<image id="img-2" key="graphs/graph-1/file-1.pdf/file-1/images/img-2.png">');
         expect(putNamedFileMock.mock.calls.map((call) => call[0])).toEqual(["img-1.png", "img-2.png"]);
         expect(generateTextMock).toHaveBeenCalledTimes(2);
     });
