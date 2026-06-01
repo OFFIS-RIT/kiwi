@@ -45,7 +45,7 @@ RUN bun build \
     --outfile server \
     src/index.ts
 
-FROM busybox:1.37.0-uclibc AS busybox
+FROM busybox:1.38.0-uclibc AS busybox
 
 FROM debian:bookworm-slim
 
