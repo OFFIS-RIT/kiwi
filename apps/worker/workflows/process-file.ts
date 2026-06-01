@@ -33,7 +33,7 @@ import { PPTXLoader } from "@kiwi/graph/loader/ppt";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { buildAdapter, buildEmbeddingAdapter, buildWorkerTextAdapter } from "../lib/ai";
-import { EMPTY_VECTOR_SQL, entityNameKey, textArray } from "../lib/sql";
+import { EMPTY_VECTOR_SQL, entityCompactNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
 import { getDerivedFilePrefix, getDerivedImagePrefix } from "../lib/derived-files";
@@ -622,8 +622,8 @@ export const processFile = defineWorkflow(
                     const dedupeEntitiesStart = performance.now();
                     if (insertedEntityIds.length > 0) {
                         const entityIds = textArray(insertedEntityIds);
-                        const candidateNameKeySql = sql.raw(entityNameKey("candidate.name"));
-                        const seededNameKeySql = sql.raw(entityNameKey("seed.name"));
+                        const candidateNameKeySql = sql.raw(entityCompactNameKey("candidate.name"));
+                        const seededNameKeySql = sql.raw(entityCompactNameKey("seed.name"));
 
                         await tx.execute(sql`
                         WITH seeded_keys AS (

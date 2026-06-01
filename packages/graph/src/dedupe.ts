@@ -104,8 +104,10 @@ const areEntitiesDuplicates = (left: Entity, right: Entity) => {
         return false;
     }
 
-    const leftNormalized = tokenize(left.name).join(" ");
-    const rightNormalized = tokenize(right.name).join(" ");
+    const leftTokens = tokenize(left.name);
+    const rightTokens = tokenize(right.name);
+    const leftNormalized = leftTokens.join(" ");
+    const rightNormalized = rightTokens.join(" ");
 
     if (!leftNormalized || !rightNormalized) {
         return false;
@@ -123,14 +125,23 @@ const areEntitiesDuplicates = (left: Entity, right: Entity) => {
         return arePeopleDuplicates(left.name, right.name);
     }
 
-    const leftBase = stripOrganizationSuffixes(tokenize(left.name)).join(" ");
-    const rightBase = stripOrganizationSuffixes(tokenize(right.name)).join(" ");
+    const leftBaseTokens = stripOrganizationSuffixes(leftTokens);
+    const rightBaseTokens = stripOrganizationSuffixes(rightTokens);
+    const leftBase = leftBaseTokens.join(" ");
+    const rightBase = rightBaseTokens.join(" ");
 
     if (leftBase && rightBase && leftBase === rightBase) {
         return true;
     }
 
-    return areAcronymVariants(tokenize(left.name), tokenize(right.name));
+    const leftCompact = leftBaseTokens.join("");
+    const rightCompact = rightBaseTokens.join("");
+
+    if (leftCompact && rightCompact && leftCompact === rightCompact) {
+        return true;
+    }
+
+    return areAcronymVariants(leftTokens, rightTokens);
 };
 
 const chooseCanonicalEntity = (entities: Entity[]) =>

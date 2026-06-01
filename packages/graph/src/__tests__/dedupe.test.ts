@@ -130,6 +130,58 @@ describe("dedupe", () => {
         expect(deduped.entities[0]?.sources).toHaveLength(2);
     });
 
+    test("merges names split by whitespace differences", () => {
+        const graph: Graph = {
+            id: "graph-split-name",
+            units: [
+                {
+                    id: "unit-1",
+                    fileId: "file-1",
+                    content: "AlphaBeta and Alpha Beta refer to the same product.",
+                    startPage: null,
+                    endPage: null,
+                },
+            ],
+            entities: [
+                {
+                    id: "entity-alphabeta",
+                    name: "ALPHABETA",
+                    type: "PRODUCT",
+                    description: "",
+                    sources: [{ id: "source-alphabeta", unitId: "unit-1", description: "AlphaBeta launched." }],
+                },
+                {
+                    id: "entity-alpha-beta",
+                    name: "ALPHA BETA",
+                    type: "PRODUCT",
+                    description: "",
+                    sources: [{ id: "source-alpha-beta", unitId: "unit-1", description: "Alpha Beta launched." }],
+                },
+                {
+                    id: "entity-gammadelta",
+                    name: "GAMMADELTA",
+                    type: "ORGANIZATION",
+                    description: "",
+                    sources: [{ id: "source-gammadelta", unitId: "unit-1", description: "GammaDelta was mentioned." }],
+                },
+                {
+                    id: "entity-gamma-delta",
+                    name: "GAMMA DELTA",
+                    type: "ORGANIZATION",
+                    description: "",
+                    sources: [{ id: "source-gamma-delta", unitId: "unit-1", description: "Gamma Delta was mentioned." }],
+                },
+            ],
+            relationships: [],
+        };
+
+        const deduped = dedupe(graph);
+
+        expect(deduped.entities).toHaveLength(2);
+        expect(deduped.entities.find((entity) => entity.type === "PRODUCT")?.sources).toHaveLength(2);
+        expect(deduped.entities.find((entity) => entity.type === "ORGANIZATION")?.sources).toHaveLength(2);
+    });
+
     test("merges compatible person names", () => {
         const graph: Graph = {
             id: "graph-3",
