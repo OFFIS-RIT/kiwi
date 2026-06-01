@@ -45,7 +45,7 @@ COPY packages/files/src/project-file-proxy-path.ts packages/files/src/project-fi
 WORKDIR /app/apps/frontend
 RUN bun run build
 
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 
 ARG BUILD_LABEL=
