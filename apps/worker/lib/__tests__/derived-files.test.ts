@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-    deleteDerivedFileArtifacts,
+    deleteGraphFileArtifacts,
     getDerivedFilePrefix,
     getDerivedImagePrefix,
     getDerivedPdfPreviewPrefix,
@@ -20,55 +20,89 @@ describe("derived-files", () => {
         );
     });
 
-    test("deletes every derived key for a file prefix", async () => {
+    test("deletes every artifact key for a file", async () => {
         const listedPaths: string[] = [];
         const deletedKeys: string[] = [];
-        const keys = await deleteDerivedFileArtifacts("graphs/graph-1/file-1.pdf", "file-1", "bucket-1", {
-            listFiles: async (path) => {
-                listedPaths.push(path);
-                return path === "graphs/graph-1/file-1.pdf/file-1"
-                    ? [
-                          "graphs/graph-1/file-1.pdf/file-1/source.txt",
-                          "graphs/graph-1/file-1.pdf/file-1/images/img-1.png",
-                      ]
-                    : [];
+        const keys = await deleteGraphFileArtifacts(
+            {
+                graphId: "graph-1",
+                fileId: "file-1",
+                fileKey: "graphs/graph-1/file-1.pdf",
+                bucket: "bucket-1",
             },
-            deleteFile: async (key) => {
-                deletedKeys.push(key);
-                return true;
-            },
-        });
+            {
+                listFiles: async (path) => {
+                    listedPaths.push(path);
+                    switch (path) {
+                        case "graphs/graph-1/file-1.pdf/file-1":
+                            return [
+                                "graphs/graph-1/file-1.pdf/file-1/source.txt",
+                                "graphs/graph-1/file-1.pdf/file-1/images/img-1.png",
+                            ];
+                        case "graphs/graph-1/workflows/v1/file-1":
+                            return ["graphs/graph-1/workflows/v1/file-1/units.json"];
+                        default:
+                            return [];
+                    }
+                },
+                deleteFile: async (key) => {
+                    deletedKeys.push(key);
+                    return true;
+                },
+            }
+        );
 
-        expect(listedPaths).toEqual(["graphs/graph-1/file-1.pdf/file-1", "graphs/graph-1/derived/file-1"]);
+        expect(listedPaths).toEqual([
+            "graphs/graph-1/file-1.pdf/file-1",
+            "graphs/graph-1/derived/file-1",
+            "graphs/graph-1/workflows/v1/file-1",
+        ]);
         expect(keys).toEqual([
             "graphs/graph-1/file-1.pdf/file-1/source.txt",
             "graphs/graph-1/file-1.pdf/file-1/images/img-1.png",
+            "graphs/graph-1/workflows/v1/file-1/units.json",
         ]);
-        expect(deletedKeys).toEqual([
-            "graphs/graph-1/file-1.pdf/file-1/source.txt",
-            "graphs/graph-1/file-1.pdf/file-1/images/img-1.png",
-        ]);
+        expect(deletedKeys).toEqual(keys);
     });
 
-    test("also deletes legacy derived keys for existing files", async () => {
+    test("also deletes legacy derived and workflow keys for existing files", async () => {
         const deletedKeys: string[] = [];
-        const keys = await deleteDerivedFileArtifacts("graphs/graph-1/legacy.pdf", "file-1", "bucket-1", {
-            listFiles: async (path) =>
-                path === "graphs/graph-1/derived/file-1"
-                    ? [
-                          "graphs/graph-1/derived/file-1/source.txt",
-                          "graphs/graph-1/derived/file-1/images/img-1.png",
-                      ]
-                    : [],
-            deleteFile: async (key) => {
-                deletedKeys.push(key);
-                return true;
+        const keys = await deleteGraphFileArtifacts(
+            {
+                graphId: "graph-1",
+                fileId: "file-1",
+                fileKey: "graphs/graph-1/legacy.pdf",
+                bucket: "bucket-1",
             },
-        });
+            {
+                listFiles: async (path) => {
+                    switch (path) {
+                        case "graphs/graph-1/derived/file-1":
+                            return [
+                                "graphs/graph-1/derived/file-1/source.txt",
+                                "graphs/graph-1/derived/file-1/images/img-1.png",
+                            ];
+                        case "graphs/graph-1/workflows/v1/file-1":
+                            return [
+                                "graphs/graph-1/workflows/v1/file-1/units.json",
+                                "graphs/graph-1/workflows/v1/file-1/graph.json",
+                            ];
+                        default:
+                            return [];
+                    }
+                },
+                deleteFile: async (key) => {
+                    deletedKeys.push(key);
+                    return true;
+                },
+            }
+        );
 
         expect(keys).toEqual([
             "graphs/graph-1/derived/file-1/source.txt",
             "graphs/graph-1/derived/file-1/images/img-1.png",
+            "graphs/graph-1/workflows/v1/file-1/units.json",
+            "graphs/graph-1/workflows/v1/file-1/graph.json",
         ]);
         expect(deletedKeys).toEqual(keys);
     });

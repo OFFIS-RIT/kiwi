@@ -1,4 +1,4 @@
-import { getDerivedPdfPreviewPrefix } from "@kiwi/files";
+import { getGraphFileArtifactPaths } from "@kiwi/files";
 import type { TextUnitPreview } from "../types/routes";
 
 export const MAX_PDF_PREVIEW_PAGES = 6;
@@ -54,6 +54,13 @@ export function parsePageImageParam(value: string): number | null {
     return Number.isInteger(page) && page >= 1 ? page : null;
 }
 
-export function getPdfPreviewPageKey(fileKey: string, fileId: string, page: number): string {
-    return `${getDerivedPdfPreviewPrefix(fileKey, fileId)}/page-${page}.png`;
+export function getPdfPreviewPageKey(options: {
+    graphId: string;
+    fileId: string;
+    fileKey: string;
+    page: number;
+}): string {
+    const paths = getGraphFileArtifactPaths(options);
+
+    return `${paths.derivedPdfPreviewPrefix}/page-${options.page}.png`;
 }

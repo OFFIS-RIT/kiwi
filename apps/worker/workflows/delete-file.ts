@@ -8,7 +8,7 @@ import { chunkItems } from "../lib/chunk";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { textArray } from "../lib/sql";
 import { deleteFileSpec } from "./delete-file-spec";
-import { deleteDerivedFileArtifacts } from "../lib/derived-files";
+import { deleteGraphFileArtifacts } from "../lib/derived-files";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 
 export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, step }) => {
@@ -131,6 +131,11 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
     });
 
     await step.run({ name: "delete-derived-file-artifacts" }, async () => {
-        await deleteDerivedFileArtifacts(fileData.key, input.fileId, env.S3_BUCKET);
+        await deleteGraphFileArtifacts({
+            graphId: input.graphId,
+            fileId: input.fileId,
+            fileKey: fileData.key,
+            bucket: env.S3_BUCKET,
+        });
     });
 });

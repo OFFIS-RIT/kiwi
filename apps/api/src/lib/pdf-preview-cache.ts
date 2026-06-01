@@ -1,4 +1,4 @@
-import { getDerivedPdfPreviewPrefix, getFile, putNamedFile } from "@kiwi/files";
+import { getFile, getGraphFileArtifactPaths, putNamedFile } from "@kiwi/files";
 import { renderPDFPagePreviews } from "@kiwi/graph/lib/pdf-page-preview";
 import { getPdfPreviewPageKey } from "./text-unit-preview";
 
@@ -51,7 +51,12 @@ export async function getOrRenderPDFPreviewPage(
     const loadFile = deps.getFile ?? getFile;
     const saveNamedFile = deps.putNamedFile ?? putNamedFile;
     const renderPreview = deps.renderPDFPagePreviews ?? renderPDFPagePreviews;
-    const cacheKey = getPdfPreviewPageKey(options.fileKey, options.fileId, options.page);
+    const cacheKey = getPdfPreviewPageKey({
+        graphId: options.graphId,
+        fileId: options.fileId,
+        fileKey: options.fileKey,
+        page: options.page,
+    });
     const cachedImage = await loadFile(cacheKey, options.bucket, "bytes");
 
     if (cachedImage) {
@@ -127,15 +132,11 @@ async function renderAndCachePDFPreviewPages(
     deps: Required<Pick<PDFPreviewCacheDeps, "putNamedFile" | "renderPDFPagePreviews">>
 ): Promise<PDFPreviewRenderResult> {
     const renderedPages = await deps.renderPDFPagePreviews(options.source, options.pagesToRender);
+    const paths = getGraphFileArtifactPaths(options);
 
     await Promise.allSettled(
         [...renderedPages.entries()].map(([page, renderedImage]) =>
-            deps.putNamedFile(
-                `page-${page}.png`,
-                renderedImage,
-                getDerivedPdfPreviewPrefix(options.fileKey, options.fileId),
-                options.bucket
-            )
+            deps.putNamedFile(`page-${page}.png`, renderedImage, paths.derivedPdfPreviewPrefix, options.bucket)
         )
     );
 

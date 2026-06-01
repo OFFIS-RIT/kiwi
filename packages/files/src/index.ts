@@ -42,6 +42,8 @@ const joinPath = (path: string, name: string) => {
     return normalizedPath === "" ? normalizedName : `${normalizedPath}/${normalizedName}`;
 };
 
+const LEGACY_WORKFLOW_STORAGE_VERSION = "v1";
+
 function getFileExtension(name: string): string {
     const extension = name.split(".").pop()?.trim().toLowerCase() ?? "";
     return extension && extension !== name.toLowerCase() ? extension : "";
@@ -71,6 +73,22 @@ const PDF_PREVIEW_VERSION = `v1/scale-${PDF_PREVIEW_SCALE}`;
 
 export function getDerivedPdfPreviewPrefix(fileKey: string, fileId: string): string {
     return `${getDerivedFilePrefix(fileKey, fileId)}/pdf-preview/${PDF_PREVIEW_VERSION}`;
+}
+
+export function getGraphFileArtifactPaths(input: { graphId: string; fileId: string; fileKey: string }) {
+    const derivedPrefix = getDerivedFilePrefix(input.fileKey, input.fileId);
+
+    return {
+        derivedPrefix,
+        derivedImagePrefix: getDerivedImagePrefix(input.fileKey, input.fileId),
+        derivedSourceKey: getDerivedSourceKey(input.fileKey, input.fileId),
+        derivedPdfPreviewPrefix: getDerivedPdfPreviewPrefix(input.fileKey, input.fileId),
+        cleanupPrefixes: [
+            derivedPrefix,
+            `graphs/${input.graphId}/derived/${input.fileId}`,
+            `graphs/${input.graphId}/workflows/${LEGACY_WORKFLOW_STORAGE_VERSION}/${input.fileId}`,
+        ],
+    };
 }
 
 async function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket: string): Promise<StoredFile> {

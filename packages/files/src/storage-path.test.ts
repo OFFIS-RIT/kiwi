@@ -4,6 +4,7 @@ import {
     getDerivedImagePrefix,
     getDerivedPdfPreviewPrefix,
     getDerivedSourceKey,
+    getGraphFileArtifactPaths,
     getGraphFileKey,
 } from ".";
 
@@ -22,5 +23,25 @@ describe("storage paths", () => {
         expect(getDerivedPdfPreviewPrefix(fileKey, "file-1")).toBe(
             "graphs/graph-1/file-1.pdf/file-1/pdf-preview/v1/scale-1.5"
         );
+    });
+
+    test("groups current and legacy graph file artifact paths", () => {
+        expect(
+            getGraphFileArtifactPaths({
+                graphId: "graph-1",
+                fileId: "file-1",
+                fileKey: "graphs/graph-1/file-1.pdf",
+            })
+        ).toEqual({
+            derivedPrefix: "graphs/graph-1/file-1.pdf/file-1",
+            derivedImagePrefix: "graphs/graph-1/file-1.pdf/file-1/images",
+            derivedSourceKey: "graphs/graph-1/file-1.pdf/file-1/source.txt",
+            derivedPdfPreviewPrefix: "graphs/graph-1/file-1.pdf/file-1/pdf-preview/v1/scale-1.5",
+            cleanupPrefixes: [
+                "graphs/graph-1/file-1.pdf/file-1",
+                "graphs/graph-1/derived/file-1",
+                "graphs/graph-1/workflows/v1/file-1",
+            ],
+        });
     });
 });

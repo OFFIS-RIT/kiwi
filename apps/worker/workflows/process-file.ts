@@ -21,12 +21,7 @@ import { JSONChunker } from "@kiwi/graph/chunker/json";
 import { SingleChunker } from "@kiwi/graph/chunker/single";
 import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
 import { env } from "../env";
-import {
-    type Graph,
-    type GraphChunker,
-    type GraphFile,
-    type GraphLoader,
-} from "@kiwi/graph";
+import { type Graph, type GraphChunker, type GraphFile, type GraphLoader } from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
 import { loadGraphDocument } from "@kiwi/graph/loader/document";
 import { stripPageFences } from "@kiwi/graph/lib/page-fence";
@@ -41,7 +36,7 @@ import { buildAdapter, buildEmbeddingAdapter, buildWorkerTextAdapter } from "../
 import { EMPTY_VECTOR_SQL, entityNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
-import { getDerivedImagePrefix } from "../lib/derived-files";
+import { getGraphFileArtifactPaths } from "../lib/derived-files";
 import { buildPDFLoaderOptions } from "../lib/pdf-loader";
 import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
@@ -302,10 +297,14 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "preprocessing", "processing");
                 const start = performance.now();
                 const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
-                const derivedImagePrefix = getDerivedImagePrefix(fileData.key, input.fileId);
+                const paths = getGraphFileArtifactPaths({
+                    graphId: input.graphId,
+                    fileId: input.fileId,
+                    fileKey: fileData.key,
+                });
                 const derivedImageStorage = {
                     bucket: env.S3_BUCKET,
-                    imagePrefix: derivedImagePrefix,
+                    imagePrefix: paths.derivedImagePrefix,
                 };
                 const baseGraphFile = {
                     id: input.fileId,
