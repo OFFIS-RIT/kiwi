@@ -22,27 +22,27 @@
     "devDependencies": {
         "@types/bun": "catalog:",
         "dotenv-cli": "^11.0.0",
-        "drizzle-kit": "^1.0.0-rc.4-273829f",
-        "oxfmt": "^0.48.0",
-        "oxlint": "^1.63.0",
-        "turbo": "^2.9.12"
+        "drizzle-kit": "1.0.0-rc.3",
+        "oxfmt": "^0.52.0",
+        "oxlint": "^1.67.0",
+        "turbo": "^2.9.16"
     },
     "overrides": {
         "zod": "4.4.3"
     },
     "packageManager": "bun@1.3.11",
     "catalog": {
-        "drizzle-orm": "1.0.0-rc.1",
+        "drizzle-orm": "1.0.0-rc.3",
         "@t3-oss/env-core": "^0.13.11",
         "openworkflow": "^0.9.0",
         "postgres": "^3.4.9",
         "better-result": "^2.9.2",
-        "@types/bun": "1.3.13",
+        "@types/bun": "1.3.14",
         "typescript": "^6.0.3",
-        "better-auth": "1.6.10",
-        "@better-auth/api-key": "1.6.10",
+        "better-auth": "1.6.11",
+        "@better-auth/api-key": "1.6.11",
         "better-auth-credentials-plugin": "0.5.2",
-        "pg": "^8.20.0",
+        "pg": "^8.21.0",
         "@types/pg": "^8.18.0",
         "bun-types": "latest",
         "zod": "4.4.3",
@@ -50,17 +50,17 @@
         "next-themes": "^0.4.6",
         "react": "^19.2.6",
         "react-dom": "^19.2.6",
-        "@types/node": "^25.6.2",
-        "@types/react": "^19",
+        "@types/node": "^25.9.1",
+        "@types/react": "^19.2.15",
         "@types/react-dom": "^19",
-        "@ai-sdk/anthropic": "^3.0.76",
-        "@ai-sdk/azure": "^3.0.64",
-        "@ai-sdk/openai": "^3.0.63",
-        "@ai-sdk/openai-compatible": "^2.0.47",
+        "@ai-sdk/anthropic": "^3.0.81",
+        "@ai-sdk/azure": "^3.0.67",
+        "@ai-sdk/openai": "^3.0.66",
+        "@ai-sdk/openai-compatible": "^2.0.48",
         "@ai-sdk/provider": "^3.0.10",
-        "@ai-sdk/react": "^3.0.179",
+        "@ai-sdk/react": "^3.0.195",
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "ai": "^6.0.177"
+        "ai": "^6.0.193"
     },
     "patchedDependencies": {
         "openworkflow@0.9.0": "patches/openworkflow@0.9.0.patch"

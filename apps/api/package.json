@@ -33,7 +33,7 @@
         "zod": "catalog:"
     },
     "devDependencies": {
-        "@types/bun": "^catalog:",
+        "@types/bun": "^1.3.14",
         "@types/pg": "catalog:",
         "bun-types": "catalog:",
         "typescript": "catalog:"
