@@ -68,6 +68,10 @@ export function getDerivedSourceKey(fileKey: string, fileId: string): string {
     return `${getDerivedFilePrefix(fileKey, fileId)}/source.txt`;
 }
 
+export function getProcessingArtifactPrefix(fileKey: string, fileId: string): string {
+    return `${getDerivedFilePrefix(fileKey, fileId)}/derived`;
+}
+
 export const PDF_PREVIEW_SCALE = 1.5;
 const PDF_PREVIEW_VERSION = `v1/scale-${PDF_PREVIEW_SCALE}`;
 
@@ -77,12 +81,14 @@ export function getDerivedPdfPreviewPrefix(fileKey: string, fileId: string): str
 
 export function getGraphFileArtifactPaths(input: { graphId: string; fileId: string; fileKey: string }) {
     const derivedPrefix = getDerivedFilePrefix(input.fileKey, input.fileId);
+    const processingPrefix = getProcessingArtifactPrefix(input.fileKey, input.fileId);
 
     return {
         derivedPrefix,
         derivedImagePrefix: getDerivedImagePrefix(input.fileKey, input.fileId),
         derivedSourceKey: getDerivedSourceKey(input.fileKey, input.fileId),
         derivedPdfPreviewPrefix: getDerivedPdfPreviewPrefix(input.fileKey, input.fileId),
+        processingPrefix,
         cleanupPrefixes: [
             derivedPrefix,
             `graphs/${input.graphId}/derived/${input.fileId}`,

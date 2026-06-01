@@ -6,6 +6,7 @@ import {
     getDerivedSourceKey,
     getGraphFileArtifactPaths,
     getGraphFileKey,
+    getProcessingArtifactPrefix,
 } from ".";
 
 describe("storage paths", () => {
@@ -23,6 +24,7 @@ describe("storage paths", () => {
         expect(getDerivedPdfPreviewPrefix(fileKey, "file-1")).toBe(
             "graphs/graph-1/file-1.pdf/file-1/pdf-preview/v1/scale-1.5"
         );
+        expect(getProcessingArtifactPrefix(fileKey, "file-1")).toBe("graphs/graph-1/file-1.pdf/file-1/derived");
     });
 
     test("groups current and legacy graph file artifact paths", () => {
@@ -37,6 +39,7 @@ describe("storage paths", () => {
             derivedImagePrefix: "graphs/graph-1/file-1.pdf/file-1/images",
             derivedSourceKey: "graphs/graph-1/file-1.pdf/file-1/source.txt",
             derivedPdfPreviewPrefix: "graphs/graph-1/file-1.pdf/file-1/pdf-preview/v1/scale-1.5",
+            processingPrefix: "graphs/graph-1/file-1.pdf/file-1/derived",
             cleanupPrefixes: [
                 "graphs/graph-1/file-1.pdf/file-1",
                 "graphs/graph-1/derived/file-1",

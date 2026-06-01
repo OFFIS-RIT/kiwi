@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import {
     deleteGraphFileArtifacts,
+    deleteGraphFileProcessingArtifacts,
     getDerivedFilePrefix,
     getDerivedImagePrefix,
     getDerivedPdfPreviewPrefix,
     getDerivedSourceKey,
+    getProcessingArtifactPrefix,
 } from "../derived-files";
 
 describe("derived-files", () => {
@@ -18,6 +20,7 @@ describe("derived-files", () => {
         expect(getDerivedPdfPreviewPrefix(fileKey, "file-1")).toBe(
             "graphs/graph-1/file-1.pdf/file-1/pdf-preview/v1/scale-1.5"
         );
+        expect(getProcessingArtifactPrefix(fileKey, "file-1")).toBe("graphs/graph-1/file-1.pdf/file-1/derived");
     });
 
     test("deletes every artifact key for a file", async () => {
@@ -105,5 +108,40 @@ describe("derived-files", () => {
             "graphs/graph-1/workflows/v1/file-1/graph.json",
         ]);
         expect(deletedKeys).toEqual(keys);
+    });
+
+    test("deletes only transient processing artifacts after successful processing", async () => {
+        const listedPaths: string[] = [];
+        const deletedKeys: string[] = [];
+        const result = await deleteGraphFileProcessingArtifacts(
+            {
+                graphId: "graph-1",
+                fileId: "file-1",
+                fileKey: "graphs/graph-1/file-1.pdf",
+                bucket: "bucket-1",
+            },
+            {
+                listFiles: async (path) => {
+                    listedPaths.push(path);
+                    return [
+                        "graphs/graph-1/file-1.pdf/file-1/derived/document.json",
+                        "graphs/graph-1/file-1.pdf/file-1/derived/units.json",
+                        "graphs/graph-1/file-1.pdf/file-1/derived/graph.json",
+                    ];
+                },
+                deleteFile: async (key) => {
+                    deletedKeys.push(key);
+                    return true;
+                },
+            }
+        );
+
+        expect(listedPaths).toEqual(["graphs/graph-1/file-1.pdf/file-1/derived"]);
+        expect(result).toEqual({ deletedKeyCount: 3 });
+        expect(deletedKeys).toEqual([
+            "graphs/graph-1/file-1.pdf/file-1/derived/document.json",
+            "graphs/graph-1/file-1.pdf/file-1/derived/units.json",
+            "graphs/graph-1/file-1.pdf/file-1/derived/graph.json",
+        ]);
     });
 });

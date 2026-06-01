@@ -6,7 +6,7 @@ import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { Graph, GraphChunker, GraphFile, GraphTextChunk, LoaderSourceChunk, TextUnitSourceChunk, Unit } from ".";
 import { SemanticChunker } from "./chunking/semantic";
 import { loadGraphDocument } from "./loader/document";
-import { stripPageFences, toPageAwareChunks } from "./lib/page-fence";
+import { toPageAwareChunksWithSource } from "./lib/page-fence";
 import { createSourceChunks, DEFAULT_SOURCE_CHUNK_TOKENS } from "./lib/source-chunk";
 import z from "zod";
 
@@ -31,21 +31,19 @@ export async function createUnitsFromText(options: {
     loaderSourceChunks?: LoaderSourceChunk[];
 }): Promise<Unit[]> {
     const textChunks = await options.chunker.getChunkSpans(options.text);
-    const nonEmptyTextChunks = textChunks.filter((chunk) => stripPageFences(chunk.content) !== "");
-    const chunks = toPageAwareChunks(textChunks.map((chunk) => chunk.content));
+    const chunks = toPageAwareChunksWithSource(textChunks, (chunk) => chunk.content);
     const loaderSourceChunks = prepareLoaderSourceChunks(options.loaderSourceChunks ?? []);
     let fallbackTextChunker: GraphChunker | undefined;
     const units: Unit[] = [];
 
-    for (const [index, chunk] of chunks.entries()) {
-        const span = nonEmptyTextChunks[index];
+    for (const chunk of chunks) {
         const unit: Unit = {
             id: ulid(),
             fileId: options.fileId,
             content: chunk.content,
             startPage: chunk.startPage,
             endPage: chunk.endPage,
-            chunks: span ? sourceChunksForUnit(loaderSourceChunks, span) : [],
+            chunks: sourceChunksForUnit(loaderSourceChunks, chunk.source),
         };
 
         if (unit.chunks.length === 0) {

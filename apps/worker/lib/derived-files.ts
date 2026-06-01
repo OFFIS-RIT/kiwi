@@ -6,6 +6,7 @@ export {
     getDerivedPdfPreviewPrefix,
     getDerivedSourceKey,
     getGraphFileArtifactPaths,
+    getProcessingArtifactPrefix,
 } from "@kiwi/files";
 
 type DerivedCleanupDeps = {
@@ -31,4 +32,23 @@ export async function deleteGraphFileArtifacts(
     await Promise.all(artifactKeys.map((key) => removeKey(key, options.bucket)));
 
     return artifactKeys;
+}
+
+export async function deleteGraphFileProcessingArtifacts(
+    options: {
+        graphId: string;
+        fileId: string;
+        fileKey: string;
+        bucket: string;
+    },
+    deps: DerivedCleanupDeps = {}
+): Promise<{ deletedKeyCount: number }> {
+    const loadKeys = deps.listFiles ?? listFiles;
+    const removeKey = deps.deleteFile ?? deleteFile;
+    const paths = getGraphFileArtifactPaths(options);
+    const artifactKeys = [...new Set(await loadKeys(paths.processingPrefix, options.bucket))];
+
+    await Promise.all(artifactKeys.map((key) => removeKey(key, options.bucket)));
+
+    return { deletedKeyCount: artifactKeys.length };
 }

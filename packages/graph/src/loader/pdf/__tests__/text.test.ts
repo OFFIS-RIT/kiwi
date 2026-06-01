@@ -44,4 +44,17 @@ describe("PDF text reconstruction", () => {
         );
     });
 
+    test("uses positional order for narrow side-by-side text emitted in interleaved stream order", () => {
+        const chars = [
+            textChar("A", 10, 0),
+            textChar("1", 34, 1),
+            textChar("B", 16, 2),
+            textChar("2", 40, 3),
+            textChar("C", 22, 4),
+            textChar("3", 46, 5),
+        ];
+
+        expect(getLineText(textLine(chars))).toBe("ABC 123");
+    });
+
 });

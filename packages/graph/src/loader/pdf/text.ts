@@ -11,6 +11,8 @@ import { average, getTop, median, squashWhitespace, unionBoxes } from "./geometr
 import { orderItemsByReadingLayout } from "./layout";
 
 const STRONG_INLINE_TOKEN_CONNECTORS = new Set(["_", "/", "\\", "+", "=", "^", "~", "*"]);
+const STREAM_ORDER_BACKWARD_MOVEMENT_RATIO = 0.25;
+const RTL_BACKWARD_MOVEMENT_RATIO = 0.8;
 
 type LineInfo = {
     line: TextLine;
@@ -734,7 +736,12 @@ export function shouldUseStreamOrder(chars: TextChar[]): boolean {
         }
     }
 
-    return decreasing / (visible.length - 1) >= 0.8 || !hasLargeBackwardJump;
+    const decreasingRatio = decreasing / (visible.length - 1);
+
+    return (
+        decreasingRatio >= RTL_BACKWARD_MOVEMENT_RATIO ||
+        (!hasLargeBackwardJump && decreasingRatio < STREAM_ORDER_BACKWARD_MOVEMENT_RATIO)
+    );
 }
 
 function sortTextCharsBySequence(chars: TextChar[]): TextChar[] {
