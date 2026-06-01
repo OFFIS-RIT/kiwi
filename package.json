@@ -23,9 +23,9 @@
         "@types/bun": "catalog:",
         "dotenv-cli": "^11.0.0",
         "drizzle-kit": "^1.0.0-rc.4-273829f",
-        "oxfmt": "^0.48.0",
-        "oxlint": "^1.63.0",
-        "turbo": "^2.9.12"
+        "oxfmt": "^0.52.0",
+        "oxlint": "^1.67.0",
+        "turbo": "^2.9.16"
     },
     "overrides": {
         "zod": "4.4.3"
