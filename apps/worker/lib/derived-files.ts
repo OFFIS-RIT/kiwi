@@ -13,17 +13,28 @@ type DerivedCleanupDeps = {
 };
 
 export async function deleteDerivedFileArtifacts(
-    graphId: string,
+    fileKey: string,
     fileId: string,
     bucket: string,
     deps: DerivedCleanupDeps = {}
 ): Promise<string[]> {
-    const derivedPrefix = getDerivedFilePrefix(graphId, fileId);
     const loadKeys = deps.listFiles ?? listFiles;
     const removeKey = deps.deleteFile ?? deleteFile;
-    const derivedKeys = await loadKeys(derivedPrefix, bucket);
+    const prefixes = uniqueStrings([getDerivedFilePrefix(fileKey, fileId), getLegacyDerivedFilePrefix(fileKey, fileId)]);
+    const listedKeys = await Promise.all(prefixes.map((prefix) => loadKeys(prefix, bucket)));
+    const derivedKeys = uniqueStrings(listedKeys.flat());
 
     await Promise.all(derivedKeys.map((key) => removeKey(key, bucket)));
 
     return derivedKeys;
+}
+
+function getLegacyDerivedFilePrefix(fileKey: string, fileId: string): string | null {
+    const [root, graphId] = fileKey.split("/");
+
+    return root === "graphs" && graphId ? `graphs/${graphId}/derived/${fileId}` : null;
+}
+
+function uniqueStrings(values: Array<string | null>): string[] {
+    return [...new Set(values.filter((value): value is string => value !== null))];
 }

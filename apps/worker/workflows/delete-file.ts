@@ -11,8 +11,6 @@ import { deleteFileSpec } from "./delete-file-spec";
 import { deleteDerivedFileArtifacts } from "../lib/derived-files";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 
-const WORKFLOW_STORAGE_VERSION = "v1";
-
 export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, step }) => {
     const [fileData] = await step.run({ name: "get-file-data" }, async () => {
         return db
@@ -133,15 +131,6 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
     });
 
     await step.run({ name: "delete-derived-file-artifacts" }, async () => {
-        await deleteDerivedFileArtifacts(input.graphId, input.fileId, env.S3_BUCKET);
-    });
-
-    await step.run({ name: "delete-workflow-artifacts" }, async () => {
-        const workflowPath = `graphs/${input.graphId}/workflows/${WORKFLOW_STORAGE_VERSION}/${input.fileId}`;
-
-        await Promise.all([
-            deleteStoredFile(`${workflowPath}/units.json`, env.S3_BUCKET),
-            deleteStoredFile(`${workflowPath}/graph.json`, env.S3_BUCKET),
-        ]);
+        await deleteDerivedFileArtifacts(fileData.key, input.fileId, env.S3_BUCKET);
     });
 });

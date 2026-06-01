@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, doublePrecision, index, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
+import type { MessagePart as StoredMessagePart } from "@kiwi/contracts/chat";
 import { userTable } from "./auth";
 import { graphTable } from "./graph";
 
@@ -35,57 +36,14 @@ export const chatTable = pgTable.withRLS(
     ]
 );
 
-export type MessageTextPart = {
-    type: "text";
-    text: string;
-};
-
-export type MessageReasoningPart = {
-    type: "reasoning";
-    text: string;
-};
-
-export type MessageToolPart = {
-    type: "tool";
-    toolCallId: string;
-    toolName: string;
-    execution: "server" | "client";
-    status: "pending" | "completed" | "failed";
-    // oxlint-disable-next-line no-explicit-any -- fine here args can be anything
-    args: any;
-    // oxlint-disable-next-line no-explicit-any -- fine here execution can be anything
-    result?: any;
-};
-
-export type MessageMetadataPart = {
-    type: "metadata";
-    metadata: {
-        modelId?: string;
-        totalTokens?: number;
-        inputTokens?: number;
-        outputTokens?: number;
-        tokensPerSecond?: number;
-        timeToFirstToken?: number;
-        durationMs?: number;
-        consideredFileCount?: number;
-        usedFileCount?: number;
-    };
-};
-
-export type MessageCompactionPart = {
-    type: "compaction";
-    version: 1;
-    summary: string;
-    summarizedThroughMessageId: string;
-    basedOnCompactionMessageId?: string;
-};
-
-export type MessagePart =
-    | MessageTextPart
-    | MessageReasoningPart
-    | MessageToolPart
-    | MessageMetadataPart
-    | MessageCompactionPart;
+export type {
+    MessageCompactionPart,
+    MessageMetadataPart,
+    MessagePart,
+    MessageReasoningPart,
+    MessageTextPart,
+    MessageToolPart,
+} from "@kiwi/contracts/chat";
 
 export const messageTable = pgTable.withRLS(
     "messages",
@@ -100,7 +58,7 @@ export const messageTable = pgTable.withRLS(
             .notNull()
             .default("pending"),
         role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
-        parts: jsonb("parts").$type<MessagePart[]>().notNull(),
+        parts: jsonb("parts").$type<StoredMessagePart[]>().notNull(),
         tokensPerSecond: doublePrecision("tokens_per_second"),
         timeToFirstToken: doublePrecision("time_to_first_token"),
         inputTokens: doublePrecision("input_tokens"),

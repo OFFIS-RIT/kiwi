@@ -1,4 +1,4 @@
-import type { LoadedGraphDocument, TextUnitSourceChunk } from "@kiwi/contracts";
+import type { LoadedGraphDocument, TextUnitSourceChunk } from "@kiwi/contracts/source";
 
 export type Entity = {
     id: string;
@@ -24,7 +24,8 @@ export type Source = {
     sourceChunkIds?: number[];
 };
 
-export type { LoadedGraphDocument, LoaderSourceChunk, SourceChunkRegion, TextUnitSourceChunk } from "@kiwi/contracts";
+export type { LoadedGraphDocument, LoaderSourceChunk, SourceChunkRegion, TextUnitSourceChunk } from "@kiwi/contracts/source";
+export { isLoaderSourceChunk, isSourceChunkRegion, isTextUnitSourceChunk } from "@kiwi/contracts/source";
 
 export type Unit = {
     id: string;
@@ -61,8 +62,8 @@ export type GraphTextChunk = {
 };
 
 export interface GraphChunker {
-    getChunks: (content: string) => Promise<string[]>;
     getChunkSpans: (content: string) => Promise<GraphTextChunk[]>;
+    getChunks: (content: string) => Promise<string[]>;
 }
 
 export type GraphFile = {

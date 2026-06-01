@@ -1,10 +1,11 @@
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
+import { ulid } from "ulid";
 import { db } from "@kiwi/db";
 import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
 import { teamTable } from "@kiwi/db/tables/auth";
-import { deleteFile, listFiles, putFile } from "@kiwi/files";
+import { deleteFile, listFiles, putGraphFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { deleteGraphFilesSpec } from "@kiwi/worker/delete-graph-files-spec";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
@@ -238,9 +239,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             const uploadedFiles: UploadedFile[] = [];
             try {
                 for (const { file, checksum } of filesWithChecksums) {
-                    const upload = await putFile(file.name, file, `graphs/${graph.id}`, env.S3_BUCKET);
+                    const fileId = ulid();
+                    const upload = await putGraphFile(graph.id, fileId, file.name, file, env.S3_BUCKET);
 
                     uploadedFiles.push({
+                        id: fileId,
                         name: file.name,
                         size: file.size,
                         type: inferGraphFileType(file),
@@ -278,6 +281,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     .insert(filesTable)
                     .values(
                         uploadedFiles.map((file) => ({
+                            id: file.id,
                             graphId: graph.id,
                             name: file.name,
                             size: file.size,
@@ -525,9 +529,11 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             const uploadedFiles: UploadedFile[] = [];
             try {
                 for (const { file, checksum } of filesWithChecksums) {
-                    const upload = await putFile(file.name, file, `graphs/${existingGraph.id}`, env.S3_BUCKET);
+                    const fileId = ulid();
+                    const upload = await putGraphFile(existingGraph.id, fileId, file.name, file, env.S3_BUCKET);
 
                     uploadedFiles.push({
+                        id: fileId,
                         name: file.name,
                         size: file.size,
                         type: inferGraphFileType(file),
@@ -563,6 +569,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         .insert(filesTable)
                         .values(
                             uploadedFiles.map((file) => ({
+                                id: file.id,
                                 graphId: existingGraph.id,
                                 name: file.name,
                                 size: file.size,

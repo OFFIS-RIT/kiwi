@@ -26,7 +26,6 @@ import {
     type GraphChunker,
     type GraphFile,
     type GraphLoader,
-    type Unit,
 } from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
 import { loadGraphDocument } from "@kiwi/graph/loader/document";
@@ -37,21 +36,18 @@ import { DOCXLoader } from "@kiwi/graph/loader/doc";
 import { estimateToken, getClient } from "@kiwi/ai";
 import { ExcelLoader } from "@kiwi/graph/loader/excel";
 import { PPTXLoader } from "@kiwi/graph/loader/ppt";
-import { getFile, putNamedFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { buildAdapter, buildEmbeddingAdapter, buildWorkerTextAdapter } from "../lib/ai";
 import { EMPTY_VECTOR_SQL, entityNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
-import { getDerivedFilePrefix, getDerivedImagePrefix } from "../lib/derived-files";
+import { getDerivedImagePrefix } from "../lib/derived-files";
 import { buildPDFLoaderOptions } from "../lib/pdf-loader";
 import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
-import { loadSourceMap } from "../lib/source-map";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { toTextUnitRows } from "../lib/text-unit-rows";
 
-const WORKFLOW_STORAGE_VERSION = "v1";
 const FILE_DELETED = "__file_deleted__" as const;
 const NO_RETRY = { maximumAttempts: 1 } as const;
 const PROCESS_UNIT_BATCH_SIZE = 100;
@@ -306,8 +302,7 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "preprocessing", "processing");
                 const start = performance.now();
                 const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
-                const derivedPrefix = getDerivedFilePrefix(input.graphId, input.fileId);
-                const derivedImagePrefix = getDerivedImagePrefix(input.graphId, input.fileId);
+                const derivedImagePrefix = getDerivedImagePrefix(fileData.key, input.fileId);
                 const derivedImageStorage = {
                     bucket: env.S3_BUCKET,
                     imagePrefix: derivedImagePrefix,
@@ -381,29 +376,6 @@ export const processFile = defineWorkflow(
                 } satisfies Omit<GraphFile, "chunker">;
                 const document = await loadGraphDocument(graphFile.loader);
                 const text = document.text;
-                let sourceKey = fileData.key;
-                let sourceMapKey: string | undefined;
-
-                if (
-                    graphFile.filetype === "pdf" ||
-                    graphFile.filetype === "image" ||
-                    graphFile.filetype === "doc" ||
-                    graphFile.filetype === "sheet" ||
-                    graphFile.filetype === "ppt"
-                ) {
-                    const uploadedFile = await putNamedFile("source.txt", text, derivedPrefix, env.S3_BUCKET);
-                    sourceKey = uploadedFile.key;
-                }
-
-                if (document.sourceChunks && document.sourceChunks.length > 0) {
-                    const uploadedSourceMap = await putNamedFile(
-                        "source-map.json",
-                        JSON.stringify(document.sourceChunks),
-                        derivedPrefix,
-                        env.S3_BUCKET
-                    );
-                    sourceMapKey = uploadedSourceMap.key;
-                }
 
                 const duration = performance.now() - start;
                 const contentText = stripPageFences(text);
@@ -418,8 +390,8 @@ export const processFile = defineWorkflow(
 
                 return {
                     ...baseGraphFile,
-                    sourceKey,
-                    sourceMapKey,
+                    text,
+                    sourceChunks: document.sourceChunks,
                     duration,
                     tokenCount: tokens,
                     metadataExcerpt: buildMetadataExcerpt(contentText),
@@ -470,36 +442,18 @@ export const processFile = defineWorkflow(
                         chunker = new SemanticChunker(2000);
                 }
 
-                const unitsFile = {
-                    ...baseFile,
-                    key: baseFile.sourceKey,
-                    loader: new S3Loader(baseFile.sourceKey, env.S3_BUCKET),
-                    chunker,
-                } satisfies GraphFile;
-                const sourceText = await unitsFile.loader.getText();
-                const loaderSourceChunks = baseFile.sourceMapKey
-                    ? await loadSourceMap(baseFile.sourceMapKey, env.S3_BUCKET)
-                    : undefined;
                 const units = await createUnitsFromText({
-                    fileId: unitsFile.id,
-                    fileType: unitsFile.filetype,
-                    text: sourceText,
+                    fileId: baseFile.id,
+                    fileType: baseFile.filetype,
+                    text: baseFile.text,
                     chunker,
-                    loaderSourceChunks,
+                    loaderSourceChunks: baseFile.sourceChunks,
                 });
-
-                const unitsPath = `graphs/${input.graphId}/workflows/${WORKFLOW_STORAGE_VERSION}/${input.fileId}`;
-                const uploadedUnitsFile = await putNamedFile(
-                    "units.json",
-                    JSON.stringify(units),
-                    unitsPath,
-                    env.S3_BUCKET
-                );
 
                 const duration = performance.now() - start;
 
                 return {
-                    key: uploadedUnitsFile.key,
+                    units,
                     duration,
                 };
             });
@@ -515,13 +469,8 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "extracting", "processing");
                 const start = performance.now();
 
-                const loadedUnits = await getFile<Unit[]>(unitsResult.key, env.S3_BUCKET, "json");
-                if (!loadedUnits) {
-                    throw new Error(`Failed to load units from ${unitsResult.key}`);
-                }
-
                 const graphs: Graph[] = [];
-                for (const units of chunkItems(loadedUnits.content, PROCESS_UNIT_BATCH_SIZE)) {
+                for (const units of chunkItems(unitsResult.units, PROCESS_UNIT_BATCH_SIZE)) {
                     graphs.push(
                         ...(await Promise.all(
                             units.map((unit) =>
@@ -533,18 +482,10 @@ export const processFile = defineWorkflow(
                 const mergedGraph = mergeGraphs(graphs);
                 const graph = dedupe(mergedGraph);
 
-                const graphPath = `graphs/${input.graphId}/workflows/${WORKFLOW_STORAGE_VERSION}/${input.fileId}`;
-                const uploadedGraphFile = await putNamedFile(
-                    "graph.json",
-                    JSON.stringify(graph),
-                    graphPath,
-                    env.S3_BUCKET
-                );
-
                 const duration = performance.now() - start;
 
                 return {
-                    key: uploadedGraphFile.key,
+                    graph,
                     duration,
                 };
             });
@@ -560,14 +501,9 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "deduplicating", "processing");
                 const start = performance.now();
 
-                const loadedGraph = await getFile<Graph>(graphResult.key, env.S3_BUCKET, "json");
-                if (!loadedGraph) {
-                    throw new Error(`Failed to load graph from ${graphResult.key}`);
-                }
-
                 await updateFileProcessingState(input.fileId, "saving", "processing");
 
-                const graph = loadedGraph.content;
+                const graph = graphResult.graph;
                 const unitRows = toTextUnitRows(graph.units);
                 const entityRows = graph.entities.map((entity) => ({
                     id: entity.id,
@@ -891,7 +827,12 @@ export const processFile = defineWorkflow(
                 const duration = performance.now() - start;
 
                 return {
-                    graphKey: graphResult.key,
+                    summary: {
+                        fileId: input.fileId,
+                        units: graph.units.length,
+                        entities: graph.entities.length,
+                        relationships: graph.relationships.length,
+                    },
                     duration,
                     metrics,
                 };
@@ -932,7 +873,7 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "completed", "processed");
             });
 
-            return saveGraphResult.graphKey;
+            return saveGraphResult.summary;
         } catch (error) {
             if (run.retryTerminal) {
                 await updateFileProcessingState(input.fileId, "failed", "failed");

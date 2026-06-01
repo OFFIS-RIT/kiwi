@@ -9,12 +9,13 @@ import type {
     GraphFileListItem,
     GraphListItem,
     OrganizationMemberListItem,
+    SourceReferenceBatchSuccessData,
     SourceReferenceRecord,
     TeamUserListItem,
     TeamListItem,
     TextUnitRecord,
     TextUnitResponse,
-} from "@kiwi/api/types";
+} from "@kiwi/contracts";
 
 /**
  * Team as returned by the /teams endpoint.
@@ -74,6 +75,8 @@ export type ApiTextUnit = TextUnitRecord;
  * Source reference payload including selected chunks and optional PDF crop regions.
  */
 export type ApiSourceReference = SourceReferenceRecord;
+
+export type ApiSourceReferenceBatch = SourceReferenceBatchSuccessData;
 
 /**
  * Wrapper response for text unit fetch.

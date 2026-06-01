@@ -21,6 +21,7 @@ import { findActiveDeleteGraphFilesProgress, findProcessDescriptionProgress } fr
 
 export type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "text";
 export type UploadedFile = {
+    id: string;
     name: string;
     size: number;
     type: GraphFileType;

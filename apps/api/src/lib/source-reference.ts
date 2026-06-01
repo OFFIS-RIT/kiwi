@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@kiwi/db";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { getFile } from "@kiwi/files";
+import type { SourceReferenceBatchSuccessData } from "@kiwi/contracts";
 import { env } from "../env";
 import { API_ERROR_CODES } from "../types";
 import { selectSourceChunks, toSourceReferenceRecord, type SourceReferenceRow } from "./source-reference-record";
@@ -13,6 +14,24 @@ export type SourceReferenceImage = {
     contentType: string;
 };
 
+const sourceReferenceSelect = {
+    source_id: sourcesTable.id,
+    source_description: sourcesTable.description,
+    source_chunk_ids: sourcesTable.sourceChunkIds,
+    id: textUnitTable.id,
+    project_file_id: textUnitTable.fileId,
+    text: textUnitTable.text,
+    chunks: textUnitTable.chunks,
+    start_page: textUnitTable.startPage,
+    end_page: textUnitTable.endPage,
+    file_name: filesTable.name,
+    file_type: filesTable.type,
+    mime_type: filesTable.mimeType,
+    file_key: filesTable.key,
+    created_at: textUnitTable.createdAt,
+    updated_at: textUnitTable.updatedAt,
+};
+
 export async function loadSourceReference(graphId: string, sourceId: string) {
     const row = await loadSourceReferenceRow(graphId, sourceId);
     if (!row) {
@@ -20,6 +39,36 @@ export async function loadSourceReference(graphId: string, sourceId: string) {
     }
 
     return toSourceReferenceRecord(graphId, row);
+}
+
+export async function loadSourceReferences(
+    graphId: string,
+    sourceIds: string[]
+): Promise<SourceReferenceBatchSuccessData> {
+    const uniqueSourceIds = normalizeSourceIds(sourceIds);
+    if (uniqueSourceIds.length === 0) {
+        return { items: [], missing_source_ids: [] };
+    }
+
+    const rows = await loadSourceReferenceRows(graphId, uniqueSourceIds);
+    const rowsBySourceId = new Map(rows.map((row) => [row.source_id, row]));
+    const items: SourceReferenceBatchSuccessData["items"] = [];
+    const missingSourceIds: string[] = [];
+
+    for (const sourceId of uniqueSourceIds) {
+        const row = rowsBySourceId.get(sourceId);
+        if (!row) {
+            missingSourceIds.push(sourceId);
+            continue;
+        }
+
+        items.push(toSourceReferenceRecord(graphId, row));
+    }
+
+    return {
+        items,
+        missing_source_ids: missingSourceIds,
+    };
 }
 
 export async function loadSourceReferenceImage(
@@ -50,23 +99,7 @@ export async function loadSourceReferenceImage(
 
 async function loadSourceReferenceRow(graphId: string, sourceId: string): Promise<SourceReferenceRow | null> {
     const [row] = await db
-        .select({
-            source_id: sourcesTable.id,
-            source_description: sourcesTable.description,
-            source_chunk_ids: sourcesTable.sourceChunkIds,
-            id: textUnitTable.id,
-            project_file_id: textUnitTable.fileId,
-            text: textUnitTable.text,
-            chunks: textUnitTable.chunks,
-            start_page: textUnitTable.startPage,
-            end_page: textUnitTable.endPage,
-            file_name: filesTable.name,
-            file_type: filesTable.type,
-            mime_type: filesTable.mimeType,
-            file_key: filesTable.key,
-            created_at: textUnitTable.createdAt,
-            updated_at: textUnitTable.updatedAt,
-        })
+        .select(sourceReferenceSelect)
         .from(sourcesTable)
         .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
         .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
@@ -74,6 +107,34 @@ async function loadSourceReferenceRow(graphId: string, sourceId: string): Promis
         .limit(1);
 
     return row ? normalizeSourceReferenceRow(row) : null;
+}
+
+async function loadSourceReferenceRows(graphId: string, sourceIds: string[]): Promise<SourceReferenceRow[]> {
+    const rows = await db
+        .select(sourceReferenceSelect)
+        .from(sourcesTable)
+        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+        .where(and(inArray(sourcesTable.id, sourceIds), eq(filesTable.graphId, graphId), eq(filesTable.deleted, false)));
+
+    return rows.map(normalizeSourceReferenceRow);
+}
+
+function normalizeSourceIds(sourceIds: string[]): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+
+    for (const sourceId of sourceIds) {
+        const normalized = sourceId.trim();
+        if (!normalized || seen.has(normalized)) {
+            continue;
+        }
+
+        seen.add(normalized);
+        result.push(normalized);
+    }
+
+    return result;
 }
 
 function normalizeSourceReferenceRow(row: SourceReferenceRow): SourceReferenceRow {

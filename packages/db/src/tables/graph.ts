@@ -16,7 +16,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
-import type { TextUnitSourceChunk } from "@kiwi/contracts";
+import type { TextUnitSourceChunk } from "@kiwi/contracts/source";
 import { organizationTable, teamTable, userTable } from "./auth";
 import { tsvector, weightedTsvectorGenerated } from "./tsvector";
 

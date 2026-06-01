@@ -1,4 +1,4 @@
-import type { TextUnitSourceChunk } from "@kiwi/contracts";
+import { isTextUnitSourceChunk, type TextUnitSourceChunk } from "@kiwi/contracts/source";
 import type { SourceReferenceChunk, SourceReferenceRecord, SourceReferenceUnitRecord } from "../types/routes";
 import { getProjectFileProxyPath } from "./project-file-url";
 import { getPdfPreviewPageNumbers } from "./text-unit-preview";
@@ -10,7 +10,7 @@ export type SourceReferenceRow = {
     id: string;
     project_file_id: string;
     text: string;
-    chunks: TextUnitSourceChunk[];
+    chunks: unknown[];
     start_page: number | null;
     end_page: number | null;
     file_name: string;
@@ -25,7 +25,6 @@ const PDF_REGION_PADDING_X = 0.04;
 const PDF_REGION_PADDING_Y = 0.06;
 const PDF_REGION_MIN_WIDTH = 0.35;
 const PDF_REGION_MIN_HEIGHT = 0.16;
-const SOURCE_REFERENCE_FALLBACK_CHUNK_LIMIT = 8;
 
 type PDFRegionRecord = SourceReferenceRecord["pdf_regions"][number];
 type PDFRectangle = PDFRegionRecord["rectangles"][number];
@@ -123,39 +122,11 @@ export function selectSourceChunks(chunks: unknown[], sourceChunkIds: unknown[])
         }
     }
 
-    if (selected.length === 0 && validChunks.length > 0) {
-        return validChunks.slice(0, SOURCE_REFERENCE_FALLBACK_CHUNK_LIMIT);
+    if (selected.length === 0 && validChunks.length === 1) {
+        return validChunks;
     }
 
     return selected;
-}
-
-function isTextUnitSourceChunk(value: unknown): value is TextUnitSourceChunk {
-    if (!value || typeof value !== "object") {
-        return false;
-    }
-
-    const chunk = value as Record<string, unknown>;
-    if (
-        !isPositiveInteger(chunk.id) ||
-        typeof chunk.text !== "string" ||
-        !isNullablePositiveInteger(chunk.startPage) ||
-        !isNullablePositiveInteger(chunk.endPage) ||
-        !isValidPageSpan(chunk.startPage, chunk.endPage) ||
-        (chunk.regions !== undefined && !Array.isArray(chunk.regions))
-    ) {
-        return false;
-    }
-
-    if (chunk.type === "text") {
-        return true;
-    }
-
-    if (chunk.type === "image") {
-        return isNullableString(chunk.imageId) && isNullableString(chunk.imageKey);
-    }
-
-    return false;
 }
 
 function buildPDFRegions(
@@ -332,24 +303,12 @@ function isPositiveInteger(value: unknown): value is number {
     return typeof value === "number" && Number.isInteger(value) && value >= 1;
 }
 
-function isNullablePositiveInteger(value: unknown): value is number | null {
-    return value === null || isPositiveInteger(value);
-}
-
-function isValidPageSpan(startPage: number | null, endPage: number | null): boolean {
-    return startPage === null || endPage === null || endPage >= startPage;
-}
-
 function isPositiveFiniteNumber(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value);
-}
-
-function isNullableString(value: unknown): value is string | null {
-    return value === null || typeof value === "string";
 }
 
 function getPageImagePath(graphId: string, unitId: string, page: number): string {

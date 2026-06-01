@@ -189,7 +189,7 @@ async function buildHybridFixtureFromBytes(
         mode: "hybrid",
         tableMode: options.tableMode,
         model: {} as never,
-        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
+        storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/file-1.pdf/file-1/images" },
     }).getText();
 
     return {
@@ -965,7 +965,7 @@ describe("PDFLoader", () => {
             loader,
             mode: "hybrid",
             model: {} as never,
-            storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
+            storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/file-1.pdf/file-1/images" },
         }).getDocument();
 
         expect(document.text).toContain('<image id="img-1">PDF figure summary</image>');
@@ -1007,7 +1007,7 @@ describe("PDFLoader", () => {
             loader,
             mode: "hybrid",
             model: {} as never,
-            storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/derived/file-1/images" },
+            storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/file-1.pdf/file-1/images" },
         }).getText();
 
         expect(text).toBe(":::PAGE-1:::\n\n# OCR fallback\nReadable page text");
@@ -1097,6 +1097,10 @@ describe("PDFLoader", () => {
 
     test("preserves script-like math text and dedupes overprinted table chars", async () => {
         const fixture = await buildMathTableFixture();
+
+        expect(fixture.plain).toContain("x2 square");
+        expect(fixture.plain).toContain("H2O water");
+        expect(fixture.plain).not.toContain("H O water");
 
         expect(fixture.hybrid).toMatch(/^# Math Table$/m);
         expect(fixture.hybrid).toMatch(/\| Expr \| Meaning \|/);

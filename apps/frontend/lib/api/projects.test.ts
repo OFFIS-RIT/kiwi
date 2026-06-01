@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import type { KiwiApiClient } from "./client";
-import { fetchSourceReference, getProjectFileUrl } from "./projects";
+import { fetchSourceReference, fetchSourceReferences, getProjectFileUrl } from "./projects";
 
 const client = { baseURL: "/api" } as KiwiApiClient;
 
@@ -45,5 +45,35 @@ describe("project source references", () => {
 
         await expect(fetchSourceReference(apiClient, "graph-1", "source-1")).resolves.toEqual(reference);
         expect(get).toHaveBeenCalledWith("/graphs/graph-1/sources/source-1/reference");
+    });
+
+    test("fetches source references in one batch request", async () => {
+        const reference = {
+            source_id: "source-1",
+            description: "Reference",
+            unit: {
+                id: "unit-1",
+                project_file_id: "file-1",
+                start_page: null,
+                end_page: null,
+                file_name: "document.txt",
+                file_type: "text",
+                mime_type: "text/plain",
+                created_at: null,
+                updated_at: null,
+            },
+            chunks: [{ type: "text" as const, chunk_id: 1, text: "Alpha evidence" }],
+            pdf_regions: [],
+        };
+        const batch = { items: [reference], missing_source_ids: ["source-2"] };
+        const post = vi.fn(async () => ({ status: "success" as const, data: batch }));
+        const apiClient = { baseURL: "/api", post } as unknown as KiwiApiClient;
+
+        await expect(fetchSourceReferences(apiClient, "graph-1", ["source-1", "source-1", " source-2 "])).resolves.toEqual(
+            batch
+        );
+        expect(post).toHaveBeenCalledWith("/graphs/graph-1/sources/references", {
+            source_ids: ["source-1", "source-2"],
+        });
     });
 });

@@ -124,20 +124,17 @@ describe("processUnit", () => {
         expect(graph.relationships[0]?.sources[0]?.sourceChunkIds).toEqual([1]);
     });
 
-    test("falls back to bounded source chunk ids when attribution is omitted", async () => {
+    test("uses the only available source chunk when attribution is omitted", async () => {
         const { normalizeSourceChunkIds } = await import("../unit.ts");
 
         expect(
             normalizeSourceChunkIds([], {
-                chunks: [
-                    { id: 1, type: "text", text: "Alpha", startPage: null, endPage: null },
-                    { id: 2, type: "text", text: "Beta", startPage: null, endPage: null },
-                ],
+                chunks: [{ id: 1, type: "text", text: "Alpha", startPage: null, endPage: null }],
             })
-        ).toEqual([1, 2]);
+        ).toEqual([1]);
     });
 
-    test("caps fallback attribution to the maximum source chunk count", async () => {
+    test("does not fabricate chunk ids when multi-chunk attribution is omitted", async () => {
         const { normalizeSourceChunkIds } = await import("../unit.ts");
         const chunks = Array.from({ length: 12 }, (_, index) => ({
             id: index + 1,
@@ -147,7 +144,7 @@ describe("processUnit", () => {
             endPage: null,
         }));
 
-        expect(normalizeSourceChunkIds([], { chunks })).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+        expect(normalizeSourceChunkIds([], { chunks })).toEqual([]);
         expect(normalizeSourceChunkIds([9, 1, 9, 2, 3, 4, 5, 6, 7, 8], { chunks })).toEqual([
             9, 1, 2, 3, 4, 5, 6, 7,
         ]);

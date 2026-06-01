@@ -1,9 +1,11 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { fetchSourceReferences } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { useQueryClient } from "@tanstack/react-query";
 import { isResolvedCitationFence, splitTextWithCitationFences, type ResolvedCitationFence } from "@kiwi/ai/citation";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { AlertTriangle, FileText, Loader2, Search } from "lucide-react";
@@ -14,7 +16,11 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { openCitationSourceFile } from "./citation-file";
 import { buildSourceFileCitations, citationReferenceKey } from "./source-file-citations";
-import { TextReferenceBadge, TextReferenceDialog } from "./TextReferenceBadge";
+import {
+    TextReferenceBadge,
+    TextReferenceDialog,
+    sourceReferenceQueryKey,
+} from "./TextReferenceBadge";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
 type MessageContentProps = {
@@ -94,9 +100,16 @@ export function MessageContent({
     startedAtMs,
 }: MessageContentProps) {
     const apiClient = useApiClient();
+    const queryClient = useQueryClient();
     const [activeCitationSourceId, setActiveCitationSourceId] = React.useState<string | null>(null);
 
-    const { markdownContent, citations, citationIndexBySourceId, thinkingItems } = React.useMemo(() => {
+    const {
+        markdownContent,
+        citations,
+        citationBySourceId,
+        citationIndexBySourceId,
+        thinkingItems,
+    } = React.useMemo(() => {
         // Find the last "real" tool index, ignoring the client-side
         // clarification tool which is rendered separately by ClarificationBlock.
         let lastToolIdx = -1;
@@ -116,6 +129,7 @@ export function MessageContent({
 
         const citationOrder: ResolvedCitationFence[] = [];
         const citationIndexByReferenceKey = new Map<string, number>();
+        const citationBySourceId = new Map<string, ResolvedCitationFence>();
         const sourceIndexMap = new Map<string, number>();
         type RawItem =
             | { kind: "interim-text"; key: string; markdown: string }
@@ -141,6 +155,7 @@ export function MessageContent({
                     citationIndexByReferenceKey.set(referenceKey, citationIndex);
                     citationOrder.push(segment.citation);
                 }
+                citationBySourceId.set(segment.citation.sourceId, segment.citation);
                 sourceIndexMap.set(segment.citation.sourceId, citationIndex);
                 md += `[[cite:${segment.citation.sourceId}]]`;
             }
@@ -209,6 +224,7 @@ export function MessageContent({
         return {
             markdownContent: normalizeLatexDelimitersForMarkdown(markdown),
             citations: citationOrder,
+            citationBySourceId,
             citationIndexBySourceId: sourceIndexMap,
             thinkingItems: compactedItems,
         };
@@ -217,13 +233,46 @@ export function MessageContent({
     const activeCitationIndex = activeCitationSourceId
         ? citationIndexBySourceId.get(activeCitationSourceId)
         : undefined;
-    const activeCitation = activeCitationIndex === undefined ? undefined : citations[activeCitationIndex];
+    const activeCitation = activeCitationSourceId ? citationBySourceId.get(activeCitationSourceId) : undefined;
+    const citationSourceIds = React.useMemo(() => [...citationBySourceId.keys()], [citationBySourceId]);
 
     React.useEffect(() => {
-        if (activeCitationSourceId && activeCitationIndex === undefined) {
+        if (!projectId || citationSourceIds.length <= 1) {
+            return;
+        }
+
+        const uncachedSourceIds = citationSourceIds.filter(
+            (sourceId) => !queryClient.getQueryData(sourceReferenceQueryKey(projectId, sourceId))
+        );
+        if (uncachedSourceIds.length === 0) {
+            return;
+        }
+
+        let cancelled = false;
+        void fetchSourceReferences(apiClient, projectId, uncachedSourceIds)
+            .then((references) => {
+                if (cancelled) {
+                    return;
+                }
+
+                for (const reference of references.items) {
+                    queryClient.setQueryData(sourceReferenceQueryKey(projectId, reference.source_id), reference, {
+                        updatedAt: Date.now(),
+                    });
+                }
+            })
+            .catch(() => undefined);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [apiClient, citationSourceIds, projectId, queryClient]);
+
+    React.useEffect(() => {
+        if (activeCitationSourceId && (activeCitationIndex === undefined || !activeCitation)) {
             setActiveCitationSourceId(null);
         }
-    }, [activeCitationIndex, activeCitationSourceId]);
+    }, [activeCitation, activeCitationIndex, activeCitationSourceId]);
 
     const shouldSkipBadgeRecursion = (node: React.ReactElement): boolean => {
         const type = typeof node.type === "string" ? node.type : undefined;

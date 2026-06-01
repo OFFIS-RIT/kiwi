@@ -1,6 +1,7 @@
 import type { ModelMessage } from "ai";
 import type { EmbeddingModelV3, LanguageModelV3 } from "@ai-sdk/provider";
-import type { ChatMessage, MessagePart, MessageToolPart } from "@kiwi/db/tables/chats";
+import type { MessagePart, MessageToolPart } from "@kiwi/contracts/chat";
+import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { toModelMessage } from "./index";
 import { buildSubagentToolset } from "./agents/subagents";
 import { createChatPrompt, type ChatPromptOptions } from "./prompts/chat.prompt";

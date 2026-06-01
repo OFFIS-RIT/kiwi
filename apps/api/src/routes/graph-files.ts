@@ -5,13 +5,19 @@ import { db } from "@kiwi/db";
 import { filesTable } from "@kiwi/db/tables/graph";
 import { error as logError } from "@kiwi/logger";
 import { env } from "../env";
+import { binaryResponse } from "../lib/binary-response";
 import { verifyProjectFileAccessToken } from "../lib/project-file-access-token";
 import { assertCanViewGraph } from "../lib/graph-access";
 import { getGraphFileProxyResponse, loadGraphFileByKey, loadGraphFileForProxy } from "../lib/graph-file-proxy";
 import { mapGraphError, selectGraphDetailFileFields, toGraphFileRecord, type GraphFileRow } from "../lib/graph-route";
 import { getOrRenderPDFPreviewPage } from "../lib/pdf-preview-cache";
 import { getProjectFileProxyPath } from "../lib/project-file-url";
-import { loadSourceReference, loadSourceReferenceImage, type SourceReferenceImage } from "../lib/source-reference";
+import {
+    loadSourceReference,
+    loadSourceReferenceImage,
+    loadSourceReferences,
+    type SourceReferenceImage,
+} from "../lib/source-reference";
 import { getPdfPreviewPageNumbers, parsePageImageParam } from "../lib/text-unit-preview";
 import { loadTextUnitWithFile, pngResponse, toTextUnitRecord } from "../lib/text-unit-record";
 import { mapUnitError } from "../lib/unit";
@@ -55,18 +61,7 @@ function mapSourceReferenceError(status: FileRouteStatus, error: unknown) {
 }
 
 function sourceReferenceImageResponse(image: SourceReferenceImage): Response {
-    const body = new ArrayBuffer(image.content.byteLength);
-    new Uint8Array(body).set(image.content);
-
-    return new Response(body, {
-        status: 200,
-        headers: {
-            "Cache-Control": "private, max-age=86400",
-            "Content-Length": String(image.content.byteLength),
-            "Content-Type": image.contentType,
-            "X-Content-Type-Options": "nosniff",
-        },
-    });
+    return binaryResponse(image.content, { contentType: image.contentType });
 }
 
 async function serveGraphFile({
@@ -325,6 +320,36 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
             params: t.Object({
                 id: t.String(),
                 sourceId: t.String(),
+            }),
+            beforeHandle: requirePermissions({
+                graph: ["view"],
+            }),
+        }
+    )
+    .post(
+        "/:id/sources/references",
+        async ({ body, params, user, status }) => {
+            if (!user) {
+                return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+            }
+
+            const referenceResult = await Result.tryPromise(async () => {
+                await assertCanViewGraph(user, params.id);
+                return loadSourceReferences(params.id, body.source_ids);
+            });
+
+            if (referenceResult.isErr()) {
+                return mapSourceReferenceError(status, referenceResult.error);
+            }
+
+            return status(200, successResponse(referenceResult.value));
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+            }),
+            body: t.Object({
+                source_ids: t.Array(t.String()),
             }),
             beforeHandle: requirePermissions({
                 graph: ["view"],

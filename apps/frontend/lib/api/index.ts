@@ -39,9 +39,10 @@ export type {
     TeamListResponse,
     TeamUsersResponse,
     TeamPatchResponse,
+    SourceReferenceBatchResponse,
     SourceReferenceResponse,
     TextUnitResponse,
-} from "@kiwi/api/types";
+} from "@kiwi/contracts";
 
 // Re-export team API helpers under the existing frontend group names.
 export {
@@ -74,6 +75,7 @@ export {
     fetchProjectDetail,
     fetchProjectFiles,
     fetchSourceReference,
+    fetchSourceReferences,
     fetchTextUnit,
     getApiAssetUrl,
     getProjectFileUrl,

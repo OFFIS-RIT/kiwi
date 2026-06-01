@@ -4,10 +4,11 @@ import {
     stringifyCitationFence,
     type ChatUIMessage,
 } from "@kiwi/ai";
+import type { MessagePart } from "@kiwi/contracts/chat";
 import { db } from "@kiwi/db";
 import { Result } from "better-result";
 import { eq } from "drizzle-orm";
-import { chatTable, type MessagePart } from "@kiwi/db/tables/chats";
+import { chatTable } from "@kiwi/db/tables/chats";
 import { Elysia, t } from "elysia";
 import {
     createUIMessageStream,

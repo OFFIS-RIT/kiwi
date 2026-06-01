@@ -18,7 +18,7 @@ describe("createSourceChunks", () => {
         const chunks = await createSourceChunks(
             [
                 "Before text.",
-                '<image id="img-1" key="graphs/g-1/derived/f-1/images/img-1.png">Chart &lt;A&gt;</image>',
+                '<image id="img-1" key="graphs/g-1/f-1.pdf/f-1/images/img-1.png">Chart &lt;A&gt;</image>',
                 "After text.",
             ].join("\n"),
             { startPage: 3, endPage: 3 }
@@ -31,7 +31,7 @@ describe("createSourceChunks", () => {
                 type: "image",
                 text: "Chart <A>",
                 imageId: "img-1",
-                imageKey: "graphs/g-1/derived/f-1/images/img-1.png",
+                imageKey: "graphs/g-1/f-1.pdf/f-1/images/img-1.png",
                 startPage: 3,
                 endPage: 3,
             },

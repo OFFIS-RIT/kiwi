@@ -28,20 +28,20 @@ describe("processOCRImages", () => {
                 { id: "img-2", type: "image/webp", content: new Uint8Array([2]) },
             ],
             {} as never,
-            { bucket: "bucket", imagePrefix: "graphs/g-1/derived/f-1/images" },
+            { bucket: "bucket", imagePrefix: "graphs/g-1/f-1.pdf/f-1/images" },
             { describeImage, uploadImage }
         );
 
         expect(output).toContain(
-            '<image id="img-1" key="graphs/g-1/derived/f-1/images/img-1.png">Chart &lt;A&gt; &amp; &quot;B&quot;</image>'
+            '<image id="img-1" key="graphs/g-1/f-1.pdf/f-1/images/img-1.png">Chart &lt;A&gt; &amp; &quot;B&quot;</image>'
         );
-        expect(output).toContain('<image id="img-2" key="graphs/g-1/derived/f-1/images/img-2.webp">Diagram 2</image>');
+        expect(output).toContain('<image id="img-2" key="graphs/g-1/f-1.pdf/f-1/images/img-2.webp">Diagram 2</image>');
         expect(output).not.toMatch(/:::IMG-img-/);
         expect(uploadImage).toHaveBeenCalledTimes(2);
         expect(uploadedNames.sort()).toEqual(["img-1.png", "img-2.webp"]);
         expect(uploadImage).toHaveBeenCalledWith(expect.any(String), expect.any(Uint8Array), {
             bucket: "bucket",
-            imagePrefix: "graphs/g-1/derived/f-1/images",
+            imagePrefix: "graphs/g-1/f-1.pdf/f-1/images",
         });
     });
 
@@ -73,7 +73,7 @@ describe("processOCRImages", () => {
                 text,
                 images,
                 {} as never,
-                { bucket: "bucket", imagePrefix: "graphs/g-1/derived/f-1/images" },
+                { bucket: "bucket", imagePrefix: "graphs/g-1/f-1.pdf/f-1/images" },
                 { describeImage, uploadImage }
             );
 
@@ -99,7 +99,7 @@ describe("processOCRImages", () => {
             [":::IMG-img-1:::", "Again", ":::IMG-img-1:::"].join("\n"),
             [{ id: "img-1", type: "image/png", content: new Uint8Array([1]) }],
             {} as never,
-            { bucket: "bucket", imagePrefix: "graphs/g-1/derived/f-1/images" },
+            { bucket: "bucket", imagePrefix: "graphs/g-1/f-1.pdf/f-1/images" },
             { describeImage, uploadImage }
         );
 
@@ -122,15 +122,15 @@ describe("processOCRImages", () => {
                 { id: "img-2", type: "image/png", content: content.slice() },
             ],
             {} as never,
-            { bucket: "bucket", imagePrefix: "graphs/g-1/derived/f-1/images" },
+            { bucket: "bucket", imagePrefix: "graphs/g-1/f-1.pdf/f-1/images" },
             { describeImage, uploadImage }
         );
 
         expect(output).toContain(
-            '<image id="img-1" key="graphs/g-1/derived/f-1/images/img-1.png">Description for img-1</image>'
+            '<image id="img-1" key="graphs/g-1/f-1.pdf/f-1/images/img-1.png">Description for img-1</image>'
         );
         expect(output).toContain(
-            '<image id="img-2" key="graphs/g-1/derived/f-1/images/img-1.png">Description for img-1</image>'
+            '<image id="img-2" key="graphs/g-1/f-1.pdf/f-1/images/img-1.png">Description for img-1</image>'
         );
         expect(describeImage).toHaveBeenCalledTimes(1);
         expect(uploadImage).toHaveBeenCalledTimes(1);
@@ -142,7 +142,7 @@ describe("processOCRImages", () => {
                 "Before\n:::IMG-img-missing:::",
                 [{ id: "img-1", type: "image/png", content: new Uint8Array([1]) }],
                 {} as never,
-                { bucket: "bucket", imagePrefix: "graphs/g-1/derived/f-1/images" },
+                { bucket: "bucket", imagePrefix: "graphs/g-1/f-1.pdf/f-1/images" },
                 {
                     describeImage: mock(async () => "unused"),
                     uploadImage: mock(async () => ({ key: "unused" })),
@@ -157,7 +157,7 @@ describe("processOCRImages", () => {
                 "No image fences",
                 [{ id: "img-1", type: "image/png", content: new Uint8Array([1]) }],
                 {} as never,
-                { bucket: "bucket", imagePrefix: "graphs/g-1/derived/f-1/images" },
+                { bucket: "bucket", imagePrefix: "graphs/g-1/f-1.pdf/f-1/images" },
                 {
                     describeImage: mock(async () => "unused"),
                     uploadImage: mock(async () => ({ key: "unused" })),

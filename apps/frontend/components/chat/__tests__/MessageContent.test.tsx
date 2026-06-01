@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/test-utils";
-import { downloadProjectFile, fetchSourceReference, getApiAssetUrl, getProjectFileUrl } from "@/lib/api/projects";
+import {
+    downloadProjectFile,
+    fetchSourceReference,
+    fetchSourceReferences,
+    getApiAssetUrl,
+    getProjectFileUrl,
+} from "@/lib/api/projects";
 import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { MessageContent } from "../MessageContent";
 
@@ -32,6 +38,10 @@ vi.mock("@/lib/api/projects", () => {
             unit: defaultUnit,
             chunks: [{ type: "text" as const, chunk_id: 1, text: "Alpha evidence" }],
             pdf_regions: [],
+        })),
+        fetchSourceReferences: vi.fn(async (_client: object, _projectId: string, sourceIds: string[]) => ({
+            items: [],
+            missing_source_ids: sourceIds,
         })),
         fetchTextUnit: vi.fn(async () => defaultTextUnit),
         getApiAssetUrl: vi.fn((_client: object, path: string) => `/api${path}`),
@@ -113,6 +123,7 @@ describe("MessageContent", () => {
     beforeEach(() => {
         mocked(downloadProjectFile).mockClear();
         mocked(fetchSourceReference).mockClear();
+        mocked(fetchSourceReferences).mockClear();
         mocked(getApiAssetUrl).mockClear();
         mocked(getProjectFileUrl).mockClear();
     });
@@ -161,6 +172,109 @@ describe("MessageContent", () => {
         expect(screen.getAllByRole("button", { name: "1" })).toHaveLength(2);
         expect(screen.queryByRole("button", { name: "2" })).not.toBeInTheDocument();
         expect(screen.getAllByRole("button", { name: /document.pdf/i })).toHaveLength(1);
+    });
+
+    test("opens the clicked source when deduplicated inline badges share a display number", async () => {
+        const sameReference = {
+            fileId: "file-1",
+            fileKey: undefined,
+            fileType: "pdf",
+            startPage: 1,
+            endPage: 7,
+        };
+        const unit = {
+            id: "unit-1",
+            project_file_id: "file-1",
+            start_page: 1,
+            end_page: 7,
+            file_name: "document.pdf",
+            file_type: "pdf",
+            mime_type: "application/pdf",
+            created_at: null,
+            updated_at: null,
+        };
+        mocked(fetchSourceReference).mockResolvedValueOnce(
+            sourceReference(unit, {
+                source_id: "src-2",
+                chunks: [{ type: "text", chunk_id: 2, text: "Second source evidence" }],
+            })
+        );
+
+        renderMessageContent([
+            {
+                type: "text",
+                text: `First ${citationFence("src-1", sameReference)} second ${citationFence("src-2", sameReference)}`,
+            },
+        ]);
+
+        await userEvent.click(screen.getAllByRole("button", { name: "1" })[1]!);
+
+        expect(await screen.findByText("Second source evidence")).toBeInTheDocument();
+        expect(fetchSourceReference).toHaveBeenCalledWith(expect.any(Object), "graph-1", "src-2");
+    });
+
+    test("uses batch-prefetched source references for citation-heavy messages", async () => {
+        const firstUnit = {
+            id: "unit-1",
+            project_file_id: "file-1",
+            start_page: 1,
+            end_page: 1,
+            file_name: "first.pdf",
+            file_type: "pdf",
+            mime_type: "application/pdf",
+            created_at: null,
+            updated_at: null,
+        };
+        const secondUnit = {
+            ...firstUnit,
+            id: "unit-2",
+            project_file_id: "file-2",
+            start_page: 2,
+            end_page: 2,
+            file_name: "second.pdf",
+        };
+        mocked(fetchSourceReferences).mockResolvedValueOnce({
+            items: [
+                sourceReference(firstUnit, {
+                    source_id: "src-1",
+                    chunks: [{ type: "text", chunk_id: 1, text: "First prefetched evidence" }],
+                }),
+                sourceReference(secondUnit, {
+                    source_id: "src-2",
+                    chunks: [{ type: "text", chunk_id: 2, text: "Second prefetched evidence" }],
+                }),
+            ],
+            missing_source_ids: [],
+        });
+
+        renderMessageContent([
+            {
+                type: "text",
+                text: `First ${citationFence("src-1", {
+                    unitId: "unit-1",
+                    fileId: "file-1",
+                    fileKey: undefined,
+                    fileName: "first.pdf",
+                    startPage: 1,
+                    endPage: 1,
+                })} second ${citationFence("src-2", {
+                    unitId: "unit-2",
+                    fileId: "file-2",
+                    fileKey: undefined,
+                    fileName: "second.pdf",
+                    startPage: 2,
+                    endPage: 2,
+                })}`,
+            },
+        ]);
+
+        await waitFor(() =>
+            expect(fetchSourceReferences).toHaveBeenCalledWith(expect.any(Object), "graph-1", ["src-1", "src-2"])
+        );
+        await userEvent.click(screen.getByRole("button", { name: "2" }));
+
+        expect(await screen.findByText("Second prefetched evidence")).toBeInTheDocument();
+        expect(fetchSourceReference).not.toHaveBeenCalled();
     });
 
     test("combines footer source file citations by overlapping page ranges", async () => {
@@ -310,6 +424,19 @@ describe("MessageContent", () => {
         expect(await screen.findByText("Alpha evidence")).toBeInTheDocument();
         expect(document.querySelector("mark")).not.toBeInTheDocument();
         expect(fetchSourceReference).toHaveBeenCalledWith(expect.any(Object), "graph-1", "src-1");
+    });
+
+    test("reuses cached source references when reopening text reference dialogs", async () => {
+        renderMessageContent([{ type: "text", text: `Alpha ${citationFence("src-1")} Omega` }]);
+
+        await userEvent.click(screen.getByRole("button", { name: "1" }));
+        expect(await screen.findByText("Alpha evidence")).toBeInTheDocument();
+
+        await userEvent.click(screen.getByRole("button", { name: /close/i }));
+        await userEvent.click(screen.getByRole("button", { name: "1" }));
+
+        expect(await screen.findByText("Alpha evidence")).toBeInTheDocument();
+        expect(fetchSourceReference).toHaveBeenCalledTimes(1);
     });
 
     test("renders multiple selected text chunks without merging them", async () => {
@@ -536,6 +663,55 @@ describe("MessageContent", () => {
         const scrollArea = document.querySelector("[data-slot='scroll-area']");
         expect(scrollArea?.parentElement).toHaveClass("min-h-0", "flex-1");
         expect(scrollArea).toHaveClass("h-full");
+    });
+
+    test("groups PDF source regions from the same page into one preview image", async () => {
+        const unit: Awaited<ReturnType<typeof fetchSourceReference>>["unit"] = {
+            id: "unit-1",
+            project_file_id: "file-1",
+            start_page: 3,
+            end_page: 4,
+            file_name: "document.pdf",
+            file_type: "pdf",
+            mime_type: "application/pdf",
+            created_at: null,
+            updated_at: null,
+        };
+        mocked(fetchSourceReference).mockResolvedValueOnce(
+            sourceReference(unit, {
+                chunks: [],
+                pdf_regions: [
+                    {
+                        kind: "text",
+                        chunk_id: 1,
+                        page: 3,
+                        width: 200,
+                        height: 100,
+                        image_path: "/graphs/graph-1/units/unit-1/pages/3.png",
+                        crop: { left: 0, top: 0, width: 0.5, height: 0.5 },
+                        rectangles: [{ left: 0.1, top: 0.1, width: 0.1, height: 0.1 }],
+                    },
+                    {
+                        kind: "text",
+                        chunk_id: 2,
+                        page: 3,
+                        width: 200,
+                        height: 100,
+                        image_path: "/graphs/graph-1/units/unit-1/pages/3.png",
+                        crop: { left: 0.4, top: 0.4, width: 0.5, height: 0.5 },
+                        rectangles: [{ left: 0.6, top: 0.6, width: 0.1, height: 0.1 }],
+                    },
+                ],
+            })
+        );
+
+        renderMessageContent([{ type: "text", text: `Alpha ${citationFence("src-1")} Omega` }]);
+
+        await userEvent.click(screen.getByRole("button", { name: "1" }));
+
+        expect(await screen.findByRole("img", { name: "document.pdf page 3" })).toBeInTheDocument();
+        expect(screen.getAllByRole("img", { name: "document.pdf page 3" })).toHaveLength(1);
+        expect(screen.getAllByTestId("pdf-source-region-highlight")).toHaveLength(2);
     });
 
     test("renders PDF source region overlays", async () => {

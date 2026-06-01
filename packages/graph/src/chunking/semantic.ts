@@ -72,6 +72,14 @@ export class SemanticChunker implements GraphChunker {
     constructor(private readonly maxChunkSize: number) {}
 
     async getChunks(input: string): Promise<string[]> {
+        return (await this.getChunkSpans(input)).map((chunk) => chunk.content);
+    }
+
+    async getChunkSpans(input: string): Promise<GraphTextChunk[]> {
+        return resolveTextChunkSpans(input, await this.getChunkContents(input));
+    }
+
+    private async getChunkContents(input: string): Promise<string[]> {
         const text = input.trim();
         if (text === "") {
             return [];
@@ -84,10 +92,6 @@ export class SemanticChunker implements GraphChunker {
         chunks = mergeTinyChunks(chunks, counter, this.maxChunkSize);
 
         return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk !== "");
-    }
-
-    async getChunkSpans(input: string): Promise<GraphTextChunk[]> {
-        return resolveTextChunkSpans(input, await this.getChunks(input));
     }
 }
 

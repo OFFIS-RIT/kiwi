@@ -40,6 +40,7 @@
         "elysia": "1.4.28",
         "ldap-authentication": "4.0.4",
         "openworkflow": "catalog:",
+        "ulid": "^3.0.2",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -58,8 +59,8 @@
       "dependencies": {
         "@ai-sdk/react": "catalog:",
         "@kiwi/ai": "workspace:*",
-        "@kiwi/api": "workspace:*",
         "@kiwi/auth": "workspace:*",
+        "@kiwi/contracts": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@radix-ui/react-avatar": "^1.1.11",
         "@radix-ui/react-collapsible": "^1.1.12",
@@ -123,6 +124,7 @@
       "name": "@kiwi/worker",
       "dependencies": {
         "@kiwi/ai": "workspace:*",
+        "@kiwi/contracts": "workspace:*",
         "@kiwi/db": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",
@@ -151,6 +153,7 @@
         "@ai-sdk/openai": "catalog:",
         "@ai-sdk/openai-compatible": "catalog:",
         "@ai-sdk/provider": "catalog:",
+        "@kiwi/contracts": "workspace:*",
         "@kiwi/db": "workspace:*",
         "@kiwi/logger": "workspace:*",
         "ai": "catalog:",
@@ -188,6 +191,9 @@
     },
     "packages/contracts": {
       "name": "@kiwi/contracts",
+      "dependencies": {
+        "ai": "catalog:",
+      },
       "devDependencies": {
         "@types/bun": "catalog:",
       },

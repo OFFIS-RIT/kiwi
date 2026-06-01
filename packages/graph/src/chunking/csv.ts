@@ -15,6 +15,14 @@ export class CSVChunker implements GraphChunker {
     }
 
     async getChunks(input: string): Promise<string[]> {
+        return (await this.getChunkSpans(input)).map((chunk) => chunk.content);
+    }
+
+    async getChunkSpans(input: string): Promise<GraphTextChunk[]> {
+        return resolveTextChunkSpans(input, await this.getChunkContents(input));
+    }
+
+    private async getChunkContents(input: string): Promise<string[]> {
         const text = input.trim();
         if (text === "") {
             return [];
@@ -63,10 +71,6 @@ export class CSVChunker implements GraphChunker {
 
         flushChunk();
         return chunks;
-    }
-
-    async getChunkSpans(input: string): Promise<GraphTextChunk[]> {
-        return resolveTextChunkSpans(input, await this.getChunks(input));
     }
 }
 

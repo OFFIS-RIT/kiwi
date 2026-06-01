@@ -1,8 +1,4 @@
-import type { GraphChunker, GraphTextChunk } from "..";
-
-export async function getGraphTextChunks(chunker: GraphChunker, text: string): Promise<GraphTextChunk[]> {
-    return chunker.getChunkSpans(text);
-}
+import type { GraphTextChunk } from "..";
 
 export function resolveTextChunkSpans(text: string, chunks: string[]): GraphTextChunk[] {
     const spans: GraphTextChunk[] = [];

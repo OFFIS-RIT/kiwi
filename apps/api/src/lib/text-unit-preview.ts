@@ -54,6 +54,6 @@ export function parsePageImageParam(value: string): number | null {
     return Number.isInteger(page) && page >= 1 ? page : null;
 }
 
-export function getPdfPreviewPageKey(graphId: string, fileId: string, page: number): string {
-    return `${getDerivedPdfPreviewPrefix(graphId, fileId)}/page-${page}.png`;
+export function getPdfPreviewPageKey(fileKey: string, fileId: string, page: number): string {
+    return `${getDerivedPdfPreviewPrefix(fileKey, fileId)}/page-${page}.png`;
 }

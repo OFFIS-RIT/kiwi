@@ -5,7 +5,6 @@ import { generateText, Output } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { Graph, GraphChunker, GraphFile, GraphTextChunk, LoaderSourceChunk, TextUnitSourceChunk, Unit } from ".";
 import { SemanticChunker } from "./chunking/semantic";
-import { getGraphTextChunks } from "./chunking/span";
 import { loadGraphDocument } from "./loader/document";
 import { stripPageFences, toPageAwareChunks } from "./lib/page-fence";
 import { createSourceChunks, DEFAULT_SOURCE_CHUNK_TOKENS } from "./lib/source-chunk";
@@ -31,7 +30,7 @@ export async function createUnitsFromText(options: {
     chunker: GraphChunker;
     loaderSourceChunks?: LoaderSourceChunk[];
 }): Promise<Unit[]> {
-    const textChunks = await getGraphTextChunks(options.chunker, options.text);
+    const textChunks = await options.chunker.getChunkSpans(options.text);
     const nonEmptyTextChunks = textChunks.filter((chunk) => stripPageFences(chunk.content) !== "");
     const chunks = toPageAwareChunks(textChunks.map((chunk) => chunk.content));
     const loaderSourceChunks = prepareLoaderSourceChunks(options.loaderSourceChunks ?? []);
@@ -160,8 +159,8 @@ export function normalizeSourceChunkIds(sourceChunkIds: number[], unit: Pick<Uni
         }
     }
 
-    if (normalized.length === 0) {
-        return unit.chunks.slice(0, MAX_SOURCE_CHUNKS_PER_SOURCE).map((chunk) => chunk.id);
+    if (normalized.length === 0 && unit.chunks.length === 1) {
+        return [unit.chunks[0]!.id];
     }
 
     return normalized;

@@ -102,12 +102,25 @@ describe("toSourceReferenceRecord", () => {
         ]);
     });
 
-    test("uses stored chunks instead of legacy full text when chunk ids are missing", async () => {
+    test("uses the only stored chunk when chunk ids are missing", async () => {
         const reference = await toSourceReferenceRecord(
             "graph-1",
             sourceRow({
                 source_chunk_ids: [],
                 text: "Full unit text that should not be returned.",
+                chunks: [{ id: 1, type: "text", text: "Alpha chunk", startPage: null, endPage: null }],
+            })
+        );
+
+        expect(reference.chunks).toEqual([{ type: "text", chunk_id: 1, text: "Alpha chunk" }]);
+    });
+
+    test("falls back to broad legacy text instead of guessing among multiple chunks", async () => {
+        const reference = await toSourceReferenceRecord(
+            "graph-1",
+            sourceRow({
+                source_chunk_ids: [],
+                text: "Full unit text.",
                 chunks: [
                     { id: 1, type: "text", text: "Alpha chunk", startPage: null, endPage: null },
                     { id: 2, type: "text", text: "Beta chunk", startPage: null, endPage: null },
@@ -115,10 +128,7 @@ describe("toSourceReferenceRecord", () => {
             })
         );
 
-        expect(reference.chunks).toEqual([
-            { type: "text", chunk_id: 1, text: "Alpha chunk" },
-            { type: "text", chunk_id: 2, text: "Beta chunk" },
-        ]);
+        expect(reference.chunks).toEqual([{ type: "text", chunk_id: 1, text: "Full unit text." }]);
     });
 
     test("falls back to legacy text when stored source chunks are malformed", async () => {
@@ -498,7 +508,7 @@ describe("toSourceReferenceRecord", () => {
                         type: "image",
                         text: "Chart image",
                         imageId: "img-1",
-                        imageKey: "graphs/g-1/derived/file-1/images/img-1.png",
+                        imageKey: "graphs/g-1/file-1.pdf/file-1/images/img-1.png",
                         startPage: null,
                         endPage: null,
                     },
@@ -528,7 +538,7 @@ describe("toSourceReferenceRecord", () => {
                         type: "image",
                         text: "Chart image",
                         imageId: "img-1",
-                        imageKey: "graphs/g-1/derived/file-1/images/img-1.png",
+                        imageKey: "graphs/g-1/file-1.pdf/file-1/images/img-1.png",
                         startPage: null,
                         endPage: null,
                     },
@@ -580,7 +590,7 @@ describe("toSourceReferenceRecord", () => {
 });
 
 describe("selectSourceChunks", () => {
-    test("bounds missing-attribution fallback chunks", () => {
+    test("does not guess among multiple chunks when attribution is missing", () => {
         const chunks = Array.from({ length: 12 }, (_, index) => ({
             id: index + 1,
             type: "text" as const,
@@ -589,6 +599,12 @@ describe("selectSourceChunks", () => {
             endPage: null,
         }));
 
-        expect(selectSourceChunks(chunks, [])).toEqual(chunks.slice(0, 8));
+        expect(selectSourceChunks(chunks, [])).toEqual([]);
+    });
+
+    test("uses the only stored chunk when attribution is missing", () => {
+        const chunks = [{ id: 1, type: "text" as const, text: "Only chunk", startPage: null, endPage: null }];
+
+        expect(selectSourceChunks(chunks, [])).toEqual(chunks);
     });
 });
