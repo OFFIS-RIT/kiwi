@@ -7,7 +7,7 @@ import {
     TEXT_DEFAULT_Y_TOLERANCE,
     WORD_BOUNDARY_PUNCTUATION,
 } from "./constants";
-import { average, getTop, median, squashWhitespace, unionBoxes } from "./geometry";
+import { average, getTop, median, overlapLength, squashWhitespace, unionBoxes } from "./geometry";
 import { orderItemsByReadingLayout } from "./layout";
 
 const STRONG_INLINE_TOKEN_CONNECTORS = new Set(["_", "/", "\\", "+", "=", "^", "~", "*"]);
@@ -32,11 +32,10 @@ export function tidyPageText(pageText: PageText): PageText {
             continue;
         }
 
-        const horizontalSubset = chars.filter((char) => inferTextCharDirection(char) === "horizontal");
+        const { horizontal: horizontalSubset, vertical: verticalSubset } = splitLineCharsByDirection(chars);
         const visibleHorizontalChars = horizontalSubset.filter(
             (char) => getExpandedCharText(char.char).trim().length > 0
         );
-        const verticalSubset = chars.filter((char) => inferTextCharDirection(char) === "vertical");
         const visibleVerticalChars = verticalSubset.filter((char) => getExpandedCharText(char.char).trim().length > 0);
 
         if (visibleHorizontalChars.length > 0) {
@@ -315,6 +314,108 @@ export function splitHorizontalTextLine(chars: TextChar[]): TextChar[][] {
 
 export function inferTextCharDirection(char: TextChar): TextDirection {
     return char.bbox.width >= Math.max(char.bbox.height * 1.05, char.fontSize * 0.75) ? "vertical" : "horizontal";
+}
+
+function splitLineCharsByDirection(chars: TextChar[]): { horizontal: TextChar[]; vertical: TextChar[] } {
+    const horizontal = new Set<TextChar>();
+    const vertical = new Set<TextChar>();
+
+    for (const char of chars) {
+        if (inferTextCharDirection(char) === "vertical") {
+            vertical.add(char);
+            continue;
+        }
+
+        horizontal.add(char);
+    }
+
+    for (const run of getVerticalCharRuns(chars, vertical)) {
+        if (!isInlineHorizontalGlyphRun(run, chars, horizontal)) {
+            continue;
+        }
+
+        for (const char of run) {
+            vertical.delete(char);
+            horizontal.add(char);
+        }
+    }
+
+    return {
+        horizontal: chars.filter((char) => horizontal.has(char)),
+        vertical: chars.filter((char) => vertical.has(char)),
+    };
+}
+
+function getVerticalCharRuns(chars: TextChar[], vertical: Set<TextChar>): TextChar[][] {
+    const ordered = orderTextCharsForInlineRecovery(chars);
+    const runs: TextChar[][] = [];
+    let current: TextChar[] = [];
+
+    for (const char of ordered) {
+        if (vertical.has(char)) {
+            current.push(char);
+            continue;
+        }
+
+        if (current.length > 0) {
+            runs.push(current);
+            current = [];
+        }
+    }
+
+    if (current.length > 0) {
+        runs.push(current);
+    }
+
+    return runs;
+}
+
+function orderTextCharsForInlineRecovery(chars: TextChar[]): TextChar[] {
+    if (chars.every((char) => typeof char.sequenceIndex === "number")) {
+        return [...chars].sort((left, right) => (left.sequenceIndex ?? 0) - (right.sequenceIndex ?? 0));
+    }
+
+    return sortTextChars(chars);
+}
+
+function isInlineHorizontalGlyphRun(run: TextChar[], chars: TextChar[], horizontal: Set<TextChar>): boolean {
+    const visibleRun = run.filter((char) => getExpandedCharText(char.char).trim().length > 0);
+    if (visibleRun.length === 0 || visibleRun.length !== run.length) {
+        return false;
+    }
+
+    const ordered = orderTextCharsForInlineRecovery(chars);
+    const firstRunIndex = ordered.indexOf(run[0]!);
+    const lastRunIndex = ordered.indexOf(run[run.length - 1]!);
+    if (firstRunIndex < 0 || lastRunIndex < firstRunIndex) {
+        return false;
+    }
+
+    const previous = findAdjacentVisibleHorizontalChar(ordered.slice(0, firstRunIndex).reverse(), horizontal);
+    const next = findAdjacentVisibleHorizontalChar(ordered.slice(lastRunIndex + 1), horizontal);
+    if (!previous || !next) {
+        return false;
+    }
+
+    const runBox = unionBoxes(visibleRun.map((char) => char.bbox));
+    if (!runBox) {
+        return false;
+    }
+
+    const fontSize = median([...visibleRun, previous, next].map((char) => char.fontSize)) || previous.fontSize;
+    const tolerance = Math.max(3, fontSize * 0.35);
+    const runBaseline = average(visibleRun.map((char) => char.baseline));
+    if (Math.abs(previous.baseline - runBaseline) > tolerance || Math.abs(next.baseline - runBaseline) > tolerance) {
+        return false;
+    }
+
+    const gapBefore = runBox.x - (previous.bbox.x + previous.bbox.width);
+    const gapAfter = next.bbox.x - (runBox.x + runBox.width);
+    return gapBefore >= -tolerance && gapBefore <= tolerance && gapAfter >= -tolerance && gapAfter <= tolerance;
+}
+
+function findAdjacentVisibleHorizontalChar(chars: TextChar[], horizontal: Set<TextChar>): TextChar | null {
+    return chars.find((char) => horizontal.has(char) && getExpandedCharText(char.char).trim().length > 0) ?? null;
 }
 
 export function buildVerticalTextLines(chars: TextChar[]): TextLine[] {
@@ -833,7 +934,7 @@ export function textCharBeginsNewWord(previous: TextChar, current: TextChar): bo
         return false;
     }
 
-    const direction = inferTextCharDirection(previous);
+    const direction = inferTextCharPairDirection(previous, current);
     const xTolerance = getAdaptiveTextXTolerance(previous, current);
     const yTolerance = getAdaptiveTextYTolerance(previous, current);
 
@@ -852,6 +953,30 @@ export function textCharBeginsNewWord(previous: TextChar, current: TextChar): bo
     const ay = previous.bbox.y;
     const cy = current.bbox.y;
     return cx < ax || cx > bx + xTolerance || Math.abs(cy - ay) > yTolerance;
+}
+
+function inferTextCharPairDirection(previous: TextChar, current: TextChar): TextDirection {
+    const direction = inferTextCharDirection(previous);
+    if (direction === "horizontal" || !looksLikeHorizontalPair(previous, current)) {
+        return direction;
+    }
+
+    return "horizontal";
+}
+
+function looksLikeHorizontalPair(previous: TextChar, current: TextChar): boolean {
+    const fontSize = Math.min(previous.fontSize, current.fontSize);
+    const tolerance = Math.max(3, fontSize * 0.35);
+    const verticalOverlap = overlapLength(previous.bbox.y, getTop(previous.bbox), current.bbox.y, getTop(current.bbox));
+    const minimumOverlap = Math.min(previous.bbox.height, current.bbox.height) * 0.6;
+    const gap = current.bbox.x - (previous.bbox.x + previous.bbox.width);
+
+    return (
+        verticalOverlap >= minimumOverlap &&
+        Math.abs(previous.baseline - current.baseline) <= tolerance &&
+        gap >= -tolerance &&
+        gap <= tolerance
+    );
 }
 
 export function isWordBoundaryPunctuation(text: string): boolean {

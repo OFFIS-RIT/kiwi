@@ -1,5 +1,5 @@
 import type { BoundingBox, PositionedRegion } from "./types";
-import { getTop, median, overlapLength } from "./geometry";
+import { getTop, median } from "./geometry";
 
 export function orderItemsByReadingLayout<T>(items: T[], getBBox: (item: T) => BoundingBox, pageWidth: number): T[] {
     return orderPositionedRegions(
@@ -160,6 +160,9 @@ export function findVerticalReadingSplit<T>(
     if (left.length === 0 || right.length === 0) {
         return null;
     }
+    if (spanning.length >= left.length + right.length) {
+        return null;
+    }
 
     const hasParallelContent = left.some((leftRegion) =>
         right.some((rightRegion) =>
@@ -202,7 +205,8 @@ export function verticalRegionsOverlap<T>(
     right: PositionedRegion<T>,
     tolerance: number
 ): boolean {
-    return overlapLength(left.bottom, left.top, right.bottom, right.top) > -tolerance;
+    const signedOverlap = Math.min(left.top, right.top) - Math.max(left.bottom, right.bottom);
+    return signedOverlap > -tolerance;
 }
 
 export function orderRegionsWithVerticalSplit<T>(
@@ -220,24 +224,45 @@ export function orderRegionsWithVerticalSplit<T>(
     const spanning = sortRegionsTopLeft(split.spanning);
     const nonSpanning = [...split.left, ...split.right];
     const ordered: PositionedRegion<T>[] = [];
+    const emitted = new Set<PositionedRegion<T>>();
     let currentTop = Number.POSITIVE_INFINITY;
 
+    const pushOrdered = (regions: PositionedRegion<T>[]) => {
+        for (const region of regions) {
+            if (emitted.has(region)) {
+                continue;
+            }
+
+            emitted.add(region);
+            ordered.push(region);
+        }
+    };
+
     for (const span of spanning) {
-        const above = nonSpanning.filter((region) => region.centerY < currentTop && region.centerY > span.top);
+        const above = nonSpanning.filter(
+            (region) => !emitted.has(region) && region.centerY < currentTop && region.centerY > span.top
+        );
         if (above.length > 0) {
-            ordered.push(...orderPositionedRegions(above, pageWidth, depth));
+            pushOrdered(orderPositionedRegions(above, pageWidth, depth));
         }
 
-        ordered.push(span);
+        const overlapping = nonSpanning.filter(
+            (region) =>
+                !emitted.has(region) &&
+                region.centerY < currentTop &&
+                region.centerY <= span.top &&
+                verticalRegionsOverlap(region, span, 1)
+        );
+        pushOrdered(sortRegionsTopLeft([...overlapping, span]));
         currentTop = span.bottom;
     }
 
-    const below = nonSpanning.filter((region) => region.centerY < currentTop);
+    const below = nonSpanning.filter((region) => !emitted.has(region) && region.centerY < currentTop);
     if (below.length > 0) {
-        ordered.push(...orderPositionedRegions(below, pageWidth, depth));
+        pushOrdered(orderPositionedRegions(below, pageWidth, depth));
     }
 
-    return dedupeOrderedRegions(ordered);
+    return ordered;
 }
 
 export function dedupeOrderedRegions<T>(regions: PositionedRegion<T>[]): PositionedRegion<T>[] {

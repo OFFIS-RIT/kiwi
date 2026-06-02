@@ -2,11 +2,17 @@ import { describe, expect, test } from "bun:test";
 import type { TextChar, TextLine } from "../types";
 import { getLineText } from "../text";
 
-function textChar(char: string, x: number, sequenceIndex: number): TextChar {
+function textChar(
+    char: string,
+    x: number,
+    sequenceIndex: number,
+    options: { width?: number; height?: number; fontSize?: number } = {}
+): TextChar {
+    const fontSize = options.fontSize ?? 12;
     return {
         char,
-        bbox: { x, y: 100, width: 5, height: 10 },
-        fontSize: 12,
+        bbox: { x, y: 100, width: options.width ?? 5, height: options.height ?? 10 },
+        fontSize,
         fontName: "Helvetica",
         baseline: 100,
         sequenceIndex,
@@ -57,4 +63,26 @@ describe("PDF text reconstruction", () => {
         expect(getLineText(textLine(chars))).toBe("ABC 123");
     });
 
+    test("keeps wide glyphs from tight horizontal fonts in the same word", () => {
+        const height = 11.17;
+        const fontSize = 16.1;
+        const chars = [
+            textChar("D", 56.8, 0, { width: 11.62, height, fontSize }),
+            textChar("u", 68.42, 1, { width: 9.82, height, fontSize }),
+            textChar("m", 78.25, 2, { width: 14.31, height, fontSize }),
+            textChar("m", 92.56, 3, { width: 14.31, height, fontSize }),
+            textChar("y", 106.9, 4, { width: 8.95, height, fontSize }),
+            textChar(" ", 115.9, 5, { width: 4.46, height, fontSize }),
+            textChar("P", 120.3, 6, { width: 10.72, height, fontSize }),
+            textChar("D", 131.02, 7, { width: 11.62, height, fontSize }),
+            textChar("F", 142.65, 8, { width: 9.82, height, fontSize }),
+            textChar(" ", 152.5, 9, { width: 4.46, height, fontSize }),
+            textChar("f", 156.96, 10, { width: 5.36, height, fontSize }),
+            textChar("i", 162.32, 11, { width: 4.46, height, fontSize }),
+            textChar("l", 166.8, 12, { width: 4.46, height, fontSize }),
+            textChar("e", 171.26, 13, { width: 8.95, height, fontSize }),
+        ];
+
+        expect(getLineText(textLine(chars))).toBe("Dummy PDF file");
+    });
 });
