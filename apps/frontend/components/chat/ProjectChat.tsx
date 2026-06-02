@@ -5,6 +5,7 @@ import { ChatInput, type ChatInputHandle } from "@/components/chat/ChatInput";
 import { ChatTemplateSidebar } from "@/components/chat/ChatTemplateSidebar";
 import { ClarificationBlock } from "@/components/chat/ClarificationBlock";
 import { shouldAutoContinue, withDefaultAutoContinue } from "@/components/chat/chat-auto-continue";
+import { stripPhantomPrefix } from "@/components/chat/chat-phantom-prefix";
 import { hydrateProjectChatSession, projectChatQueryKey } from "@/components/chat/project-chat-session-query";
 import { UserMessageText } from "@/components/chat/UserMessageText";
 import { Button } from "@/components/ui/button";
@@ -166,53 +167,6 @@ function getLiveToolName(messages: ChatUIMessage[]): string | null {
         break;
     }
     return null;
-}
-
-/**
- * When `shouldAutoContinue` triggers a follow-up turn after the user has
- * answered a client-side tool call (e.g. `ask_clarifying_questions`), the AI
- * SDK seeds the streaming state of the new assistant bubble with a
- * `structuredClone` of the previous assistant message's parts (see
- * `createStreamingUIMessageState` in `ai/src/ui/process-ui-message-stream.ts`
- * together with `AbstractChat.makeRequest`). When the backend emits a fresh
- * `messageId` in its `start` event, the SDK pushes that cloned-and-renamed
- * object as a separate bubble — carrying the previous message's parts as a
- * phantom prefix.
- *
- * The SDK has no hook to reset those phantom parts, so we strip them at the
- * data boundary: only the very last message can ever carry a phantom prefix
- * (earlier messages either come from the DB or have already been finalized),
- * and only when its predecessor is an assistant message whose `finish` event
- * has already landed (`metadata` is populated).
- *
- * Result: upstream consumers (render loop, clarification detection, live tool
- * detection) see the stream the same way we persist it server-side – two
- * distinct bubbles with their own parts – without touching the SDK's internal
- * state.
- */
-function stripPhantomPrefix(messages: ChatUIMessage[]): ChatUIMessage[] {
-    if (messages.length < 2) return messages;
-
-    const last = messages[messages.length - 1];
-    const prev = messages[messages.length - 2];
-
-    if (!last || !prev || last.role !== "assistant" || prev.role !== "assistant") {
-        return messages;
-    }
-
-    if (!prev.metadata) return messages;
-
-    const prefixLen = prev.parts.length;
-    if (prefixLen === 0 || last.parts.length < prefixLen) return messages;
-
-    for (let i = 0; i < prefixLen; i++) {
-        if (JSON.stringify(last.parts[i]) !== JSON.stringify(prev.parts[i])) {
-            return messages;
-        }
-    }
-
-    const stripped: ChatUIMessage = { ...last, parts: last.parts.slice(prefixLen) };
-    return [...messages.slice(0, -1), stripped];
 }
 
 function getMessageText(message: ChatUIMessage): string {
