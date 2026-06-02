@@ -141,6 +141,7 @@
     "processing": "Verarbeitung...",
     "projects.processing": "{count} in Verarbeitung",
     "language": "Sprache",
+    "language.auto": "Automatisch erkennen",
     "english": "Englisch",
     "german": "Deutsch",
     "app.build": "Version",

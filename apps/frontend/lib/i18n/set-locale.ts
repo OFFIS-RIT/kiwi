@@ -12,3 +12,14 @@ export async function setLocale(locale: "de" | "en") {
         httpOnly: false,
     });
 }
+
+export async function setAutoLocale() {
+    const cookieStore = await cookies();
+    cookieStore.set("NEXT_LOCALE", "", {
+        path: "/",
+        maxAge: 0,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        httpOnly: false,
+    });
+}

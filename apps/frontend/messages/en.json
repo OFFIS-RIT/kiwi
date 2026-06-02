@@ -141,6 +141,7 @@
     "processing": "Processing...",
     "projects.processing": "{count} processing",
     "language": "Language",
+    "language.auto": "Auto detect",
     "english": "English",
     "german": "German",
     "app.build": "Build",

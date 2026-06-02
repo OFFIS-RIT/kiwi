@@ -7,7 +7,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { setLocale } from "@/lib/i18n/set-locale";
+import { setAutoLocale, setLocale } from "@/lib/i18n/set-locale";
 import { Globe } from "lucide-react";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useLocale } from "next-intl";
@@ -27,6 +27,13 @@ export function LanguageSwitcher() {
         });
     };
 
+    const handleAutoDetect = () => {
+        startTransition(async () => {
+            await setAutoLocale();
+            router.refresh();
+        });
+    };
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -36,6 +43,9 @@ export function LanguageSwitcher() {
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+                <DropdownMenuItem disabled={isPending} onClick={handleAutoDetect}>
+                    <span>{t("language.auto")}</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                     disabled={isPending}
                     onClick={() => handleChange("en")}
