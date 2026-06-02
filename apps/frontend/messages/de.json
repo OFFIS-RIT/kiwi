@@ -31,7 +31,7 @@
     "settings.profile.title": "Profile",
     "settings.profile.description": "Hinterlege zusätzliche Anweisungen für neue Chats.",
     "settings.profile.prompt": "Erweiterter System-Prompt",
-    "settings.profile.prompt.description": "Dieser Text wird nur beim ersten Senden in einem komplett neuen Chat als zusätzlicher Systemkontext mitgesendet.",
+    "settings.profile.prompt.description": "Dieser Text wird beim ersten Senden in einem neuen Chat im Chatverlauf verankert und dadurch auch bei späteren Nachrichten dieses Chats berücksichtigt.",
     "settings.profile.prompt.placeholder": "z. B. Bevorzuge kurze Antworten, erkläre Fachbegriffe und frage nach, wenn Informationen fehlen.",
     "settings.profile.prompt.remaining": "{count} Zeichen übrig",
     "settings.mcpKeys.title": "MCP-Keys",

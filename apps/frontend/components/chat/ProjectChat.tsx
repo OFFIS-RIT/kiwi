@@ -23,7 +23,7 @@ import { upsertProjectChatSummary } from "@/lib/chat-summaries";
 import { deleteProjectChat } from "@/lib/api/projects";
 import type { ChatLibraryItem } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
-import { readChatProfilePrompt } from "@/lib/settings/chat-profile";
+import { readChatProfilePrompt, stripChatProfilePrompt, withChatProfilePrompt } from "@/lib/settings/chat-profile";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
 import type { Group, ProjectChatSummary } from "@/types";
@@ -171,10 +171,12 @@ function getLiveToolName(messages: ChatUIMessage[]): string | null {
 }
 
 function getMessageText(message: ChatUIMessage): string {
-    return message.parts
+    const text = message.parts
         .filter((part): part is Extract<ChatUIMessage["parts"][number], { type: "text" }> => part.type === "text")
         .map((part) => part.text)
         .join("");
+
+    return message.role === "user" ? stripChatProfilePrompt(text) : text;
 }
 
 /**
@@ -190,10 +192,12 @@ function getCopyableMessageText(message: ChatUIMessage): string {
             .join("");
 
     if (message.role !== "assistant") {
-        return message.parts
+        const text = message.parts
             .filter((part): part is Extract<ChatUIMessage["parts"][number], { type: "text" }> => part.type === "text")
             .map((part) => textOnly(part.text))
             .join("");
+
+        return stripChatProfilePrompt(text);
     }
 
     let lastToolIdx = -1;
@@ -738,12 +742,12 @@ function ProjectChatSession({
         setIsAtBottom(true);
         try {
             const profilePrompt = isFirstMessage ? readChatProfilePrompt().trim() : "";
+            const outboundText = profilePrompt ? withChatProfilePrompt(profilePrompt, text) : text;
             await sendMessage(
-                { text },
+                { text: outboundText },
                 {
                     body: {
                         deep: intelligenceLevel === "high",
-                        ...(profilePrompt ? { profilePrompt } : {}),
                     },
                 }
             );

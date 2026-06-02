@@ -31,7 +31,7 @@
     "settings.profile.title": "Profile",
     "settings.profile.description": "Store additional instructions for new chats.",
     "settings.profile.prompt": "Extended system prompt",
-    "settings.profile.prompt.description": "This text is sent only with the first message in a completely new chat as additional system context.",
+    "settings.profile.prompt.description": "This text is anchored in the chat history with the first message in a new chat, so it is also considered for later messages in that chat.",
     "settings.profile.prompt.placeholder": "For example: prefer concise answers, explain technical terms, and ask follow-up questions when information is missing.",
     "settings.profile.prompt.remaining": "{count} characters remaining",
     "settings.mcpKeys.title": "MCP Keys",

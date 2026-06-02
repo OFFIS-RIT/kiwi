@@ -217,13 +217,11 @@ export type ChatRequestBody =
           id: string;
           message: ChatUIMessage;
           deep?: boolean;
-          profilePrompt?: string;
       }
     | {
           id: string;
           messages: ChatUIMessage[];
           deep?: boolean;
-          profilePrompt?: string;
       };
 
 export type ChatSummaryItem = {
