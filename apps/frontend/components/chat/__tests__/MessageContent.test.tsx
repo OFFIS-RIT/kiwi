@@ -422,6 +422,8 @@ describe("MessageContent", () => {
         await userEvent.click(screen.getByRole("button", { name: "1" }));
 
         expect(await screen.findByText("Alpha evidence")).toBeInTheDocument();
+        expect(screen.queryByText(/Reference ID/i)).not.toBeInTheDocument();
+        expect(screen.queryByText("src-1")).not.toBeInTheDocument();
         expect(document.querySelector("mark")).not.toBeInTheDocument();
         expect(fetchSourceReference).toHaveBeenCalledWith(expect.any(Object), "graph-1", "src-1");
     });
@@ -657,12 +659,15 @@ describe("MessageContent", () => {
         expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument();
         expect(document.querySelector("[data-slot='dialog-content']")).toHaveClass(
             "flex",
-            "h-[80vh]",
+            "max-h-[80vh]",
             "overflow-hidden"
         );
-        const scrollArea = document.querySelector("[data-slot='scroll-area']");
-        expect(scrollArea?.parentElement).toHaveClass("min-h-0", "flex-1");
-        expect(scrollArea).toHaveClass("h-full");
+        expect(screen.getByTestId("text-reference-dialog-body")).toHaveClass(
+            "min-h-0",
+            "max-h-[calc(80vh-6rem)]",
+            "overflow-y-auto",
+            "pr-1"
+        );
     });
 
     test("groups PDF source regions from the same page into one preview image", async () => {

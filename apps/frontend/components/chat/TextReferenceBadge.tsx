@@ -2,8 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { fetchSourceReference, getApiAssetUrl } from "@/lib/api/projects";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useApiClient } from "@/providers/ApiClientProvider";
@@ -337,6 +336,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
     );
     const pdfRegionGroups = useMemo(() => groupPDFRegions(reference?.pdf_regions ?? []), [reference?.pdf_regions]);
     const copyText = useMemo(() => textChunks.map((chunk) => chunk.text).join("\n\n"), [textChunks]);
+    const sourceFileName = unit?.file_name ?? citation.fileName;
 
     const copyToClipboard = () => {
         if (copyText) {
@@ -360,78 +360,70 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="flex h-[80vh] w-full max-w-6xl flex-col overflow-hidden sm:max-w-[60vw]">
-                <DialogHeader className="shrink-0">
+            <DialogContent
+                aria-describedby={undefined}
+                className="flex max-h-[80vh] w-full max-w-6xl flex-col overflow-hidden sm:max-w-[60vw]"
+            >
+                <DialogHeader className="shrink-0 pr-8 sm:flex-row sm:items-center sm:justify-between">
                     <DialogTitle className="flex items-center gap-2">
                         <ExternalLink className="h-4 w-4" />
                         {t("text.reference")} #{index + 1}
                     </DialogTitle>
-                    <DialogDescription>
-                        {t("reference.id")}: {citation.sourceId}
-                    </DialogDescription>
+                    {projectId && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDownload}
+                            disabled={isDownloading}
+                            className="max-w-full justify-start sm:max-w-xs"
+                            title={sourceFileName}
+                        >
+                            {isDownloading ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
+                            <span className="truncate">{sourceFileName}</span>
+                        </Button>
+                    )}
                 </DialogHeader>
 
-                <div className="min-h-0 flex-1">
-                    <ScrollArea className="h-full pr-1">
-                        <div className="flex flex-col gap-4">
-                            {error && (
-                                <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
-                                    <p className="font-medium text-destructive">{t("error.loading")}</p>
-                                    <p className="text-sm text-destructive/80">{error}</p>
-                                </div>
-                            )}
-
-                            <div className="flex flex-col gap-4">
-                                {sourceReferenceQuery.isLoading ? (
-                                    <div className="flex min-h-40 items-center justify-center rounded-md border text-muted-foreground">
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        {t("loading")}
-                                    </div>
-                                ) : (
-                                    <>
-                                        {pdfRegionGroups.map((group) => (
-                                            <PDFRegionPreview
-                                                key={group.key}
-                                                group={group}
-                                                src={getApiAssetUrl(apiClient, group.imagePath)}
-                                                alt={`${unit?.file_name ?? citation.fileName} page ${group.page}`}
-                                            />
-                                        ))}
-                                        {imageChunks.map((chunk) => (
-                                            <SourceImageChunk
-                                                key={chunk.chunk_id}
-                                                chunk={chunk}
-                                                src={getApiAssetUrl(apiClient, chunk.image_path)}
-                                            />
-                                        ))}
-                                        <TextChunksPanel chunks={textChunks} onCopy={copyToClipboard} />
-                                    </>
-                                )}
-
-                                <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                                    <p>
-                                        {t("file")}: {unit?.file_name ?? citation.fileName}
-                                    </p>
-                                </div>
-
-                                {projectId && (
-                                    <div className="flex justify-end">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={handleDownload}
-                                            disabled={isDownloading}
-                                        >
-                                            {isDownloading ? (
-                                                <Loader2 data-icon="inline-start" className="animate-spin" />
-                                            ) : null}
-                                            {citation.fileName}
-                                        </Button>
-                                    </div>
-                                )}
+                <div
+                    data-testid="text-reference-dialog-body"
+                    className="min-h-0 max-h-[calc(80vh-6rem)] overflow-y-auto pr-1"
+                >
+                    <div className="flex flex-col gap-4">
+                        {error && (
+                            <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
+                                <p className="font-medium text-destructive">{t("error.loading")}</p>
+                                <p className="text-sm text-destructive/80">{error}</p>
                             </div>
+                        )}
+
+                        <div className="flex flex-col gap-4">
+                            {sourceReferenceQuery.isLoading ? (
+                                <div className="flex min-h-40 items-center justify-center rounded-md border text-muted-foreground">
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    {t("loading")}
+                                </div>
+                            ) : (
+                                <>
+                                    {pdfRegionGroups.map((group) => (
+                                        <PDFRegionPreview
+                                            key={group.key}
+                                            group={group}
+                                            src={getApiAssetUrl(apiClient, group.imagePath)}
+                                            alt={`${sourceFileName} page ${group.page}`}
+                                        />
+                                    ))}
+                                    {imageChunks.map((chunk) => (
+                                        <SourceImageChunk
+                                            key={chunk.chunk_id}
+                                            chunk={chunk}
+                                            src={getApiAssetUrl(apiClient, chunk.image_path)}
+                                        />
+                                    ))}
+                                    <TextChunksPanel chunks={textChunks} onCopy={copyToClipboard} />
+                                </>
+                            )}
                         </div>
-                    </ScrollArea>
+                    </div>
                 </div>
             </DialogContent>
         </Dialog>
