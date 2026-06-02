@@ -50,13 +50,28 @@ const requestBodySchema = t.Union([
         id: t.String(),
         message: t.Any(),
         deep: t.Optional(t.Boolean()),
+        profilePrompt: t.Optional(t.String()),
     }),
     t.Object({
         id: t.String(),
         messages: t.Array(t.Any()),
         deep: t.Optional(t.Boolean()),
+        profilePrompt: t.Optional(t.String()),
     }),
 ]);
+
+function appendProfilePrompt(systemPrompt: string, profilePrompt: string | undefined, isNewChat: boolean) {
+    const trimmedProfilePrompt = profilePrompt?.trim();
+    if (!isNewChat || !trimmedProfilePrompt) {
+        return systemPrompt;
+    }
+
+    return [
+        systemPrompt,
+        "Additional user profile instructions for this new chat:",
+        trimmedProfilePrompt,
+    ].join("\n\n");
+}
 
 /**
  * Replace the existing tool entry that shares `toolCallId` in-place, or append
@@ -307,7 +322,7 @@ export const chatRoute = new Elysia()
                 const startedAt = Date.now();
                 const citationFileIds = new Set<string>();
                 let activeContextMessages = contextMessages;
-                let activeSystemPrompt = systemPrompt;
+                let activeSystemPrompt = appendProfilePrompt(systemPrompt, request.profilePrompt, isNewChat);
                 let retriedAfterCompaction = false;
                 let result;
                 const runGeneration = () =>
@@ -341,7 +356,7 @@ export const chatRoute = new Elysia()
                             throw compactionError;
                         }
                         activeContextMessages = refreshed.contextMessages;
-                        activeSystemPrompt = refreshed.systemPrompt;
+                        activeSystemPrompt = appendProfilePrompt(refreshed.systemPrompt, request.profilePrompt, isNewChat);
                         try {
                             result = await runGeneration();
                         } catch (retryError) {
@@ -523,7 +538,7 @@ export const chatRoute = new Elysia()
                         const activeUITexts = new Map<string, ActiveUIText>();
                         let uiTextBlockCounter = 0;
                         let activeContextMessages = contextMessages;
-                        let activeSystemPrompt = systemPrompt;
+                        let activeSystemPrompt = appendProfilePrompt(systemPrompt, request.profilePrompt, isNewChat);
                         let retriedAfterCompaction = false;
                         let discardAssistantPartsOnFailure = false;
 
@@ -842,7 +857,11 @@ export const chatRoute = new Elysia()
                                     throw compactionError;
                                 }
                                 activeContextMessages = refreshed.contextMessages;
-                                activeSystemPrompt = refreshed.systemPrompt;
+                                activeSystemPrompt = appendProfilePrompt(
+                                    refreshed.systemPrompt,
+                                    request.profilePrompt,
+                                    isNewChat
+                                );
                             }
                         } catch (error) {
                             if (!discardAssistantPartsOnFailure) {

@@ -23,6 +23,7 @@ import { upsertProjectChatSummary } from "@/lib/chat-summaries";
 import { deleteProjectChat } from "@/lib/api/projects";
 import type { ChatLibraryItem } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
+import { readChatProfilePrompt } from "@/lib/settings/chat-profile";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
 import type { Group, ProjectChatSummary } from "@/types";
@@ -736,7 +737,16 @@ function ProjectChatSession({
         isAtBottomRef.current = true;
         setIsAtBottom(true);
         try {
-            await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
+            const profilePrompt = isFirstMessage ? readChatProfilePrompt().trim() : "";
+            await sendMessage(
+                { text },
+                {
+                    body: {
+                        deep: intelligenceLevel === "high",
+                        ...(profilePrompt ? { profilePrompt } : {}),
+                    },
+                }
+            );
         } finally {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects }),
