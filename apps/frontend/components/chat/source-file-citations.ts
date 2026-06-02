@@ -13,7 +13,8 @@ type SourceFileGroup = {
 
 export type SourceFileCitation = {
     key: string;
-    label: string;
+    fileName: string;
+    pageRangeLabel: string | null;
     citation: ResolvedCitationFence;
 };
 
@@ -91,12 +92,22 @@ export function buildSourceFileCitations(citations: ResolvedCitationFence[]): So
     return Array.from(groups.entries()).flatMap(([fileRef, group]) => {
         const ranges = mergePageRanges(group.ranges);
         if (ranges.length === 0) {
-            return group.fallback ? [{ key: fileRef, label: group.fallback.fileName, citation: group.fallback }] : [];
+            return group.fallback
+                ? [
+                      {
+                          key: fileRef,
+                          fileName: group.fallback.fileName,
+                          pageRangeLabel: null,
+                          citation: group.fallback,
+                      },
+                  ]
+                : [];
         }
 
         return ranges.map((range) => ({
             key: `${fileRef}:${range.startPage}-${range.endPage}`,
-            label: `${range.citation.fileName} ${formatPageRange(range)}`,
+            fileName: range.citation.fileName,
+            pageRangeLabel: formatPageRange(range),
             citation: {
                 ...range.citation,
                 startPage: range.startPage,

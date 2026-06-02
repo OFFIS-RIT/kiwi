@@ -463,11 +463,21 @@ export function MessageContent({
                                 key={sourceFile.key}
                                 variant="outline"
                                 size="sm"
-                                className="h-7 px-2 py-1 text-xs"
+                                className="h-8 max-w-full gap-2 px-2 py-1 text-xs"
+                                aria-label={
+                                    sourceFile.pageRangeLabel
+                                        ? `${sourceFile.fileName} S. ${sourceFile.pageRangeLabel}`
+                                        : sourceFile.fileName
+                                }
                                 onClick={() => handleFileDownload(sourceFile.citation)}
                             >
-                                <FileText className="mr-1 h-3 w-3" />
-                                {sourceFile.label}
+                                <FileText className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{sourceFile.fileName}</span>
+                                {sourceFile.pageRangeLabel && (
+                                    <span className="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground">
+                                        S. {sourceFile.pageRangeLabel}
+                                    </span>
+                                )}
                             </Button>
                         ))}
                     </div>
