@@ -3,8 +3,9 @@
 import { AppSidebarInset } from "@/components/common/AppSidebarInset";
 import { AppHeader } from "@/components/common/AppHeader";
 import { AppSidebar } from "@/components/sidebar";
+import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
 import type { Group, Project } from "@/types";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Suspense, lazy, useState, type ReactNode } from "react";
 
 const DeleteGroupDialog = lazy(() => import("@/components/groups").then((mod) => ({ default: mod.DeleteGroupDialog })));
@@ -28,6 +29,8 @@ type DashboardFrameProps = {
 
 export function DashboardFrame({ children }: DashboardFrameProps) {
     const router = useRouter();
+    const pathname = usePathname();
+    const isSettingsPage = pathname === "/settings";
     const [editProjectDialogOpen, setEditProjectDialogOpen] = useState(false);
     const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
     const [deleteProjectDialogOpen, setDeleteProjectDialogOpen] = useState(false);
@@ -49,22 +52,34 @@ export function DashboardFrame({ children }: DashboardFrameProps) {
 
     return (
         <>
-            <AppSidebar
-                onEditGroup={handleEditGroup}
-                onEditProject={handleEditProject}
-                onDeleteGroup={(group) => {
-                    setDeletingGroup(group);
-                    setDeleteGroupDialogOpen(true);
-                }}
-                onDeleteProject={(project, groupId, groupName) => {
-                    setDeletingProject({ project, groupId, groupName });
-                    setDeleteProjectDialogOpen(true);
-                }}
-                onProjectCreated={(_projectId, groupId) => router.push(`/${groupId}`)}
-            />
+            {isSettingsPage ? (
+                <SettingsSidebar />
+            ) : (
+                <AppSidebar
+                    onEditGroup={handleEditGroup}
+                    onEditProject={handleEditProject}
+                    onDeleteGroup={(group) => {
+                        setDeletingGroup(group);
+                        setDeleteGroupDialogOpen(true);
+                    }}
+                    onDeleteProject={(project, groupId, groupName) => {
+                        setDeletingProject({ project, groupId, groupName });
+                        setDeleteProjectDialogOpen(true);
+                    }}
+                    onProjectCreated={(_projectId, groupId) => router.push(`/${groupId}`)}
+                />
+            )}
             <AppSidebarInset>
-                <AppHeader />
-                <div className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4">{children}</div>
+                {isSettingsPage ? null : <AppHeader />}
+                <div
+                    className={
+                        isSettingsPage
+                            ? "flex h-screen flex-col overflow-hidden"
+                            : "flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4"
+                    }
+                >
+                    {children}
+                </div>
             </AppSidebarInset>
 
             <Suspense fallback={null}>

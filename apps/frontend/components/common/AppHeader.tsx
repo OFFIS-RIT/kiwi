@@ -1,6 +1,6 @@
 "use client";
 
-import { BreadcrumbNav, CreateActions, LanguageSwitcher, UserNav } from "@/components/header";
+import { BreadcrumbNav, CreateActions, UserNav } from "@/components/header";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
@@ -13,7 +13,6 @@ export function AppHeader() {
                 <BreadcrumbNav />
             </div>
             <div className="flex shrink-0 items-center gap-2">
-                <LanguageSwitcher />
                 <CreateActions />
                 <UserNav />
             </div>

@@ -9,9 +9,10 @@ import { useEffect, useState } from "react";
 
 type ThemeToggleProps = {
     asMenuItem?: boolean;
+    showLabel?: boolean;
 };
 
-export function ThemeToggle({ asMenuItem = true }: ThemeToggleProps) {
+export function ThemeToggle({ asMenuItem = true, showLabel = true }: ThemeToggleProps) {
     const { theme, setTheme } = useTheme();
     const t = useAppTranslations();
     const [mounted, setMounted] = useState(false);
@@ -23,7 +24,7 @@ export function ThemeToggle({ asMenuItem = true }: ThemeToggleProps) {
 
     const content: ReactNode = (
         <>
-            <span>{t("theme")}</span>
+            {showLabel ? <span>{t("theme")}</span> : null}
             <div className="flex items-center rounded border bg-muted">
                 <button
                     type="button"
@@ -58,7 +59,13 @@ export function ThemeToggle({ asMenuItem = true }: ThemeToggleProps) {
 
     if (!asMenuItem) {
         return (
-            <div className="flex h-9 items-center justify-between gap-4 rounded-md border px-3 text-sm">
+            <div
+                className={
+                    showLabel
+                        ? "flex h-9 items-center justify-between gap-4 rounded-md border px-3 text-sm"
+                        : "flex h-9 items-center text-sm"
+                }
+            >
                 {content}
             </div>
         );
