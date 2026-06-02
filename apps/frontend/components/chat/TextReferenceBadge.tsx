@@ -9,7 +9,7 @@ import { useApiClient } from "@/providers/ApiClientProvider";
 import type { ApiSourceReference } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import type { ResolvedCitationFence } from "@kiwi/ai/citation";
-import { Copy, ExternalLink, Loader2 } from "lucide-react";
+import { Copy, Download, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { openCitationSourceFile } from "./citation-file";
@@ -365,20 +365,21 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                 className="flex max-h-[80vh] w-full max-w-6xl flex-col overflow-hidden sm:max-w-[60vw]"
             >
                 <DialogHeader className="shrink-0 pr-8 sm:flex-row sm:items-center sm:justify-between">
-                    <DialogTitle className="flex items-center gap-2">
-                        <ExternalLink className="h-4 w-4" />
-                        {t("text.reference")} #{index + 1}
-                    </DialogTitle>
+                    <DialogTitle>{t("text.reference")} #{index + 1}</DialogTitle>
                     {projectId && (
                         <Button
                             variant="outline"
                             size="sm"
                             onClick={handleDownload}
                             disabled={isDownloading}
-                            className="max-w-full justify-start sm:max-w-xs"
+                            className="max-w-full justify-start gap-2 sm:max-w-sm"
                             title={sourceFileName}
                         >
-                            {isDownloading ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
+                            {isDownloading ? (
+                                <Loader2 data-icon="inline-start" className="animate-spin" />
+                            ) : (
+                                <Download data-icon="inline-start" />
+                            )}
                             <span className="truncate">{sourceFileName}</span>
                         </Button>
                     )}
