@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/test-utils";
+import type { ComponentProps } from "react";
 import {
     downloadProjectFile,
     fetchSourceReference,
@@ -89,10 +90,13 @@ function citationFence(sourceId: string, fields: Record<string, unknown> = {}) {
     })}:::`;
 }
 
-function renderMessageContent(parts: ChatUIMessage["parts"]) {
+function renderMessageContent(
+    parts: ChatUIMessage["parts"],
+    props: Partial<ComponentProps<typeof MessageContent>> = {}
+) {
     localStorage.setItem("language", "en");
 
-    return renderWithProviders(<MessageContent parts={parts} projectId="graph-1" />);
+    return renderWithProviders(<MessageContent parts={parts} projectId="graph-1" {...props} />);
 }
 
 type MockedFunction<T extends (...args: never[]) => unknown> = T & {
@@ -130,6 +134,29 @@ describe("MessageContent", () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+    });
+
+    test("hides the worked-for timer for clarification-only streaming messages", () => {
+        renderMessageContent(
+            [
+                {
+                    type: "tool-ask_clarifying_questions",
+                    toolCallId: "clarification-1",
+                    state: "input-available",
+                    input: { questions: ["Which scope?"] },
+                },
+            ],
+            { isStreaming: true, startedAtMs: Date.now() - 19_000 }
+        );
+
+        expect(screen.queryByText(/Worked for|Gearbeitet für/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Working|Arbeitet/i)).not.toBeInTheDocument();
+    });
+
+    test("keeps the live worked-for timer for regular streaming messages before parts arrive", () => {
+        renderMessageContent([], { isStreaming: true, startedAtMs: Date.now() - 19_000 });
+
+        expect(screen.getByText(/Worked for|Gearbeitet für/i)).toBeInTheDocument();
     });
 
     test("renders inline citation badges and source file footer", () => {

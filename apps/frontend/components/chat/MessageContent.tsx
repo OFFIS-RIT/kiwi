@@ -109,6 +109,7 @@ export function MessageContent({
         citationBySourceId,
         citationIndexBySourceId,
         thinkingItems,
+        hasClarificationTool,
     } = React.useMemo(() => {
         // Find the last "real" tool index, ignoring the client-side
         // clarification tool which is rendered separately by ClarificationBlock.
@@ -173,6 +174,7 @@ export function MessageContent({
 
         let markdown = "";
         let interimTextIndex = 0;
+        let foundClarificationTool = false;
 
         for (let i = 0; i < parts.length; i++) {
             const part = parts[i];
@@ -181,7 +183,10 @@ export function MessageContent({
             if (part.type === "reasoning") continue;
 
             if (isToolPart(part)) {
-                if (toolNameOf(part) === "ask_clarifying_questions") continue;
+                if (toolNameOf(part) === "ask_clarifying_questions") {
+                    foundClarificationTool = true;
+                    continue;
+                }
                 rawItems.push({ kind: "tool", key: part.toolCallId, part });
                 continue;
             }
@@ -236,6 +241,7 @@ export function MessageContent({
             citationBySourceId,
             citationIndexBySourceId: sourceIndexMap,
             thinkingItems: compactedItems,
+            hasClarificationTool: foundClarificationTool,
         };
     }, [parts, isStreaming]);
 
@@ -451,7 +457,7 @@ export function MessageContent({
     // Show the "Worked for" header while the message is streaming (so the
     // live counter is visible from the first frame) and for settled messages
     // that actually have something to reveal in the dropdown body.
-    const showWorkedFor = isStreaming || thinkingItems.length > 0;
+    const showWorkedFor = thinkingItems.length > 0 || (isStreaming && !hasClarificationTool);
     const thinkingSlot = showWorkedFor ? (
         <ThinkingDropdown isStreaming={isStreaming} durationMs={durationMs} startedAtMs={startedAtMs}>
             {renderThinkingBody()}
