@@ -139,16 +139,24 @@ export function MessageContent({
         // Convert a single text part into markdown, registering any citation
         // fences in the shared citation maps so badge numbers stay stable
         // across interim and final blocks.
+        let lastAdjacentCitationReferenceKey: string | null = null;
         const textPartToMarkdown = (text: string): string => {
             let md = "";
             for (const segment of splitTextWithCitationFences(text)) {
                 if (segment.type === "text") {
                     md += segment.text;
+                    if (segment.text.trim().length > 0) {
+                        lastAdjacentCitationReferenceKey = null;
+                    }
                     continue;
                 }
                 if (!isResolvedCitationFence(segment.citation)) continue;
 
                 const referenceKey = citationReferenceKey(segment.citation);
+                if (referenceKey === lastAdjacentCitationReferenceKey) {
+                    continue;
+                }
+
                 let citationIndex = citationIndexByReferenceKey.get(referenceKey);
                 if (citationIndex === undefined) {
                     citationIndex = citationOrder.length;
@@ -157,6 +165,7 @@ export function MessageContent({
                 }
                 citationBySourceId.set(segment.citation.sourceId, segment.citation);
                 sourceIndexMap.set(segment.citation.sourceId, citationIndex);
+                lastAdjacentCitationReferenceKey = referenceKey;
                 md += `[[cite:${segment.citation.sourceId}]]`;
             }
             return md;

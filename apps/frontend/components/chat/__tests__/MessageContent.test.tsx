@@ -153,6 +153,18 @@ describe("MessageContent", () => {
         expect(screen.getAllByRole("button", { name: /document.pdf/i })).toHaveLength(1);
     });
 
+    test("filters duplicate inline citation badges when they are directly adjacent", () => {
+        renderMessageContent([
+            {
+                type: "text",
+                text: `Alpha ${citationFence("src-1")}${citationFence("src-1")} ${citationFence("src-1")} Omega`,
+            },
+        ]);
+
+        expect(screen.getAllByRole("button", { name: "1" })).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: /document.pdf/i })).toHaveLength(1);
+    });
+
     test("uses the same inline badge number for different source ids with the same resolved reference", () => {
         const sameReference = {
             fileId: "file-1",
