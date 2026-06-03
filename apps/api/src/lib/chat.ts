@@ -6,7 +6,6 @@ import {
     buildServerAndClientToolset,
     buildServerToolset,
     buildSubagentToolset,
-    estimateToken,
     getClient,
     isPDFCitation,
     isResolvedCitationFence,
@@ -50,7 +49,6 @@ import {
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { AuthUser } from "../middleware/auth";
 import { resolveGraphOwnerRoot } from "./graph-access";
-import { insertPromptGuidanceMessage, type ScopedPromptGuidance } from "./prompt-guidance";
 
 type RouteStatus = (code: number, body: unknown) => unknown;
 
@@ -73,10 +71,6 @@ type StartReplyOptions = {
 
 type PromptTextRow = {
     prompt: string;
-};
-
-type ChatReplyRuntime = ChatRuntime & {
-    promptGuidance?: ScopedPromptGuidance;
 };
 
 export const DEFAULT_CHAT_TITLE = "...";
@@ -105,25 +99,6 @@ function buildBaseToolset(options: GraphToolsetOptions, toolset: RuntimeToolset)
 
 function normalizePromptTexts(rows: PromptTextRow[]) {
     return rows.map((row) => row.prompt.trim()).filter((prompt) => prompt.length > 0);
-}
-
-function combinePromptTexts(prompts: string[]) {
-    const combined = prompts.join("\n\n").trim();
-    return combined.length > 0 ? combined : undefined;
-}
-
-function estimateReplyContextTokens(
-    systemPrompt: string,
-    contextMessages: ReturnType<typeof insertPromptGuidanceMessage>,
-    tools?: Record<string, unknown>
-) {
-    return estimateToken(
-        JSON.stringify({
-            system: systemPrompt,
-            messages: contextMessages,
-            ...(tools ? { tools } : {}),
-        })
-    );
 }
 
 async function listGraphPromptTexts(graphId: string) {
@@ -256,10 +231,18 @@ export async function getGraphResearchRuntime(
     graphId: string,
     options: { toolset: RuntimeToolset; deep?: boolean; user?: AuthUser } = { toolset: "server" }
 ) {
-    const graphPrompts = await listGraphPromptTexts(graphId);
-    const userPrompts = options.user ? await listUserPromptTexts(options.user.id) : [];
-    const teamPrompts = options.user ? await listTeamPromptTextsForGraph(graphId) : [];
-    const graphPrompt = combinePromptTexts(graphPrompts);
+    const [graphPrompts, userPrompts, teamPrompts] = await Promise.all([
+        listGraphPromptTexts(graphId),
+        options.user ? listUserPromptTexts(options.user.id) : [],
+        options.user ? listTeamPromptTextsForGraph(graphId) : [],
+    ]);
+    const promptGuidance = options.user
+        ? {
+              userPrompts,
+              teamPrompts,
+              graphPrompts,
+          }
+        : undefined;
 
     const client = getClient({
         text: buildAdapter(
@@ -302,6 +285,7 @@ export async function getGraphResearchRuntime(
               buildSubagentToolset({
                   ...toolsetOptions,
                   model: requiredClient.subagent ?? requiredClient.text,
+                  promptGuidance,
               })
           )
         : baseToolset;
@@ -309,14 +293,7 @@ export async function getGraphResearchRuntime(
     return {
         client: requiredClient,
         tools,
-        prompt: graphPrompt,
-        promptGuidance: options.user
-            ? {
-                  userPrompts,
-                  teamPrompts,
-                  graphPrompts,
-              }
-            : undefined,
+        promptGuidance,
     };
 }
 
@@ -355,7 +332,7 @@ export function startsAssistantOutput(partType: string) {
 export async function refreshReplyContext(options: {
     chatId: string;
     graphId: string;
-    runtime: ChatReplyRuntime;
+    runtime: ChatRuntime;
     promptOptions?: PromptOptions;
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
@@ -370,13 +347,11 @@ export async function refreshReplyContext(options: {
         abortSignal: options.abortSignal,
     });
 
-    const contextMessages = insertPromptGuidanceMessage(context.contextMessages, options.runtime.promptGuidance);
-
     return {
         systemPrompt,
-        contextMessages,
+        contextMessages: context.contextMessages,
         validatedMessages: context.validatedMessages,
-        estimatedPromptTokens: estimateReplyContextTokens(systemPrompt, contextMessages, options.runtime.tools),
+        estimatedPromptTokens: context.estimatedPromptTokens,
     };
 }
 

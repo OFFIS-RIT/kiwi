@@ -250,9 +250,7 @@ describe("chat context helpers", () => {
     });
 
     test("detects provider context overflow errors for retry-after-compaction", () => {
-        expect(
-            isContextOverflowError(new Error("This model's maximum context length is 256000 tokens."))
-        ).toBe(true);
+        expect(isContextOverflowError(new Error("This model's maximum context length is 256000 tokens."))).toBe(true);
         expect(
             isContextOverflowError({
                 message: "context_window_exceeded: input length exceeds the context window",
@@ -367,6 +365,47 @@ describe("chat context helpers", () => {
             systemPrompt: "system prompt",
         });
 
+        expect(context.estimatedPromptTokens).toBe(
+            estimateToken(
+                JSON.stringify({
+                    system: "system prompt",
+                    messages: context.contextMessages,
+                    tools: runtime.tools,
+                })
+            )
+        );
+    });
+
+    test("includes prompt guidance in the active context and token estimate", async () => {
+        const runtime = {
+            client: {
+                text: {} as never,
+                embedding: {} as never,
+            },
+            tools: {},
+            promptGuidance: {
+                userPrompts: ["Prefer terse answers."],
+            },
+        };
+
+        const context = await buildActiveChatContext({
+            graphId: "graph-1",
+            rows: [
+                textMessage("msg-guidance-1", "user", "first question"),
+                textMessage("msg-guidance-2", "assistant", "first answer"),
+                textMessage("msg-guidance-3", "user", "latest question"),
+            ],
+            runtime,
+            systemPrompt: "system prompt",
+        });
+
+        const guidanceIndex = context.contextMessages.findIndex((message) =>
+            JSON.stringify(message.content).includes("Prefer terse answers.")
+        );
+
+        expect(guidanceIndex).toBe(2);
+        expect(context.contextMessages[guidanceIndex]?.role).toBe("user");
+        expect(JSON.stringify(context.contextMessages[guidanceIndex]?.content)).toContain("## User Specific Prompts");
         expect(context.estimatedPromptTokens).toBe(
             estimateToken(
                 JSON.stringify({

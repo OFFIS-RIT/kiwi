@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createPromptGuidancePrompt } from "../prompts/prompt-guidance.prompt";
+import { createPromptGuidancePrompt, prependPromptGuidance } from "../prompts/guidance.prompt";
 
 describe("prompt guidance prompt", () => {
     test("puts the user-provided guardrail before scoped prompt content", () => {
@@ -22,5 +22,17 @@ describe("prompt guidance prompt", () => {
     test("returns null when no scoped prompt content is present", () => {
         expect(createPromptGuidancePrompt()).toBeNull();
         expect(createPromptGuidancePrompt({ userPrompts: [" \n\t"] })).toBeNull();
+    });
+
+    test("prepends guidance to task content without changing empty guidance calls", () => {
+        expect(prependPromptGuidance("Answer the question.")).toBe("Answer the question.");
+
+        const prompt = prependPromptGuidance("Answer the question.", {
+            userPrompts: ["Prefer concise answers."],
+        });
+
+        expect(prompt).toContain("## User Specific Prompts");
+        expect(prompt).toContain("Prefer concise answers.");
+        expect(prompt.endsWith("Answer the question.")).toBe(true);
     });
 });

@@ -1,4 +1,4 @@
-import { createPromptGuidancePrompt, type ScopedPromptGuidance } from "@kiwi/ai/prompts/prompt-guidance.prompt";
+import { createPromptGuidancePrompt, type ScopedPromptGuidance } from "@kiwi/ai/prompts/guidance.prompt";
 import type { ModelMessage } from "ai";
 
 export type { ScopedPromptGuidance };

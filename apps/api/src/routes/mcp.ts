@@ -114,13 +114,17 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
                 await assertMcpGraphViewPermission(request.headers);
                 await assertMcpCanViewGraph(user, graphId);
 
-                const { client, prompt, tools } = await getGraphResearchRuntime(graphId, { toolset: "mcp" });
+                const { client, promptGuidance, tools } = await getGraphResearchRuntime(graphId, {
+                    toolset: "mcp",
+                    user,
+                });
 
                 const result = await runMcpResearch({
                     model: client.text!,
                     question,
-                    system: createChatSystemPrompt(prompt, { includeClientTools: false }),
+                    system: createChatSystemPrompt(undefined, { includeClientTools: false }),
                     tools,
+                    promptGuidance,
                     providerOptions: getProviderOptions({ thinking: "medium" }),
                     transformAnswer: (text) =>
                         linkifyResearchCitations(text, (citation) =>

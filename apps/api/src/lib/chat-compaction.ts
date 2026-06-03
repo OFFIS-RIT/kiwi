@@ -16,11 +16,13 @@ import {
 import type { MessageCompactionPart, MessagePart } from "@kiwi/contracts/chat";
 import { db } from "@kiwi/db";
 import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
+import type { ScopedPromptGuidance } from "@kiwi/ai/prompts/guidance.prompt";
 import { validateUIMessages, type ModelMessage } from "ai";
 import { and, asc, eq, ne } from "drizzle-orm";
 import { env } from "../env";
 import { API_ERROR_CODES } from "../types";
 import type { ChatRequestBody } from "../types/routes";
+import { insertPromptGuidanceMessage } from "./prompt-guidance";
 
 const MAX_RAW_TAIL_TARGET_TOKENS = 32_000;
 const MIN_RAW_VISIBLE_MESSAGES = 6;
@@ -54,6 +56,7 @@ export type ChatRuntime = {
         embedding: NonNullable<Client["embedding"]>;
     };
     tools: Record<string, unknown>;
+    promptGuidance?: ScopedPromptGuidance;
 };
 
 export type ActiveChatContext = {
@@ -197,10 +200,13 @@ export async function buildActiveChatContext(options: {
         runtime: options.runtime,
     });
     const activeSummary = compactionState.activeCompaction?.part.summary;
-    const contextMessages = [
-        ...(activeSummary ? [createCompactionSystemMessage(activeSummary)] : []),
-        ...uiMessagesToModelMessages(validatedMessages),
-    ];
+    const contextMessages = insertPromptGuidanceMessage(
+        [
+            ...(activeSummary ? [createCompactionSystemMessage(activeSummary)] : []),
+            ...uiMessagesToModelMessages(validatedMessages),
+        ],
+        options.runtime.promptGuidance
+    );
 
     return {
         activeCompaction: compactionState.activeCompaction,
@@ -351,6 +357,7 @@ async function insertCheckpoint(options: {
     const transcript = serializeCompactionTranscript(options.summarizedMessages);
     const summary = await compactConversationHistory({
         model: options.runtime.client.subagent ?? options.runtime.client.text,
+        promptGuidance: options.runtime.promptGuidance,
         previousSummary: options.previousSummary,
         transcript,
         abortSignal: options.abortSignal,

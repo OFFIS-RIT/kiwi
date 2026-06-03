@@ -36,3 +36,8 @@ export function createPromptGuidancePrompt(guidance?: ScopedPromptGuidance): str
         ...sections,
     ].join("\n");
 }
+
+export function prependPromptGuidance(content: string, guidance?: ScopedPromptGuidance) {
+    const promptGuidance = createPromptGuidancePrompt(guidance);
+    return promptGuidance ? [promptGuidance, content].join("\n\n") : content;
+}
