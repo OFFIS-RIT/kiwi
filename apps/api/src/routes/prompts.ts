@@ -26,7 +26,23 @@ type PromptDeleteRecord = {
     id: string;
 };
 
+function isSerializationFailure(error: unknown): boolean {
+    if (!error || typeof error !== "object") {
+        return false;
+    }
+
+    if ("code" in error && error.code === "40001") {
+        return true;
+    }
+
+    return "cause" in error && isSerializationFailure(error.cause);
+}
+
 function mapPromptError(status: RouteStatus, error: unknown) {
+    if (isSerializationFailure(error)) {
+        return status(400, errorResponse("Invalid prompt", API_ERROR_CODES.INVALID_PROMPT));
+    }
+
     if (!(error instanceof Error)) {
         return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
     }
@@ -221,19 +237,25 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 async (currentUser, prompt) => {
                     const userId = resolveUserId(currentUser.id, params.userId);
                     await assertCanManageUserPrompts(currentUser, userId);
-                    await assertPromptCountBelowLimit(() =>
-                        db
-                            .select({ id: userPromptsTable.id })
-                            .from(userPromptsTable)
-                            .where(eq(userPromptsTable.userId, userId))
-                            .limit(MAX_PROMPTS_PER_SCOPE)
-                    );
 
-                    const [row] = await db
-                        .insert(userPromptsTable)
-                        .values({ userId, prompt })
-                        .returning(userPromptFields);
-                    return row;
+                    return db.transaction(
+                        async (tx) => {
+                            await assertPromptCountBelowLimit(() =>
+                                tx
+                                    .select({ id: userPromptsTable.id })
+                                    .from(userPromptsTable)
+                                    .where(eq(userPromptsTable.userId, userId))
+                                    .limit(MAX_PROMPTS_PER_SCOPE)
+                            );
+
+                            const [row] = await tx
+                                .insert(userPromptsTable)
+                                .values({ userId, prompt })
+                                .returning(userPromptFields);
+                            return row;
+                        },
+                        { isolationLevel: "serializable" }
+                    );
                 }
             ),
         {
@@ -321,19 +343,25 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 API_ERROR_CODES.INTERNAL_SERVER_ERROR,
                 async (currentUser, prompt) => {
                     await assertCanManageTeamPrompts(currentUser, params.teamId);
-                    await assertPromptCountBelowLimit(() =>
-                        db
-                            .select({ id: teamPromptsTable.id })
-                            .from(teamPromptsTable)
-                            .where(eq(teamPromptsTable.teamId, params.teamId))
-                            .limit(MAX_PROMPTS_PER_SCOPE)
-                    );
 
-                    const [row] = await db
-                        .insert(teamPromptsTable)
-                        .values({ teamId: params.teamId, prompt })
-                        .returning(teamPromptFields);
-                    return row;
+                    return db.transaction(
+                        async (tx) => {
+                            await assertPromptCountBelowLimit(() =>
+                                tx
+                                    .select({ id: teamPromptsTable.id })
+                                    .from(teamPromptsTable)
+                                    .where(eq(teamPromptsTable.teamId, params.teamId))
+                                    .limit(MAX_PROMPTS_PER_SCOPE)
+                            );
+
+                            const [row] = await tx
+                                .insert(teamPromptsTable)
+                                .values({ teamId: params.teamId, prompt })
+                                .returning(teamPromptFields);
+                            return row;
+                        },
+                        { isolationLevel: "serializable" }
+                    );
                 }
             ),
         {
@@ -421,19 +449,25 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 API_ERROR_CODES.INTERNAL_SERVER_ERROR,
                 async (currentUser, prompt) => {
                     await assertCanManageGraphPrompts(currentUser, params.graphId);
-                    await assertPromptCountBelowLimit(() =>
-                        db
-                            .select({ id: graphPromptsTable.id })
-                            .from(graphPromptsTable)
-                            .where(eq(graphPromptsTable.graphId, params.graphId))
-                            .limit(MAX_PROMPTS_PER_SCOPE)
-                    );
 
-                    const [row] = await db
-                        .insert(graphPromptsTable)
-                        .values({ graphId: params.graphId, prompt })
-                        .returning(graphPromptFields);
-                    return row;
+                    return db.transaction(
+                        async (tx) => {
+                            await assertPromptCountBelowLimit(() =>
+                                tx
+                                    .select({ id: graphPromptsTable.id })
+                                    .from(graphPromptsTable)
+                                    .where(eq(graphPromptsTable.graphId, params.graphId))
+                                    .limit(MAX_PROMPTS_PER_SCOPE)
+                            );
+
+                            const [row] = await tx
+                                .insert(graphPromptsTable)
+                                .values({ graphId: params.graphId, prompt })
+                                .returning(graphPromptFields);
+                            return row;
+                        },
+                        { isolationLevel: "serializable" }
+                    );
                 }
             ),
         {
