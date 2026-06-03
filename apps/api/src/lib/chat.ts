@@ -6,6 +6,7 @@ import {
     buildServerAndClientToolset,
     buildServerToolset,
     buildSubagentToolset,
+    estimateToken,
     getClient,
     isPDFCitation,
     isResolvedCitationFence,
@@ -21,10 +22,11 @@ import {
 import { db } from "@kiwi/db";
 import type { MessagePart } from "@kiwi/contracts/chat";
 import { chatTable, messageTable } from "@kiwi/db/tables/chats";
-import { filesTable, sourcesTable, systemPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { teamPromptsTable, userPromptsTable } from "@kiwi/db/tables/auth";
+import { filesTable, sourcesTable, graphPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { Result } from "better-result";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
@@ -46,6 +48,9 @@ import {
     type CitationResolver,
 } from "./chat-citation-normalization";
 import { API_ERROR_CODES, errorResponse } from "../types";
+import type { AuthUser } from "../middleware/auth";
+import { resolveGraphOwnerRoot } from "./graph-access";
+import { insertPromptGuidanceMessage, type ScopedPromptGuidance } from "./prompt-guidance";
 
 type RouteStatus = (code: number, body: unknown) => unknown;
 
@@ -64,6 +69,14 @@ type StartReplyOptions = {
     deep?: boolean;
     promptOptions?: PromptOptions;
     abortSignal?: AbortSignal;
+};
+
+type PromptTextRow = {
+    prompt: string;
+};
+
+type ChatReplyRuntime = ChatRuntime & {
+    promptGuidance?: ScopedPromptGuidance;
 };
 
 export const DEFAULT_CHAT_TITLE = "...";
@@ -88,6 +101,64 @@ function buildBaseToolset(options: GraphToolsetOptions, toolset: RuntimeToolset)
         case "server":
             return buildServerToolset(options);
     }
+}
+
+function normalizePromptTexts(rows: PromptTextRow[]) {
+    return rows.map((row) => row.prompt.trim()).filter((prompt) => prompt.length > 0);
+}
+
+function combinePromptTexts(prompts: string[]) {
+    const combined = prompts.join("\n\n").trim();
+    return combined.length > 0 ? combined : undefined;
+}
+
+function estimateReplyContextTokens(
+    systemPrompt: string,
+    contextMessages: ReturnType<typeof insertPromptGuidanceMessage>,
+    tools?: Record<string, unknown>
+) {
+    return estimateToken(
+        JSON.stringify({
+            system: systemPrompt,
+            messages: contextMessages,
+            ...(tools ? { tools } : {}),
+        })
+    );
+}
+
+async function listGraphPromptTexts(graphId: string) {
+    return normalizePromptTexts(
+        await db
+            .select({ prompt: graphPromptsTable.prompt })
+            .from(graphPromptsTable)
+            .where(eq(graphPromptsTable.graphId, graphId))
+            .orderBy(asc(graphPromptsTable.createdAt), asc(graphPromptsTable.id))
+    );
+}
+
+async function listUserPromptTexts(userId: string) {
+    return normalizePromptTexts(
+        await db
+            .select({ prompt: userPromptsTable.prompt })
+            .from(userPromptsTable)
+            .where(eq(userPromptsTable.userId, userId))
+            .orderBy(asc(userPromptsTable.createdAt), asc(userPromptsTable.id))
+    );
+}
+
+async function listTeamPromptTextsForGraph(graphId: string) {
+    const rootOwner = await resolveGraphOwnerRoot(graphId);
+    if (rootOwner.mode !== "team") {
+        return [];
+    }
+
+    return normalizePromptTexts(
+        await db
+            .select({ prompt: teamPromptsTable.prompt })
+            .from(teamPromptsTable)
+            .where(eq(teamPromptsTable.teamId, rootOwner.teamId))
+            .orderBy(asc(teamPromptsTable.createdAt), asc(teamPromptsTable.id))
+    );
 }
 
 export function toAssistantReply(assistantId: string, parts: MessagePart[], metadata: ChatMessageMetadata) {
@@ -183,14 +254,12 @@ export async function setChatArchived(chatId: string, userId: string, archived: 
 
 export async function getGraphResearchRuntime(
     graphId: string,
-    options: { toolset: RuntimeToolset; deep?: boolean } = { toolset: "server" }
+    options: { toolset: RuntimeToolset; deep?: boolean; user?: AuthUser } = { toolset: "server" }
 ) {
-    const [promptRow] = await db
-        .select({ prompt: systemPromptsTable.prompt })
-        .from(systemPromptsTable)
-        .where(eq(systemPromptsTable.graphId, graphId))
-        .orderBy(desc(systemPromptsTable.updatedAt), desc(systemPromptsTable.createdAt))
-        .limit(1);
+    const graphPrompts = await listGraphPromptTexts(graphId);
+    const userPrompts = options.user ? await listUserPromptTexts(options.user.id) : [];
+    const teamPrompts = options.user ? await listTeamPromptTextsForGraph(graphId) : [];
+    const graphPrompt = combinePromptTexts(graphPrompts);
 
     const client = getClient({
         text: buildAdapter(
@@ -233,7 +302,6 @@ export async function getGraphResearchRuntime(
               buildSubagentToolset({
                   ...toolsetOptions,
                   model: requiredClient.subagent ?? requiredClient.text,
-                  graphPrompt: promptRow?.prompt ?? undefined,
               })
           )
         : baseToolset;
@@ -241,7 +309,14 @@ export async function getGraphResearchRuntime(
     return {
         client: requiredClient,
         tools,
-        prompt: promptRow?.prompt ?? undefined,
+        prompt: graphPrompt,
+        promptGuidance: options.user
+            ? {
+                  userPrompts,
+                  teamPrompts,
+                  graphPrompts,
+              }
+            : undefined,
     };
 }
 
@@ -249,10 +324,7 @@ export function isContextOverflowError(error: unknown): boolean {
     const messages = [error]
         .flatMap((value) => {
             if (value instanceof Error) {
-                return [
-                    value.message,
-                    value.cause instanceof Error ? value.cause.message : undefined,
-                ];
+                return [value.message, value.cause instanceof Error ? value.cause.message : undefined];
             }
 
             if (typeof value === "object" && value && "message" in value && typeof value.message === "string") {
@@ -283,7 +355,7 @@ export function startsAssistantOutput(partType: string) {
 export async function refreshReplyContext(options: {
     chatId: string;
     graphId: string;
-    runtime: ChatRuntime;
+    runtime: ChatReplyRuntime;
     promptOptions?: PromptOptions;
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
@@ -298,19 +370,21 @@ export async function refreshReplyContext(options: {
         abortSignal: options.abortSignal,
     });
 
+    const contextMessages = insertPromptGuidanceMessage(context.contextMessages, options.runtime.promptGuidance);
+
     return {
         systemPrompt,
-        contextMessages: context.contextMessages,
+        contextMessages,
         validatedMessages: context.validatedMessages,
-        estimatedPromptTokens: context.estimatedPromptTokens,
+        estimatedPromptTokens: estimateReplyContextTokens(systemPrompt, contextMessages, options.runtime.tools),
     };
 }
 
-export async function startReply(userId: string, graphId: string, request: ChatRequest, options: StartReplyOptions) {
+export async function startReply(user: AuthUser, graphId: string, request: ChatRequest, options: StartReplyOptions) {
     const normalizedRequest = normalizeChatRequest(request);
     const { isNewChat } = await ensureChatRecord({
         chatId: normalizedRequest.id,
-        userId,
+        userId: user.id,
         graphId,
         defaultTitle: DEFAULT_CHAT_TITLE,
     });
@@ -321,13 +395,8 @@ export async function startReply(userId: string, graphId: string, request: ChatR
         getMetrics,
         parseCreatedAt,
     });
-    const runtime = await getGraphResearchRuntime(graphId, options);
-    const {
-        contextMessages,
-        validatedMessages,
-        estimatedPromptTokens,
-        systemPrompt,
-    } = await refreshReplyContext({
+    const runtime = await getGraphResearchRuntime(graphId, { ...options, user });
+    const { contextMessages, validatedMessages, estimatedPromptTokens, systemPrompt } = await refreshReplyContext({
         chatId: normalizedRequest.id,
         graphId,
         runtime,
@@ -571,8 +640,7 @@ export async function listChats(userId: string, graphId: string, options: { offs
         )
         .orderBy(desc(chatTable.updatedAt), desc(chatTable.id));
 
-    const effectiveLimit =
-        typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
+    const effectiveLimit = typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
 
     const rows = await (typeof effectiveLimit === "number"
         ? typeof options.offset === "number" && options.offset > 0
@@ -670,7 +738,10 @@ export function mapChatError(status: RouteStatus, error: unknown) {
     if (hasErrorCode(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE)) {
         return status(
             413,
-            errorResponse("Chat context is too large to continue without losing the protected recent tail", API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE)
+            errorResponse(
+                "Chat context is too large to continue without losing the protected recent tail",
+                API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE
+            )
         );
     }
 

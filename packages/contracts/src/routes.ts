@@ -266,6 +266,13 @@ export type SearchSuccessData = {
     chats: SearchChatItem[];
 };
 
+export type PromptRecord = {
+    id: string;
+    prompt: string;
+    created_at: string | null;
+    updated_at: string | null;
+};
+
 export type ChatHistoryRecord = {
     id: string;
     title: string;
@@ -470,11 +477,7 @@ export type SourceReferenceResponse = ApiResponse<
 
 export type SourceReferenceBatchResponse = ApiResponse<
     SourceReferenceBatchSuccessData,
-    | "UNAUTHORIZED"
-    | "FORBIDDEN"
-    | "GRAPH_NOT_FOUND"
-    | "INVALID_GRAPH_OWNER"
-    | "INTERNAL_SERVER_ERROR"
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
 >;
 
 export type ChatListResponse = ApiResponse<
@@ -507,6 +510,38 @@ export type ChatCreateResponse = ApiResponse<
     | "CHAT_NOT_FOUND"
     | "CHAT_CONTEXT_TOO_LARGE"
     | "INTERNAL_SERVER_ERROR"
+>;
+
+export type PromptListResponse = ApiResponse<
+    PromptRecord[],
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "TEAM_NOT_FOUND"
+    | "PROMPT_NOT_FOUND"
+    | "INVALID_PROMPT"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type PromptCreateResponse = ApiResponse<
+    PromptRecord,
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "TEAM_NOT_FOUND" | "INVALID_PROMPT" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type PromptPatchResponse = ApiResponse<
+    PromptRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "TEAM_NOT_FOUND"
+    | "PROMPT_NOT_FOUND"
+    | "INVALID_PROMPT"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type PromptDeleteResponse = ApiResponse<
+    null,
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "TEAM_NOT_FOUND" | "PROMPT_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
 >;
 
 export type SearchResponse = ApiResponse<SearchSuccessData, "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;

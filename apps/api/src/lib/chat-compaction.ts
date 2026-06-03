@@ -15,11 +15,7 @@ import {
 } from "@kiwi/ai";
 import type { MessageCompactionPart, MessagePart } from "@kiwi/contracts/chat";
 import { db } from "@kiwi/db";
-import {
-    chatTable,
-    messageTable,
-    type ChatMessage,
-} from "@kiwi/db/tables/chats";
+import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
 import { validateUIMessages, type ModelMessage } from "ai";
 import { and, asc, eq, ne } from "drizzle-orm";
 import { env } from "../env";
@@ -58,7 +54,6 @@ export type ChatRuntime = {
         embedding: NonNullable<Client["embedding"]>;
     };
     tools: Record<string, unknown>;
-    prompt?: string;
 };
 
 export type ActiveChatContext = {
@@ -89,11 +84,7 @@ function createCompactionSystemMessage(summary: string): ModelMessage {
     };
 }
 
-function estimateContextTokens(
-    systemPrompt: string,
-    contextMessages: ModelMessage[],
-    tools?: Record<string, unknown>
-) {
+function estimateContextTokens(systemPrompt: string, contextMessages: ModelMessage[], tools?: Record<string, unknown>) {
     return estimateToken(
         JSON.stringify({
             system: systemPrompt,
@@ -177,22 +168,17 @@ export function deriveActiveCompaction(rows: ChatMessage[]) {
     };
 }
 
-async function validateTailMessages(options: {
-    graphId: string;
-    rawTailRows: ChatMessage[];
-    runtime: ChatRuntime;
-}) {
+async function validateTailMessages(options: { graphId: string; rawTailRows: ChatMessage[]; runtime: ChatRuntime }) {
     const messages: ChatUIMessage[] = options.rawTailRows.map((message) => toUIMessage(message));
     const validationToolset = buildChatValidationToolset({
         graphId: options.graphId,
         embeddingModel: options.runtime.client.embedding,
         model: options.runtime.client.subagent ?? options.runtime.client.text,
-        graphPrompt: options.runtime.prompt,
     });
 
     return await validateUIMessages<ChatUIMessage>({
         messages,
-        tools: validationToolset,
+        tools: validationToolset as Parameters<typeof validateUIMessages<ChatUIMessage>>[0]["tools"],
         metadataSchema: chatMessageMetadataSchema,
         dataSchemas: chatDataPartSchemas,
     });
@@ -235,10 +221,7 @@ export function getSoftCompactionThreshold(contextWindow = env.CONTEXT_WINDOW) {
 }
 
 export function getRawTailTargetTokens(contextWindow = env.CONTEXT_WINDOW) {
-    return Math.max(
-        1,
-        Math.floor(Math.min(MAX_RAW_TAIL_TARGET_TOKENS, contextWindow * RAW_TAIL_TARGET_CONTEXT_RATIO))
-    );
+    return Math.max(1, Math.floor(Math.min(MAX_RAW_TAIL_TARGET_TOKENS, contextWindow * RAW_TAIL_TARGET_CONTEXT_RATIO)));
 }
 
 function shouldCompact(estimatedPromptTokens: number) {
@@ -358,7 +341,6 @@ export function normalizeCompactionSummary(summary: string) {
 
 async function insertCheckpoint(options: {
     chatId: string;
-    graphPrompt?: string;
     runtime: ChatRuntime;
     previousSummary?: string;
     basedOnCompactionMessageId?: string;
@@ -369,7 +351,6 @@ async function insertCheckpoint(options: {
     const transcript = serializeCompactionTranscript(options.summarizedMessages);
     const summary = await compactConversationHistory({
         model: options.runtime.client.subagent ?? options.runtime.client.text,
-        graphPrompt: options.graphPrompt,
         previousSummary: options.previousSummary,
         transcript,
         abortSignal: options.abortSignal,
@@ -400,7 +381,7 @@ export async function maybeCompactConversation(options: {
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
 }) {
-    const systemPrompt = createChatSystemPrompt(options.runtime.prompt, options.promptOptions ?? {});
+    const systemPrompt = createChatSystemPrompt(undefined, options.promptOptions ?? {});
     let context = await buildActiveChatContext({
         graphId: options.graphId,
         rows: options.rows,
@@ -438,7 +419,6 @@ export async function maybeCompactConversation(options: {
 
         await insertCheckpoint({
             chatId: options.chatId,
-            graphPrompt: options.runtime.prompt,
             runtime: options.runtime,
             previousSummary: context.activeSummary,
             basedOnCompactionMessageId: context.activeCompaction?.messageId,

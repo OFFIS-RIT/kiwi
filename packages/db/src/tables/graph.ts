@@ -104,7 +104,7 @@ export const graphUpdateTable = pgTable.withRLS("graph_updates", {
         .$onUpdate(() => sql`NOW()`),
 });
 
-export const systemPromptsTable = pgTable.withRLS("system_prompts", {
+export const graphPromptsTable = pgTable.withRLS("graph_prompts", {
     id: text("id")
         .primaryKey()
         .$default(() => ulid()),
