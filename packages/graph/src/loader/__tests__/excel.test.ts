@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import JSZip from "jszip";
 import { utils, write } from "xlsx";
 
 import { ExcelLoader } from "../excel.ts";
@@ -37,6 +38,9 @@ function buildWorkbookBytes(
         hidden?: 1 | 2;
         hiddenRows?: number[];
         hiddenCols?: number[];
+        comments?: Array<{ cell: string; text: string; author?: string }>;
+        merges?: string[];
+        links?: Array<{ cell: string; target: string }>;
     }>
 ): Uint8Array {
     const workbook = utils.book_new();
@@ -51,6 +55,32 @@ function buildWorkbookBytes(
         worksheet["!cols"] = Array.from({ length: maxCols }, (_col, index) => ({
             hidden: sheet.hiddenCols?.includes(index) ? true : undefined,
         }));
+        for (const comment of sheet.comments ?? []) {
+            const existingCell = worksheet[comment.cell];
+            const cell =
+                typeof existingCell === "object" && existingCell !== null
+                    ? (existingCell as { t?: string; c?: Array<{ a?: string; t: string }> })
+                    : ((worksheet[comment.cell] = { t: "z" }) as { t?: string; c?: Array<{ a?: string; t: string }> });
+            cell.t ??= "z";
+            cell.c ??= [];
+            cell.c.push({
+                a: comment.author,
+                t: comment.text,
+            });
+        }
+
+        if (sheet.merges?.length) {
+            worksheet["!merges"] = sheet.merges.map((merge) => utils.decode_range(merge));
+        }
+
+        for (const link of sheet.links ?? []) {
+            const existingCell = worksheet[link.cell];
+            const cell =
+                typeof existingCell === "object" && existingCell !== null
+                    ? (existingCell as { l?: { Target: string } })
+                    : ((worksheet[link.cell] = { t: "s", v: "" }) as { l?: { Target: string } });
+            cell.l = { Target: link.target };
+        }
 
         utils.book_append_sheet(workbook, worksheet, sheet.name);
         workbook.Workbook ??= { Sheets: [] };
@@ -63,6 +93,159 @@ function buildWorkbookBytes(
 
     const content = write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
     return new Uint8Array(content);
+}
+
+async function mutateWorkbookPart(
+    bytes: Uint8Array,
+    path: string,
+    mutate: (xml: string) => string
+): Promise<Uint8Array> {
+    const zip = await JSZip.loadAsync(bytes);
+    const xml = await zip.file(path)?.async("text");
+    if (!xml) {
+        return bytes;
+    }
+
+    zip.file(path, mutate(xml));
+    return zip.generateAsync({ type: "uint8array" });
+}
+
+async function addWorksheetHeaderFooter(
+    bytes: Uint8Array,
+    path: string,
+    options: {
+        header?: [string, string, string];
+        footer?: [string, string, string];
+    }
+): Promise<Uint8Array> {
+    const renderSection = ([left, center, right]: [string, string, string]) =>
+        `&L${left}&C${center}&R${right}`;
+    const headerFooterXml = [
+        "<headerFooter>",
+        options.header ? `<oddHeader>${renderSection(options.header)}</oddHeader>` : "",
+        options.footer ? `<oddFooter>${renderSection(options.footer)}</oddFooter>` : "",
+        "</headerFooter>",
+    ]
+        .filter(Boolean)
+        .join("");
+
+    return mutateWorkbookPart(bytes, path, (xml) => xml.replace("</worksheet>", `${headerFooterXml}</worksheet>`));
+}
+
+async function attachWorksheetDrawing(
+    bytes: Uint8Array,
+    options: {
+        sheetPath: string;
+        relationshipId?: string;
+        drawingPath: string;
+        drawingXml: string;
+        drawingRelationships?: Array<{ id: string; target: string; type?: string }>;
+        extra?: Record<string, string | Uint8Array>;
+    }
+): Promise<Uint8Array> {
+    const zip = await JSZip.loadAsync(bytes);
+    const sheetXml = await zip.file(options.sheetPath)?.async("text");
+    if (!sheetXml) {
+        return bytes;
+    }
+
+    const relationshipId = options.relationshipId ?? "rDrawing1";
+    zip.file(
+        options.sheetPath,
+        sheetXml.replace("</worksheet>", `<drawing r:id="${relationshipId}"/></worksheet>`)
+    );
+
+    const relsPath = options.sheetPath.replace(/([^/]+)\.xml$/, "_rels/$1.xml.rels");
+    const existingRels =
+        (await zip.file(relsPath)?.async("text")) ??
+        `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`;
+    zip.file(
+        relsPath,
+        existingRels.replace(
+            "</Relationships>",
+            `<Relationship Id="${relationshipId}" Target="../drawings/${options.drawingPath.split("/").at(-1)}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"/></Relationships>`
+        )
+    );
+
+    zip.file(options.drawingPath, options.drawingXml);
+    if (options.drawingRelationships?.length) {
+        const drawingRelsPath = options.drawingPath.replace(/([^/]+)\.xml$/, "_rels/$1.xml.rels");
+        zip.file(
+            drawingRelsPath,
+            `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${options.drawingRelationships
+    .map(
+        (relationship) =>
+            `<Relationship Id="${relationship.id}" Target="${relationship.target}"${relationship.type ? ` Type="${relationship.type}"` : ""}/>`
+    )
+    .join("\n")}
+</Relationships>`
+        );
+    }
+
+    for (const [path, content] of Object.entries(options.extra ?? {})) {
+        zip.file(path, content);
+    }
+
+    return zip.generateAsync({ type: "uint8array" });
+}
+
+async function buildChartsheetWorkbookBytes(title: string): Promise<Uint8Array> {
+    const bytes = buildWorkbookBytes([{ name: "Chart Sheet", rows: [["placeholder"]] }]);
+    const zip = await JSZip.loadAsync(bytes);
+    zip.file(
+        "xl/workbook.xml",
+        `<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Chart Sheet" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`
+    );
+    zip.file(
+        "xl/_rels/workbook.xml.rels",
+        `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Target="chartsheets/sheet1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chartsheet"/>
+</Relationships>`
+    );
+    zip.file(
+        "xl/chartsheets/sheet1.xml",
+        `<?xml version="1.0" encoding="UTF-8"?>
+<chartsheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <drawing r:id="rChart1"/>
+</chartsheet>`
+    );
+    zip.file(
+        "xl/chartsheets/_rels/sheet1.xml.rels",
+        `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rChart1" Target="../drawings/drawing1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"/>
+</Relationships>`
+    );
+    zip.file(
+        "xl/drawings/drawing1.xml",
+        `<?xml version="1.0" encoding="UTF-8"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <xdr:graphicFrame><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData><c:chart r:id="rChartData"/></a:graphicData></a:graphic></xdr:graphicFrame>
+</xdr:wsDr>`
+    );
+    zip.file(
+        "xl/drawings/_rels/drawing1.xml.rels",
+        `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rChartData" Target="../charts/chart1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"/>
+</Relationships>`
+    );
+    zip.file(
+        "xl/charts/chart1.xml",
+        `<?xml version="1.0" encoding="UTF-8"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>${title}</a:t></a:r></a:p></c:rich></c:tx></c:title></c:chart>
+</c:chartSpace>`
+    );
+
+    return zip.generateAsync({ type: "uint8array" });
 }
 
 describe("ExcelLoader", () => {
@@ -131,6 +314,58 @@ describe("ExcelLoader", () => {
         expect(text).not.toContain("VeryHidden");
     });
 
+    test("includes visible sheet headers footers and cell comments", async () => {
+        const bytes = await addWorksheetHeaderFooter(
+            buildWorkbookBytes([
+                {
+                    name: "Annotated",
+                    rows: [
+                        ["Name", "Value"],
+                        ["Foo", "42"],
+                    ],
+                    comments: [{ cell: "A2", author: "Alice", text: "Primary note" }],
+                },
+            ]),
+            "xl/worksheets/sheet1.xml",
+            {
+                header: ["Left header", "Center title", "Right header"],
+                footer: ["Left footer", "Center footer", "Right footer"],
+            }
+        );
+        const text = await buildExcelText(bytes);
+
+        expect(text).toContain("[Header: Left header | Center title | Right header]");
+        expect(text).toContain("| Foo | 42 |");
+        expect(text).toContain("[Comment A2 by Alice: Primary note]");
+        expect(text).toContain("[Footer: Left footer | Center footer | Right footer]");
+    });
+
+    test("skips comments from hidden rows and hidden columns", async () => {
+        const text = await buildExcelText(
+            buildWorkbookBytes([
+                {
+                    name: "VisibleComments",
+                    rows: [
+                        ["Name", "Hidden", "Value"],
+                        ["Foo", "Drop", "42"],
+                        ["Secret row", "Drop", "99"],
+                    ],
+                    hiddenRows: [2],
+                    hiddenCols: [1],
+                    comments: [
+                        { cell: "A2", text: "Keep me" },
+                        { cell: "B2", text: "Hidden column comment" },
+                        { cell: "A3", text: "Hidden row comment" },
+                    ],
+                },
+            ])
+        );
+
+        expect(text).toContain("[Comment A2: Keep me]");
+        expect(text).not.toContain("Hidden column comment");
+        expect(text).not.toContain("Hidden row comment");
+    });
+
     test("returns empty text when every workbook sheet is empty or hidden", async () => {
         const text = await buildExcelText(
             buildWorkbookBytes([
@@ -182,7 +417,127 @@ describe("ExcelLoader", () => {
         );
 
         expect(text).toMatch(/\| Kind \| Value \|/);
-        expect(text).toMatch(/\| Formula \|  \|/);
+        expect(text).toMatch(/\| Formula \| 3 \|/);
+    });
+
+    test("falls back to literal formula text when a formula cannot be evaluated locally", async () => {
+        const text = await buildExcelText(
+            buildWorkbookBytes([
+                {
+                    name: "UnsupportedFormula",
+                    rows: [
+                        ["Kind", "Value"],
+                        ["Formula", { t: "n", f: "UNSUPPORTED(1,2)" }],
+                    ],
+                },
+            ])
+        );
+
+        expect(text).toMatch(/\| Formula \| =UNSUPPORTED\(1,2\) \|/);
+    });
+
+    test("renders hyperlinks and merged cells without duplicating merged continuation text", async () => {
+        const text = await buildExcelText(
+            buildWorkbookBytes([
+                {
+                    name: "LinksAndMerges",
+                    rows: [
+                        ["Label", "Value"],
+                        ["Website", "Example"],
+                        ["Merged", ""],
+                    ],
+                    links: [{ cell: "B2", target: "https://example.test" }],
+                    merges: ["A3:B3"],
+                },
+            ])
+        );
+
+        expect(text).toContain("[Example](https://example.test)");
+        expect(text).toMatch(/\| Merged \|  \|/);
+    });
+
+    test("extracts worksheet drawing text and chart fallback text", async () => {
+        const bytes = await attachWorksheetDrawing(buildWorkbookBytes([{ name: "Visuals", rows: [["Name"], ["Foo"]] }]), {
+            sheetPath: "xl/worksheets/sheet1.xml",
+            drawingPath: "xl/drawings/drawing1.xml",
+            drawingXml: `<?xml version="1.0" encoding="UTF-8"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <xdr:twoCellAnchor>
+    <xdr:sp><xdr:txBody><a:p><a:r><a:t>Textbox alpha</a:t></a:r></a:p></xdr:txBody></xdr:sp>
+  </xdr:twoCellAnchor>
+  <xdr:graphicFrame><a:graphic><a:graphicData><c:chart r:id="rChart1"/></a:graphicData></a:graphic></xdr:graphicFrame>
+</xdr:wsDr>`,
+            drawingRelationships: [
+                {
+                    id: "rChart1",
+                    target: "../charts/chart1.xml",
+                    type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
+                },
+            ],
+            extra: {
+                "xl/charts/chart1.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Chart title beta</a:t></a:r></a:p></c:rich></c:tx></c:title></c:chart>
+</c:chartSpace>`,
+            },
+        });
+        const text = await buildExcelText(bytes);
+
+        expect(text).toContain("Textbox alpha");
+        expect(text).toContain("Chart title beta");
+    });
+
+    test("extracts chart sheet fallback text when there is no worksheet table", async () => {
+        const text = await buildExcelText(await buildChartsheetWorkbookBytes("Standalone chart title"));
+
+        expect(text).toContain("## Sheet: Chart Sheet");
+        expect(text).toContain("Standalone chart title");
+    });
+
+    test("skips cyclic XLSX related-part traversal without hanging extraction", async () => {
+        const bytes = await attachWorksheetDrawing(buildWorkbookBytes([{ name: "Loop", rows: [["Name"], ["Value"]] }]), {
+            sheetPath: "xl/worksheets/sheet1.xml",
+            drawingPath: "xl/drawings/drawing1.xml",
+            drawingXml: `<?xml version="1.0" encoding="UTF-8"?>
+<loop xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  Loop Diagram
+  <ref r:id="rSelf"/>
+</loop>`,
+            drawingRelationships: [{ id: "rSelf", target: "drawing1.xml", type: "urn:test" }],
+        });
+        const text = await buildExcelText(bytes);
+
+        expect(text).toContain("[Related Loop: Loop Diagram]");
+        expect(text.match(/Loop Diagram/g)?.length ?? 0).toBe(1);
+    });
+
+    test("keeps extracting text from malformed xlsx workbook parts", async () => {
+        const bytes = await addWorksheetHeaderFooter(
+            buildWorkbookBytes([
+                {
+                    name: "BrokenXml",
+                    rows: [
+                        ["Name", "Value"],
+                        ["Foo", "42"],
+                    ],
+                },
+            ]),
+            "xl/worksheets/sheet1.xml",
+            {
+                header: ["Left header", "Center title", "Right header"],
+            }
+        );
+        const withBrokenWorkbook = await mutateWorkbookPart(bytes, "xl/workbook.xml", (xml) =>
+            xml.replace("</workbook>", "")
+        );
+        const withBrokenSheet = await mutateWorkbookPart(withBrokenWorkbook, "xl/worksheets/sheet1.xml", (xml) =>
+            xml.replace("</worksheet>", "")
+        );
+        const text = await buildExcelText(withBrokenSheet);
+
+        expect(text).toContain("## Sheet: BrokenXml");
+        expect(text).toContain("| Foo | 42 |");
+        expect(text).toContain("[Header: Left header | Center title | Right header]");
     });
 
     test("propagates invalid workbook errors", async () => {

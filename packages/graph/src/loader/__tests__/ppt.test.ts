@@ -86,13 +86,13 @@ function presentationXml(ids: string[]): string {
 </p:presentation>`;
 }
 
-function relationshipsXml(entries: Array<{ id: string; target: string; external?: boolean }>): string {
+function relationshipsXml(entries: Array<{ id: string; target: string; external?: boolean; type?: string }>): string {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 ${entries
     .map(
         (entry) =>
-            `<Relationship Id="${entry.id}" Target="${entry.target}"${entry.external ? ' TargetMode="External"' : ""}/>`
+            `<Relationship Id="${entry.id}" Target="${entry.target}"${entry.type ? ` Type="${entry.type}"` : ""}${entry.external ? ' TargetMode="External"' : ""}/>`
     )
     .join("\n")}
 </Relationships>`;
@@ -103,6 +103,37 @@ function slideXml(children: string): string {
 <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/>${children}</p:spTree></p:cSld>
 </p:sld>`;
+}
+
+function notesXml(children: string): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/>${children}</p:spTree></p:cSld>
+</p:notes>`;
+}
+
+function commentAuthorsXml(authors: Array<{ id: string; name: string; initials?: string }>): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<p:cmAuthorLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+${authors
+    .map(
+        (author) =>
+            `<p:cmAuthor id="${author.id}" name="${author.name}"${author.initials ? ` initials="${author.initials}"` : ""}/>`
+    )
+    .join("\n")}
+</p:cmAuthorLst>`;
+}
+
+function commentsXml(comments: Array<{ authorId: string; text: string }>): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<p:cmLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+${comments
+    .map(
+        (comment, index) =>
+            `<p:cm authorId="${comment.authorId}" idx="${index}"><p:text>${comment.text}</p:text></p:cm>`
+    )
+    .join("\n")}
+</p:cmLst>`;
 }
 
 function shapeXml(text: string, options: { title?: boolean; bullet?: boolean } = {}): string {
@@ -199,6 +230,159 @@ ${shapeXml("Intro paragraph")}
         );
 
         expect(text).toBe(":::PAGE-1:::\n\n# Alpha Beta Gamma Delta");
+    });
+
+    test("includes speaker notes and slide comments from related pptx parts", async () => {
+        const text = await buildPPTXText(
+            basePPTXEntries({
+                "ppt/presentation.xml": presentationXml(["rSlide"]),
+                "ppt/_rels/presentation.xml.rels": relationshipsXml([
+                    { id: "rSlide", target: "slides/slide1.xml" },
+                    {
+                        id: "rAuthors",
+                        target: "commentAuthors.xml",
+                        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/commentAuthors",
+                    },
+                ]),
+                "ppt/slides/_rels/slide1.xml.rels": relationshipsXml([
+                    {
+                        id: "rNotes",
+                        target: "../notesSlides/notesSlide1.xml",
+                        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide",
+                    },
+                    {
+                        id: "rComments",
+                        target: "../comments/comment1.xml",
+                        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments",
+                    },
+                ]),
+                "ppt/slides/slide1.xml": slideXml(shapeXml("Quarterly review", { title: true })),
+                "ppt/notesSlides/notesSlide1.xml": notesXml(`
+${shapeXml("Quarterly review", { title: true })}
+${shapeXml("Speaker note alpha")}
+`),
+                "ppt/comments/comment1.xml": commentsXml([{ authorId: "0", text: "Review point" }]),
+                "ppt/commentAuthors.xml": commentAuthorsXml([{ id: "0", name: "Alice" }]),
+            })
+        );
+
+        expect(text).toContain("# Quarterly review");
+        expect(text).toContain("[Notes: Speaker note alpha]");
+        expect(text).toContain("[Comment by Alice: Review point]");
+        expect(text.match(/Quarterly review/g) ?? []).toHaveLength(1);
+    });
+
+    test("renders slide hyperlinks ordered bullets and nested bullet depth", async () => {
+        const text = await buildPPTXText(
+            basePPTXEntries({
+                "ppt/presentation.xml": presentationXml(["rSlide"]),
+                "ppt/_rels/presentation.xml.rels": relationshipsXml([{ id: "rSlide", target: "slides/slide1.xml" }]),
+                "ppt/slides/_rels/slide1.xml.rels": relationshipsXml([
+                    {
+                        id: "rLink",
+                        target: "https://example.test/slide",
+                        external: true,
+                        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+                    },
+                ]),
+                "ppt/slides/slide1.xml": slideXml(`
+${shapeXml("Agenda", { title: true })}
+<p:sp>
+  <p:nvSpPr><p:nvPr/></p:nvSpPr>
+  <p:txBody>
+    <a:p><a:pPr lvl="0"><a:buAutoNum type="arabicPeriod"/></a:pPr><a:r><a:rPr><a:hlinkClick r:id="rLink"/></a:rPr><a:t>Ordered link</a:t></a:r></a:p>
+    <a:p><a:pPr lvl="1"><a:buChar char="-"/></a:pPr><a:r><a:t>Nested bullet</a:t></a:r></a:p>
+  </p:txBody>
+</p:sp>`),
+            })
+        );
+
+        expect(text).toContain("# Agenda");
+        expect(text).toContain("1. [Ordered link](https://example.test/slide)");
+        expect(text).toContain("  - Nested bullet");
+    });
+
+    test("includes inherited layout master text and chart fallback text", async () => {
+        const text = await buildPPTXText(
+            basePPTXEntries({
+                "ppt/presentation.xml": presentationXml(["rSlide"]),
+                "ppt/_rels/presentation.xml.rels": relationshipsXml([{ id: "rSlide", target: "slides/slide1.xml" }]),
+                "ppt/slides/_rels/slide1.xml.rels": relationshipsXml([
+                    {
+                        id: "rLayout",
+                        target: "../slideLayouts/slideLayout1.xml",
+                        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
+                    },
+                    {
+                        id: "rChart",
+                        target: "../charts/chart1.xml",
+                        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
+                    },
+                ]),
+                "ppt/slideLayouts/_rels/slideLayout1.xml.rels": relationshipsXml([
+                    {
+                        id: "rMaster",
+                        target: "../slideMasters/slideMaster1.xml",
+                        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster",
+                    },
+                ]),
+                "ppt/slides/slide1.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
+  <p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/>
+    ${shapeXml("Quarterly review", { title: true })}
+    <p:graphicFrame><a:graphic><a:graphicData><c:chart r:id="rChart"/></a:graphicData></a:graphic></p:graphicFrame>
+  </p:spTree></p:cSld>
+</p:sld>`,
+                "ppt/slideLayouts/slideLayout1.xml": slideXml(`
+<p:sp>
+  <p:nvSpPr><p:nvPr><p:ph type="ftr"/></p:nvPr></p:nvSpPr>
+  <p:txBody><a:p><a:r><a:t>Layout footer text</a:t></a:r></a:p></p:txBody>
+</p:sp>`),
+                "ppt/slideMasters/slideMaster1.xml": slideXml(`
+<p:sp>
+  <p:nvSpPr><p:nvPr><p:ph type="dt"/></p:nvPr></p:nvSpPr>
+  <p:txBody><a:p><a:r><a:t>Master date text</a:t></a:r></a:p></p:txBody>
+</p:sp>`),
+                "ppt/charts/chart1.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Revenue chart title</a:t></a:r></a:p></c:rich></c:tx></c:title></c:chart>
+</c:chartSpace>`,
+            })
+        );
+
+        expect(text).toContain("# Quarterly review");
+        expect(text).toContain("Layout footer text");
+        expect(text).toContain("Master date text");
+        expect(text).toContain("Revenue chart title");
+    });
+
+    test("walks alternate content and malformed notes xml without dropping slide text", async () => {
+        const text = await buildPPTXText(
+            basePPTXEntries({
+                "ppt/presentation.xml": presentationXml(["rSlide"]),
+                "ppt/_rels/presentation.xml.rels": relationshipsXml([{ id: "rSlide", target: "slides/slide1.xml" }]),
+                "ppt/slides/_rels/slide1.xml.rels": relationshipsXml([
+                    {
+                        id: "rNotes",
+                        target: "../notesSlides/notesSlide1.xml",
+                        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide",
+                    },
+                ]),
+                "ppt/slides/slide1.xml": slideXml(`
+<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+  <mc:Choice>${shapeXml("Choice body text")}</mc:Choice>
+  <mc:Fallback>${shapeXml("Fallback body text")}</mc:Fallback>
+</mc:AlternateContent>`),
+                "ppt/notesSlides/notesSlide1.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/>${shapeXml("Broken note text")}
+`,
+            })
+        );
+
+        expect(text).toContain("Choice body text");
+        expect(text).not.toContain("Fallback body text");
+        expect(text).toContain("[Notes: Broken note text]");
     });
 
     test("extracts multiple slide OCR images with stable ids", async () => {

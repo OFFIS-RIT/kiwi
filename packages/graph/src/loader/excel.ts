@@ -8,7 +8,7 @@ export class ExcelLoader implements GraphLoader {
 
     async getText(): Promise<string> {
         const content = await this.options.loader.getBinary();
-        const data = extractExcel(content);
+        const data = await extractExcel(content);
         return data.text;
     }
 }

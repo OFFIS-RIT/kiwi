@@ -25,13 +25,13 @@ export function renderMarkdown(slides: SlideContent[]): string {
                     builder.append(block.text);
                     break;
                 case "bullet":
-                    builder.append(`- ${block.text}`);
+                    builder.append(`${"  ".repeat(Math.max(0, block.level))}${block.ordered ? "1." : "-"} ${block.text}`);
                     break;
                 case "image":
                     builder.append(`:::IMG-${block.id}:::`);
                     break;
                 case "table":
-                    builder.append(rowsToMarkdown(block.rows));
+                    builder.append(rowsToMarkdown(block.rows, { hasHeader: block.hasHeader }));
                     break;
             }
         }
@@ -40,7 +40,7 @@ export function renderMarkdown(slides: SlideContent[]): string {
     return builder.toString();
 }
 
-export function rowsToMarkdown(rows: string[][]): string {
+export function rowsToMarkdown(rows: string[][], options: { hasHeader?: boolean } = {}): string {
     if (rows.length === 0) {
         return "";
     }
@@ -50,8 +50,11 @@ export function rowsToMarkdown(rows: string[][]): string {
         return "";
     }
 
-    const lines = [renderTableRow(rows[0] ?? [], columnCount), renderSeparatorRow(columnCount)];
-    for (let index = 1; index < rows.length; index += 1) {
+    const hasHeader = options.hasHeader ?? true;
+    const headerRow = hasHeader ? (rows[0] ?? []) : [];
+    const bodyStart = hasHeader ? 1 : 0;
+    const lines = [renderTableRow(headerRow, columnCount), renderSeparatorRow(columnCount)];
+    for (let index = bodyStart; index < rows.length; index += 1) {
         lines.push(renderTableRow(rows[index] ?? [], columnCount));
     }
 
@@ -62,9 +65,8 @@ class MarkdownBuilder {
     private readonly parts: string[] = [];
 
     append(value: string): void {
-        const trimmed = value.trim();
-        if (trimmed) {
-            this.parts.push(trimmed);
+        if (value.trim()) {
+            this.parts.push(value.trimEnd());
         }
     }
 

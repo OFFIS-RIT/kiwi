@@ -28,7 +28,7 @@ export class DOCXLoader implements GraphLoader {
 
     private async getPlainText(): Promise<string> {
         const content = await this.options.loader.getBinary();
-        const parsed = await parseDOCX(content, false);
+        const parsed = await parseDOCX(content, { ocr: false, markdown: true });
         return renderMarkdown(parsed.blocks);
     }
 
@@ -40,7 +40,7 @@ export class DOCXLoader implements GraphLoader {
         }
 
         const content = await this.options.loader.getBinary();
-        const parsed = await parseDOCX(content, true);
+        const parsed = await parseDOCX(content, { ocr: true, markdown: true });
         const markdown = renderMarkdown(parsed.blocks);
         return processOCRImages(markdown, parsed.images, model, storage);
     }

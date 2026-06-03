@@ -1,11 +1,12 @@
-export function rowsToMarkdown(rows: string[][]): string {
+export function rowsToMarkdown(rows: string[][], options: { hasHeader?: boolean } = {}): string {
     if (rows.length === 0) {
         return "";
     }
 
-    const header = rows[0] ?? [];
+    const hasHeader = options.hasHeader ?? true;
+    const header = hasHeader ? (rows[0] ?? []) : [];
     const separator = Array.from({ length: header.length }, () => "---");
-    const body = rows.slice(1);
+    const body = rows.slice(hasHeader ? 1 : 0);
 
     return [markdownRow(header), markdownRow(separator), ...body.map((row) => markdownRow(row))].join("\n");
 }

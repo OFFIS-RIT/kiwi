@@ -15,8 +15,6 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import z from "zod";
 import { S3Loader } from "@kiwi/graph/loader/s3";
-import { PDFLoader } from "@kiwi/graph/loader/pdf";
-import { ImageLoader } from "@kiwi/graph/loader/image";
 import { JSONChunker } from "@kiwi/graph/chunker/json";
 import { SingleChunker } from "@kiwi/graph/chunker/single";
 import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
@@ -25,19 +23,16 @@ import {
     type Graph,
     type GraphChunker,
     type GraphFile,
-    type GraphLoader,
     type LoadedGraphDocument,
     type Unit,
 } from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
 import { loadGraphDocument } from "@kiwi/graph/loader/document";
+import { createDetectedGraphLoader, type GraphFileType } from "@kiwi/graph/loader/factory";
 import { stripPageFences } from "@kiwi/graph/lib/page-fence";
 import { mergeGraphs } from "@kiwi/graph/merge";
 import { createUnitsFromText, processUnit } from "@kiwi/graph/unit";
-import { DOCXLoader } from "@kiwi/graph/loader/doc";
 import { estimateToken, getClient } from "@kiwi/ai";
-import { ExcelLoader } from "@kiwi/graph/loader/excel";
-import { PPTXLoader } from "@kiwi/graph/loader/ppt";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { buildAdapter, buildEmbeddingAdapter, buildWorkerTextAdapter } from "../lib/ai";
@@ -45,7 +40,6 @@ import { EMPTY_VECTOR_SQL, entityCompactNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
 import { deleteGraphFileProcessingArtifacts, getGraphFileArtifactPaths } from "../lib/derived-files";
-import { buildPDFLoaderOptions } from "../lib/pdf-loader";
 import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
@@ -310,71 +304,37 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "preprocessing", "processing");
                 const start = performance.now();
                 const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
+                const fileContent = await s3Loader.getBinary();
                 const derivedImageStorage = {
                     bucket: env.S3_BUCKET,
                     imagePrefix: paths.derivedImagePrefix,
                 };
+                const { format: detectedFormat, loader } = createDetectedGraphLoader({
+                    content: fileContent,
+                    declaredType: fileData.type as GraphFileType,
+                    mimeType: fileData.mimeType,
+                    documentMode: env.DOCUMENT_MODE,
+                    imageModel: client.image,
+                    derivedImageStorage,
+                });
                 const baseGraphFile = {
                     id: input.fileId,
                     key: fileData.key,
                     filename: fileData.name,
-                    filetype: fileData.type,
+                    filetype: detectedFormat.fileType,
                 } satisfies Omit<GraphFile, "loader" | "chunker">;
-                let loader: GraphLoader;
 
-                switch (fileData.type) {
-                    case "pdf": {
-                        loader = new PDFLoader(
-                            buildPDFLoaderOptions(s3Loader, client.image, derivedImageStorage, env.DOCUMENT_MODE)
-                        );
-                        break;
-                    }
-                    case "doc": {
-                        const useOCR = env.DOCUMENT_MODE !== "plain";
-                        if (useOCR && !client.image) {
-                            throw new Error("Image adapter is not configured");
-                        }
-                        loader = useOCR
-                            ? new DOCXLoader({
-                                  ocr: true,
-                                  loader: s3Loader,
-                                  model: client.image,
-                                  storage: derivedImageStorage,
-                              })
-                            : new DOCXLoader({ loader: s3Loader });
-                        break;
-                    }
-                    case "sheet": {
-                        loader = new ExcelLoader({ loader: s3Loader });
-                        break;
-                    }
-                    case "ppt": {
-                        const useOCR = env.DOCUMENT_MODE !== "plain";
-                        if (useOCR && !client.image) {
-                            throw new Error("Image adapter is not configured");
-                        }
-                        loader = useOCR
-                            ? new PPTXLoader({
-                                  ocr: true,
-                                  loader: s3Loader,
-                                  model: client.image,
-                                  storage: derivedImageStorage,
-                              })
-                            : new PPTXLoader({ loader: s3Loader });
-                        break;
-                    }
-                    case "image": {
-                        if (!client.image) {
-                            throw new Error("Image adapter is not configured");
-                        }
-                        loader = new ImageLoader({
-                            loader: s3Loader,
-                            model: client.image,
-                        });
-                        break;
-                    }
-                    default:
-                        loader = s3Loader;
+                if (detectedFormat.fileType !== fileData.type || detectedFormat.mimeType !== fileData.mimeType) {
+                    await db
+                        .update(filesTable)
+                        .set({
+                            type: detectedFormat.fileType,
+                            mimeType: detectedFormat.mimeType,
+                        })
+                        .where(eq(filesTable.id, input.fileId));
+
+                    fileData.type = detectedFormat.fileType;
+                    fileData.mimeType = detectedFormat.mimeType;
                 }
 
                 const graphFile = {
@@ -443,7 +403,7 @@ export const processFile = defineWorkflow(
                 const start = performance.now();
 
                 let chunker: GraphChunker;
-                switch (fileData.type) {
+                switch (baseFile.filetype) {
                     case "image":
                         chunker = new SingleChunker();
                         break;
@@ -893,7 +853,7 @@ export const processFile = defineWorkflow(
                         totalTime,
                         files: 1,
                         fileSizes: fileData.size,
-                        fileType: fileData.type,
+                        fileType: baseFile.filetype,
                         tokenCount: baseFile.tokenCount,
                     });
                 } catch (error) {

@@ -71,12 +71,22 @@ async function buildDOCXText(
     }).getText();
 }
 
+async function buildDOCXBytes(entries: Record<string, string | Uint8Array>): Promise<Uint8Array> {
+    const zip = new JSZip();
+    for (const [path, content] of Object.entries(entries)) {
+        zip.file(path, content);
+    }
+
+    return zip.generateAsync({ type: "uint8array" });
+}
+
 function buildDOCXEntries(options: {
     body: string;
     relationships?: string;
     styles?: string;
     numbering?: string;
     contentTypes?: string;
+    documentNamespaces?: string;
     extra?: Record<string, string | Uint8Array>;
 }): Record<string, string | Uint8Array> {
     return {
@@ -88,7 +98,7 @@ function buildDOCXEntries(options: {
   <Default Extension="png" ContentType="image/png"/>
 </Types>`,
         "word/document.xml": `<?xml version="1.0" encoding="UTF-8"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"${options.documentNamespaces ? ` ${options.documentNamespaces}` : ""}>
   <w:body>${options.body}</w:body>
 </w:document>`,
         "word/_rels/document.xml.rels":
@@ -207,6 +217,25 @@ describe("DOCXLoader", () => {
         expect(text).toMatch(/\| Only one cell \|  \|/);
     });
 
+    test("derives heading levels from custom styles even when styles xml is malformed", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                styles: `<?xml version="1.0"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="CustomHeading">
+    <w:basedOn w:val="BaseHeading"/>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="BaseHeading">
+    <w:pPr><w:outlineLvl w:val="2"></w:pPr>
+  </w:style>
+</w:styles>`,
+                body: `<w:p><w:pPr><w:pStyle w:val="CustomHeading"/></w:pPr><w:r><w:t>Recovered Heading</w:t></w:r></w:p>`,
+            })
+        );
+
+        expect(text).toBe(":::PAGE-1:::\n\n### Recovered Heading");
+    });
+
     test("extracts wrapper text and normalizes tabs breaks and Word hyphen elements", async () => {
         const text = await buildDOCXText(
             buildDOCXEntries({
@@ -225,6 +254,302 @@ describe("DOCXLoader", () => {
 
         expect(text).toContain("Alpha Beta-Gamma");
         expect(text).toContain("Delta");
+    });
+
+    test("recovers text from malformed document xml", async () => {
+        const text = await buildDOCXText({
+            "[Content_Types].xml": `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>`,
+            "word/document.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body><w:p><w:r><w:t>Hello</w:t></w:p></w:body>
+</w:document>`,
+            "word/_rels/document.xml.rels": `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`,
+        });
+
+        expect(text).toBe(":::PAGE-1:::\n\nHello");
+    });
+
+    test("extracts alternate content blocks and inline fallbacks without duplication", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                documentNamespaces: `xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"`,
+                body: `
+<mc:AlternateContent>
+  <mc:Choice Requires="w14"><w:p><w:r><w:t>Choice paragraph</w:t></w:r></w:p></mc:Choice>
+  <mc:Fallback><w:p><w:r><w:t>Fallback paragraph</w:t></w:r></w:p></mc:Fallback>
+</mc:AlternateContent>
+<w:p>
+  <mc:AlternateContent>
+    <mc:Choice Requires="w14"><w:r><w:t>Choice inline</w:t></w:r></mc:Choice>
+    <mc:Fallback><w:r><w:t>Fallback inline</w:t></w:r></mc:Fallback>
+  </mc:AlternateContent>
+</w:p>`,
+            })
+        );
+
+        expect(text).toContain("Choice paragraph");
+        expect(text).toContain("Choice inline");
+        expect(text).not.toContain("Fallback paragraph");
+        expect(text).not.toContain("Fallback inline");
+    });
+
+    test("extracts text from docx text boxes", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                documentNamespaces: `xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"`,
+                body: `<w:p><w:r><w:drawing><wps:wsp><wps:txbx><w:txbxContent><w:p><w:r><w:t>Textbox text</w:t></w:r></w:p></w:txbxContent></wps:txbx></wps:wsp></w:drawing></w:r></w:p>`,
+            })
+        );
+
+        expect(text).toBe(":::PAGE-1:::\n\nTextbox text");
+    });
+
+    test("includes headers footers footnotes endnotes and comments from related docx parts", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rHeader" Target="header1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"/>
+  <Relationship Id="rFooter" Target="footer1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"/>
+  <Relationship Id="rFootnotes" Target="footnotes.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"/>
+  <Relationship Id="rEndnotes" Target="endnotes.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes"/>
+  <Relationship Id="rComments" Target="comments.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"/>
+</Relationships>`,
+                body: `
+<w:p><w:r><w:t>Main body</w:t></w:r></w:p>
+<w:p>
+  <w:r><w:t>Alpha </w:t></w:r>
+  <w:r><w:footnoteReference w:id="2"/></w:r>
+  <w:r><w:t> Beta </w:t></w:r>
+  <w:r><w:endnoteReference w:id="3"/></w:r>
+  <w:r><w:t> Gamma </w:t></w:r>
+  <w:r><w:commentReference w:id="4"/></w:r>
+</w:p>
+<w:sectPr>
+  <w:headerReference w:type="default" r:id="rHeader"/>
+  <w:footerReference w:type="default" r:id="rFooter"/>
+</w:sectPr>`,
+                extra: {
+                    "word/header1.xml": `<?xml version="1.0"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Header text</w:t></w:r></w:p></w:hdr>`,
+                    "word/footer1.xml": `<?xml version="1.0"?>
+<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Footer text</w:t></w:r></w:p></w:ftr>`,
+                    "word/footnotes.xml": `<?xml version="1.0"?>
+<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:footnote w:id="-1" w:type="separator"><w:p><w:r><w:t>Ignore me</w:t></w:r></w:p></w:footnote>
+  <w:footnote w:id="2"><w:p><w:r><w:t>Foot note text</w:t></w:r></w:p></w:footnote>
+</w:footnotes>`,
+                    "word/endnotes.xml": `<?xml version="1.0"?>
+<w:endnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:endnote w:id="3"><w:p><w:r><w:t>End note text</w:t></w:r></w:p></w:endnote>
+</w:endnotes>`,
+                    "word/comments.xml": `<?xml version="1.0"?>
+<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:comment w:id="4"><w:p><w:r><w:t>Comment text</w:t></w:r></w:p></w:comment>
+</w:comments>`,
+                },
+            })
+        );
+
+        expect(text).toContain("Header text");
+        expect(text).toContain("Main body");
+        expect(text).toContain("Alpha [Footnote: Foot note text] Beta [Endnote: End note text] Gamma [Comment: Comment text]");
+        expect(text).toContain("Footer text");
+    });
+
+    test("keeps section-local headers and footers near the section they belong to", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rHeader1" Target="header1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"/>
+  <Relationship Id="rFooter1" Target="footer1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"/>
+  <Relationship Id="rHeader2" Target="header2.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"/>
+  <Relationship Id="rFooter2" Target="footer2.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"/>
+</Relationships>`,
+                body: `
+<w:p><w:r><w:t>Section one</w:t></w:r></w:p>
+<w:p>
+  <w:pPr>
+    <w:sectPr>
+      <w:headerReference w:type="default" r:id="rHeader1"/>
+      <w:footerReference w:type="default" r:id="rFooter1"/>
+    </w:sectPr>
+  </w:pPr>
+  <w:r><w:t>Section one end</w:t></w:r>
+</w:p>
+<w:p><w:r><w:t>Section two</w:t></w:r></w:p>
+<w:sectPr>
+  <w:headerReference w:type="default" r:id="rHeader2"/>
+  <w:footerReference w:type="default" r:id="rFooter2"/>
+</w:sectPr>`,
+                extra: {
+                    "word/header1.xml": `<?xml version="1.0"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Header one</w:t></w:r></w:p></w:hdr>`,
+                    "word/footer1.xml": `<?xml version="1.0"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Footer one</w:t></w:r></w:p></w:ftr>`,
+                    "word/header2.xml": `<?xml version="1.0"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Header two</w:t></w:r></w:p></w:hdr>`,
+                    "word/footer2.xml": `<?xml version="1.0"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Footer two</w:t></w:r></w:p></w:ftr>`,
+                },
+            })
+        );
+
+        expect(text.indexOf("Header one")).toBeLessThan(text.indexOf("Section one"));
+        expect(text.indexOf("Footer one")).toBeLessThan(text.indexOf("Header two"));
+        expect(text.indexOf("Header two")).toBeLessThan(text.indexOf("Section two"));
+        expect(text.indexOf("Footer two")).toBeGreaterThan(text.indexOf("Section two"));
+    });
+
+    test("extracts altChunk html content into the document body", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                contentTypes: `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/afchunk.html" ContentType="text/html"/>
+</Types>`,
+                relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rChunk" Target="afchunk.html" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk"/>
+</Relationships>`,
+                body: `<w:altChunk r:id="rChunk"/><w:p><w:r><w:t>After chunk</w:t></w:r></w:p>`,
+                extra: {
+                    "word/afchunk.html": `<!DOCTYPE html><html><body><p>Chunk <strong>Alpha</strong></p><p>Beta</p></body></html>`,
+                },
+            })
+        );
+
+        expect(text).toContain("Chunk Alpha");
+        expect(text).toContain("Beta");
+        expect(text).toContain("After chunk");
+    });
+
+    test("extracts tracked changes bookmark fields and chart fallback text", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries(
+                {
+                    documentNamespaces: `xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"`,
+                    relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rChart" Target="charts/chart1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"/>
+</Relationships>`,
+                    body: `<w:p>
+  <w:r><w:t>Keep </w:t></w:r>
+  <w:del><w:r><w:delText>Drop </w:delText></w:r></w:del>
+  <w:moveFrom><w:r><w:t>Gone </w:t></w:r></w:moveFrom>
+  <w:moveTo><w:r><w:t>Move </w:t></w:r></w:moveTo>
+  <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+  <w:r><w:instrText xml:space="preserve"> REF sectionBookmark </w:instrText></w:r>
+  <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+  <w:r><w:t>See section</w:t></w:r>
+  <w:r><w:fldChar w:fldCharType="end"/></w:r>
+</w:p>
+<w:p><w:r><w:drawing><c:chart r:id="rChart"/></w:drawing></w:r></w:p>`,
+                    extra: {
+                        "word/charts/chart1.xml": `<?xml version="1.0"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Quarterly chart title</a:t></a:r></a:p></c:rich></c:tx></c:title></c:chart>
+</c:chartSpace>`,
+                    },
+                }
+            ),
+            { ocr: true }
+        );
+
+        expect(text).toContain("Keep Move");
+        expect(text).not.toContain("Drop");
+        expect(text).not.toContain("Gone");
+        expect(text).toContain("[See section](#sectionBookmark)");
+        expect(text).toContain("Quarterly chart title");
+    });
+
+    test("extracts altChunk rtf and embedded docx packages", async () => {
+        const embeddedBytes = await buildDOCXBytes(
+            buildDOCXEntries({
+                body: `<w:p><w:r><w:t>Embedded package text</w:t></w:r></w:p>`,
+            })
+        );
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                contentTypes: `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/chunk.rtf" ContentType="application/rtf"/>
+  <Override PartName="/word/chunk.docx" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
+</Types>`,
+                relationships: `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rRtf" Target="chunk.rtf" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk"/>
+  <Relationship Id="rEmbedded" Target="chunk.docx" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk"/>
+</Relationships>`,
+                body: `<w:altChunk r:id="rRtf"/><w:altChunk r:id="rEmbedded"/>`,
+                extra: {
+                    "word/chunk.rtf": `{\\rtf1\\ansi RTF \\b Alpha\\b0\\par Beta}`,
+                    "word/chunk.docx": embeddedBytes,
+                },
+            })
+        );
+
+        expect(text).toContain("RTF Alpha");
+        expect(text).toContain("Beta");
+        expect(text).toContain("Embedded package text");
+    });
+
+    test("skips cyclic DOCX related-part traversal without hanging extraction", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                relationships: `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rLoop" Target="loop.xml" Type="urn:test"/>
+</Relationships>`,
+                body: `<w:p><w:r><w:object r:id="rLoop"/></w:r></w:p>`,
+                extra: {
+                    "word/loop.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:body>
+    <w:p><w:r><w:object r:id="rSelf"/></w:r></w:p>
+    <w:p><w:r><w:t>Loop text</w:t></w:r></w:p>
+  </w:body>
+</w:document>`,
+                    "word/_rels/loop.xml.rels": `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rSelf" Target="loop.xml" Type="urn:test"/>
+</Relationships>`,
+                },
+            })
+        );
+
+        expect(text).toContain("Loop text");
+        expect(text.match(/Loop text/g)?.length ?? 0).toBe(1);
+    });
+
+    test("uses fldSimple hyperlink instructions in OCR mode", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                body: `<w:p><w:fldSimple w:instr=" HYPERLINK &quot;https://example.test/field&quot; "><w:r><w:t>Field link</w:t></w:r></w:fldSimple></w:p>`,
+            }),
+            { ocr: true }
+        );
+
+        expect(text).toBe(":::PAGE-1:::\n\n[Field link](https://example.test/field)");
+    });
+
+    test("extracts complex hyperlink field results and remaps symbol glyphs", async () => {
+        const text = await buildDOCXText(
+            buildDOCXEntries({
+                body: `<w:p>
+  <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+  <w:r><w:instrText xml:space="preserve"> HYPERLINK &quot;https://example.test/complex&quot; </w:instrText></w:r>
+  <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+  <w:r><w:rPr><w:b/></w:rPr><w:t>Complex link</w:t></w:r>
+  <w:r><w:fldChar w:fldCharType="end"/></w:r>
+  <w:r><w:t> and </w:t></w:r>
+  <w:r><w:sym w:font="Wingdings" w:char="F0FC"/></w:r>
+  <w:r><w:t> done</w:t></w:r>
+</w:p>`,
+            }),
+            { ocr: true }
+        );
+
+        expect(text).toBe(":::PAGE-1:::\n\n[**Complex link**](https://example.test/complex) and ✓ done");
     });
 
     test("normalizes repeated non-ASCII whitespace in DOCX text", async () => {

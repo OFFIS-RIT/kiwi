@@ -41,19 +41,20 @@ export async function getRelationshipsForPart(zip: JSZip, partPath: string): Pro
         const id = getAttribute(relationship, "Id");
         const target = getAttribute(relationship, "Target");
         const targetMode = getAttribute(relationship, "TargetMode");
+        const type = getAttribute(relationship, "Type");
         if (!id || !target) {
             continue;
         }
 
         const external = targetMode === "External" || isExternalTarget(target);
         if (external) {
-            relationships.set(id, { target, external: true });
+            relationships.set(id, { target, external: true, type });
             continue;
         }
 
         const resolved = resolveZipPath(getDirectoryPath(partPath), target);
         if (resolved) {
-            relationships.set(id, { target: resolved, external: false });
+            relationships.set(id, { target: resolved, external: false, type });
         }
     }
 

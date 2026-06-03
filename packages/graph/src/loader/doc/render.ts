@@ -34,7 +34,7 @@ export function renderMarkdown(blocks: DOCBlock[]): string {
                 break;
             }
             case "table":
-                builder.append(rowsToMarkdown(block.rows));
+                builder.append(rowsToMarkdown(block.rows, { hasHeader: block.hasHeader }));
                 break;
             case "image":
                 builder.append(`:::IMG-${block.id}:::`);
@@ -45,7 +45,7 @@ export function renderMarkdown(blocks: DOCBlock[]): string {
     return cleanMarkdownText(builder.toString());
 }
 
-export function rowsToMarkdown(rows: string[][]): string {
+export function rowsToMarkdown(rows: string[][], options: { hasHeader?: boolean } = {}): string {
     if (rows.length === 0) {
         return "";
     }
@@ -55,8 +55,11 @@ export function rowsToMarkdown(rows: string[][]): string {
         return "";
     }
 
-    const lines = [renderTableRow(rows[0] ?? [], columnCount), renderSeparatorRow(columnCount)];
-    for (let index = 1; index < rows.length; index += 1) {
+    const hasHeader = options.hasHeader ?? true;
+    const headerRow = hasHeader ? (rows[0] ?? []) : [];
+    const bodyStart = hasHeader ? 1 : 0;
+    const lines = [renderTableRow(headerRow, columnCount), renderSeparatorRow(columnCount)];
+    for (let index = bodyStart; index < rows.length; index += 1) {
         lines.push(renderTableRow(rows[index] ?? [], columnCount));
     }
 

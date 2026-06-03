@@ -19,6 +19,7 @@ export type ContentTypes = {
 export type RelationshipTarget = {
     target: string;
     external: boolean;
+    type: string | null;
 };
 
 export type Relationships = Map<string, RelationshipTarget>;
