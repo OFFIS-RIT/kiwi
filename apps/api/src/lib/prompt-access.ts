@@ -25,9 +25,12 @@ async function getTeamById(teamId: string): Promise<TeamRecord | null> {
     return team ?? null;
 }
 
-async function requireAdminMembership(user: AuthUser, organizationId: string) {
+async function getOrganizationAccess(user: AuthUser, organizationId: string) {
     const membership = await getOrganizationMembership(user, organizationId);
-    return roleIncludes(membership?.role, "admin") ? membership : null;
+    return {
+        membership,
+        admin: roleIncludes(membership?.role, "admin"),
+    };
 }
 
 export async function assertCanManageUserPrompts(user: AuthUser, targetUserId: string) {
@@ -57,12 +60,16 @@ export async function assertCanManageTeamPrompts(user: AuthUser, teamId: string)
         throw new Error(API_ERROR_CODES.TEAM_NOT_FOUND);
     }
 
-    if (user.isSystemAdmin || (await requireAdminMembership(user, team.organizationId))) {
+    if (user.isSystemAdmin) {
         return team;
     }
 
-    const organizationMembership = await getOrganizationMembership(user, team.organizationId);
-    if (!organizationMembership) {
+    const access = await getOrganizationAccess(user, team.organizationId);
+    if (access.admin) {
+        return team;
+    }
+
+    if (!access.membership) {
         throw new Error(API_ERROR_CODES.FORBIDDEN);
     }
 
@@ -89,7 +96,8 @@ export async function assertCanManageGraphPrompts(user: AuthUser, graphId: strin
         throw new Error(API_ERROR_CODES.FORBIDDEN);
     }
 
-    if (await requireAdminMembership(user, rootOwner.organizationId)) {
+    const access = await getOrganizationAccess(user, rootOwner.organizationId);
+    if (access.admin) {
         return graph;
     }
 
@@ -97,8 +105,7 @@ export async function assertCanManageGraphPrompts(user: AuthUser, graphId: strin
         throw new Error(API_ERROR_CODES.FORBIDDEN);
     }
 
-    const organizationMembership = await getOrganizationMembership(user, rootOwner.organizationId);
-    if (!organizationMembership) {
+    if (!access.membership) {
         throw new Error(API_ERROR_CODES.FORBIDDEN);
     }
 

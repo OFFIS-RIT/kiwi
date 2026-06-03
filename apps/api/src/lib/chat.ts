@@ -236,13 +236,11 @@ export async function getGraphResearchRuntime(
         options.user ? listUserPromptTexts(options.user.id) : [],
         options.user ? listTeamPromptTextsForGraph(graphId) : [],
     ]);
-    const promptGuidance = options.user
-        ? {
-              userPrompts,
-              teamPrompts,
-              graphPrompts,
-          }
-        : undefined;
+    const promptGuidance = {
+        userPrompts,
+        teamPrompts,
+        graphPrompts,
+    };
 
     const client = getClient({
         text: buildAdapter(

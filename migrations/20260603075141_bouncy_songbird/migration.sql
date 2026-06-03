@@ -28,6 +28,8 @@ ALTER TABLE "user_prompts" ADD CONSTRAINT "user_prompts_user_id_user_id_fkey" FO
 --> statement-breakpoint
 ALTER TABLE "team_prompts" ADD CONSTRAINT "team_prompts_team_id_team_id_fkey" FOREIGN KEY ("team_id") REFERENCES "public"."team"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 --> statement-breakpoint
+CREATE INDEX "graph_prompts_graph_created_idx" ON "graph_prompts" USING btree ("graph_id","created_at","id");
+--> statement-breakpoint
 CREATE INDEX "user_prompts_user_created_idx" ON "user_prompts" USING btree ("user_id","created_at","id");
 --> statement-breakpoint
 CREATE INDEX "team_prompts_team_created_idx" ON "team_prompts" USING btree ("team_id","created_at","id");

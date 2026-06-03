@@ -519,8 +519,6 @@ export type PromptListResponse = ApiResponse<
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
     | "TEAM_NOT_FOUND"
-    | "PROMPT_NOT_FOUND"
-    | "INVALID_PROMPT"
     | "INTERNAL_SERVER_ERROR"
 >;
 
