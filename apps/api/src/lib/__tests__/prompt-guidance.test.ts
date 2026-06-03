@@ -38,6 +38,16 @@ describe("prompt guidance", () => {
         expect(nextMessages[3]).toBe(messages[2]);
     });
 
+    test("does not append guidance when there is no user message to precede", () => {
+        const messages = [{ role: "assistant" as const, content: "answer" }];
+        const guidance = { graphPrompts: ["ACME means Acme Corp."] };
+
+        expect(insertPromptGuidanceMessage(messages, guidance)).toBe(messages);
+
+        const emptyMessages: Parameters<typeof insertPromptGuidanceMessage>[0] = [];
+        expect(insertPromptGuidanceMessage(emptyMessages, guidance)).toBe(emptyMessages);
+    });
+
     test("creates no guidance message without non-empty scoped prompts", () => {
         expect(createPromptGuidanceMessage()).toBeNull();
         expect(createPromptGuidanceMessage({ graphPrompts: ["\n\t"] })).toBeNull();

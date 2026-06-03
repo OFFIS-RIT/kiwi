@@ -30,7 +30,7 @@ export function insertPromptGuidanceMessage(messages: ModelMessage[], guidance?:
     }
 
     if (latestUserIndex === -1) {
-        return [...messages, guidanceMessage];
+        return messages;
     }
 
     return [...messages.slice(0, latestUserIndex), guidanceMessage, ...messages.slice(latestUserIndex)];

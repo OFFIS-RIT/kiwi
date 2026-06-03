@@ -49,6 +49,7 @@ import {
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { AuthUser } from "../middleware/auth";
 import { resolveGraphOwnerRoot } from "./graph-access";
+import { MAX_PROMPTS_PER_SCOPE } from "./prompt-limits";
 
 type RouteStatus = (code: number, body: unknown) => unknown;
 
@@ -108,6 +109,7 @@ async function listGraphPromptTexts(graphId: string) {
             .from(graphPromptsTable)
             .where(eq(graphPromptsTable.graphId, graphId))
             .orderBy(asc(graphPromptsTable.createdAt), asc(graphPromptsTable.id))
+            .limit(MAX_PROMPTS_PER_SCOPE)
     );
 }
 
@@ -118,6 +120,7 @@ async function listUserPromptTexts(userId: string) {
             .from(userPromptsTable)
             .where(eq(userPromptsTable.userId, userId))
             .orderBy(asc(userPromptsTable.createdAt), asc(userPromptsTable.id))
+            .limit(MAX_PROMPTS_PER_SCOPE)
     );
 }
 
@@ -133,6 +136,7 @@ async function listTeamPromptTextsForGraph(graphId: string) {
             .from(teamPromptsTable)
             .where(eq(teamPromptsTable.teamId, rootOwner.teamId))
             .orderBy(asc(teamPromptsTable.createdAt), asc(teamPromptsTable.id))
+            .limit(MAX_PROMPTS_PER_SCOPE)
     );
 }
 

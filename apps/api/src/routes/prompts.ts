@@ -9,10 +9,9 @@ import {
     assertCanManageTeamPrompts,
     assertCanManageUserPrompts,
 } from "../lib/prompt-access";
+import { MAX_PROMPT_LENGTH, MAX_PROMPTS_PER_SCOPE } from "../lib/prompt-limits";
 import { authMiddleware, type AuthUser } from "../middleware/auth";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
-
-const MAX_PROMPT_LENGTH = 20_000;
 
 type RouteStatus = (code: number, body: unknown) => unknown;
 
@@ -57,6 +56,13 @@ function normalizePrompt(prompt: string) {
     }
 
     return normalized;
+}
+
+async function assertPromptCountBelowLimit(loadPromptIds: () => Promise<unknown[]>) {
+    const promptIds = await loadPromptIds();
+    if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
+        throw new Error(API_ERROR_CODES.INVALID_PROMPT);
+    }
 }
 
 function toPromptResponse(row: PromptRecord) {
@@ -215,6 +221,13 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 async (currentUser, prompt) => {
                     const userId = resolveUserId(currentUser.id, params.userId);
                     await assertCanManageUserPrompts(currentUser, userId);
+                    await assertPromptCountBelowLimit(() =>
+                        db
+                            .select({ id: userPromptsTable.id })
+                            .from(userPromptsTable)
+                            .where(eq(userPromptsTable.userId, userId))
+                            .limit(MAX_PROMPTS_PER_SCOPE)
+                    );
 
                     const [row] = await db
                         .insert(userPromptsTable)
@@ -308,6 +321,13 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 API_ERROR_CODES.INTERNAL_SERVER_ERROR,
                 async (currentUser, prompt) => {
                     await assertCanManageTeamPrompts(currentUser, params.teamId);
+                    await assertPromptCountBelowLimit(() =>
+                        db
+                            .select({ id: teamPromptsTable.id })
+                            .from(teamPromptsTable)
+                            .where(eq(teamPromptsTable.teamId, params.teamId))
+                            .limit(MAX_PROMPTS_PER_SCOPE)
+                    );
 
                     const [row] = await db
                         .insert(teamPromptsTable)
@@ -401,6 +421,13 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 API_ERROR_CODES.INTERNAL_SERVER_ERROR,
                 async (currentUser, prompt) => {
                     await assertCanManageGraphPrompts(currentUser, params.graphId);
+                    await assertPromptCountBelowLimit(() =>
+                        db
+                            .select({ id: graphPromptsTable.id })
+                            .from(graphPromptsTable)
+                            .where(eq(graphPromptsTable.graphId, params.graphId))
+                            .limit(MAX_PROMPTS_PER_SCOPE)
+                    );
 
                     const [row] = await db
                         .insert(graphPromptsTable)
