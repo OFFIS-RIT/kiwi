@@ -10,6 +10,7 @@ import {
     toUIMessage,
     uiMessagesToModelMessages,
     type ChatMessageMetadata,
+    type ChatValidationToolset,
     type ChatUIMessage,
     type Client,
 } from "@kiwi/ai";
@@ -173,7 +174,7 @@ export function deriveActiveCompaction(rows: ChatMessage[]) {
 
 async function validateTailMessages(options: { graphId: string; rawTailRows: ChatMessage[]; runtime: ChatRuntime }) {
     const messages: ChatUIMessage[] = options.rawTailRows.map((message) => toUIMessage(message));
-    const validationToolset = buildChatValidationToolset({
+    const validationToolset: ChatValidationToolset = buildChatValidationToolset({
         graphId: options.graphId,
         embeddingModel: options.runtime.client.embedding,
         model: options.runtime.client.subagent ?? options.runtime.client.text,
@@ -181,7 +182,7 @@ async function validateTailMessages(options: { graphId: string; rawTailRows: Cha
 
     return await validateUIMessages<ChatUIMessage>({
         messages,
-        tools: validationToolset as Parameters<typeof validateUIMessages<ChatUIMessage>>[0]["tools"],
+        tools: validationToolset,
         metadataSchema: chatMessageMetadataSchema,
         dataSchemas: chatDataPartSchemas,
     });

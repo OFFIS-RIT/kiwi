@@ -133,7 +133,6 @@ describe("subagent tools", () => {
 
         const result = await compactConversationHistory({
             model,
-            graphPrompt: "Prefer decisions.",
             promptGuidance: {
                 userPrompts: ["Prefer terse summaries."],
             },

@@ -1,4 +1,4 @@
-import type { ModelMessage } from "ai";
+import type { FlexibleSchema, ModelMessage, Tool, ToolExecuteFunction } from "ai";
 import type { EmbeddingModelV3, LanguageModelV3 } from "@ai-sdk/provider";
 import type { MessagePart, MessageToolPart } from "@kiwi/contracts/chat";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
@@ -26,6 +26,19 @@ export {
 export type { CitationFence, ParsedCitationSegment, ResolvedCitationFence } from "./citation";
 
 const CLIENT_TOOL_NAMES = new Set(["ask_clarifying_questions"]);
+
+// oxlint-disable-next-line no-explicit-any -- persisted chat messages can contain any tool input shape
+type ChatValidationToolInput = any;
+// oxlint-disable-next-line no-explicit-any -- persisted chat messages can contain any tool output shape
+type ChatValidationToolOutput = any;
+
+type ChatValidationTool = Tool<ChatValidationToolInput, ChatValidationToolOutput> &
+    (
+        | { execute: ToolExecuteFunction<ChatValidationToolInput, ChatValidationToolOutput> }
+        | { outputSchema: FlexibleSchema<ChatValidationToolOutput> }
+    );
+
+export type ChatValidationToolset = Record<string, ChatValidationTool | undefined>;
 
 export function buildAdapter(
     type: "openai" | "azure" | "anthropic" | "openaiAPI",
@@ -79,8 +92,7 @@ export function buildChatValidationToolset(options: {
     graphId: string;
     embeddingModel: EmbeddingModelV3;
     model: LanguageModelV3;
-    graphPrompt?: string;
-}) {
+}): ChatValidationToolset {
     return {
         ...buildServerAndClientToolset({
             graphId: options.graphId,
@@ -90,7 +102,6 @@ export function buildChatValidationToolset(options: {
             graphId: options.graphId,
             embeddingModel: options.embeddingModel,
             model: options.model,
-            graphPrompt: options.graphPrompt,
         }),
     };
 }

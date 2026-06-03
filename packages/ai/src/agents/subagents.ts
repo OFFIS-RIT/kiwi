@@ -13,26 +13,25 @@ import { buildGraphExplorationToolset, buildSourceCurationToolset, type GraphToo
 
 type SubagentOptions = GraphToolsetOptions & {
     model: LanguageModelV3;
-    graphPrompt?: string;
     promptGuidance?: ScopedPromptGuidance;
 };
 
-export function createGraphExploreAgent({ model, graphId, embeddingModel, graphPrompt }: SubagentOptions) {
+export function createGraphExploreAgent({ model, graphId, embeddingModel }: SubagentOptions) {
     return new ToolLoopAgent({
         id: "graph-explore-agent",
         model,
-        instructions: createExploreSubagentPrompt(graphPrompt),
+        instructions: createExploreSubagentPrompt(),
         tools: buildGraphExplorationToolset({ graphId, embeddingModel }),
         temperature: 0.2,
         stopWhen: stepCountIs(30),
     });
 }
 
-export function createSourceCuratorAgent({ model, graphId, embeddingModel, graphPrompt }: SubagentOptions) {
+export function createSourceCuratorAgent({ model, graphId, embeddingModel }: SubagentOptions) {
     return new ToolLoopAgent({
         id: "source-curator-agent",
         model,
-        instructions: createSourceCuratorSubagentPrompt(graphPrompt),
+        instructions: createSourceCuratorSubagentPrompt(),
         tools: buildSourceCurationToolset({ graphId, embeddingModel }),
         temperature: 0.1,
         stopWhen: stepCountIs(20),
@@ -95,14 +94,13 @@ export function buildSubagentToolset(options: SubagentOptions) {
 export async function compactConversationHistory(options: {
     model: LanguageModelV3;
     transcript: string;
-    graphPrompt?: string;
     promptGuidance?: ScopedPromptGuidance;
     previousSummary?: string;
     abortSignal?: AbortSignal;
 }) {
     const result = await generateText({
         model: options.model,
-        system: createCompactionPrompt(options.graphPrompt),
+        system: createCompactionPrompt(),
         prompt: prependPromptGuidance(
             createCompactionTaskPrompt({
                 previousSummary: options.previousSummary,
