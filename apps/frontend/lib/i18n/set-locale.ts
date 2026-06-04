@@ -1,6 +1,7 @@
 "use server";
 
 import { cookies, headers } from "next/headers";
+import type { SupportedLocale } from "@/lib/i18n/locale";
 
 function isSecureRequest(headerStore: Awaited<ReturnType<typeof headers>>) {
     const forwardedProto = headerStore.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
@@ -14,7 +15,7 @@ function isSecureRequest(headerStore: Awaited<ReturnType<typeof headers>>) {
     return process.env.NODE_ENV === "production";
 }
 
-export async function setLocale(locale: "de" | "en") {
+export async function setLocale(locale: SupportedLocale) {
     const cookieStore = await cookies();
     const headerStore = await headers();
 
@@ -25,4 +26,10 @@ export async function setLocale(locale: "de" | "en") {
         secure: isSecureRequest(headerStore),
         httpOnly: false,
     });
+}
+
+export async function clearLocale() {
+    const cookieStore = await cookies();
+
+    cookieStore.delete({ name: "NEXT_LOCALE", path: "/" });
 }

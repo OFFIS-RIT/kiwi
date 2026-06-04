@@ -143,6 +143,7 @@
     "language": "Sprache",
     "english": "Englisch",
     "german": "Deutsch",
+    "autoDetectLanguage": "Automatisch erkennen",
     "app.build": "Version",
     "search": "Suchen",
     "search.placeholder": "Gruppen und Projekte suchen...",
