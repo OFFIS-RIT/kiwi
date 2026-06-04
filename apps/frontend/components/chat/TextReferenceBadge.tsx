@@ -3,16 +3,15 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { fetchSourceReference, getApiAssetUrl } from "@/lib/api/projects";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import type { ApiSourceReference } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import type { ResolvedCitationFence } from "@kiwi/ai/citation";
-import { Copy, ExternalLink, Loader2 } from "lucide-react";
+import { Copy, Download, Loader2 } from "lucide-react";
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openCitationSourceFile } from "./citation-file";
 
 type TextReferenceBadgeProps = {
@@ -31,7 +30,6 @@ type TextReferenceDialogProps = {
 
 type SourceReferenceChunk = ApiSourceReference["chunks"][number];
 type SourceReferencePdfRegion = ApiSourceReference["pdf_regions"][number];
-type SourceReferencePdfRegionRect = SourceReferencePdfRegion["rectangles"][number];
 type SourceTextChunk = Extract<SourceReferenceChunk, { type: "text" }>;
 type SourceImageChunkRecord = Extract<SourceReferenceChunk, { type: "image" }>;
 
@@ -48,7 +46,6 @@ type PDFRegionPreviewGroup = {
     imagePath: string;
     width: number;
     height: number;
-    crop: SourceReferencePdfRegion["crop"];
     regions: SourceReferencePdfRegion[];
 };
 
@@ -107,7 +104,7 @@ function SourceImageChunk({ chunk, src }: { chunk: SourceImageChunkRecord; src: 
     const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
 
     return (
-        <div className="relative overflow-hidden rounded-md border bg-white">
+        <div className="relative overflow-hidden bg-white">
             {status === "loading" ? (
                 <div className="absolute inset-0 flex min-h-40 items-center justify-center bg-muted/30 text-muted-foreground">
                     <Loader2 className="animate-spin" />
@@ -134,20 +131,39 @@ function SourceImageChunk({ chunk, src }: { chunk: SourceImageChunkRecord; src: 
     );
 }
 
-function PDFRegionPreview({ alt, group, src }: { alt: string; group: PDFRegionPreviewGroup; src: string }) {
+function PDFRegionPreview({
+    alt,
+    group,
+    src,
+    autoScrollToHighlight = false,
+    onImageLoad,
+}: {
+    alt: string;
+    group: PDFRegionPreviewGroup;
+    src: string;
+    autoScrollToHighlight?: boolean;
+    onImageLoad?: () => void;
+}) {
     const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+    const firstHighlightRef = useRef<HTMLDivElement | null>(null);
+    const didAutoScroll = useRef(false);
     const imageWidth = getPositiveImageDimension(group.width, 1200);
     const imageHeight = getPositiveImageDimension(group.height, 1600);
-    const cropWidth = Math.max(group.crop.width, 0.01);
-    const cropHeight = Math.max(group.crop.height, 0.01);
+    const firstHighlightRegionIndex = group.regions.findIndex((region) => region.rectangles.length > 0);
+
+    const handleLoaded = () => {
+        setStatus("loaded");
+        onImageLoad?.();
+
+        if (autoScrollToHighlight && !didAutoScroll.current && firstHighlightRef.current) {
+            didAutoScroll.current = true;
+            const highlight = firstHighlightRef.current;
+            requestAnimationFrame(() => highlight.scrollIntoView({ behavior: "smooth", block: "start" }));
+        }
+    };
 
     return (
-        <div
-            className="relative overflow-hidden rounded-md border bg-white"
-            style={{
-                aspectRatio: `${Math.max(1, imageWidth * cropWidth)} / ${Math.max(1, imageHeight * cropHeight)}`,
-            }}
-        >
+        <div className="relative overflow-hidden bg-white">
             {status === "loading" ? (
                 <div className="absolute inset-0 flex min-h-40 items-center justify-center bg-muted/30 text-muted-foreground">
                     <Loader2 className="animate-spin" />
@@ -163,37 +179,32 @@ function PDFRegionPreview({ alt, group, src }: { alt: string; group: PDFRegionPr
                     height={imageHeight}
                     unoptimized
                     crossOrigin="use-credentials"
-                    className="absolute max-w-none"
-                    style={{
-                        left: `${(-group.crop.left / cropWidth) * 100}%`,
-                        top: `${(-group.crop.top / cropHeight) * 100}%`,
-                        width: `${100 / cropWidth}%`,
-                        height: `${100 / cropHeight}%`,
-                    }}
-                    onLoad={() => setStatus("loaded")}
+                    className="block h-auto w-full"
+                    onLoad={handleLoaded}
                     onError={() => setStatus("error")}
                 />
             )}
             {status !== "error"
                 ? group.regions.map((region, regionIndex) =>
-                      region.rectangles.map((rectangle, rectangleIndex) => {
-                          const relative = toCropRelativeRect(rectangle, group.crop);
-
-                          return (
-                              <div
-                                  key={`${region.chunk_id}-${regionIndex}-${rectangleIndex}`}
-                                  data-testid="pdf-source-region-highlight"
-                                  aria-hidden="true"
-                                  className="pointer-events-none absolute rounded-[2px] border border-yellow-500/70 bg-yellow-300/35 shadow-[0_0_0_1px_rgba(250,204,21,0.2)]"
-                                  style={{
-                                      left: toPercent(relative.left),
-                                      top: toPercent(relative.top),
-                                      width: toPercent(relative.width),
-                                      height: toPercent(relative.height),
-                                  }}
-                              />
-                          );
-                      })
+                      region.rectangles.map((rectangle, rectangleIndex) => (
+                          <div
+                              key={`${region.chunk_id}-${regionIndex}-${rectangleIndex}`}
+                              ref={
+                                  regionIndex === firstHighlightRegionIndex && rectangleIndex === 0
+                                      ? firstHighlightRef
+                                      : undefined
+                              }
+                              data-testid="pdf-source-region-highlight"
+                              aria-hidden="true"
+                              className="pointer-events-none absolute scroll-mt-4 rounded-[2px] border border-yellow-500/70 bg-yellow-300/35 shadow-[0_0_0_1px_rgba(250,204,21,0.2)]"
+                              style={{
+                                  left: toPercent(clampRatio(rectangle.left)),
+                                  top: toPercent(clampRatio(rectangle.top)),
+                                  width: toPercent(clampRatio(rectangle.width)),
+                                  height: toPercent(clampRatio(rectangle.height)),
+                              }}
+                          />
+                      ))
                   )
                 : null}
         </div>
@@ -205,7 +216,6 @@ function groupPDFRegions(regions: SourceReferencePdfRegion[]): PDFRegionPreviewG
 
     for (const region of regions) {
         const key = `${region.image_path}:${region.page}`;
-        const crop = normalizeCrop(region.crop);
         const existing = groups.get(key);
 
         if (!existing) {
@@ -215,76 +225,15 @@ function groupPDFRegions(regions: SourceReferencePdfRegion[]): PDFRegionPreviewG
                 imagePath: region.image_path,
                 width: getPositiveImageDimension(region.width, 1200),
                 height: getPositiveImageDimension(region.height, 1600),
-                crop,
                 regions: [region],
             });
             continue;
         }
 
-        existing.crop = unionCrops(existing.crop, crop);
         existing.regions.push(region);
     }
 
     return [...groups.values()];
-}
-
-function normalizeCrop(crop: SourceReferencePdfRegion["crop"]): SourceReferencePdfRegion["crop"] {
-    let left = clampRatio(crop.left);
-    let top = clampRatio(crop.top);
-    let right = clampRatio(crop.left + Math.max(crop.width, 0.01));
-    let bottom = clampRatio(crop.top + Math.max(crop.height, 0.01));
-
-    if (right <= left) {
-        right = Math.min(1, left + 0.01);
-        left = Math.max(0, right - 0.01);
-    }
-    if (bottom <= top) {
-        bottom = Math.min(1, top + 0.01);
-        top = Math.max(0, bottom - 0.01);
-    }
-
-    return {
-        left,
-        top,
-        width: right - left,
-        height: bottom - top,
-    };
-}
-
-function unionCrops(
-    first: SourceReferencePdfRegion["crop"],
-    second: SourceReferencePdfRegion["crop"]
-): SourceReferencePdfRegion["crop"] {
-    const left = Math.min(first.left, second.left);
-    const top = Math.min(first.top, second.top);
-    const right = Math.max(first.left + first.width, second.left + second.width);
-    const bottom = Math.max(first.top + first.height, second.top + second.height);
-
-    return {
-        left,
-        top,
-        width: Math.max(0.01, right - left),
-        height: Math.max(0.01, bottom - top),
-    };
-}
-
-function toCropRelativeRect(
-    rectangle: SourceReferencePdfRegionRect,
-    crop: SourceReferencePdfRegion["crop"]
-): SourceReferencePdfRegionRect {
-    const cropWidth = Math.max(crop.width, 0.01);
-    const cropHeight = Math.max(crop.height, 0.01);
-    const left = clampRatio((rectangle.left - crop.left) / cropWidth);
-    const top = clampRatio((rectangle.top - crop.top) / cropHeight);
-    const right = clampRatio((rectangle.left + rectangle.width - crop.left) / cropWidth);
-    const bottom = clampRatio((rectangle.top + rectangle.height - crop.top) / cropHeight);
-
-    return {
-        left,
-        top,
-        width: Math.max(0, right - left),
-        height: Math.max(0, bottom - top),
-    };
 }
 
 function clampRatio(value: number): number {
@@ -327,6 +276,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
     const error = downloadError ?? (sourceReferenceQuery.isError ? referenceError : null);
 
     const unit = reference?.unit ?? null;
+    const sourceFileName = unit?.file_name ?? citation.fileName;
     const textChunks = useMemo(
         () => reference?.chunks.filter((chunk): chunk is SourceTextChunk => chunk.type === "text") ?? [],
         [reference?.chunks]
@@ -336,7 +286,70 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         [reference?.chunks]
     );
     const pdfRegionGroups = useMemo(() => groupPDFRegions(reference?.pdf_regions ?? []), [reference?.pdf_regions]);
+    const firstHighlightGroupKey = useMemo(
+        () =>
+            pdfRegionGroups.find((group) => group.regions.some((region) => region.rectangles.length > 0))?.key ?? null,
+        [pdfRegionGroups]
+    );
     const copyText = useMemo(() => textChunks.map((chunk) => chunk.text).join("\n\n"), [textChunks]);
+
+    const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+    const hasLoadedImageRef = useRef(false);
+    const [highlightMarkers, setHighlightMarkers] = useState<
+        { id: string; top: number; height: number; scrollTop: number }[]
+    >([]);
+
+    const measureHighlightMarkers = useCallback(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const { scrollHeight, clientHeight } = container;
+        const containerTop = container.getBoundingClientRect().top;
+        const scrollTop = container.scrollTop;
+        const highlights = Array.from(
+            container.querySelectorAll<HTMLElement>('[data-testid="pdf-source-region-highlight"]')
+        );
+
+        setHighlightMarkers(
+            highlights.map((element, index) => {
+                const rect = element.getBoundingClientRect();
+                const offsetTop = rect.top - containerTop + scrollTop;
+                const center = offsetTop + rect.height / 2;
+
+                return {
+                    id: `${index}`,
+                    top: scrollHeight > 0 ? Math.min(1, Math.max(0, offsetTop / scrollHeight)) : 0,
+                    height: scrollHeight > 0 ? Math.min(1, rect.height / scrollHeight) : 0,
+                    scrollTop: Math.max(0, Math.min(scrollHeight - clientHeight, center - clientHeight / 2)),
+                };
+            })
+        );
+    }, []);
+
+    useEffect(() => {
+        if (!open) {
+            setHighlightMarkers([]);
+            hasLoadedImageRef.current = false;
+            return;
+        }
+
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        // Only re-measure once at least one image has loaded; measuring before
+        // that yields wrong positions in not-yet-laid-out (collapsed) previews.
+        const observer = new ResizeObserver(() => {
+            if (hasLoadedImageRef.current) measureHighlightMarkers();
+        });
+        observer.observe(container);
+
+        return () => observer.disconnect();
+    }, [open, measureHighlightMarkers]);
+
+    const handleImageLoad = useCallback(() => {
+        hasLoadedImageRef.current = true;
+        requestAnimationFrame(measureHighlightMarkers);
+    }, [measureHighlightMarkers]);
 
     const copyToClipboard = () => {
         if (copyText) {
@@ -362,17 +375,37 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="flex h-[80vh] w-full max-w-6xl flex-col overflow-hidden sm:max-w-[60vw]">
                 <DialogHeader className="shrink-0">
-                    <DialogTitle className="flex items-center gap-2">
-                        <ExternalLink className="h-4 w-4" />
-                        {t("text.reference")} #{index + 1}
-                    </DialogTitle>
-                    <DialogDescription>
-                        {t("reference.id")}: {citation.sourceId}
+                    <div className="flex items-center justify-between gap-4 pr-8">
+                        <DialogTitle>
+                            {t("text.reference")} #{index + 1}
+                        </DialogTitle>
+                        {projectId && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleDownload}
+                                disabled={isDownloading}
+                                title={sourceFileName}
+                                className="max-w-[50%] shrink-0"
+                            >
+                                {isDownloading ? (
+                                    <Loader2 data-icon="inline-start" className="animate-spin" />
+                                ) : (
+                                    <Download data-icon="inline-start" />
+                                )}
+                                <span className="truncate">{sourceFileName}</span>
+                            </Button>
+                        )}
+                    </div>
+                    <DialogDescription className={pdfRegionGroups.length > 1 ? undefined : "sr-only"}>
+                        {pdfRegionGroups.length > 1
+                            ? t("source.pages.other", { count: pdfRegionGroups.length })
+                            : `${t("reference.id")}: ${citation.sourceId}`}
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="min-h-0 flex-1">
-                    <ScrollArea className="h-full pr-1">
+                <div className="relative min-h-0 flex-1">
+                    <div ref={scrollContainerRef} className="h-full overflow-y-auto rounded-lg border">
                         <div className="flex flex-col gap-4">
                             {error && (
                                 <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
@@ -381,57 +414,54 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                                 </div>
                             )}
 
-                            <div className="flex flex-col gap-4">
-                                {sourceReferenceQuery.isLoading ? (
-                                    <div className="flex min-h-40 items-center justify-center rounded-md border text-muted-foreground">
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        {t("loading")}
-                                    </div>
-                                ) : (
-                                    <>
-                                        {pdfRegionGroups.map((group) => (
-                                            <PDFRegionPreview
-                                                key={group.key}
-                                                group={group}
-                                                src={getApiAssetUrl(apiClient, group.imagePath)}
-                                                alt={`${unit?.file_name ?? citation.fileName} page ${group.page}`}
-                                            />
-                                        ))}
-                                        {imageChunks.map((chunk) => (
-                                            <SourceImageChunk
-                                                key={chunk.chunk_id}
-                                                chunk={chunk}
-                                                src={getApiAssetUrl(apiClient, chunk.image_path)}
-                                            />
-                                        ))}
-                                        <TextChunksPanel chunks={textChunks} onCopy={copyToClipboard} />
-                                    </>
-                                )}
-
-                                <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                                    <p>
-                                        {t("file")}: {unit?.file_name ?? citation.fileName}
-                                    </p>
+                            {sourceReferenceQuery.isLoading ? (
+                                <div className="flex min-h-40 items-center justify-center rounded-md border text-muted-foreground">
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    {t("loading")}
                                 </div>
-
-                                {projectId && (
-                                    <div className="flex justify-end">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={handleDownload}
-                                            disabled={isDownloading}
-                                        >
-                                            {isDownloading ? (
-                                                <Loader2 data-icon="inline-start" className="animate-spin" />
-                                            ) : null}
-                                            {citation.fileName}
-                                        </Button>
-                                    </div>
-                                )}
-                            </div>
+                            ) : (
+                                <>
+                                    {pdfRegionGroups.map((group) => (
+                                        <PDFRegionPreview
+                                            key={group.key}
+                                            group={group}
+                                            src={getApiAssetUrl(apiClient, group.imagePath)}
+                                            alt={`${sourceFileName} page ${group.page}`}
+                                            autoScrollToHighlight={group.key === firstHighlightGroupKey}
+                                            onImageLoad={handleImageLoad}
+                                        />
+                                    ))}
+                                    {imageChunks.map((chunk) => (
+                                        <SourceImageChunk
+                                            key={chunk.chunk_id}
+                                            chunk={chunk}
+                                            src={getApiAssetUrl(apiClient, chunk.image_path)}
+                                        />
+                                    ))}
+                                    <TextChunksPanel chunks={textChunks} onCopy={copyToClipboard} />
+                                </>
+                            )}
                         </div>
-                    </ScrollArea>
+                    </div>
+                    {highlightMarkers.length > 0 && (
+                        <div className="pointer-events-none absolute inset-y-2 right-1 w-3">
+                            {highlightMarkers.map((marker) => (
+                                <button
+                                    key={marker.id}
+                                    type="button"
+                                    aria-label={t("source.jump.highlight")}
+                                    onClick={() =>
+                                        scrollContainerRef.current?.scrollTo({
+                                            top: marker.scrollTop,
+                                            behavior: "smooth",
+                                        })
+                                    }
+                                    className="pointer-events-auto absolute right-0 min-h-1.5 w-2 rounded-full bg-yellow-400/80 transition-colors hover:bg-yellow-500"
+                                    style={{ top: `${marker.top * 100}%`, height: `${marker.height * 100}%` }}
+                                />
+                            ))}
+                        </div>
+                    )}
                 </div>
             </DialogContent>
         </Dialog>
