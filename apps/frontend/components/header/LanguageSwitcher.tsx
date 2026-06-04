@@ -32,7 +32,7 @@ export function LanguageSwitcher() {
     const locale = useLocale();
     const router = useRouter();
     const t = useAppTranslations();
-    const [explicitLocale, setExplicitLocale] = useState<SupportedLocale | null>(null);
+    const [explicitLocale, setExplicitLocale] = useState<SupportedLocale | null | undefined>(undefined);
     const [isPending, startTransition] = useTransition();
 
     useEffect(() => {

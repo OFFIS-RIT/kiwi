@@ -18,7 +18,8 @@ export function detectLocaleFromAcceptLanguage(acceptLanguage: string | null | u
             const qualityOption = rawOptions
                 .map((option) => option.trim())
                 .find((option) => option.toLowerCase().startsWith("q="));
-            const quality = qualityOption ? Number.parseFloat(qualityOption.slice(2)) : 1;
+            const rawQuality = qualityOption ? Number.parseFloat(qualityOption.slice(2)) : 1;
+            const quality = Math.min(1, rawQuality);
             const baseLanguage = rawLanguage?.split("-")[0]?.toLowerCase();
 
             return {

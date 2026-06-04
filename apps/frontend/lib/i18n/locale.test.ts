@@ -14,6 +14,10 @@ describe("detectLocaleFromAcceptLanguage", () => {
         expect(detectLocaleFromAcceptLanguage("en-US;q=0.7,de-DE;q=0.9")).toBe("de");
     });
 
+    test("clamps malformed quality values above one", () => {
+        expect(detectLocaleFromAcceptLanguage("en;q=1,de;q=2")).toBe("en");
+    });
+
     test("ignores unsupported locales before falling back", () => {
         expect(detectLocaleFromAcceptLanguage("fr-FR,es;q=0.9")).toBe("en");
     });
