@@ -203,7 +203,7 @@ export async function runChatCompletion(reply: StartedChatReply) {
     });
     const finishMetadata = getFinishMetadata({
         startedAt,
-        firstOutputAt: null,
+        firstOutputAt: startedAt,
         totalTokens: result.totalUsage.totalTokens,
         inputTokens: result.totalUsage.inputTokens,
         outputTokens: result.totalUsage.outputTokens,
