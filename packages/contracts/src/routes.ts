@@ -249,16 +249,31 @@ export type SearchTeamItem = {
     name: string;
 };
 
-export type SearchChatItem = {
+export type SearchGraphChatItem = {
     id: string;
     title: string;
     isPinned: boolean;
+    targetType: "graph";
     projectId: string;
     projectName: string;
     scope: "organization" | "team" | "private";
     teamId: string | null;
     teamName: string | null;
 };
+
+export type SearchTeamChatItem = {
+    id: string;
+    title: string;
+    isPinned: boolean;
+    targetType: "team";
+    projectId: null;
+    projectName: null;
+    scope: "team";
+    teamId: string;
+    teamName: string;
+};
+
+export type SearchChatItem = SearchGraphChatItem | SearchTeamChatItem;
 
 export type SearchSuccessData = {
     projects: SearchProjectItem[];

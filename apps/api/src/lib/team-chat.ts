@@ -319,7 +319,7 @@ function buildTeamChatToolset(options: {
         }),
         query_graphs: tool({
             description:
-                "Ask specialized graph agents to answer the current user question for the selected team graph IDs.",
+                "Ask specialized graph agents to answer the current user question for the selected team graph IDs. Returns successful answers plus per-graph failures.",
             inputSchema: z.object({
                 graph_ids: z
                     .array(z.string().trim().min(1))
@@ -336,7 +336,7 @@ function buildTeamChatToolset(options: {
                     return graph ? [graph] : [];
                 });
                 const missingGraphIds = uniqueGraphIds.filter((graphId) => !graphById.has(graphId));
-                const results = await Promise.all(
+                const settled = await Promise.allSettled(
                     orderedGraphs.map((graph) =>
                         querySingleGraph({
                             graph,
@@ -346,6 +346,22 @@ function buildTeamChatToolset(options: {
                         })
                     )
                 );
+                abortSignal?.throwIfAborted();
+                const results = settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+                const failedGraphs = settled.flatMap((result, index) => {
+                    if (result.status === "fulfilled") {
+                        return [];
+                    }
+
+                    const graph = orderedGraphs[index]!;
+                    return [
+                        {
+                            graph_id: graph.graph_id,
+                            graph_name: graph.graph_name,
+                            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+                        },
+                    ];
+                });
 
                 for (const result of results) {
                     for (const sourceId of result.source_ids) {
@@ -355,6 +371,7 @@ function buildTeamChatToolset(options: {
 
                 return {
                     results,
+                    failed_graphs: failedGraphs,
                     missing_graph_ids: missingGraphIds,
                 };
             },

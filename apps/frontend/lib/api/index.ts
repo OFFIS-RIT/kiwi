@@ -62,10 +62,12 @@ export {
 export {
     addFilesToProject,
     archiveProjectChat,
+    archiveTeamChat,
     createProject,
     deleteProject,
     deleteProjectChat,
     deleteProjectFiles,
+    deleteTeamChat,
     downloadProjectFile,
     fetchArchivedChats,
     fetchPinnedChats,
@@ -80,9 +82,12 @@ export {
     getApiAssetUrl,
     getProjectFileUrl,
     pinProjectChat,
+    pinTeamChat,
     searchSidebarTargets,
     unarchiveProjectChat,
+    unarchiveTeamChat,
     unpinProjectChat,
+    unpinTeamChat,
     updateProject,
 } from "./projects";
 

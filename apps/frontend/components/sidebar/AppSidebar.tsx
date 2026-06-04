@@ -50,12 +50,15 @@ import { usePrefetchProjectChat } from "@/hooks/use-prefetch-project-chat";
 import { usePrefetchWhenVisible } from "@/hooks/use-prefetch-when-visible";
 import {
     archiveProjectChat,
+    archiveTeamChat,
     deleteProjectChat,
+    deleteTeamChat,
     fetchPinnedChats,
     fetchProjectChatsPage,
     pinProjectChat,
     searchSidebarTargets,
     unpinProjectChat,
+    unpinTeamChat,
     type ChatLibraryItem,
     type SearchChatItem,
     type SearchProjectItem,
@@ -259,6 +262,12 @@ export function AppSidebar({
             return;
         }
 
+        if (target.type === "chat" && target.targetType === "team") {
+            expandSidebarPath([target.teamId]);
+            router.push(`/${target.teamId}?chatId=${encodeURIComponent(target.id)}`);
+            return;
+        }
+
         const groupId = getProjectGroupRouteId(target.scope, target.teamId);
         const projectId = target.type === "project" ? target.id : target.projectId;
         expandSidebarPath([groupId], [projectId]);
@@ -371,14 +380,14 @@ export function AppSidebar({
                                 {searchResults.chats.map((target) => (
                                     <CommandItem
                                         key={target.id}
-                                        value={`${target.title} ${target.projectName} ${target.teamName ?? ""}`}
+                                        value={`${target.title} ${target.projectName ?? ""} ${target.teamName ?? ""}`}
                                         onSelect={() => openSearchTarget({ ...target, type: "chat" })}
                                     >
                                         <Mail />
                                         <div className="flex min-w-0 flex-col">
                                             <span className="truncate">{target.title}</span>
                                             <span className="truncate text-xs text-muted-foreground">
-                                                {target.projectName}
+                                                {target.projectName ?? target.teamName}
                                             </span>
                                         </div>
                                     </CommandItem>
@@ -584,7 +593,8 @@ function PinnedChatItem({
     const apiClient = useApiClient();
     const queryClient = useQueryClient();
     const { expandSidebarPath } = useSidebarExpansion();
-    const { entries, resetEntry, setHasUnreadUpdate } = useProjectChatSession(chat.projectId);
+    const graphProjectId = chat.targetType === "graph" ? chat.projectId : "";
+    const { entries, resetEntry, setHasUnreadUpdate } = useProjectChatSession(graphProjectId);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
@@ -593,37 +603,47 @@ function PinnedChatItem({
         activeChatId !== chat.id && entries.some((entry) => entry.sessionId === chat.id && entry.hasUnreadUpdate);
     const relativeUpdatedAt = chat.updatedAt ? formatRelativeChatTime(chat.updatedAt, now) : null;
 
-    const groupId = getProjectGroupRouteId(chat.scope, chat.teamId);
-    const projectHref = `/${groupId}/${chat.projectId}`;
+    const groupId = chat.targetType === "graph" ? getProjectGroupRouteId(chat.scope, chat.teamId) : chat.teamId;
+    const targetHref = chat.targetType === "graph" ? `/${groupId}/${chat.projectId}` : `/${groupId}`;
 
     const invalidateChatCaches = () => {
         queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
         queryClient.invalidateQueries({ queryKey: queryKeys.archivedChats });
         queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
-        queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(chat.projectId) });
+        if (chat.targetType === "graph") {
+            queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(chat.projectId) });
+        }
     };
 
     const leaveChatIfActive = () => {
         if (activeChatId !== chat.id) {
             return;
         }
-        resetEntry();
-        if (pathname === projectHref) {
-            window.history.pushState(null, "", projectHref);
+        if (chat.targetType === "graph") {
+            resetEntry();
+        }
+        if (pathname === targetHref) {
+            window.history.pushState(null, "", targetHref);
             return;
         }
-        router.push(projectHref);
+        router.push(targetHref);
     };
 
     const unpinMutation = useMutation({
-        mutationFn: () => unpinProjectChat(apiClient, chat.projectId, chat.id),
+        mutationFn: () =>
+            chat.targetType === "graph"
+                ? unpinProjectChat(apiClient, chat.projectId, chat.id)
+                : unpinTeamChat(apiClient, chat.teamId, chat.id),
         onSuccess: () => invalidateChatCaches(),
         onError: () => {
             toast.error(t("error.unexpected.try.again"));
         },
     });
     const archiveMutation = useMutation({
-        mutationFn: () => archiveProjectChat(apiClient, chat.projectId, chat.id),
+        mutationFn: () =>
+            chat.targetType === "graph"
+                ? archiveProjectChat(apiClient, chat.projectId, chat.id)
+                : archiveTeamChat(apiClient, chat.teamId, chat.id),
         onSuccess: () => {
             invalidateChatCaches();
             leaveChatIfActive();
@@ -633,7 +653,10 @@ function PinnedChatItem({
         },
     });
     const deleteMutation = useMutation({
-        mutationFn: () => deleteProjectChat(apiClient, chat.projectId, chat.id),
+        mutationFn: () =>
+            chat.targetType === "graph"
+                ? deleteProjectChat(apiClient, chat.projectId, chat.id)
+                : deleteTeamChat(apiClient, chat.teamId, chat.id),
         onSuccess: () => {
             invalidateChatCaches();
             leaveChatIfActive();
@@ -647,9 +670,13 @@ function PinnedChatItem({
     const isMutating = unpinMutation.isPending || archiveMutation.isPending || deleteMutation.isPending;
 
     const openChat = () => {
-        expandSidebarPath([groupId], [chat.projectId]);
-        const chatHref = `${projectHref}?chatId=${encodeURIComponent(chat.id)}`;
-        if (pathname === projectHref) {
+        if (chat.targetType === "graph") {
+            expandSidebarPath([groupId], [chat.projectId]);
+        } else {
+            expandSidebarPath([groupId]);
+        }
+        const chatHref = `${targetHref}?chatId=${encodeURIComponent(chat.id)}`;
+        if (pathname === targetHref) {
             window.history.pushState(null, "", chatHref);
             return;
         }
@@ -702,10 +729,12 @@ function PinnedChatItem({
                         <Archive className="mr-2 h-4 w-4" />
                         <span>{t("chat.archive")}</span>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => setHasUnreadUpdate(chat.id, true)}>
-                        <Mail className="mr-2 h-4 w-4" />
-                        <span>{t("chat.mark.unread")}</span>
-                    </DropdownMenuItem>
+                    {chat.targetType === "graph" ? (
+                        <DropdownMenuItem onSelect={() => setHasUnreadUpdate(chat.id, true)}>
+                            <Mail className="mr-2 h-4 w-4" />
+                            <span>{t("chat.mark.unread")}</span>
+                        </DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                         variant="destructive"

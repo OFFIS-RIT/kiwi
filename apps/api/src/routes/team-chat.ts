@@ -28,10 +28,6 @@ export const teamChatRoute = createChatTargetRoute({
     itemPath: "/:teamId/chat/:chatId",
     replyPath: "/:teamId/chat",
     streamPath: "/:teamId/stream",
-    libraryActions: {
-        pin: false,
-        archive: false,
-    },
     mapError: mapTeamChatError,
     resolveTarget: requireTeamAccess,
     listChats: (userId, access, options) => listTeamChats(userId, access.team.id, options),
