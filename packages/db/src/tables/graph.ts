@@ -104,19 +104,24 @@ export const graphUpdateTable = pgTable.withRLS("graph_updates", {
         .$onUpdate(() => sql`NOW()`),
 });
 
-export const systemPromptsTable = pgTable.withRLS("system_prompts", {
-    id: text("id")
-        .primaryKey()
-        .$default(() => ulid()),
-    graphId: text("graph_id")
-        .notNull()
-        .references(() => graphTable.id, { onDelete: "cascade" }),
-    prompt: text("prompt").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-        .defaultNow()
-        .$onUpdate(() => sql`NOW()`),
-});
+export const graphPromptsTable = pgTable.withRLS(
+    "graph_prompts",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        graphId: text("graph_id")
+            .notNull()
+            .references(() => graphTable.id, { onDelete: "cascade" }),
+        prompt: text("prompt").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .notNull()
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [index("graph_prompts_graph_created_idx").on(table.graphId, table.createdAt, table.id)]
+);
 
 export const filesTable = pgTable.withRLS(
     "files",

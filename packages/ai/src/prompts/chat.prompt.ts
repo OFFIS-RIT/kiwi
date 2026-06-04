@@ -4,7 +4,7 @@ export type ChatPromptOptions = {
     includeSubagentTools?: boolean;
 };
 
-export function createChatPrompt(graphPrompt?: string, options: ChatPromptOptions = {}) {
+export function createChatPrompt(options: ChatPromptOptions = {}) {
     const includeGraphTools = options.includeGraphTools ?? true;
     const includeClientTools = options.includeClientTools ?? true;
     const includeSubagentTools = options.includeSubagentTools ?? false;
@@ -164,10 +164,6 @@ export function createChatPrompt(graphPrompt?: string, options: ChatPromptOption
         "- Do not output raw tool results, metadata dumps, or lists of IDs.",
         "- If the answer cannot be found in the available evidence, say so plainly instead of guessing.",
     ];
-
-    if (graphPrompt?.trim()) {
-        sections.push("", "# Project-Specific Guidance", graphPrompt.trim());
-    }
 
     return sections.join("\n");
 }

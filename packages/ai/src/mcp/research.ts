@@ -1,11 +1,13 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { generateText, stepCountIs } from "ai";
+import { prependPromptGuidance, type ScopedPromptGuidance } from "../prompts/guidance.prompt";
 
 export type RunMcpResearchOptions = {
     model: LanguageModelV3;
     system?: string;
     question: string;
     tools?: Parameters<typeof generateText>[0]["tools"];
+    promptGuidance?: ScopedPromptGuidance;
     temperature?: number;
     maxSteps?: number;
     providerOptions?: Parameters<typeof generateText>[0]["providerOptions"];
@@ -27,7 +29,7 @@ export async function runMcpResearch(options: RunMcpResearchOptions): Promise<Mc
         messages: [
             {
                 role: "user",
-                content: options.question,
+                content: prependPromptGuidance(options.question, options.promptGuidance),
             },
         ],
         system: options.system,

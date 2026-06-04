@@ -58,6 +58,44 @@ export const teamTable = pgTable.withRLS(
     ]
 );
 
+export const userPromptsTable = pgTable.withRLS(
+    "user_prompts",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => userTable.id, { onDelete: "cascade" }),
+        prompt: text("prompt").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .notNull()
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [index("user_prompts_user_created_idx").on(table.userId, table.createdAt, table.id)]
+);
+
+export const teamPromptsTable = pgTable.withRLS(
+    "team_prompts",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        teamId: text("team_id")
+            .notNull()
+            .references(() => teamTable.id, { onDelete: "cascade" }),
+        prompt: text("prompt").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .notNull()
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [index("team_prompts_team_created_idx").on(table.teamId, table.createdAt, table.id)]
+);
+
 export const sessionTable = pgTable.withRLS("session", {
     id: text("id")
         .primaryKey()

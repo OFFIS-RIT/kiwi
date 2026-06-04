@@ -266,6 +266,13 @@ export type SearchSuccessData = {
     chats: SearchChatItem[];
 };
 
+export type PromptRecord = {
+    id: string;
+    prompt: string;
+    created_at: string;
+    updated_at: string;
+};
+
 export type ChatHistoryRecord = {
     id: string;
     title: string;
@@ -470,11 +477,7 @@ export type SourceReferenceResponse = ApiResponse<
 
 export type SourceReferenceBatchResponse = ApiResponse<
     SourceReferenceBatchSuccessData,
-    | "UNAUTHORIZED"
-    | "FORBIDDEN"
-    | "GRAPH_NOT_FOUND"
-    | "INVALID_GRAPH_OWNER"
-    | "INTERNAL_SERVER_ERROR"
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
 >;
 
 export type ChatListResponse = ApiResponse<
@@ -506,6 +509,97 @@ export type ChatCreateResponse = ApiResponse<
     | "INVALID_CHAT_REQUEST"
     | "CHAT_NOT_FOUND"
     | "CHAT_CONTEXT_TOO_LARGE"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type UserPromptListResponse = ApiResponse<
+    PromptRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type TeamPromptListResponse = ApiResponse<
+    PromptRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "TEAM_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphPromptListResponse = ApiResponse<
+    PromptRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type UserPromptCreateResponse = ApiResponse<
+    PromptRecord,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INVALID_PROMPT" | "PROMPT_LIMIT_EXCEEDED" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type TeamPromptCreateResponse = ApiResponse<
+    PromptRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "TEAM_NOT_FOUND"
+    | "INVALID_PROMPT"
+    | "PROMPT_LIMIT_EXCEEDED"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphPromptCreateResponse = ApiResponse<
+    PromptRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INVALID_PROMPT"
+    | "PROMPT_LIMIT_EXCEEDED"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type UserPromptPatchResponse = ApiResponse<
+    PromptRecord,
+    "UNAUTHORIZED" | "FORBIDDEN" | "PROMPT_NOT_FOUND" | "INVALID_PROMPT" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type TeamPromptPatchResponse = ApiResponse<
+    PromptRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "TEAM_NOT_FOUND"
+    | "PROMPT_NOT_FOUND"
+    | "INVALID_PROMPT"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphPromptPatchResponse = ApiResponse<
+    PromptRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "PROMPT_NOT_FOUND"
+    | "INVALID_PROMPT"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type UserPromptDeleteResponse = ApiResponse<
+    null,
+    "UNAUTHORIZED" | "FORBIDDEN" | "PROMPT_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type TeamPromptDeleteResponse = ApiResponse<
+    null,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "TEAM_NOT_FOUND"
+    | "PROMPT_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphPromptDeleteResponse = ApiResponse<
+    null,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "PROMPT_NOT_FOUND"
     | "INTERNAL_SERVER_ERROR"
 >;
 

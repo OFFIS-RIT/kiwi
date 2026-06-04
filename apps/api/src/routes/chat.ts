@@ -39,7 +39,7 @@ import {
     type ChatRequest,
 } from "../lib/chat";
 import { startChatTitleGeneration } from "../lib/chat-title";
-import { assertCanViewGraph } from "../lib/graph-access";
+import { assertCanViewGraph, assertCanViewGraphWithRootOwner } from "../lib/graph-access";
 import { parseListNumber } from "../lib/parse-query-params";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
@@ -283,20 +283,29 @@ export const chatRoute = new Elysia()
 
             const replyResult = await Result.tryPromise(async () => {
                 const request = body as ChatRequest;
-                await assertCanViewGraph(user, params.id);
+                const { rootOwner } = await assertCanViewGraphWithRootOwner(user, params.id);
                 const deep = request.deep === true;
                 const promptOptions = {
                     includeGraphTools: !deep,
                     includeClientTools: false,
                     includeSubagentTools: deep,
                 } as const;
-                const { assistantId, client, contextMessages, systemPrompt, tools, prompt, isNewChat, titleMessages } =
-                    await startReply(user.id, params.id, request, {
-                        toolset: "server",
-                        deep,
-                        promptOptions,
-                        abortSignal: httpRequest.signal,
-                    });
+                const {
+                    assistantId,
+                    client,
+                    contextMessages,
+                    systemPrompt,
+                    tools,
+                    promptGuidance,
+                    isNewChat,
+                    titleMessages,
+                } = await startReply(user, params.id, request, {
+                    toolset: "server",
+                    deep,
+                    rootOwner,
+                    promptOptions,
+                    abortSignal: httpRequest.signal,
+                });
                 startChatTitleGeneration({
                     chatId: request.id,
                     messages: titleMessages,
@@ -331,7 +340,7 @@ export const chatRoute = new Elysia()
                             refreshed = await refreshReplyContext({
                                 chatId: request.id,
                                 graphId: params.id,
-                                runtime: { client, tools, prompt },
+                                runtime: { client, tools, promptGuidance },
                                 promptOptions,
                                 forceCompaction: true,
                                 abortSignal: httpRequest.signal,
@@ -452,20 +461,29 @@ export const chatRoute = new Elysia()
 
             const streamResult = await Result.tryPromise(async () => {
                 const request = body as ChatRequest;
-                await assertCanViewGraph(user, params.id);
+                const { rootOwner } = await assertCanViewGraphWithRootOwner(user, params.id);
                 const deep = request.deep === true;
                 const promptOptions = {
                     includeGraphTools: !deep,
                     includeClientTools: !deep,
                     includeSubagentTools: deep,
                 } as const;
-                const { assistantId, client, contextMessages, systemPrompt, tools, prompt, isNewChat, titleMessages } =
-                    await startReply(user.id, params.id, request, {
-                        toolset: "server-and-client",
-                        deep,
-                        promptOptions,
-                        abortSignal: httpRequest.signal,
-                    });
+                const {
+                    assistantId,
+                    client,
+                    contextMessages,
+                    systemPrompt,
+                    tools,
+                    promptGuidance,
+                    isNewChat,
+                    titleMessages,
+                } = await startReply(user, params.id, request, {
+                    toolset: "server-and-client",
+                    deep,
+                    rootOwner,
+                    promptOptions,
+                    abortSignal: httpRequest.signal,
+                });
                 startChatTitleGeneration({
                     chatId: request.id,
                     messages: titleMessages,
@@ -832,7 +850,7 @@ export const chatRoute = new Elysia()
                                     refreshed = await refreshReplyContext({
                                         chatId: request.id,
                                         graphId: params.id,
-                                        runtime: { client, tools, prompt },
+                                        runtime: { client, tools, promptGuidance },
                                         promptOptions,
                                         forceCompaction: true,
                                         abortSignal: httpRequest.signal,

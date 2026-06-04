@@ -9,12 +9,12 @@ import {
 
 describe("subagent prompts", () => {
     test("explore prompt gives the graph subagent a dedicated output contract", () => {
-        const prompt = createExploreSubagentPrompt("Prefer legal entities.");
+        const prompt = createExploreSubagentPrompt();
 
         expect(prompt).toContain("explore one graph-backed project in depth");
         expect(prompt).toContain("## Relevant Entities");
         expect(prompt).toContain("Essential:");
-        expect(prompt).toContain("# Project-Specific Guidance\nPrefer legal entities.");
+        expect(prompt).not.toContain("Project-Specific Guidance");
     });
 
     test("source curator prompt gives the source subagent a curated facts contract", () => {

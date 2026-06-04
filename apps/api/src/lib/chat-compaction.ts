@@ -10,21 +10,20 @@ import {
     toUIMessage,
     uiMessagesToModelMessages,
     type ChatMessageMetadata,
+    type ChatValidationToolset,
     type ChatUIMessage,
     type Client,
 } from "@kiwi/ai";
 import type { MessageCompactionPart, MessagePart } from "@kiwi/contracts/chat";
 import { db } from "@kiwi/db";
-import {
-    chatTable,
-    messageTable,
-    type ChatMessage,
-} from "@kiwi/db/tables/chats";
+import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
+import type { ScopedPromptGuidance } from "@kiwi/ai/prompts/guidance.prompt";
 import { validateUIMessages, type ModelMessage } from "ai";
 import { and, asc, eq, ne } from "drizzle-orm";
 import { env } from "../env";
 import { API_ERROR_CODES } from "../types";
 import type { ChatRequestBody } from "../types/routes";
+import { insertPromptGuidanceMessage } from "./prompt-guidance";
 
 const MAX_RAW_TAIL_TARGET_TOKENS = 32_000;
 const MIN_RAW_VISIBLE_MESSAGES = 6;
@@ -58,7 +57,7 @@ export type ChatRuntime = {
         embedding: NonNullable<Client["embedding"]>;
     };
     tools: Record<string, unknown>;
-    prompt?: string;
+    promptGuidance?: ScopedPromptGuidance;
 };
 
 export type ActiveChatContext = {
@@ -89,11 +88,7 @@ function createCompactionSystemMessage(summary: string): ModelMessage {
     };
 }
 
-function estimateContextTokens(
-    systemPrompt: string,
-    contextMessages: ModelMessage[],
-    tools?: Record<string, unknown>
-) {
+function estimateContextTokens(systemPrompt: string, contextMessages: ModelMessage[], tools?: Record<string, unknown>) {
     return estimateToken(
         JSON.stringify({
             system: systemPrompt,
@@ -177,17 +172,12 @@ export function deriveActiveCompaction(rows: ChatMessage[]) {
     };
 }
 
-async function validateTailMessages(options: {
-    graphId: string;
-    rawTailRows: ChatMessage[];
-    runtime: ChatRuntime;
-}) {
+async function validateTailMessages(options: { graphId: string; rawTailRows: ChatMessage[]; runtime: ChatRuntime }) {
     const messages: ChatUIMessage[] = options.rawTailRows.map((message) => toUIMessage(message));
-    const validationToolset = buildChatValidationToolset({
+    const validationToolset: ChatValidationToolset = buildChatValidationToolset({
         graphId: options.graphId,
         embeddingModel: options.runtime.client.embedding,
         model: options.runtime.client.subagent ?? options.runtime.client.text,
-        graphPrompt: options.runtime.prompt,
     });
 
     return await validateUIMessages<ChatUIMessage>({
@@ -211,10 +201,13 @@ export async function buildActiveChatContext(options: {
         runtime: options.runtime,
     });
     const activeSummary = compactionState.activeCompaction?.part.summary;
-    const contextMessages = [
-        ...(activeSummary ? [createCompactionSystemMessage(activeSummary)] : []),
-        ...uiMessagesToModelMessages(validatedMessages),
-    ];
+    const contextMessages = insertPromptGuidanceMessage(
+        [
+            ...(activeSummary ? [createCompactionSystemMessage(activeSummary)] : []),
+            ...uiMessagesToModelMessages(validatedMessages),
+        ],
+        options.runtime.promptGuidance
+    );
 
     return {
         activeCompaction: compactionState.activeCompaction,
@@ -235,10 +228,7 @@ export function getSoftCompactionThreshold(contextWindow = env.CONTEXT_WINDOW) {
 }
 
 export function getRawTailTargetTokens(contextWindow = env.CONTEXT_WINDOW) {
-    return Math.max(
-        1,
-        Math.floor(Math.min(MAX_RAW_TAIL_TARGET_TOKENS, contextWindow * RAW_TAIL_TARGET_CONTEXT_RATIO))
-    );
+    return Math.max(1, Math.floor(Math.min(MAX_RAW_TAIL_TARGET_TOKENS, contextWindow * RAW_TAIL_TARGET_CONTEXT_RATIO)));
 }
 
 function shouldCompact(estimatedPromptTokens: number) {
@@ -358,7 +348,6 @@ export function normalizeCompactionSummary(summary: string) {
 
 async function insertCheckpoint(options: {
     chatId: string;
-    graphPrompt?: string;
     runtime: ChatRuntime;
     previousSummary?: string;
     basedOnCompactionMessageId?: string;
@@ -369,7 +358,7 @@ async function insertCheckpoint(options: {
     const transcript = serializeCompactionTranscript(options.summarizedMessages);
     const summary = await compactConversationHistory({
         model: options.runtime.client.subagent ?? options.runtime.client.text,
-        graphPrompt: options.graphPrompt,
+        promptGuidance: options.runtime.promptGuidance,
         previousSummary: options.previousSummary,
         transcript,
         abortSignal: options.abortSignal,
@@ -400,7 +389,7 @@ export async function maybeCompactConversation(options: {
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
 }) {
-    const systemPrompt = createChatSystemPrompt(options.runtime.prompt, options.promptOptions ?? {});
+    const systemPrompt = createChatSystemPrompt(options.promptOptions ?? {});
     let context = await buildActiveChatContext({
         graphId: options.graphId,
         rows: options.rows,
@@ -438,7 +427,6 @@ export async function maybeCompactConversation(options: {
 
         await insertCheckpoint({
             chatId: options.chatId,
-            graphPrompt: options.runtime.prompt,
             runtime: options.runtime,
             previousSummary: context.activeSummary,
             basedOnCompactionMessageId: context.activeCompaction?.messageId,

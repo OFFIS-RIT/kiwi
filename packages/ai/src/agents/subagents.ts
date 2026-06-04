@@ -2,6 +2,7 @@ import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { generateText, stepCountIs, ToolLoopAgent, tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { createCompactionPrompt, createCompactionTaskPrompt } from "../prompts/compaction.prompt";
+import { prependPromptGuidance, type ScopedPromptGuidance } from "../prompts/guidance.prompt";
 import {
     createExploreSubagentPrompt,
     createExploreSubagentTaskPrompt,
@@ -12,25 +13,25 @@ import { buildGraphExplorationToolset, buildSourceCurationToolset, type GraphToo
 
 type SubagentOptions = GraphToolsetOptions & {
     model: LanguageModelV3;
-    graphPrompt?: string;
+    promptGuidance?: ScopedPromptGuidance;
 };
 
-export function createGraphExploreAgent({ model, graphId, embeddingModel, graphPrompt }: SubagentOptions) {
+export function createGraphExploreAgent({ model, graphId, embeddingModel }: SubagentOptions) {
     return new ToolLoopAgent({
         id: "graph-explore-agent",
         model,
-        instructions: createExploreSubagentPrompt(graphPrompt),
+        instructions: createExploreSubagentPrompt(),
         tools: buildGraphExplorationToolset({ graphId, embeddingModel }),
         temperature: 0.2,
         stopWhen: stepCountIs(30),
     });
 }
 
-export function createSourceCuratorAgent({ model, graphId, embeddingModel, graphPrompt }: SubagentOptions) {
+export function createSourceCuratorAgent({ model, graphId, embeddingModel }: SubagentOptions) {
     return new ToolLoopAgent({
         id: "source-curator-agent",
         model,
-        instructions: createSourceCuratorSubagentPrompt(graphPrompt),
+        instructions: createSourceCuratorSubagentPrompt(),
         tools: buildSourceCurationToolset({ graphId, embeddingModel }),
         temperature: 0.1,
         stopWhen: stepCountIs(20),
@@ -60,7 +61,7 @@ export function buildSubagentToolset(options: SubagentOptions) {
             inputSchema: exploreGraphSchema,
             execute: async ({ task }, { abortSignal }) => {
                 const result = await exploreAgent.generate({
-                    prompt: createExploreSubagentTaskPrompt(task),
+                    prompt: prependPromptGuidance(createExploreSubagentTaskPrompt(task), options.promptGuidance),
                     abortSignal,
                 });
                 return result.text;
@@ -72,13 +73,16 @@ export function buildSubagentToolset(options: SubagentOptions) {
             inputSchema: curateSourcesSchema,
             execute: async ({ task, entityIds, relationshipIds, query, files }, { abortSignal }) => {
                 const result = await sourceCuratorAgent.generate({
-                    prompt: createSourceCuratorTaskPrompt({
-                        task,
-                        entityIds,
-                        relationshipIds,
-                        query,
-                        files,
-                    }),
+                    prompt: prependPromptGuidance(
+                        createSourceCuratorTaskPrompt({
+                            task,
+                            entityIds,
+                            relationshipIds,
+                            query,
+                            files,
+                        }),
+                        options.promptGuidance
+                    ),
                     abortSignal,
                 });
                 return result.text;
@@ -90,17 +94,24 @@ export function buildSubagentToolset(options: SubagentOptions) {
 export async function compactConversationHistory(options: {
     model: LanguageModelV3;
     transcript: string;
-    graphPrompt?: string;
+    promptGuidance?: ScopedPromptGuidance;
     previousSummary?: string;
     abortSignal?: AbortSignal;
 }) {
+    const compactionGuidance = {
+        graphPrompts: options.promptGuidance?.graphPrompts,
+    };
+
     const result = await generateText({
         model: options.model,
-        system: createCompactionPrompt(options.graphPrompt),
-        prompt: createCompactionTaskPrompt({
-            previousSummary: options.previousSummary,
-            transcript: options.transcript,
-        }),
+        system: createCompactionPrompt(),
+        prompt: prependPromptGuidance(
+            createCompactionTaskPrompt({
+                previousSummary: options.previousSummary,
+                transcript: options.transcript,
+            }),
+            compactionGuidance
+        ),
         temperature: 0.1,
         maxOutputTokens: 6_000,
         abortSignal: options.abortSignal,

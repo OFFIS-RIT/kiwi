@@ -4,13 +4,13 @@ import { createCompactionPrompt, createCompactionTaskPrompt } from "../prompts/c
 
 describe("compaction prompts", () => {
     test("defines a reusable compaction output contract", () => {
-        const prompt = createCompactionPrompt("Prefer binding decisions.");
+        const prompt = createCompactionPrompt();
 
         expect(prompt).toContain("chat compaction agent");
         expect(prompt).toContain("## User Objective");
         expect(prompt).toContain("## Key Entities, Relationships, and Sources");
         expect(prompt).toContain("Preserve exact entity IDs, relationship IDs, source IDs, file IDs");
-        expect(prompt).toContain('# Project-Specific Guidance\nPrefer binding decisions.');
+        expect(prompt).not.toContain("Project-Specific Guidance");
     });
 
     test("task prompt includes prior summary and transcript", () => {
