@@ -469,6 +469,7 @@ export async function startReply(user: AuthUser, graphId: string, request: ChatR
     await touchChat(normalizedRequest.id);
 
     return {
+        chatId: normalizedRequest.id,
         assistantId,
         isNewChat,
         titleMessages: normalizedRequest.titleMessages,

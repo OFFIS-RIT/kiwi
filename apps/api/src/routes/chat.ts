@@ -44,7 +44,7 @@ export const chatRoute = createChatTargetRoute({
         });
 
         return {
-            chatId: request.id,
+            chatId: started.chatId,
             assistantId: started.assistantId,
             client: started.client,
             contextMessages: started.contextMessages,
@@ -55,7 +55,7 @@ export const chatRoute = createChatTargetRoute({
             resolveCitation: (sourceId) => enrichCitation(target.graphId, sourceId),
             refreshAfterCompaction: async () =>
                 refreshReplyContext({
-                    chatId: request.id,
+                    chatId: started.chatId,
                     graphId: target.graphId,
                     runtime: {
                         client: started.client,

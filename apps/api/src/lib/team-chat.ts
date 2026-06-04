@@ -11,6 +11,7 @@ import {
 } from "@kiwi/ai";
 import { prependPromptGuidance } from "@kiwi/ai/prompts/guidance.prompt";
 import { db } from "@kiwi/db";
+import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { filesTable, graphTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from "ai";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
@@ -42,7 +43,10 @@ import {
     syncChatMessage,
     type ChatRuntime,
 } from "./chat-compaction";
-import { createCachingCitationResolver } from "./chat-citation-normalization";
+import {
+    createCachingCitationResolver,
+    DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES,
+} from "./chat-citation-normalization";
 import { teamChatTarget } from "./chat-target";
 import { resolveGraphOwnerRoot } from "./graph-access";
 
@@ -65,6 +69,10 @@ export type TeamCitationContext = {
     sourceGraphIds: Map<string, string>;
 };
 
+type TeamQuestionContext = {
+    text: string;
+};
+
 type TeamChatRuntime = Omit<ChatRuntime, "tools"> & {
     tools: TeamChatToolset;
     promptGuidance: {
@@ -72,6 +80,7 @@ type TeamChatRuntime = Omit<ChatRuntime, "tools"> & {
         teamPrompts: string[];
     };
     citationContext: TeamCitationContext;
+    questionContext: TeamQuestionContext;
 };
 
 type TeamGraphRuntime = Pick<TeamChatRuntime, "client" | "promptGuidance">;
@@ -84,6 +93,14 @@ const unresolvedTeamCitationCache = new Map<string, number>();
 
 function createTeamCitationContext(): TeamCitationContext {
     return { sourceGraphIds: new Map() };
+}
+
+function createTeamQuestionContext(rows: ChatMessage[]): TeamQuestionContext {
+    return { text: serializeQuestionContext(rows.map((message) => toUIMessage(message))) };
+}
+
+function refreshTeamQuestionContext(context: TeamQuestionContext, rows: ChatMessage[]) {
+    context.text = serializeQuestionContext(rows.map((message) => toUIMessage(message)));
 }
 
 function getMetrics(metadata?: ChatMessageMetadata) {
@@ -271,7 +288,7 @@ async function querySingleGraph(options: {
 function buildTeamChatToolset(options: {
     team: TeamAccessTeam;
     graphRuntime: TeamGraphRuntime;
-    questionContext: string;
+    questionContext: TeamQuestionContext;
     citationContext: TeamCitationContext;
 }): TeamChatToolset {
     return {
@@ -324,7 +341,7 @@ function buildTeamChatToolset(options: {
                         querySingleGraph({
                             graph,
                             runtime: options.graphRuntime,
-                            questionContext: options.questionContext,
+                            questionContext: options.questionContext.text,
                             abortSignal,
                         })
                     )
@@ -348,7 +365,7 @@ function buildTeamChatToolset(options: {
 export async function getTeamChatRuntime(options: {
     user: AuthUser;
     team: TeamAccessTeam;
-    questionContext: string;
+    questionContext: TeamQuestionContext;
 }): Promise<TeamChatRuntime> {
     const [userPrompts, teamPrompts] = await Promise.all([
         listUserPromptTexts(options.user.id),
@@ -364,6 +381,7 @@ export async function getTeamChatRuntime(options: {
     return {
         client,
         citationContext,
+        questionContext: options.questionContext,
         promptGuidance,
         tools: buildTeamChatToolset({
             team: options.team,
@@ -410,6 +428,7 @@ export async function enrichTeamCitation(
 function createTeamCitationResolver(teamId: string, citationContext?: TeamCitationContext) {
     return createCachingCitationResolver({
         negativeCache: unresolvedTeamCitationCache,
+        negativeCacheMaxEntries: DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES,
         negativeCacheKey: (citation) => `${teamId}:${citation.sourceId}`,
         resolveCitation: (sourceId) => enrichTeamCitation(teamId, sourceId, citationContext),
     });
@@ -424,10 +443,15 @@ export async function refreshTeamReplyContext(options: {
 }): Promise<{ systemPrompt: string; contextMessages: ModelMessage[]; estimatedPromptTokens: number }> {
     const systemPrompt = createTeamChatSystemPrompt(options.teamName);
     const validateMessages = createChatMessageValidator(options.runtime.tools);
+    const rows = await loadChatRows(options.chatId);
+    refreshTeamQuestionContext(
+        options.runtime.questionContext,
+        rows.filter((message) => !isCompactionMessage(message))
+    );
     const { context } = await maybeCompactConversation({
         chatId: options.chatId,
         runtime: options.runtime,
-        rows: await loadChatRows(options.chatId),
+        rows,
         systemPrompt,
         buildContext: (rows) =>
             buildActiveChatContext({
@@ -454,6 +478,7 @@ export async function startTeamReply(
     options: { abortSignal?: AbortSignal } = {}
 ): Promise<
     TeamChatRuntime & {
+        chatId: string;
         assistantId: string;
         isNewChat: boolean;
         titleMessages: ChatUIMessage[];
@@ -477,7 +502,7 @@ export async function startTeamReply(
     });
 
     const rows = (await loadChatRows(normalizedRequest.id)).filter((message) => !isCompactionMessage(message));
-    const questionContext = serializeQuestionContext(rows.map((message) => toUIMessage(message)));
+    const questionContext = createTeamQuestionContext(rows);
     const runtime = await getTeamChatRuntime({ user, team, questionContext });
     const { contextMessages, systemPrompt } = await refreshTeamReplyContext({
         chatId: normalizedRequest.id,
@@ -489,6 +514,7 @@ export async function startTeamReply(
     await touchChat(normalizedRequest.id);
 
     return {
+        chatId: normalizedRequest.id,
         assistantId,
         isNewChat,
         titleMessages: normalizedRequest.titleMessages,

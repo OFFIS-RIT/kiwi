@@ -41,7 +41,7 @@ export const teamChatRoute = createChatTargetRoute({
         const started = await startTeamReply(user, access.team, request, { abortSignal });
 
         return {
-            chatId: request.id,
+            chatId: started.chatId,
             assistantId: started.assistantId,
             client: started.client,
             contextMessages: started.contextMessages,
@@ -52,12 +52,13 @@ export const teamChatRoute = createChatTargetRoute({
             resolveCitation: (sourceId) => enrichTeamCitation(access.team.id, sourceId, started.citationContext),
             refreshAfterCompaction: async () =>
                 refreshTeamReplyContext({
-                    chatId: request.id,
+                    chatId: started.chatId,
                     runtime: {
                         client: started.client,
                         tools: started.tools,
                         promptGuidance: started.promptGuidance,
                         citationContext: started.citationContext,
+                        questionContext: started.questionContext,
                     },
                     teamName: access.team.name,
                     forceCompaction: true,
