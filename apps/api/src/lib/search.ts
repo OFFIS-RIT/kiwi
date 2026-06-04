@@ -128,6 +128,7 @@ function buildAccessibleTeamChatWhere(
 }
 
 function buildAccessibleChatWhere(accessibleGraphWhere: SQL | undefined, accessibleTeamChatWhere: SQL | undefined) {
+    // Graph chats are only searchable while their graph row still exists and is accessible.
     const graphChatWhere = and(
         eq(chatTable.scope, "graph"),
         isNotNull(chatTable.graphId),

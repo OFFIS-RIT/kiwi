@@ -49,13 +49,7 @@ export const teamChatRoute = createChatTargetRoute({
             refreshAfterCompaction: async () =>
                 refreshTeamReplyContext({
                     chatId: started.chatId,
-                    runtime: {
-                        client: started.client,
-                        tools: started.tools,
-                        promptGuidance: started.promptGuidance,
-                        citationContext: started.citationContext,
-                        questionContext: started.questionContext,
-                    },
+                    runtime: started,
                     teamName: access.team.name,
                     forceCompaction: true,
                     abortSignal,

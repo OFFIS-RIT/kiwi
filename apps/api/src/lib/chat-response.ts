@@ -157,6 +157,7 @@ export async function runChatCompletion(reply: StartedChatReply) {
     let activeContextMessages = reply.contextMessages;
     let activeSystemPrompt = reply.systemPrompt;
     let retriedAfterCompaction = false;
+    let firstOutputAt = startedAt;
 
     const runGeneration = () =>
         generateText({
@@ -172,6 +173,7 @@ export async function runChatCompletion(reply: StartedChatReply) {
     let result;
     try {
         result = await runGeneration();
+        firstOutputAt = Date.now();
     } catch (error) {
         if (!retriedAfterCompaction && isContextOverflowError(error)) {
             retriedAfterCompaction = true;
@@ -186,6 +188,7 @@ export async function runChatCompletion(reply: StartedChatReply) {
             activeSystemPrompt = refreshed.systemPrompt;
             try {
                 result = await runGeneration();
+                firstOutputAt = Date.now();
             } catch (retryError) {
                 await updateAssistantMessage(reply.assistantId, [], "failed");
                 throw retryError;
@@ -203,7 +206,7 @@ export async function runChatCompletion(reply: StartedChatReply) {
     });
     const finishMetadata = getFinishMetadata({
         startedAt,
-        firstOutputAt: startedAt,
+        firstOutputAt,
         totalTokens: result.totalUsage.totalTokens,
         inputTokens: result.totalUsage.inputTokens,
         outputTokens: result.totalUsage.outputTokens,

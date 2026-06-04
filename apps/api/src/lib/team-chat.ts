@@ -553,11 +553,13 @@ export async function loadTeamChatSummary(userId: string, teamId: string, chatId
 }
 
 export async function loadTeamChatHistory(userId: string, teamId: string, chatId: string) {
+    const citationContext = createTeamCitationContext();
+
     return loadChatHistoryForTarget({
         userId,
         target: teamChatTarget(teamId),
         chatId,
-        resolveCitation: createTeamCitationResolver(teamId),
+        resolveCitation: createTeamCitationResolver(teamId, citationContext),
         logLabel: "team chat",
     });
 }
