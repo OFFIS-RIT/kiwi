@@ -521,8 +521,7 @@ export async function startTeamReply(
         parseCreatedAt,
     });
 
-    const rows = (await loadChatRows(normalizedRequest.id)).filter((message) => !isCompactionMessage(message));
-    const questionContext = createTeamQuestionContext(rows);
+    const questionContext = createTeamQuestionContext([]);
     const runtime = await getTeamChatRuntime({ user, team, questionContext });
     const { contextMessages, systemPrompt } = await refreshTeamReplyContext({
         chatId: normalizedRequest.id,
