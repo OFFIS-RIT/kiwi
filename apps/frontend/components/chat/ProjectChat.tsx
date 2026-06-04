@@ -1180,7 +1180,7 @@ function ProjectChatSession({
                     </div>
 
                     {!isEmptyChat && (
-                        <div className="relative mx-auto w-full max-w-4xl px-4 pb-4">
+                        <div className="relative mx-auto w-full max-w-4xl p-4">
                             {!isAtBottom && (
                                 <Button
                                     type="button"
