@@ -13,7 +13,12 @@ type SourceFileGroup = {
 
 export type SourceFileCitation = {
     key: string;
-    label: string;
+    /** File name rendered as the main button text. */
+    fileName: string;
+    /** Compact page badge label (e.g. "S. 1 - 4"); null for page-less citations. */
+    pageLabel: string | null;
+    /** Accessible name combining file name and page range (e.g. "document.pdf S. 1 - 4"). */
+    accessibleLabel: string;
     citation: ResolvedCitationFence;
 };
 
@@ -47,6 +52,10 @@ function citationPageRange(citation: ResolvedCitationFence): PageRange | null {
 
 function formatPageRange(range: Pick<PageRange, "startPage" | "endPage">): string {
     return range.startPage === range.endPage ? String(range.startPage) : `${range.startPage} - ${range.endPage}`;
+}
+
+function formatPageLabel(range: Pick<PageRange, "startPage" | "endPage">): string {
+    return `S. ${formatPageRange(range)}`;
 }
 
 function mergePageRanges(ranges: PageRange[]): PageRange[] {
@@ -88,20 +97,35 @@ export function buildSourceFileCitations(citations: ResolvedCitationFence[]): So
         }
     }
 
-    return Array.from(groups.entries()).flatMap(([fileRef, group]) => {
+    return Array.from(groups.entries()).flatMap(([fileRef, group]): SourceFileCitation[] => {
         const ranges = mergePageRanges(group.ranges);
         if (ranges.length === 0) {
-            return group.fallback ? [{ key: fileRef, label: group.fallback.fileName, citation: group.fallback }] : [];
+            return group.fallback
+                ? [
+                      {
+                          key: fileRef,
+                          fileName: group.fallback.fileName,
+                          pageLabel: null,
+                          accessibleLabel: group.fallback.fileName,
+                          citation: group.fallback,
+                      },
+                  ]
+                : [];
         }
 
-        return ranges.map((range) => ({
-            key: `${fileRef}:${range.startPage}-${range.endPage}`,
-            label: `${range.citation.fileName} ${formatPageRange(range)}`,
-            citation: {
-                ...range.citation,
-                startPage: range.startPage,
-                endPage: range.endPage,
-            },
-        }));
+        return ranges.map((range) => {
+            const pageLabel = formatPageLabel(range);
+            return {
+                key: `${fileRef}:${range.startPage}-${range.endPage}`,
+                fileName: range.citation.fileName,
+                pageLabel,
+                accessibleLabel: `${range.citation.fileName} ${pageLabel}`,
+                citation: {
+                    ...range.citation,
+                    startPage: range.startPage,
+                    endPage: range.endPage,
+                },
+            };
+        });
     });
 }
