@@ -389,7 +389,7 @@ export async function maybeCompactConversation(options: {
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
 }) {
-    const systemPrompt = createChatSystemPrompt(undefined, options.promptOptions ?? {});
+    const systemPrompt = createChatSystemPrompt(options.promptOptions ?? {});
     let context = await buildActiveChatContext({
         graphId: options.graphId,
         rows: options.rows,

@@ -106,8 +106,8 @@ export function buildChatValidationToolset(options: {
     };
 }
 
-export function createChatSystemPrompt(graphPrompt?: string, options?: ChatPromptOptions) {
-    return createChatPrompt(graphPrompt, options);
+export function createChatSystemPrompt(options?: ChatPromptOptions) {
+    return createChatPrompt(options);
 }
 
 function toMessageToolPart(part: {

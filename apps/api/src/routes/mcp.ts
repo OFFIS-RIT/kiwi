@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Elysia } from "elysia";
 import { z } from "zod/v4";
-import { assertCanViewGraph } from "../lib/graph-access";
+import { assertCanViewGraphWithRootOwner } from "../lib/graph-access";
 import { listAccessibleGraphs } from "../lib/graph-list";
 import { getGraphResearchRuntime, resolveCitationDocumentLink } from "../lib/chat";
 import { getPublicApiBaseUrl } from "../lib/project-file-url";
@@ -58,9 +58,9 @@ async function assertMcpGraphViewPermission(headers: Headers) {
     }
 }
 
-async function assertMcpCanViewGraph(...args: Parameters<typeof assertCanViewGraph>) {
+async function assertMcpCanViewGraph(...args: Parameters<typeof assertCanViewGraphWithRootOwner>) {
     try {
-        await assertCanViewGraph(...args);
+        return await assertCanViewGraphWithRootOwner(...args);
     } catch (error) {
         if (
             error instanceof Error &&
@@ -112,17 +112,18 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
             researchInput,
             async ({ graphId, question }) => {
                 await assertMcpGraphViewPermission(request.headers);
-                await assertMcpCanViewGraph(user, graphId);
+                const { rootOwner } = await assertMcpCanViewGraph(user, graphId);
 
                 const { client, promptGuidance, tools } = await getGraphResearchRuntime(graphId, {
                     toolset: "mcp",
                     user,
+                    rootOwner,
                 });
 
                 const result = await runMcpResearch({
                     model: client.text!,
                     question,
-                    system: createChatSystemPrompt(undefined, { includeClientTools: false }),
+                    system: createChatSystemPrompt({ includeClientTools: false }),
                     tools,
                     promptGuidance,
                     providerOptions: getProviderOptions({ thinking: "medium" }),

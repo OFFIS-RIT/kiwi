@@ -3,7 +3,7 @@ import { createChatPrompt } from "../prompts/chat.prompt";
 
 describe("createChatPrompt", () => {
     test("does not mention subagent tools when graph and subagent tools are disabled", () => {
-        const prompt = createChatPrompt(undefined, {
+        const prompt = createChatPrompt({
             includeGraphTools: false,
             includeClientTools: false,
             includeSubagentTools: false,

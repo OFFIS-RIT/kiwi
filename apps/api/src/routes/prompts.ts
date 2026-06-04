@@ -147,10 +147,10 @@ async function writePromptResponse(
     rawPrompt: string,
     successStatus: 200 | 201,
     missingCode: string,
-    writePrompt: (user: AuthUser, prompt: string) => Promise<PromptRecord | undefined>
+    writePrompt: (user: AuthUser, rawPrompt: string) => Promise<PromptRecord | undefined>
 ) {
     const response = await runPromptAction(status, user, async (currentUser) => {
-        const row = await writePrompt(currentUser, normalizePrompt(rawPrompt));
+        const row = await writePrompt(currentUser, rawPrompt);
         if (!row) {
             throw new Error(missingCode);
         }
@@ -239,9 +239,10 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 body.prompt,
                 201,
                 API_ERROR_CODES.INTERNAL_SERVER_ERROR,
-                async (currentUser, prompt) => {
+                async (currentUser, rawPrompt) => {
                     const userId = resolveUserId(currentUser.id, params.userId);
                     await assertCanManageUserPrompts(currentUser, userId);
+                    const prompt = normalizePrompt(rawPrompt);
 
                     return db.transaction(
                         async (tx) => {
@@ -279,9 +280,10 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 body.prompt,
                 200,
                 API_ERROR_CODES.PROMPT_NOT_FOUND,
-                async (currentUser, prompt) => {
+                async (currentUser, rawPrompt) => {
                     const userId = resolveUserId(currentUser.id, params.userId);
                     await assertCanManageUserPrompts(currentUser, userId);
+                    const prompt = normalizePrompt(rawPrompt);
 
                     const [row] = await db
                         .update(userPromptsTable)
@@ -346,8 +348,9 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 body.prompt,
                 201,
                 API_ERROR_CODES.INTERNAL_SERVER_ERROR,
-                async (currentUser, prompt) => {
+                async (currentUser, rawPrompt) => {
                     await assertCanManageTeamPrompts(currentUser, params.teamId);
+                    const prompt = normalizePrompt(rawPrompt);
 
                     return db.transaction(
                         async (tx) => {
@@ -385,8 +388,9 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 body.prompt,
                 200,
                 API_ERROR_CODES.PROMPT_NOT_FOUND,
-                async (currentUser, prompt) => {
+                async (currentUser, rawPrompt) => {
                     await assertCanManageTeamPrompts(currentUser, params.teamId);
+                    const prompt = normalizePrompt(rawPrompt);
 
                     const [row] = await db
                         .update(teamPromptsTable)
@@ -452,8 +456,9 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 body.prompt,
                 201,
                 API_ERROR_CODES.INTERNAL_SERVER_ERROR,
-                async (currentUser, prompt) => {
+                async (currentUser, rawPrompt) => {
                     await assertCanManageGraphPrompts(currentUser, params.graphId);
+                    const prompt = normalizePrompt(rawPrompt);
 
                     return db.transaction(
                         async (tx) => {
@@ -491,8 +496,9 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 body.prompt,
                 200,
                 API_ERROR_CODES.PROMPT_NOT_FOUND,
-                async (currentUser, prompt) => {
+                async (currentUser, rawPrompt) => {
                     await assertCanManageGraphPrompts(currentUser, params.graphId);
+                    const prompt = normalizePrompt(rawPrompt);
 
                     const [row] = await db
                         .update(graphPromptsTable)
