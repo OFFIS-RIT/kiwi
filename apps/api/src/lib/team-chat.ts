@@ -441,7 +441,10 @@ export async function refreshTeamReplyContext(options: {
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
 }): Promise<{ systemPrompt: string; contextMessages: ModelMessage[]; estimatedPromptTokens: number }> {
-    const systemPrompt = createTeamChatSystemPrompt(options.teamName);
+    const systemPrompt = prependPromptGuidance(
+        createTeamChatSystemPrompt(options.teamName),
+        options.runtime.promptGuidance
+    );
     const validateMessages = createChatMessageValidator(options.runtime.tools);
     const rows = await loadChatRows(options.chatId);
     refreshTeamQuestionContext(
