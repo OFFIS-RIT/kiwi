@@ -135,6 +135,8 @@ describe("subagent tools", () => {
             model,
             promptGuidance: {
                 userPrompts: ["Prefer terse summaries."],
+                teamPrompts: ["Use team phrasing."],
+                graphPrompts: ["ACME means Acme Corp."],
             },
             previousSummary: "Earlier summary",
             transcript: "User: hi",
@@ -151,8 +153,12 @@ describe("subagent tools", () => {
 
         expect(call.model).toBe(model);
         expect(call.system).toContain("chat compaction agent");
-        expect(call.prompt).toContain("## User Specific Prompts");
-        expect(call.prompt).toContain("Prefer terse summaries.");
+        expect(call.prompt).not.toContain("## User Specific Prompts");
+        expect(call.prompt).not.toContain("Prefer terse summaries.");
+        expect(call.prompt).not.toContain("## Team Specific Prompts");
+        expect(call.prompt).not.toContain("Use team phrasing.");
+        expect(call.prompt).toContain("## Graph Specific Prompts");
+        expect(call.prompt).toContain("ACME means Acme Corp.");
         expect(call.prompt).toContain("Previous summary:");
         expect(call.prompt).toContain("Transcript to compact:");
         expect(call.temperature).toBe(0.1);

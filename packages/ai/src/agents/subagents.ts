@@ -98,6 +98,10 @@ export async function compactConversationHistory(options: {
     previousSummary?: string;
     abortSignal?: AbortSignal;
 }) {
+    const compactionGuidance = {
+        graphPrompts: options.promptGuidance?.graphPrompts,
+    };
+
     const result = await generateText({
         model: options.model,
         system: createCompactionPrompt(),
@@ -106,7 +110,7 @@ export async function compactConversationHistory(options: {
                 previousSummary: options.previousSummary,
                 transcript: options.transcript,
             }),
-            options.promptGuidance
+            compactionGuidance
         ),
         temperature: 0.1,
         maxOutputTokens: 6_000,

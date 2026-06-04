@@ -63,6 +63,8 @@ function mapPromptError(status: RouteStatus, error: unknown) {
             return status(404, errorResponse("Prompt not found", API_ERROR_CODES.PROMPT_NOT_FOUND));
         case API_ERROR_CODES.INVALID_PROMPT:
             return status(400, errorResponse("Invalid prompt", API_ERROR_CODES.INVALID_PROMPT));
+        case API_ERROR_CODES.PROMPT_LIMIT_EXCEEDED:
+            return status(400, errorResponse("Prompt limit exceeded", API_ERROR_CODES.PROMPT_LIMIT_EXCEEDED));
         default:
             return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
     }
@@ -80,7 +82,7 @@ function normalizePrompt(prompt: string) {
 async function assertPromptCountBelowLimit(loadPromptIds: () => Promise<unknown[]>) {
     const promptIds = await loadPromptIds();
     if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
-        throw new Error(API_ERROR_CODES.INVALID_PROMPT);
+        throw new Error(API_ERROR_CODES.PROMPT_LIMIT_EXCEEDED);
     }
 }
 

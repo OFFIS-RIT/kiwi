@@ -530,6 +530,7 @@ export type PromptCreateResponse = ApiResponse<
     | "INVALID_GRAPH_OWNER"
     | "TEAM_NOT_FOUND"
     | "INVALID_PROMPT"
+    | "PROMPT_LIMIT_EXCEEDED"
     | "INTERNAL_SERVER_ERROR"
 >;
 
@@ -542,6 +543,7 @@ export type PromptPatchResponse = ApiResponse<
     | "TEAM_NOT_FOUND"
     | "PROMPT_NOT_FOUND"
     | "INVALID_PROMPT"
+    | "PROMPT_LIMIT_EXCEEDED"
     | "INTERNAL_SERVER_ERROR"
 >;
 
