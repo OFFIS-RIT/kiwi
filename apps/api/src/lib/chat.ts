@@ -48,7 +48,7 @@ import {
 } from "./chat-citation-normalization";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { AuthUser } from "../middleware/auth";
-import { resolveGraphOwnerRoot } from "./graph-access";
+import { resolveGraphOwnerRoot, type RootOwner } from "./graph-access";
 import { MAX_PROMPTS_PER_SCOPE } from "./prompt-limits";
 
 type RouteStatus = (code: number, body: unknown) => unknown;
@@ -66,6 +66,7 @@ type RuntimeToolset = "server" | "server-and-client" | "mcp";
 type StartReplyOptions = {
     toolset: "server" | "server-and-client";
     deep?: boolean;
+    rootOwner?: RootOwner;
     promptOptions?: PromptOptions;
     abortSignal?: AbortSignal;
 };
@@ -124,8 +125,8 @@ async function listUserPromptTexts(userId: string) {
     );
 }
 
-async function listTeamPromptTextsForGraph(graphId: string) {
-    const rootOwner = await resolveGraphOwnerRoot(graphId);
+async function listTeamPromptTextsForGraph(graphId: string, knownRootOwner?: RootOwner) {
+    const rootOwner = knownRootOwner ?? (await resolveGraphOwnerRoot(graphId));
     if (rootOwner.mode !== "team") {
         return [];
     }
@@ -233,12 +234,12 @@ export async function setChatArchived(chatId: string, userId: string, archived: 
 
 export async function getGraphResearchRuntime(
     graphId: string,
-    options: { toolset: RuntimeToolset; deep?: boolean; user?: AuthUser } = { toolset: "server" }
+    options: { toolset: RuntimeToolset; deep?: boolean; user?: AuthUser; rootOwner?: RootOwner } = { toolset: "server" }
 ) {
     const [graphPrompts, userPrompts, teamPrompts] = await Promise.all([
         listGraphPromptTexts(graphId),
         options.user ? listUserPromptTexts(options.user.id) : [],
-        options.user ? listTeamPromptTextsForGraph(graphId) : [],
+        options.user ? listTeamPromptTextsForGraph(graphId, options.rootOwner) : [],
     ]);
     const promptGuidance = {
         userPrompts,
@@ -372,7 +373,7 @@ export async function startReply(user: AuthUser, graphId: string, request: ChatR
         getMetrics,
         parseCreatedAt,
     });
-    const runtime = await getGraphResearchRuntime(graphId, { ...options, user });
+    const runtime = await getGraphResearchRuntime(graphId, { ...options, user, rootOwner: options.rootOwner });
     const { contextMessages, validatedMessages, estimatedPromptTokens, systemPrompt } = await refreshReplyContext({
         chatId: normalizedRequest.id,
         graphId,

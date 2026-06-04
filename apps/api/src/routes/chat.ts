@@ -39,7 +39,7 @@ import {
     type ChatRequest,
 } from "../lib/chat";
 import { startChatTitleGeneration } from "../lib/chat-title";
-import { assertCanViewGraph } from "../lib/graph-access";
+import { assertCanViewGraph, assertCanViewGraphWithRootOwner } from "../lib/graph-access";
 import { parseListNumber } from "../lib/parse-query-params";
 import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
@@ -283,7 +283,7 @@ export const chatRoute = new Elysia()
 
             const replyResult = await Result.tryPromise(async () => {
                 const request = body as ChatRequest;
-                await assertCanViewGraph(user, params.id);
+                const { rootOwner } = await assertCanViewGraphWithRootOwner(user, params.id);
                 const deep = request.deep === true;
                 const promptOptions = {
                     includeGraphTools: !deep,
@@ -302,6 +302,7 @@ export const chatRoute = new Elysia()
                 } = await startReply(user, params.id, request, {
                     toolset: "server",
                     deep,
+                    rootOwner,
                     promptOptions,
                     abortSignal: httpRequest.signal,
                 });
@@ -460,7 +461,7 @@ export const chatRoute = new Elysia()
 
             const streamResult = await Result.tryPromise(async () => {
                 const request = body as ChatRequest;
-                await assertCanViewGraph(user, params.id);
+                const { rootOwner } = await assertCanViewGraphWithRootOwner(user, params.id);
                 const deep = request.deep === true;
                 const promptOptions = {
                     includeGraphTools: !deep,
@@ -479,6 +480,7 @@ export const chatRoute = new Elysia()
                 } = await startReply(user, params.id, request, {
                     toolset: "server-and-client",
                     deep,
+                    rootOwner,
                     promptOptions,
                     abortSignal: httpRequest.signal,
                 });

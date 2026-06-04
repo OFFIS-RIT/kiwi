@@ -125,14 +125,14 @@ export const assertCanCreateUnderParentGraph = async (user: AuthUser, parentGrap
     await requireOrganizationAdmin(user, rootOwner.organizationId);
 };
 
-const assertGraphAccess = async (
+const assertGraphAccessWithRootOwner = async (
     user: AuthUser,
     graphId: string,
     options?: {
         needsUpdate?: boolean;
         needsFileManage?: boolean;
     }
-): Promise<GraphRecord> => {
+): Promise<{ graph: GraphRecord; rootOwner: RootOwner }> => {
     const graph = await getGraphById(graphId);
     if (!graph) {
         throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
@@ -148,7 +148,7 @@ const assertGraphAccess = async (
             throw new Error(API_ERROR_CODES.FORBIDDEN);
         }
 
-        return graph;
+        return { graph, rootOwner };
     }
 
     await assertActiveOrganization(user, rootOwner.organizationId);
@@ -160,21 +160,35 @@ const assertGraphAccess = async (
             } else {
                 await requireTeamGraphCreateAccess(user, rootOwner.teamId);
             }
-            return graph;
+            return { graph, rootOwner };
         }
 
         await requireOrganizationAdmin(user, rootOwner.organizationId);
-        return graph;
+        return { graph, rootOwner };
     }
 
     if (rootOwner.mode === "team") {
         await requireTeamAccess(user, rootOwner.teamId);
-        return graph;
+        return { graph, rootOwner };
     }
 
     await requireOrganizationMembership(user, rootOwner.organizationId);
-    return graph;
+    return { graph, rootOwner };
 };
+
+const assertGraphAccess = async (
+    user: AuthUser,
+    graphId: string,
+    options?: {
+        needsUpdate?: boolean;
+        needsFileManage?: boolean;
+    }
+): Promise<GraphRecord> => (await assertGraphAccessWithRootOwner(user, graphId, options)).graph;
+
+export const assertCanViewGraphWithRootOwner = (
+    user: AuthUser,
+    graphId: string
+): Promise<{ graph: GraphRecord; rootOwner: RootOwner }> => assertGraphAccessWithRootOwner(user, graphId);
 
 export const assertCanPatchGraph = async (user: AuthUser, graphId: string): Promise<GraphRecord> =>
     assertGraphAccess(user, graphId, { needsUpdate: true });
