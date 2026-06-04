@@ -18,8 +18,8 @@ type RouteStatus = (code: number, body: unknown) => unknown;
 type PromptRecord = {
     id: string;
     prompt: string;
-    createdAt: Date | null;
-    updatedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
 };
 
 type PromptDeleteRecord = {
@@ -90,8 +90,8 @@ function toPromptResponse(row: PromptRecord) {
     return {
         id: row.id,
         prompt: row.prompt,
-        created_at: row.createdAt?.toISOString() ?? null,
-        updated_at: row.updatedAt?.toISOString() ?? null,
+        created_at: row.createdAt.toISOString(),
+        updated_at: row.updatedAt.toISOString(),
     };
 }
 

@@ -13,11 +13,21 @@ WHERE "id" IN (
 	WHERE "prompt_rank" > 1
 );
 --> statement-breakpoint
+UPDATE "system_prompts"
+SET
+	"created_at" = COALESCE("created_at", now()),
+	"updated_at" = COALESCE("updated_at", now())
+WHERE "created_at" IS NULL OR "updated_at" IS NULL;
+--> statement-breakpoint
 ALTER TABLE "system_prompts" RENAME TO "graph_prompts";
 --> statement-breakpoint
 ALTER TABLE "graph_prompts" RENAME CONSTRAINT "system_prompts_pkey" TO "graph_prompts_pkey";
 --> statement-breakpoint
 ALTER TABLE "graph_prompts" RENAME CONSTRAINT "system_prompts_graph_id_graphs_id_fkey" TO "graph_prompts_graph_id_graphs_id_fkey";
+--> statement-breakpoint
+ALTER TABLE "graph_prompts" ALTER COLUMN "created_at" SET NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "graph_prompts" ALTER COLUMN "updated_at" SET NOT NULL;
 --> statement-breakpoint
 CREATE TABLE "user_prompts" (
 	"id" text PRIMARY KEY NOT NULL,

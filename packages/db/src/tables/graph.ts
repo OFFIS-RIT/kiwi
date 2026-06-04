@@ -114,8 +114,9 @@ export const graphPromptsTable = pgTable.withRLS(
             .notNull()
             .references(() => graphTable.id, { onDelete: "cascade" }),
         prompt: text("prompt").notNull(),
-        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
         updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .notNull()
             .defaultNow()
             .$onUpdate(() => sql`NOW()`),
     },

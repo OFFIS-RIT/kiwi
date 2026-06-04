@@ -2516,7 +2516,7 @@
     {
       "type": "timestamp with time zone",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": "now()",
       "generated": null,
@@ -2529,7 +2529,7 @@
     {
       "type": "timestamp with time zone",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": "now()",
       "generated": null,
