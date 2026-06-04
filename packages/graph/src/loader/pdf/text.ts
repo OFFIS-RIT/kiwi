@@ -5,6 +5,7 @@ import {
     TEXT_CHAR_DEDUPE_TOLERANCE,
     TEXT_DEFAULT_X_TOLERANCE_RATIO,
     TEXT_DEFAULT_Y_TOLERANCE,
+    TEXT_DEFAULT_Y_TOLERANCE_RATIO,
     WORD_BOUNDARY_PUNCTUATION,
 } from "./constants";
 import { average, getTop, median, overlapLength, squashWhitespace, unionBoxes } from "./geometry";
@@ -316,7 +317,7 @@ export function inferTextCharDirection(char: TextChar): TextDirection {
     return char.bbox.width >= Math.max(char.bbox.height * 1.05, char.fontSize * 0.75) ? "vertical" : "horizontal";
 }
 
-function splitLineCharsByDirection(chars: TextChar[]): { horizontal: TextChar[]; vertical: TextChar[] } {
+export function splitLineCharsByDirection(chars: TextChar[]): { horizontal: TextChar[]; vertical: TextChar[] } {
     const horizontal = new Set<TextChar>();
     const vertical = new Set<TextChar>();
 
@@ -925,8 +926,11 @@ export function getAdaptiveTextXTolerance(previous: TextChar, _current: TextChar
     return previous.fontSize * TEXT_DEFAULT_X_TOLERANCE_RATIO;
 }
 
-export function getAdaptiveTextYTolerance(_previous: TextChar, _current: TextChar): number {
-    return TEXT_DEFAULT_Y_TOLERANCE;
+export function getAdaptiveTextYTolerance(previous: TextChar, current: TextChar): number {
+    return Math.max(
+        TEXT_DEFAULT_Y_TOLERANCE,
+        Math.min(previous.fontSize, current.fontSize) * TEXT_DEFAULT_Y_TOLERANCE_RATIO
+    );
 }
 
 export function textCharBeginsNewWord(previous: TextChar, current: TextChar): boolean {
@@ -952,7 +956,12 @@ export function textCharBeginsNewWord(previous: TextChar, current: TextChar): bo
     const cx = current.bbox.x;
     const ay = previous.bbox.y;
     const cy = current.bbox.y;
-    return cx < ax || cx > bx + xTolerance || Math.abs(cy - ay) > yTolerance;
+    const baselineDelta = Math.abs(current.baseline - previous.baseline);
+    return (
+        cx < ax ||
+        cx > bx + xTolerance ||
+        (Math.abs(cy - ay) > yTolerance && baselineDelta > yTolerance)
+    );
 }
 
 function inferTextCharPairDirection(previous: TextChar, current: TextChar): TextDirection {
@@ -1043,8 +1052,7 @@ export function shouldInsertSpaceBetweenChars(
 
 export function reconstructTextLinesFromChars(chars: TextChar[], tolerance: number): TextChar[][] {
     const prepared = dedupeTextChars(chars);
-    const horizontalChars = prepared.filter((char) => inferTextCharDirection(char) === "horizontal");
-    const verticalChars = prepared.filter((char) => inferTextCharDirection(char) === "vertical");
+    const { horizontal: horizontalChars, vertical: verticalChars } = splitLineCharsByDirection(prepared);
     const horizontalLines = reconstructHorizontalTextLines(horizontalChars, tolerance);
     const verticalLines = buildVerticalTextLines(verticalChars).map((line) => getPreparedLineChars(line));
 

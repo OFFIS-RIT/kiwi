@@ -1,39 +1,122 @@
 import { describe, expect, test } from "bun:test";
-import type { TextChar, TextLine } from "../types";
-import { getLineText } from "../text";
+import type { BoundingBox, PageText, TextChar, TextLine } from "../types";
+import { extractWords, getLineText } from "../text";
+import { reconstructTableCellText } from "../table";
+
+type TextCharOptions = {
+    width?: number;
+    height?: number;
+    fontSize?: number;
+    fontName?: string;
+    y?: number;
+    baseline?: number;
+};
 
 function textChar(
     char: string,
     x: number,
     sequenceIndex: number,
-    options: { width?: number; height?: number; fontSize?: number } = {}
+    options: TextCharOptions = {}
 ): TextChar {
     const fontSize = options.fontSize ?? 12;
+    const y = options.y ?? 100;
     return {
         char,
-        bbox: { x, y: 100, width: options.width ?? 5, height: options.height ?? 10 },
+        bbox: { x, y, width: options.width ?? 5, height: options.height ?? 10 },
         fontSize,
-        fontName: "Helvetica",
-        baseline: 100,
+        fontName: options.fontName ?? "Helvetica",
+        baseline: options.baseline ?? 100,
         sequenceIndex,
     };
 }
 
+function bboxForChars(chars: TextChar[]): BoundingBox {
+    const left = Math.min(...chars.map((char) => char.bbox.x));
+    const right = Math.max(...chars.map((char) => char.bbox.x + char.bbox.width));
+    const bottom = Math.min(...chars.map((char) => char.bbox.y));
+    const top = Math.max(...chars.map((char) => char.bbox.y + char.bbox.height));
+
+    return { x: left, y: bottom, width: right - left, height: top - bottom };
+}
+
 function textLine(chars: TextChar[]): TextLine {
+    const text = chars.map((char) => char.char).join("");
+    const bbox = bboxForChars(chars);
+
     return {
-        text: chars.map((char) => char.char).join(""),
-        bbox: { x: 0, y: 100, width: 140, height: 10 },
-        baseline: 100,
+        text,
+        bbox,
+        baseline: chars[0]?.baseline ?? bbox.y,
         spans: [
             {
-                text: chars.map((char) => char.char).join(""),
-                bbox: { x: 0, y: 100, width: 140, height: 10 },
-                fontSize: 12,
-                fontName: "Helvetica",
+                text,
+                bbox,
+                fontSize: chars[0]?.fontSize ?? 12,
+                fontName: chars[0]?.fontName ?? "Helvetica",
                 chars,
             },
         ],
     };
+}
+
+function pageText(line: TextLine): PageText {
+    return {
+        pageIndex: 0,
+        width: line.bbox.x + line.bbox.width + 20,
+        height: line.bbox.y + line.bbox.height + 20,
+        lines: [line],
+        text: line.text,
+    };
+}
+
+function positionedChars(
+    text: string,
+    x: number,
+    sequenceIndex: number,
+    options: TextCharOptions & { gap?: number } = {}
+): TextChar[] {
+    let cursor = x;
+    return Array.from(text, (char, index) => {
+        const current = textChar(char, cursor, sequenceIndex + index, options);
+        cursor += current.bbox.width + (options.gap ?? 0);
+        return current;
+    });
+}
+
+function splitFontWordChars(): TextChar[] {
+    const firstRun = positionedChars("TEST", 10, 0, {
+        width: 20,
+        height: 38,
+        fontSize: 38,
+        fontName: "ExampleSans-SemiBold",
+        y: 99.79,
+        baseline: 130,
+    });
+    const secondRun = positionedChars("WORD", 90.5, 4, {
+        width: 20,
+        height: 38,
+        fontSize: 38,
+        fontName: "ExampleSans-Light",
+        y: 93.1,
+        baseline: 130,
+    });
+
+    return [...firstRun, ...secondRun];
+}
+
+function wideInlineGlyphWordChars(): TextChar[] {
+    let cursor = 10;
+    return Array.from("AXIOM", (char, index) => {
+        const width = char === "O" ? 8.94 : 5;
+        const current = textChar(char, cursor, index, {
+            width,
+            height: 8.34,
+            fontSize: 10,
+            baseline: 100,
+        });
+        cursor += width;
+        return current;
+    });
 }
 
 describe("PDF text reconstruction", () => {
@@ -84,5 +167,45 @@ describe("PDF text reconstruction", () => {
         ];
 
         expect(getLineText(textLine(chars))).toBe("Dummy PDF file");
+    });
+
+    test("keeps same-baseline font runs joined when glyph bboxes drift vertically", () => {
+        const line = textLine(splitFontWordChars());
+
+        expect(getLineText(line)).toBe("TESTWORD");
+        expect(extractWords(pageText(line)).map((word) => word.text)).toEqual(["TESTWORD"]);
+    });
+
+    test("keeps compact small-font glyphs joined while splitting real word gaps", () => {
+        const fontSize = 6;
+        const first = positionedChars("ABC", 10, 0, { width: 3, height: 5, fontSize, gap: 0.8 });
+        const second = positionedChars("DEF", 22, 3, { width: 3, height: 5, fontSize, gap: 0.8 });
+
+        expect(getLineText(textLine([...first, ...second]))).toBe("ABC DEF");
+    });
+
+    test("reconstructs two-font table cell text without splitting same-baseline glyph runs", () => {
+        const logo = splitFontWordChars();
+        const description = positionedChars("Interferometer", 210, logo.length, {
+            width: 6,
+            height: 10,
+            fontSize: 12,
+            y: 96,
+            baseline: 130,
+        });
+
+        expect(reconstructTableCellText([...logo, ...description])).toBe("TESTWORD Interferometer");
+    });
+
+    test("reconstructs wide inline glyphs as horizontal table text", () => {
+        const word = wideInlineGlyphWordChars();
+        const description = positionedChars("Device", 60, word.length, {
+            width: 5,
+            height: 8.34,
+            fontSize: 10,
+            baseline: 100,
+        });
+
+        expect(reconstructTableCellText([...word, ...description])).toBe("AXIOM Device");
     });
 });

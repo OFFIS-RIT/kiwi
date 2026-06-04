@@ -69,6 +69,7 @@ import {
     reconstructVerticalTextFromChars,
     shouldInsertSpaceBetweenChars,
     shouldKeepCharsJoined,
+    splitLineCharsByDirection,
     sortTextChars,
     textCharBeginsNewWord,
 } from "./text";
@@ -1505,8 +1506,7 @@ export function tableExtractCharsText(chars: TableChar[], tolerance: number): st
 
 export function reconstructTextLinesFromChars(chars: TextChar[], tolerance: number): TextChar[][] {
     const prepared = dedupeTextChars(chars);
-    const horizontalChars = prepared.filter((char) => inferTextCharDirection(char) === "horizontal");
-    const verticalChars = prepared.filter((char) => inferTextCharDirection(char) === "vertical");
+    const { horizontal: horizontalChars, vertical: verticalChars } = splitLineCharsByDirection(prepared);
     const horizontalLines = reconstructHorizontalTextLines(horizontalChars, tolerance);
     const verticalLines = buildVerticalTextLines(verticalChars).map((line) => getPreparedLineChars(line));
 
