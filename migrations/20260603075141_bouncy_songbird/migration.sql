@@ -1,3 +1,18 @@
+DELETE FROM "system_prompts"
+WHERE "id" IN (
+	SELECT "id"
+	FROM (
+		SELECT
+			"id",
+			row_number() OVER (
+				PARTITION BY "graph_id"
+				ORDER BY "updated_at" DESC NULLS LAST, "created_at" DESC NULLS LAST, "id" DESC
+			) AS "prompt_rank"
+		FROM "system_prompts"
+	) "ranked_prompts"
+	WHERE "prompt_rank" > 1
+);
+--> statement-breakpoint
 ALTER TABLE "system_prompts" RENAME TO "graph_prompts";
 --> statement-breakpoint
 ALTER TABLE "graph_prompts" RENAME CONSTRAINT "system_prompts_pkey" TO "graph_prompts_pkey";

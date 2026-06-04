@@ -181,7 +181,7 @@ async function deletePromptResponse(
         return response.response;
     }
 
-    return status(204, null);
+    return status(200, successResponse(null));
 }
 
 const promptBody = t.Object({

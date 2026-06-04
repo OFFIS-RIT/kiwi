@@ -1,11 +1,15 @@
 import { roleIncludes } from "@kiwi/auth/permissions";
 import { db } from "@kiwi/db";
 import { memberTable, teamTable } from "@kiwi/db/tables/auth";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { AuthUser } from "../middleware/auth";
 import { API_ERROR_CODES } from "../types";
 import { getGraphById, resolveGraphOwnerRoot, type GraphRecord } from "./graph-access";
 import { getOrganizationMembership, getTeamRole } from "./team-access";
+
+const targetMemberTable = alias(memberTable, "target_member");
+const ADMIN_ROLE_PATTERN = "(^|,)[[:space:]]*admin[[:space:]]*(,|$)";
 
 type TeamRecord = {
     id: string;
@@ -38,18 +42,20 @@ export async function assertCanManageUserPrompts(user: AuthUser, targetUserId: s
         return;
     }
 
-    const membership = await getOrganizationMembership(user);
-    if (!membership || !roleIncludes(membership.role, "admin")) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-
-    const [targetMembership] = await db
+    const [adminMembership] = await db
         .select({ userId: memberTable.userId })
         .from(memberTable)
-        .where(and(eq(memberTable.organizationId, membership.organizationId), eq(memberTable.userId, targetUserId)))
+        .innerJoin(
+            targetMemberTable,
+            and(
+                eq(targetMemberTable.organizationId, memberTable.organizationId),
+                eq(targetMemberTable.userId, targetUserId)
+            )
+        )
+        .where(and(eq(memberTable.userId, user.id), sql<boolean>`${memberTable.role} ~ ${ADMIN_ROLE_PATTERN}`))
         .limit(1);
 
-    if (!targetMembership) {
+    if (!adminMembership) {
         throw new Error(API_ERROR_CODES.FORBIDDEN);
     }
 }
