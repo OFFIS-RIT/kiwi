@@ -356,7 +356,11 @@ OpenWorkflow uses `DATABASE_DIRECT_URL` instead of a separate workflow-specific 
 Use `DATABASE_URL` for pooled application queries and `DATABASE_DIRECT_URL` for migrations and workflow storage.
 
 The frontend uses `next-intl` with cookie-based locale selection via
-`NEXT_LOCALE`. Supported locales are `de` (default) and `en`.
+`NEXT_LOCALE`. Supported locales are `de` and `en`. A valid `NEXT_LOCALE`
+cookie takes precedence. If the cookie is missing or invalid, the frontend
+selects the preferred supported locale from `Accept-Language`, including region
+variants such as `en-US`; if no supported locale is requested, it falls back to
+`en`.
 
 For production, set these variables to the container-network endpoints used inside the Compose stack:
 

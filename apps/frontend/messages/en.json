@@ -143,6 +143,7 @@
     "language": "Language",
     "english": "English",
     "german": "German",
+    "autoDetectLanguage": "Auto detect",
     "app.build": "Build",
     "search": "Search",
     "search.placeholder": "Search groups and projects...",

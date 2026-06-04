@@ -1,18 +1,14 @@
 import { getRequestConfig } from "next-intl/server";
-import { cookies } from "next/headers";
-
-const SUPPORTED_LOCALES = ["de", "en"] as const;
-
-type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
-
-function isSupportedLocale(value: string | undefined): value is SupportedLocale {
-    return value === "de" || value === "en";
-}
+import { cookies, headers } from "next/headers";
+import { detectLocaleFromAcceptLanguage, isSupportedLocale } from "@/lib/i18n/locale";
 
 export default getRequestConfig(async () => {
     const cookieStore = await cookies();
+    const headerStore = await headers();
     const cookieLocale = cookieStore.get("NEXT_LOCALE")?.value;
-    const locale: SupportedLocale = isSupportedLocale(cookieLocale) ? cookieLocale : "de";
+    const locale = isSupportedLocale(cookieLocale)
+        ? cookieLocale
+        : detectLocaleFromAcceptLanguage(headerStore.get("accept-language"));
 
     return {
         locale,
