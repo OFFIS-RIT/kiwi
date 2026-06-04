@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fetchSourceReferences } from "@/lib/api/projects";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
@@ -486,11 +487,21 @@ export function MessageContent({
                                 key={sourceFile.key}
                                 variant="outline"
                                 size="sm"
-                                className="h-7 px-2 py-1 text-xs"
+                                className="h-7 gap-1.5 px-2 py-1 text-xs"
+                                aria-label={sourceFile.accessibleLabel}
                                 onClick={() => handleFileDownload(sourceFile.citation)}
                             >
-                                <FileText className="mr-1 h-3 w-3" />
-                                {sourceFile.label}
+                                <FileText className="h-3 w-3" />
+                                <span>{sourceFile.fileName}</span>
+                                {sourceFile.pageLabel !== null && (
+                                    <Badge
+                                        variant="secondary"
+                                        aria-hidden="true"
+                                        className="px-1 py-0 text-[0.625rem] font-normal"
+                                    >
+                                        {sourceFile.pageLabel}
+                                    </Badge>
+                                )}
                             </Button>
                         ))}
                     </div>

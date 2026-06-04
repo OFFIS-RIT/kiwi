@@ -354,12 +354,12 @@ describe("MessageContent", () => {
         ]);
 
         expect(screen.getAllByRole("button", { name: /document.pdf/i })).toHaveLength(2);
-        expect(screen.getByRole("button", { name: /document.pdf 1 - 4/i })).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /document.pdf 5 - 9/i })).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: /document.pdf 2/i })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /document\.pdf S\. 1 - 4/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /document\.pdf S\. 5 - 9/i })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /document\.pdf S\. 2/i })).not.toBeInTheDocument();
 
-        await userEvent.click(screen.getByRole("button", { name: /document.pdf 1 - 4/i }));
-        await userEvent.click(screen.getByRole("button", { name: /document.pdf 5 - 9/i }));
+        await userEvent.click(screen.getByRole("button", { name: /document\.pdf S\. 1 - 4/i }));
+        await userEvent.click(screen.getByRole("button", { name: /document\.pdf S\. 5 - 9/i }));
 
         expect(getProjectFileUrl).toHaveBeenNthCalledWith(1, expect.any(Object), "graph-1", "file-1", {
             fileName: "document.pdf",
