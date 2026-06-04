@@ -1,11 +1,13 @@
 import {
     buildAdapter,
+    buildChatValidationToolset,
     buildDeepResearchToolset,
     buildEmbeddingAdapter,
     buildMcpResearchToolset,
     buildServerAndClientToolset,
     buildServerToolset,
     buildSubagentToolset,
+    createChatSystemPrompt,
     getClient,
     isPDFCitation,
     isResolvedCitationFence,
@@ -20,7 +22,7 @@ import {
 } from "@kiwi/ai";
 import { db } from "@kiwi/db";
 import type { MessagePart } from "@kiwi/contracts/chat";
-import { chatTable, messageTable } from "@kiwi/db/tables/chats";
+import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
 import { teamPromptsTable, userPromptsTable } from "@kiwi/db/tables/auth";
 import { filesTable, sourcesTable, graphPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
@@ -30,6 +32,8 @@ import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
 import {
+    buildActiveChatContext,
+    createChatMessageValidator,
     createPendingAssistantMessage,
     ensureChatRecord,
     isCompactionMessage,
@@ -38,7 +42,6 @@ import {
     normalizeChatRequest,
     syncChatMessage,
     type ChatRequest,
-    type PromptOptions,
     type ChatRuntime,
 } from "./chat-compaction";
 import {
@@ -46,6 +49,13 @@ import {
     normalizeMessageCitationFences,
     type CitationResolver,
 } from "./chat-citation-normalization";
+import {
+    chatTargetLogContext,
+    chatTargetMatchesRow,
+    chatTargetWhere,
+    graphChatTarget,
+    type ChatTarget,
+} from "./chat-target";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { AuthUser } from "../middleware/auth";
 import { resolveGraphOwnerRoot, type RootOwner } from "./graph-access";
@@ -62,6 +72,20 @@ export {
 } from "./chat-compaction";
 
 type RuntimeToolset = "server" | "server-and-client" | "mcp";
+
+type PromptOptions = {
+    includeGraphTools?: boolean;
+    includeClientTools?: boolean;
+    includeSubagentTools?: boolean;
+};
+
+type ResearchPromptGuidance = {
+    userPrompts: string[];
+    teamPrompts: string[];
+    graphPrompts: string[];
+};
+
+type SharedResearchPromptGuidance = Omit<ResearchPromptGuidance, "graphPrompts">;
 
 type StartReplyOptions = {
     toolset: "server" | "server-and-client";
@@ -114,7 +138,7 @@ async function listGraphPromptTexts(graphId: string) {
     );
 }
 
-async function listUserPromptTexts(userId: string) {
+export async function listUserPromptTexts(userId: string) {
     return normalizePromptTexts(
         await db
             .select({ prompt: userPromptsTable.prompt })
@@ -125,20 +149,24 @@ async function listUserPromptTexts(userId: string) {
     );
 }
 
+export async function listTeamPromptTexts(teamId: string) {
+    return normalizePromptTexts(
+        await db
+            .select({ prompt: teamPromptsTable.prompt })
+            .from(teamPromptsTable)
+            .where(eq(teamPromptsTable.teamId, teamId))
+            .orderBy(asc(teamPromptsTable.createdAt), asc(teamPromptsTable.id))
+            .limit(MAX_PROMPTS_PER_SCOPE)
+    );
+}
+
 async function listTeamPromptTextsForGraph(graphId: string, knownRootOwner?: RootOwner) {
     const rootOwner = knownRootOwner ?? (await resolveGraphOwnerRoot(graphId));
     if (rootOwner.mode !== "team") {
         return [];
     }
 
-    return normalizePromptTexts(
-        await db
-            .select({ prompt: teamPromptsTable.prompt })
-            .from(teamPromptsTable)
-            .where(eq(teamPromptsTable.teamId, rootOwner.teamId))
-            .orderBy(asc(teamPromptsTable.createdAt), asc(teamPromptsTable.id))
-            .limit(MAX_PROMPTS_PER_SCOPE)
-    );
+    return listTeamPromptTexts(rootOwner.teamId);
 }
 
 export function toAssistantReply(assistantId: string, parts: MessagePart[], metadata: ChatMessageMetadata) {
@@ -232,21 +260,7 @@ export async function setChatArchived(chatId: string, userId: string, archived: 
         .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)));
 }
 
-export async function getGraphResearchRuntime(
-    graphId: string,
-    options: { toolset: RuntimeToolset; deep?: boolean; user?: AuthUser; rootOwner?: RootOwner } = { toolset: "server" }
-) {
-    const [graphPrompts, userPrompts, teamPrompts] = await Promise.all([
-        listGraphPromptTexts(graphId),
-        options.user ? listUserPromptTexts(options.user.id) : [],
-        options.user ? listTeamPromptTextsForGraph(graphId, options.rootOwner) : [],
-    ]);
-    const promptGuidance = {
-        userPrompts,
-        teamPrompts,
-        graphPrompts,
-    };
-
+export function getRequiredResearchClient() {
     const client = getClient({
         text: buildAdapter(
             env.AI_TEXT_ADAPTER,
@@ -275,29 +289,84 @@ export async function getGraphResearchRuntime(
         throw new Error("Text and embedding models are required");
     }
 
-    const requiredClient = {
+    return {
         ...client,
         text: client.text,
         embedding: client.embedding,
     };
+}
 
-    const toolsetOptions = { graphId, embeddingModel: requiredClient.embedding };
+export type RequiredResearchClient = ReturnType<typeof getRequiredResearchClient>;
+
+function createGraphResearchRuntime(options: {
+    graphId: string;
+    client: RequiredResearchClient;
+    toolset: RuntimeToolset;
+    deep?: boolean;
+    promptGuidance: ResearchPromptGuidance;
+}) {
+    const toolsetOptions = { graphId: options.graphId, embeddingModel: options.client.embedding };
     const baseToolset = buildBaseToolset(toolsetOptions, options.toolset);
     const tools = options.deep
         ? buildDeepResearchToolset(
               buildSubagentToolset({
                   ...toolsetOptions,
-                  model: requiredClient.subagent ?? requiredClient.text,
-                  promptGuidance,
+                  model: options.client.subagent ?? options.client.text,
+                  promptGuidance: options.promptGuidance,
               })
           )
         : baseToolset;
 
     return {
-        client: requiredClient,
+        client: options.client,
         tools,
-        promptGuidance,
+        promptGuidance: options.promptGuidance,
     };
+}
+
+export async function getGraphResearchRuntime(
+    graphId: string,
+    options: { toolset: RuntimeToolset; deep?: boolean; user?: AuthUser; rootOwner?: RootOwner } = { toolset: "server" }
+) {
+    const [graphPrompts, userPrompts, teamPrompts] = await Promise.all([
+        listGraphPromptTexts(graphId),
+        options.user ? listUserPromptTexts(options.user.id) : [],
+        options.user ? listTeamPromptTextsForGraph(graphId, options.rootOwner) : [],
+    ]);
+    const promptGuidance = {
+        userPrompts,
+        teamPrompts,
+        graphPrompts,
+    };
+
+    return createGraphResearchRuntime({
+        graphId,
+        client: getRequiredResearchClient(),
+        toolset: options.toolset,
+        deep: options.deep,
+        promptGuidance,
+    });
+}
+
+export async function getGraphResearchRuntimeWithSharedGuidance(
+    graphId: string,
+    options: {
+        client: RequiredResearchClient;
+        toolset: RuntimeToolset;
+        deep?: boolean;
+        promptGuidance: SharedResearchPromptGuidance;
+    }
+) {
+    return createGraphResearchRuntime({
+        graphId,
+        client: options.client,
+        toolset: options.toolset,
+        deep: options.deep,
+        promptGuidance: {
+            ...options.promptGuidance,
+            graphPrompts: await listGraphPromptTexts(graphId),
+        },
+    });
 }
 
 export function isContextOverflowError(error: unknown): boolean {
@@ -340,12 +409,27 @@ export async function refreshReplyContext(options: {
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
 }) {
-    const { context, systemPrompt } = await maybeCompactConversation({
+    const systemPrompt = createChatSystemPrompt(options.promptOptions ?? {});
+    const validateMessages = createChatMessageValidator(
+        buildChatValidationToolset({
+            graphId: options.graphId,
+            embeddingModel: options.runtime.client.embedding,
+            model: options.runtime.client.subagent ?? options.runtime.client.text,
+        })
+    );
+    const buildContext = (rows: ChatMessage[]) =>
+        buildActiveChatContext({
+            rows,
+            runtime: options.runtime,
+            systemPrompt,
+            validateMessages,
+        });
+    const { context } = await maybeCompactConversation({
         chatId: options.chatId,
-        graphId: options.graphId,
         runtime: options.runtime,
         rows: await loadChatRows(options.chatId),
-        promptOptions: options.promptOptions,
+        systemPrompt,
+        buildContext,
         forceCompaction: options.forceCompaction,
         abortSignal: options.abortSignal,
     });
@@ -363,7 +447,7 @@ export async function startReply(user: AuthUser, graphId: string, request: ChatR
     const { isNewChat } = await ensureChatRecord({
         chatId: normalizedRequest.id,
         userId: user.id,
-        graphId,
+        target: graphChatTarget(graphId),
         defaultTitle: DEFAULT_CHAT_TITLE,
     });
     await syncChatMessage({
@@ -437,7 +521,7 @@ function createCachedCitationResolver(graphId: string): CitationResolver {
     });
 }
 
-async function updateMessagePartsBatch(chatId: string, updates: Array<{ id: string; parts: MessagePart[] }>) {
+export async function updateMessagePartsBatch(chatId: string, updates: Array<{ id: string; parts: MessagePart[] }>) {
     if (updates.length === 0) {
         return;
     }
@@ -499,19 +583,21 @@ export async function resolveCitationDocumentLink(
     }
 }
 
-export async function loadChatSummary(userId: string, graphId: string, chatId: string) {
+export async function loadChatSummaryForTarget(userId: string, target: ChatTarget, chatId: string) {
     const [chat] = await db
         .select({
             id: chatTable.id,
             title: chatTable.title,
             userId: chatTable.userId,
+            scope: chatTable.scope,
             graphId: chatTable.graphId,
+            teamId: chatTable.teamId,
         })
         .from(chatTable)
         .where(eq(chatTable.id, chatId))
         .limit(1);
 
-    if (!chat || chat.userId !== userId || chat.graphId !== graphId) {
+    if (!chat || chat.userId !== userId || !chatTargetMatchesRow(chat, target)) {
         throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
     }
 
@@ -521,23 +607,33 @@ export async function loadChatSummary(userId: string, graphId: string, chatId: s
     };
 }
 
-export async function loadChatHistory(userId: string, graphId: string, chatId: string) {
-    const chat = await loadChatSummary(userId, graphId, chatId);
+export async function loadChatSummary(userId: string, graphId: string, chatId: string) {
+    return loadChatSummaryForTarget(userId, graphChatTarget(graphId), chatId);
+}
 
-    const rows = (await loadChatRows(chatId, { includeFailed: true })).filter(
+export async function loadChatHistoryForTarget(options: {
+    userId: string;
+    target: ChatTarget;
+    chatId: string;
+    resolveCitation: CitationResolver;
+    logLabel: string;
+}) {
+    const chat = await loadChatSummaryForTarget(options.userId, options.target, options.chatId);
+    const logContext = chatTargetLogContext(options.target);
+
+    const rows = (await loadChatRows(options.chatId, { includeFailed: true })).filter(
         (message) => !isCompactionMessage(message)
     );
 
-    const resolveCitation = createCachedCitationResolver(graphId);
     const normalizedRows = await Promise.all(
         rows.map(async (message) => {
             const normalizedResult = await Result.tryPromise(async () =>
-                normalizeMessageCitationFences(message.parts, resolveCitation)
+                normalizeMessageCitationFences(message.parts, options.resolveCitation)
             );
             if (normalizedResult.isErr()) {
-                logError("failed to normalize chat citations", {
-                    graphId,
-                    chatId,
+                logError(`failed to normalize ${options.logLabel} citations`, {
+                    ...logContext,
+                    chatId: options.chatId,
                     messageId: message.id,
                     error: normalizedResult.error,
                 });
@@ -554,9 +650,9 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
 
             const normalized = normalizedResult.value;
             if (normalized.unresolvedCitations.length > 0) {
-                logWarn("chat citation normalization hid unresolved citations without persisting", {
-                    graphId,
-                    chatId,
+                logWarn(`${options.logLabel} citation normalization hid unresolved citations without persisting`, {
+                    ...logContext,
+                    chatId: options.chatId,
                     messageId: message.id,
                     unresolvedCitationCount: normalized.unresolvedCitations.length,
                     sourceIds: normalized.unresolvedCitations.map((citation) => citation.sourceId).join(","),
@@ -576,11 +672,13 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
             : []
     );
 
-    const writeResult = await Result.tryPromise(async () => updateMessagePartsBatch(chatId, messagePartUpdates));
+    const writeResult = await Result.tryPromise(async () =>
+        updateMessagePartsBatch(options.chatId, messagePartUpdates)
+    );
     if (writeResult.isErr()) {
-        logError("failed to persist normalized citations", {
-            graphId,
-            chatId,
+        logError(`failed to persist normalized ${options.logLabel} citations`, {
+            ...logContext,
+            chatId: options.chatId,
             error: writeResult.error,
         });
     }
@@ -599,7 +697,21 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
     };
 }
 
-export async function listChats(userId: string, graphId: string, options: { offset?: number; limit?: number } = {}) {
+export async function loadChatHistory(userId: string, graphId: string, chatId: string) {
+    return loadChatHistoryForTarget({
+        userId,
+        target: graphChatTarget(graphId),
+        chatId,
+        resolveCitation: createCachedCitationResolver(graphId),
+        logLabel: "chat",
+    });
+}
+
+export async function listChatsForTarget(
+    userId: string,
+    target: ChatTarget,
+    options: { offset?: number; limit?: number } = {}
+) {
     const baseQuery = db
         .select({
             id: chatTable.id,
@@ -611,7 +723,7 @@ export async function listChats(userId: string, graphId: string, options: { offs
         .where(
             and(
                 eq(chatTable.userId, userId),
-                eq(chatTable.graphId, graphId),
+                chatTargetWhere(target),
                 isNull(chatTable.archivedAt),
                 isNull(chatTable.pinnedAt)
             )
@@ -640,6 +752,10 @@ export async function listChats(userId: string, graphId: string, options: { offs
         items,
         hasMore,
     };
+}
+
+export async function listChats(userId: string, graphId: string, options: { offset?: number; limit?: number } = {}) {
+    return listChatsForTarget(userId, graphChatTarget(graphId), options);
 }
 
 export function getFinishMetadata(options: {

@@ -102,7 +102,12 @@ export async function searchWorkspace(user: AuthUser, rawQuery: string): Promise
     const organizationId = membership.organizationId;
     const organizationAdmin = roleIncludes(membership.role, "admin");
     const accessibleTeamIds = organizationAdmin ? [] : await listAccessibleTeamIds(user.id, organizationId);
-    const accessibleGraphWhere = buildAccessibleGraphWhere(user.id, organizationId, accessibleTeamIds, organizationAdmin);
+    const accessibleGraphWhere = buildAccessibleGraphWhere(
+        user.id,
+        organizationId,
+        accessibleTeamIds,
+        organizationAdmin
+    );
     const graphScope = buildGraphScope();
     const projectScore = buildSearchScore(graphTable.name, query);
     const teamScore = buildSearchScore(teamTable.name, query);
@@ -130,7 +135,7 @@ export async function searchWorkspace(user: AuthUser, rawQuery: string): Promise
             )
             .orderBy(desc(projectScore), asc(graphTable.name))
             .limit(SEARCH_LIMIT),
-        (organizationAdmin
+        organizationAdmin
             ? db
                   .select({
                       id: teamTable.id,
@@ -158,7 +163,7 @@ export async function searchWorkspace(user: AuthUser, rawQuery: string): Promise
                     )
                     .orderBy(desc(teamScore), asc(teamTable.name))
                     .limit(SEARCH_LIMIT)
-              : Promise.resolve([])),
+              : Promise.resolve([]),
         db
             .select({
                 id: chatTable.id,
@@ -178,6 +183,7 @@ export async function searchWorkspace(user: AuthUser, rawQuery: string): Promise
             .where(
                 and(
                     eq(chatTable.userId, user.id),
+                    eq(chatTable.scope, "graph"),
                     isNull(chatTable.archivedAt),
                     isNull(graphTable.graphId),
                     eq(graphTable.hidden, false),
@@ -209,7 +215,12 @@ async function listAccessibleChats(
     const organizationId = membership.organizationId;
     const organizationAdmin = roleIncludes(membership.role, "admin");
     const accessibleTeamIds = organizationAdmin ? [] : await listAccessibleTeamIds(user.id, organizationId);
-    const accessibleGraphWhere = buildAccessibleGraphWhere(user.id, organizationId, accessibleTeamIds, organizationAdmin);
+    const accessibleGraphWhere = buildAccessibleGraphWhere(
+        user.id,
+        organizationId,
+        accessibleTeamIds,
+        organizationAdmin
+    );
     const graphScope = buildGraphScope();
 
     const baseQuery = db
@@ -230,6 +241,7 @@ async function listAccessibleChats(
         .where(
             and(
                 eq(chatTable.userId, user.id),
+                eq(chatTable.scope, "graph"),
                 isNull(graphTable.graphId),
                 eq(graphTable.hidden, false),
                 accessibleGraphWhere,
