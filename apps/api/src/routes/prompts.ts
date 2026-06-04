@@ -40,7 +40,10 @@ function isSerializationFailure(error: unknown): boolean {
 
 function mapPromptError(status: RouteStatus, error: unknown) {
     if (isSerializationFailure(error)) {
-        return status(400, errorResponse("Invalid prompt", API_ERROR_CODES.INVALID_PROMPT));
+        return status(
+            503,
+            errorResponse("Prompt write conflict; retry the request", API_ERROR_CODES.INTERNAL_SERVER_ERROR)
+        );
     }
 
     if (!(error instanceof Error)) {
