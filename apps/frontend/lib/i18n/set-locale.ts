@@ -4,7 +4,13 @@ import { cookies, headers } from "next/headers";
 
 function isSecureRequest(headerStore: Awaited<ReturnType<typeof headers>>) {
     const forwardedProto = headerStore.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
-    return forwardedProto === "https";
+    if (forwardedProto === "https") return true;
+    if (forwardedProto === "http") return false;
+
+    const host = headerStore.get("host")?.split(":")[0];
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1") return false;
+
+    return process.env.NODE_ENV === "production";
 }
 
 export async function setLocale(locale: "de" | "en") {
