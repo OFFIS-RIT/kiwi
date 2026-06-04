@@ -136,6 +136,13 @@ export function MessageContent({
             | { kind: "tool"; key: string; part: ToolPart };
         const rawItems: RawItem[] = [];
 
+        // Reference key of the citation we last emitted, kept only while no
+        // meaningful text has appeared since. Lets us collapse directly
+        // adjacent duplicate citations into a single inline badge. It is shared
+        // across consecutive final-answer text parts (which render as one
+        // contiguous block) and reset at block boundaries below.
+        let adjacentReferenceKey: string | null = null;
+
         // Convert a single text part into markdown, registering any citation
         // fences in the shared citation maps so badge numbers stay stable
         // across interim and final blocks.
@@ -144,6 +151,11 @@ export function MessageContent({
             for (const segment of splitTextWithCitationFences(text)) {
                 if (segment.type === "text") {
                     md += segment.text;
+                    // Whitespace between two fences still counts as "adjacent";
+                    // any non-whitespace text breaks the run.
+                    if (segment.text.trim().length > 0) {
+                        adjacentReferenceKey = null;
+                    }
                     continue;
                 }
                 if (!isResolvedCitationFence(segment.citation)) continue;
@@ -157,6 +169,12 @@ export function MessageContent({
                 }
                 citationBySourceId.set(segment.citation.sourceId, segment.citation);
                 sourceIndexMap.set(segment.citation.sourceId, citationIndex);
+
+                // Skip directly adjacent duplicates of the same resolved
+                // reference so they collapse into one badge; repeated citations
+                // separated by meaningful text still render distinct badges.
+                if (referenceKey === adjacentReferenceKey) continue;
+                adjacentReferenceKey = referenceKey;
                 md += `[[cite:${segment.citation.sourceId}]]`;
             }
             return md;
@@ -172,6 +190,8 @@ export function MessageContent({
             if (part.type === "reasoning") continue;
 
             if (isToolPart(part)) {
+                // A tool block renders separately, breaking visual adjacency.
+                adjacentReferenceKey = null;
                 if (toolNameOf(part) === "ask_clarifying_questions") continue;
                 rawItems.push({ kind: "tool", key: part.toolCallId, part });
                 continue;
@@ -184,6 +204,9 @@ export function MessageContent({
                 continue;
             }
 
+            // Each interim block renders in its own container, so adjacency
+            // must not carry across separate interim parts.
+            adjacentReferenceKey = null;
             const interimMarkdown = textPartToMarkdown(part.text).trim();
             if (interimMarkdown.length === 0) continue;
 

@@ -153,6 +153,59 @@ describe("MessageContent", () => {
         expect(screen.getAllByRole("button", { name: /document.pdf/i })).toHaveLength(1);
     });
 
+    test("collapses directly adjacent duplicate citations into a single badge", () => {
+        renderMessageContent([
+            {
+                type: "text",
+                text: `Alpha ${citationFence("src-1")}${citationFence("src-1")} Omega`,
+            },
+        ]);
+
+        expect(screen.getAllByText("1")).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: /document.pdf/i })).toHaveLength(1);
+    });
+
+    test("collapses adjacent duplicate citations separated only by whitespace", () => {
+        renderMessageContent([
+            {
+                type: "text",
+                text: `Alpha ${citationFence("src-1")} ${citationFence("src-1")} Omega`,
+            },
+        ]);
+
+        expect(screen.getAllByText("1")).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: /document.pdf/i })).toHaveLength(1);
+    });
+
+    test("collapses adjacent duplicate citations that straddle a text-part boundary", () => {
+        renderMessageContent([
+            { type: "text", text: `Alpha ${citationFence("src-1")}` },
+            { type: "text", text: `${citationFence("src-1")} Omega` },
+        ]);
+
+        expect(screen.getAllByText("1")).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: /document.pdf/i })).toHaveLength(1);
+    });
+
+    test("collapses adjacent citations from different source ids with the same resolved reference", () => {
+        const sameReference = {
+            fileId: "file-1",
+            fileKey: undefined,
+            fileType: "pdf",
+            startPage: 1,
+            endPage: 7,
+        };
+
+        renderMessageContent([
+            {
+                type: "text",
+                text: `Alpha ${citationFence("src-1", sameReference)}${citationFence("src-2", sameReference)} Omega`,
+            },
+        ]);
+
+        expect(screen.getAllByRole("button", { name: "1" })).toHaveLength(1);
+    });
+
     test("uses the same inline badge number for different source ids with the same resolved reference", () => {
         const sameReference = {
             fileId: "file-1",
