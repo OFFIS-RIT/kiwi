@@ -93,6 +93,10 @@ export async function assertCanManageGraphPrompts(user: AuthUser, graphId: strin
 
     const rootOwner = await resolveGraphOwnerRoot(graph.id);
     if (rootOwner.mode === "user") {
+        if (rootOwner.userId === user.id) {
+            return graph;
+        }
+
         throw new Error(API_ERROR_CODES.FORBIDDEN);
     }
 

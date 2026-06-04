@@ -44,6 +44,7 @@ const {
     assertCanPatchGraph,
     assertCanViewGraph,
 } = await import("../graph-access");
+const { assertCanManageGraphPrompts } = await import("../prompt-access");
 
 type AuthUser = Parameters<typeof assertCanViewGraph>[0];
 type GraphRecord = Awaited<ReturnType<typeof assertCanViewGraph>>;
@@ -196,6 +197,20 @@ describe("graph access", () => {
 
         queueDbResults([graph], [graph]);
         await expect(assertCanManageGraphFiles(buildUser(), graph.id)).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+    });
+
+    test("allows personal graph owners to manage graph prompts", async () => {
+        const graph = buildTeamGraph({ organizationId: null, teamId: null, userId: "user-1" });
+        queueDbResults([graph], [graph]);
+
+        await expect(assertCanManageGraphPrompts(buildUser(), graph.id)).resolves.toEqual(graph);
+    });
+
+    test("rejects graph prompt management for other users' personal graphs", async () => {
+        const graph = buildTeamGraph({ organizationId: null, teamId: null, userId: "user-2" });
+        queueDbResults([graph], [graph]);
+
+        await expect(assertCanManageGraphPrompts(buildUser(), graph.id)).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("allows organization admins to manage organization graphs", async () => {
