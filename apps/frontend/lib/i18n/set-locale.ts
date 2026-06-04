@@ -7,7 +7,8 @@ function isSecureRequest(headerStore: Awaited<ReturnType<typeof headers>>) {
     if (forwardedProto === "https") return true;
     if (forwardedProto === "http") return false;
 
-    const host = headerStore.get("host")?.split(":")[0];
+    const rawHost = headerStore.get("host") ?? "";
+    const host = rawHost.startsWith("[") ? rawHost.slice(1, rawHost.indexOf("]")) : rawHost.split(":")[0];
     if (host === "localhost" || host === "127.0.0.1" || host === "::1") return false;
 
     return process.env.NODE_ENV === "production";
