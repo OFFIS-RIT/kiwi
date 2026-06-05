@@ -2,7 +2,7 @@ import type { ChatUIMessage } from "@kiwi/ai/ui";
 
 function stripStaleStreamingMetadata(
     metadata: ChatUIMessage["metadata"] | undefined,
-    previousMetadata: ChatUIMessage["metadata"]
+    previousMetadata: NonNullable<ChatUIMessage["metadata"]>
 ): ChatUIMessage["metadata"] | undefined {
     if (!metadata) return metadata;
 
@@ -21,7 +21,7 @@ function stripStaleStreamingMetadata(
 
     const next = {
         ...rest,
-        ...(createdAt !== undefined && createdAt !== previousMetadata?.createdAt ? { createdAt } : {}),
+        ...(createdAt !== undefined && createdAt !== previousMetadata.createdAt ? { createdAt } : {}),
     };
 
     return Object.keys(next).length > 0 ? next : undefined;
@@ -56,6 +56,8 @@ export function stripPhantomPrefix(messages: ChatUIMessage[]): ChatUIMessage[] {
     if (!prev.metadata) return messages;
 
     const prefixLen = prev.parts.length;
+    // Equal lengths are valid while the follow-up stream is still waiting for
+    // its first fresh part; once new parts arrive, the phantom prefix is removed.
     if (prefixLen === 0 || last.parts.length < prefixLen) return messages;
 
     for (let i = 0; i < prefixLen; i++) {
