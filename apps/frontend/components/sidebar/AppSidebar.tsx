@@ -264,7 +264,7 @@ export function AppSidebar({
 
         if (target.type === "chat" && target.targetType === "team") {
             expandSidebarPath([target.teamId]);
-            router.push(`/${target.teamId}`);
+            router.push(`/${target.teamId}?chatId=${encodeURIComponent(target.id)}`);
             return;
         }
 
