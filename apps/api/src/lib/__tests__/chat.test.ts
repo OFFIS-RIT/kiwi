@@ -32,6 +32,7 @@ const { estimateToken } = await import("@kiwi/ai");
 const {
     deriveActiveCompaction,
     getProtectedTailStartIndex,
+    shouldRefreshGraphDataAfterCompletedWorkflow,
     isContextOverflowError,
     normalizeChatRequest,
     replaceOrAppendMessage,
@@ -84,6 +85,36 @@ function answeredClarificationMessage(message: ChatMessage): ChatMessage {
                 result: { answers: ["EMEA"] },
             },
         ],
+    };
+}
+
+function graphToolMessage(id: string, toolName = "search_entities", updatedAt = "2026-01-01T00:00:00.000Z") {
+    return {
+        ...textMessage(id, "assistant", ""),
+        updatedAt: new Date(updatedAt),
+        parts: [
+            {
+                type: "tool" as const,
+                toolCallId: "tool-1",
+                toolName,
+                execution: "server" as const,
+                status: "completed" as const,
+                args: { query: "water" },
+                result: "result",
+            },
+        ],
+    };
+}
+
+function timestampedTextMessage(
+    id: string,
+    role: "user" | "assistant" | "system",
+    text: string,
+    updatedAt: string
+) {
+    return {
+        ...textMessage(id, role, text),
+        updatedAt: new Date(updatedAt),
     };
 }
 
@@ -318,6 +349,69 @@ describe("chat context helpers", () => {
         expect(startsAssistantOutput("tool-input-start")).toBe(true);
         expect(startsAssistantOutput("start")).toBe(false);
         expect(startsAssistantOutput("error")).toBe(false);
+    });
+
+    test("flags graph data refresh when a workflow completed after prior graph tool use", () => {
+        expect(
+            shouldRefreshGraphDataAfterCompletedWorkflow({
+                rows: [
+                    textMessage("msg-refresh-1", "user", "what is in the graph?"),
+                    graphToolMessage("msg-refresh-2", "search_entities", "2026-01-01T00:00:00.000Z"),
+                    timestampedTextMessage(
+                        "msg-refresh-3",
+                        "user",
+                        "what changed after the upload?",
+                        "2026-01-03T00:00:00.000Z"
+                    ),
+                ],
+                completedWorkflowAt: new Date("2026-01-02T00:00:00.000Z"),
+            })
+        ).toBe(true);
+    });
+
+    test("does not flag graph data refresh without a new completed workflow for this chat", () => {
+        expect(
+            shouldRefreshGraphDataAfterCompletedWorkflow({
+                rows: [textMessage("msg-refresh-3", "assistant", "answer without tools")],
+                completedWorkflowAt: new Date("2026-01-02T00:00:00.000Z"),
+            })
+        ).toBe(false);
+        expect(
+            shouldRefreshGraphDataAfterCompletedWorkflow({
+                rows: [graphToolMessage("msg-refresh-4", "search_entities", "2026-01-03T00:00:00.000Z")],
+                completedWorkflowAt: new Date("2026-01-02T00:00:00.000Z"),
+            })
+        ).toBe(false);
+        expect(
+            shouldRefreshGraphDataAfterCompletedWorkflow({
+                rows: [graphToolMessage("msg-refresh-5", "ask_clarifying_questions", "2026-01-01T00:00:00.000Z")],
+                completedWorkflowAt: new Date("2026-01-02T00:00:00.000Z"),
+            })
+        ).toBe(false);
+        expect(
+            shouldRefreshGraphDataAfterCompletedWorkflow({
+                rows: [
+                    graphToolMessage("msg-refresh-6", "search_entities", "2026-01-01T00:00:00.000Z"),
+                    timestampedTextMessage("msg-refresh-7", "user", "what changed?", "2026-01-03T00:00:00.000Z"),
+                ],
+                completedWorkflowAt: null,
+            })
+        ).toBe(false);
+        expect(
+            shouldRefreshGraphDataAfterCompletedWorkflow({
+                rows: [graphToolMessage("msg-refresh-8", "search_entities", "2026-01-01T00:00:00.000Z")],
+                completedWorkflowAt: new Date("2026-01-02T00:00:00.000Z"),
+            })
+        ).toBe(false);
+        expect(
+            shouldRefreshGraphDataAfterCompletedWorkflow({
+                rows: [
+                    graphToolMessage("msg-refresh-9", "search_entities", "2026-01-01T00:00:00.000Z"),
+                    timestampedTextMessage("msg-refresh-10", "user", "thanks!", "2026-01-03T00:00:00.000Z"),
+                ],
+                completedWorkflowAt: new Date("2026-01-02T00:00:00.000Z"),
+            })
+        ).toBe(false);
     });
 
     test("bounds repeated compaction attempts", () => {

@@ -2,13 +2,46 @@ export type ChatPromptOptions = {
     includeGraphTools?: boolean;
     includeClientTools?: boolean;
     includeSubagentTools?: boolean;
+    graphDataRefresh?: {
+        processedAt?: string;
+    };
 };
+
+function createGraphDataRefreshSection(options: {
+    notice?: ChatPromptOptions["graphDataRefresh"];
+    includeGraphTools: boolean;
+    useSubagentOnlyInstructions: boolean;
+}) {
+    if (!options.notice) {
+        return [];
+    }
+
+    const refreshInstruction = options.includeGraphTools
+        ? "- Before answering a request that depends on graph contents, run fresh graph exploration instead of relying on earlier tool results."
+        : options.useSubagentOnlyInstructions
+          ? "- Before answering a request that depends on graph contents, delegate fresh graph exploration instead of relying on earlier subagent results."
+          : "- Treat earlier graph-derived context as potentially stale when answering.";
+
+    return [
+        "# Graph Data Refresh Notice",
+        "A graph processing workflow completed after earlier graph tool calls in this chat.",
+        ...(options.notice.processedAt ? [`Most recent completed workflow marker: ${options.notice.processedAt}.`] : []),
+        "- Treat previous graph tool outputs, source lists, and citation IDs as potentially stale.",
+        refreshInstruction,
+        "- Reuse earlier citations only after verifying they still support the current answer, or when the user asks only about the conversation itself.",
+    ];
+}
 
 export function createChatPrompt(options: ChatPromptOptions = {}) {
     const includeGraphTools = options.includeGraphTools ?? true;
     const includeClientTools = options.includeClientTools ?? true;
     const includeSubagentTools = options.includeSubagentTools ?? false;
     const useSubagentOnlyInstructions = !includeGraphTools && includeSubagentTools;
+    const graphDataRefreshSection = createGraphDataRefreshSection({
+        notice: options.graphDataRefresh,
+        includeGraphTools,
+        useSubagentOnlyInstructions,
+    });
     const availableToolLines = [
         ...(includeGraphTools
             ? [
@@ -69,6 +102,8 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
         "# Available Tools",
         ...availableToolLines,
         "",
+        ...graphDataRefreshSection,
+        ...(graphDataRefreshSection.length > 0 ? [""] : []),
         "# Tool Usage And Retrieval Rules",
         includeGraphTools
             ? "- Explore the graph before writing the answer. Identify the relevant entities, relationships, files, and connections, but use whatever exploration order best fits the question."

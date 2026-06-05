@@ -8,6 +8,7 @@ import { createChatPrompt, type ChatPromptOptions } from "./prompts/chat.prompt"
 import { buildServerAndClientToolset } from "./tools/toolsets";
 import type { Adapter, EmbeddingAdapter } from "./index";
 import type { ChatMessageMetadata, ChatUIMessage } from "./ui";
+export type { ChatPromptOptions } from "./prompts/chat.prompt";
 export {
     chatDataPartSchemas,
     chatMessageMetadataSchema,

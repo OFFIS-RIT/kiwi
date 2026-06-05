@@ -16,6 +16,7 @@ import {
     type ChatMessageMetadata,
     type ChatUIMessage,
     type CitationFence,
+    type ChatPromptOptions,
     type GraphToolsetOptions,
     type ResolvedCitationFence,
     uiMessageToMessageParts,
@@ -24,10 +25,10 @@ import { db } from "@kiwi/db";
 import type { MessagePart } from "@kiwi/contracts/chat";
 import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
 import { teamPromptsTable, userPromptsTable } from "@kiwi/db/tables/auth";
-import { filesTable, sourcesTable, graphPromptsTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { filesTable, graphPromptsTable, processRunsTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { Result } from "better-result";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
@@ -73,12 +74,6 @@ export {
 
 type RuntimeToolset = "server" | "server-and-client" | "mcp";
 
-type PromptOptions = {
-    includeGraphTools?: boolean;
-    includeClientTools?: boolean;
-    includeSubagentTools?: boolean;
-};
-
 type ResearchPromptGuidance = {
     userPrompts: string[];
     teamPrompts: string[];
@@ -91,7 +86,7 @@ type StartReplyOptions = {
     toolset: "server" | "server-and-client";
     deep?: boolean;
     rootOwner?: RootOwner;
-    promptOptions?: PromptOptions;
+    promptOptions?: ChatPromptOptions;
     abortSignal?: AbortSignal;
 };
 
@@ -102,6 +97,21 @@ type PromptTextRow = {
 export const DEFAULT_CHAT_TITLE = "...";
 
 const unresolvedCitationCache = new Map<string, number>();
+const GRAPH_RETRIEVAL_TOOL_NAMES = new Set([
+    "list_files",
+    "search_entities",
+    "list_entities",
+    "search_relationships",
+    "get_relationships",
+    "get_entity_neighbours",
+    "get_path_between_entities",
+    "get_entity_sources",
+    "get_relationship_sources",
+    "explore_graph_with_subagent",
+    "curate_sources_with_subagent",
+]);
+const ACKNOWLEDGEMENT_ONLY_PATTERN =
+    /^(?:thanks?|thank you|thx|ok(?:ay)?|got it|great|nice|cool|perfect|sounds good|all right|alright|yes|yeah|yep|no|nope)[.!?\s]*$/i;
 const CONTEXT_OVERFLOW_PATTERNS = [
     "maximum context length",
     "context window",
@@ -125,6 +135,130 @@ function buildBaseToolset(options: GraphToolsetOptions, toolset: RuntimeToolset)
 
 function normalizePromptTexts(rows: PromptTextRow[]) {
     return rows.map((row) => row.prompt.trim()).filter((prompt) => prompt.length > 0);
+}
+
+function hasCompletedGraphRetrieval(message: Pick<ChatMessage, "role" | "parts">) {
+    return (
+        message.role === "assistant" &&
+        message.parts.some(
+            (part) =>
+                part.type === "tool" &&
+                part.status === "completed" &&
+                GRAPH_RETRIEVAL_TOOL_NAMES.has(part.toolName)
+        )
+    );
+}
+
+function hasCompletedClarificationResult(message: Pick<ChatMessage, "role" | "parts">) {
+    return (
+        message.role === "assistant" &&
+        message.parts.some(
+            (part) =>
+                part.type === "tool" &&
+                part.status === "completed" &&
+                part.toolName === "ask_clarifying_questions"
+        )
+    );
+}
+
+function getMessageOccurredAt(message: Pick<ChatMessage, "createdAt" | "updatedAt">) {
+    return message.updatedAt ?? message.createdAt;
+}
+
+function getMessageText(message: Pick<ChatMessage, "parts">) {
+    return message.parts
+        .filter((part): part is Extract<MessagePart, { type: "text" }> => part.type === "text")
+        .map((part) => part.text)
+        .join("")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function isAcknowledgementOnlyTurn(message: Pick<ChatMessage, "role" | "parts">) {
+    if (message.role !== "user") {
+        return false;
+    }
+
+    const text = getMessageText(message);
+    return text.length > 0 && text.length <= 80 && ACKNOWLEDGEMENT_ONLY_PATTERN.test(text);
+}
+
+function getLatestGraphRetrievalAt(
+    rows: Array<Pick<ChatMessage, "role" | "parts" | "createdAt" | "updatedAt">>
+) {
+    let latest: Date | null = null;
+
+    for (const row of rows) {
+        if (!hasCompletedGraphRetrieval(row)) {
+            continue;
+        }
+
+        const occurredAt = getMessageOccurredAt(row);
+        if (occurredAt && (!latest || occurredAt > latest)) {
+            latest = occurredAt;
+        }
+    }
+
+    return latest;
+}
+
+function getLatestReplyTrigger(rows: Array<Pick<ChatMessage, "role" | "parts" | "createdAt" | "updatedAt">>) {
+    return [...rows]
+        .reverse()
+        .find((row) => row.role === "user" || hasCompletedClarificationResult(row));
+}
+
+export function shouldRefreshGraphDataAfterCompletedWorkflow(options: {
+    rows: Array<Pick<ChatMessage, "role" | "parts" | "createdAt" | "updatedAt">>;
+    completedWorkflowAt?: Date | null;
+}) {
+    if (!options.completedWorkflowAt) {
+        return false;
+    }
+
+    const latestGraphRetrievalAt = getLatestGraphRetrievalAt(options.rows);
+    if (latestGraphRetrievalAt === null || options.completedWorkflowAt <= latestGraphRetrievalAt) {
+        return false;
+    }
+
+    const latestReplyTrigger = getLatestReplyTrigger(options.rows);
+    if (!latestReplyTrigger || isAcknowledgementOnlyTurn(latestReplyTrigger)) {
+        return false;
+    }
+
+    const latestReplyTriggerAt = getMessageOccurredAt(latestReplyTrigger);
+
+    return latestReplyTriggerAt !== null && latestReplyTriggerAt > latestGraphRetrievalAt;
+}
+
+async function getLatestCompletedWorkflowAt(graphId: string) {
+    const [run] = await db
+        .select({ completedAt: processRunsTable.completedAt })
+        .from(processRunsTable)
+        .where(
+            and(
+                eq(processRunsTable.graphId, graphId),
+                eq(processRunsTable.status, "completed"),
+                isNotNull(processRunsTable.completedAt)
+            )
+        )
+        .orderBy(desc(processRunsTable.completedAt), desc(processRunsTable.id))
+        .limit(1);
+
+    return run?.completedAt ?? null;
+}
+
+function createGraphDataRefreshNotice(options: {
+    rows: ChatMessage[];
+    completedWorkflowAt?: Date | null;
+}): ChatPromptOptions["graphDataRefresh"] | undefined {
+    if (!shouldRefreshGraphDataAfterCompletedWorkflow(options)) {
+        return undefined;
+    }
+
+    return {
+        processedAt: options.completedWorkflowAt?.toISOString(),
+    };
 }
 
 async function listGraphPromptTexts(graphId: string) {
@@ -405,11 +539,17 @@ export async function refreshReplyContext(options: {
     chatId: string;
     graphId: string;
     runtime: ChatRuntime;
-    promptOptions?: PromptOptions;
+    promptOptions?: ChatPromptOptions;
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
 }) {
-    const systemPrompt = createChatSystemPrompt(options.promptOptions ?? {});
+    const rows = await loadChatRows(options.chatId);
+    const completedWorkflowAt = await getLatestCompletedWorkflowAt(options.graphId);
+    const graphDataRefresh = createGraphDataRefreshNotice({ rows, completedWorkflowAt });
+    const systemPrompt = createChatSystemPrompt({
+        ...(options.promptOptions ?? {}),
+        ...(graphDataRefresh ? { graphDataRefresh } : {}),
+    });
     const validateMessages = createChatMessageValidator(
         buildChatValidationToolset({
             graphId: options.graphId,
@@ -427,7 +567,7 @@ export async function refreshReplyContext(options: {
     const { context } = await maybeCompactConversation({
         chatId: options.chatId,
         runtime: options.runtime,
-        rows: await loadChatRows(options.chatId),
+        rows,
         systemPrompt,
         buildContext,
         forceCompaction: options.forceCompaction,
