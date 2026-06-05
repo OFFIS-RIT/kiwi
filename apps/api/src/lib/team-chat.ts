@@ -379,6 +379,11 @@ function buildTeamChatToolset(options: {
     } satisfies TeamChatToolset;
 }
 
+/**
+ * Creates the team-chat runtime around a mutable question context.
+ * Callers must run `refreshTeamReplyContext` before executing tools so
+ * `query_graphs` sees the latest conversation context.
+ */
 export async function getTeamChatRuntime(options: {
     user: AuthUser;
     team: TeamAccessTeam;

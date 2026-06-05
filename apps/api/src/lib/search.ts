@@ -92,9 +92,9 @@ function buildAccessibleGraphWhere(
     organizationId: string,
     accessibleTeamIds: string[],
     organizationAdmin: boolean
-) {
+): SQL {
     if (organizationAdmin) {
-        return or(eq(graphTable.organizationId, organizationId), eq(graphTable.userId, userId));
+        return or(eq(graphTable.organizationId, organizationId), eq(graphTable.userId, userId)) ?? sql<boolean>`false`;
     }
 
     const teamAccess =
@@ -102,10 +102,12 @@ function buildAccessibleGraphWhere(
             ? and(eq(graphTable.organizationId, organizationId), inArray(graphTable.teamId, accessibleTeamIds))
             : undefined;
 
-    return or(
-        eq(graphTable.userId, userId),
-        and(eq(graphTable.organizationId, organizationId), isNull(graphTable.teamId)),
-        ...(teamAccess ? [teamAccess] : [])
+    return (
+        or(
+            eq(graphTable.userId, userId),
+            and(eq(graphTable.organizationId, organizationId), isNull(graphTable.teamId)),
+            ...(teamAccess ? [teamAccess] : [])
+        ) ?? sql<boolean>`false`
     );
 }
 
@@ -127,21 +129,27 @@ function buildAccessibleTeamChatWhere(
     return and(eq(teamOrganizationIdColumn, organizationId), inArray(teamIdColumn, accessibleTeamIds));
 }
 
-function buildAccessibleChatWhere(accessibleGraphWhere: SQL | undefined, accessibleTeamChatWhere: SQL | undefined) {
+function buildAccessibleChatWhere(accessibleGraphWhere: SQL, accessibleTeamChatWhere: SQL | undefined): SQL {
     // Graph chats are only searchable while their graph row still exists and is accessible.
-    const graphChatWhere = and(
-        eq(chatTable.scope, "graph"),
-        isNotNull(chatTable.graphId),
-        isNull(chatTable.teamId),
-        isNull(graphTable.graphId),
-        eq(graphTable.hidden, false),
-        accessibleGraphWhere
-    )!;
+    const graphChatWhere =
+        and(
+            eq(chatTable.scope, "graph"),
+            isNotNull(chatTable.graphId),
+            isNull(chatTable.teamId),
+            isNull(graphTable.graphId),
+            eq(graphTable.hidden, false),
+            accessibleGraphWhere
+        ) ?? sql<boolean>`false`;
     const teamChatWhere = accessibleTeamChatWhere
-        ? and(eq(chatTable.scope, "team"), isNull(chatTable.graphId), isNotNull(chatTable.teamId), accessibleTeamChatWhere)
+        ? (and(
+              eq(chatTable.scope, "team"),
+              isNull(chatTable.graphId),
+              isNotNull(chatTable.teamId),
+              accessibleTeamChatWhere
+          ) ?? sql<boolean>`false`)
         : undefined;
 
-    return or(graphChatWhere, ...(teamChatWhere ? [teamChatWhere] : []))!;
+    return or(graphChatWhere, ...(teamChatWhere ? [teamChatWhere] : [])) ?? sql<boolean>`false`;
 }
 
 type ChatResultRow = {
