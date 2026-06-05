@@ -198,8 +198,10 @@ export async function runChatCompletion(reply: StartedChatReply) {
     let retriedAfterCompaction = false;
     let firstOutputAt: number | null = null;
 
-    const runGeneration = () =>
-        generateText({
+    const runGeneration = () => {
+        firstOutputAt = Date.now();
+
+        return generateText({
             model: reply.client.text,
             messages: activeContextMessages,
             system: activeSystemPrompt,
@@ -208,6 +210,7 @@ export async function runChatCompletion(reply: StartedChatReply) {
             stopWhen: stepCountIs(50),
             providerOptions: getProviderOptions({ thinking: "medium" }),
         });
+    };
 
     let result;
     try {
