@@ -37,6 +37,8 @@ export function ArchivedChatList() {
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             if (chat.targetType === "graph") {
                 queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(chat.projectId) });
+            } else {
+                queryClient.invalidateQueries({ queryKey: queryKeys.teamChats(chat.teamId) });
             }
         },
         onError: () => {

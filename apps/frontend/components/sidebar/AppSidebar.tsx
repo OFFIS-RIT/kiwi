@@ -264,7 +264,7 @@ export function AppSidebar({
 
         if (target.type === "chat" && target.targetType === "team") {
             expandSidebarPath([target.teamId]);
-            router.push(`/${target.teamId}?chatId=${encodeURIComponent(target.id)}`);
+            router.push(`/${target.teamId}`);
             return;
         }
 
@@ -612,6 +612,8 @@ function PinnedChatItem({
         queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
         if (chat.targetType === "graph") {
             queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(chat.projectId) });
+        } else {
+            queryClient.invalidateQueries({ queryKey: queryKeys.teamChats(chat.teamId) });
         }
     };
 
