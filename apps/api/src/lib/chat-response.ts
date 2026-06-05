@@ -196,7 +196,7 @@ export async function runChatCompletion(reply: StartedChatReply) {
     let activeContextMessages = reply.contextMessages;
     let activeSystemPrompt = reply.systemPrompt;
     let retriedAfterCompaction = false;
-    const firstOutputAt: number | null = null;
+    let firstOutputAt: number | null = null;
 
     const runGeneration = () =>
         generateText({

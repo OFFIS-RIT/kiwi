@@ -61,6 +61,7 @@ function buildGraphScope() {
 function buildChatScope() {
     return sql<"organization" | "team" | "private">`
         CASE
+            -- Team chats have no joined graph row, so this discriminator must stay before graph-derived branches.
             WHEN ${chatTable.scope} = 'team' THEN 'team'
             WHEN ${graphTable.userId} IS NOT NULL THEN 'private'
             WHEN ${graphTable.teamId} IS NOT NULL THEN 'team'
