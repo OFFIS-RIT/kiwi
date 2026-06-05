@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { ChatUIMessage } from "@kiwi/ai";
+import { toUIMessage, type ChatUIMessage } from "@kiwi/ai";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
+import type { ChatRuntime } from "../chat-compaction";
 import { API_ERROR_CODES } from "../../types";
 
 const dbMock: { insert?: ReturnType<typeof mock> } = {};
@@ -39,6 +40,7 @@ const {
 const {
     assertCompactionAttemptsRemaining,
     buildActiveChatContext,
+    createChatMessageValidator,
     getRawTailTargetTokens,
     getSoftCompactionThreshold,
     maybeCompactConversation,
@@ -46,6 +48,8 @@ const {
     serializeCompactionTranscript,
     syncChatMessage,
 } = await import("../chat-compaction");
+const { chatTargetInsertValues, chatTargetMatchesRow, graphChatTarget, teamChatTarget } =
+    await import("../chat-target");
 
 function textMessage(id: string, role: "user" | "assistant" | "system", text: string) {
     return {
@@ -81,6 +85,18 @@ function answeredClarificationMessage(message: ChatMessage): ChatMessage {
             },
         ],
     };
+}
+
+function buildTestContext(runtime: ChatRuntime, systemPrompt = "system prompt") {
+    const validateMessages = createChatMessageValidator({});
+
+    return (rows: ChatMessage[]) =>
+        buildActiveChatContext({
+            rows,
+            runtime,
+            systemPrompt,
+            validateMessages,
+        });
 }
 
 describe("chat request normalization", () => {
@@ -128,6 +144,39 @@ describe("chat request normalization", () => {
 });
 
 describe("chat context helpers", () => {
+    test("models graph and team chat targets explicitly", () => {
+        expect(chatTargetInsertValues(graphChatTarget("graph-1"))).toEqual({
+            scope: "graph",
+            graphId: "graph-1",
+            teamId: null,
+        });
+        expect(chatTargetInsertValues(teamChatTarget("team-1"))).toEqual({
+            scope: "team",
+            graphId: null,
+            teamId: "team-1",
+        });
+        expect(
+            chatTargetMatchesRow(
+                {
+                    scope: "graph",
+                    graphId: "graph-1",
+                    teamId: null,
+                },
+                graphChatTarget("graph-1")
+            )
+        ).toBe(true);
+        expect(
+            chatTargetMatchesRow(
+                {
+                    scope: "graph",
+                    graphId: "graph-1",
+                    teamId: null,
+                },
+                teamChatTarget("team-1")
+            )
+        ).toBe(false);
+    });
+
     test("replaces an existing message by id when client tool output mutates it", () => {
         expect(
             replaceOrAppendMessage(
@@ -293,19 +342,22 @@ describe("chat context helpers", () => {
             const rows: ChatMessage[] = Array.from({ length: 6 }, (_, index) =>
                 textMessage(`msg-soft-${index + 1}`, index % 2 === 0 ? "user" : "assistant", "token ".repeat(30))
             );
+            const runtime = {
+                client: {
+                    text: {} as never,
+                    embedding: {} as never,
+                },
+                tools: {},
+            };
+            const systemPrompt = "system prompt";
 
             await expect(
                 maybeCompactConversation({
                     chatId: "chat-1",
-                    graphId: "graph-1",
                     rows,
-                    runtime: {
-                        client: {
-                            text: {} as never,
-                            embedding: {} as never,
-                        },
-                        tools: {},
-                    },
+                    runtime,
+                    systemPrompt,
+                    buildContext: buildTestContext(runtime, systemPrompt),
                 })
             ).resolves.toHaveProperty("context");
 
@@ -323,19 +375,22 @@ describe("chat context helpers", () => {
             const rows: ChatMessage[] = Array.from({ length: 6 }, (_, index) =>
                 textMessage(`msg-forced-${index + 1}`, index % 2 === 0 ? "user" : "assistant", "token ".repeat(30))
             );
+            const runtime = {
+                client: {
+                    text: {} as never,
+                    embedding: {} as never,
+                },
+                tools: {},
+            };
+            const systemPrompt = "system prompt";
 
             await expect(
                 maybeCompactConversation({
                     chatId: "chat-1",
-                    graphId: "graph-1",
                     rows,
-                    runtime: {
-                        client: {
-                            text: {} as never,
-                            embedding: {} as never,
-                        },
-                        tools: {},
-                    },
+                    runtime,
+                    systemPrompt,
+                    buildContext: buildTestContext(runtime, systemPrompt),
                     forceCompaction: true,
                 })
             ).rejects.toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
@@ -359,10 +414,10 @@ describe("chat context helpers", () => {
         };
 
         const context = await buildActiveChatContext({
-            graphId: "graph-1",
             rows: [textMessage("msg-tool-estimate", "user", "hello")],
             runtime,
             systemPrompt: "system prompt",
+            validateMessages: createChatMessageValidator({}),
         });
 
         expect(context.estimatedPromptTokens).toBe(
@@ -389,7 +444,6 @@ describe("chat context helpers", () => {
         };
 
         const context = await buildActiveChatContext({
-            graphId: "graph-1",
             rows: [
                 textMessage("msg-guidance-1", "user", "first question"),
                 textMessage("msg-guidance-2", "assistant", "first answer"),
@@ -397,6 +451,7 @@ describe("chat context helpers", () => {
             ],
             runtime,
             systemPrompt: "system prompt",
+            validateMessages: createChatMessageValidator({}),
         });
 
         const guidanceIndex = context.contextMessages.findIndex((message) =>
@@ -415,6 +470,34 @@ describe("chat context helpers", () => {
                 })
             )
         );
+    });
+
+    test("supports scoped context builders without duplicating the compaction loop", async () => {
+        const runtime = {
+            client: {
+                text: {} as never,
+                embedding: {} as never,
+            },
+            tools: {},
+        };
+        const systemPrompt = "team chat system prompt";
+
+        const { context } = await maybeCompactConversation({
+            chatId: "team-chat-1",
+            rows: [textMessage("team-msg-1", "user", "hello team")],
+            runtime,
+            systemPrompt,
+            buildContext: (rows) =>
+                buildActiveChatContext({
+                    rows,
+                    runtime,
+                    systemPrompt,
+                    validateMessages: async (rawTailRows) => rawTailRows.map((message) => toUIMessage(message)),
+                }),
+        });
+
+        expect(context.contextMessages).toHaveLength(1);
+        expect(JSON.stringify(context.contextMessages[0])).toContain("hello team");
     });
 
     test("rejects a latest message id that belongs to another chat", async () => {

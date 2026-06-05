@@ -3,13 +3,15 @@ import { db } from "@kiwi/db";
 import { chatTable } from "@kiwi/db/tables/chats";
 import { teamMemberTable, teamTable } from "@kiwi/db/tables/auth";
 import { graphTable } from "@kiwi/db/tables/graph";
-import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { alias, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { AuthUser } from "../middleware/auth";
-import type { ChatLibrarySuccessData, SearchSuccessData } from "../types/routes";
+import type { ChatLibraryItem, ChatLibrarySuccessData, SearchChatItem, SearchSuccessData } from "../types/routes";
 import { requireOrganizationMembership } from "./team-access";
 
 const SEARCH_LIMIT = 8;
+const chatGraphTeamTable = alias(teamTable, "chat_graph_team");
+const chatTargetTeamTable = alias(teamTable, "chat_target_team");
 
 function escapeLike(value: string) {
     return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
@@ -56,14 +58,44 @@ function buildGraphScope() {
     `;
 }
 
+function buildChatScope() {
+    return sql<"organization" | "team" | "private">`
+        CASE
+            -- Team chats have no joined graph row, so this discriminator must stay before graph-derived branches.
+            WHEN ${chatTable.scope} = 'team' THEN 'team'
+            WHEN ${graphTable.userId} IS NOT NULL THEN 'private'
+            WHEN ${graphTable.teamId} IS NOT NULL THEN 'team'
+            ELSE 'organization'
+        END
+    `;
+}
+
+function buildChatTeamId() {
+    return sql<string | null>`
+        CASE
+            WHEN ${chatTable.scope} = 'team' THEN ${chatTable.teamId}
+            ELSE ${graphTable.teamId}
+        END
+    `;
+}
+
+function buildChatTeamName(graphTeamNameColumn: AnyPgColumn, chatTeamNameColumn: AnyPgColumn) {
+    return sql<string | null>`
+        CASE
+            WHEN ${chatTable.scope} = 'team' THEN ${chatTeamNameColumn}
+            ELSE ${graphTeamNameColumn}
+        END
+    `;
+}
+
 function buildAccessibleGraphWhere(
     userId: string,
     organizationId: string,
     accessibleTeamIds: string[],
     organizationAdmin: boolean
-) {
+): SQL {
     if (organizationAdmin) {
-        return or(eq(graphTable.organizationId, organizationId), eq(graphTable.userId, userId));
+        return or(eq(graphTable.organizationId, organizationId), eq(graphTable.userId, userId)) ?? sql<boolean>`false`;
     }
 
     const teamAccess =
@@ -71,11 +103,115 @@ function buildAccessibleGraphWhere(
             ? and(eq(graphTable.organizationId, organizationId), inArray(graphTable.teamId, accessibleTeamIds))
             : undefined;
 
-    return or(
-        eq(graphTable.userId, userId),
-        and(eq(graphTable.organizationId, organizationId), isNull(graphTable.teamId)),
-        ...(teamAccess ? [teamAccess] : [])
+    return (
+        or(
+            eq(graphTable.userId, userId),
+            and(eq(graphTable.organizationId, organizationId), isNull(graphTable.teamId)),
+            ...(teamAccess ? [teamAccess] : [])
+        ) ?? sql<boolean>`false`
     );
+}
+
+function buildAccessibleTeamChatWhere(
+    organizationId: string,
+    accessibleTeamIds: string[],
+    organizationAdmin: boolean,
+    teamIdColumn: AnyPgColumn,
+    teamOrganizationIdColumn: AnyPgColumn
+): SQL | undefined {
+    if (organizationAdmin) {
+        return eq(teamOrganizationIdColumn, organizationId);
+    }
+
+    if (accessibleTeamIds.length === 0) {
+        // Non-admins only search team chats for teams they can still access.
+        return undefined;
+    }
+
+    return and(eq(teamOrganizationIdColumn, organizationId), inArray(teamIdColumn, accessibleTeamIds));
+}
+
+function buildAccessibleChatWhere(accessibleGraphWhere: SQL, accessibleTeamChatWhere: SQL | undefined): SQL {
+    // Graph chats are only searchable while their graph row still exists and is accessible.
+    const graphChatWhere =
+        and(
+            eq(chatTable.scope, "graph"),
+            isNotNull(chatTable.graphId),
+            isNull(chatTable.teamId),
+            isNull(graphTable.graphId),
+            eq(graphTable.hidden, false),
+            accessibleGraphWhere
+        ) ?? sql<boolean>`false`;
+    const teamChatWhere = accessibleTeamChatWhere
+        ? (and(
+              eq(chatTable.scope, "team"),
+              isNull(chatTable.graphId),
+              isNotNull(chatTable.teamId),
+              accessibleTeamChatWhere
+          ) ?? sql<boolean>`false`)
+        : undefined;
+
+    return or(graphChatWhere, ...(teamChatWhere ? [teamChatWhere] : [])) ?? sql<boolean>`false`;
+}
+
+type ChatResultRow = {
+    id: string;
+    title: string;
+    isPinned: boolean;
+    targetType: "graph" | "team";
+    projectId: string | null;
+    projectName: string | null;
+    scope: "organization" | "team" | "private";
+    teamId: string | null;
+    teamName: string | null;
+};
+
+function toSearchChatItem(row: ChatResultRow): SearchChatItem | null {
+    if (row.targetType === "team") {
+        if (!row.teamId || !row.teamName) {
+            return null;
+        }
+
+        return {
+            id: row.id,
+            title: row.title,
+            isPinned: row.isPinned,
+            targetType: "team",
+            projectId: null,
+            projectName: null,
+            scope: "team",
+            teamId: row.teamId,
+            teamName: row.teamName,
+        };
+    }
+
+    if (!row.projectId || !row.projectName) {
+        return null;
+    }
+
+    return {
+        id: row.id,
+        title: row.title,
+        isPinned: row.isPinned,
+        targetType: "graph",
+        projectId: row.projectId,
+        projectName: row.projectName,
+        scope: row.scope,
+        teamId: row.teamId,
+        teamName: row.teamName,
+    };
+}
+
+function toChatLibraryItem(row: ChatResultRow & { updatedAt: Date | null }): ChatLibraryItem | null {
+    const chat = toSearchChatItem(row);
+    if (!chat) {
+        return null;
+    }
+
+    return {
+        ...chat,
+        updatedAt: row.updatedAt?.toISOString() ?? null,
+    };
 }
 
 async function listAccessibleTeamIds(userId: string, organizationId: string) {
@@ -102,8 +238,24 @@ export async function searchWorkspace(user: AuthUser, rawQuery: string): Promise
     const organizationId = membership.organizationId;
     const organizationAdmin = roleIncludes(membership.role, "admin");
     const accessibleTeamIds = organizationAdmin ? [] : await listAccessibleTeamIds(user.id, organizationId);
-    const accessibleGraphWhere = buildAccessibleGraphWhere(user.id, organizationId, accessibleTeamIds, organizationAdmin);
+    const accessibleGraphWhere = buildAccessibleGraphWhere(
+        user.id,
+        organizationId,
+        accessibleTeamIds,
+        organizationAdmin
+    );
     const graphScope = buildGraphScope();
+    const chatScope = buildChatScope();
+    const chatTeamId = buildChatTeamId();
+    const chatTeamName = buildChatTeamName(chatGraphTeamTable.name, chatTargetTeamTable.name);
+    const accessibleTeamChatWhere = buildAccessibleTeamChatWhere(
+        organizationId,
+        accessibleTeamIds,
+        organizationAdmin,
+        chatTargetTeamTable.id,
+        chatTargetTeamTable.organizationId
+    );
+    const accessibleChatWhere = buildAccessibleChatWhere(accessibleGraphWhere, accessibleTeamChatWhere);
     const projectScore = buildSearchScore(graphTable.name, query);
     const teamScore = buildSearchScore(teamTable.name, query);
     const chatScore = buildSearchScore(chatTable.title, query);
@@ -130,7 +282,7 @@ export async function searchWorkspace(user: AuthUser, rawQuery: string): Promise
             )
             .orderBy(desc(projectScore), asc(graphTable.name))
             .limit(SEARCH_LIMIT),
-        (organizationAdmin
+        organizationAdmin
             ? db
                   .select({
                       id: teamTable.id,
@@ -158,30 +310,30 @@ export async function searchWorkspace(user: AuthUser, rawQuery: string): Promise
                     )
                     .orderBy(desc(teamScore), asc(teamTable.name))
                     .limit(SEARCH_LIMIT)
-              : Promise.resolve([])),
+              : Promise.resolve([]),
         db
             .select({
                 id: chatTable.id,
                 title: chatTable.title,
                 isPinned: sql<boolean>`${chatTable.pinnedAt} IS NOT NULL`,
+                targetType: chatTable.scope,
                 projectId: graphTable.id,
                 projectName: graphTable.name,
-                scope: graphScope,
-                teamId: graphTable.teamId,
-                teamName: teamTable.name,
+                scope: chatScope,
+                teamId: chatTeamId,
+                teamName: chatTeamName,
                 score: chatScore,
                 updatedAt: chatTable.updatedAt,
             })
             .from(chatTable)
-            .innerJoin(graphTable, eq(graphTable.id, chatTable.graphId))
-            .leftJoin(teamTable, eq(teamTable.id, graphTable.teamId))
+            .leftJoin(graphTable, eq(graphTable.id, chatTable.graphId))
+            .leftJoin(chatGraphTeamTable, eq(chatGraphTeamTable.id, graphTable.teamId))
+            .leftJoin(chatTargetTeamTable, eq(chatTargetTeamTable.id, chatTable.teamId))
             .where(
                 and(
                     eq(chatTable.userId, user.id),
                     isNull(chatTable.archivedAt),
-                    isNull(graphTable.graphId),
-                    eq(graphTable.hidden, false),
-                    accessibleGraphWhere,
+                    accessibleChatWhere,
                     buildSearchWhere(chatTable.title, query)
                 )
             )
@@ -197,7 +349,10 @@ export async function searchWorkspace(user: AuthUser, rawQuery: string): Promise
     return {
         projects: projects.map(({ score: _score, ...project }) => project),
         teams: teams.map(({ score: _score, ...team }) => team),
-        chats: chats.map(({ score: _score, updatedAt: _updatedAt, ...chat }) => chat),
+        chats: chats.flatMap(({ score: _score, updatedAt: _updatedAt, ...chat }) => {
+            const item = toSearchChatItem(chat);
+            return item ? [item] : [];
+        }),
     };
 }
 
@@ -209,30 +364,45 @@ async function listAccessibleChats(
     const organizationId = membership.organizationId;
     const organizationAdmin = roleIncludes(membership.role, "admin");
     const accessibleTeamIds = organizationAdmin ? [] : await listAccessibleTeamIds(user.id, organizationId);
-    const accessibleGraphWhere = buildAccessibleGraphWhere(user.id, organizationId, accessibleTeamIds, organizationAdmin);
-    const graphScope = buildGraphScope();
+    const accessibleGraphWhere = buildAccessibleGraphWhere(
+        user.id,
+        organizationId,
+        accessibleTeamIds,
+        organizationAdmin
+    );
+    const chatScope = buildChatScope();
+    const chatTeamId = buildChatTeamId();
+    const chatTeamName = buildChatTeamName(chatGraphTeamTable.name, chatTargetTeamTable.name);
+    const accessibleTeamChatWhere = buildAccessibleTeamChatWhere(
+        organizationId,
+        accessibleTeamIds,
+        organizationAdmin,
+        chatTargetTeamTable.id,
+        chatTargetTeamTable.organizationId
+    );
+    const accessibleChatWhere = buildAccessibleChatWhere(accessibleGraphWhere, accessibleTeamChatWhere);
 
     const baseQuery = db
         .select({
             id: chatTable.id,
             title: chatTable.title,
             isPinned: sql<boolean>`${chatTable.pinnedAt} IS NOT NULL`,
+            targetType: chatTable.scope,
             projectId: graphTable.id,
             projectName: graphTable.name,
-            scope: graphScope,
-            teamId: graphTable.teamId,
-            teamName: teamTable.name,
+            scope: chatScope,
+            teamId: chatTeamId,
+            teamName: chatTeamName,
             updatedAt: chatTable.updatedAt,
         })
         .from(chatTable)
-        .innerJoin(graphTable, eq(graphTable.id, chatTable.graphId))
-        .leftJoin(teamTable, eq(teamTable.id, graphTable.teamId))
+        .leftJoin(graphTable, eq(graphTable.id, chatTable.graphId))
+        .leftJoin(chatGraphTeamTable, eq(chatGraphTeamTable.id, graphTable.teamId))
+        .leftJoin(chatTargetTeamTable, eq(chatTargetTeamTable.id, chatTable.teamId))
         .where(
             and(
                 eq(chatTable.userId, user.id),
-                isNull(graphTable.graphId),
-                eq(graphTable.hidden, false),
-                accessibleGraphWhere,
+                accessibleChatWhere,
                 options.filter
             )
         )
@@ -249,10 +419,10 @@ async function listAccessibleChats(
           : baseQuery);
 
     const hasMore = typeof options.limit === "number" && options.limit > 0 ? rows.length > options.limit : false;
-    const items = (hasMore ? rows.slice(0, options.limit) : rows).map((row) => ({
-        ...row,
-        updatedAt: row.updatedAt?.toISOString() ?? null,
-    }));
+    const items = (hasMore ? rows.slice(0, options.limit) : rows).flatMap((row) => {
+        const item = toChatLibraryItem(row);
+        return item ? [item] : [];
+    });
 
     return { items, hasMore };
 }

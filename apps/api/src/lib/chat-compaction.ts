@@ -1,7 +1,5 @@
 import {
-    buildChatValidationToolset,
     compactConversationHistory,
-    createChatSystemPrompt,
     estimateToken,
     prepareCitationFencesForModel,
     chatDataPartSchemas,
@@ -23,6 +21,7 @@ import { and, asc, eq, ne } from "drizzle-orm";
 import { env } from "../env";
 import { API_ERROR_CODES } from "../types";
 import type { ChatRequestBody } from "../types/routes";
+import { chatTargetInsertValues, chatTargetMatchesRow, type ChatTarget } from "./chat-target";
 import { insertPromptGuidanceMessage } from "./prompt-guidance";
 
 const MAX_RAW_TAIL_TARGET_TOKENS = 32_000;
@@ -32,12 +31,6 @@ const RAW_TAIL_TARGET_CONTEXT_RATIO = 1 - SOFT_COMPACTION_THRESHOLD_RATIO;
 const MAX_COMPACTION_ATTEMPTS = 5;
 
 export type ChatRequest = ChatRequestBody;
-
-export type PromptOptions = {
-    includeGraphTools?: boolean;
-    includeClientTools?: boolean;
-    includeSubagentTools?: boolean;
-};
 
 export type NormalizedChatRequest = {
     id: string;
@@ -68,6 +61,8 @@ export type ActiveChatContext = {
     activeSummary?: string;
     estimatedPromptTokens: number;
 };
+
+export type ChatMessageValidator = (rawTailRows: ChatMessage[]) => Promise<ChatUIMessage[]>;
 
 function isCompactionPart(part: MessagePart): part is MessageCompactionPart {
     return part.type === "compaction";
@@ -172,34 +167,24 @@ export function deriveActiveCompaction(rows: ChatMessage[]) {
     };
 }
 
-async function validateTailMessages(options: { graphId: string; rawTailRows: ChatMessage[]; runtime: ChatRuntime }) {
-    const messages: ChatUIMessage[] = options.rawTailRows.map((message) => toUIMessage(message));
-    const validationToolset: ChatValidationToolset = buildChatValidationToolset({
-        graphId: options.graphId,
-        embeddingModel: options.runtime.client.embedding,
-        model: options.runtime.client.subagent ?? options.runtime.client.text,
-    });
-
-    return await validateUIMessages<ChatUIMessage>({
-        messages,
-        tools: validationToolset,
-        metadataSchema: chatMessageMetadataSchema,
-        dataSchemas: chatDataPartSchemas,
-    });
+export function createChatMessageValidator(tools: ChatValidationToolset): ChatMessageValidator {
+    return (rawTailRows) =>
+        validateUIMessages<ChatUIMessage>({
+            messages: rawTailRows.map((message) => toUIMessage(message)),
+            tools,
+            metadataSchema: chatMessageMetadataSchema,
+            dataSchemas: chatDataPartSchemas,
+        });
 }
 
 export async function buildActiveChatContext(options: {
-    graphId: string;
     rows: ChatMessage[];
     runtime: ChatRuntime;
     systemPrompt: string;
+    validateMessages: ChatMessageValidator;
 }) {
     const compactionState = deriveActiveCompaction(options.rows);
-    const validatedMessages = await validateTailMessages({
-        graphId: options.graphId,
-        rawTailRows: compactionState.activeRawTailRows,
-        runtime: options.runtime,
-    });
+    const validatedMessages = await options.validateMessages(compactionState.activeRawTailRows);
     const activeSummary = compactionState.activeCompaction?.part.summary;
     const contextMessages = insertPromptGuidanceMessage(
         [
@@ -246,7 +231,6 @@ export function getProtectedTailStartIndex(rows: ChatMessage[]) {
         return 0;
     }
 
-    const messageTokenCounts = rows.map((message) => estimateStoredMessageTokens(message));
     let startIndex = rows.length;
     let protectedTokens = 0;
     const minimumProtectedTailStartIndex = Math.max(0, rows.length - MIN_RAW_VISIBLE_MESSAGES);
@@ -254,7 +238,7 @@ export function getProtectedTailStartIndex(rows: ChatMessage[]) {
 
     for (let index = rows.length - 1; index >= 0; index -= 1) {
         startIndex = index;
-        protectedTokens += messageTokenCounts[index]!;
+        protectedTokens += estimateStoredMessageTokens(rows[index]!);
 
         const protectedCount = rows.length - index;
         if (protectedCount >= MIN_RAW_VISIBLE_MESSAGES && protectedTokens >= rawTailTargetTokens) {
@@ -346,7 +330,7 @@ export function normalizeCompactionSummary(summary: string) {
     return prepareCitationFencesForModel(trimmedSummary);
 }
 
-async function insertCheckpoint(options: {
+async function insertCompactionCheckpoint(options: {
     chatId: string;
     runtime: ChatRuntime;
     previousSummary?: string;
@@ -382,25 +366,19 @@ async function insertCheckpoint(options: {
 
 export async function maybeCompactConversation(options: {
     chatId: string;
-    graphId: string;
     runtime: ChatRuntime;
     rows: ChatMessage[];
-    promptOptions?: PromptOptions;
+    systemPrompt: string;
+    buildContext: (rows: ChatMessage[]) => Promise<ActiveChatContext>;
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
 }) {
-    const systemPrompt = createChatSystemPrompt(options.promptOptions ?? {});
-    let context = await buildActiveChatContext({
-        graphId: options.graphId,
-        rows: options.rows,
-        runtime: options.runtime,
-        systemPrompt,
-    });
+    let context = await options.buildContext(options.rows);
     let forceCompaction = options.forceCompaction === true;
     let compactionAttempts = 0;
 
     if (!forceCompaction && !shouldCompact(context.estimatedPromptTokens)) {
-        return { context, systemPrompt };
+        return { context, systemPrompt: options.systemPrompt };
     }
 
     while (forceCompaction || shouldCompact(context.estimatedPromptTokens)) {
@@ -425,7 +403,7 @@ export async function maybeCompactConversation(options: {
             throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
         }
 
-        await insertCheckpoint({
+        await insertCompactionCheckpoint({
             chatId: options.chatId,
             runtime: options.runtime,
             previousSummary: context.activeSummary,
@@ -435,22 +413,17 @@ export async function maybeCompactConversation(options: {
             abortSignal: options.abortSignal,
         });
 
-        context = await buildActiveChatContext({
-            graphId: options.graphId,
-            rows: await loadChatRows(options.chatId),
-            runtime: options.runtime,
-            systemPrompt,
-        });
+        context = await options.buildContext(await loadChatRows(options.chatId));
         options.abortSignal?.throwIfAborted();
     }
 
-    return { context, systemPrompt };
+    return { context, systemPrompt: options.systemPrompt };
 }
 
 export async function ensureChatRecord(options: {
     chatId: string;
     userId: string;
-    graphId: string;
+    target: ChatTarget;
     defaultTitle: string;
 }) {
     const [insertedChat] = await db
@@ -458,7 +431,7 @@ export async function ensureChatRecord(options: {
         .values({
             id: options.chatId,
             userId: options.userId,
-            graphId: options.graphId,
+            ...chatTargetInsertValues(options.target),
             title: options.defaultTitle,
         })
         .onConflictDoNothing()
@@ -472,13 +445,19 @@ export async function ensureChatRecord(options: {
         .select({
             id: chatTable.id,
             userId: chatTable.userId,
+            scope: chatTable.scope,
             graphId: chatTable.graphId,
+            teamId: chatTable.teamId,
         })
         .from(chatTable)
         .where(eq(chatTable.id, options.chatId))
         .limit(1);
 
-    if (!existingChat || existingChat.userId !== options.userId || existingChat.graphId !== options.graphId) {
+    if (
+        !existingChat ||
+        existingChat.userId !== options.userId ||
+        !chatTargetMatchesRow(existingChat, options.target)
+    ) {
         throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
     }
 

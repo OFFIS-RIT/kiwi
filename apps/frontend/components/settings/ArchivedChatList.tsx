@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { fetchArchivedChats, unarchiveProjectChat, type ChatLibraryItem } from "@/lib/api";
+import { fetchArchivedChats, unarchiveProjectChat, unarchiveTeamChat, type ChatLibraryItem } from "@/lib/api";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
@@ -27,12 +27,19 @@ export function ArchivedChatList() {
     const chats = data?.pages.flatMap((page) => page.items) ?? [];
 
     const unarchiveMutation = useMutation({
-        mutationFn: (chat: ChatLibraryItem) => unarchiveProjectChat(apiClient, chat.projectId, chat.id),
+        mutationFn: (chat: ChatLibraryItem) =>
+            chat.targetType === "graph"
+                ? unarchiveProjectChat(apiClient, chat.projectId, chat.id)
+                : unarchiveTeamChat(apiClient, chat.teamId, chat.id),
         onSuccess: (_data, chat) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.archivedChats });
             queryClient.invalidateQueries({ queryKey: queryKeys.pinnedChats });
             queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
-            queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(chat.projectId) });
+            if (chat.targetType === "graph") {
+                queryClient.invalidateQueries({ queryKey: queryKeys.projectChats(chat.projectId) });
+            } else {
+                queryClient.invalidateQueries({ queryKey: queryKeys.teamChats(chat.teamId) });
+            }
         },
         onError: () => {
             toast.error(t("error.unexpected.try.again"));
@@ -64,7 +71,9 @@ export function ArchivedChatList() {
                             </div>
                             <div className="min-w-0 flex-1">
                                 <span className="block truncate text-sm font-medium">{chat.title}</span>
-                                <span className="block truncate text-xs text-muted-foreground">{chat.projectName}</span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                    {chat.projectName ?? chat.teamName}
+                                </span>
                             </div>
                             <Button
                                 variant="ghost"

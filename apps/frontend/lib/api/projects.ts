@@ -248,6 +248,26 @@ export async function unarchiveProjectChat(
     await client.post(`/chat/${projectId}/${conversationId}/unarchive`);
 }
 
+export async function deleteTeamChat(client: KiwiApiClient, teamId: string, conversationId: string): Promise<void> {
+    await client.delete(`/teams/${teamId}/chat/${conversationId}`);
+}
+
+export async function pinTeamChat(client: KiwiApiClient, teamId: string, conversationId: string): Promise<void> {
+    await client.post(`/teams/${teamId}/chat/${conversationId}/pin`);
+}
+
+export async function unpinTeamChat(client: KiwiApiClient, teamId: string, conversationId: string): Promise<void> {
+    await client.post(`/teams/${teamId}/chat/${conversationId}/unpin`);
+}
+
+export async function archiveTeamChat(client: KiwiApiClient, teamId: string, conversationId: string): Promise<void> {
+    await client.post(`/teams/${teamId}/chat/${conversationId}/archive`);
+}
+
+export async function unarchiveTeamChat(client: KiwiApiClient, teamId: string, conversationId: string): Promise<void> {
+    await client.post(`/teams/${teamId}/chat/${conversationId}/unarchive`);
+}
+
 /**
  * Fetches the user's pinned chats across all accessible projects.
  */
