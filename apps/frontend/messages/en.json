@@ -209,7 +209,7 @@
     "text.reference": "Text Reference",
     "reference.id": "Reference ID",
     "source.pages.other": "{count} pages",
-    "source.jump.highlight": "Jump to highlight",
+    "source.jump.highlight": "Jump to highlight {index}",
     "loading.text.content": "Loading text content...",
     "error.loading": "Error loading:",
     "text.content": "Text content:",

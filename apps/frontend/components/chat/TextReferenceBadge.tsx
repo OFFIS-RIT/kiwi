@@ -195,6 +195,7 @@ function PDFRegionPreview({
                                       : undefined
                               }
                               data-testid="pdf-source-region-highlight"
+                              data-pdf-highlight=""
                               aria-hidden="true"
                               className="pointer-events-none absolute scroll-mt-4 rounded-[2px] border border-yellow-500/70 bg-yellow-300/35 shadow-[0_0_0_1px_rgba(250,204,21,0.2)]"
                               style={{
@@ -307,7 +308,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         const containerTop = container.getBoundingClientRect().top;
         const scrollTop = container.scrollTop;
         const highlights = Array.from(
-            container.querySelectorAll<HTMLElement>('[data-testid="pdf-source-region-highlight"]')
+            container.querySelectorAll<HTMLElement>("[data-pdf-highlight]")
         );
 
         setHighlightMarkers(
@@ -445,11 +446,11 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                     </div>
                     {highlightMarkers.length > 0 && (
                         <div className="pointer-events-none absolute inset-y-2 right-1 w-3">
-                            {highlightMarkers.map((marker) => (
+                            {highlightMarkers.map((marker, index) => (
                                 <button
                                     key={marker.id}
                                     type="button"
-                                    aria-label={t("source.jump.highlight")}
+                                    aria-label={t("source.jump.highlight", { index: index + 1 })}
                                     onClick={() =>
                                         scrollContainerRef.current?.scrollTo({
                                             top: marker.scrollTop,

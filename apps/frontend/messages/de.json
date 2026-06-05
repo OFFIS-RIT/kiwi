@@ -209,7 +209,7 @@
     "text.reference": "Text-Referenz",
     "reference.id": "Referenz-ID",
     "source.pages.other": "{count} Seiten",
-    "source.jump.highlight": "Zur Markierung springen",
+    "source.jump.highlight": "Zur Markierung {index} springen",
     "loading.text.content": "Lade Textinhalt...",
     "error.loading": "Fehler beim Laden:",
     "text.content": "Textinhalt:",
