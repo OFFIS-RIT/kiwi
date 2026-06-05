@@ -38,7 +38,6 @@ import {
     createChatMessageValidator,
     createPendingAssistantMessage,
     ensureChatRecord,
-    isCompactionMessage,
     loadChatRows,
     maybeCompactConversation,
     normalizeChatRequest,
@@ -109,8 +108,11 @@ function createTeamQuestionContext(rows: ChatMessage[]): TeamQuestionContext {
     return { text: serializeQuestionContext(rows.map((message) => toUIMessage(message))) };
 }
 
-function refreshTeamQuestionContext(context: TeamQuestionContext, rows: ChatMessage[]) {
-    context.text = serializeQuestionContext(rows.map((message) => toUIMessage(message)));
+function refreshTeamQuestionContext(context: TeamQuestionContext, options: { rows: ChatMessage[]; summary?: string }) {
+    context.text = serializeQuestionContext(
+        options.rows.map((message) => toUIMessage(message)),
+        { summary: options.summary }
+    );
 }
 
 function createTeamUsageContext(): TeamUsageContext {
@@ -144,7 +146,7 @@ function textFromMessage(message: ChatUIMessage) {
         .trim();
 }
 
-function serializeQuestionContext(messages: ChatUIMessage[]) {
+function serializeQuestionContext(messages: ChatUIMessage[], options: { summary?: string } = {}) {
     const visibleMessages = messages
         .map((message) => ({
             role: message.role,
@@ -152,8 +154,10 @@ function serializeQuestionContext(messages: ChatUIMessage[]) {
         }))
         .filter((message) => message.text.length > 0)
         .slice(-TEAM_CHAT_CONTEXT_MESSAGE_LIMIT);
+    const summary = options.summary?.trim();
+    const summaryLines = summary ? [`summary: ${summary}`] : [];
 
-    return visibleMessages.map((message) => `${message.role}: ${message.text}`).join("\n");
+    return [...summaryLines, ...visibleMessages.map((message) => `${message.role}: ${message.text}`)].join("\n");
 }
 
 function createTeamChatSystemPrompt(teamName: string) {
@@ -221,7 +225,14 @@ export async function listTeamGraphs(
             description: graphTable.description,
         })
         .from(graphTable)
-        .where(and(eq(graphTable.teamId, teamId), isNull(graphTable.graphId), eq(graphTable.hidden, false)))
+        .where(
+            and(
+                eq(graphTable.teamId, teamId),
+                isNull(graphTable.graphId),
+                eq(graphTable.hidden, false),
+                eq(graphTable.state, "ready")
+            )
+        )
         .orderBy(asc(graphTable.name), asc(graphTable.id))
         .limit(limit + 1)
         .offset(offset);
@@ -252,6 +263,7 @@ async function loadTeamGraphsById(teamId: string, graphIds: string[]) {
                 eq(graphTable.teamId, teamId),
                 isNull(graphTable.graphId),
                 eq(graphTable.hidden, false),
+                eq(graphTable.state, "ready"),
                 inArray(graphTable.id, graphIds)
             )
         );
@@ -511,10 +523,6 @@ export async function refreshTeamReplyContext(options: {
     );
     const validateMessages = createChatMessageValidator(options.runtime.tools);
     const rows = await loadChatRows(options.chatId);
-    refreshTeamQuestionContext(
-        options.runtime.questionContext,
-        rows.filter((message) => !isCompactionMessage(message))
-    );
     const { context } = await maybeCompactConversation({
         chatId: options.chatId,
         runtime: options.runtime,
@@ -529,6 +537,10 @@ export async function refreshTeamReplyContext(options: {
             }),
         forceCompaction: options.forceCompaction,
         abortSignal: options.abortSignal,
+    });
+    refreshTeamQuestionContext(options.runtime.questionContext, {
+        rows: context.activeRawTailRows,
+        summary: context.activeSummary,
     });
 
     return {
