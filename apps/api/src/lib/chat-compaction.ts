@@ -231,7 +231,6 @@ export function getProtectedTailStartIndex(rows: ChatMessage[]) {
         return 0;
     }
 
-    const messageTokenCounts = rows.map((message) => estimateStoredMessageTokens(message));
     let startIndex = rows.length;
     let protectedTokens = 0;
     const minimumProtectedTailStartIndex = Math.max(0, rows.length - MIN_RAW_VISIBLE_MESSAGES);
@@ -239,7 +238,7 @@ export function getProtectedTailStartIndex(rows: ChatMessage[]) {
 
     for (let index = rows.length - 1; index >= 0; index -= 1) {
         startIndex = index;
-        protectedTokens += messageTokenCounts[index]!;
+        protectedTokens += estimateStoredMessageTokens(rows[index]!);
 
         const protectedCount = rows.length - index;
         if (protectedCount >= MIN_RAW_VISIBLE_MESSAGES && protectedTokens >= rawTailTargetTokens) {

@@ -11,6 +11,8 @@ import o200k_base from "js-tiktoken/ranks/o200k_base";
 import { prepareCitationFencesForModel } from "./citation";
 export * from "./concurrency";
 
+let tokenEncoder: Tiktoken | undefined;
+
 type BunRequestInit = RequestInit & {
     timeout?: false;
 };
@@ -210,7 +212,8 @@ export function getProviderOptions(options: ProviderOptions) {
 }
 
 export function estimateToken(text: string): number {
-    const encoder = new Tiktoken(o200k_base);
+    tokenEncoder ??= new Tiktoken(o200k_base);
+    const encoder = tokenEncoder;
     const tokens = encoder.encode(text);
 
     return tokens.length;
