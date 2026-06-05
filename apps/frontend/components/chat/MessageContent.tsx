@@ -100,6 +100,7 @@ export function MessageContent({
     durationMs,
     startedAtMs,
 }: MessageContentProps) {
+    const t = useAppTranslations();
     const apiClient = useApiClient();
     const queryClient = useQueryClient();
     const [activeCitationSourceId, setActiveCitationSourceId] = React.useState<string | null>(null);
@@ -463,14 +464,13 @@ export function MessageContent({
             )
         );
 
-    // Show the "Worked for" header while the message is streaming (so the
-    // live counter is visible from the first frame) and for settled messages
-    // that actually have something to reveal in the dropdown body.
-    const showWorkedFor = isStreaming || thinkingItems.length > 0;
-    const thinkingSlot = showWorkedFor ? (
+    const hasThinkingBody = thinkingItems.length > 0;
+    const thinkingSlot = hasThinkingBody ? (
         <ThinkingDropdown isStreaming={isStreaming} durationMs={durationMs} startedAtMs={startedAtMs}>
             {renderThinkingBody()}
         </ThinkingDropdown>
+    ) : isStreaming ? (
+        <div className="text-sm text-muted-foreground">{t("step.thinking")}</div>
     ) : null;
 
     return (

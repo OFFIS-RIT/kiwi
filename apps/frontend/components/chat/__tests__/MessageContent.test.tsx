@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/test-utils";
+import type { ComponentProps } from "react";
 import {
     downloadProjectFile,
     fetchSourceReference,
@@ -89,10 +90,13 @@ function citationFence(sourceId: string, fields: Record<string, unknown> = {}) {
     })}:::`;
 }
 
-function renderMessageContent(parts: ChatUIMessage["parts"]) {
+function renderMessageContent(
+    parts: ChatUIMessage["parts"],
+    props: Partial<ComponentProps<typeof MessageContent>> = {}
+) {
     localStorage.setItem("language", "en");
 
-    return renderWithProviders(<MessageContent parts={parts} projectId="graph-1" />);
+    return renderWithProviders(<MessageContent parts={parts} projectId="graph-1" {...props} />);
 }
 
 type MockedFunction<T extends (...args: never[]) => unknown> = T & {
@@ -130,6 +134,30 @@ describe("MessageContent", () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+    });
+
+    test("shows a plain thinking label while streaming before visible work starts", () => {
+        renderMessageContent([], { isStreaming: true, startedAtMs: Date.now() });
+
+        expect(screen.getByText("Denkt nach...")).toBeInTheDocument();
+        expect(screen.queryByText(/Gearbeitet für/)).not.toBeInTheDocument();
+    });
+
+    test("shows the worked dropdown once streaming includes a tool call", () => {
+        renderMessageContent(
+            [
+                {
+                    type: "tool-search_entities",
+                    toolCallId: "tool-1",
+                    state: "input-available",
+                    input: { query: "PicoScale" },
+                },
+            ],
+            { isStreaming: true, startedAtMs: Date.now() - 2_000 }
+        );
+
+        expect(screen.getByRole("button", { name: /Gearbeitet für \d+s/ })).toBeInTheDocument();
+        expect(screen.queryByText("Denkt nach...")).not.toBeInTheDocument();
     });
 
     test("renders inline citation badges and source file footer", () => {
