@@ -198,7 +198,7 @@ export function createChatTitle(messages: ChatUIMessage[]) {
     return title.length > 80 ? `${title.slice(0, 77).trimEnd()}...` : title;
 }
 
-function parseCreatedAt(value?: string) {
+export function parseCreatedAt(value?: string) {
     if (!value) {
         return undefined;
     }
@@ -207,7 +207,7 @@ function parseCreatedAt(value?: string) {
     return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
-function getMetrics(metadata?: ChatMessageMetadata) {
+export function getMetrics(metadata?: ChatMessageMetadata) {
     return {
         tokensPerSecond: metadata?.tokensPerSecond ?? null,
         timeToFirstToken: metadata?.timeToFirstToken ?? null,

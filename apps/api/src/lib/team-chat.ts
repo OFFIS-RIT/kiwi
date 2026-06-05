@@ -4,7 +4,6 @@ import {
     splitTextWithCitationFences,
     toUIMessage,
     uiMessageToMessageParts,
-    type ChatMessageMetadata,
     type ChatUIMessage,
     type ChatValidationToolset,
     type ResolvedCitationFence,
@@ -21,6 +20,7 @@ import type { GraphState } from "../types/routes";
 import {
     DEFAULT_CHAT_TITLE,
     enrichCitation,
+    getMetrics,
     getGraphResearchRuntimeWithSharedGuidance,
     getRequiredResearchClient,
     listChatsForTarget,
@@ -28,6 +28,7 @@ import {
     listUserPromptTexts,
     loadChatHistoryForTarget,
     loadChatSummaryForTarget,
+    parseCreatedAt,
     touchChat,
     type ChatRequest,
 } from "./chat";
@@ -101,25 +102,6 @@ function createTeamQuestionContext(rows: ChatMessage[]): TeamQuestionContext {
 
 function refreshTeamQuestionContext(context: TeamQuestionContext, rows: ChatMessage[]) {
     context.text = serializeQuestionContext(rows.map((message) => toUIMessage(message)));
-}
-
-function getMetrics(metadata?: ChatMessageMetadata) {
-    return {
-        tokensPerSecond: metadata?.tokensPerSecond ?? null,
-        timeToFirstToken: metadata?.timeToFirstToken ?? null,
-        inputTokens: metadata?.inputTokens ?? null,
-        outputTokens: metadata?.outputTokens ?? null,
-        totalTokens: metadata?.totalTokens ?? null,
-    };
-}
-
-function parseCreatedAt(value?: string) {
-    if (!value) {
-        return undefined;
-    }
-
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 function textFromMessage(message: ChatUIMessage) {
