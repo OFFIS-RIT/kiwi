@@ -34,6 +34,13 @@ export type ChatReplyContext = {
     contextMessages: ModelMessage[];
 };
 
+export type AdditionalChatUsage = {
+    totalTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    usedFileIds?: Iterable<string>;
+};
+
 export type StartedChatReply = ChatReplyContext & {
     chatId: string;
     assistantId: string;
@@ -45,6 +52,7 @@ export type StartedChatReply = ChatReplyContext & {
     titleMessages: ChatUIMessage[];
     refreshAfterCompaction: () => Promise<ChatReplyContext>;
     resolveCitation: (sourceId: string) => Promise<ResolvedCitationFence | null>;
+    getAdditionalUsage?: () => AdditionalChatUsage;
 };
 
 function upsertToolPart(parts: MessagePart[], next: MessagePart) {
@@ -149,6 +157,37 @@ function startGeneratedTitle(reply: StartedChatReply) {
     });
 }
 
+function addOptionalUsage(base: number | undefined, additional: number | undefined) {
+    return base === undefined && additional === undefined ? undefined : (base ?? 0) + (additional ?? 0);
+}
+
+function buildFinishMetadata(options: {
+    reply: StartedChatReply;
+    startedAt: number;
+    firstOutputAt: number | null;
+    totalTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    modelId: string;
+    citationFileIds: Set<string>;
+}) {
+    const additionalUsage = options.reply.getAdditionalUsage?.();
+    const usedFileIds = new Set(options.citationFileIds);
+    for (const fileId of additionalUsage?.usedFileIds ?? []) {
+        usedFileIds.add(fileId);
+    }
+
+    return getFinishMetadata({
+        startedAt: options.startedAt,
+        firstOutputAt: options.firstOutputAt,
+        totalTokens: addOptionalUsage(options.totalTokens, additionalUsage?.totalTokens),
+        inputTokens: addOptionalUsage(options.inputTokens, additionalUsage?.inputTokens),
+        outputTokens: addOptionalUsage(options.outputTokens, additionalUsage?.outputTokens),
+        modelId: options.modelId,
+        usedFileCount: usedFileIds.size,
+    });
+}
+
 export async function runChatCompletion(reply: StartedChatReply) {
     startGeneratedTitle(reply);
 
@@ -204,14 +243,15 @@ export async function runChatCompletion(reply: StartedChatReply) {
         citationFileIds,
         resolveCitation: reply.resolveCitation,
     });
-    const finishMetadata = getFinishMetadata({
+    const finishMetadata = buildFinishMetadata({
+        reply,
         startedAt,
         firstOutputAt,
         totalTokens: result.totalUsage.totalTokens,
         inputTokens: result.totalUsage.inputTokens,
         outputTokens: result.totalUsage.outputTokens,
         modelId: env.AI_TEXT_MODEL,
-        usedFileCount: citationFileIds.size,
+        citationFileIds,
     });
     parts.push({ type: "metadata", metadata: finishMetadata });
 
@@ -474,14 +514,15 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                             writer.write({ type: "finish-step" });
                             break;
                         case "finish": {
-                            const finishMetadata = getFinishMetadata({
+                            const finishMetadata = buildFinishMetadata({
+                                reply,
                                 startedAt,
                                 firstOutputAt,
                                 totalTokens: part.totalUsage.totalTokens,
                                 inputTokens: part.totalUsage.inputTokens,
                                 outputTokens: part.totalUsage.outputTokens,
                                 modelId: env.AI_TEXT_MODEL,
-                                usedFileCount: citationFileIds.size,
+                                citationFileIds,
                             });
                             assistantParts.push({
                                 type: "metadata",

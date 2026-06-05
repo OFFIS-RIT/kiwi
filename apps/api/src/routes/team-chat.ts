@@ -45,6 +45,7 @@ export const teamChatRoute = createChatTargetRoute({
             tools: started.tools,
             isNewChat: started.isNewChat,
             titleMessages: started.titleMessages,
+            getAdditionalUsage: started.getAdditionalUsage,
             resolveCitation: (sourceId) => enrichTeamCitation(access.team.id, sourceId, started.citationContext),
             refreshAfterCompaction: async () =>
                 refreshTeamReplyContext({

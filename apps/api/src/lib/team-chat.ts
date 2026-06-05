@@ -17,6 +17,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { AuthUser } from "../middleware/auth";
 import type { GraphState } from "../types/routes";
+import type { AdditionalChatUsage } from "./chat-response";
 import {
     DEFAULT_CHAT_TITLE,
     enrichCitation,
@@ -74,6 +75,13 @@ type TeamQuestionContext = {
     text: string;
 };
 
+type TeamUsageContext = {
+    totalTokens: number;
+    inputTokens: number;
+    outputTokens: number;
+    usedFileIds: Set<string>;
+};
+
 type TeamChatRuntime = Omit<ChatRuntime, "tools"> & {
     tools: TeamChatToolset;
     promptGuidance: {
@@ -82,6 +90,7 @@ type TeamChatRuntime = Omit<ChatRuntime, "tools"> & {
     };
     citationContext: TeamCitationContext;
     questionContext: TeamQuestionContext;
+    getAdditionalUsage: () => AdditionalChatUsage;
 };
 
 type TeamGraphRuntime = Pick<TeamChatRuntime, "client" | "promptGuidance">;
@@ -102,6 +111,28 @@ function createTeamQuestionContext(rows: ChatMessage[]): TeamQuestionContext {
 
 function refreshTeamQuestionContext(context: TeamQuestionContext, rows: ChatMessage[]) {
     context.text = serializeQuestionContext(rows.map((message) => toUIMessage(message)));
+}
+
+function createTeamUsageContext(): TeamUsageContext {
+    return {
+        totalTokens: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        usedFileIds: new Set(),
+    };
+}
+
+function addCitationFileId(fileIds: Set<string>, citation: ResolvedCitationFence) {
+    const fileId = citation.fileId ?? citation.fileKey;
+    if (fileId) {
+        fileIds.add(fileId);
+    }
+}
+
+function assertTeamQuestionContextReady(context: TeamQuestionContext) {
+    if (context.text.trim().length === 0) {
+        throw new Error("TEAM_CHAT_CONTEXT_NOT_READY: refreshTeamReplyContext must run before query_graphs.");
+    }
 }
 
 function textFromMessage(message: ChatUIMessage) {
@@ -264,6 +295,11 @@ async function querySingleGraph(options: {
         graph_name: options.graph.graph_name,
         answer: result.text,
         source_ids: [...new Set(collectCitationSourceIds(result.text))],
+        usage: {
+            totalTokens: result.totalUsage.totalTokens,
+            inputTokens: result.totalUsage.inputTokens,
+            outputTokens: result.totalUsage.outputTokens,
+        },
     };
 }
 
@@ -272,6 +308,7 @@ function buildTeamChatToolset(options: {
     graphRuntime: TeamGraphRuntime;
     questionContext: TeamQuestionContext;
     citationContext: TeamCitationContext;
+    usageContext: TeamUsageContext;
 }): TeamChatToolset {
     return {
         list_graphs: tool({
@@ -310,6 +347,8 @@ function buildTeamChatToolset(options: {
                     .describe("Graph IDs from list_graphs to query."),
             }),
             execute: async ({ graph_ids }, { abortSignal }) => {
+                assertTeamQuestionContextReady(options.questionContext);
+
                 const uniqueGraphIds = [...new Set(graph_ids)];
                 const graphs = await loadTeamGraphsById(options.team.id, uniqueGraphIds);
                 const graphById = new Map(graphs.map((graph) => [graph.graph_id, graph]));
@@ -346,6 +385,19 @@ function buildTeamChatToolset(options: {
                 });
 
                 for (const result of results) {
+                    options.usageContext.totalTokens += result.usage.totalTokens ?? 0;
+                    options.usageContext.inputTokens += result.usage.inputTokens ?? 0;
+                    options.usageContext.outputTokens += result.usage.outputTokens ?? 0;
+
+                    await Promise.all(
+                        result.source_ids.map(async (sourceId) => {
+                            const citation = await enrichCitation(result.graph_id, sourceId);
+                            if (citation) {
+                                addCitationFileId(options.usageContext.usedFileIds, citation);
+                            }
+                        })
+                    );
+
                     for (const sourceId of result.source_ids) {
                         options.citationContext.sourceGraphIds.set(sourceId, result.graph_id);
                     }
@@ -363,8 +415,8 @@ function buildTeamChatToolset(options: {
 
 /**
  * Creates the team-chat runtime around a mutable question context.
- * Callers must run `refreshTeamReplyContext` before executing tools so
- * `query_graphs` sees the latest conversation context.
+ * `query_graphs` asserts that `refreshTeamReplyContext` has populated the
+ * context before subagents execute.
  */
 export async function getTeamChatRuntime(options: {
     user: AuthUser;
@@ -377,6 +429,7 @@ export async function getTeamChatRuntime(options: {
     ]);
     const client = getRequiredResearchClient();
     const citationContext = createTeamCitationContext();
+    const usageContext = createTeamUsageContext();
     const promptGuidance = {
         userPrompts,
         teamPrompts,
@@ -387,11 +440,18 @@ export async function getTeamChatRuntime(options: {
         citationContext,
         questionContext: options.questionContext,
         promptGuidance,
+        getAdditionalUsage: () => ({
+            totalTokens: usageContext.totalTokens,
+            inputTokens: usageContext.inputTokens,
+            outputTokens: usageContext.outputTokens,
+            usedFileIds: usageContext.usedFileIds,
+        }),
         tools: buildTeamChatToolset({
             team: options.team,
             graphRuntime: { client, promptGuidance },
             questionContext: options.questionContext,
             citationContext,
+            usageContext,
         }),
     };
 }
