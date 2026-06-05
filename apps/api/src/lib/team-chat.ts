@@ -401,6 +401,10 @@ function buildTeamChatToolset(options: {
                     options.usageContext.inputTokens += result.usage.inputTokens ?? 0;
                     options.usageContext.outputTokens += result.usage.outputTokens ?? 0;
 
+                    for (const sourceId of result.source_ids) {
+                        options.citationContext.sourceGraphIds.set(sourceId, result.graph_id);
+                    }
+
                     await Promise.all(
                         result.source_ids.map(async (sourceId) => {
                             const citation = await enrichCitation(result.graph_id, sourceId);
@@ -409,10 +413,6 @@ function buildTeamChatToolset(options: {
                             }
                         })
                     );
-
-                    for (const sourceId of result.source_ids) {
-                        options.citationContext.sourceGraphIds.set(sourceId, result.graph_id);
-                    }
                 }
 
                 return {

@@ -123,6 +123,7 @@ function buildAccessibleTeamChatWhere(
     }
 
     if (accessibleTeamIds.length === 0) {
+        // Non-admins only search team chats for teams they can still access.
         return undefined;
     }
 
