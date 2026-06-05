@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 type ClarificationBlockProps = {
     questions: string[];
     reason?: string;
-    onSubmit: (answer: string) => void;
+    onSubmit: (answer: string, answers: string[]) => void;
     disabled?: boolean;
     /** When true the block is read-only and shows previously submitted answers. */
     submitted?: boolean;
@@ -38,7 +38,7 @@ export function ClarificationBlock({
             .filter((_, i) => answers[i].trim())
             .join("\n");
         if (combined.trim()) {
-            onSubmit(combined);
+            onSubmit(combined, [...answers]);
         }
     }, [answers, questions, onSubmit]);
 
