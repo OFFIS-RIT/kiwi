@@ -713,9 +713,9 @@ describe("MessageContent", () => {
             "h-[80vh]",
             "overflow-hidden"
         );
-        const scrollArea = document.querySelector("[data-slot='scroll-area']");
-        expect(scrollArea?.parentElement).toHaveClass("min-h-0", "flex-1");
-        expect(scrollArea).toHaveClass("h-full");
+        const scrollContainer = document.querySelector(".overflow-y-auto");
+        expect(scrollContainer?.parentElement).toHaveClass("min-h-0", "flex-1");
+        expect(scrollContainer).toHaveClass("h-full", "rounded-lg", "border");
     });
 
     test("groups PDF source regions from the same page into one preview image", async () => {
@@ -807,9 +807,9 @@ describe("MessageContent", () => {
         expect(image).toHaveAttribute("height", "100");
         expect(screen.getByTestId("pdf-source-region-highlight")).toHaveStyle({
             left: "10%",
-            top: "50%",
-            width: "60%",
-            height: "20%",
+            top: "20%",
+            width: "30%",
+            height: "4%",
         });
         expect(screen.queryByText("Alpha evidence")).not.toBeInTheDocument();
     });
