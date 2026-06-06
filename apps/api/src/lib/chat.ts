@@ -544,7 +544,9 @@ export async function refreshReplyContext(options: {
     abortSignal?: AbortSignal;
 }) {
     const rows = await loadChatRows(options.chatId);
-    const completedWorkflowAt = await getLatestCompletedWorkflowAt(options.graphId);
+    const latestGraphRetrievalAt = getLatestGraphRetrievalAt(rows);
+    const completedWorkflowAt =
+        latestGraphRetrievalAt === null ? null : await getLatestCompletedWorkflowAt(options.graphId);
     const graphDataRefresh = createGraphDataRefreshNotice({ rows, completedWorkflowAt });
     const systemPrompt = createChatSystemPrompt({
         ...(options.promptOptions ?? {}),
