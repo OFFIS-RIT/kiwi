@@ -115,6 +115,10 @@ export function createDetectedGraphLoader(input: {
         throw new Error("Unsupported file type: legacy Office documents are not supported");
     }
 
+    if (format.loaderKind === "csv" && looksLikeBinary(bytes)) {
+        throw new Error("Invalid CSV content: binary files are not valid CSV");
+    }
+
     if (format.loaderKind === "text" && looksLikeBinary(bytes)) {
         throw new Error("Unsupported file type: binary files are not supported");
     }

@@ -172,6 +172,16 @@ describe("createDetectedGraphLoader", () => {
         expect(result.format.loaderKind).toBe("csv");
     });
 
+    test("rejects binary files declared as CSV", () => {
+        expect(() =>
+            createDetectedGraphLoader({
+                content: toArrayBuffer(Uint8Array.of(0x00, 0x01, 0x02, 0x03, 0x04)),
+                declaredType: "csv",
+                documentMode: "plain",
+            })
+        ).toThrow("Invalid CSV content");
+    });
+
     test("rejects legacy Office document formats", () => {
         expect(() =>
             createDetectedGraphLoader({
