@@ -16,8 +16,10 @@ import { defineWorkflow } from "openworkflow";
 import z from "zod";
 import { S3Loader } from "@kiwi/graph/loader/s3";
 import { JSONChunker } from "@kiwi/graph/chunker/json";
+import { CSVChunker } from "@kiwi/graph/chunker/csv";
 import { SingleChunker } from "@kiwi/graph/chunker/single";
 import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
+import type { FileProcessErrorCode } from "@kiwi/contracts/routes";
 import { env } from "../env";
 import {
     type Graph,
@@ -48,6 +50,7 @@ import { toTextUnitRows } from "../lib/text-unit-rows";
 const FILE_DELETED = "__file_deleted__" as const;
 const NO_RETRY = { maximumAttempts: 1 } as const;
 const PROCESS_UNIT_BATCH_SIZE = 100;
+const INTERNAL_SERVER_ERROR_CODE = "INTERNAL_SERVER_ERROR" satisfies FileProcessErrorCode;
 
 function workflowError(error: unknown) {
     if (error instanceof Error) {
@@ -57,14 +60,83 @@ function workflowError(error: unknown) {
     return new Error("Workflow failed", { cause: error });
 }
 
-async function updateFileProcessingState(fileId: string, processStep: FileProcessStep, status: FileProcessStatus) {
+async function updateFileProcessingState(
+    fileId: string,
+    processStep: FileProcessStep,
+    status: FileProcessStatus,
+    processErrorCode?: FileProcessErrorCode | null
+) {
     await db
         .update(filesTable)
         .set({
             processStep,
             status,
+            ...(processErrorCode !== undefined
+                ? { processErrorCode }
+                : status === "failed"
+                  ? {}
+                  : { processErrorCode: null }),
         })
         .where(eq(filesTable.id, fileId));
+}
+
+function classifyFileProcessError(error: unknown): FileProcessErrorCode {
+    if (!(error instanceof Error)) {
+        return INTERNAL_SERVER_ERROR_CODE;
+    }
+
+    const message = error.message.toLowerCase();
+    if (message.includes("unsupported file type")) {
+        return "UNSUPPORTED_FILE_TYPE";
+    }
+
+    if (message.includes("password") || message.includes("encrypted")) {
+        return "PASSWORD_PROTECTED_FILE";
+    }
+
+    if (message.includes("no readable text")) {
+        return "NO_READABLE_TEXT";
+    }
+
+    if (
+        message.includes("requires an image-capable model") ||
+        message.includes("requires an image model") ||
+        message.includes("requires derived image storage")
+    ) {
+        return "OCR_REQUIRED_UNAVAILABLE";
+    }
+
+    if (
+        message.includes("invalid csv") ||
+        message.includes("invalid excel workbook content") ||
+        message.includes("invalid pdf") ||
+        message.includes("failed to parse pdf") ||
+        message.includes("can't find end of central directory") ||
+        message.includes("corrupted zip") ||
+        message.includes("invalid file format")
+    ) {
+        return "INVALID_FILE_FORMAT";
+    }
+
+    if (
+        message.includes("too large") ||
+        message.includes("too many") ||
+        message.includes("context length") ||
+        message.includes("timeout") ||
+        message.includes("out of memory")
+    ) {
+        return "FILE_TOO_LARGE_OR_COMPLEX";
+    }
+
+    if (message.includes("failed to load file") && message.includes("from bucket")) {
+        return "SOURCE_FILE_MISSING";
+    }
+
+    if (message.includes("no object generated") || message.includes("unsupported formula function")) {
+        return "EXTRACTION_FAILED";
+    }
+
+    return INTERNAL_SERVER_ERROR_CODE;
 }
 
 async function stopIfFileDeleted(fileId: string) {
@@ -94,6 +166,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
                 .set({
                     processStep: "pending",
                     status: "processing",
+                    processErrorCode: null,
                 })
                 .where(and(eq(filesTable.graphId, input.graphId), inArray(filesTable.id, input.fileIds)));
         });
@@ -343,6 +416,11 @@ export const processFile = defineWorkflow(
                 } satisfies Omit<GraphFile, "chunker">;
                 const document = await loadGraphDocument(graphFile.loader);
                 const text = document.text;
+                const contentText = stripPageFences(text);
+                if (contentText.trim() === "") {
+                    throw new Error("No readable text found in file");
+                }
+
                 const uploadedDocument = await putNamedFile(
                     "document.json",
                     JSON.stringify(document),
@@ -351,7 +429,6 @@ export const processFile = defineWorkflow(
                 );
 
                 const duration = performance.now() - start;
-                const contentText = stripPageFences(text);
                 const tokens = estimateToken(contentText);
 
                 await db
@@ -409,6 +486,9 @@ export const processFile = defineWorkflow(
                         break;
                     case "json":
                         chunker = new JSONChunker({ maxChunkSize: 500 });
+                        break;
+                    case "csv":
+                        chunker = new CSVChunker({ maxChunkSize: 500 });
                         break;
                     default:
                         chunker = new SemanticChunker(2000);
@@ -893,9 +973,9 @@ export const processFile = defineWorkflow(
             return saveGraphResult.summary;
         } catch (error) {
             if (run.retryTerminal) {
-                await updateFileProcessingState(input.fileId, "failed", "failed");
+                await updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error));
             } else {
-                await updateFileProcessingState(input.fileId, "pending", "processing");
+                await updateFileProcessingState(input.fileId, "pending", "processing", null);
             }
 
             throw workflowError(error);

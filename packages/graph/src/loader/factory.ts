@@ -1,13 +1,14 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { GraphBinaryLoader, GraphLoader } from "..";
+import { CSVLoader } from "./csv";
 import { DOCXLoader } from "./doc";
 import { ExcelLoader } from "./excel";
 import { ImageLoader } from "./image";
 import { PDFLoader, type PDFMode } from "./pdf";
 import { PPTXLoader } from "./ppt";
 
-export type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "text";
-export type GraphLoaderKind = "pdf" | "docx" | "sheet" | "pptx" | "image" | "json" | "text";
+export type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "csv" | "text";
+export type GraphLoaderKind = "pdf" | "docx" | "sheet" | "pptx" | "image" | "json" | "csv" | "text";
 
 export type DetectedGraphFileFormat = {
     fileType: GraphFileType;
@@ -35,6 +36,7 @@ const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileFormat, 
     },
     image: { fileType: "image", loaderKind: "image", mimeType: "application/octet-stream" },
     json: { fileType: "json", loaderKind: "json", mimeType: "application/json" },
+    csv: { fileType: "csv", loaderKind: "csv", mimeType: "text/csv" },
     text: { fileType: "text", loaderKind: "text", mimeType: "text/plain" },
 };
 
@@ -48,6 +50,7 @@ const WEBP_BRAND = encodeASCII("WEBP");
 const BMP_HEADER = encodeASCII("BM");
 const TIFF_LE_HEADER = Uint8Array.of(0x49, 0x49, 0x2a, 0x00);
 const TIFF_BE_HEADER = Uint8Array.of(0x4d, 0x4d, 0x00, 0x2a);
+const OLE_COMPOUND_HEADER = Uint8Array.of(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1);
 const ZIP_HEADERS = [
     Uint8Array.of(0x50, 0x4b, 0x03, 0x04),
     Uint8Array.of(0x50, 0x4b, 0x05, 0x06),
@@ -107,6 +110,14 @@ export function createDetectedGraphLoader(input: {
     const format = detectGraphFileFormat(input);
     const documentMode = input.documentMode ?? "hybrid";
     const useDocumentOCR = documentMode !== "plain";
+    const bytes = new Uint8Array(input.content);
+    if (hasOLECompoundSignature(bytes) && ["docx", "pptx"].includes(format.loaderKind)) {
+        throw new Error("Unsupported file type: legacy Office documents are not supported");
+    }
+
+    if (format.loaderKind === "text" && looksLikeBinary(bytes)) {
+        throw new Error("Unsupported file type: binary files are not supported");
+    }
 
     switch (format.loaderKind) {
         case "pdf":
@@ -132,6 +143,12 @@ export function createDetectedGraphLoader(input: {
             return {
                 format,
                 loader: new ExcelLoader({ loader: binaryLoader }),
+                binaryLoader,
+            };
+        case "csv":
+            return {
+                format,
+                loader: new CSVLoader({ loader: binaryLoader }),
                 binaryLoader,
             };
         case "pptx":
@@ -278,6 +295,30 @@ function sniffImageMimeType(bytes: Uint8Array): string | null {
 
 function hasZipSignature(bytes: Uint8Array): boolean {
     return ZIP_HEADERS.some((header) => matchesAt(bytes, header, 0));
+}
+
+function hasOLECompoundSignature(bytes: Uint8Array): boolean {
+    return matchesAt(bytes, OLE_COMPOUND_HEADER, 0);
+}
+
+function looksLikeBinary(bytes: Uint8Array): boolean {
+    const sample = bytes.slice(0, Math.min(bytes.length, 4096));
+    if (sample.length === 0) {
+        return false;
+    }
+
+    let controlCharacterCount = 0;
+    for (const byte of sample) {
+        if (byte === 0) {
+            return true;
+        }
+
+        if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 12 && byte !== 13) {
+            controlCharacterCount += 1;
+        }
+    }
+
+    return controlCharacterCount / sample.length > 0.1;
 }
 
 function containsASCII(bytes: Uint8Array, needle: Uint8Array): boolean {

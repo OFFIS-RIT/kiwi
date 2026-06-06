@@ -41,6 +41,19 @@ export type GraphFileRecord = {
     key: string;
 };
 
+export const FILE_PROCESS_ERROR_CODE_VALUES = [
+    "UNSUPPORTED_FILE_TYPE",
+    "INVALID_FILE_FORMAT",
+    "PASSWORD_PROTECTED_FILE",
+    "NO_READABLE_TEXT",
+    "FILE_TOO_LARGE_OR_COMPLEX",
+    "OCR_REQUIRED_UNAVAILABLE",
+    "EXTRACTION_FAILED",
+    "SOURCE_FILE_MISSING",
+    "INTERNAL_SERVER_ERROR",
+] as const;
+export type FileProcessErrorCode = (typeof FILE_PROCESS_ERROR_CODE_VALUES)[number];
+
 export type GraphFileListItem = {
     id: string;
     project_id: string;
@@ -57,6 +70,7 @@ export type GraphFileListItem = {
         | "saving"
         | "completed"
         | "failed";
+    process_error_code: FileProcessErrorCode | null;
     created_at: string | null;
     updated_at: string | null;
 };
