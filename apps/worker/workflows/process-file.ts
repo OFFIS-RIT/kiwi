@@ -46,11 +46,11 @@ import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { toTextUnitRows } from "../lib/text-unit-rows";
+import { classifyFileProcessError } from "../lib/file-process-error";
 
 const FILE_DELETED = "__file_deleted__" as const;
 const NO_RETRY = { maximumAttempts: 1 } as const;
 const PROCESS_UNIT_BATCH_SIZE = 100;
-const INTERNAL_SERVER_ERROR_CODE = "INTERNAL_SERVER_ERROR" satisfies FileProcessErrorCode;
 
 function workflowError(error: unknown) {
     if (error instanceof Error) {
@@ -78,65 +78,6 @@ async function updateFileProcessingState(
                   : { processErrorCode: null }),
         })
         .where(eq(filesTable.id, fileId));
-}
-
-function classifyFileProcessError(error: unknown): FileProcessErrorCode {
-    if (!(error instanceof Error)) {
-        return INTERNAL_SERVER_ERROR_CODE;
-    }
-
-    const message = error.message.toLowerCase();
-    if (message.includes("unsupported file type")) {
-        return "UNSUPPORTED_FILE_TYPE";
-    }
-
-    if (message.includes("password") || message.includes("encrypted")) {
-        return "PASSWORD_PROTECTED_FILE";
-    }
-
-    if (message.includes("no readable text")) {
-        return "NO_READABLE_TEXT";
-    }
-
-    if (
-        message.includes("requires an image-capable model") ||
-        message.includes("requires an image model") ||
-        message.includes("requires derived image storage")
-    ) {
-        return "OCR_REQUIRED_UNAVAILABLE";
-    }
-
-    if (
-        message.includes("invalid csv") ||
-        message.includes("invalid excel workbook content") ||
-        message.includes("invalid pdf") ||
-        message.includes("failed to parse pdf") ||
-        message.includes("can't find end of central directory") ||
-        message.includes("corrupted zip") ||
-        message.includes("invalid file format")
-    ) {
-        return "INVALID_FILE_FORMAT";
-    }
-
-    if (
-        message.includes("too large") ||
-        message.includes("too many") ||
-        message.includes("context length") ||
-        message.includes("timeout") ||
-        message.includes("out of memory")
-    ) {
-        return "FILE_TOO_LARGE_OR_COMPLEX";
-    }
-
-    if (message.includes("failed to load file") && message.includes("from bucket")) {
-        return "SOURCE_FILE_MISSING";
-    }
-
-    if (message.includes("no object generated") || message.includes("unsupported formula function")) {
-        return "EXTRACTION_FAILED";
-    }
-
-    return INTERNAL_SERVER_ERROR_CODE;
 }
 
 async function stopIfFileDeleted(fileId: string) {
