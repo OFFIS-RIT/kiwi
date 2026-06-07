@@ -19,7 +19,7 @@ import { type GraphRecord } from "./graph-access";
 import { buildDeleteStepProgress, buildProcessStepProgress } from "./process-progress";
 import { findActiveDeleteGraphFilesProgress, findProcessDescriptionProgress } from "./workflow-progress";
 
-export type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "text";
+export type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "csv" | "text";
 export type UploadedFile = {
     id: string;
     name: string;
@@ -57,13 +57,15 @@ export function inferGraphFileType(file: File): GraphFileType {
         return "doc";
     }
 
+    if (normalizedMimeType === "text/csv" || extension === "csv") {
+        return "csv";
+    }
+
     if (
         normalizedMimeType === "application/vnd.ms-excel" ||
         normalizedMimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-        normalizedMimeType === "text/csv" ||
         extension === "xls" ||
-        extension === "xlsx" ||
-        extension === "csv"
+        extension === "xlsx"
     ) {
         return "sheet";
     }
@@ -161,6 +163,7 @@ export const selectGraphDetailFileFields = {
     file_key: filesTable.key,
     status: filesTable.status,
     process_step: filesTable.processStep,
+    process_error_code: filesTable.processErrorCode,
     created_at: filesTable.createdAt,
     updated_at: filesTable.updatedAt,
 };

@@ -16,8 +16,10 @@ import { defineWorkflow } from "openworkflow";
 import z from "zod";
 import { S3Loader } from "@kiwi/graph/loader/s3";
 import { JSONChunker } from "@kiwi/graph/chunker/json";
+import { CSVChunker } from "@kiwi/graph/chunker/csv";
 import { SingleChunker } from "@kiwi/graph/chunker/single";
 import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
+import type { FileProcessErrorCode } from "@kiwi/contracts/routes";
 import { env } from "../env";
 import {
     type Graph,
@@ -44,6 +46,7 @@ import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { toTextUnitRows } from "../lib/text-unit-rows";
+import { classifyFileProcessError } from "../lib/file-process-error";
 
 const FILE_DELETED = "__file_deleted__" as const;
 const NO_RETRY = { maximumAttempts: 1 } as const;
@@ -57,12 +60,22 @@ function workflowError(error: unknown) {
     return new Error("Workflow failed", { cause: error });
 }
 
-async function updateFileProcessingState(fileId: string, processStep: FileProcessStep, status: FileProcessStatus) {
+async function updateFileProcessingState(
+    fileId: string,
+    processStep: FileProcessStep,
+    status: FileProcessStatus,
+    processErrorCode?: FileProcessErrorCode | null
+) {
     await db
         .update(filesTable)
         .set({
             processStep,
             status,
+            ...(processErrorCode !== undefined
+                ? { processErrorCode }
+                : status === "failed"
+                  ? {}
+                  : { processErrorCode: null }),
         })
         .where(eq(filesTable.id, fileId));
 }
@@ -94,6 +107,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
                 .set({
                     processStep: "pending",
                     status: "processing",
+                    processErrorCode: null,
                 })
                 .where(and(eq(filesTable.graphId, input.graphId), inArray(filesTable.id, input.fileIds)));
         });
@@ -343,6 +357,11 @@ export const processFile = defineWorkflow(
                 } satisfies Omit<GraphFile, "chunker">;
                 const document = await loadGraphDocument(graphFile.loader);
                 const text = document.text;
+                const contentText = stripPageFences(text);
+                if (contentText.trim() === "") {
+                    throw new Error("No readable text found in file");
+                }
+
                 const uploadedDocument = await putNamedFile(
                     "document.json",
                     JSON.stringify(document),
@@ -351,7 +370,6 @@ export const processFile = defineWorkflow(
                 );
 
                 const duration = performance.now() - start;
-                const contentText = stripPageFences(text);
                 const tokens = estimateToken(contentText);
 
                 await db
@@ -409,6 +427,9 @@ export const processFile = defineWorkflow(
                         break;
                     case "json":
                         chunker = new JSONChunker({ maxChunkSize: 500 });
+                        break;
+                    case "csv":
+                        chunker = new CSVChunker({ maxChunkSize: 500 });
                         break;
                     default:
                         chunker = new SemanticChunker(2000);
@@ -893,9 +914,9 @@ export const processFile = defineWorkflow(
             return saveGraphResult.summary;
         } catch (error) {
             if (run.retryTerminal) {
-                await updateFileProcessingState(input.fileId, "failed", "failed");
+                await updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error));
             } else {
-                await updateFileProcessingState(input.fileId, "pending", "processing");
+                await updateFileProcessingState(input.fileId, "pending", "processing", null);
             }
 
             throw workflowError(error);

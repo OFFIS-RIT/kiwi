@@ -306,7 +306,11 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
                                                             canDeleteFiles && "pr-6"
                                                         )}
                                                     >
-                                                        <FileStatusIcon status={file.status} className="mt-0.5" />
+                                                        <FileStatusIcon
+                                                            status={file.status}
+                                                            processErrorCode={file.process_error_code}
+                                                            className="mt-0.5"
+                                                        />
                                                         <div className="min-w-0 flex-1">
                                                             <p
                                                                 className={cn(

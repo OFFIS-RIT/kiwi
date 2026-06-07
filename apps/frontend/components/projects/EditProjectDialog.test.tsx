@@ -31,6 +31,8 @@ vi.mock("@/hooks/use-data", () => ({
                 file_key: "file_1",
                 name: "README.pdf",
                 status: "processed",
+                process_step: "completed",
+                process_error_code: null,
                 created_at: "2026-04-17T10:00:00.000Z",
                 updated_at: "2026-04-17T10:00:00.000Z",
             },

@@ -16,6 +16,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
+import type { FileProcessErrorCode } from "@kiwi/contracts/routes";
 import type { TextUnitSourceChunk } from "@kiwi/contracts/source";
 import { organizationTable, teamTable, userTable } from "./auth";
 import { tsvector, weightedTsvectorGenerated } from "./tsvector";
@@ -141,6 +142,7 @@ export const filesTable = pgTable.withRLS(
         deleted: boolean("deleted").default(false),
         status: text("status", { enum: FILE_PROCESS_STATUS_VALUES }).notNull().default("processing"),
         processStep: text("process_step", { enum: FILE_PROCESS_STEP_VALUES }).notNull().default("pending"),
+        processErrorCode: text("process_error_code").$type<FileProcessErrorCode | null>(),
         tokenCount: integer("token_count").notNull().default(0),
         metadata: text("metadata"),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
