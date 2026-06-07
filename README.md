@@ -29,7 +29,7 @@
 
 ## Features
 
-- **Document Processing** – Upload and process PDFs, images, audio, CSV, and Excel files
+- **Document Processing** – Upload and process PDFs, images, audio, video, CSV, and Excel files
 - **Adaptive PDF OCR Rendering** – Automatically switches to high-resolution tiled rendering, with optional panel splitting for large technical drawings such as A1 and A0 sheets
 - **Knowledge Graph Extraction** – Uses AI to extract entities, relationships, and supporting evidence from uploaded documents
 - **Graph Storage** – Stores entities and relationships in a queryable knowledge graph backed by PostgreSQL and pgvector
@@ -171,7 +171,7 @@ non-sensitive LDAP presence flags.
 
 1. User uploads files → API stores the originals in RustFS
 2. API enqueues durable workflow runs in PostgreSQL within the request transaction
-3. Worker claims pending runs from workflow storage and processes files (PDF, images, audio, CSV, Excel)
+3. Worker claims pending runs from workflow storage and processes files (PDF, images, audio, video, CSV, Excel)
 4. Worker extracts entities/relations via AI and stores graph data in PostgreSQL with embeddings
 5. When all file workflows in a batch finish, description workflows are enqueued and the project returns to `ready`
 6. User queries via chat → vector search, graph traversal, or agentic tool exploration + AI response
@@ -294,10 +294,16 @@ Copy `.env.sample` to `.env` and configure:
 | `AI_AUDIO_KEY`                     | Optional audio model API key                                            |
 | `AI_AUDIO_URL`                     | Optional OpenAI-compatible audio endpoint                               |
 | `AI_AUDIO_RESOURCE_NAME`           | Optional Azure resource name for audio models                           |
+| `AI_VIDEO_ADAPTER`                 | Optional video model adapter                                            |
+| `AI_VIDEO_MODEL`                   | Optional video model name                                               |
+| `AI_VIDEO_KEY`                     | Optional video model API key                                            |
+| `AI_VIDEO_URL`                     | Optional OpenAI-compatible video endpoint                               |
+| `AI_VIDEO_RESOURCE_NAME`           | Optional Azure resource name for video models                           |
 | `AI_TEXT_CONCURRENCY`              | Worker-local maximum concurrent text requests                           |
 | `AI_IMAGE_CONCURRENCY`             | Worker-local maximum concurrent image requests                          |
 | `AI_EMBEDDING_CONCURRENCY`         | Worker-local maximum concurrent embedding requests                      |
 | `AI_AUDIO_CONCURRENCY`             | Worker-local maximum concurrent audio requests                          |
+| `AI_VIDEO_CONCURRENCY`             | Worker-local maximum concurrent video requests                          |
 | `AI_EMBED_DIM`                     | Embedding dimension used by migrations                                  |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`      | Optional OTLP endpoint fallback for log export                          |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Optional OTLP logs endpoint                                             |

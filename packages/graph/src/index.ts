@@ -24,7 +24,12 @@ export type Source = {
     sourceChunkIds?: number[];
 };
 
-export type { LoadedGraphDocument, LoaderSourceChunk, SourceChunkRegion, TextUnitSourceChunk } from "@kiwi/contracts/source";
+export type {
+    LoadedGraphDocument,
+    LoaderSourceChunk,
+    SourceChunkRegion,
+    TextUnitSourceChunk,
+} from "@kiwi/contracts/source";
 export { isLoaderSourceChunk, isSourceChunkRegion, isTextUnitSourceChunk } from "@kiwi/contracts/source";
 
 export type Unit = {
@@ -79,3 +84,7 @@ export { CSVChunker } from "./chunking/csv";
 export { JSONChunker } from "./chunking/json";
 export { SemanticChunker } from "./chunking/semantic";
 export { SingleChunker } from "./chunking/single";
+export { TOMLChunker } from "./chunking/toml";
+export { TranscriptChunker } from "./chunking/transcript";
+export { XMLChunker } from "./chunking/xml";
+export { YAMLChunker } from "./chunking/yaml";

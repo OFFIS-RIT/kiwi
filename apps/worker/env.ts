@@ -50,6 +50,13 @@ export const env = createEnv({
         AI_AUDIO_URL: z.string().optional(),
         AI_AUDIO_RESOURCE_NAME: z.string().optional(),
 
+        // Video (optional – not all deployments need it)
+        AI_VIDEO_ADAPTER: adapterEnum.optional(),
+        AI_VIDEO_MODEL: z.string().optional(),
+        AI_VIDEO_KEY: z.string().optional(),
+        AI_VIDEO_URL: z.string().optional(),
+        AI_VIDEO_RESOURCE_NAME: z.string().optional(),
+
         // DB
         DATABASE_URL: z.string(),
         DATABASE_DIRECT_URL: z.string(),
@@ -61,6 +68,7 @@ export const env = createEnv({
         AI_IMAGE_CONCURRENCY: z.coerce.number().int().positive().default(64),
         AI_EMBEDDING_CONCURRENCY: z.coerce.number().int().positive().default(64),
         AI_AUDIO_CONCURRENCY: z.coerce.number().int().positive().default(64),
+        AI_VIDEO_CONCURRENCY: z.coerce.number().int().positive().default(64),
     },
     runtimeEnv: process.env,
 });

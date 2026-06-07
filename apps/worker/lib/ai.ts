@@ -42,3 +42,63 @@ export function buildWorkerTextAdapter() {
         env.AI_EXTRACT_RESOURCE_NAME
     );
 }
+
+export function buildAudioAdapter() {
+    const hasAudioConfig = Boolean(
+        env.AI_AUDIO_ADAPTER || env.AI_AUDIO_MODEL || env.AI_AUDIO_KEY || env.AI_AUDIO_URL || env.AI_AUDIO_RESOURCE_NAME
+    );
+
+    if (!hasAudioConfig) {
+        return undefined;
+    }
+
+    if (!env.AI_AUDIO_ADAPTER || !env.AI_AUDIO_MODEL || !env.AI_AUDIO_KEY) {
+        return undefined;
+    }
+
+    if (env.AI_AUDIO_ADAPTER === "azure" && !env.AI_AUDIO_RESOURCE_NAME) {
+        return undefined;
+    }
+
+    if (env.AI_AUDIO_ADAPTER === "openaiAPI" && !env.AI_AUDIO_URL) {
+        return undefined;
+    }
+
+    return buildAdapter(
+        env.AI_AUDIO_ADAPTER,
+        env.AI_AUDIO_MODEL,
+        env.AI_AUDIO_KEY,
+        env.AI_AUDIO_URL,
+        env.AI_AUDIO_RESOURCE_NAME
+    );
+}
+
+export function buildVideoAdapter() {
+    const hasVideoConfig = Boolean(
+        env.AI_VIDEO_ADAPTER || env.AI_VIDEO_MODEL || env.AI_VIDEO_KEY || env.AI_VIDEO_URL || env.AI_VIDEO_RESOURCE_NAME
+    );
+
+    if (!hasVideoConfig) {
+        return undefined;
+    }
+
+    if (!env.AI_VIDEO_ADAPTER || !env.AI_VIDEO_MODEL || !env.AI_VIDEO_KEY) {
+        return undefined;
+    }
+
+    if (env.AI_VIDEO_ADAPTER === "azure" && !env.AI_VIDEO_RESOURCE_NAME) {
+        return undefined;
+    }
+
+    if (env.AI_VIDEO_ADAPTER === "openaiAPI" && !env.AI_VIDEO_URL) {
+        return undefined;
+    }
+
+    return buildAdapter(
+        env.AI_VIDEO_ADAPTER,
+        env.AI_VIDEO_MODEL,
+        env.AI_VIDEO_KEY,
+        env.AI_VIDEO_URL,
+        env.AI_VIDEO_RESOURCE_NAME
+    );
+}

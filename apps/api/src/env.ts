@@ -56,6 +56,13 @@ export const env = createEnv({
         AI_AUDIO_KEY: z.string().optional(),
         AI_AUDIO_URL: z.string().optional(),
         AI_AUDIO_RESOURCE_NAME: z.string().optional(),
+
+        // Video (optional – not all deployments need it)
+        AI_VIDEO_ADAPTER: adapterEnum.optional(),
+        AI_VIDEO_MODEL: z.string().optional(),
+        AI_VIDEO_KEY: z.string().optional(),
+        AI_VIDEO_URL: z.string().optional(),
+        AI_VIDEO_RESOURCE_NAME: z.string().optional(),
     },
     runtimeEnv: process.env,
 });

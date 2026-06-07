@@ -48,4 +48,28 @@ describe("withAiSlot", () => {
             },
         ]);
     });
+
+    test("keeps video and audio slots independent", async () => {
+        configureAIConcurrency({ audio: 1, video: 2 });
+
+        let activeVideo = 0;
+        let maxActiveVideo = 0;
+
+        await Promise.all([
+            withAiSlot("video", async () => {
+                activeVideo += 1;
+                maxActiveVideo = Math.max(maxActiveVideo, activeVideo);
+                await sleep(10);
+                activeVideo -= 1;
+            }),
+            withAiSlot("video", async () => {
+                activeVideo += 1;
+                maxActiveVideo = Math.max(maxActiveVideo, activeVideo);
+                await sleep(10);
+                activeVideo -= 1;
+            }),
+        ]);
+
+        expect(maxActiveVideo).toBe(2);
+    });
 });

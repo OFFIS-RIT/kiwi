@@ -18,14 +18,12 @@ import { S3Loader } from "@kiwi/graph/loader/s3";
 import { JSONChunker } from "@kiwi/graph/chunker/json";
 import { SingleChunker } from "@kiwi/graph/chunker/single";
 import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
+import { TOMLChunker } from "@kiwi/graph/chunker/toml";
+import { TranscriptChunker } from "@kiwi/graph/chunker/transcript";
+import { XMLChunker } from "@kiwi/graph/chunker/xml";
+import { YAMLChunker } from "@kiwi/graph/chunker/yaml";
 import { env } from "../env";
-import {
-    type Graph,
-    type GraphChunker,
-    type GraphFile,
-    type LoadedGraphDocument,
-    type Unit,
-} from "@kiwi/graph";
+import { type Graph, type GraphChunker, type GraphFile, type LoadedGraphDocument, type Unit } from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
 import { loadGraphDocument } from "@kiwi/graph/loader/document";
 import { createDetectedGraphLoader, type GraphFileType } from "@kiwi/graph/loader/factory";
@@ -35,7 +33,7 @@ import { createUnitsFromText, processUnit } from "@kiwi/graph/unit";
 import { estimateToken, getClient } from "@kiwi/ai";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
-import { buildAdapter, buildEmbeddingAdapter, buildWorkerTextAdapter } from "../lib/ai";
+import { buildAdapter, buildAudioAdapter, buildEmbeddingAdapter, buildVideoAdapter, buildWorkerTextAdapter } from "../lib/ai";
 import { EMPTY_VECTOR_SQL, entityCompactNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
@@ -294,6 +292,8 @@ export const processFile = defineWorkflow(
                               env.AI_IMAGE_RESOURCE_NAME
                           )
                         : undefined,
+                audio: buildAudioAdapter(),
+                video: buildVideoAdapter(),
             });
 
             const baseFile = await step.run({ name: "preprocess-file" }, async () => {
@@ -315,6 +315,8 @@ export const processFile = defineWorkflow(
                     mimeType: fileData.mimeType,
                     documentMode: env.DOCUMENT_MODE,
                     imageModel: client.image,
+                    audioModel: client.audio,
+                    videoModel: client.video,
                     derivedImageStorage,
                 });
                 const baseGraphFile = {
@@ -407,8 +409,21 @@ export const processFile = defineWorkflow(
                     case "image":
                         chunker = new SingleChunker();
                         break;
+                    case "audio":
+                    case "video":
+                        chunker = new TranscriptChunker({ maxChunkSize: 500 });
+                        break;
                     case "json":
                         chunker = new JSONChunker({ maxChunkSize: 500 });
+                        break;
+                    case "xml":
+                        chunker = new XMLChunker({ maxChunkSize: 500 });
+                        break;
+                    case "yaml":
+                        chunker = new YAMLChunker({ maxChunkSize: 500 });
+                        break;
+                    case "toml":
+                        chunker = new TOMLChunker({ maxChunkSize: 500 });
                         break;
                     default:
                         chunker = new SemanticChunker(2000);

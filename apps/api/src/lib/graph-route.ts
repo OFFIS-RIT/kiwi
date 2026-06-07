@@ -18,8 +18,10 @@ import type { GraphDetailFileRecord, GraphFileRecord, GraphListItem, GraphRecent
 import { type GraphRecord } from "./graph-access";
 import { buildDeleteStepProgress, buildProcessStepProgress } from "./process-progress";
 import { findActiveDeleteGraphFilesProgress, findProcessDescriptionProgress } from "./workflow-progress";
+import type { GraphFileType } from "./graph-file-type";
 
-export type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "text";
+export { inferGraphFileType, type GraphFileType } from "./graph-file-type";
+
 export type UploadedFile = {
     id: string;
     name: string;
@@ -38,55 +40,6 @@ export type GraphFileRow = Omit<GraphDetailFileRecord, "created_at" | "updated_a
     created_at: Date | null;
     updated_at: Date | null;
 };
-
-export function inferGraphFileType(file: File): GraphFileType {
-    const normalizedMimeType = file.type?.trim().toLowerCase() ?? "";
-    const rawExtension = file.name.split(".").pop()?.trim().toLowerCase();
-    const extension = rawExtension && rawExtension !== file.name.toLowerCase() ? rawExtension : "";
-
-    if (normalizedMimeType === "application/pdf" || extension === "pdf") {
-        return "pdf";
-    }
-
-    if (
-        normalizedMimeType === "application/msword" ||
-        normalizedMimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-        extension === "doc" ||
-        extension === "docx"
-    ) {
-        return "doc";
-    }
-
-    if (
-        normalizedMimeType === "application/vnd.ms-excel" ||
-        normalizedMimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-        normalizedMimeType === "text/csv" ||
-        extension === "xls" ||
-        extension === "xlsx" ||
-        extension === "csv"
-    ) {
-        return "sheet";
-    }
-
-    if (
-        normalizedMimeType === "application/vnd.ms-powerpoint" ||
-        normalizedMimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
-        extension === "ppt" ||
-        extension === "pptx"
-    ) {
-        return "ppt";
-    }
-
-    if (normalizedMimeType.startsWith("image/")) {
-        return "image";
-    }
-
-    if (normalizedMimeType === "application/json" || extension === "json") {
-        return "json";
-    }
-
-    return "text";
-}
 
 type GraphListRow = {
     graph_id: string;
@@ -478,7 +431,10 @@ export const mapGraphListItem = (
     };
 };
 
-export async function mapGraphListItemsWithProcessing(graphs: GraphListRow[], userId: string): Promise<GraphListItem[]> {
+export async function mapGraphListItemsWithProcessing(
+    graphs: GraphListRow[],
+    userId: string
+): Promise<GraphListItem[]> {
     if (graphs.length === 0) {
         return [];
     }

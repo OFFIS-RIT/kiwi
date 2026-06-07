@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { MockTranscriptionModelV3 } from "ai/test";
 
+import { AudioLoader } from "../audio";
 import { DOCXLoader } from "../doc";
 import { ExcelLoader } from "../excel";
 import { BufferedGraphBinaryLoader, createDetectedGraphLoader, detectGraphFileFormat } from "../factory";
 import { PDFLoader } from "../pdf";
 import { PPTXLoader } from "../ppt";
+import { VideoLoader } from "../video";
 
 describe("detectGraphFileFormat", () => {
     test("prefers the PDF parser when a doc file is actually a PDF", () => {
@@ -95,6 +98,91 @@ describe("detectGraphFileFormat", () => {
             sniffed: false,
         });
     });
+
+    test("keeps structured text file types on the text loader path", () => {
+        const xml = detectGraphFileFormat({
+            declaredType: "xml",
+            mimeType: "application/xml; charset=utf-8",
+            content: toArrayBuffer(encodeASCII("<root />")),
+        });
+        const yaml = detectGraphFileFormat({
+            declaredType: "yaml",
+            mimeType: "text/yaml",
+            content: toArrayBuffer(encodeASCII("root:\n  ok: true")),
+        });
+        const toml = detectGraphFileFormat({
+            declaredType: "toml",
+            mimeType: "application/toml",
+            content: toArrayBuffer(encodeASCII("[root]\nok = true")),
+        });
+
+        expect(xml).toEqual({
+            fileType: "xml",
+            loaderKind: "text",
+            mimeType: "application/xml",
+            sniffed: false,
+        });
+        expect(yaml.loaderKind).toBe("text");
+        expect(yaml.fileType).toBe("yaml");
+        expect(toml.loaderKind).toBe("text");
+        expect(toml.fileType).toBe("toml");
+    });
+
+    test("keeps declared audio on the audio loader path", () => {
+        const format = detectGraphFileFormat({
+            declaredType: "audio",
+            mimeType: "audio/mpeg",
+            content: toArrayBuffer(Uint8Array.of(0x49, 0x44, 0x33, 0x04)),
+        });
+
+        expect(format).toEqual({
+            fileType: "audio",
+            loaderKind: "audio",
+            mimeType: "audio/mpeg",
+            sniffed: false,
+        });
+    });
+
+    test("keeps declared video on the video loader path", () => {
+        const format = detectGraphFileFormat({
+            declaredType: "video",
+            mimeType: "video/mp4",
+            content: toArrayBuffer(encodeASCII("not enough for sniffing")),
+        });
+
+        expect(format).toEqual({
+            fileType: "video",
+            loaderKind: "video",
+            mimeType: "video/mp4",
+            sniffed: false,
+        });
+    });
+
+    test("detects common video signatures regardless of declared type", () => {
+        const mp4 = detectGraphFileFormat({
+            declaredType: "text",
+            mimeType: "text/plain",
+            content: toArrayBuffer(Uint8Array.of(0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d)),
+        });
+        const webm = detectGraphFileFormat({
+            declaredType: "text",
+            mimeType: "text/plain",
+            content: toArrayBuffer(Uint8Array.of(0x1a, 0x45, 0xdf, 0xa3, 0x00)),
+        });
+
+        expect(mp4).toEqual({
+            fileType: "video",
+            loaderKind: "video",
+            mimeType: "video/mp4",
+            sniffed: true,
+        });
+        expect(webm).toEqual({
+            fileType: "video",
+            loaderKind: "video",
+            mimeType: "video/webm",
+            sniffed: true,
+        });
+    });
 });
 
 describe("BufferedGraphBinaryLoader", () => {
@@ -169,6 +257,50 @@ describe("createDetectedGraphLoader", () => {
                 imageModel: {} as never,
             })
         ).toThrow("Presentation OCR requires derived image storage");
+    });
+
+    test("creates audio loaders when an audio transcription model is configured", () => {
+        const result = createDetectedGraphLoader({
+            content: toArrayBuffer(Uint8Array.of(0x49, 0x44, 0x33, 0x04)),
+            declaredType: "audio",
+            mimeType: "audio/mpeg",
+            audioModel: new MockTranscriptionModelV3(),
+        });
+
+        expect(result.loader).toBeInstanceOf(AudioLoader);
+        expect(result.format.loaderKind).toBe("audio");
+    });
+
+    test("creates video loaders when a video transcription model is configured", () => {
+        const result = createDetectedGraphLoader({
+            content: toArrayBuffer(encodeASCII("not enough for sniffing")),
+            declaredType: "video",
+            mimeType: "video/mp4",
+            videoModel: new MockTranscriptionModelV3(),
+        });
+
+        expect(result.loader).toBeInstanceOf(VideoLoader);
+        expect(result.format.loaderKind).toBe("video");
+    });
+
+    test("throws when audio has no transcription model", () => {
+        expect(() =>
+            createDetectedGraphLoader({
+                content: toArrayBuffer(Uint8Array.of(0x49, 0x44, 0x33, 0x04)),
+                declaredType: "audio",
+                mimeType: "audio/mpeg",
+            })
+        ).toThrow("Audio transcription requires an audio transcription model");
+    });
+
+    test("throws when video has no transcription model", () => {
+        expect(() =>
+            createDetectedGraphLoader({
+                content: toArrayBuffer(encodeASCII("not enough for sniffing")),
+                declaredType: "video",
+                mimeType: "video/mp4",
+            })
+        ).toThrow("Video transcription requires a video transcription model");
     });
 });
 

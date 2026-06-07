@@ -8,6 +8,7 @@ configureAIConcurrency({
     image: env.AI_IMAGE_CONCURRENCY,
     embedding: env.AI_EMBEDDING_CONCURRENCY,
     audio: env.AI_AUDIO_CONCURRENCY,
+    video: env.AI_VIDEO_CONCURRENCY,
 });
 
 export const backend = await BackendPostgres.connect(env.DATABASE_DIRECT_URL);

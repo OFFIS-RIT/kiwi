@@ -1,13 +1,27 @@
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModelV3, TranscriptionModelV3 } from "@ai-sdk/provider";
 import type { GraphBinaryLoader, GraphLoader } from "..";
+import { AudioLoader } from "./audio";
 import { DOCXLoader } from "./doc";
 import { ExcelLoader } from "./excel";
 import { ImageLoader } from "./image";
 import { PDFLoader, type PDFMode } from "./pdf";
 import { PPTXLoader } from "./ppt";
+import { VideoLoader } from "./video";
 
-export type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "text";
-export type GraphLoaderKind = "pdf" | "docx" | "sheet" | "pptx" | "image" | "json" | "text";
+export type GraphFileType =
+    | "pdf"
+    | "doc"
+    | "sheet"
+    | "ppt"
+    | "image"
+    | "audio"
+    | "video"
+    | "json"
+    | "xml"
+    | "yaml"
+    | "toml"
+    | "text";
+export type GraphLoaderKind = "pdf" | "docx" | "sheet" | "pptx" | "image" | "audio" | "video" | "json" | "text";
 
 export type DetectedGraphFileFormat = {
     fileType: GraphFileType;
@@ -34,7 +48,12 @@ const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileFormat, 
         mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     },
     image: { fileType: "image", loaderKind: "image", mimeType: "application/octet-stream" },
+    audio: { fileType: "audio", loaderKind: "audio", mimeType: "application/octet-stream" },
+    video: { fileType: "video", loaderKind: "video", mimeType: "application/octet-stream" },
     json: { fileType: "json", loaderKind: "json", mimeType: "application/json" },
+    xml: { fileType: "xml", loaderKind: "text", mimeType: "application/xml" },
+    yaml: { fileType: "yaml", loaderKind: "text", mimeType: "application/yaml" },
+    toml: { fileType: "toml", loaderKind: "text", mimeType: "application/toml" },
     text: { fileType: "text", loaderKind: "text", mimeType: "text/plain" },
 };
 
@@ -45,9 +64,12 @@ const GIF87A_HEADER = encodeASCII("GIF87a");
 const GIF89A_HEADER = encodeASCII("GIF89a");
 const WEBP_RIFF_HEADER = encodeASCII("RIFF");
 const WEBP_BRAND = encodeASCII("WEBP");
+const AVI_BRAND = encodeASCII("AVI ");
 const BMP_HEADER = encodeASCII("BM");
 const TIFF_LE_HEADER = Uint8Array.of(0x49, 0x49, 0x2a, 0x00);
 const TIFF_BE_HEADER = Uint8Array.of(0x4d, 0x4d, 0x00, 0x2a);
+const EBML_HEADER = Uint8Array.of(0x1a, 0x45, 0xdf, 0xa3);
+const MP4_FTYP_MARKER = encodeASCII("ftyp");
 const ZIP_HEADERS = [
     Uint8Array.of(0x50, 0x4b, 0x03, 0x04),
     Uint8Array.of(0x50, 0x4b, 0x05, 0x06),
@@ -97,6 +119,8 @@ export function createDetectedGraphLoader(input: {
     mimeType?: string | null;
     documentMode?: PDFMode;
     imageModel?: LanguageModelV3;
+    audioModel?: TranscriptionModelV3;
+    videoModel?: TranscriptionModelV3;
     derivedImageStorage?: { bucket: string; imagePrefix: string };
 }): {
     format: DetectedGraphFileFormat;
@@ -112,7 +136,9 @@ export function createDetectedGraphLoader(input: {
         case "pdf":
             return {
                 format,
-                loader: new PDFLoader(buildPDFLoaderOptions(binaryLoader, input.imageModel, input.derivedImageStorage, documentMode)),
+                loader: new PDFLoader(
+                    buildPDFLoaderOptions(binaryLoader, input.imageModel, input.derivedImageStorage, documentMode)
+                ),
                 binaryLoader,
             };
         case "docx":
@@ -156,6 +182,26 @@ export function createDetectedGraphLoader(input: {
                 }),
                 binaryLoader,
             };
+        case "audio":
+            return {
+                format,
+                loader: new AudioLoader({
+                    loader: binaryLoader,
+                    model: requireAudioModel(input.audioModel, "Audio transcription"),
+                    mimeType: format.mimeType,
+                }),
+                binaryLoader,
+            };
+        case "video":
+            return {
+                format,
+                loader: new VideoLoader({
+                    loader: binaryLoader,
+                    model: requireVideoModel(input.videoModel, "Video transcription"),
+                    mimeType: format.mimeType,
+                }),
+                binaryLoader,
+            };
         case "json":
         case "text":
         default:
@@ -194,6 +240,22 @@ function requireImageModel(model: LanguageModelV3 | undefined, context: string):
     return model;
 }
 
+function requireAudioModel(model: TranscriptionModelV3 | undefined, context: string): TranscriptionModelV3 {
+    if (!model) {
+        throw new Error(`${context} requires an audio transcription model`);
+    }
+
+    return model;
+}
+
+function requireVideoModel(model: TranscriptionModelV3 | undefined, context: string): TranscriptionModelV3 {
+    if (!model) {
+        throw new Error(`${context} requires a video transcription model`);
+    }
+
+    return model;
+}
+
 function requireDerivedImageStorage(
     storage: { bucket: string; imagePrefix: string } | undefined,
     context: string
@@ -215,6 +277,14 @@ function sniffGraphFileFormat(bytes: Uint8Array): Omit<DetectedGraphFileFormat, 
         return {
             ...DEFAULT_FILE_FORMATS.image,
             mimeType: imageMimeType,
+        };
+    }
+
+    const videoMimeType = sniffVideoMimeType(bytes);
+    if (videoMimeType) {
+        return {
+            ...DEFAULT_FILE_FORMATS.video,
+            mimeType: videoMimeType,
         };
     }
 
@@ -276,6 +346,31 @@ function sniffImageMimeType(bytes: Uint8Array): string | null {
     return null;
 }
 
+function sniffVideoMimeType(bytes: Uint8Array): string | null {
+    if (matchesAt(bytes, EBML_HEADER, 0)) {
+        return "video/webm";
+    }
+
+    if (matchesAt(bytes, WEBP_RIFF_HEADER, 0) && matchesAt(bytes, AVI_BRAND, 8)) {
+        return "video/x-msvideo";
+    }
+
+    if (!matchesAt(bytes, MP4_FTYP_MARKER, 4) || bytes.length < 12) {
+        return null;
+    }
+
+    const brand = String.fromCharCode(bytes[8]!, bytes[9]!, bytes[10]!, bytes[11]!);
+    if (brand === "qt  ") {
+        return "video/quicktime";
+    }
+
+    if (["isom", "iso2", "avc1", "mp41", "mp42", "M4V ", "3gp4", "3gp5", "dash"].includes(brand)) {
+        return "video/mp4";
+    }
+
+    return null;
+}
+
 function hasZipSignature(bytes: Uint8Array): boolean {
     return ZIP_HEADERS.some((header) => matchesAt(bytes, header, 0));
 }
@@ -315,7 +410,7 @@ function matchesAt(bytes: Uint8Array, needle: Uint8Array, start: number): boolea
 
 function normalizeMimeType(value?: string | null): string | null {
     const normalized = value?.trim().toLowerCase();
-    return normalized ? normalized.split(";")[0]?.trim() ?? null : null;
+    return normalized ? (normalized.split(";")[0]?.trim() ?? null) : null;
 }
 
 function encodeASCII(value: string): Uint8Array {

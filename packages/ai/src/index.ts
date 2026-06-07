@@ -2,14 +2,16 @@ import { createAnthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/ant
 import { createAzure } from "@ai-sdk/azure";
 import { createOpenAI, type OpenAILanguageModelChatOptions } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { EmbeddingModelV3, JSONValue, LanguageModelV3 } from "@ai-sdk/provider";
+import type { EmbeddingModelV3, JSONValue, LanguageModelV3, TranscriptionModelV3 } from "@ai-sdk/provider";
 import type { MessagePart, MessageToolPart } from "@kiwi/contracts/chat";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import type { ModelMessage } from "ai";
 import { Tiktoken } from "js-tiktoken/lite";
 import o200k_base from "js-tiktoken/ranks/o200k_base";
 import { prepareCitationFencesForModel } from "./citation";
+import { OpenAICompatibleTranscriptionModel, UnsupportedTranscriptionModel } from "./transcription";
 export * from "./concurrency";
+export { OpenAICompatibleTranscriptionModel, UnsupportedTranscriptionModel } from "./transcription";
 
 let tokenEncoder: Tiktoken | undefined;
 
@@ -141,6 +143,7 @@ export type ClientConfig = {
     embedding?: EmbeddingAdapter;
     image?: Adapter;
     audio?: Adapter;
+    video?: Adapter;
 };
 
 export type Client = {
@@ -148,7 +151,8 @@ export type Client = {
     subagent?: LanguageModelV3;
     embedding?: EmbeddingModelV3;
     image?: LanguageModelV3;
-    audio?: LanguageModelV3;
+    audio?: TranscriptionModelV3;
+    video?: TranscriptionModelV3;
 };
 
 /**
@@ -175,8 +179,43 @@ export function getClient(config: ClientConfig): Client {
             ? createProvider(config.embedding).embeddingModel(config.embedding.model)
             : undefined,
         image: config.image ? createProvider(config.image).languageModel(config.image.model) : undefined,
-        audio: config.audio ? createProvider(config.audio).languageModel(config.audio.model) : undefined,
+        audio: config.audio ? createTranscriptionModel(config.audio, "audio") : undefined,
+        video: config.video ? createTranscriptionModel(config.video, "video") : undefined,
     };
+}
+
+function createTranscriptionModel(adapter: Adapter, capability: "audio" | "video"): TranscriptionModelV3 {
+    switch (adapter.type) {
+        case "openai":
+            return new OpenAICompatibleTranscriptionModel({
+                provider: "openai.transcription",
+                model: adapter.model,
+                apiKey: adapter.credentials?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
+                baseURL: process.env.OPENAI_API_URL ?? "https://api.openai.com/v1",
+                fetch: providerFetch,
+                style: "openai",
+            });
+        case "openaiAPI":
+            return new OpenAICompatibleTranscriptionModel({
+                provider: "openaiAPI.transcription",
+                model: adapter.model,
+                apiKey: adapter.credentials?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
+                baseURL: adapter.credentials?.url ?? process.env.OPENAI_API_URL ?? "https://api.openai.com/v1",
+                fetch: providerFetch,
+            });
+        case "azure":
+            return createAzure({
+                resourceName: adapter.credentials?.resourceName ?? process.env.AZURE_RESOURCE_NAME ?? "",
+                apiKey: adapter.credentials?.apiKey ?? process.env.AZURE_API_KEY ?? "",
+                fetch: providerFetch,
+            }).transcription(adapter.model);
+        case "anthropic":
+            return new UnsupportedTranscriptionModel({
+                provider: `anthropic.${capability}-transcription`,
+                modelId: adapter.model,
+                reason: `AI ${capability} transcription is not supported by anthropic`,
+            });
+    }
 }
 
 export type ProviderOptions = {
