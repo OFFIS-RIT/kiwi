@@ -148,7 +148,14 @@ export function createDetectedGraphLoader(input: {
     binaryLoader: BufferedGraphBinaryLoader;
 } {
     const binaryLoader = new BufferedGraphBinaryLoader(input.content);
-    const format = detectGraphFileFormat(input);
+    let format = detectGraphFileFormat(input);
+    if (shouldUseVideoFallbackForAudioWebM(input, format)) {
+        format = {
+            ...DEFAULT_FILE_FORMATS.video,
+            mimeType: "video/webm",
+            sniffed: true,
+        };
+    }
     const documentMode = input.documentMode ?? "hybrid";
     const useDocumentOCR = documentMode !== "plain";
     const bytes = new Uint8Array(input.content);
@@ -283,6 +290,23 @@ export function createDetectedGraphLoader(input: {
                 binaryLoader,
             };
     }
+}
+
+function shouldUseVideoFallbackForAudioWebM(
+    input: {
+        declaredType: GraphFileType;
+        audioModel?: TranscriptionModelV3;
+        videoModel?: TranscriptionModelV3;
+    },
+    format: DetectedGraphFileFormat
+): boolean {
+    return (
+        input.declaredType === "video" &&
+        format.fileType === "audio" &&
+        format.mimeType === "audio/webm" &&
+        !input.audioModel &&
+        Boolean(input.videoModel)
+    );
 }
 
 function buildPDFLoaderOptions(

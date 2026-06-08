@@ -445,6 +445,39 @@ describe("createDetectedGraphLoader", () => {
         expect(result.format.loaderKind).toBe("audio");
     });
 
+    test("creates audio loaders for audio-only WebM containers when audio transcription is configured", () => {
+        const result = createDetectedGraphLoader({
+            content: toArrayBuffer(fakeEBMLWithTrackType(2)),
+            declaredType: "video",
+            mimeType: "video/webm",
+            audioModel: new MockTranscriptionModelV3(),
+            videoModel: new MockTranscriptionModelV3(),
+        });
+
+        expect(result.loader).toBeInstanceOf(AudioLoader);
+        expect(result.format).toMatchObject({
+            fileType: "audio",
+            loaderKind: "audio",
+            mimeType: "audio/webm",
+        });
+    });
+
+    test("falls back to video loaders for audio-only WebM containers when only video transcription is configured", () => {
+        const result = createDetectedGraphLoader({
+            content: toArrayBuffer(fakeEBMLWithTrackType(2)),
+            declaredType: "video",
+            mimeType: "video/webm",
+            videoModel: new MockTranscriptionModelV3(),
+        });
+
+        expect(result.loader).toBeInstanceOf(VideoLoader);
+        expect(result.format).toMatchObject({
+            fileType: "video",
+            loaderKind: "video",
+            mimeType: "video/webm",
+        });
+    });
+
     test("creates video loaders when a video transcription model is configured", () => {
         const result = createDetectedGraphLoader({
             content: toArrayBuffer(encodeASCII("not enough for sniffing")),
