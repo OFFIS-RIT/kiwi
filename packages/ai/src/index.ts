@@ -475,3 +475,4 @@ export * from "./chat";
 export * from "./citation";
 export * from "./tools/toolsets";
 export * from "./agents/subagents";
+export * from "./prompts/request-info.prompt";

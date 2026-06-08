@@ -27,4 +27,19 @@ describe("createChatPrompt", () => {
         );
         expect(prompt).toContain("Most recent completed workflow marker: 2026-01-02T00:00:00.000Z.");
     });
+
+    test("includes request information when provided", () => {
+        const prompt = createChatPrompt({
+            requestInformation: {
+                currentDate: "2026-06-08",
+                currentWeekday: "Monday",
+                userName: "Ada Lovelace",
+            },
+        });
+
+        expect(prompt).toContain("## Request information");
+        expect(prompt).toContain("Current date: 2026-06-08");
+        expect(prompt).toContain("Current weekday: Monday");
+        expect(prompt).toContain("Requesting user: Ada Lovelace");
+    });
 });

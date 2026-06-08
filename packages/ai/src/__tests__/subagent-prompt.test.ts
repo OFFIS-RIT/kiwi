@@ -26,6 +26,17 @@ describe("subagent prompts", () => {
         expect(prompt).toContain("## Best Citation Candidates");
     });
 
+    test("subagent prompts include request information when provided", () => {
+        const requestInformation = {
+            currentDate: "2026-06-08",
+            currentWeekday: "Monday",
+            userName: "Ada Lovelace",
+        };
+
+        expect(createExploreSubagentPrompt({ requestInformation })).toContain("## Request information");
+        expect(createSourceCuratorSubagentPrompt({ requestInformation })).toContain("Requesting user: Ada Lovelace");
+    });
+
     test("task prompts keep delegated work specialized", () => {
         expect(createExploreSubagentTaskPrompt("Map the important entities")).toContain(
             "Complete this graph exploration task for the parent agent."

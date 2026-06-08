@@ -8,6 +8,7 @@ import {
     buildServerToolset,
     buildSubagentToolset,
     createChatSystemPrompt,
+    createRequestInformation,
     getClient,
     isPDFCitation,
     isResolvedCitationFence,
@@ -18,6 +19,7 @@ import {
     type ChatUIMessage,
     type CitationFence,
     type GraphToolsetOptions,
+    type RequestInformation,
     type ResolvedCitationFence,
     uiMessageToMessageParts,
 } from "@kiwi/ai";
@@ -135,6 +137,14 @@ function buildBaseToolset(options: GraphToolsetOptions, toolset: RuntimeToolset)
 
 function normalizePromptTexts(rows: PromptTextRow[]) {
     return rows.map((row) => row.prompt.trim()).filter((prompt) => prompt.length > 0);
+}
+
+function getRequestUserName(user: AuthUser) {
+    return user.name?.trim() || user.email?.trim() || user.id;
+}
+
+export function createUserRequestInformation(user: AuthUser) {
+    return createRequestInformation({ userName: getRequestUserName(user) });
 }
 
 function hasCompletedGraphRetrieval(message: Pick<ChatMessage, "role" | "parts">) {
@@ -438,6 +448,7 @@ function createGraphResearchRuntime(options: {
     toolset: RuntimeToolset;
     deep?: boolean;
     promptGuidance: ResearchPromptGuidance;
+    requestInformation?: RequestInformation;
 }) {
     const toolsetOptions = { graphId: options.graphId, embeddingModel: options.client.embedding };
     const baseToolset = buildBaseToolset(toolsetOptions, options.toolset);
@@ -447,6 +458,7 @@ function createGraphResearchRuntime(options: {
                   ...toolsetOptions,
                   model: options.client.subagent ?? options.client.text,
                   promptGuidance: options.promptGuidance,
+                  requestInformation: options.requestInformation,
               })
           )
         : baseToolset;
@@ -460,7 +472,13 @@ function createGraphResearchRuntime(options: {
 
 export async function getGraphResearchRuntime(
     graphId: string,
-    options: { toolset: RuntimeToolset; deep?: boolean; user?: AuthUser; rootOwner?: RootOwner } = { toolset: "server" }
+    options: {
+        toolset: RuntimeToolset;
+        deep?: boolean;
+        user?: AuthUser;
+        rootOwner?: RootOwner;
+        requestInformation?: RequestInformation;
+    } = { toolset: "server" }
 ) {
     const [graphPrompts, userPrompts, teamPrompts] = await Promise.all([
         listGraphPromptTexts(graphId),
@@ -479,6 +497,7 @@ export async function getGraphResearchRuntime(
         toolset: options.toolset,
         deep: options.deep,
         promptGuidance,
+        requestInformation: options.requestInformation,
     });
 }
 
@@ -489,6 +508,7 @@ export async function getGraphResearchRuntimeWithSharedGuidance(
         toolset: RuntimeToolset;
         deep?: boolean;
         promptGuidance: SharedResearchPromptGuidance;
+        requestInformation?: RequestInformation;
     }
 ) {
     return createGraphResearchRuntime({
@@ -500,6 +520,7 @@ export async function getGraphResearchRuntimeWithSharedGuidance(
             ...options.promptGuidance,
             graphPrompts: await listGraphPromptTexts(graphId),
         },
+        requestInformation: options.requestInformation,
     });
 }
 
@@ -585,6 +606,7 @@ export async function refreshReplyContext(options: {
 }
 
 export async function startReply(user: AuthUser, graphId: string, request: ChatRequest, options: StartReplyOptions) {
+    const promptOptions = options.promptOptions ?? {};
     const normalizedRequest = normalizeChatRequest(request);
     const { isNewChat } = await ensureChatRecord({
         chatId: normalizedRequest.id,
@@ -599,12 +621,17 @@ export async function startReply(user: AuthUser, graphId: string, request: ChatR
         getMetrics,
         parseCreatedAt,
     });
-    const runtime = await getGraphResearchRuntime(graphId, { ...options, user, rootOwner: options.rootOwner });
+    const runtime = await getGraphResearchRuntime(graphId, {
+        ...options,
+        user,
+        rootOwner: options.rootOwner,
+        requestInformation: promptOptions.requestInformation,
+    });
     const { contextMessages, validatedMessages, estimatedPromptTokens, systemPrompt } = await refreshReplyContext({
         chatId: normalizedRequest.id,
         graphId,
         runtime,
-        promptOptions: options.promptOptions,
+        promptOptions,
         abortSignal: options.abortSignal,
     });
     const assistantId = await createPendingAssistantMessage(normalizedRequest.id);

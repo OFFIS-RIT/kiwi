@@ -6,9 +6,11 @@ import {
     uiMessageToMessageParts,
     type ChatUIMessage,
     type ChatValidationToolset,
+    type RequestInformation,
     type ResolvedCitationFence,
 } from "@kiwi/ai";
 import { prependPromptGuidance } from "@kiwi/ai/prompts/guidance.prompt";
+import { createRequestInformationSection } from "@kiwi/ai/prompts/request-info.prompt";
 import { db } from "@kiwi/db";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { filesTable, graphTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
@@ -24,6 +26,7 @@ import {
     getMetrics,
     getGraphResearchRuntimeWithSharedGuidance,
     getRequiredResearchClient,
+    createUserRequestInformation,
     listChatsForTarget,
     listTeamPromptTexts,
     listUserPromptTexts,
@@ -89,10 +92,11 @@ type TeamChatRuntime = Omit<ChatRuntime, "tools"> & {
     };
     citationContext: TeamCitationContext;
     questionContext: TeamQuestionContext;
+    requestInformation: RequestInformation;
     getAdditionalUsage: () => AdditionalChatUsage;
 };
 
-type TeamGraphRuntime = Pick<TeamChatRuntime, "client" | "promptGuidance">;
+type TeamGraphAgentRuntime = Pick<TeamChatRuntime, "client" | "promptGuidance" | "requestInformation">;
 
 const TEAM_CHAT_LIST_DEFAULT_LIMIT = 20;
 const TEAM_CHAT_LIST_MAX_LIMIT = 50;
@@ -160,13 +164,14 @@ function serializeQuestionContext(messages: ChatUIMessage[], options: { summary?
     return [...summaryLines, ...visibleMessages.map((message) => `${message.role}: ${message.text}`)].join("\n");
 }
 
-function createTeamChatSystemPrompt(teamName: string) {
+function createTeamChatSystemPrompt(teamName: string, requestInformation?: RequestInformation) {
     return [
         "# Task Context",
         `You are Kiwi, a helpful assistant for answering questions across the graphs in the team "${teamName}".`,
         "Use only the available tools and previously cited chat history. The only tools available here are list_graphs and query_graphs.",
         "list_graphs lists graphs in this team with offset/limit pagination. query_graphs asks specialized graph agents to answer the current user question for selected graph IDs.",
         "",
+        ...createRequestInformationSection(requestInformation, { trailingBlankLine: true }),
         "# Retrieval Rules",
         "Use list_graphs before query_graphs unless the relevant graph IDs are already known from this conversation.",
         "For team-wide or all-graph questions, paginate through every graph page and query every relevant graph before answering.",
@@ -271,7 +276,7 @@ async function loadTeamGraphsById(teamId: string, graphIds: string[]) {
 
 async function querySingleGraph(options: {
     graph: TeamGraphRow;
-    runtime: TeamGraphRuntime;
+    runtime: TeamGraphAgentRuntime;
     questionContext: string;
     abortSignal?: AbortSignal;
 }) {
@@ -279,6 +284,7 @@ async function querySingleGraph(options: {
         client: options.runtime.client,
         toolset: "server",
         promptGuidance: options.runtime.promptGuidance,
+        requestInformation: options.runtime.requestInformation,
     });
 
     const result = await generateText({
@@ -287,6 +293,7 @@ async function querySingleGraph(options: {
             includeGraphTools: true,
             includeClientTools: false,
             includeSubagentTools: false,
+            requestInformation: options.runtime.requestInformation,
         }),
         prompt: prependPromptGuidance(
             createGraphAgentTaskPrompt({
@@ -317,7 +324,7 @@ async function querySingleGraph(options: {
 
 function buildTeamChatToolset(options: {
     team: TeamAccessTeam;
-    graphRuntime: TeamGraphRuntime;
+    graphRuntime: TeamGraphAgentRuntime;
     questionContext: TeamQuestionContext;
     citationContext: TeamCitationContext;
     usageContext: TeamUsageContext;
@@ -442,6 +449,7 @@ export async function getTeamChatRuntime(options: {
     const client = getRequiredResearchClient();
     const citationContext = createTeamCitationContext();
     const usageContext = createTeamUsageContext();
+    const requestInformation = createUserRequestInformation(options.user);
     const promptGuidance = {
         userPrompts,
         teamPrompts,
@@ -451,6 +459,7 @@ export async function getTeamChatRuntime(options: {
         client,
         citationContext,
         questionContext: options.questionContext,
+        requestInformation,
         promptGuidance,
         getAdditionalUsage: () => ({
             totalTokens: usageContext.totalTokens,
@@ -460,7 +469,7 @@ export async function getTeamChatRuntime(options: {
         }),
         tools: buildTeamChatToolset({
             team: options.team,
-            graphRuntime: { client, promptGuidance },
+            graphRuntime: { client, promptGuidance, requestInformation },
             questionContext: options.questionContext,
             citationContext,
             usageContext,
@@ -518,7 +527,7 @@ export async function refreshTeamReplyContext(options: {
     abortSignal?: AbortSignal;
 }): Promise<{ systemPrompt: string; contextMessages: ModelMessage[]; estimatedPromptTokens: number }> {
     const systemPrompt = prependPromptGuidance(
-        createTeamChatSystemPrompt(options.teamName),
+        createTeamChatSystemPrompt(options.teamName, options.runtime.requestInformation),
         options.runtime.promptGuidance
     );
     const validateMessages = createChatMessageValidator(options.runtime.tools);

@@ -1,7 +1,10 @@
+import { createRequestInformationSection, type RequestInformation } from "./request-info.prompt";
+
 export type ChatPromptOptions = {
     includeGraphTools?: boolean;
     includeClientTools?: boolean;
     includeSubagentTools?: boolean;
+    requestInformation?: RequestInformation;
     graphDataRefresh?: {
         processedAt?: string;
     };
@@ -96,6 +99,7 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
         "Your goal is to explore the graph, identify the entities, relationships, and connections that matter, and gather source excerpts to support the final answer with citations.",
         "You may call tools to gather evidence before answering.",
         "",
+        ...createRequestInformationSection(options.requestInformation, { trailingBlankLine: true }),
         "# Critical Output Contract",
         '- Every citation in the final answer must use this exact literal shape: :::{"type": "cite", "id":"<source-id>"}:::.',
         "- Treat that citation fence as a strict output protocol, not prose formatting guidance.",

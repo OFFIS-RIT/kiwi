@@ -3,6 +3,7 @@ import {
     listChats,
     loadChatHistory,
     loadChatSummary,
+    createUserRequestInformation,
     refreshReplyContext,
     startReply as startGraphReply,
 } from "../lib/chat";
@@ -34,6 +35,7 @@ export const chatRoute = createChatTargetRoute({
             includeGraphTools: !deep,
             includeClientTools: mode === "stream" && !deep,
             includeSubagentTools: deep,
+            requestInformation: createUserRequestInformation(user),
         } as const;
         const started = await startGraphReply(user, target.graphId, request, {
             toolset: mode === "stream" ? "server-and-client" : "server",
