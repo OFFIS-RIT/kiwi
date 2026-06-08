@@ -4,6 +4,23 @@ import { type AICapability, withAiSlot } from "@kiwi/ai/lock";
 import type { GraphBinaryLoader, GraphLoader } from "..";
 
 const UNKNOWN_SPEAKER = "Speaker unknown";
+const TRANSCRIPTION_PROVIDER_OPTIONS = {
+    openai: {
+        prompt: audioTranscriptPrompt,
+        temperature: 0,
+        timestampGranularities: ["segment"],
+    },
+    openaiAPI: {
+        prompt: audioTranscriptPrompt,
+        temperature: 0,
+        timestampGranularities: ["segment"],
+    },
+    azure: {
+        prompt: audioTranscriptPrompt,
+        temperature: 0,
+        timestampGranularities: ["segment"],
+    },
+};
 
 type TranscriptionResult = Awaited<ReturnType<TranscriptionModelV3["doGenerate"]>>;
 type MediaTranscriptCapability = Extract<AICapability, "audio" | "video">;
@@ -42,18 +59,7 @@ export async function loadMediaTranscript(options: MediaTranscriptLoaderOptions)
         options.model.doGenerate({
             audio: new Uint8Array(content),
             mediaType: normalizeTranscriptMediaType(options.mimeType, options.capability),
-            providerOptions: {
-                openai: {
-                    prompt: audioTranscriptPrompt,
-                    temperature: 0,
-                    timestampGranularities: ["segment"],
-                },
-                openaiAPI: {
-                    prompt: audioTranscriptPrompt,
-                    temperature: 0,
-                    timestampGranularities: ["segment"],
-                },
-            },
+            providerOptions: TRANSCRIPTION_PROVIDER_OPTIONS,
         })
     );
 

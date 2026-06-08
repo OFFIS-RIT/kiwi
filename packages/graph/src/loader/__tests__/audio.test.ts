@@ -34,6 +34,11 @@ describe("AudioLoader", () => {
         const transcript = await loader.getText();
 
         expect(capturedOptions?.mediaType).toBe("audio/mpeg");
+        expect(capturedOptions?.providerOptions?.azure).toEqual({
+            prompt: expect.any(String),
+            temperature: 0,
+            timestampGranularities: ["segment"],
+        });
         expect(transcript).toContain("# Audio Transcript");
         expect(transcript).toContain("- Duration: 00:00:02.750");
         expect(transcript).toContain("## Segment 1");

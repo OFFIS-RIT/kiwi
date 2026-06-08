@@ -355,6 +355,21 @@ function sniffGraphFileFormat(
         };
     }
 
+    const ebmlMimeType = sniffEBMLMimeType(bytes);
+    if (ebmlMimeType === "audio/webm") {
+        return {
+            ...DEFAULT_FILE_FORMATS.audio,
+            mimeType: ebmlMimeType,
+        };
+    }
+
+    if (declaredType !== "audio" && ebmlMimeType === "video/webm") {
+        return {
+            ...DEFAULT_FILE_FORMATS.video,
+            mimeType: ebmlMimeType,
+        };
+    }
+
     const videoMimeType = declaredType === "audio" ? null : sniffVideoMimeType(bytes);
     if (videoMimeType) {
         return {
@@ -495,10 +510,6 @@ function sniffImageMimeType(bytes: Uint8Array): string | null {
 }
 
 function sniffVideoMimeType(bytes: Uint8Array): string | null {
-    if (matchesAt(bytes, EBML_HEADER, 0)) {
-        return "video/webm";
-    }
-
     if (matchesAt(bytes, WEBP_RIFF_HEADER, 0) && matchesAt(bytes, AVI_BRAND, 8)) {
         return "video/x-msvideo";
     }
@@ -517,6 +528,90 @@ function sniffVideoMimeType(bytes: Uint8Array): string | null {
     }
 
     return null;
+}
+
+function sniffEBMLMimeType(bytes: Uint8Array): "audio/webm" | "video/webm" | null {
+    if (!matchesAt(bytes, EBML_HEADER, 0)) {
+        return null;
+    }
+
+    const trackTypes = sniffEBMLTrackTypes(bytes);
+    if (trackTypes.has(1)) {
+        return "video/webm";
+    }
+
+    if (trackTypes.has(2)) {
+        return "audio/webm";
+    }
+
+    return "video/webm";
+}
+
+function sniffEBMLTrackTypes(bytes: Uint8Array): Set<number> {
+    const trackTypes = new Set<number>();
+    const limit = Math.min(bytes.length, 65_536);
+
+    for (let index = EBML_HEADER.length; index < limit - 2; index += 1) {
+        if (bytes[index] !== 0x83) {
+            continue;
+        }
+
+        const size = readEBMLVariableInteger(bytes, index + 1, limit);
+        if (!size || size.value < 1 || size.value > 8) {
+            continue;
+        }
+
+        const valueStart = index + 1 + size.length;
+        const valueEnd = valueStart + size.value;
+        if (valueEnd > limit) {
+            continue;
+        }
+
+        const trackType = readUnsignedInteger(bytes, valueStart, valueEnd);
+        if (trackType === 1 || trackType === 2) {
+            trackTypes.add(trackType);
+        }
+    }
+
+    return trackTypes;
+}
+
+function readEBMLVariableInteger(
+    bytes: Uint8Array,
+    start: number,
+    limit: number
+): { value: number; length: number } | null {
+    const first = bytes[start];
+    if (!first) {
+        return null;
+    }
+
+    let mask = 0x80;
+    let length = 1;
+    while (length <= 8 && (first & mask) === 0) {
+        mask >>= 1;
+        length += 1;
+    }
+
+    if (length > 8 || start + length > limit) {
+        return null;
+    }
+
+    let value = first & (mask - 1);
+    for (let offset = 1; offset < length; offset += 1) {
+        value = value * 256 + bytes[start + offset]!;
+    }
+
+    return { value, length };
+}
+
+function readUnsignedInteger(bytes: Uint8Array, start: number, end: number): number {
+    let value = 0;
+    for (let index = start; index < end; index += 1) {
+        value = value * 256 + bytes[index]!;
+    }
+
+    return value;
 }
 
 function hasZipSignature(bytes: Uint8Array): boolean {

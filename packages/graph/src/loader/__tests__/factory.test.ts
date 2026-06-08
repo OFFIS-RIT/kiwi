@@ -167,6 +167,21 @@ describe("detectGraphFileFormat", () => {
         });
     });
 
+    test("routes audio-only WebM containers through the audio loader path", () => {
+        const format = detectGraphFileFormat({
+            declaredType: "video",
+            mimeType: "video/webm",
+            content: toArrayBuffer(fakeEBMLWithTrackType(2)),
+        });
+
+        expect(format).toEqual({
+            fileType: "audio",
+            loaderKind: "audio",
+            mimeType: "audio/webm",
+            sniffed: true,
+        });
+    });
+
     test("keeps declared video on the video loader path", () => {
         const format = detectGraphFileFormat({
             declaredType: "video",
@@ -518,6 +533,31 @@ describe("createDetectedGraphLoader", () => {
 
 function fakeZipWithEntry(entry: string): ArrayBuffer {
     return toArrayBuffer(encodeASCII(`PK\u0003\u0004\x14\x00${entry}\x00payload`));
+}
+
+function fakeEBMLWithTrackType(trackType: 1 | 2): Uint8Array {
+    return Uint8Array.of(
+        0x1a,
+        0x45,
+        0xdf,
+        0xa3,
+        0x80,
+        0x18,
+        0x53,
+        0x80,
+        0x67,
+        0x88,
+        0x16,
+        0x54,
+        0xae,
+        0x6b,
+        0x83,
+        0xae,
+        0x81,
+        0x83,
+        0x81,
+        trackType
+    );
 }
 
 function encodeASCII(value: string): Uint8Array {
