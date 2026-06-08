@@ -1,4 +1,4 @@
-import { childElements, findFirstChild, getAttribute } from "../ooxml/xml";
+import { childElements, getAttribute } from "../ooxml/xml";
 import type { XMLNodeLike } from "../ooxml/types";
 import { formatInlineText } from "./text";
 

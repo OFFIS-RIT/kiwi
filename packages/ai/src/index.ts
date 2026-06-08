@@ -2,14 +2,16 @@ import { createAnthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/ant
 import { createAzure } from "@ai-sdk/azure";
 import { createOpenAI, type OpenAILanguageModelChatOptions } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { EmbeddingModelV3, JSONValue, LanguageModelV3 } from "@ai-sdk/provider";
+import type { EmbeddingModelV3, JSONValue, LanguageModelV3, TranscriptionModelV3 } from "@ai-sdk/provider";
 import type { MessagePart, MessageToolPart } from "@kiwi/contracts/chat";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import type { ModelMessage } from "ai";
 import { Tiktoken } from "js-tiktoken/lite";
 import o200k_base from "js-tiktoken/ranks/o200k_base";
 import { prepareCitationFencesForModel } from "./citation";
+import { OpenAICompatibleTranscriptionModel, UnsupportedTranscriptionModel } from "./transcription";
 export * from "./concurrency";
+export { OpenAICompatibleTranscriptionModel, UnsupportedTranscriptionModel } from "./transcription";
 
 let tokenEncoder: Tiktoken | undefined;
 
@@ -65,6 +67,8 @@ export type Adapter = OpenAIAdapter | OpenAIApiAdapter | AnthropicAdapter | Azur
 /** Embedding adapter – excludes Anthropic (no embedding models). */
 export type EmbeddingAdapter = Exclude<Adapter, AnthropicAdapter>;
 
+export type TranscriptionAdapterName = Extract<Adapter["type"], "openai" | "azure" | "openaiAPI">;
+
 type AssistantContent = Exclude<Extract<ModelMessage, { role: "assistant" }>["content"], string>;
 type ToolContent = Extract<ModelMessage, { role: "tool" }>["content"];
 type ToolResultPart = Extract<ToolContent[number], { type: "tool-result" }>;
@@ -73,6 +77,15 @@ type ToolResultOutput = ToolResultPart["output"];
 const CLIENT_TOOL_NAMES = new Set(["ask_clarifying_questions"]);
 
 export const AI_REQUEST_TIMEOUT_MS = 90 * 60 * 1000;
+
+export function normalizeOptionalString(value: string | undefined): string | undefined {
+    const normalized = value?.trim();
+    return normalized ? normalized : undefined;
+}
+
+export function isSupportedTranscriptionAdapter(value: string): value is TranscriptionAdapterName {
+    return value === "openai" || value === "azure" || value === "openaiAPI";
+}
 
 function getRequestSignal(signal: AbortSignal | null | undefined): AbortSignal {
     const timeoutSignal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS);
@@ -141,6 +154,7 @@ export type ClientConfig = {
     embedding?: EmbeddingAdapter;
     image?: Adapter;
     audio?: Adapter;
+    video?: Adapter;
 };
 
 export type Client = {
@@ -148,7 +162,8 @@ export type Client = {
     subagent?: LanguageModelV3;
     embedding?: EmbeddingModelV3;
     image?: LanguageModelV3;
-    audio?: LanguageModelV3;
+    audio?: TranscriptionModelV3;
+    video?: TranscriptionModelV3;
 };
 
 /**
@@ -175,8 +190,43 @@ export function getClient(config: ClientConfig): Client {
             ? createProvider(config.embedding).embeddingModel(config.embedding.model)
             : undefined,
         image: config.image ? createProvider(config.image).languageModel(config.image.model) : undefined,
-        audio: config.audio ? createProvider(config.audio).languageModel(config.audio.model) : undefined,
+        audio: config.audio ? createTranscriptionModel(config.audio, "audio") : undefined,
+        video: config.video ? createTranscriptionModel(config.video, "video") : undefined,
     };
+}
+
+function createTranscriptionModel(adapter: Adapter, capability: "audio" | "video"): TranscriptionModelV3 {
+    switch (adapter.type) {
+        case "openai":
+            return new OpenAICompatibleTranscriptionModel({
+                provider: "openai.transcription",
+                model: adapter.model,
+                apiKey: adapter.credentials?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
+                baseURL: process.env.OPENAI_API_URL ?? "https://api.openai.com/v1",
+                fetch: providerFetch,
+                style: "openai",
+            });
+        case "openaiAPI":
+            return new OpenAICompatibleTranscriptionModel({
+                provider: "openaiAPI.transcription",
+                model: adapter.model,
+                apiKey: adapter.credentials?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
+                baseURL: adapter.credentials?.url ?? process.env.OPENAI_API_URL ?? "https://api.openai.com/v1",
+                fetch: providerFetch,
+            });
+        case "azure":
+            return createAzure({
+                resourceName: adapter.credentials?.resourceName ?? process.env.AZURE_RESOURCE_NAME ?? "",
+                apiKey: adapter.credentials?.apiKey ?? process.env.AZURE_API_KEY ?? "",
+                fetch: providerFetch,
+            }).transcription(adapter.model);
+        case "anthropic":
+            return new UnsupportedTranscriptionModel({
+                provider: `anthropic.${capability}-transcription`,
+                modelId: adapter.model,
+                reason: `AI ${capability} transcription is not supported by anthropic`,
+            });
+    }
 }
 
 export type ProviderOptions = {

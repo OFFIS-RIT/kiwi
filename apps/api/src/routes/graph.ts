@@ -30,10 +30,11 @@ import {
     cleanupFailedGraphCreation,
     mapGraphError,
     toGraphFileRecord,
-    inferGraphFileType,
+    inferSupportedUploadedFiles,
     restoreGraphFileChangeFailure,
     selectFileFields,
     selectGraphDetailFileFields,
+    unsupportedUploadResponse,
     uniqueFilesByChecksum,
     type CreatedFileRecord,
     type GraphFileRow,
@@ -124,8 +125,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     organization_id: graph.organizationId,
                     team_id: teamId,
                     team_name: teamName,
-                    scope:
-                        rootOwner.mode === "user" ? "private" : rootOwner.mode === "team" ? "team" : "organization",
+                    scope: rootOwner.mode === "user" ? "private" : rootOwner.mode === "team" ? "team" : "organization",
                     files,
                 };
             });
@@ -201,8 +201,13 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             const owner = ownerResult.value;
             const ownerMode = owner.ownerMode;
             const filesWithChecksums = await uniqueFilesByChecksum(files);
+            const supportedUpload = inferSupportedUploadedFiles(filesWithChecksums);
+            if (!supportedUpload.ok) {
+                return unsupportedUploadResponse(status, supportedUpload);
+            }
+
             const hidden = owner.ownerMode === "graph" ? true : body.hidden === true || body.hidden === "true";
-            const initialState = filesWithChecksums.length > 0 ? "updating" : "ready";
+            const initialState = supportedUpload.files.length > 0 ? "updating" : "ready";
 
             const [graph] = await db
                 .insert(graphTable)
@@ -225,7 +230,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            if (filesWithChecksums.length === 0) {
+            if (supportedUpload.files.length === 0) {
                 return status(201, {
                     status: "success",
                     data: {
@@ -238,7 +243,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
             const uploadedFiles: UploadedFile[] = [];
             try {
-                for (const { file, checksum } of filesWithChecksums) {
+                for (const { file, checksum, type } of supportedUpload.files) {
                     const fileId = ulid();
                     const upload = await putGraphFile(graph.id, fileId, file.name, file, env.S3_BUCKET);
 
@@ -246,7 +251,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         id: fileId,
                         name: file.name,
                         size: file.size,
-                        type: inferGraphFileType(file),
+                        type,
                         mimeType: file.type || upload.type,
                         key: upload.key,
                         checksum,
@@ -526,9 +531,14 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
+            const supportedUpload = inferSupportedUploadedFiles(filesWithChecksums);
+            if (!supportedUpload.ok) {
+                return unsupportedUploadResponse(status, supportedUpload);
+            }
+
             const uploadedFiles: UploadedFile[] = [];
             try {
-                for (const { file, checksum } of filesWithChecksums) {
+                for (const { file, checksum, type } of supportedUpload.files) {
                     const fileId = ulid();
                     const upload = await putGraphFile(existingGraph.id, fileId, file.name, file, env.S3_BUCKET);
 
@@ -536,7 +546,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         id: fileId,
                         name: file.name,
                         size: file.size,
-                        type: inferGraphFileType(file),
+                        type,
                         mimeType: file.type || upload.type,
                         key: upload.key,
                         checksum,

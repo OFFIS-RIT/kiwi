@@ -369,6 +369,26 @@ describe("chat context helpers", () => {
         ).toBe(true);
     });
 
+    test("flags graph data refresh after a completed clarification result", () => {
+        expect(
+            shouldRefreshGraphDataAfterCompletedWorkflow({
+                rows: [
+                    textMessage("msg-refresh-clarify-1", "user", "what is in the graph?"),
+                    graphToolMessage("msg-refresh-clarify-2", "search_entities", "2026-01-01T00:00:00.000Z"),
+                    answeredClarificationMessage(
+                        timestampedTextMessage(
+                            "msg-refresh-clarify-3",
+                            "assistant",
+                            "",
+                            "2026-01-03T00:00:00.000Z"
+                        )
+                    ),
+                ],
+                completedWorkflowAt: new Date("2026-01-02T00:00:00.000Z"),
+            })
+        ).toBe(true);
+    });
+
     test("does not flag graph data refresh without a new completed workflow for this chat", () => {
         expect(
             shouldRefreshGraphDataAfterCompletedWorkflow({

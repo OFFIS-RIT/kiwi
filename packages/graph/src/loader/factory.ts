@@ -1,14 +1,38 @@
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModelV3, TranscriptionModelV3 } from "@ai-sdk/provider";
 import type { GraphBinaryLoader, GraphLoader } from "..";
+import type { GraphFileType } from "../file-type";
+import { AudioLoader } from "./audio";
+import { CalendarLoader } from "./calendar";
 import { CSVLoader } from "./csv";
 import { DOCXLoader } from "./doc";
+import { EmailLoader, inferEmailFormat, isMboxSeparator } from "./email";
 import { ExcelLoader } from "./excel";
+import { HTMLLoader, type HTMLLoaderMode } from "./html";
 import { ImageLoader } from "./image";
 import { PDFLoader, type PDFMode } from "./pdf";
 import { PPTXLoader } from "./ppt";
+import { VCardLoader } from "./vcard";
+import { VideoLoader } from "./video";
+import { XMLLoader } from "./xml";
 
-export type GraphFileType = "pdf" | "doc" | "sheet" | "ppt" | "image" | "json" | "csv" | "text";
-export type GraphLoaderKind = "pdf" | "docx" | "sheet" | "pptx" | "image" | "json" | "csv" | "text";
+export type { GraphFileType } from "../file-type";
+
+export type GraphLoaderKind =
+    | "pdf"
+    | "docx"
+    | "sheet"
+    | "pptx"
+    | "image"
+    | "audio"
+    | "video"
+    | "html"
+    | "email"
+    | "calendar"
+    | "vcard"
+    | "json"
+    | "csv"
+    | "xml"
+    | "text";
 
 export type DetectedGraphFileFormat = {
     fileType: GraphFileType;
@@ -35,8 +59,17 @@ const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileFormat, 
         mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     },
     image: { fileType: "image", loaderKind: "image", mimeType: "application/octet-stream" },
+    audio: { fileType: "audio", loaderKind: "audio", mimeType: "application/octet-stream" },
+    video: { fileType: "video", loaderKind: "video", mimeType: "application/octet-stream" },
+    html: { fileType: "html", loaderKind: "html", mimeType: "text/html" },
+    email: { fileType: "email", loaderKind: "email", mimeType: "message/rfc822" },
+    calendar: { fileType: "calendar", loaderKind: "calendar", mimeType: "text/calendar" },
+    vcard: { fileType: "vcard", loaderKind: "vcard", mimeType: "text/vcard" },
     json: { fileType: "json", loaderKind: "json", mimeType: "application/json" },
     csv: { fileType: "csv", loaderKind: "csv", mimeType: "text/csv" },
+    xml: { fileType: "xml", loaderKind: "xml", mimeType: "application/xml" },
+    yaml: { fileType: "yaml", loaderKind: "text", mimeType: "application/yaml" },
+    toml: { fileType: "toml", loaderKind: "text", mimeType: "application/toml" },
     text: { fileType: "text", loaderKind: "text", mimeType: "text/plain" },
 };
 
@@ -47,10 +80,13 @@ const GIF87A_HEADER = encodeASCII("GIF87a");
 const GIF89A_HEADER = encodeASCII("GIF89a");
 const WEBP_RIFF_HEADER = encodeASCII("RIFF");
 const WEBP_BRAND = encodeASCII("WEBP");
+const AVI_BRAND = encodeASCII("AVI ");
 const BMP_HEADER = encodeASCII("BM");
 const TIFF_LE_HEADER = Uint8Array.of(0x49, 0x49, 0x2a, 0x00);
 const TIFF_BE_HEADER = Uint8Array.of(0x4d, 0x4d, 0x00, 0x2a);
 const OLE_COMPOUND_HEADER = Uint8Array.of(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1);
+const EBML_HEADER = Uint8Array.of(0x1a, 0x45, 0xdf, 0xa3);
+const MP4_FTYP_MARKER = encodeASCII("ftyp");
 const ZIP_HEADERS = [
     Uint8Array.of(0x50, 0x4b, 0x03, 0x04),
     Uint8Array.of(0x50, 0x4b, 0x05, 0x06),
@@ -59,6 +95,8 @@ const ZIP_HEADERS = [
 const OOXML_WORD_ENTRY = encodeASCII("word/document.xml");
 const OOXML_PRESENTATION_ENTRY = encodeASCII("ppt/presentation.xml");
 const OOXML_WORKBOOK_ENTRY = encodeASCII("xl/workbook.xml");
+const EMAIL_HEADER_NAMES = new Set(["bcc", "cc", "date", "from", "message-id", "reply-to", "subject", "to"]);
+const EMAIL_ROUTE_HEADER_NAMES = new Set(["bcc", "cc", "from", "message-id", "reply-to", "to"]);
 
 export class BufferedGraphBinaryLoader implements GraphBinaryLoader {
     private text?: string;
@@ -81,7 +119,7 @@ export function detectGraphFileFormat(input: {
     mimeType?: string | null;
 }): DetectedGraphFileFormat {
     const bytes = new Uint8Array(input.content);
-    const sniffed = sniffGraphFileFormat(bytes);
+    const sniffed = sniffGraphFileFormat(bytes, input.declaredType);
     if (sniffed) {
         return { ...sniffed, sniffed: true };
     }
@@ -99,7 +137,10 @@ export function createDetectedGraphLoader(input: {
     declaredType: GraphFileType;
     mimeType?: string | null;
     documentMode?: PDFMode;
+    htmlMode?: HTMLLoaderMode;
     imageModel?: LanguageModelV3;
+    audioModel?: TranscriptionModelV3;
+    videoModel?: TranscriptionModelV3;
     derivedImageStorage?: { bucket: string; imagePrefix: string };
 }): {
     format: DetectedGraphFileFormat;
@@ -107,7 +148,14 @@ export function createDetectedGraphLoader(input: {
     binaryLoader: BufferedGraphBinaryLoader;
 } {
     const binaryLoader = new BufferedGraphBinaryLoader(input.content);
-    const format = detectGraphFileFormat(input);
+    let format = detectGraphFileFormat(input);
+    if (shouldUseVideoFallbackForAudioWebM(input, format)) {
+        format = {
+            ...DEFAULT_FILE_FORMATS.video,
+            mimeType: "video/webm",
+            sniffed: true,
+        };
+    }
     const documentMode = input.documentMode ?? "hybrid";
     const useDocumentOCR = documentMode !== "plain";
     const bytes = new Uint8Array(input.content);
@@ -127,7 +175,9 @@ export function createDetectedGraphLoader(input: {
         case "pdf":
             return {
                 format,
-                loader: new PDFLoader(buildPDFLoaderOptions(binaryLoader, input.imageModel, input.derivedImageStorage, documentMode)),
+                loader: new PDFLoader(
+                    buildPDFLoaderOptions(binaryLoader, input.imageModel, input.derivedImageStorage, documentMode)
+                ),
                 binaryLoader,
             };
         case "docx":
@@ -177,6 +227,60 @@ export function createDetectedGraphLoader(input: {
                 }),
                 binaryLoader,
             };
+        case "audio":
+            return {
+                format,
+                loader: new AudioLoader({
+                    loader: binaryLoader,
+                    model: requireAudioModel(input.audioModel, "Audio transcription"),
+                    mimeType: format.mimeType,
+                }),
+                binaryLoader,
+            };
+        case "video":
+            return {
+                format,
+                loader: new VideoLoader({
+                    loader: binaryLoader,
+                    model: requireVideoModel(input.videoModel, "Video transcription"),
+                    mimeType: format.mimeType,
+                }),
+                binaryLoader,
+            };
+        case "html":
+            return {
+                format,
+                loader: new HTMLLoader({ loader: binaryLoader, mode: input.htmlMode ?? "content" }),
+                binaryLoader,
+            };
+        case "xml":
+            return {
+                format,
+                loader: new XMLLoader({ loader: binaryLoader }),
+                binaryLoader,
+            };
+        case "email":
+            return {
+                format,
+                loader: new EmailLoader({
+                    loader: binaryLoader,
+                    format: inferEmailFormat(format.mimeType, input.content),
+                    mimeType: format.mimeType,
+                }),
+                binaryLoader,
+            };
+        case "calendar":
+            return {
+                format,
+                loader: new CalendarLoader({ loader: binaryLoader }),
+                binaryLoader,
+            };
+        case "vcard":
+            return {
+                format,
+                loader: new VCardLoader({ loader: binaryLoader }),
+                binaryLoader,
+            };
         case "json":
         case "text":
         default:
@@ -186,6 +290,23 @@ export function createDetectedGraphLoader(input: {
                 binaryLoader,
             };
     }
+}
+
+function shouldUseVideoFallbackForAudioWebM(
+    input: {
+        declaredType: GraphFileType;
+        audioModel?: TranscriptionModelV3;
+        videoModel?: TranscriptionModelV3;
+    },
+    format: DetectedGraphFileFormat
+): boolean {
+    return (
+        input.declaredType === "video" &&
+        format.fileType === "audio" &&
+        format.mimeType === "audio/webm" &&
+        !input.audioModel &&
+        Boolean(input.videoModel)
+    );
 }
 
 function buildPDFLoaderOptions(
@@ -215,6 +336,22 @@ function requireImageModel(model: LanguageModelV3 | undefined, context: string):
     return model;
 }
 
+function requireAudioModel(model: TranscriptionModelV3 | undefined, context: string): TranscriptionModelV3 {
+    if (!model) {
+        throw new Error(`${context} requires an audio transcription model`);
+    }
+
+    return model;
+}
+
+function requireVideoModel(model: TranscriptionModelV3 | undefined, context: string): TranscriptionModelV3 {
+    if (!model) {
+        throw new Error(`${context} requires a video transcription model`);
+    }
+
+    return model;
+}
+
 function requireDerivedImageStorage(
     storage: { bucket: string; imagePrefix: string } | undefined,
     context: string
@@ -226,7 +363,10 @@ function requireDerivedImageStorage(
     return storage;
 }
 
-function sniffGraphFileFormat(bytes: Uint8Array): Omit<DetectedGraphFileFormat, "sniffed"> | null {
+function sniffGraphFileFormat(
+    bytes: Uint8Array,
+    declaredType: GraphFileType
+): Omit<DetectedGraphFileFormat, "sniffed"> | null {
     if (hasPDFSignature(bytes)) {
         return DEFAULT_FILE_FORMATS.pdf;
     }
@@ -237,6 +377,34 @@ function sniffGraphFileFormat(bytes: Uint8Array): Omit<DetectedGraphFileFormat, 
             ...DEFAULT_FILE_FORMATS.image,
             mimeType: imageMimeType,
         };
+    }
+
+    const ebmlMimeType = sniffEBMLMimeType(bytes);
+    if (ebmlMimeType === "audio/webm") {
+        return {
+            ...DEFAULT_FILE_FORMATS.audio,
+            mimeType: ebmlMimeType,
+        };
+    }
+
+    if (declaredType !== "audio" && ebmlMimeType === "video/webm") {
+        return {
+            ...DEFAULT_FILE_FORMATS.video,
+            mimeType: ebmlMimeType,
+        };
+    }
+
+    const videoMimeType = declaredType === "audio" ? null : sniffVideoMimeType(bytes);
+    if (videoMimeType) {
+        return {
+            ...DEFAULT_FILE_FORMATS.video,
+            mimeType: videoMimeType,
+        };
+    }
+
+    const textFormat = sniffTextFileFormat(bytes, declaredType);
+    if (textFormat) {
+        return textFormat;
     }
 
     if (!hasZipSignature(bytes)) {
@@ -256,6 +424,74 @@ function sniffGraphFileFormat(bytes: Uint8Array): Omit<DetectedGraphFileFormat, 
     }
 
     return null;
+}
+
+function sniffTextFileFormat(
+    bytes: Uint8Array,
+    declaredType: GraphFileType
+): Omit<DetectedGraphFileFormat, "sniffed"> | null {
+    const prefix = new TextDecoder().decode(bytes.slice(0, 4096)).trimStart();
+    const lowerPrefix = prefix.toLowerCase();
+
+    if (lowerPrefix.startsWith("<!doctype html") || lowerPrefix.startsWith("<html")) {
+        return DEFAULT_FILE_FORMATS.html;
+    }
+
+    if (lowerPrefix.startsWith("begin:vcalendar")) {
+        return DEFAULT_FILE_FORMATS.calendar;
+    }
+
+    if (lowerPrefix.startsWith("begin:vcard")) {
+        return DEFAULT_FILE_FORMATS.vcard;
+    }
+
+    if (declaredType === "email" && matchesAt(bytes, Uint8Array.of(0xd0, 0xcf, 0x11, 0xe0), 0)) {
+        return {
+            ...DEFAULT_FILE_FORMATS.email,
+            mimeType: "application/vnd.ms-outlook",
+        };
+    }
+
+    if (declaredType === "email" && isMboxSeparator(prefix.split(/\r?\n/u)[0] ?? "")) {
+        return {
+            ...DEFAULT_FILE_FORMATS.email,
+            mimeType: "application/mbox",
+        };
+    }
+
+    if (declaredType === "text" && hasEmailHeaderBlock(prefix)) {
+        return DEFAULT_FILE_FORMATS.email;
+    }
+
+    return null;
+}
+
+function hasEmailHeaderBlock(prefix: string): boolean {
+    const headers = new Set<string>();
+    let hasRouteHeader = false;
+
+    for (const line of prefix.split(/\r?\n/u)) {
+        if (line.trim() === "") {
+            break;
+        }
+
+        if (/^[\t ]/u.test(line)) {
+            continue;
+        }
+
+        const match = /^([a-z][a-z0-9-]*):/iu.exec(line);
+        if (!match) {
+            break;
+        }
+
+        const header = match[1]!.toLowerCase();
+        if (EMAIL_HEADER_NAMES.has(header)) {
+            headers.add(header);
+            hasRouteHeader ||= EMAIL_ROUTE_HEADER_NAMES.has(header);
+        }
+    }
+
+    return headers.size >= 2 && hasRouteHeader;
 }
 
 function hasPDFSignature(bytes: Uint8Array): boolean {
@@ -295,6 +531,111 @@ function sniffImageMimeType(bytes: Uint8Array): string | null {
     }
 
     return null;
+}
+
+function sniffVideoMimeType(bytes: Uint8Array): string | null {
+    if (matchesAt(bytes, WEBP_RIFF_HEADER, 0) && matchesAt(bytes, AVI_BRAND, 8)) {
+        return "video/x-msvideo";
+    }
+
+    if (!matchesAt(bytes, MP4_FTYP_MARKER, 4) || bytes.length < 12) {
+        return null;
+    }
+
+    const brand = String.fromCharCode(bytes[8]!, bytes[9]!, bytes[10]!, bytes[11]!);
+    if (brand === "qt  ") {
+        return "video/quicktime";
+    }
+
+    if (["isom", "iso2", "avc1", "mp41", "mp42", "M4V ", "3gp4", "3gp5", "dash"].includes(brand)) {
+        return "video/mp4";
+    }
+
+    return null;
+}
+
+function sniffEBMLMimeType(bytes: Uint8Array): "audio/webm" | "video/webm" | null {
+    if (!matchesAt(bytes, EBML_HEADER, 0)) {
+        return null;
+    }
+
+    const trackTypes = sniffEBMLTrackTypes(bytes);
+    if (trackTypes.has(1)) {
+        return "video/webm";
+    }
+
+    if (trackTypes.has(2)) {
+        return "audio/webm";
+    }
+
+    return "video/webm";
+}
+
+function sniffEBMLTrackTypes(bytes: Uint8Array): Set<number> {
+    const trackTypes = new Set<number>();
+    const limit = Math.min(bytes.length, 65_536);
+
+    for (let index = EBML_HEADER.length; index < limit - 2; index += 1) {
+        if (bytes[index] !== 0x83) {
+            continue;
+        }
+
+        const size = readEBMLVariableInteger(bytes, index + 1, limit);
+        if (!size || size.value < 1 || size.value > 8) {
+            continue;
+        }
+
+        const valueStart = index + 1 + size.length;
+        const valueEnd = valueStart + size.value;
+        if (valueEnd > limit) {
+            continue;
+        }
+
+        const trackType = readUnsignedInteger(bytes, valueStart, valueEnd);
+        if (trackType === 1 || trackType === 2) {
+            trackTypes.add(trackType);
+        }
+    }
+
+    return trackTypes;
+}
+
+function readEBMLVariableInteger(
+    bytes: Uint8Array,
+    start: number,
+    limit: number
+): { value: number; length: number } | null {
+    const first = bytes[start];
+    if (!first) {
+        return null;
+    }
+
+    let mask = 0x80;
+    let length = 1;
+    while (length <= 8 && (first & mask) === 0) {
+        mask >>= 1;
+        length += 1;
+    }
+
+    if (length > 8 || start + length > limit) {
+        return null;
+    }
+
+    let value = first & (mask - 1);
+    for (let offset = 1; offset < length; offset += 1) {
+        value = value * 256 + bytes[start + offset]!;
+    }
+
+    return { value, length };
+}
+
+function readUnsignedInteger(bytes: Uint8Array, start: number, end: number): number {
+    let value = 0;
+    for (let index = start; index < end; index += 1) {
+        value = value * 256 + bytes[index]!;
+    }
+
+    return value;
 }
 
 function hasZipSignature(bytes: Uint8Array): boolean {
@@ -360,7 +701,7 @@ function matchesAt(bytes: Uint8Array, needle: Uint8Array, start: number): boolea
 
 function normalizeMimeType(value?: string | null): string | null {
     const normalized = value?.trim().toLowerCase();
-    return normalized ? normalized.split(";")[0]?.trim() ?? null : null;
+    return normalized ? (normalized.split(";")[0]?.trim() ?? null) : null;
 }
 
 function encodeASCII(value: string): Uint8Array {

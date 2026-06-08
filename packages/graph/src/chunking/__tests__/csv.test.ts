@@ -36,7 +36,13 @@ describe("CSVChunker", () => {
 
         const chunks = await new CSVChunker({ maxChunkSize: 4 }).getChunks(input);
 
-        expect(chunks).toEqual(["id,note\n1,\"first line\nsecond line\"", "id,note\n2,next"]);
+        expect(chunks).toEqual(['id,note\n1,"first line\nsecond line"', "id,note\n2,next"]);
+    });
+
+    test("rejects malformed quoted rows", async () => {
+        await expect(new CSVChunker({ maxChunkSize: 100 }).getChunks('id,note\n1,"unterminated')).rejects.toThrow(
+            "Invalid CSV content"
+        );
     });
 
     test("keeps an oversized row intact when it exceeds the chunk target", async () => {

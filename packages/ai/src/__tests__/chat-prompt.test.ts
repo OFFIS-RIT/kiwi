@@ -22,7 +22,9 @@ describe("createChatPrompt", () => {
 
         expect(prompt).toContain("# Graph Data Refresh Notice");
         expect(prompt).toContain("A graph processing workflow completed after earlier graph tool calls in this chat.");
-        expect(prompt).toContain("Treat previous graph tool outputs, source lists, and citation IDs as potentially stale.");
+        expect(prompt).toContain(
+            "Treat previous graph tool outputs, source lists, and citation IDs as potentially stale."
+        );
         expect(prompt).toContain("Most recent completed workflow marker: 2026-01-02T00:00:00.000Z.");
     });
 });

@@ -34,19 +34,6 @@ mock.module("ai", async () => {
     };
 });
 
-mock.module("../prompts/subagent.prompt", () => ({
-    createExploreSubagentPrompt: () => "explore",
-    createExploreSubagentTaskPrompt: (task: string) => `explore-task:${task}`,
-    createSourceCuratorSubagentPrompt: () => "curate",
-    createSourceCuratorTaskPrompt: (input: {
-        task: string;
-        entityIds?: string[];
-        relationshipIds?: string[];
-        query?: string;
-        files?: string[];
-    }) => `curate-task:${JSON.stringify(input)}`,
-}));
-
 mock.module("@kiwi/db", () => ({
     db: {},
 }));
@@ -68,11 +55,11 @@ describe("subagent tools", () => {
             { abortSignal: AbortSignal.abort("stop") }
         );
 
-        expect(generateMock).toHaveBeenCalledWith({
-            prompt: "explore-task:Find the most relevant entities",
-            abortSignal: expect.any(AbortSignal),
-        });
-        expect(result).toBe("generated:explore-task:Find the most relevant entities");
+        const call = generateMock.mock.calls[0]?.[0] as { prompt: string; abortSignal?: AbortSignal };
+        expect(call.prompt).toContain("Complete this graph exploration task for the parent agent.");
+        expect(call.prompt).toContain("Task: Find the most relevant entities");
+        expect(call.abortSignal).toEqual(expect.any(AbortSignal));
+        expect(result).toBe(`generated:${call.prompt}`);
     });
 
     test("passes scoped prompt guidance with delegated subagent tasks", async () => {
@@ -95,7 +82,8 @@ describe("subagent tools", () => {
         const call = generateMock.mock.calls[0]?.[0] as { prompt: string };
         expect(call.prompt).toContain("## Team Specific Prompts");
         expect(call.prompt).toContain("Use the team's glossary.");
-        expect(call.prompt.endsWith("explore-task:Find the most relevant entities")).toBe(true);
+        expect(call.prompt).toContain("Complete this graph exploration task for the parent agent.");
+        expect(call.prompt).toContain("Task: Find the most relevant entities");
     });
 
     test("delegates source curation with the specialized task prompt", async () => {
@@ -118,13 +106,15 @@ describe("subagent tools", () => {
             { abortSignal: undefined }
         );
 
-        expect(generateMock).toHaveBeenCalledWith({
-            prompt: 'curate-task:{"task":"Find source evidence","entityIds":["entity-1"],"relationshipIds":["rel-1"],"query":"roadmap","files":["file-1"]}',
-            abortSignal: undefined,
-        });
-        expect(result).toBe(
-            'generated:curate-task:{"task":"Find source evidence","entityIds":["entity-1"],"relationshipIds":["rel-1"],"query":"roadmap","files":["file-1"]}'
-        );
+        const call = generateMock.mock.calls[0]?.[0] as { prompt: string; abortSignal?: AbortSignal };
+        expect(call.prompt).toContain("Find the best source evidence for the parent agent.");
+        expect(call.prompt).toContain("Task: Find source evidence");
+        expect(call.prompt).toContain("Entity IDs: entity-1");
+        expect(call.prompt).toContain("Relationship IDs: rel-1");
+        expect(call.prompt).toContain("File IDs: file-1");
+        expect(call.prompt).toContain("Refinement query: roadmap");
+        expect(call.abortSignal).toBeUndefined();
+        expect(result).toBe(`generated:${call.prompt}`);
     });
 
     test("runs the compaction helper with the dedicated prompt and output cap", async () => {

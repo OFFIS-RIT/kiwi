@@ -21,4 +21,14 @@ describe("classifyFileProcessError", () => {
         expect(classifyFileProcessError(new Error("Too many rows in worksheet"))).toBe("FILE_TOO_LARGE_OR_COMPLEX");
         expect(classifyFileProcessError(new Error("Model context length exceeded"))).toBe("FILE_TOO_LARGE_OR_COMPLEX");
     });
+
+    test("classifies media and OCR configuration gaps", () => {
+        expect(classifyFileProcessError(new Error("Audio transcription requires an audio transcription model"))).toBe(
+            "OCR_REQUIRED_UNAVAILABLE"
+        );
+        expect(classifyFileProcessError(new Error("Video transcription requires a video transcription model"))).toBe(
+            "OCR_REQUIRED_UNAVAILABLE"
+        );
+        expect(classifyFileProcessError(new Error("Audio transcription produced no text"))).toBe("NO_READABLE_TEXT");
+    });
 });

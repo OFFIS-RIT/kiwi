@@ -25,7 +25,9 @@ function createGraphDataRefreshSection(options: {
     return [
         "# Graph Data Refresh Notice",
         "A graph processing workflow completed after earlier graph tool calls in this chat.",
-        ...(options.notice.processedAt ? [`Most recent completed workflow marker: ${options.notice.processedAt}.`] : []),
+        ...(options.notice.processedAt
+            ? [`Most recent completed workflow marker: ${options.notice.processedAt}.`]
+            : []),
         "- Treat previous graph tool outputs, source lists, and citation IDs as potentially stale.",
         refreshInstruction,
         "- Reuse earlier citations only after verifying they still support the current answer, or when the user asks only about the conversation itself.",

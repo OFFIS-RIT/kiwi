@@ -15,29 +15,35 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import z from "zod";
 import { S3Loader } from "@kiwi/graph/loader/s3";
-import { JSONChunker } from "@kiwi/graph/chunker/json";
+import { CalendarChunker } from "@kiwi/graph/chunker/calendar";
 import { CSVChunker } from "@kiwi/graph/chunker/csv";
+import { EmailChunker } from "@kiwi/graph/chunker/email";
+import { JSONChunker } from "@kiwi/graph/chunker/json";
 import { SingleChunker } from "@kiwi/graph/chunker/single";
 import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
+import { TOMLChunker } from "@kiwi/graph/chunker/toml";
+import { TranscriptChunker } from "@kiwi/graph/chunker/transcript";
+import { VCardChunker } from "@kiwi/graph/chunker/vcard";
+import { YAMLChunker } from "@kiwi/graph/chunker/yaml";
 import type { FileProcessErrorCode } from "@kiwi/contracts/routes";
 import { env } from "../env";
-import {
-    type Graph,
-    type GraphChunker,
-    type GraphFile,
-    type LoadedGraphDocument,
-    type Unit,
-} from "@kiwi/graph";
+import { type Graph, type GraphChunker, type GraphFile, type LoadedGraphDocument, type Unit } from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
+import { coerceGraphFileType } from "@kiwi/graph/file-type";
 import { loadGraphDocument } from "@kiwi/graph/loader/document";
-import { createDetectedGraphLoader, type GraphFileType } from "@kiwi/graph/loader/factory";
-import { stripPageFences } from "@kiwi/graph/lib/page-fence";
+import { createDetectedGraphLoader } from "@kiwi/graph/loader/factory";
 import { mergeGraphs } from "@kiwi/graph/merge";
 import { createUnitsFromText, processUnit } from "@kiwi/graph/unit";
 import { estimateToken, getClient } from "@kiwi/ai";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
-import { buildAdapter, buildEmbeddingAdapter, buildWorkerTextAdapter } from "../lib/ai";
+import {
+    buildAdapter,
+    buildAudioAdapter,
+    buildEmbeddingAdapter,
+    buildVideoAdapter,
+    buildWorkerTextAdapter,
+} from "../lib/ai";
 import { EMPTY_VECTOR_SQL, entityCompactNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
@@ -46,6 +52,7 @@ import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { toTextUnitRows } from "../lib/text-unit-rows";
+import { requireReadableContentText } from "../lib/readable-text";
 import { classifyFileProcessError } from "../lib/file-process-error";
 
 const FILE_DELETED = "__file_deleted__" as const;
@@ -308,6 +315,8 @@ export const processFile = defineWorkflow(
                               env.AI_IMAGE_RESOURCE_NAME
                           )
                         : undefined,
+                audio: buildAudioAdapter(),
+                video: buildVideoAdapter(),
             });
 
             const baseFile = await step.run({ name: "preprocess-file" }, async () => {
@@ -319,16 +328,19 @@ export const processFile = defineWorkflow(
                 const start = performance.now();
                 const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
                 const fileContent = await s3Loader.getBinary();
+                const declaredType = coerceGraphFileType(fileData.type);
                 const derivedImageStorage = {
                     bucket: env.S3_BUCKET,
                     imagePrefix: paths.derivedImagePrefix,
                 };
                 const { format: detectedFormat, loader } = createDetectedGraphLoader({
                     content: fileContent,
-                    declaredType: fileData.type as GraphFileType,
+                    declaredType,
                     mimeType: fileData.mimeType,
                     documentMode: env.DOCUMENT_MODE,
                     imageModel: client.image,
+                    audioModel: client.audio,
+                    videoModel: client.video,
                     derivedImageStorage,
                 });
                 const baseGraphFile = {
@@ -356,12 +368,8 @@ export const processFile = defineWorkflow(
                     loader,
                 } satisfies Omit<GraphFile, "chunker">;
                 const document = await loadGraphDocument(graphFile.loader);
-                const text = document.text;
-                const contentText = stripPageFences(text);
-                if (contentText.trim() === "") {
-                    throw new Error("No readable text found in file");
-                }
-
+                const contentText = requireReadableContentText(document.text);
+                const tokens = estimateToken(contentText);
                 const uploadedDocument = await putNamedFile(
                     "document.json",
                     JSON.stringify(document),
@@ -370,7 +378,6 @@ export const processFile = defineWorkflow(
                 );
 
                 const duration = performance.now() - start;
-                const tokens = estimateToken(contentText);
 
                 await db
                     .update(filesTable)
@@ -425,11 +432,30 @@ export const processFile = defineWorkflow(
                     case "image":
                         chunker = new SingleChunker();
                         break;
+                    case "audio":
+                    case "video":
+                        chunker = new TranscriptChunker({ maxChunkSize: 500 });
+                        break;
+                    case "email":
+                        chunker = new EmailChunker({ maxChunkSize: 500 });
+                        break;
+                    case "calendar":
+                        chunker = new CalendarChunker({ maxChunkSize: 500 });
+                        break;
+                    case "vcard":
+                        chunker = new VCardChunker({ maxChunkSize: 500 });
+                        break;
                     case "json":
                         chunker = new JSONChunker({ maxChunkSize: 500 });
                         break;
                     case "csv":
                         chunker = new CSVChunker({ maxChunkSize: 500 });
+                        break;
+                    case "yaml":
+                        chunker = new YAMLChunker({ maxChunkSize: 500 });
+                        break;
+                    case "toml":
+                        chunker = new TOMLChunker({ maxChunkSize: 500 });
                         break;
                     default:
                         chunker = new SemanticChunker(2000);

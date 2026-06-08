@@ -16,14 +16,16 @@ export function classifyFileProcessError(error: unknown): FileProcessErrorCode {
         return "PASSWORD_PROTECTED_FILE";
     }
 
-    if (message.includes("no readable text")) {
+    if (message.includes("no readable text") || message.includes("transcription produced no text")) {
         return "NO_READABLE_TEXT";
     }
 
     if (
         message.includes("requires an image-capable model") ||
         message.includes("requires an image model") ||
-        message.includes("requires derived image storage")
+        message.includes("requires derived image storage") ||
+        message.includes("requires an audio transcription model") ||
+        message.includes("requires a video transcription model")
     ) {
         return "OCR_REQUIRED_UNAVAILABLE";
     }

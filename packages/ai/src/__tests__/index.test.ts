@@ -4,7 +4,23 @@ mock.module("@kiwi/db", () => ({
     db: {},
 }));
 
-const { AI_REQUEST_TIMEOUT_MS, createProviderFetch } = await import("../index");
+const { AI_REQUEST_TIMEOUT_MS, createProviderFetch, isSupportedTranscriptionAdapter, normalizeOptionalString } =
+    await import("../index");
+
+describe("AI config helpers", () => {
+    test("normalizes optional strings", () => {
+        expect(normalizeOptionalString(undefined)).toBeUndefined();
+        expect(normalizeOptionalString(" \t ")).toBeUndefined();
+        expect(normalizeOptionalString("  value  ")).toBe("value");
+    });
+
+    test("identifies supported transcription adapters", () => {
+        expect(isSupportedTranscriptionAdapter("openai")).toBe(true);
+        expect(isSupportedTranscriptionAdapter("azure")).toBe(true);
+        expect(isSupportedTranscriptionAdapter("openaiAPI")).toBe(true);
+        expect(isSupportedTranscriptionAdapter("anthropic")).toBe(false);
+    });
+});
 
 describe("createProviderFetch", () => {
     test("disables Bun's default timeout and applies the shared request timeout", async () => {

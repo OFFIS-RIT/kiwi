@@ -3,6 +3,19 @@ import { z } from "zod";
 
 const adapterEnum = z.enum(["openai", "azure", "anthropic", "openaiAPI"]);
 const embeddingAdapterEnum = z.enum(["openai", "azure", "openaiAPI"]);
+const transcriptionAdapterEnum = z.enum(["openai", "azure", "openaiAPI"]);
+const optionalEnvString = z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().optional()
+);
+const optionalAdapterEnum = z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    adapterEnum.optional()
+);
+const optionalTranscriptionAdapterEnum = z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    transcriptionAdapterEnum.optional()
+);
 
 export const DEFAULT_CONTEXT_WINDOW = 250_000;
 export const isContextWindowDefaulted = process.env.CONTEXT_WINDOW === undefined;
@@ -44,18 +57,25 @@ export const env = createEnv({
         AI_EMBEDDING_RESOURCE_NAME: z.string().optional(),
 
         // Image / Vision (optional – not all deployments need it)
-        AI_IMAGE_ADAPTER: adapterEnum.optional(),
-        AI_IMAGE_MODEL: z.string().optional(),
-        AI_IMAGE_KEY: z.string().optional(),
-        AI_IMAGE_URL: z.string().optional(),
-        AI_IMAGE_RESOURCE_NAME: z.string().optional(),
+        AI_IMAGE_ADAPTER: optionalAdapterEnum,
+        AI_IMAGE_MODEL: optionalEnvString,
+        AI_IMAGE_KEY: optionalEnvString,
+        AI_IMAGE_URL: optionalEnvString,
+        AI_IMAGE_RESOURCE_NAME: optionalEnvString,
 
         // Audio (optional – not all deployments need it)
-        AI_AUDIO_ADAPTER: adapterEnum.optional(),
-        AI_AUDIO_MODEL: z.string().optional(),
-        AI_AUDIO_KEY: z.string().optional(),
-        AI_AUDIO_URL: z.string().optional(),
-        AI_AUDIO_RESOURCE_NAME: z.string().optional(),
+        AI_AUDIO_ADAPTER: optionalTranscriptionAdapterEnum,
+        AI_AUDIO_MODEL: optionalEnvString,
+        AI_AUDIO_KEY: optionalEnvString,
+        AI_AUDIO_URL: optionalEnvString,
+        AI_AUDIO_RESOURCE_NAME: optionalEnvString,
+
+        // Video (optional – not all deployments need it)
+        AI_VIDEO_ADAPTER: optionalTranscriptionAdapterEnum,
+        AI_VIDEO_MODEL: optionalEnvString,
+        AI_VIDEO_KEY: optionalEnvString,
+        AI_VIDEO_URL: optionalEnvString,
+        AI_VIDEO_RESOURCE_NAME: optionalEnvString,
     },
     runtimeEnv: process.env,
 });

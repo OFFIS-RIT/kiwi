@@ -1,4 +1,4 @@
-const capabilities = ["text", "image", "embedding", "audio"] as const;
+const capabilities = ["text", "image", "embedding", "audio", "video"] as const;
 
 export type AICapability = (typeof capabilities)[number];
 

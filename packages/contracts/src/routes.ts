@@ -589,12 +589,7 @@ export type UserPromptPatchResponse = ApiResponse<
 
 export type TeamPromptPatchResponse = ApiResponse<
     PromptRecord,
-    | "UNAUTHORIZED"
-    | "FORBIDDEN"
-    | "TEAM_NOT_FOUND"
-    | "PROMPT_NOT_FOUND"
-    | "INVALID_PROMPT"
-    | "INTERNAL_SERVER_ERROR"
+    "UNAUTHORIZED" | "FORBIDDEN" | "TEAM_NOT_FOUND" | "PROMPT_NOT_FOUND" | "INVALID_PROMPT" | "INTERNAL_SERVER_ERROR"
 >;
 
 export type GraphPromptPatchResponse = ApiResponse<
@@ -615,11 +610,7 @@ export type UserPromptDeleteResponse = ApiResponse<
 
 export type TeamPromptDeleteResponse = ApiResponse<
     null,
-    | "UNAUTHORIZED"
-    | "FORBIDDEN"
-    | "TEAM_NOT_FOUND"
-    | "PROMPT_NOT_FOUND"
-    | "INTERNAL_SERVER_ERROR"
+    "UNAUTHORIZED" | "FORBIDDEN" | "TEAM_NOT_FOUND" | "PROMPT_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
 >;
 
 export type GraphPromptDeleteResponse = ApiResponse<

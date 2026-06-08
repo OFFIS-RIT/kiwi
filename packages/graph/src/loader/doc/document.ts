@@ -17,7 +17,7 @@ import {
     parseXml,
 } from "../ooxml/xml";
 import type { XMLNodeLike } from "../ooxml/types";
-import { clampHeadingLevel, cleanInlineText, detectHeadingLevel, formatInlineText } from "./text";
+import { cleanInlineText, formatInlineText } from "./text";
 import { blocksToPlainText, looksLikeHeaderRow } from "./blocks";
 import {
     createFieldAwareSink,
@@ -39,11 +39,9 @@ import {
 } from "./styles";
 import type {
     DOCBlock,
-    DOCNumbering,
     DOCParseContext,
     DOCParseOptions,
     DOCStyles,
-    ParagraphListInfo,
     ParsedDOC,
 } from "./types";
 
