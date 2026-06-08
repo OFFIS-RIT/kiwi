@@ -17,6 +17,12 @@ const options = {
     graphId: "graph-1",
     embeddingModel: {} as never,
 };
+const correction = {
+    graphId: "graph-1",
+    userId: "user-1",
+    chatId: "chat-1",
+    messageId: "message-1",
+};
 
 describe("toolsets", () => {
     test("groups graph exploration tools", () => {
@@ -52,7 +58,15 @@ describe("toolsets", () => {
 
         expect(toolNames).toContain("search_entities");
         expect(toolNames).toContain("get_entity_sources");
+        expect(toolNames).not.toContain("correction");
         expect(toolNames).not.toContain("ask_clarifying_questions");
+    });
+
+    test("adds correction only when suggestion context is provided", () => {
+        expect(Object.keys(buildServerToolset(options))).not.toContain("correction");
+        expect(Object.keys(buildServerToolset({ ...options, correction }))).toContain("correction");
+        expect(Object.keys(buildServerAndClientToolset(options))).not.toContain("correction");
+        expect(Object.keys(buildServerAndClientToolset({ ...options, correction }))).toContain("correction");
     });
 
     test("adds client tools to the server-and-client toolset", () => {

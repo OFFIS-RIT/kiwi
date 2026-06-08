@@ -5,6 +5,7 @@ import {
     loadChatSummary,
     createUserRequestInformation,
     refreshReplyContext,
+    shouldIncludeGraphCorrectionTool,
     startReply as startGraphReply,
 } from "../lib/chat";
 import { assertCanViewGraphWithRootOwner, type RootOwner } from "../lib/graph-access";
@@ -31,10 +32,12 @@ export const chatRoute = createChatTargetRoute({
     loadSummary: (userId, target, chatId) => loadChatSummary(userId, target.graphId, chatId),
     startReply: async ({ user, target, request, mode, abortSignal }) => {
         const deep = request.deep === true;
+        const includeCorrectionTool = shouldIncludeGraphCorrectionTool(target.rootOwner, deep);
         const promptOptions = {
             includeGraphTools: !deep,
             includeClientTools: mode === "stream" && !deep,
             includeSubagentTools: deep,
+            includeCorrectionTool,
             requestInformation: createUserRequestInformation(user),
         } as const;
         const started = await startGraphReply(user, target.graphId, request, {

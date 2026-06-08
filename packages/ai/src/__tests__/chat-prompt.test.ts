@@ -13,6 +13,17 @@ describe("createChatPrompt", () => {
         expect(prompt).not.toContain("curate_sources_with_subagent");
     });
 
+    test("mentions correction only when correction tool is enabled", () => {
+        const defaultPrompt = createChatPrompt();
+        const correctionPrompt = createChatPrompt({ includeCorrectionTool: true });
+
+        expect(defaultPrompt).not.toContain("- correction:");
+        expect(defaultPrompt).not.toContain("# Correction Suggestion Rules");
+        expect(correctionPrompt).toContain("- correction:");
+        expect(correctionPrompt).toContain("# Correction Suggestion Rules");
+        expect(correctionPrompt).toContain("stores only; admins apply or delete suggestions later");
+    });
+
     test("warns when prior graph tool results may be stale", () => {
         const prompt = createChatPrompt({
             graphDataRefresh: {

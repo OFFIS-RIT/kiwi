@@ -196,5 +196,31 @@ export const assertCanPatchGraph = async (user: AuthUser, graphId: string): Prom
 export const assertCanManageGraphFiles = async (user: AuthUser, graphId: string): Promise<GraphRecord> =>
     assertGraphAccess(user, graphId, { needsFileManage: true });
 
+export const assertCanManageGraphSuggestions = async (user: AuthUser, graphId: string): Promise<GraphRecord> => {
+    const graph = await getGraphById(graphId);
+    if (!graph) {
+        throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
+    }
+
+    const rootOwner = await resolveGraphOwnerRoot(graph.id);
+    if (rootOwner.mode === "user") {
+        throw new Error(API_ERROR_CODES.FORBIDDEN);
+    }
+
+    await assertActiveOrganization(user, rootOwner.organizationId);
+
+    if (rootOwner.mode === "team") {
+        const access = await requireTeamAccess(user, rootOwner.teamId);
+        if (access.organizationAdmin || access.role === "admin") {
+            return graph;
+        }
+
+        throw new Error(API_ERROR_CODES.FORBIDDEN);
+    }
+
+    await requireOrganizationAdmin(user, rootOwner.organizationId);
+    return graph;
+};
+
 export const assertCanViewGraph = async (user: AuthUser, graphId: string): Promise<GraphRecord> =>
     assertGraphAccess(user, graphId);
