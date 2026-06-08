@@ -272,6 +272,47 @@ describe("createDetectedGraphLoader", () => {
         expect(ppt.loader).toBeInstanceOf(PPTXLoader);
     });
 
+    test("creates a CSV loader from declared CSV files", () => {
+        const result = createDetectedGraphLoader({
+            content: toArrayBuffer(encodeASCII("id,name\n1,Alice")),
+            declaredType: "csv",
+            documentMode: "plain",
+        });
+
+        expect(result.loader).toBeInstanceOf(CSVLoader);
+        expect(result.format.loaderKind).toBe("csv");
+    });
+
+    test("rejects binary files declared as CSV", () => {
+        expect(() =>
+            createDetectedGraphLoader({
+                content: toArrayBuffer(Uint8Array.of(0x00, 0x01, 0x02, 0x03, 0x04)),
+                declaredType: "csv",
+                documentMode: "plain",
+            })
+        ).toThrow("Invalid CSV content");
+    });
+
+    test("rejects legacy Office document formats", () => {
+        expect(() =>
+            createDetectedGraphLoader({
+                content: toArrayBuffer(Uint8Array.of(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0x00)),
+                declaredType: "doc",
+                documentMode: "plain",
+            })
+        ).toThrow("Unsupported file type");
+    });
+
+    test("rejects unknown binary files that would otherwise fall back to text", () => {
+        expect(() =>
+            createDetectedGraphLoader({
+                content: toArrayBuffer(Uint8Array.of(0x00, 0x01, 0x02, 0x03, 0x04)),
+                declaredType: "text",
+                documentMode: "plain",
+            })
+        ).toThrow("Unsupported file type");
+    });
+
     test("throws when PDF hybrid mode has no image model", () => {
         expect(() =>
             createDetectedGraphLoader({

@@ -32,10 +32,10 @@ const { estimateToken } = await import("@kiwi/ai");
 const {
     deriveActiveCompaction,
     getProtectedTailStartIndex,
+    shouldRefreshGraphDataAfterCompletedWorkflow,
     isContextOverflowError,
     normalizeChatRequest,
     replaceOrAppendMessage,
-    shouldRefreshGraphDataAfterCompletedWorkflow,
     startsAssistantOutput,
 } = await import("../chat");
 const {
@@ -106,7 +106,12 @@ function graphToolMessage(id: string, toolName = "search_entities", updatedAt = 
     };
 }
 
-function timestampedTextMessage(id: string, role: "user" | "assistant" | "system", text: string, updatedAt: string) {
+function timestampedTextMessage(
+    id: string,
+    role: "user" | "assistant" | "system",
+    text: string,
+    updatedAt: string
+) {
     return {
         ...textMessage(id, role, text),
         updatedAt: new Date(updatedAt),

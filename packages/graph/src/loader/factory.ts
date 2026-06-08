@@ -150,7 +150,6 @@ export function createDetectedGraphLoader(input: {
     const documentMode = input.documentMode ?? "hybrid";
     const useDocumentOCR = documentMode !== "plain";
     const bytes = new Uint8Array(input.content);
-
     if (hasOLECompoundSignature(bytes) && ["docx", "pptx"].includes(format.loaderKind)) {
         throw new Error("Unsupported file type: legacy Office documents are not supported");
     }

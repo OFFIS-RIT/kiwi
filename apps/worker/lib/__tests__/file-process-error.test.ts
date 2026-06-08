@@ -11,9 +11,9 @@ describe("classifyFileProcessError", () => {
     });
 
     test("does not classify connection pool pressure as file complexity", () => {
-        expect(
-            classifyFileProcessError(new Error("remaining connection slots are reserved: too many connections"))
-        ).toBe("INTERNAL_SERVER_ERROR");
+        expect(classifyFileProcessError(new Error("remaining connection slots are reserved: too many connections"))).toBe(
+            "INTERNAL_SERVER_ERROR"
+        );
     });
 
     test("classifies file-scoped size and complexity errors", () => {
