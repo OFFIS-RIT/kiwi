@@ -9,29 +9,31 @@ import {
     createSourceCuratorSubagentPrompt,
     createSourceCuratorTaskPrompt,
 } from "../prompts/subagent.prompt";
+import type { RequestInformation } from "../prompts/request-info.prompt";
 import { buildGraphExplorationToolset, buildSourceCurationToolset, type GraphToolsetOptions } from "../tools/toolsets";
 
 type SubagentOptions = GraphToolsetOptions & {
     model: LanguageModelV3;
     promptGuidance?: ScopedPromptGuidance;
+    requestInformation?: RequestInformation;
 };
 
-export function createGraphExploreAgent({ model, graphId, embeddingModel }: SubagentOptions) {
+export function createGraphExploreAgent({ model, graphId, embeddingModel, requestInformation }: SubagentOptions) {
     return new ToolLoopAgent({
         id: "graph-explore-agent",
         model,
-        instructions: createExploreSubagentPrompt(),
+        instructions: createExploreSubagentPrompt({ requestInformation }),
         tools: buildGraphExplorationToolset({ graphId, embeddingModel }),
         temperature: 0.2,
         stopWhen: stepCountIs(30),
     });
 }
 
-export function createSourceCuratorAgent({ model, graphId, embeddingModel }: SubagentOptions) {
+export function createSourceCuratorAgent({ model, graphId, embeddingModel, requestInformation }: SubagentOptions) {
     return new ToolLoopAgent({
         id: "source-curator-agent",
         model,
-        instructions: createSourceCuratorSubagentPrompt(),
+        instructions: createSourceCuratorSubagentPrompt({ requestInformation }),
         tools: buildSourceCurationToolset({ graphId, embeddingModel }),
         temperature: 0.1,
         stopWhen: stepCountIs(20),

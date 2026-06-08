@@ -1,14 +1,22 @@
+import { createRequestInformationSection, type RequestInformation } from "./request-info.prompt";
+
+type SubagentPromptOptions = {
+    requestInformation?: RequestInformation;
+};
+
 function line(label: string, values?: string[]) {
     const uniqueValues = [...new Set(values?.map((value) => value.trim()).filter(Boolean) ?? [])];
     return uniqueValues.length > 0 ? `${label}: ${uniqueValues.join(", ")}` : undefined;
 }
 
-export function createExploreSubagentPrompt() {
+export function createExploreSubagentPrompt(options: SubagentPromptOptions = {}) {
     return [
         "# Task Context",
         "You are Kiwi's graph exploration subagent. Your job is to explore one graph-backed project in depth for the parent agent.",
         "You do not write the final user-facing answer. You produce an exploration report the parent agent can use to decide what evidence matters.",
         "",
+        ...createRequestInformationSection(options.requestInformation),
+        ...(options.requestInformation ? [""] : []),
         "# Available Tools",
         "- list_files: Find relevant files and file IDs when document scope matters.",
         "- search_entities: Search for likely entities by topic, name, alias, or concept.",
@@ -52,12 +60,14 @@ export function createExploreSubagentPrompt() {
     ].join("\n");
 }
 
-export function createSourceCuratorSubagentPrompt() {
+export function createSourceCuratorSubagentPrompt(options: SubagentPromptOptions = {}) {
     return [
         "# Task Context",
         "You are Kiwi's source curator subagent. Your job is to explore sources in depth for already-identified entities and relationships.",
         "You do not write the final user-facing answer. You produce a curated evidence report the parent agent can use for grounded citation selection.",
         "",
+        ...createRequestInformationSection(options.requestInformation),
+        ...(options.requestInformation ? [""] : []),
         "# Available Tools",
         "- get_entity_sources: Retrieve source excerpts for known entity IDs.",
         "- get_relationship_sources: Retrieve source excerpts for known relationship IDs.",
