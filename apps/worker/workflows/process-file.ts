@@ -15,11 +15,14 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import z from "zod";
 import { S3Loader } from "@kiwi/graph/loader/s3";
+import { CalendarChunker } from "@kiwi/graph/chunker/calendar";
+import { EmailChunker } from "@kiwi/graph/chunker/email";
 import { JSONChunker } from "@kiwi/graph/chunker/json";
 import { SingleChunker } from "@kiwi/graph/chunker/single";
 import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
 import { TOMLChunker } from "@kiwi/graph/chunker/toml";
 import { TranscriptChunker } from "@kiwi/graph/chunker/transcript";
+import { VCardChunker } from "@kiwi/graph/chunker/vcard";
 import { XMLChunker } from "@kiwi/graph/chunker/xml";
 import { YAMLChunker } from "@kiwi/graph/chunker/yaml";
 import { env } from "../env";
@@ -412,6 +415,15 @@ export const processFile = defineWorkflow(
                     case "audio":
                     case "video":
                         chunker = new TranscriptChunker({ maxChunkSize: 500 });
+                        break;
+                    case "email":
+                        chunker = new EmailChunker({ maxChunkSize: 500 });
+                        break;
+                    case "calendar":
+                        chunker = new CalendarChunker({ maxChunkSize: 500 });
+                        break;
+                    case "vcard":
+                        chunker = new VCardChunker({ maxChunkSize: 500 });
                         break;
                     case "json":
                         chunker = new JSONChunker({ maxChunkSize: 500 });

@@ -81,10 +81,14 @@ export type GraphFile = {
 };
 
 export { CSVChunker } from "./chunking/csv";
+export { CalendarChunker } from "./chunking/calendar";
+export { EmailChunker } from "./chunking/email";
+export { HTMLChunker } from "./chunking/html";
 export { JSONChunker } from "./chunking/json";
 export { SemanticChunker } from "./chunking/semantic";
 export { SingleChunker } from "./chunking/single";
 export { TOMLChunker } from "./chunking/toml";
 export { TranscriptChunker } from "./chunking/transcript";
+export { VCardChunker } from "./chunking/vcard";
 export { XMLChunker } from "./chunking/xml";
 export { YAMLChunker } from "./chunking/yaml";

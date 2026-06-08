@@ -6,6 +6,10 @@ export type GraphFileType =
     | "image"
     | "audio"
     | "video"
+    | "html"
+    | "email"
+    | "calendar"
+    | "vcard"
     | "json"
     | "xml"
     | "yaml"
@@ -66,6 +70,47 @@ export function inferGraphFileType(file: File): GraphFileType {
         ["mp4", "m4v", "mov", "mkv", "webm", "avi"].includes(extension)
     ) {
         return "video";
+    }
+
+    if (
+        normalizedMimeType === "text/html" ||
+        normalizedMimeType === "application/xhtml+xml" ||
+        extension === "html" ||
+        extension === "htm" ||
+        extension === "xhtml"
+    ) {
+        return "html";
+    }
+
+    if (
+        normalizedMimeType === "message/rfc822" ||
+        normalizedMimeType === "application/vnd.ms-outlook" ||
+        normalizedMimeType === "application/mbox" ||
+        extension === "eml" ||
+        extension === "msg" ||
+        extension === "mbox"
+    ) {
+        return "email";
+    }
+
+    if (
+        normalizedMimeType === "text/calendar" ||
+        normalizedMimeType === "application/ics" ||
+        extension === "ics" ||
+        extension === "ical" ||
+        extension === "ifb"
+    ) {
+        return "calendar";
+    }
+
+    if (
+        normalizedMimeType === "text/vcard" ||
+        normalizedMimeType === "text/x-vcard" ||
+        normalizedMimeType === "text/directory" ||
+        extension === "vcf" ||
+        extension === "vcard"
+    ) {
+        return "vcard";
     }
 
     if (normalizedMimeType === "application/json" || extension === "json") {

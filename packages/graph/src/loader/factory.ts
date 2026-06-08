@@ -1,11 +1,15 @@
 import type { LanguageModelV3, TranscriptionModelV3 } from "@ai-sdk/provider";
 import type { GraphBinaryLoader, GraphLoader } from "..";
 import { AudioLoader } from "./audio";
+import { CalendarLoader } from "./calendar";
 import { DOCXLoader } from "./doc";
+import { EmailLoader, inferEmailFormat } from "./email";
 import { ExcelLoader } from "./excel";
+import { HTMLLoader, type HTMLLoaderMode } from "./html";
 import { ImageLoader } from "./image";
 import { PDFLoader, type PDFMode } from "./pdf";
 import { PPTXLoader } from "./ppt";
+import { VCardLoader } from "./vcard";
 import { VideoLoader } from "./video";
 
 export type GraphFileType =
@@ -16,12 +20,29 @@ export type GraphFileType =
     | "image"
     | "audio"
     | "video"
+    | "html"
+    | "email"
+    | "calendar"
+    | "vcard"
     | "json"
     | "xml"
     | "yaml"
     | "toml"
     | "text";
-export type GraphLoaderKind = "pdf" | "docx" | "sheet" | "pptx" | "image" | "audio" | "video" | "json" | "text";
+export type GraphLoaderKind =
+    | "pdf"
+    | "docx"
+    | "sheet"
+    | "pptx"
+    | "image"
+    | "audio"
+    | "video"
+    | "html"
+    | "email"
+    | "calendar"
+    | "vcard"
+    | "json"
+    | "text";
 
 export type DetectedGraphFileFormat = {
     fileType: GraphFileType;
@@ -50,6 +71,10 @@ const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileFormat, 
     image: { fileType: "image", loaderKind: "image", mimeType: "application/octet-stream" },
     audio: { fileType: "audio", loaderKind: "audio", mimeType: "application/octet-stream" },
     video: { fileType: "video", loaderKind: "video", mimeType: "application/octet-stream" },
+    html: { fileType: "html", loaderKind: "html", mimeType: "text/html" },
+    email: { fileType: "email", loaderKind: "email", mimeType: "message/rfc822" },
+    calendar: { fileType: "calendar", loaderKind: "calendar", mimeType: "text/calendar" },
+    vcard: { fileType: "vcard", loaderKind: "vcard", mimeType: "text/vcard" },
     json: { fileType: "json", loaderKind: "json", mimeType: "application/json" },
     xml: { fileType: "xml", loaderKind: "text", mimeType: "application/xml" },
     yaml: { fileType: "yaml", loaderKind: "text", mimeType: "application/yaml" },
@@ -100,7 +125,7 @@ export function detectGraphFileFormat(input: {
     mimeType?: string | null;
 }): DetectedGraphFileFormat {
     const bytes = new Uint8Array(input.content);
-    const sniffed = sniffGraphFileFormat(bytes);
+    const sniffed = sniffGraphFileFormat(bytes, input.declaredType);
     if (sniffed) {
         return { ...sniffed, sniffed: true };
     }
@@ -118,6 +143,7 @@ export function createDetectedGraphLoader(input: {
     declaredType: GraphFileType;
     mimeType?: string | null;
     documentMode?: PDFMode;
+    htmlMode?: HTMLLoaderMode;
     imageModel?: LanguageModelV3;
     audioModel?: TranscriptionModelV3;
     videoModel?: TranscriptionModelV3;
@@ -202,6 +228,34 @@ export function createDetectedGraphLoader(input: {
                 }),
                 binaryLoader,
             };
+        case "html":
+            return {
+                format,
+                loader: new HTMLLoader({ loader: binaryLoader, mode: input.htmlMode ?? "content" }),
+                binaryLoader,
+            };
+        case "email":
+            return {
+                format,
+                loader: new EmailLoader({
+                    loader: binaryLoader,
+                    format: inferEmailFormat(format.mimeType, input.content),
+                    mimeType: format.mimeType,
+                }),
+                binaryLoader,
+            };
+        case "calendar":
+            return {
+                format,
+                loader: new CalendarLoader({ loader: binaryLoader }),
+                binaryLoader,
+            };
+        case "vcard":
+            return {
+                format,
+                loader: new VCardLoader({ loader: binaryLoader }),
+                binaryLoader,
+            };
         case "json":
         case "text":
         default:
@@ -267,7 +321,10 @@ function requireDerivedImageStorage(
     return storage;
 }
 
-function sniffGraphFileFormat(bytes: Uint8Array): Omit<DetectedGraphFileFormat, "sniffed"> | null {
+function sniffGraphFileFormat(
+    bytes: Uint8Array,
+    declaredType: GraphFileType
+): Omit<DetectedGraphFileFormat, "sniffed"> | null {
     if (hasPDFSignature(bytes)) {
         return DEFAULT_FILE_FORMATS.pdf;
     }
@@ -288,6 +345,11 @@ function sniffGraphFileFormat(bytes: Uint8Array): Omit<DetectedGraphFileFormat, 
         };
     }
 
+    const textFormat = sniffTextFileFormat(bytes, declaredType);
+    if (textFormat) {
+        return textFormat;
+    }
+
     if (!hasZipSignature(bytes)) {
         return null;
     }
@@ -302,6 +364,46 @@ function sniffGraphFileFormat(bytes: Uint8Array): Omit<DetectedGraphFileFormat, 
 
     if (containsASCII(bytes, OOXML_WORKBOOK_ENTRY)) {
         return DEFAULT_FILE_FORMATS.sheet;
+    }
+
+    return null;
+}
+
+function sniffTextFileFormat(
+    bytes: Uint8Array,
+    declaredType: GraphFileType
+): Omit<DetectedGraphFileFormat, "sniffed"> | null {
+    const prefix = new TextDecoder().decode(bytes.slice(0, 4096)).trimStart();
+    const lowerPrefix = prefix.toLowerCase();
+
+    if (lowerPrefix.startsWith("<!doctype html") || lowerPrefix.startsWith("<html")) {
+        return DEFAULT_FILE_FORMATS.html;
+    }
+
+    if (lowerPrefix.startsWith("begin:vcalendar")) {
+        return DEFAULT_FILE_FORMATS.calendar;
+    }
+
+    if (lowerPrefix.startsWith("begin:vcard")) {
+        return DEFAULT_FILE_FORMATS.vcard;
+    }
+
+    if (declaredType === "email" && matchesAt(bytes, Uint8Array.of(0xd0, 0xcf, 0x11, 0xe0), 0)) {
+        return {
+            ...DEFAULT_FILE_FORMATS.email,
+            mimeType: "application/vnd.ms-outlook",
+        };
+    }
+
+    if (prefix.startsWith("From ")) {
+        return {
+            ...DEFAULT_FILE_FORMATS.email,
+            mimeType: "application/mbox",
+        };
+    }
+
+    if (/^(?:from|to|subject|date|message-id):/iu.test(prefix)) {
+        return DEFAULT_FILE_FORMATS.email;
     }
 
     return null;

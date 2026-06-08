@@ -29,7 +29,7 @@
 
 ## Features
 
-- **Document Processing** – Upload and process PDFs, images, audio, video, CSV, and Excel files
+- **Document Processing** – Upload and process PDFs, Office files, images, audio, video, HTML, email, calendars, contacts, CSV, JSON, XML, YAML, TOML, and Excel files
 - **Adaptive PDF OCR Rendering** – Automatically switches to high-resolution tiled rendering, with optional panel splitting for large technical drawings such as A1 and A0 sheets
 - **Knowledge Graph Extraction** – Uses AI to extract entities, relationships, and supporting evidence from uploaded documents
 - **Graph Storage** – Stores entities and relationships in a queryable knowledge graph backed by PostgreSQL and pgvector
@@ -171,7 +171,7 @@ non-sensitive LDAP presence flags.
 
 1. User uploads files → API stores the originals in RustFS
 2. API enqueues durable workflow runs in PostgreSQL within the request transaction
-3. Worker claims pending runs from workflow storage and processes files (PDF, images, audio, video, CSV, Excel)
+3. Worker claims pending runs from workflow storage and processes files (PDF, Office files, images, audio, video, HTML, email, calendar/contact files, CSV, JSON, XML, YAML, TOML, Excel)
 4. Worker extracts entities/relations via AI and stores graph data in PostgreSQL with embeddings
 5. When all file workflows in a batch finish, description workflows are enqueued and the project returns to `ready`
 6. User queries via chat → vector search, graph traversal, or agentic tool exploration + AI response

@@ -20,4 +20,15 @@ describe("inferGraphFileType", () => {
         expect(inferGraphFileType(new File([""], "config.yml", { type: "" }))).toBe("yaml");
         expect(inferGraphFileType(new File([""], "settings.toml", { type: "" }))).toBe("toml");
     });
+
+    test("detects web email calendar and contact formats", () => {
+        expect(inferGraphFileType(new File([""], "page.html", { type: "" }))).toBe("html");
+        expect(inferGraphFileType(new File([""], "message.eml", { type: "" }))).toBe("email");
+        expect(inferGraphFileType(new File([""], "archive.mbox", { type: "" }))).toBe("email");
+        expect(inferGraphFileType(new File([""], "outlook.msg", { type: "application/vnd.ms-outlook" }))).toBe(
+            "email"
+        );
+        expect(inferGraphFileType(new File([""], "invite.ics", { type: "text/calendar" }))).toBe("calendar");
+        expect(inferGraphFileType(new File([""], "person.vcf", { type: "" }))).toBe("vcard");
+    });
 });
