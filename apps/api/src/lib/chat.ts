@@ -606,10 +606,7 @@ export async function refreshReplyContext(options: {
 }
 
 export async function startReply(user: AuthUser, graphId: string, request: ChatRequest, options: StartReplyOptions) {
-    const promptOptions = {
-        ...(options.promptOptions ?? {}),
-        requestInformation: options.promptOptions?.requestInformation ?? createUserRequestInformation(user),
-    };
+    const promptOptions = options.promptOptions ?? {};
     const normalizedRequest = normalizeChatRequest(request);
     const { isNewChat } = await ensureChatRecord({
         chatId: normalizedRequest.id,

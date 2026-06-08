@@ -4,21 +4,27 @@ export type RequestInformation = {
     userName?: string;
 };
 
-function formatLocalDate(date: Date) {
-    const year = date.getFullYear();
-    const month = `${date.getMonth() + 1}`.padStart(2, "0");
-    const day = `${date.getDate()}`.padStart(2, "0");
+const PROMPT_LINE_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
+
+function formatUtcDate(date: Date) {
+    const year = date.getUTCFullYear();
+    const month = `${date.getUTCMonth() + 1}`.padStart(2, "0");
+    const day = `${date.getUTCDate()}`.padStart(2, "0");
 
     return `${year}-${month}-${day}`;
 }
 
+function sanitizePromptLine(value?: string | null) {
+    return value?.replace(PROMPT_LINE_CONTROL_CHARACTERS, " ").replace(/\s+/g, " ").trim();
+}
+
 export function createRequestInformation(options: { now?: Date; userName?: string | null } = {}): RequestInformation {
     const now = options.now ?? new Date();
-    const userName = options.userName?.trim();
+    const userName = sanitizePromptLine(options.userName);
 
     return {
-        currentDate: formatLocalDate(now),
-        currentWeekday: new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(now),
+        currentDate: formatUtcDate(now),
+        currentWeekday: new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" }).format(now),
         ...(userName ? { userName } : {}),
     };
 }
