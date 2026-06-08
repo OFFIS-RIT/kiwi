@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createRequestInformation } from "../prompts/request-info.prompt";
+import { createRequestInformation, createRequestInformationSection } from "../prompts/request-info.prompt";
 
 describe("createRequestInformation", () => {
     test("formats date and weekday in UTC", () => {
@@ -16,5 +16,14 @@ describe("createRequestInformation", () => {
         });
 
         expect(info.userName).toBe("Alice # Override Bob");
+    });
+
+    test("only adds a trailing blank line when the section has content", () => {
+        expect(createRequestInformationSection({}, { trailingBlankLine: true })).toEqual([]);
+        expect(createRequestInformationSection({ currentDate: "2026-06-08" }, { trailingBlankLine: true })).toEqual([
+            "## Request information",
+            "Current date: 2026-06-08",
+            "",
+        ]);
     });
 });

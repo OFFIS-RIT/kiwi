@@ -29,7 +29,10 @@ export function createRequestInformation(options: { now?: Date; userName?: strin
     };
 }
 
-export function createRequestInformationSection(info?: RequestInformation) {
+export function createRequestInformationSection(
+    info?: RequestInformation,
+    options: { trailingBlankLine?: boolean } = {}
+) {
     if (!info) {
         return [];
     }
@@ -40,5 +43,11 @@ export function createRequestInformationSection(info?: RequestInformation) {
         info.userName ? `Requesting user: ${info.userName}` : undefined,
     ].filter((line): line is string => typeof line === "string");
 
-    return lines.length > 0 ? ["## Request information", ...lines] : [];
+    if (lines.length === 0) {
+        return [];
+    }
+
+    const section = ["## Request information", ...lines];
+
+    return options.trailingBlankLine ? [...section, ""] : section;
 }
