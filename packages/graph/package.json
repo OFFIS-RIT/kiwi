@@ -4,6 +4,7 @@
     "type": "module",
     "exports": {
         ".": "./src/index.ts",
+        "./file-type": "./src/file-type.ts",
         "./loader/*": "./src/loader/*.ts",
         "./chunker/*": "./src/chunking/*.ts",
         "./lib/*": "./src/lib/*.ts",

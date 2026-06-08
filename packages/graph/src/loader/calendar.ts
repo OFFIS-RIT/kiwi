@@ -109,16 +109,16 @@ export function unfoldStructuredLines(input: string): string[] {
 }
 
 export function parseStructuredProperty(line: string): CalendarProperty | null {
-    const separator = line.indexOf(":");
+    const separator = findUnquotedSeparator(line, ":");
     if (separator < 0) {
         return null;
     }
 
     const nameAndParams = line.slice(0, separator);
-    const [rawName = "", ...rawParams] = nameAndParams.split(";");
+    const [rawName = "", ...rawParams] = splitQuotedParts(nameAndParams, ";");
     const params = new Map<string, string>();
     for (const rawParam of rawParams) {
-        const paramSeparator = rawParam.indexOf("=");
+        const paramSeparator = findUnquotedSeparator(rawParam, "=");
         if (paramSeparator < 0) {
             continue;
         }
@@ -155,13 +155,76 @@ function pushLine(lines: string[], label: string, value: string | undefined): vo
 }
 
 function unescapeStructuredValue(value: string): string {
-    return value
-        .replace(/\\n/giu, "\n")
-        .replace(/\\,/gu, ",")
-        .replace(/\\;/gu, ";")
-        .replace(/\\\\/gu, "\\");
+    return value.replace(/\\n/giu, "\n").replace(/\\,/gu, ",").replace(/\\;/gu, ";").replace(/\\\\/gu, "\\");
 }
 
 function trimQuotes(value: string): string {
     return value.replace(/^"|"$/gu, "");
+}
+
+function findUnquotedSeparator(value: string, separator: string): number {
+    let quoted = false;
+    let escaped = false;
+
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index]!;
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+
+        if (char === "\\") {
+            escaped = true;
+            continue;
+        }
+
+        if (char === '"') {
+            quoted = !quoted;
+            continue;
+        }
+
+        if (char === separator && !quoted) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
+function splitQuotedParts(value: string, separator: string): string[] {
+    const parts: string[] = [];
+    let current = "";
+    let quoted = false;
+    let escaped = false;
+
+    for (const char of value) {
+        if (escaped) {
+            current += char;
+            escaped = false;
+            continue;
+        }
+
+        if (char === "\\") {
+            current += char;
+            escaped = true;
+            continue;
+        }
+
+        if (char === '"') {
+            quoted = !quoted;
+            current += char;
+            continue;
+        }
+
+        if (char === separator && !quoted) {
+            parts.push(current);
+            current = "";
+            continue;
+        }
+
+        current += char;
+    }
+
+    parts.push(current);
+    return parts;
 }

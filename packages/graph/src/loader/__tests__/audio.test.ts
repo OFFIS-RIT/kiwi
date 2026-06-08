@@ -105,6 +105,29 @@ describe("AudioLoader", () => {
         expect(transcript).toContain("- Speaker: Speaker unknown");
     });
 
+    test("preserves application/ogg media type for transcription", async () => {
+        let capturedOptions: Parameters<TranscriptionModelV3["doGenerate"]>[0] | undefined;
+        const model = new MockTranscriptionModelV3({
+            doGenerate: async (options) => {
+                capturedOptions = options;
+
+                return buildTranscriptionResult({
+                    text: "OGG audio.",
+                    segments: [{ text: "OGG audio.", startSecond: 0, endSecond: 1 }],
+                });
+            },
+        });
+        const loader = new AudioLoader({
+            loader: new BufferedGraphBinaryLoader(toArrayBuffer(Uint8Array.of(1, 2, 3))),
+            model,
+            mimeType: "application/ogg",
+        });
+
+        await loader.getText();
+
+        expect(capturedOptions?.mediaType).toBe("application/ogg");
+    });
+
     test("rejects empty transcription output", async () => {
         const model = new MockTranscriptionModelV3({
             doGenerate: async () =>

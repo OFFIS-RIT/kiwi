@@ -1,7 +1,7 @@
 import type { GraphChunker, GraphTextChunk } from "..";
 import { Tiktoken } from "js-tiktoken/lite";
 import o200k_base from "js-tiktoken/ranks/o200k_base";
-import { resolveTextChunkSpans } from "./span";
+import { parseCSVRows, type CSVRow } from "../lib/csv";
 
 type CSVChunkerOptions = {
     maxChunkSize: number;
@@ -19,54 +19,63 @@ export class CSVChunker implements GraphChunker {
     }
 
     async getChunkSpans(input: string): Promise<GraphTextChunk[]> {
-        return resolveTextChunkSpans(input, await this.getChunkContents(input));
+        return this.getChunkContents(input);
     }
 
-    private async getChunkContents(input: string): Promise<string[]> {
-        const text = input.trim();
+    private async getChunkContents(input: string): Promise<GraphTextChunk[]> {
+        const { text, offset } = trimCSVInput(input);
         if (text === "") {
             return [];
         }
 
         const encoder = new Tiktoken(o200k_base);
+        const tokenCount = (value: string) => encoder.encode(value).length;
+        const rows = parseCSVRows(text).map((row) => ({
+            ...row,
+            startOffset: row.startOffset + offset,
+            endOffset: row.endOffset + offset,
+        }));
 
-        const rows = text.split("\n");
         if (rows.length === 0) {
             return [];
         }
 
         const hasHeader = isCSVHeader(rows);
         if (rows.length === 1) {
-            return [rows[0]!];
+            const row = rows[0]!;
+            return [{ content: row.raw, startOffset: row.startOffset, endOffset: row.endOffset }];
         }
 
-        const headerRow = hasHeader ? rows[0]! : "";
+        const headerRow = hasHeader ? rows[0]! : null;
         const dataRows = hasHeader ? rows.slice(1) : rows;
-        const chunks: string[] = [];
-        let currentRows: string[] = [];
-        let currentTokens = 0;
+        const chunks: GraphTextChunk[] = [];
+        let currentRows: CSVRow[] = [];
 
         const flushChunk = () => {
             if (currentRows.length === 0) {
                 return;
             }
 
-            const chunk = hasHeader ? `${headerRow}\n${currentRows.join("\n")}` : currentRows.join("\n");
+            const content = renderCSVChunk(headerRow, currentRows);
+            const firstRow = currentRows[0]!;
+            const lastRow = currentRows[currentRows.length - 1]!;
 
-            chunks.push(chunk);
+            chunks.push({
+                content,
+                startOffset: chunks.length === 0 && headerRow ? headerRow.startOffset : firstRow.startOffset,
+                endOffset: lastRow.endOffset,
+            });
             currentRows = [];
-            currentTokens = 0;
         };
 
         for (const row of dataRows) {
-            const rowTokens = encoder.encode(row).length + 1;
+            const candidate = renderCSVChunk(headerRow, [...currentRows, row]);
 
-            if (currentTokens + rowTokens > this.maxChunkSize && currentRows.length > 0) {
+            if (this.maxChunkSize > 0 && currentRows.length > 0 && tokenCount(candidate) > this.maxChunkSize) {
                 flushChunk();
             }
 
             currentRows.push(row);
-            currentTokens += rowTokens;
         }
 
         flushChunk();
@@ -74,7 +83,30 @@ export class CSVChunker implements GraphChunker {
     }
 }
 
-function isCSVHeader(rows: string[]): boolean {
+function renderCSVChunk(headerRow: CSVRow | null, rows: CSVRow[]): string {
+    const rowText = rows.map((row) => row.raw);
+    return headerRow ? [headerRow.raw, ...rowText].join("\n") : rowText.join("\n");
+}
+
+function trimCSVInput(input: string): { text: string; offset: number } {
+    let start = 0;
+    let end = input.length;
+
+    while (start < end && /\s/u.test(input[start]!)) {
+        start += 1;
+    }
+
+    while (end > start && /\s/u.test(input[end - 1]!)) {
+        end -= 1;
+    }
+
+    return {
+        text: input.slice(start, end),
+        offset: start,
+    };
+}
+
+function isCSVHeader(rows: CSVRow[]): boolean {
     if (rows.length < 2) {
         return false;
     }
@@ -153,8 +185,8 @@ function isCSVHeader(rows: string[]): boolean {
     return false;
 }
 
-function cleanFields(row: string): string[] {
-    return row.split(",").map((field) => field.trim().replace(/^"|"$/g, ""));
+function cleanFields(row: CSVRow): string[] {
+    return row.fields.map((field) => field.trim());
 }
 
 function isNumeric(value: string): boolean {

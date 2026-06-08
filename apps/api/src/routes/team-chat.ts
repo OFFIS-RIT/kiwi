@@ -23,11 +23,11 @@ function mapTeamChatError(status: RouteStatus, error: unknown) {
 
 export const teamChatRoute = createChatTargetRoute({
     prefix: "/teams",
-    targetParam: "teamId",
-    listPath: "/:teamId/chat",
-    itemPath: "/:teamId/chat/:chatId",
-    replyPath: "/:teamId/chat",
-    streamPath: "/:teamId/stream",
+    targetParam: "id",
+    listPath: "/:id/chat",
+    itemPath: "/:id/chat/:chatId",
+    replyPath: "/:id/chat",
+    streamPath: "/:id/stream",
     mapError: mapTeamChatError,
     resolveTarget: requireTeamAccess,
     listChats: (userId, access, options) => listTeamChats(userId, access.team.id, options),

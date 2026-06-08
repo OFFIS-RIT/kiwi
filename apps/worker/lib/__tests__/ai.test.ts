@@ -50,7 +50,7 @@ const { buildAudioAdapter } = await import("../ai");
 const { buildVideoAdapter } = await import("../ai");
 
 describe("buildAudioAdapter", () => {
-    test("returns undefined when optional audio config is absent or incomplete", () => {
+    test("returns undefined when optional audio config is absent", () => {
         Object.assign(envMock, {
             AI_AUDIO_ADAPTER: undefined,
             AI_AUDIO_MODEL: undefined,
@@ -61,13 +61,35 @@ describe("buildAudioAdapter", () => {
         expect(buildAudioAdapter()).toBeUndefined();
 
         Object.assign(envMock, {
+            AI_AUDIO_ADAPTER: "" as never,
+            AI_AUDIO_MODEL: "",
+            AI_AUDIO_KEY: "",
+            AI_AUDIO_URL: "",
+            AI_AUDIO_RESOURCE_NAME: "",
+        });
+        expect(buildAudioAdapter()).toBeUndefined();
+
+        Object.assign(envMock, {
+            AI_AUDIO_ADAPTER: " " as never,
+            AI_AUDIO_MODEL: " ",
+            AI_AUDIO_KEY: "\t",
+            AI_AUDIO_URL: " ",
+            AI_AUDIO_RESOURCE_NAME: " ",
+        });
+        expect(buildAudioAdapter()).toBeUndefined();
+    });
+
+    test("throws when optional audio config is incomplete", () => {
+        Object.assign(envMock, {
             AI_AUDIO_ADAPTER: "openai",
             AI_AUDIO_MODEL: "gpt-4o-mini-transcribe",
             AI_AUDIO_KEY: undefined,
             AI_AUDIO_URL: undefined,
             AI_AUDIO_RESOURCE_NAME: undefined,
         });
-        expect(buildAudioAdapter()).toBeUndefined();
+        expect(() => buildAudioAdapter()).toThrow(
+            "AI_AUDIO_ADAPTER, AI_AUDIO_MODEL, and AI_AUDIO_KEY must be set together"
+        );
 
         Object.assign(envMock, {
             AI_AUDIO_ADAPTER: "openaiAPI",
@@ -76,7 +98,7 @@ describe("buildAudioAdapter", () => {
             AI_AUDIO_URL: undefined,
             AI_AUDIO_RESOURCE_NAME: undefined,
         });
-        expect(buildAudioAdapter()).toBeUndefined();
+        expect(() => buildAudioAdapter()).toThrow("AI_AUDIO_URL is required when AI_AUDIO_ADAPTER is openaiAPI");
 
         Object.assign(envMock, {
             AI_AUDIO_ADAPTER: "azure",
@@ -85,7 +107,25 @@ describe("buildAudioAdapter", () => {
             AI_AUDIO_URL: undefined,
             AI_AUDIO_RESOURCE_NAME: undefined,
         });
-        expect(buildAudioAdapter()).toBeUndefined();
+        expect(() => buildAudioAdapter()).toThrow("AI_AUDIO_RESOURCE_NAME is required when AI_AUDIO_ADAPTER is azure");
+
+        Object.assign(envMock, {
+            AI_AUDIO_ADAPTER: "anthropic",
+            AI_AUDIO_MODEL: "claude-sonnet-4-5",
+            AI_AUDIO_KEY: "audio-key",
+            AI_AUDIO_URL: undefined,
+            AI_AUDIO_RESOURCE_NAME: undefined,
+        });
+        expect(() => buildAudioAdapter()).toThrow("AI_AUDIO_ADAPTER=anthropic is not supported for transcription");
+
+        Object.assign(envMock, {
+            AI_AUDIO_ADAPTER: "custom" as never,
+            AI_AUDIO_MODEL: "transcribe",
+            AI_AUDIO_KEY: "audio-key",
+            AI_AUDIO_URL: undefined,
+            AI_AUDIO_RESOURCE_NAME: undefined,
+        });
+        expect(() => buildAudioAdapter()).toThrow("AI_AUDIO_ADAPTER=custom is not supported for transcription");
     });
 
     test("builds OpenAI-compatible audio adapter when optional audio config is complete", () => {
@@ -142,7 +182,7 @@ describe("buildAudioAdapter", () => {
 });
 
 describe("buildVideoAdapter", () => {
-    test("returns undefined when optional video config is absent or incomplete", () => {
+    test("returns undefined when optional video config is absent", () => {
         Object.assign(envMock, {
             AI_VIDEO_ADAPTER: undefined,
             AI_VIDEO_MODEL: undefined,
@@ -153,13 +193,35 @@ describe("buildVideoAdapter", () => {
         expect(buildVideoAdapter()).toBeUndefined();
 
         Object.assign(envMock, {
+            AI_VIDEO_ADAPTER: "" as never,
+            AI_VIDEO_MODEL: "",
+            AI_VIDEO_KEY: "",
+            AI_VIDEO_URL: "",
+            AI_VIDEO_RESOURCE_NAME: "",
+        });
+        expect(buildVideoAdapter()).toBeUndefined();
+
+        Object.assign(envMock, {
+            AI_VIDEO_ADAPTER: " " as never,
+            AI_VIDEO_MODEL: " ",
+            AI_VIDEO_KEY: "\t",
+            AI_VIDEO_URL: " ",
+            AI_VIDEO_RESOURCE_NAME: " ",
+        });
+        expect(buildVideoAdapter()).toBeUndefined();
+    });
+
+    test("throws when optional video config is incomplete", () => {
+        Object.assign(envMock, {
             AI_VIDEO_ADAPTER: "openai",
             AI_VIDEO_MODEL: "gpt-4o-mini-transcribe",
             AI_VIDEO_KEY: undefined,
             AI_VIDEO_URL: undefined,
             AI_VIDEO_RESOURCE_NAME: undefined,
         });
-        expect(buildVideoAdapter()).toBeUndefined();
+        expect(() => buildVideoAdapter()).toThrow(
+            "AI_VIDEO_ADAPTER, AI_VIDEO_MODEL, and AI_VIDEO_KEY must be set together"
+        );
 
         Object.assign(envMock, {
             AI_VIDEO_ADAPTER: "openaiAPI",
@@ -168,7 +230,25 @@ describe("buildVideoAdapter", () => {
             AI_VIDEO_URL: undefined,
             AI_VIDEO_RESOURCE_NAME: undefined,
         });
-        expect(buildVideoAdapter()).toBeUndefined();
+        expect(() => buildVideoAdapter()).toThrow("AI_VIDEO_URL is required when AI_VIDEO_ADAPTER is openaiAPI");
+
+        Object.assign(envMock, {
+            AI_VIDEO_ADAPTER: "anthropic",
+            AI_VIDEO_MODEL: "claude-sonnet-4-5",
+            AI_VIDEO_KEY: "video-key",
+            AI_VIDEO_URL: undefined,
+            AI_VIDEO_RESOURCE_NAME: undefined,
+        });
+        expect(() => buildVideoAdapter()).toThrow("AI_VIDEO_ADAPTER=anthropic is not supported for transcription");
+
+        Object.assign(envMock, {
+            AI_VIDEO_ADAPTER: "custom" as never,
+            AI_VIDEO_MODEL: "transcribe",
+            AI_VIDEO_KEY: "video-key",
+            AI_VIDEO_URL: undefined,
+            AI_VIDEO_RESOURCE_NAME: undefined,
+        });
+        expect(() => buildVideoAdapter()).toThrow("AI_VIDEO_ADAPTER=custom is not supported for transcription");
     });
 
     test("builds a video adapter when optional video config is complete", () => {

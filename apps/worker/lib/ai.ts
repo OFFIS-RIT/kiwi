@@ -3,6 +3,8 @@ import { env } from "../env";
 
 export { buildAdapter, buildEmbeddingAdapter };
 
+type AdapterName = Parameters<typeof buildAdapter>[0];
+
 function buildTextAdapter() {
     return buildAdapter(
         env.AI_TEXT_ADAPTER,
@@ -16,10 +18,10 @@ function buildTextAdapter() {
 export function buildWorkerTextAdapter() {
     const hasExtractConfig = Boolean(
         env.AI_EXTRACT_ADAPTER ||
-            env.AI_EXTRACT_MODEL ||
-            env.AI_EXTRACT_KEY ||
-            env.AI_EXTRACT_URL ||
-            env.AI_EXTRACT_RESOURCE_NAME
+        env.AI_EXTRACT_MODEL ||
+        env.AI_EXTRACT_KEY ||
+        env.AI_EXTRACT_URL ||
+        env.AI_EXTRACT_RESOURCE_NAME
     );
 
     if (!hasExtractConfig) {
@@ -44,61 +46,74 @@ export function buildWorkerTextAdapter() {
 }
 
 export function buildAudioAdapter() {
-    const hasAudioConfig = Boolean(
-        env.AI_AUDIO_ADAPTER || env.AI_AUDIO_MODEL || env.AI_AUDIO_KEY || env.AI_AUDIO_URL || env.AI_AUDIO_RESOURCE_NAME
-    );
-
-    if (!hasAudioConfig) {
-        return undefined;
-    }
-
-    if (!env.AI_AUDIO_ADAPTER || !env.AI_AUDIO_MODEL || !env.AI_AUDIO_KEY) {
-        return undefined;
-    }
-
-    if (env.AI_AUDIO_ADAPTER === "azure" && !env.AI_AUDIO_RESOURCE_NAME) {
-        return undefined;
-    }
-
-    if (env.AI_AUDIO_ADAPTER === "openaiAPI" && !env.AI_AUDIO_URL) {
-        return undefined;
-    }
-
-    return buildAdapter(
-        env.AI_AUDIO_ADAPTER,
-        env.AI_AUDIO_MODEL,
-        env.AI_AUDIO_KEY,
-        env.AI_AUDIO_URL,
-        env.AI_AUDIO_RESOURCE_NAME
-    );
+    return buildOptionalTranscriptionAdapter("AI_AUDIO", {
+        adapter: env.AI_AUDIO_ADAPTER,
+        model: env.AI_AUDIO_MODEL,
+        key: env.AI_AUDIO_KEY,
+        url: env.AI_AUDIO_URL,
+        resourceName: env.AI_AUDIO_RESOURCE_NAME,
+    });
 }
 
 export function buildVideoAdapter() {
-    const hasVideoConfig = Boolean(
-        env.AI_VIDEO_ADAPTER || env.AI_VIDEO_MODEL || env.AI_VIDEO_KEY || env.AI_VIDEO_URL || env.AI_VIDEO_RESOURCE_NAME
-    );
+    return buildOptionalTranscriptionAdapter("AI_VIDEO", {
+        adapter: env.AI_VIDEO_ADAPTER,
+        model: env.AI_VIDEO_MODEL,
+        key: env.AI_VIDEO_KEY,
+        url: env.AI_VIDEO_URL,
+        resourceName: env.AI_VIDEO_RESOURCE_NAME,
+    });
+}
 
-    if (!hasVideoConfig) {
+function buildOptionalTranscriptionAdapter(
+    prefix: "AI_AUDIO" | "AI_VIDEO",
+    config: {
+        adapter?: string;
+        model?: string;
+        key?: string;
+        url?: string;
+        resourceName?: string;
+    }
+) {
+    const adapter = normalizeOptionalString(config.adapter);
+    const model = normalizeOptionalString(config.model);
+    const key = normalizeOptionalString(config.key);
+    const url = normalizeOptionalString(config.url);
+    const resourceName = normalizeOptionalString(config.resourceName);
+
+    const hasConfig = Boolean(adapter || model || key || url || resourceName);
+    if (!hasConfig) {
         return undefined;
     }
 
-    if (!env.AI_VIDEO_ADAPTER || !env.AI_VIDEO_MODEL || !env.AI_VIDEO_KEY) {
-        return undefined;
+    if (!adapter || !model || !key) {
+        throw new Error(`${prefix}_ADAPTER, ${prefix}_MODEL, and ${prefix}_KEY must be set together`);
     }
 
-    if (env.AI_VIDEO_ADAPTER === "azure" && !env.AI_VIDEO_RESOURCE_NAME) {
-        return undefined;
+    if (adapter === "anthropic") {
+        throw new Error(`${prefix}_ADAPTER=anthropic is not supported for transcription`);
     }
 
-    if (env.AI_VIDEO_ADAPTER === "openaiAPI" && !env.AI_VIDEO_URL) {
-        return undefined;
+    if (!isSupportedTranscriptionAdapter(adapter)) {
+        throw new Error(`${prefix}_ADAPTER=${adapter} is not supported for transcription`);
     }
 
-    return buildAdapter(
-        env.AI_VIDEO_ADAPTER,
-        env.AI_VIDEO_MODEL,
-        env.AI_VIDEO_KEY,
-        env.AI_VIDEO_URL,
-        env.AI_VIDEO_RESOURCE_NAME
-    );
+    if (adapter === "azure" && !resourceName) {
+        throw new Error(`${prefix}_RESOURCE_NAME is required when ${prefix}_ADAPTER is azure`);
+    }
+
+    if (adapter === "openaiAPI" && !url) {
+        throw new Error(`${prefix}_URL is required when ${prefix}_ADAPTER is openaiAPI`);
+    }
+
+    return buildAdapter(adapter, model, key, url, resourceName);
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+    const normalized = value?.trim();
+    return normalized ? normalized : undefined;
+}
+
+function isSupportedTranscriptionAdapter(value: string): value is AdapterName {
+    return value === "openai" || value === "azure" || value === "openaiAPI";
 }

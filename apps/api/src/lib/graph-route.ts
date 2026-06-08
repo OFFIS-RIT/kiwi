@@ -19,8 +19,11 @@ import { type GraphRecord } from "./graph-access";
 import { buildDeleteStepProgress, buildProcessStepProgress } from "./process-progress";
 import { findActiveDeleteGraphFilesProgress, findProcessDescriptionProgress } from "./workflow-progress";
 import type { GraphFileType } from "./graph-file-type";
+import type { FileWithChecksum } from "./graph-upload-file-type";
 
 export { inferGraphFileType, type GraphFileType } from "./graph-file-type";
+export { inferSupportedUploadedFiles, unsupportedUploadResponse } from "./graph-upload-file-type";
+export type { FileWithChecksum, SupportedFileWithChecksum, UploadFileTypeCheck } from "./graph-upload-file-type";
 
 export type UploadedFile = {
     id: string;
@@ -30,10 +33,6 @@ export type UploadedFile = {
     mimeType: string;
     key: string;
     checksum?: string;
-};
-export type FileWithChecksum = {
-    file: File;
-    checksum: string;
 };
 export type CreatedFileRecord = GraphFileRecord;
 export type GraphFileRow = Omit<GraphDetailFileRecord, "created_at" | "updated_at"> & {
@@ -114,6 +113,7 @@ export const selectGraphDetailFileFields = {
     file_key: filesTable.key,
     status: filesTable.status,
     process_step: filesTable.processStep,
+    process_error_code: filesTable.processErrorCode,
     created_at: filesTable.createdAt,
     updated_at: filesTable.updatedAt,
 };

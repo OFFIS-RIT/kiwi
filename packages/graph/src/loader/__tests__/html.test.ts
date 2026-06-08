@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { HTMLChunker } from "../../chunking/html";
+import { SemanticChunker } from "../../chunking/semantic";
 import { BufferedGraphBinaryLoader } from "../factory";
-import { HTMLLoader } from "../html";
+import { HTMLLoader, htmlToMarkdown } from "../html";
 import { WebLoader } from "../web";
 
 describe("HTMLLoader", () => {
@@ -34,16 +34,26 @@ describe("HTMLLoader", () => {
 
         await expect(loader.getText()).resolves.toBe("<main><p>Hello <strong>world</strong></p></main>");
     });
-});
 
-describe("HTMLChunker", () => {
-    test("chunks HTML while keeping body wrappers closed", async () => {
+    test("keeps HTML entities and angle-bracket text in markdown", () => {
+        expect(htmlToMarkdown("<p>A&nbsp;&copy;&mdash;B</p>")).toContain("\u00a9\u2014B");
+        expect(htmlToMarkdown("<p>2 < 3 and 5 > 4</p>")).toBe("2 < 3 and 5 > 4");
+    });
+
+    test("produces markdown that can be split by the semantic chunker", async () => {
         const html = `<html><body><section><h1>First</h1><p>${"alpha ".repeat(120)}</p></section><section><h1>Second</h1><p>${"beta ".repeat(120)}</p></section></body></html>`;
+        const loader = new HTMLLoader({
+            loader: new BufferedGraphBinaryLoader(toArrayBuffer(encode(html))),
+        });
 
-        const chunks = await new HTMLChunker({ maxChunkSize: 80 }).getChunks(html);
+        const text = await loader.getText();
+        const chunks = await new SemanticChunker(80).getChunks(text);
+        const joined = chunks.join("\n\n");
 
         expect(chunks.length).toBeGreaterThan(1);
-        expect(chunks.every((chunk) => chunk.includes("<body>") && chunk.includes("</body>"))).toBe(true);
+        expect(joined).toContain("# First");
+        expect(joined).toContain("# Second");
+        expect(joined).not.toContain("<body>");
     });
 });
 

@@ -31,6 +31,29 @@ describe("CSVChunker", () => {
         }
     });
 
+    test("splits only between complete quoted rows", async () => {
+        const input = ["id,note", '1,"first line\nsecond line"', "2,next"].join("\n");
+
+        const chunks = await new CSVChunker({ maxChunkSize: 4 }).getChunks(input);
+
+        expect(chunks).toEqual(['id,note\n1,"first line\nsecond line"', "id,note\n2,next"]);
+    });
+
+    test("rejects malformed quoted rows", async () => {
+        await expect(new CSVChunker({ maxChunkSize: 100 }).getChunks('id,note\n1,"unterminated')).rejects.toThrow(
+            "Invalid CSV content"
+        );
+    });
+
+    test("keeps an oversized row intact when it exceeds the chunk target", async () => {
+        const longValue = Array.from({ length: 50 }, (_, index) => `word${index}`).join(" ");
+        const input = ["id,description", `1,${longValue}`, "2,short"].join("\n");
+
+        const chunks = await new CSVChunker({ maxChunkSize: 4 }).getChunks(input);
+
+        expect(chunks).toEqual(["id,description\n1," + longValue, "id,description\n2,short"]);
+    });
+
     test("does not duplicate the first row when there is no header", async () => {
         const input = ["1,Alice", "2,Bob", "3,Charlie"].join("\n");
 

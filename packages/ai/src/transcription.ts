@@ -103,7 +103,7 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
             signal: options.abortSignal,
         });
 
-        const rawResponse = await parseTranscriptionResponse(response);
+        const rawResponse = await parseTranscriptionResponse(response, responseFormat);
         const { segments, speakers } = parseSegments(rawResponse);
         const text =
             readString(rawResponse.text) ??
@@ -239,7 +239,10 @@ function buildHeaders(apiKey: string, headers: Record<string, string | undefined
     return result;
 }
 
-async function parseTranscriptionResponse(response: Response): Promise<RawTranscriptionResponse> {
+async function parseTranscriptionResponse(
+    response: Response,
+    responseFormat = "json"
+): Promise<RawTranscriptionResponse> {
     const text = await response.text();
 
     if (!response.ok) {
@@ -251,11 +254,19 @@ async function parseTranscriptionResponse(response: Response): Promise<RawTransc
         );
     }
 
+    if (!expectsJSONTranscriptionResponse(responseFormat)) {
+        return { text };
+    }
+
     try {
         return JSON.parse(text) as RawTranscriptionResponse;
     } catch (error) {
         throw new Error("OpenAI-compatible transcription response was not valid JSON", { cause: error });
     }
+}
+
+function expectsJSONTranscriptionResponse(responseFormat: string): boolean {
+    return responseFormat === "json" || responseFormat === "verbose_json" || responseFormat === "diarized_json";
 }
 
 function toUint8Array(audio: Uint8Array | string): Uint8Array {
@@ -270,7 +281,8 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 
 function normalizeAudioMediaType(mediaType: string | undefined): string {
     const normalized = mediaType?.split(";")[0]?.trim().toLowerCase();
-    return normalized && (normalized.startsWith("audio/") || normalized.startsWith("video/"))
+    return normalized &&
+        (normalized.startsWith("audio/") || normalized.startsWith("video/") || normalized === "application/ogg")
         ? normalized
         : "audio/wav";
 }

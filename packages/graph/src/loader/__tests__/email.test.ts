@@ -11,7 +11,7 @@ describe("EmailLoader", () => {
             "From: Alice <alice@example.com>",
             "To: Bob <bob@example.com>",
             "Date: Tue, 01 Jan 2026 10:00:00 +0000",
-            "Content-Type: multipart/mixed; boundary=\"outer\"",
+            'Content-Type: multipart/mixed; boundary="outer"',
             "",
             "--outer",
             "Content-Type: text/plain; charset=utf-8",
@@ -19,8 +19,8 @@ describe("EmailLoader", () => {
             "",
             "Hello=2C Bob.",
             "--outer",
-            "Content-Type: application/pdf; name=\"brief.pdf\"",
-            "Content-Disposition: attachment; filename=\"brief.pdf\"",
+            'Content-Type: application/pdf; name="brief;final.pdf"',
+            'Content-Disposition: attachment; filename="brief;final.pdf"',
             "",
             "ignored",
             "--outer--",
@@ -35,7 +35,61 @@ describe("EmailLoader", () => {
         expect(text).toContain("- Subject: Project update");
         expect(text).toContain("- From: Alice <alice@example.com>");
         expect(text).toContain("Hello, Bob.");
-        expect(text).toContain("- brief.pdf (application/pdf)");
+        expect(text).toContain("- brief;final.pdf (application/pdf)");
+    });
+
+    test("decodes extended and continued attachment filenames", async () => {
+        const eml = [
+            "Subject: Attachments",
+            'Content-Type: multipart/mixed; boundary="outer"',
+            "",
+            "--outer",
+            "Content-Type: text/plain; charset=utf-8",
+            "",
+            "See attached.",
+            "--outer",
+            "Content-Type: application/pdf",
+            "Content-Disposition: attachment; filename*=UTF-8''brief%20%E2%82%AC.pdf",
+            "",
+            "ignored",
+            "--outer",
+            "Content-Type: text/csv",
+            "Content-Disposition: attachment; filename*0*=UTF-8''quarterly%20; filename*1*=report.csv",
+            "",
+            "ignored",
+            "--outer--",
+        ].join("\r\n");
+
+        const text = await new EmailLoader({
+            loader: new BufferedGraphBinaryLoader(toArrayBuffer(encode(eml))),
+            format: "eml",
+        }).getText();
+
+        expect(text).toContain("- brief \u20ac.pdf (application/pdf)");
+        expect(text).toContain("- quarterly report.csv (text/csv)");
+    });
+
+    test("decodes raw non-UTF-8 EML body bytes with the declared charset", async () => {
+        const header = encode(
+            [
+                "Subject: Latin",
+                "Content-Type: text/plain; charset=iso-8859-1",
+                "Content-Transfer-Encoding: 8bit",
+                "",
+                "Caf",
+            ].join("\r\n")
+        );
+        const bytes = new Uint8Array(header.length + 1);
+        bytes.set(header);
+        bytes[header.length] = 0xe9;
+
+        const text = await new EmailLoader({
+            loader: new BufferedGraphBinaryLoader(toArrayBuffer(bytes)),
+            format: "eml",
+        }).getText();
+
+        expect(text).toContain("Café");
+        expect(text).not.toContain("�");
     });
 
     test("extracts multiple messages from MBOX", async () => {
@@ -62,6 +116,25 @@ describe("EmailLoader", () => {
         expect(text).toContain("- Subject: First");
         expect(text).toContain("## Message 2");
         expect(text).toContain("- Subject: Second");
+    });
+
+    test("does not split mbox messages on body lines that start with From", async () => {
+        const mbox = [
+            "From alice@example.com Tue Jan 01 00:00:00 2026",
+            "Subject: First",
+            "From: Alice <alice@example.com>",
+            "",
+            "First body",
+            "From here we keep reading the same message.",
+        ].join("\n");
+
+        const text = await new EmailLoader({
+            loader: new BufferedGraphBinaryLoader(toArrayBuffer(encode(mbox))),
+            format: "mbox",
+        }).getText();
+
+        expect(text.match(/## Message/g)).toHaveLength(1);
+        expect(text).toContain("From here we keep reading the same message.");
     });
 
     test("extracts common Outlook MSG MAPI streams", async () => {

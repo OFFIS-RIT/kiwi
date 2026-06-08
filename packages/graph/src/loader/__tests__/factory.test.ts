@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { MockTranscriptionModelV3 } from "ai/test";
 
 import { AudioLoader } from "../audio";
+import { CSVLoader } from "../csv";
 import { DOCXLoader } from "../doc";
 import { ExcelLoader } from "../excel";
 import { BufferedGraphBinaryLoader, createDetectedGraphLoader, detectGraphFileFormat } from "../factory";
 import { PDFLoader } from "../pdf";
 import { PPTXLoader } from "../ppt";
 import { VideoLoader } from "../video";
+import { XMLLoader } from "../xml";
 
 describe("detectGraphFileFormat", () => {
     test("prefers the PDF parser when a doc file is actually a PDF", () => {
@@ -99,7 +101,7 @@ describe("detectGraphFileFormat", () => {
         });
     });
 
-    test("keeps structured text file types on the text loader path", () => {
+    test("uses the XML loader for XML and keeps other structured text file types on the text loader path", () => {
         const xml = detectGraphFileFormat({
             declaredType: "xml",
             mimeType: "application/xml; charset=utf-8",
@@ -115,10 +117,15 @@ describe("detectGraphFileFormat", () => {
             mimeType: "application/toml",
             content: toArrayBuffer(encodeASCII("[root]\nok = true")),
         });
+        const csv = detectGraphFileFormat({
+            declaredType: "csv",
+            mimeType: "text/csv",
+            content: toArrayBuffer(encodeASCII("name,value\nAlice,1")),
+        });
 
         expect(xml).toEqual({
             fileType: "xml",
-            loaderKind: "text",
+            loaderKind: "xml",
             mimeType: "application/xml",
             sniffed: false,
         });
@@ -126,6 +133,8 @@ describe("detectGraphFileFormat", () => {
         expect(yaml.fileType).toBe("yaml");
         expect(toml.loaderKind).toBe("text");
         expect(toml.fileType).toBe("toml");
+        expect(csv.loaderKind).toBe("csv");
+        expect(csv.fileType).toBe("csv");
     });
 
     test("keeps declared audio on the audio loader path", () => {
@@ -139,6 +148,21 @@ describe("detectGraphFileFormat", () => {
             fileType: "audio",
             loaderKind: "audio",
             mimeType: "audio/mpeg",
+            sniffed: false,
+        });
+    });
+
+    test("does not reclassify audio WebM containers as video", () => {
+        const format = detectGraphFileFormat({
+            declaredType: "audio",
+            mimeType: "audio/webm",
+            content: toArrayBuffer(Uint8Array.of(0x1a, 0x45, 0xdf, 0xa3, 0x00)),
+        });
+
+        expect(format).toEqual({
+            fileType: "audio",
+            loaderKind: "audio",
+            mimeType: "audio/webm",
             sniffed: false,
         });
     });
@@ -181,6 +205,21 @@ describe("detectGraphFileFormat", () => {
             loaderKind: "video",
             mimeType: "video/webm",
             sniffed: true,
+        });
+    });
+
+    test("does not treat plain text starting with From as mbox", () => {
+        const format = detectGraphFileFormat({
+            declaredType: "text",
+            mimeType: "text/plain",
+            content: toArrayBuffer(encodeASCII("From here we can see the whole branch.\nNo email headers.")),
+        });
+
+        expect(format).toEqual({
+            fileType: "text",
+            loaderKind: "text",
+            mimeType: "text/plain",
+            sniffed: false,
         });
     });
 });
@@ -271,6 +310,18 @@ describe("createDetectedGraphLoader", () => {
         expect(result.format.loaderKind).toBe("audio");
     });
 
+    test("creates audio loaders for audio WebM containers", () => {
+        const result = createDetectedGraphLoader({
+            content: toArrayBuffer(Uint8Array.of(0x1a, 0x45, 0xdf, 0xa3, 0x00)),
+            declaredType: "audio",
+            mimeType: "audio/webm",
+            audioModel: new MockTranscriptionModelV3(),
+        });
+
+        expect(result.loader).toBeInstanceOf(AudioLoader);
+        expect(result.format.loaderKind).toBe("audio");
+    });
+
     test("creates video loaders when a video transcription model is configured", () => {
         const result = createDetectedGraphLoader({
             content: toArrayBuffer(encodeASCII("not enough for sniffing")),
@@ -281,6 +332,59 @@ describe("createDetectedGraphLoader", () => {
 
         expect(result.loader).toBeInstanceOf(VideoLoader);
         expect(result.format.loaderKind).toBe("video");
+    });
+
+    test("creates XML loaders that render structured text", async () => {
+        const result = createDetectedGraphLoader({
+            content: toArrayBuffer(encodeASCII('<catalog><book id="1">One</book></catalog>')),
+            declaredType: "xml",
+            mimeType: "application/xml",
+        });
+
+        await expect(result.loader.getText()).resolves.toContain("### /catalog/book[1]");
+        expect(result.loader).toBeInstanceOf(XMLLoader);
+        expect(result.format.loaderKind).toBe("xml");
+    });
+
+    test("creates CSV loaders without routing CSV content through Excel workbook parsing", async () => {
+        const result = createDetectedGraphLoader({
+            content: toArrayBuffer(encodeASCII("name,value\nAlice,1")),
+            declaredType: "csv",
+            mimeType: "text/csv",
+        });
+
+        expect(result.loader).toBeInstanceOf(CSVLoader);
+        expect(result.format.loaderKind).toBe("csv");
+        await expect(result.loader.getText()).resolves.toBe("name,value\nAlice,1");
+    });
+
+    test("rejects binary content declared as CSV", () => {
+        expect(() =>
+            createDetectedGraphLoader({
+                content: toArrayBuffer(Uint8Array.of(0x00, 0x01, 0x02, 0x03)),
+                declaredType: "csv",
+                mimeType: "text/csv",
+            })
+        ).toThrow("Invalid CSV content: binary files are not valid CSV");
+    });
+
+    test("rejects binary content on text loaders and legacy Office content on OOXML loaders", () => {
+        expect(() =>
+            createDetectedGraphLoader({
+                content: toArrayBuffer(Uint8Array.of(0x00, 0x01, 0x02, 0x03)),
+                declaredType: "text",
+                mimeType: "text/plain",
+            })
+        ).toThrow("Unsupported file type: binary files are not supported");
+
+        expect(() =>
+            createDetectedGraphLoader({
+                content: toArrayBuffer(Uint8Array.of(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1)),
+                declaredType: "doc",
+                mimeType: "application/msword",
+                documentMode: "plain",
+            })
+        ).toThrow("Unsupported file type: legacy Office documents are not supported");
     });
 
     test("throws when audio has no transcription model", () => {

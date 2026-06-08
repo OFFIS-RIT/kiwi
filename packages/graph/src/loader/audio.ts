@@ -120,9 +120,13 @@ function readSpeakers(metadata: Record<string, JSONObject> | undefined): string[
     });
 }
 
-function normalizeTranscriptMediaType(mimeType: string | null | undefined, capability: MediaTranscriptCapability): string {
+function normalizeTranscriptMediaType(
+    mimeType: string | null | undefined,
+    capability: MediaTranscriptCapability
+): string {
     const normalized = mimeType?.split(";")[0]?.trim().toLowerCase();
-    return normalized && (normalized.startsWith("audio/") || normalized.startsWith("video/"))
+    return normalized &&
+        (normalized.startsWith("audio/") || normalized.startsWith("video/") || normalized === "application/ogg")
         ? normalized
         : capability === "video"
           ? "video/mp4"

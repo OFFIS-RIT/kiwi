@@ -19,7 +19,13 @@ type HeaderMap = Map<string, string[]>;
 
 type MIMEPart = {
     headers: HeaderMap;
-    body: string;
+    body: Uint8Array;
+};
+
+type ByteLine = {
+    line: string;
+    start: number;
+    end: number;
 };
 
 type CFBFile = {
@@ -48,21 +54,21 @@ export class EmailLoader {
     ) {}
 
     async getText(): Promise<string> {
-        const format = this.options.format ?? inferEmailFormat(this.options.mimeType, await this.options.loader.getBinary());
+        const content = await this.options.loader.getBinary();
+        const format = this.options.format ?? inferEmailFormat(this.options.mimeType, content);
         if (format === "msg") {
-            return formatEmailMessage(parseMSG(await this.options.loader.getBinary()));
+            return formatEmailMessage(parseMSG(content));
         }
 
-        const text = await this.options.loader.getText();
         if (format === "mbox") {
-            return formatMailbox(parseMbox(text));
+            return formatMailbox(parseMbox(content));
         }
 
-        return formatEmailMessage(parseEml(text));
+        return formatEmailMessage(parseEml(content));
     }
 }
 
-export function parseEml(input: string): ParsedEmail {
+export function parseEml(input: string | Uint8Array | ArrayBuffer): ParsedEmail {
     const part = parseMIMEPart(input);
     const contentType = parseContentType(readHeader(part.headers, "content-type") ?? "text/plain");
     const attachments: ParsedEmail["attachments"] = [];
@@ -80,28 +86,28 @@ export function parseEml(input: string): ParsedEmail {
     };
 }
 
-export function parseMbox(input: string): ParsedEmail[] {
-    const normalized = input.replace(/\r\n/gu, "\n");
-    const messages: string[] = [];
-    let current: string[] = [];
+export function parseMbox(input: string | Uint8Array | ArrayBuffer): ParsedEmail[] {
+    const bytes = toBytes(input);
+    const messages: Uint8Array[] = [];
+    let currentStart: number | null = null;
 
-    for (const line of normalized.split("\n")) {
-        if (line.startsWith("From ") && current.length > 0) {
-            messages.push(current.join("\n").trim());
-            current = [];
+    for (const line of splitByteLines(bytes)) {
+        if (isMboxSeparator(line.line)) {
+            if (currentStart !== null && line.start > currentStart) {
+                messages.push(trimBytes(bytes.slice(currentStart, line.start)));
+            }
+            currentStart = line.end;
             continue;
         }
-
-        if (!line.startsWith("From ") || current.length > 0) {
-            current.push(line);
-        }
     }
 
-    if (current.length > 0) {
-        messages.push(current.join("\n").trim());
+    if (currentStart === null) {
+        messages.push(trimBytes(bytes));
+    } else if (currentStart < bytes.length) {
+        messages.push(trimBytes(bytes.slice(currentStart)));
     }
 
-    return messages.filter(Boolean).map(parseEml);
+    return messages.filter((message) => message.length > 0).map(parseEml);
 }
 
 export function parseMSG(content: ArrayBuffer): ParsedEmail {
@@ -196,11 +202,11 @@ function extractMessageBody(
     return contentType.type === "text/html" ? htmlToMarkdown(decoded) : decoded.trim();
 }
 
-function parseMIMEPart(input: string): MIMEPart {
-    const normalized = input.replace(/\r\n/gu, "\n");
-    const headerEnd = normalized.search(/\n\s*\n/u);
-    const headerText = headerEnd >= 0 ? normalized.slice(0, headerEnd) : "";
-    const body = headerEnd >= 0 ? normalized.slice(headerEnd).replace(/^\n\s*\n?/u, "") : normalized;
+function parseMIMEPart(input: string | Uint8Array | ArrayBuffer): MIMEPart {
+    const bytes = toBytes(input);
+    const split = findHeaderBodySplit(bytes);
+    const headerText = split ? byteString(bytes.subarray(0, split.headerEnd)).replace(/\r\n/gu, "\n") : "";
+    const body = split ? bytes.slice(split.bodyStart) : bytes;
 
     return {
         headers: parseHeaders(headerText),
@@ -254,40 +260,97 @@ function parseContentType(value: string): { type: string; params: Map<string, st
 }
 
 function parseHeaderParameters(value: string): { value: string; params: Map<string, string> } {
-    const [head = "", ...rawParams] = value.split(";");
+    const [head = "", ...rawParams] = splitQuotedParts(value, ";");
     const params = new Map<string, string>();
+    const extendedParams = new Map<string, string>();
+    const continuedParams = new Map<string, Array<{ index: number; encoded: boolean; value: string }>>();
+
     for (const rawParam of rawParams) {
         const separator = rawParam.indexOf("=");
         if (separator < 0) {
             continue;
         }
 
-        const name = rawParam.slice(0, separator).trim().toLowerCase();
+        const rawName = rawParam.slice(0, separator).trim().toLowerCase();
         const rawValue = rawParam.slice(separator + 1).trim();
-        params.set(name, trimQuotes(decodeHeaderValue(rawValue)));
+        const continued = rawName.match(/^(.+)\*(\d+)(\*)?$/u);
+        if (continued) {
+            const name = continued[1]!;
+            const index = Number(continued[2]);
+            continuedParams.set(name, [
+                ...(continuedParams.get(name) ?? []),
+                { index, encoded: continued[3] === "*", value: rawValue },
+            ]);
+            continue;
+        }
+
+        if (rawName.endsWith("*")) {
+            extendedParams.set(rawName.slice(0, -1), decodeExtendedHeaderParameter(rawValue));
+            continue;
+        }
+
+        params.set(rawName, decodeRegularHeaderParameter(rawValue));
+    }
+
+    for (const [name, value] of extendedParams) {
+        params.set(name, value);
+    }
+
+    for (const [name, parts] of continuedParams) {
+        const sortedParts = [...parts].sort((left, right) => left.index - right.index);
+        const value = sortedParts.map((part) => trimQuotes(part.value)).join("");
+        params.set(
+            name,
+            sortedParts.some((part) => part.encoded)
+                ? decodeExtendedHeaderParameter(value)
+                : decodeRegularHeaderParameter(value)
+        );
     }
 
     return { value: head.trim().toLowerCase(), params };
 }
 
-function splitMultipart(body: string, boundary: string): MIMEPart[] {
+function decodeRegularHeaderParameter(value: string): string {
+    return trimQuotes(decodeHeaderValue(value));
+}
+
+function decodeExtendedHeaderParameter(value: string): string {
+    const unquoted = trimQuotes(value);
+    const charsetSeparator = unquoted.indexOf("'");
+    const languageSeparator = charsetSeparator >= 0 ? unquoted.indexOf("'", charsetSeparator + 1) : -1;
+
+    if (charsetSeparator > 0 && languageSeparator >= 0) {
+        return decodeBytes(
+            percentDecodeBytes(unquoted.slice(languageSeparator + 1)),
+            unquoted.slice(0, charsetSeparator)
+        );
+    }
+
+    try {
+        return decodeURIComponent(unquoted);
+    } catch {
+        return decodeHeaderValue(unquoted);
+    }
+}
+
+function splitMultipart(body: Uint8Array, boundary: string): MIMEPart[] {
     const delimiter = `--${boundary}`;
-    const parts: string[] = [];
-    let current: string[] = [];
-    let inside = false;
+    const closingDelimiter = `${delimiter}--`;
+    const parts: Uint8Array[] = [];
+    let partStart: number | null = null;
 
-    for (const line of body.replace(/\r\n/gu, "\n").split("\n")) {
-        if (line === delimiter || line === `${delimiter}--`) {
-            if (inside && current.length > 0) {
-                parts.push(current.join("\n"));
-                current = [];
+    for (const line of splitByteLines(body)) {
+        const marker = line.line.trimEnd();
+        if (marker === delimiter || marker === closingDelimiter) {
+            if (partStart !== null && line.start > partStart) {
+                parts.push(body.slice(partStart, line.start));
             }
-            inside = line === delimiter;
-            continue;
-        }
 
-        if (inside) {
-            current.push(line);
+            if (marker === closingDelimiter) {
+                break;
+            }
+
+            partStart = line.end;
         }
     }
 
@@ -300,11 +363,11 @@ function decodePartBody(part: MIMEPart): string {
     let bytes: Uint8Array;
 
     if (transferEncoding === "base64") {
-        bytes = Buffer.from(part.body.replace(/\s+/gu, ""), "base64");
+        bytes = Buffer.from(byteString(part.body).replace(/\s+/gu, ""), "base64");
     } else if (transferEncoding === "quoted-printable") {
-        bytes = decodeQuotedPrintable(part.body);
+        bytes = decodeQuotedPrintable(byteString(part.body));
     } else {
-        bytes = new TextEncoder().encode(part.body);
+        bytes = part.body;
     }
 
     return decodeBytes(bytes, charset);
@@ -335,6 +398,23 @@ function decodeHeaderValue(input: string): string {
                 : decodeQuotedPrintable(String(value).replaceAll("_", " "));
         return decodeBytes(bytes, String(charset));
     });
+}
+
+function percentDecodeBytes(input: string): Uint8Array {
+    const bytes: number[] = [];
+    const textEncoder = new TextEncoder();
+
+    for (let index = 0; index < input.length; index += 1) {
+        if (input[index] === "%" && /^[0-9A-Fa-f]{2}$/u.test(input.slice(index + 1, index + 3))) {
+            bytes.push(Number.parseInt(input.slice(index + 1, index + 3), 16));
+            index += 2;
+            continue;
+        }
+
+        bytes.push(...textEncoder.encode(input[index]!));
+    }
+
+    return Uint8Array.from(bytes);
 }
 
 function decodeBytes(bytes: Uint8Array, charset?: string | null): string {
@@ -405,7 +485,7 @@ function readMSGStream(cfb: CFBPackage, suffix: string, encoding: string): strin
 }
 
 function startsWithMboxSeparator(content: ArrayBuffer): boolean {
-    return new TextDecoder().decode(new Uint8Array(content).slice(0, 256)).startsWith("From ");
+    return isMboxSeparator(byteString(new Uint8Array(content).subarray(0, 256)).split(/\r?\n/u)[0] ?? "");
 }
 
 function matchesHeader(bytes: Uint8Array, header: Uint8Array): boolean {
@@ -424,4 +504,116 @@ function matchesHeader(bytes: Uint8Array, header: Uint8Array): boolean {
 
 function trimQuotes(value: string): string {
     return value.replace(/^"|"$/gu, "");
+}
+
+export function isMboxSeparator(line: string): boolean {
+    return /^From \S+ (?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\S+\s+\d{1,2}\s+\d{2}:\d{2}/iu.test(line.trimEnd());
+}
+
+function splitQuotedParts(value: string, separator: string): string[] {
+    const parts: string[] = [];
+    let current = "";
+    let quoted = false;
+    let escaped = false;
+
+    for (const char of value) {
+        if (escaped) {
+            current += char;
+            escaped = false;
+            continue;
+        }
+
+        if (char === "\\") {
+            current += char;
+            escaped = true;
+            continue;
+        }
+
+        if (char === '"') {
+            quoted = !quoted;
+            current += char;
+            continue;
+        }
+
+        if (char === separator && !quoted) {
+            parts.push(current);
+            current = "";
+            continue;
+        }
+
+        current += char;
+    }
+
+    parts.push(current);
+    return parts;
+}
+
+function toBytes(input: string | Uint8Array | ArrayBuffer): Uint8Array {
+    if (typeof input === "string") {
+        return new TextEncoder().encode(input);
+    }
+
+    return input instanceof Uint8Array ? input : new Uint8Array(input);
+}
+
+function findHeaderBodySplit(bytes: Uint8Array): { headerEnd: number; bodyStart: number } | null {
+    for (const line of splitByteLines(bytes)) {
+        if (line.line.trim() === "") {
+            return {
+                headerEnd: line.start,
+                bodyStart: line.end,
+            };
+        }
+    }
+
+    return null;
+}
+
+function splitByteLines(bytes: Uint8Array): ByteLine[] {
+    const lines: ByteLine[] = [];
+    let start = 0;
+
+    while (start < bytes.length) {
+        let contentEnd = start;
+        while (contentEnd < bytes.length && bytes[contentEnd] !== 0x0a && bytes[contentEnd] !== 0x0d) {
+            contentEnd += 1;
+        }
+
+        let end = contentEnd;
+        if (end < bytes.length) {
+            end += bytes[end] === 0x0d && bytes[end + 1] === 0x0a ? 2 : 1;
+        }
+
+        lines.push({
+            line: byteString(bytes.subarray(start, contentEnd)),
+            start,
+            end,
+        });
+        start = end;
+    }
+
+    return lines;
+}
+
+function byteString(bytes: Uint8Array): string {
+    return Buffer.from(bytes).toString("latin1");
+}
+
+function trimBytes(bytes: Uint8Array): Uint8Array {
+    let start = 0;
+    let end = bytes.length;
+
+    while (start < end && isWhitespaceByte(bytes[start]!)) {
+        start += 1;
+    }
+
+    while (end > start && isWhitespaceByte(bytes[end - 1]!)) {
+        end -= 1;
+    }
+
+    return bytes.slice(start, end);
+}
+
+function isWhitespaceByte(byte: number): boolean {
+    return byte === 0x09 || byte === 0x0a || byte === 0x0b || byte === 0x0c || byte === 0x0d || byte === 0x20;
 }

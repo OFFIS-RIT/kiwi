@@ -67,6 +67,7 @@ function renderMarkdownNode(node: AnyNode, context: { listDepth: number }): stri
         case "style":
         case "noscript":
         case "template":
+        case "head":
             return "";
         case "br":
             return "\n";
@@ -162,7 +163,9 @@ function renderTable(table: Element): string {
     const renderedRows = rows.map((row) =>
         row.children
             .filter((cell): cell is Element => isElement(cell) && (cell.name === "td" || cell.name === "th"))
-            .map((cell) => collapseInlineWhitespace(renderMarkdownNodes(cell.children, { listDepth: 0 })).replaceAll("|", "\\|"))
+            .map((cell) =>
+                collapseInlineWhitespace(renderMarkdownNodes(cell.children, { listDepth: 0 })).replaceAll("|", "\\|")
+            )
     );
     const width = Math.max(...renderedRows.map((row) => row.length));
     const normalizedRows = renderedRows.map((row) => [...row, ...Array.from({ length: width - row.length }, () => "")]);

@@ -1,9 +1,11 @@
 import type { LanguageModelV3, TranscriptionModelV3 } from "@ai-sdk/provider";
 import type { GraphBinaryLoader, GraphLoader } from "..";
+import type { GraphFileType } from "../file-type";
 import { AudioLoader } from "./audio";
 import { CalendarLoader } from "./calendar";
+import { CSVLoader } from "./csv";
 import { DOCXLoader } from "./doc";
-import { EmailLoader, inferEmailFormat } from "./email";
+import { EmailLoader, inferEmailFormat, isMboxSeparator } from "./email";
 import { ExcelLoader } from "./excel";
 import { HTMLLoader, type HTMLLoaderMode } from "./html";
 import { ImageLoader } from "./image";
@@ -11,24 +13,10 @@ import { PDFLoader, type PDFMode } from "./pdf";
 import { PPTXLoader } from "./ppt";
 import { VCardLoader } from "./vcard";
 import { VideoLoader } from "./video";
+import { XMLLoader } from "./xml";
 
-export type GraphFileType =
-    | "pdf"
-    | "doc"
-    | "sheet"
-    | "ppt"
-    | "image"
-    | "audio"
-    | "video"
-    | "html"
-    | "email"
-    | "calendar"
-    | "vcard"
-    | "json"
-    | "xml"
-    | "yaml"
-    | "toml"
-    | "text";
+export type { GraphFileType } from "../file-type";
+
 export type GraphLoaderKind =
     | "pdf"
     | "docx"
@@ -42,6 +30,8 @@ export type GraphLoaderKind =
     | "calendar"
     | "vcard"
     | "json"
+    | "csv"
+    | "xml"
     | "text";
 
 export type DetectedGraphFileFormat = {
@@ -76,7 +66,8 @@ const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileFormat, 
     calendar: { fileType: "calendar", loaderKind: "calendar", mimeType: "text/calendar" },
     vcard: { fileType: "vcard", loaderKind: "vcard", mimeType: "text/vcard" },
     json: { fileType: "json", loaderKind: "json", mimeType: "application/json" },
-    xml: { fileType: "xml", loaderKind: "text", mimeType: "application/xml" },
+    csv: { fileType: "csv", loaderKind: "csv", mimeType: "text/csv" },
+    xml: { fileType: "xml", loaderKind: "xml", mimeType: "application/xml" },
     yaml: { fileType: "yaml", loaderKind: "text", mimeType: "application/yaml" },
     toml: { fileType: "toml", loaderKind: "text", mimeType: "application/toml" },
     text: { fileType: "text", loaderKind: "text", mimeType: "text/plain" },
@@ -93,6 +84,7 @@ const AVI_BRAND = encodeASCII("AVI ");
 const BMP_HEADER = encodeASCII("BM");
 const TIFF_LE_HEADER = Uint8Array.of(0x49, 0x49, 0x2a, 0x00);
 const TIFF_BE_HEADER = Uint8Array.of(0x4d, 0x4d, 0x00, 0x2a);
+const OLE_COMPOUND_HEADER = Uint8Array.of(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1);
 const EBML_HEADER = Uint8Array.of(0x1a, 0x45, 0xdf, 0xa3);
 const MP4_FTYP_MARKER = encodeASCII("ftyp");
 const ZIP_HEADERS = [
@@ -157,6 +149,19 @@ export function createDetectedGraphLoader(input: {
     const format = detectGraphFileFormat(input);
     const documentMode = input.documentMode ?? "hybrid";
     const useDocumentOCR = documentMode !== "plain";
+    const bytes = new Uint8Array(input.content);
+
+    if (hasOLECompoundSignature(bytes) && ["docx", "pptx"].includes(format.loaderKind)) {
+        throw new Error("Unsupported file type: legacy Office documents are not supported");
+    }
+
+    if (format.loaderKind === "csv" && looksLikeBinary(bytes)) {
+        throw new Error("Invalid CSV content: binary files are not valid CSV");
+    }
+
+    if (format.loaderKind === "text" && looksLikeBinary(bytes)) {
+        throw new Error("Unsupported file type: binary files are not supported");
+    }
 
     switch (format.loaderKind) {
         case "pdf":
@@ -184,6 +189,12 @@ export function createDetectedGraphLoader(input: {
             return {
                 format,
                 loader: new ExcelLoader({ loader: binaryLoader }),
+                binaryLoader,
+            };
+        case "csv":
+            return {
+                format,
+                loader: new CSVLoader({ loader: binaryLoader }),
                 binaryLoader,
             };
         case "pptx":
@@ -232,6 +243,12 @@ export function createDetectedGraphLoader(input: {
             return {
                 format,
                 loader: new HTMLLoader({ loader: binaryLoader, mode: input.htmlMode ?? "content" }),
+                binaryLoader,
+            };
+        case "xml":
+            return {
+                format,
+                loader: new XMLLoader({ loader: binaryLoader }),
                 binaryLoader,
             };
         case "email":
@@ -337,7 +354,7 @@ function sniffGraphFileFormat(
         };
     }
 
-    const videoMimeType = sniffVideoMimeType(bytes);
+    const videoMimeType = declaredType === "audio" ? null : sniffVideoMimeType(bytes);
     if (videoMimeType) {
         return {
             ...DEFAULT_FILE_FORMATS.video,
@@ -395,7 +412,7 @@ function sniffTextFileFormat(
         };
     }
 
-    if (prefix.startsWith("From ")) {
+    if (isMboxSeparator(prefix.split(/\r?\n/u)[0] ?? "")) {
         return {
             ...DEFAULT_FILE_FORMATS.email,
             mimeType: "application/mbox",
@@ -475,6 +492,30 @@ function sniffVideoMimeType(bytes: Uint8Array): string | null {
 
 function hasZipSignature(bytes: Uint8Array): boolean {
     return ZIP_HEADERS.some((header) => matchesAt(bytes, header, 0));
+}
+
+function hasOLECompoundSignature(bytes: Uint8Array): boolean {
+    return matchesAt(bytes, OLE_COMPOUND_HEADER, 0);
+}
+
+function looksLikeBinary(bytes: Uint8Array): boolean {
+    const sample = bytes.slice(0, Math.min(bytes.length, 4096));
+    if (sample.length === 0) {
+        return false;
+    }
+
+    let controlCharacterCount = 0;
+    for (const byte of sample) {
+        if (byte === 0) {
+            return true;
+        }
+
+        if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 12 && byte !== 13) {
+            controlCharacterCount += 1;
+        }
+    }
+
+    return controlCharacterCount / sample.length > 0.1;
 }
 
 function containsASCII(bytes: Uint8Array, needle: Uint8Array): boolean {

@@ -85,6 +85,33 @@ describe("OpenAICompatibleTranscriptionModel", () => {
         expect(new Uint8Array(await (file as File).arrayBuffer())).toEqual(Uint8Array.of(4, 5, 6));
     });
 
+    test("preserves application/ogg media type for multipart endpoints", async () => {
+        let capturedBody: BodyInit | null | undefined;
+        const model = new OpenAICompatibleTranscriptionModel({
+            model: "openai/whisper-large-v3",
+            apiKey: "test-key",
+            baseURL: "http://localhost:8000/v1/",
+            fetch: async (_input, init) => {
+                capturedBody = init?.body;
+
+                return Response.json({
+                    text: "OGG transcript",
+                });
+            },
+        });
+
+        await model.doGenerate({
+            audio: Uint8Array.of(7, 8, 9),
+            mediaType: "application/ogg",
+        });
+
+        const file = (capturedBody as FormData).get("file");
+
+        expect(file).toBeInstanceOf(File);
+        expect((file as File).name).toBe("audio.ogg");
+        expect((file as File).type).toBe("application/ogg");
+    });
+
     test("uses diarized JSON for OpenAI diarization models", async () => {
         let capturedBody: BodyInit | null | undefined;
         const model = new OpenAICompatibleTranscriptionModel({
@@ -146,6 +173,34 @@ describe("OpenAICompatibleTranscriptionModel", () => {
         expect(capturedBody).toBeInstanceOf(FormData);
         expect((capturedBody as FormData).get("response_format")).toBe("json");
         expect((capturedBody as FormData).get("timestamp_granularities[]")).toBeNull();
+    });
+
+    test("accepts plain text transcription responses when text format is requested", async () => {
+        let capturedBody: BodyInit | null | undefined;
+        const model = new OpenAICompatibleTranscriptionModel({
+            model: "openai/whisper-large-v3",
+            apiKey: "test-key",
+            baseURL: "http://localhost:8000/v1",
+            fetch: async (_input, init) => {
+                capturedBody = init?.body;
+
+                return new Response("Plain transcript text", { status: 200 });
+            },
+        });
+
+        const result = await model.doGenerate({
+            audio: Uint8Array.of(1, 2, 3),
+            mediaType: "audio/wav",
+            providerOptions: {
+                openaiAPI: {
+                    responseFormat: "text",
+                },
+            },
+        });
+
+        expect((capturedBody as FormData).get("response_format")).toBe("text");
+        expect(result.text).toBe("Plain transcript text");
+        expect(result.segments).toEqual([]);
     });
 
     test("uses OpenRouter JSON requests for OpenRouter STT endpoints", async () => {
