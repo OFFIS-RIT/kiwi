@@ -36,6 +36,7 @@ const {
     isContextOverflowError,
     normalizeChatRequest,
     replaceOrAppendMessage,
+    shouldIncludeGraphCorrectionTool,
     startsAssistantOutput,
 } = await import("../chat");
 const {
@@ -175,6 +176,22 @@ describe("chat request normalization", () => {
 });
 
 describe("chat context helpers", () => {
+    test("includes correction tools only for non-deep managed graph chats", () => {
+        expect(shouldIncludeGraphCorrectionTool({ mode: "user", userId: "user-1" }, false)).toBe(false);
+        expect(
+            shouldIncludeGraphCorrectionTool(
+                { mode: "team", organizationId: "organization-1", teamId: "team-1" },
+                false
+            )
+        ).toBe(true);
+        expect(
+            shouldIncludeGraphCorrectionTool({ mode: "organization", organizationId: "organization-1" }, false)
+        ).toBe(true);
+        expect(
+            shouldIncludeGraphCorrectionTool({ mode: "team", organizationId: "organization-1", teamId: "team-1" }, true)
+        ).toBe(false);
+    });
+
     test("models graph and team chat targets explicitly", () => {
         expect(chatTargetInsertValues(graphChatTarget("graph-1"))).toEqual({
             scope: "graph",

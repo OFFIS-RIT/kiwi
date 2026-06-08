@@ -125,6 +125,10 @@ const CONTEXT_OVERFLOW_PATTERNS = [
     "too many input tokens",
 ];
 
+export function shouldIncludeGraphCorrectionTool(rootOwner: RootOwner, deep?: boolean) {
+    return deep !== true && rootOwner.mode !== "user";
+}
+
 function buildBaseToolset(options: GraphToolsetOptions, toolset: RuntimeToolset) {
     switch (toolset) {
         case "server-and-client":
@@ -616,8 +620,16 @@ export async function refreshReplyContext(options: {
 }
 
 export async function startReply(user: AuthUser, graphId: string, request: ChatRequest, options: StartReplyOptions) {
-    const promptOptions = options.promptOptions ?? {};
+    const requestedPromptOptions = options.promptOptions ?? {};
     const normalizedRequest = normalizeChatRequest(request);
+    const rootOwner = options.rootOwner ?? (await resolveGraphOwnerRoot(graphId));
+    const includeCorrectionTool =
+        requestedPromptOptions.includeCorrectionTool === true &&
+        shouldIncludeGraphCorrectionTool(rootOwner, options.deep);
+    const promptOptions = {
+        ...requestedPromptOptions,
+        includeCorrectionTool,
+    };
     const { isNewChat } = await ensureChatRecord({
         chatId: normalizedRequest.id,
         userId: user.id,
@@ -634,14 +646,16 @@ export async function startReply(user: AuthUser, graphId: string, request: ChatR
     const runtime = await getGraphResearchRuntime(graphId, {
         ...options,
         user,
-        rootOwner: options.rootOwner,
+        rootOwner,
         requestInformation: promptOptions.requestInformation,
-        correction: {
-            graphId,
-            userId: user.id,
-            chatId: normalizedRequest.id,
-            messageId: normalizedRequest.latestMessage.id,
-        },
+        correction: includeCorrectionTool
+            ? {
+                  graphId,
+                  userId: user.id,
+                  chatId: normalizedRequest.id,
+                  messageId: normalizedRequest.latestMessage.id,
+              }
+            : undefined,
     });
     const { contextMessages, validatedMessages, estimatedPromptTokens, systemPrompt } = await refreshReplyContext({
         chatId: normalizedRequest.id,

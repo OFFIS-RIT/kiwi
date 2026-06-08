@@ -405,7 +405,12 @@ async function applyEntityAddition(options: {
             };
         });
     } catch (error) {
-        await cleanupUploadedKeys([upload.key]);
+        await cleanupUploadedKeys([upload.key]).catch((cleanupError) => {
+            logError("failed to clean up uploaded key after apply transaction failure", {
+                key: upload.key,
+                cleanupError,
+            });
+        });
         throw error;
     }
 }

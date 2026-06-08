@@ -1,12 +1,20 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("@kiwi/ai", () => ({
     estimateToken: (text: string) => text.length,
     withAiSlot: async (_capability: string, run: () => Promise<unknown>) => run(),
 }));
 
+mock.module("ai", () => ({
+    embed: async () => ({ embedding: [0.1, 0.2, 0.3] }),
+}));
+
+const dbMock: Record<string, unknown> = {};
+let cleanupUploadedKeysImpl: (keys: string[]) => Promise<unknown> = async () => [];
+const cleanupUploadedKeysMock = mock((keys: string[]) => cleanupUploadedKeysImpl(keys));
+
 mock.module("@kiwi/db", () => ({
-    db: {},
+    db: dbMock,
 }));
 
 mock.module("@kiwi/files", () => ({
@@ -38,10 +46,11 @@ mock.module("../chat", () => ({
 }));
 
 mock.module("../graph-route", () => ({
-    cleanupUploadedKeys: async () => [],
+    cleanupUploadedKeys: cleanupUploadedKeysMock,
 }));
 
 const {
+    applyGraphSuggestion,
     assertPendingGraphSuggestion,
     buildManualSuggestionContent,
     buildManualSuggestionRows,
@@ -50,6 +59,15 @@ const {
 const { API_ERROR_CODES } = await import("../../types");
 
 describe("graph suggestion apply helpers", () => {
+    beforeEach(() => {
+        for (const key of Object.keys(dbMock)) {
+            delete dbMock[key];
+        }
+
+        cleanupUploadedKeysImpl = async () => [];
+        cleanupUploadedKeysMock.mockClear();
+    });
+
     test("builds source correction update values", () => {
         const embedding = [0.1, 0.2, 0.3];
 
@@ -116,5 +134,45 @@ describe("graph suggestion apply helpers", () => {
 
     test("rejects missing suggestions", () => {
         expect(() => assertPendingGraphSuggestion(undefined)).toThrow(API_ERROR_CODES.SUGGESTION_NOT_FOUND);
+    });
+
+    test("preserves the original apply error when upload cleanup fails", async () => {
+        const originalError = new Error(API_ERROR_CODES.INVALID_SUGGESTION);
+        const pendingEntitySuggestion = {
+            id: "suggestion-1",
+            graphId: "graph-1",
+            kind: "entity_addition" as const,
+            status: "pending" as const,
+            sourceId: null,
+            entityId: "entity-1",
+            reference: "Missing deadline",
+            suggestion: "The deadline is Tuesday.",
+            suggestedByUserId: "user-1",
+            chatId: "chat-1",
+            messageId: "message-1",
+            appliedByUserId: null,
+            appliedSourceId: null,
+            appliedAt: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+        };
+        const selectResults = [[pendingEntitySuggestion], [{ id: "entity-1" }], [pendingEntitySuggestion]];
+
+        dbMock.select = mock(() => ({
+            from: () => ({
+                where: () => ({
+                    limit: async () => selectResults.shift() ?? [],
+                }),
+            }),
+        }));
+        dbMock.transaction = mock(async () => {
+            throw originalError;
+        });
+        cleanupUploadedKeysImpl = async () => {
+            throw new Error("cleanup failed");
+        };
+
+        await expect(applyGraphSuggestion("graph-1", "suggestion-1", "admin-1")).rejects.toBe(originalError);
+        expect(cleanupUploadedKeysMock).toHaveBeenCalledWith(["graphs/graph-1/file-1.txt"]);
     });
 });
