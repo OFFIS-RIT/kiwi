@@ -95,6 +95,8 @@ const ZIP_HEADERS = [
 const OOXML_WORD_ENTRY = encodeASCII("word/document.xml");
 const OOXML_PRESENTATION_ENTRY = encodeASCII("ppt/presentation.xml");
 const OOXML_WORKBOOK_ENTRY = encodeASCII("xl/workbook.xml");
+const EMAIL_HEADER_NAMES = new Set(["bcc", "cc", "date", "from", "message-id", "reply-to", "subject", "to"]);
+const EMAIL_ROUTE_HEADER_NAMES = new Set(["bcc", "cc", "from", "message-id", "reply-to", "to"]);
 
 export class BufferedGraphBinaryLoader implements GraphBinaryLoader {
     private text?: string;
@@ -418,11 +420,39 @@ function sniffTextFileFormat(
         };
     }
 
-    if (/^(?:from|to|subject|date|message-id):/iu.test(prefix)) {
+    if (declaredType === "text" && hasEmailHeaderBlock(prefix)) {
         return DEFAULT_FILE_FORMATS.email;
     }
 
     return null;
+}
+
+function hasEmailHeaderBlock(prefix: string): boolean {
+    const headers = new Set<string>();
+    let hasRouteHeader = false;
+
+    for (const line of prefix.split(/\r?\n/u)) {
+        if (line.trim() === "") {
+            break;
+        }
+
+        if (/^[\t ]/u.test(line)) {
+            continue;
+        }
+
+        const match = /^([a-z][a-z0-9-]*):/iu.exec(line);
+        if (!match) {
+            break;
+        }
+
+        const header = match[1]!.toLowerCase();
+        if (EMAIL_HEADER_NAMES.has(header)) {
+            headers.add(header);
+            hasRouteHeader ||= EMAIL_ROUTE_HEADER_NAMES.has(header);
+        }
+    }
+
+    return headers.size >= 2 && hasRouteHeader;
 }
 
 function hasPDFSignature(bytes: Uint8Array): boolean {

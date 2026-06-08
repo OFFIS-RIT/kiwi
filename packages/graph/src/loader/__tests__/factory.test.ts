@@ -222,6 +222,32 @@ describe("detectGraphFileFormat", () => {
             sniffed: false,
         });
     });
+
+    test("does not treat a single email-looking structured key as email", () => {
+        const yaml = detectGraphFileFormat({
+            declaredType: "yaml",
+            mimeType: "text/yaml",
+            content: toArrayBuffer(encodeASCII("date: 2024-01-01\nname: release")),
+        });
+        const text = detectGraphFileFormat({
+            declaredType: "text",
+            mimeType: "text/plain",
+            content: toArrayBuffer(encodeASCII("Subject: notes\n\nNot an email.")),
+        });
+
+        expect(yaml).toEqual({
+            fileType: "yaml",
+            loaderKind: "text",
+            mimeType: "text/yaml",
+            sniffed: false,
+        });
+        expect(text).toEqual({
+            fileType: "text",
+            loaderKind: "text",
+            mimeType: "text/plain",
+            sniffed: false,
+        });
+    });
 });
 
 describe("BufferedGraphBinaryLoader", () => {
