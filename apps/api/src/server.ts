@@ -9,6 +9,7 @@ import { chatRoute } from "./routes/chat";
 import { chatLibraryRoute } from "./routes/chat-library";
 import { graphFilesRoute } from "./routes/graph-files";
 import { graphRoute } from "./routes/graph";
+import { graphSuggestionsRoute } from "./routes/graph-suggestions";
 import { mcpRoute } from "./routes/mcp";
 import { promptsRoute } from "./routes/prompts";
 import { searchRoute } from "./routes/search";
@@ -46,6 +47,7 @@ const app = new Elysia({
     .use(chatRoute)
     .use(chatLibraryRoute)
     .use(graphFilesRoute)
+    .use(graphSuggestionsRoute)
     .use(graphRoute)
     .use(promptsRoute)
     .use(searchRoute)

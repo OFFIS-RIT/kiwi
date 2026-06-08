@@ -4,6 +4,7 @@ export type ChatPromptOptions = {
     includeGraphTools?: boolean;
     includeClientTools?: boolean;
     includeSubagentTools?: boolean;
+    includeCorrectionTool?: boolean;
     requestInformation?: RequestInformation;
     graphDataRefresh?: {
         processedAt?: string;
@@ -41,6 +42,7 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
     const includeGraphTools = options.includeGraphTools ?? true;
     const includeClientTools = options.includeClientTools ?? true;
     const includeSubagentTools = options.includeSubagentTools ?? false;
+    const includeCorrectionTool = options.includeCorrectionTool ?? false;
     const useSubagentOnlyInstructions = !includeGraphTools && includeSubagentTools;
     const graphDataRefreshSection = createGraphDataRefreshSection({
         notice: options.graphDataRefresh,
@@ -64,6 +66,11 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
         ...(includeClientTools
             ? [
                   "- ask_clarifying_questions: Ask up to 3 concise clarification questions only when required information is missing and cannot be resolved reliably from the graph, sources, or prior messages.",
+              ]
+            : []),
+        ...(includeCorrectionTool
+            ? [
+                  "- correction: Store a pending suggestion when the latest user message corrects the answer or adds factual information. This stores only; admins apply or delete suggestions later.",
               ]
             : []),
         ...(includeSubagentTools
@@ -143,6 +150,17 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
             ? [
                   "- Use subagent tools to delegate deep exploration or source curation, then synthesize the final answer yourself.",
                   "- Treat subagent reports as intermediate findings. Final answers still need concrete source IDs for citations.",
+              ]
+            : []),
+        ...(includeCorrectionTool
+            ? [
+                  "",
+                  "# Correction Suggestion Rules",
+                  "- Use correction only when the latest user message clearly corrects an answer, says a cited/source-backed statement is wrong, or adds new factual information that should be saved for later review.",
+                  "- Use kind source_correction when the user corrects an existing source-backed statement and you can identify the relevant source ID.",
+                  "- Use kind entity_addition when the user adds new factual information and you can identify the existing entity it belongs to.",
+                  "- Do not call correction for normal follow-up questions, acknowledgements, broad requests to answer differently, admin requests to list/apply/delete suggestions, or information you inferred yourself.",
+                  "- After calling correction, briefly tell the user the suggestion was stored for admin review and that it was not applied.",
               ]
             : []),
         "",

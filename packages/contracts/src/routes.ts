@@ -383,6 +383,35 @@ export type GraphDeleteSuccessData = {
     warnings?: string[];
 };
 
+export type GraphSuggestionKind = "source_correction" | "entity_addition";
+export type GraphSuggestionStatus = "pending" | "applied";
+
+export type GraphSuggestionRecord = {
+    id: string;
+    graph_id: string;
+    kind: GraphSuggestionKind;
+    status: GraphSuggestionStatus;
+    source_id: string | null;
+    entity_id: string | null;
+    reference: string;
+    suggestion: string;
+    suggested_by_user_id: string;
+    chat_id: string | null;
+    message_id: string | null;
+    applied_by_user_id: string | null;
+    applied_source_id: string | null;
+    applied_at: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+export type GraphSuggestionApplySuccessData = {
+    suggestion: GraphSuggestionRecord;
+    sourceId: string;
+    workflowRunId: string | null;
+    warnings?: string[];
+};
+
 export type TeamCreateResponse = ApiResponse<
     TeamCreateSuccessData,
     "UNAUTHORIZED" | "FORBIDDEN" | "INVALID_TEAM_MEMBERS" | "INTERNAL_SERVER_ERROR"
@@ -482,6 +511,34 @@ export type GraphFileDownloadResponse = ApiResponse<
 export type GraphDeleteResponse = ApiResponse<
     GraphDeleteSuccessData,
     "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphSuggestionListResponse = ApiResponse<
+    GraphSuggestionRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphSuggestionDeleteResponse = ApiResponse<
+    null,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "SUGGESTION_NOT_FOUND"
+    | "INVALID_SUGGESTION"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphSuggestionApplyResponse = ApiResponse<
+    GraphSuggestionApplySuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "SUGGESTION_NOT_FOUND"
+    | "INVALID_SUGGESTION"
+    | "SOURCE_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
 >;
 
 export type TextUnitResponse = ApiResponse<

@@ -17,6 +17,7 @@ import {
     type ChatMessageMetadata,
     type ChatPromptOptions,
     type ChatUIMessage,
+    type CorrectionToolContext,
     type CitationFence,
     type GraphToolsetOptions,
     type RequestInformation,
@@ -449,8 +450,13 @@ function createGraphResearchRuntime(options: {
     deep?: boolean;
     promptGuidance: ResearchPromptGuidance;
     requestInformation?: RequestInformation;
+    correction?: CorrectionToolContext;
 }) {
-    const toolsetOptions = { graphId: options.graphId, embeddingModel: options.client.embedding };
+    const toolsetOptions = {
+        graphId: options.graphId,
+        embeddingModel: options.client.embedding,
+        correction: options.correction,
+    } satisfies GraphToolsetOptions;
     const baseToolset = buildBaseToolset(toolsetOptions, options.toolset);
     const tools = options.deep
         ? buildDeepResearchToolset(
@@ -478,6 +484,7 @@ export async function getGraphResearchRuntime(
         user?: AuthUser;
         rootOwner?: RootOwner;
         requestInformation?: RequestInformation;
+        correction?: CorrectionToolContext;
     } = { toolset: "server" }
 ) {
     const [graphPrompts, userPrompts, teamPrompts] = await Promise.all([
@@ -498,6 +505,7 @@ export async function getGraphResearchRuntime(
         deep: options.deep,
         promptGuidance,
         requestInformation: options.requestInformation,
+        correction: options.correction,
     });
 }
 
@@ -509,6 +517,7 @@ export async function getGraphResearchRuntimeWithSharedGuidance(
         deep?: boolean;
         promptGuidance: SharedResearchPromptGuidance;
         requestInformation?: RequestInformation;
+        correction?: CorrectionToolContext;
     }
 ) {
     return createGraphResearchRuntime({
@@ -521,6 +530,7 @@ export async function getGraphResearchRuntimeWithSharedGuidance(
             graphPrompts: await listGraphPromptTexts(graphId),
         },
         requestInformation: options.requestInformation,
+        correction: options.correction,
     });
 }
 
@@ -626,6 +636,12 @@ export async function startReply(user: AuthUser, graphId: string, request: ChatR
         user,
         rootOwner: options.rootOwner,
         requestInformation: promptOptions.requestInformation,
+        correction: {
+            graphId,
+            userId: user.id,
+            chatId: normalizedRequest.id,
+            messageId: normalizedRequest.latestMessage.id,
+        },
     });
     const { contextMessages, validatedMessages, estimatedPromptTokens, systemPrompt } = await refreshReplyContext({
         chatId: normalizedRequest.id,

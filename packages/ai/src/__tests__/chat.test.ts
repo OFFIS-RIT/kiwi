@@ -341,8 +341,55 @@ describe("citation fences", () => {
 
         expect(Object.keys(toolset)).toContain("ask_clarifying_questions");
         expect(Object.keys(toolset)).toContain("explore_graph_with_subagent");
+        expect(Object.keys(toolset)).toContain("correction");
         expect(chatMessageMetadataSchema.parse({ totalTokens: 12 })).toEqual({ totalTokens: 12 });
         expect(chatDataPartSchemas.step.parse({ name: "thinking" })).toEqual({ name: "thinking" });
+    });
+
+    test("validation toolset accepts persisted correction outputs", async () => {
+        const toolset = buildChatValidationToolset({
+            graphId: "graph-1",
+            embeddingModel: {} as never,
+            model: {} as never,
+        });
+        const message = toUIMessage({
+            id: "msg-correction",
+            chatId: "chat-1",
+            status: "completed",
+            role: "assistant",
+            parts: [
+                {
+                    type: "tool",
+                    toolCallId: "tool-1",
+                    toolName: "correction",
+                    execution: "server",
+                    status: "completed",
+                    args: {
+                        kind: "source_correction",
+                        sourceId: "source-1",
+                        reference: "The answer said the deadline is Monday.",
+                        suggestion: "The deadline is Tuesday.",
+                    },
+                    result: "## Correction suggestion\n- stored: suggestion-1\n- status: pending\n- nothing was applied yet",
+                },
+            ],
+            tokensPerSecond: null,
+            timeToFirstToken: null,
+            inputTokens: null,
+            outputTokens: null,
+            totalTokens: null,
+            createdAt: new Date("2026-01-06T00:00:00.000Z"),
+            updatedAt: new Date("2026-01-06T00:00:01.000Z"),
+        });
+
+        await expect(
+            validateUIMessages({
+                messages: [message],
+                tools: toolset,
+                metadataSchema: chatMessageMetadataSchema,
+                dataSchemas: chatDataPartSchemas,
+            })
+        ).resolves.toHaveLength(1);
     });
 
     test("validation toolset accepts legacy clarification outputs", async () => {

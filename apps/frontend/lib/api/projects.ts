@@ -31,6 +31,11 @@ import type {
     GraphFilesResponse,
     GraphPatchResponse,
     GraphPatchSuccessData,
+    GraphSuggestionApplyResponse,
+    GraphSuggestionApplySuccessData,
+    GraphSuggestionDeleteResponse,
+    GraphSuggestionListResponse,
+    GraphSuggestionRecord,
     SourceReferenceResponse,
     SourceReferenceBatchResponse,
     SourceReferenceBatchSuccessData,
@@ -90,6 +95,35 @@ export async function updateProject(
  */
 export async function deleteProject(client: KiwiApiClient, projectId: string): Promise<GraphDeleteSuccessData> {
     const response = await client.delete<GraphDeleteResponse>(`/graphs/${projectId}`);
+
+    return unwrapApiResponse(response);
+}
+
+export async function fetchProjectSuggestions(
+    client: KiwiApiClient,
+    projectId: string
+): Promise<GraphSuggestionRecord[]> {
+    const response = await client.get<GraphSuggestionListResponse>(`/graphs/${projectId}/suggestions`);
+
+    return unwrapApiResponse(response);
+}
+
+export async function deleteProjectSuggestion(
+    client: KiwiApiClient,
+    projectId: string,
+    suggestionId: string
+): Promise<void> {
+    await client.delete<GraphSuggestionDeleteResponse>(`/graphs/${projectId}/suggestions/${suggestionId}`);
+}
+
+export async function applyProjectSuggestion(
+    client: KiwiApiClient,
+    projectId: string,
+    suggestionId: string
+): Promise<GraphSuggestionApplySuccessData> {
+    const response = await client.post<GraphSuggestionApplyResponse>(
+        `/graphs/${projectId}/suggestions/${suggestionId}/apply`
+    );
 
     return unwrapApiResponse(response);
 }
@@ -160,6 +194,8 @@ export type {
     GraphDeleteSuccessData,
     GraphDetailSuccessData,
     GraphPatchSuccessData,
+    GraphSuggestionApplySuccessData,
+    GraphSuggestionRecord,
 };
 
 /**

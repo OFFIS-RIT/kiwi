@@ -35,6 +35,7 @@ export const chatRoute = createChatTargetRoute({
             includeGraphTools: !deep,
             includeClientTools: mode === "stream" && !deep,
             includeSubagentTools: deep,
+            includeCorrectionTool: !deep,
             requestInformation: createUserRequestInformation(user),
         } as const;
         const started = await startGraphReply(user, target.graphId, request, {

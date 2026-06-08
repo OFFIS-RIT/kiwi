@@ -42,6 +42,7 @@ const {
     assertCanCreateTopLevelGraph,
     assertCanCreateUnderParentGraph,
     assertCanManageGraphFiles,
+    assertCanManageGraphSuggestions,
     assertCanPatchGraph,
     assertCanViewGraph,
 } = await import("../graph-access");
@@ -240,6 +241,57 @@ describe("graph access", () => {
 
         queueDbResults([graph], [organizationAdminMembership]);
         await expect(assertCanCreateUnderParentGraph(buildUser(), graph.id)).resolves.toBeUndefined();
+    });
+
+    test("allows organization admins to manage suggestions on organization graphs", async () => {
+        const graph = buildTeamGraph({ teamId: null });
+        queueDbResults([graph], [graph], [organizationAdminMembership]);
+
+        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).resolves.toEqual(graph);
+    });
+
+    test("rejects organization members managing suggestions on organization graphs", async () => {
+        const graph = buildTeamGraph({ teamId: null });
+        queueDbResults([graph], [graph], [organizationMemberMembership]);
+
+        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).rejects.toThrow(
+            API_ERROR_CODES.FORBIDDEN
+        );
+    });
+
+    test("allows organization admins to manage suggestions on team graphs", async () => {
+        const graph = buildTeamGraph();
+        queueTeamGraphAccess(graph, organizationAdminMembership);
+
+        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).resolves.toEqual(graph);
+    });
+
+    test("allows team admins to manage suggestions on team graphs", async () => {
+        const graph = buildTeamGraph();
+        queueTeamGraphAccess(graph, organizationMemberMembership, teamAdminRole);
+
+        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).resolves.toEqual(graph);
+    });
+
+    test("rejects team moderators and members managing suggestions on team graphs", async () => {
+        const graph = buildTeamGraph();
+        queueTeamGraphAccess(graph, organizationMemberMembership, teamModeratorRole);
+
+        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).rejects.toThrow(
+            API_ERROR_CODES.FORBIDDEN
+        );
+
+        queueTeamGraphAccess(graph, organizationMemberMembership, teamMemberRole);
+        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).rejects.toThrow(
+            API_ERROR_CODES.FORBIDDEN
+        );
+    });
+
+    test("rejects suggestion management for personal graphs", async () => {
+        const graph = buildTeamGraph({ organizationId: null, teamId: null, userId: "user-1" });
+        queueDbResults([graph], [graph]);
+
+        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("limits organization members to viewing organization graphs", async () => {

@@ -5,6 +5,7 @@ import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { toModelMessage } from "./index";
 import { buildSubagentToolset } from "./agents/subagents";
 import { createChatPrompt, type ChatPromptOptions } from "./prompts/chat.prompt";
+import { correctionValidationTool } from "./tools/correction";
 import { buildServerAndClientToolset } from "./tools/toolsets";
 import type { Adapter, EmbeddingAdapter } from "./index";
 import type { ChatMessageMetadata, ChatUIMessage } from "./ui";
@@ -89,6 +90,8 @@ export function buildChatTools(graphId: string, embeddingModel: EmbeddingModelV3
     return buildServerAndClientToolset({ graphId, embeddingModel });
 }
 
+export type { CorrectionToolContext } from "./tools/correction";
+
 export function buildChatValidationToolset(options: {
     graphId: string;
     embeddingModel: EmbeddingModelV3;
@@ -104,6 +107,7 @@ export function buildChatValidationToolset(options: {
             embeddingModel: options.embeddingModel,
             model: options.model,
         }),
+        correction: correctionValidationTool(),
     };
 }
 
