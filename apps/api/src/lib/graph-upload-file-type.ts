@@ -1,3 +1,4 @@
+import { isSupportedTranscriptionAdapter, normalizeOptionalString } from "@kiwi/ai";
 import { env } from "../env";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import { inferGraphFileType, type GraphFileType } from "./graph-file-type";
@@ -117,13 +118,4 @@ function validateTranscriptionConfig(
     }
 
     return { ok: true };
-}
-
-function normalizeOptionalString(value: string | undefined): string | undefined {
-    const normalized = value?.trim();
-    return normalized ? normalized : undefined;
-}
-
-function isSupportedTranscriptionAdapter(value: string): value is "openai" | "azure" | "openaiAPI" {
-    return value === "openai" || value === "azure" || value === "openaiAPI";
 }

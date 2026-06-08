@@ -368,7 +368,8 @@ export const processFile = defineWorkflow(
                     loader,
                 } satisfies Omit<GraphFile, "chunker">;
                 const document = await loadGraphDocument(graphFile.loader);
-                const text = document.text;
+                const contentText = requireReadableContentText(document.text);
+                const tokens = estimateToken(contentText);
                 const uploadedDocument = await putNamedFile(
                     "document.json",
                     JSON.stringify(document),
@@ -377,8 +378,6 @@ export const processFile = defineWorkflow(
                 );
 
                 const duration = performance.now() - start;
-                const contentText = requireReadableContentText(text);
-                const tokens = estimateToken(contentText);
 
                 await db
                     .update(filesTable)

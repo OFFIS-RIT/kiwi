@@ -44,6 +44,11 @@ mock.module("@kiwi/ai", () => ({
         },
     }),
     buildEmbeddingAdapter: mock(() => undefined),
+    isSupportedTranscriptionAdapter: (value: string) => value === "openai" || value === "azure" || value === "openaiAPI",
+    normalizeOptionalString: (value: string | undefined) => {
+        const normalized = value?.trim();
+        return normalized ? normalized : undefined;
+    },
 }));
 
 const { buildAudioAdapter } = await import("../ai");

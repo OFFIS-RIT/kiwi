@@ -413,7 +413,7 @@ function sniffTextFileFormat(
         };
     }
 
-    if (isMboxSeparator(prefix.split(/\r?\n/u)[0] ?? "")) {
+    if (declaredType === "email" && isMboxSeparator(prefix.split(/\r?\n/u)[0] ?? "")) {
         return {
             ...DEFAULT_FILE_FORMATS.email,
             mimeType: "application/mbox",

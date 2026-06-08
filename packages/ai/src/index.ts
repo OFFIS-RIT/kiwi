@@ -67,6 +67,8 @@ export type Adapter = OpenAIAdapter | OpenAIApiAdapter | AnthropicAdapter | Azur
 /** Embedding adapter – excludes Anthropic (no embedding models). */
 export type EmbeddingAdapter = Exclude<Adapter, AnthropicAdapter>;
 
+export type TranscriptionAdapterName = Extract<Adapter["type"], "openai" | "azure" | "openaiAPI">;
+
 type AssistantContent = Exclude<Extract<ModelMessage, { role: "assistant" }>["content"], string>;
 type ToolContent = Extract<ModelMessage, { role: "tool" }>["content"];
 type ToolResultPart = Extract<ToolContent[number], { type: "tool-result" }>;
@@ -75,6 +77,15 @@ type ToolResultOutput = ToolResultPart["output"];
 const CLIENT_TOOL_NAMES = new Set(["ask_clarifying_questions"]);
 
 export const AI_REQUEST_TIMEOUT_MS = 90 * 60 * 1000;
+
+export function normalizeOptionalString(value: string | undefined): string | undefined {
+    const normalized = value?.trim();
+    return normalized ? normalized : undefined;
+}
+
+export function isSupportedTranscriptionAdapter(value: string): value is TranscriptionAdapterName {
+    return value === "openai" || value === "azure" || value === "openaiAPI";
+}
 
 function getRequestSignal(signal: AbortSignal | null | undefined): AbortSignal {
     const timeoutSignal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS);

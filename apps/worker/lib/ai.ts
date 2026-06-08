@@ -1,9 +1,12 @@
-import { buildAdapter, buildEmbeddingAdapter } from "@kiwi/ai";
+import {
+    buildAdapter,
+    buildEmbeddingAdapter,
+    isSupportedTranscriptionAdapter,
+    normalizeOptionalString,
+} from "@kiwi/ai";
 import { env } from "../env";
 
 export { buildAdapter, buildEmbeddingAdapter };
-
-type AdapterName = Parameters<typeof buildAdapter>[0];
 
 function buildTextAdapter() {
     return buildAdapter(
@@ -107,13 +110,4 @@ function buildOptionalTranscriptionAdapter(
     }
 
     return buildAdapter(adapter, model, key, url, resourceName);
-}
-
-function normalizeOptionalString(value: string | undefined): string | undefined {
-    const normalized = value?.trim();
-    return normalized ? normalized : undefined;
-}
-
-function isSupportedTranscriptionAdapter(value: string): value is AdapterName {
-    return value === "openai" || value === "azure" || value === "openaiAPI";
 }

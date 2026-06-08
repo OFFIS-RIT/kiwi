@@ -223,6 +223,47 @@ describe("detectGraphFileFormat", () => {
         });
     });
 
+    test("does not route non-email mbox-looking content through the email loader", () => {
+        const content = toArrayBuffer(
+            encodeASCII("From user@example.com Mon Jan 01 12:00:00 2024\nsubject: release provenance")
+        );
+
+        const text = detectGraphFileFormat({
+            declaredType: "text",
+            mimeType: "text/plain",
+            content,
+        });
+        const yaml = detectGraphFileFormat({
+            declaredType: "yaml",
+            mimeType: "text/yaml",
+            content,
+        });
+        const email = detectGraphFileFormat({
+            declaredType: "email",
+            mimeType: "message/rfc822",
+            content,
+        });
+
+        expect(text).toEqual({
+            fileType: "text",
+            loaderKind: "text",
+            mimeType: "text/plain",
+            sniffed: false,
+        });
+        expect(yaml).toEqual({
+            fileType: "yaml",
+            loaderKind: "text",
+            mimeType: "text/yaml",
+            sniffed: false,
+        });
+        expect(email).toEqual({
+            fileType: "email",
+            loaderKind: "email",
+            mimeType: "application/mbox",
+            sniffed: true,
+        });
+    });
+
     test("does not treat a single email-looking structured key as email", () => {
         const yaml = detectGraphFileFormat({
             declaredType: "yaml",
