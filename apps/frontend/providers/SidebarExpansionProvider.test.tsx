@@ -13,7 +13,7 @@ describe("SidebarExpansionProvider", () => {
         localStorage.clear();
     });
 
-    it("tracks group and graph expansion independently", () => {
+    it("expands groups on first visit while tracking graph expansion independently", () => {
         const { result } = renderHook(() => useSidebarExpansion(), { wrapper });
 
         act(() => {
@@ -21,22 +21,50 @@ describe("SidebarExpansionProvider", () => {
             result.current.initializeExpandedProjects(["graph_1"]);
         });
 
-        expect(result.current.expandedGroups.team_1).toBe(false);
+        expect(result.current.expandedGroups.team_1).toBe(true);
         expect(result.current.expandedProjects.graph_1).toBe(false);
 
         act(() => {
             result.current.toggleGroupExpanded("team_1");
         });
 
-        expect(result.current.expandedGroups.team_1).toBe(true);
+        expect(result.current.expandedGroups.team_1).toBe(false);
         expect(result.current.expandedProjects.graph_1).toBe(false);
 
         act(() => {
             result.current.toggleProjectExpanded("graph_1");
         });
 
-        expect(result.current.expandedGroups.team_1).toBe(true);
+        expect(result.current.expandedGroups.team_1).toBe(false);
         expect(result.current.expandedProjects.graph_1).toBe(true);
+    });
+
+    it("respects persisted group expansion and keeps new groups collapsed", () => {
+        localStorage.setItem("sidebar-expanded-groups", JSON.stringify({ team_1: false, team_2: true }));
+
+        const { result } = renderHook(() => useSidebarExpansion(), { wrapper });
+
+        act(() => {
+            result.current.initializeExpandedGroups(["team_1", "team_2", "team_3"]);
+        });
+
+        expect(result.current.expandedGroups).toEqual({
+            team_1: false,
+            team_2: true,
+            team_3: false,
+        });
+    });
+
+    it("keeps groups collapsed when an empty group expansion state is already stored", () => {
+        localStorage.setItem("sidebar-expanded-groups", JSON.stringify({}));
+
+        const { result } = renderHook(() => useSidebarExpansion(), { wrapper });
+
+        act(() => {
+            result.current.initializeExpandedGroups(["team_1"]);
+        });
+
+        expect(result.current.expandedGroups.team_1).toBe(false);
     });
 
     it("expands groups and graphs for selected navigation targets", () => {
