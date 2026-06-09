@@ -71,6 +71,14 @@ function mapModelError(status: RouteStatus, error: unknown) {
             return status(404, errorResponse("Model not found", API_ERROR_CODES.MODEL_NOT_FOUND));
         case API_ERROR_CODES.INVALID_MODEL:
             return status(400, errorResponse("Invalid model", API_ERROR_CODES.INVALID_MODEL));
+        case API_ERROR_CODES.MODEL_NOT_CONFIGURED:
+            return status(
+                400,
+                errorResponse(
+                    "Define a model for this organization before using AI features",
+                    API_ERROR_CODES.MODEL_NOT_CONFIGURED
+                )
+            );
         default:
             return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
     }
