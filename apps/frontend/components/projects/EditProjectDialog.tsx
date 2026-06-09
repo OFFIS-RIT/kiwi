@@ -264,10 +264,14 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
     const renderFileCard = (file: ApiProjectFile) => {
         const isMarkedForDeletion = filesToDelete.includes(file.file_key);
         const isRetrying = retryingFileIds.includes(file.id);
-        const failureReason =
+        const errorKey =
             file.status === "failed" && file.process_error_code
-                ? t(`file.process.error.${file.process_error_code.toLowerCase()}`)
+                ? `file.process.error.${file.process_error_code.toLowerCase()}`
                 : null;
+        // t() returns the key unchanged when no translation exists; fall back to a
+        // generic message so an unknown error code never renders as a raw key.
+        const errorLabel = errorKey ? t(errorKey) : null;
+        const failureReason = errorKey ? (errorLabel === errorKey ? t("file.status.failed") : errorLabel) : null;
         const stepLabel =
             file.status === "processing" && file.process_step
                 ? t(`file.process.step.${file.process_step}`)

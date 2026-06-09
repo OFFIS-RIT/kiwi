@@ -488,7 +488,11 @@ export function useRetryProjectFile() {
                 queryKey: queryKeys.projectFiles(projectId),
             });
 
-            const previousFiles = queryClient.getQueryData<ApiProjectFile[]>(queryKeys.projectFiles(projectId));
+            // Snapshot only the affected file, so a failed retry reverts just that
+            // file and never clobbers a concurrent retry's optimistic update.
+            const previousFile = queryClient
+                .getQueryData<ApiProjectFile[]>(queryKeys.projectFiles(projectId))
+                ?.find((file) => file.id === fileId);
 
             queryClient.setQueryData<ApiProjectFile[]>(
                 queryKeys.projectFiles(projectId),
@@ -500,11 +504,15 @@ export function useRetryProjectFile() {
                     ) || []
             );
 
-            return { previousFiles, projectId };
+            return { previousFile, projectId, fileId };
         },
         onError: (_err, _variables, context) => {
-            if (context?.previousFiles && context.projectId) {
-                queryClient.setQueryData(queryKeys.projectFiles(context.projectId), context.previousFiles);
+            if (context?.previousFile && context.projectId) {
+                queryClient.setQueryData<ApiProjectFile[]>(
+                    queryKeys.projectFiles(context.projectId),
+                    (old) =>
+                        old?.map((file) => (file.id === context.fileId ? context.previousFile! : file)) || []
+                );
             }
         },
         onSuccess: (_, variables) => {
