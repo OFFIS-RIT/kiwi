@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { fetchSourceReference, getApiAssetUrl } from "@/lib/api/projects";
+import { copyToClipboard } from "@/lib/clipboard";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import type { ApiSourceReference } from "@/types/api";
@@ -352,9 +353,9 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         requestAnimationFrame(measureHighlightMarkers);
     }, [measureHighlightMarkers]);
 
-    const copyToClipboard = () => {
+    const handleCopyToClipboard = () => {
         if (copyText) {
-            void navigator.clipboard.writeText(copyText);
+            void copyToClipboard(copyText);
         }
     };
 
@@ -439,7 +440,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                                             src={getApiAssetUrl(apiClient, chunk.image_path)}
                                         />
                                     ))}
-                                    <TextChunksPanel chunks={textChunks} onCopy={copyToClipboard} />
+                                    <TextChunksPanel chunks={textChunks} onCopy={handleCopyToClipboard} />
                                 </>
                             )}
                         </div>

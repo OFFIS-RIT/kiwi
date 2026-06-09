@@ -20,6 +20,7 @@ import {
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { ApiError } from "@/lib/api/client";
 import { upsertProjectChatSummary } from "@/lib/chat-summaries";
+import { copyToClipboard } from "@/lib/clipboard";
 import { deleteProjectChat } from "@/lib/api/projects";
 import type { ChatLibraryItem } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
@@ -788,7 +789,7 @@ function ProjectChatSession({
     const handleCopyMessage = useCallback(async (message: ChatUIMessage) => {
         try {
             const plainText = stripMarkdown(getCopyableMessageText(message));
-            await navigator.clipboard.writeText(plainText);
+            await copyToClipboard(plainText);
             setCopiedMessageId(message.id);
             setTimeout(() => setCopiedMessageId(null), 2000);
         } catch (error) {

@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { copyToClipboard } from "@/lib/clipboard";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
@@ -17,7 +18,7 @@ export function ApiKeyRevealDialog({ apiKey, onOpenChange }: ApiKeyRevealDialogP
 
     const handleCopy = () => {
         if (!apiKey) return;
-        navigator.clipboard.writeText(apiKey);
+        void copyToClipboard(apiKey);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
