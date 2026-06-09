@@ -1,8 +1,20 @@
 import { describe, expect, mock, test } from "bun:test";
 import { API_ERROR_CODES } from "@kiwi/contracts/responses";
+import type { AiModel, AiModelAdapter, AiModelType } from "@kiwi/db/tables/models";
+
+let queuedModelRows: unknown[][] = [];
+const selectMock = mock(() => ({
+    from: () => ({
+        where: () => ({
+            limit: async () => queuedModelRows.shift() ?? [],
+        }),
+    }),
+}));
 
 mock.module("@kiwi/db", () => ({
-    db: {},
+    db: {
+        select: selectMock,
+    },
 }));
 
 const {
@@ -12,7 +24,37 @@ const {
     decryptModelCredentials,
     encryptModelCredentials,
     normalizeModelId,
+    resolveResearchModelConfig,
+    resolveWorkerModelConfig,
 } = await import("../models");
+
+const TEST_SECRET = "test-auth-secret";
+
+function queueModelQueries(...rows: unknown[][]) {
+    queuedModelRows = [...rows];
+    selectMock.mockClear();
+}
+
+function createModelRow(options: {
+    type: AiModelType;
+    modelId: string;
+    providerModel: string;
+    adapter?: AiModelAdapter;
+}): AiModel {
+    return {
+        id: `${options.type}-${options.modelId}`,
+        organizationId: "org-1",
+        modelId: options.modelId,
+        displayName: options.modelId,
+        type: options.type,
+        adapter: options.adapter ?? "openai",
+        providerModel: options.providerModel,
+        encryptedCredentials: encryptModelCredentials({ apiKey: "model-key" }, TEST_SECRET),
+        isDefault: true,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    };
+}
 
 describe("AI model registry helpers", () => {
     test("normalizes model IDs to stable slugs", () => {
@@ -98,5 +140,48 @@ describe("AI model registry helpers", () => {
             apiKey: "audio-key",
             url: "https://example.test/v1",
         });
+    });
+
+    test("rejects unknown requested text models instead of falling back to the default", async () => {
+        const embeddingModel = createModelRow({
+            type: "embedding",
+            modelId: "embedding-default",
+            providerModel: "text-embedding-test",
+        });
+
+        queueModelQueries([], [embeddingModel], []);
+
+        await expect(
+            resolveResearchModelConfig({
+                organizationId: "org-1",
+                requestedTextModelId: "missing-model",
+                secret: TEST_SECRET,
+            })
+        ).rejects.toThrow(API_ERROR_CODES.INVALID_MODEL);
+        expect(selectMock).toHaveBeenCalledTimes(3);
+    });
+
+    test("resolves worker models from extract and embedding defaults without requiring a text fallback", async () => {
+        const extractModel = createModelRow({
+            type: "extract",
+            modelId: "extract-default",
+            providerModel: "gpt-extract",
+        });
+        const embeddingModel = createModelRow({
+            type: "embedding",
+            modelId: "embedding-default",
+            providerModel: "text-embedding-test",
+        });
+
+        queueModelQueries([extractModel], [], [embeddingModel], [], [], []);
+
+        const resolved = await resolveWorkerModelConfig({
+            organizationId: "org-1",
+            secret: TEST_SECRET,
+        });
+
+        expect(resolved.config.text).toMatchObject({ type: "openai", model: "gpt-extract" });
+        expect(resolved.config.embedding).toMatchObject({ type: "openai", model: "text-embedding-test" });
+        expect(selectMock).toHaveBeenCalledTimes(6);
     });
 });

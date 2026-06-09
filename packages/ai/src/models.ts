@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
 import { API_ERROR_CODES } from "@kiwi/contracts/responses";
 import { db } from "@kiwi/db";
 import { organizationTable } from "@kiwi/db/tables/auth";
@@ -17,6 +17,8 @@ import { buildAdapter, buildEmbeddingAdapter } from "./chat";
 
 const ENCRYPTION_VERSION = "v1";
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
+const ENCRYPTION_KEY_SALT = "kiwi-model-credentials:v1";
+const ENCRYPTION_KEY_INFO = "model-credential-encryption";
 const IV_BYTE_LENGTH = 12;
 const AUTH_TAG_BYTE_LENGTH = 16;
 const DEFAULT_ORGANIZATION_SLUG = "default-org";
@@ -79,8 +81,7 @@ export type ResolvedResearchModels = {
 };
 
 export type ResolvedWorkerModels = {
-    config: Required<Pick<ClientConfig, "text" | "embedding">> &
-        Pick<ClientConfig, "image" | "audio" | "video">;
+    config: Required<Pick<ClientConfig, "text" | "embedding">> & Pick<ClientConfig, "image" | "audio" | "video">;
 };
 
 export function normalizeModelId(value: string): string {
@@ -140,7 +141,7 @@ export async function lockModelOrganization(queryRunner: ModelQueryRunner, organ
 }
 
 function deriveEncryptionKey(secret: string): Buffer {
-    return createHash("sha256").update(secret).digest();
+    return Buffer.from(hkdfSync("sha256", secret, ENCRYPTION_KEY_SALT, ENCRYPTION_KEY_INFO, 32));
 }
 
 function encodeBase64Url(value: Buffer): string {
@@ -356,7 +357,9 @@ function isEmbeddingCapableAdapter(adapter: AiModelAdapter): adapter is Embeddin
     return adapter === "openai" || adapter === "azure" || adapter === "openaiAPI";
 }
 
-function isTranscriptionAdapter(adapter: AiModelAdapter): adapter is Extract<Adapter["type"], "openai" | "azure" | "openaiAPI"> {
+function isTranscriptionAdapter(
+    adapter: AiModelAdapter
+): adapter is Extract<Adapter["type"], "openai" | "azure" | "openaiAPI"> {
     return adapter === "openai" || adapter === "azure" || adapter === "openaiAPI";
 }
 
@@ -372,7 +375,10 @@ export function assertValidModelConfiguration(input: {
 
     assertValidCredentials(input.credentials);
 
-    if ((input.type === "embedding" || input.type === "audio" || input.type === "video") && input.adapter === "anthropic") {
+    if (
+        (input.type === "embedding" || input.type === "audio" || input.type === "video") &&
+        input.adapter === "anthropic"
+    ) {
         throw new Error(API_ERROR_CODES.INVALID_MODEL);
     }
 
@@ -417,13 +423,7 @@ function modelAdapter(row: AiModel, credentials: ModelCredentials): Adapter {
         credentials,
     });
 
-    return buildAdapter(
-        row.adapter,
-        row.providerModel,
-        credentials.apiKey,
-        credentials.url,
-        credentials.resourceName
-    );
+    return buildAdapter(row.adapter, row.providerModel, credentials.apiKey, credentials.url, credentials.resourceName);
 }
 
 function embeddingModelAdapter(row: AiModel, credentials: ModelCredentials): EmbeddingAdapter {
@@ -459,7 +459,13 @@ async function findDefaultModel(organizationId: string, type: AiModelType): Prom
     const [row] = await db
         .select()
         .from(modelsTable)
-        .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, type), eq(modelsTable.isDefault, true)))
+        .where(
+            and(
+                eq(modelsTable.organizationId, organizationId),
+                eq(modelsTable.type, type),
+                eq(modelsTable.isDefault, true)
+            )
+        )
         .limit(1);
 
     return row ?? null;
@@ -534,12 +540,20 @@ export async function resolveResearchModelConfig(options: {
     requestedTextModelId?: string;
     secret: string;
 }): Promise<ResolvedResearchModels> {
-    const requestedTextModel = options.requestedTextModelId
-        ? await findTextModelByModelId(options.organizationId, options.requestedTextModelId)
-        : null;
-    const textModel = requestedTextModel ?? (await requireDefaultModel(options.organizationId, "text"));
-    const embeddingModel = await requireDefaultModel(options.organizationId, "embedding");
-    const subagentModel = await findDefaultModel(options.organizationId, "subagent");
+    const textModelPromise = options.requestedTextModelId
+        ? findTextModelByModelId(options.organizationId, options.requestedTextModelId).then((model) => {
+              if (!model) {
+                  throw new Error(API_ERROR_CODES.INVALID_MODEL);
+              }
+
+              return model;
+          })
+        : requireDefaultModel(options.organizationId, "text");
+    const [textModel, embeddingModel, subagentModel] = await Promise.all([
+        textModelPromise,
+        requireDefaultModel(options.organizationId, "embedding"),
+        findDefaultModel(options.organizationId, "subagent"),
+    ]);
     const resolvedText = resolveModelAdapter(textModel, options.secret);
     const resolvedEmbedding = resolveEmbeddingModelAdapter(embeddingModel, options.secret);
     const resolvedSubagent = subagentModel ? resolveModelAdapter(subagentModel, options.secret) : null;
@@ -554,43 +568,31 @@ export async function resolveResearchModelConfig(options: {
     };
 }
 
-async function resolveOptionalModelAdapter(
-    organizationId: string,
-    type: Exclude<AiModelType, "embedding" | "audio" | "video">,
-    secret: string
-): Promise<ResolvedModelAdapter | null> {
-    const row = await findDefaultModel(organizationId, type);
-    return row ? resolveModelAdapter(row, secret) : null;
-}
-
-async function resolveOptionalTranscriptionAdapter(
-    organizationId: string,
-    type: "audio" | "video",
-    secret: string
-): Promise<ResolvedModelAdapter | null> {
-    const row = await findDefaultModel(organizationId, type);
-    return row ? resolveTranscriptionModelAdapter(row, secret) : null;
-}
-
 export async function resolveWorkerModelConfig(options: {
     organizationId: string;
     secret: string;
 }): Promise<ResolvedWorkerModels> {
-    const extractModel =
-        (await findDefaultModel(options.organizationId, "extract")) ??
-        (await requireDefaultModel(options.organizationId, "text"));
-    const embeddingModel = await requireDefaultModel(options.organizationId, "embedding");
-    const imageModel = await resolveOptionalModelAdapter(options.organizationId, "image", options.secret);
-    const audioModel = await resolveOptionalTranscriptionAdapter(options.organizationId, "audio", options.secret);
-    const videoModel = await resolveOptionalTranscriptionAdapter(options.organizationId, "video", options.secret);
+    const [extractModel, textModel, embeddingModel, imageModel, audioModel, videoModel] = await Promise.all([
+        findDefaultModel(options.organizationId, "extract"),
+        findDefaultModel(options.organizationId, "text"),
+        requireDefaultModel(options.organizationId, "embedding"),
+        findDefaultModel(options.organizationId, "image"),
+        findDefaultModel(options.organizationId, "audio"),
+        findDefaultModel(options.organizationId, "video"),
+    ]);
+    const workerTextModel = extractModel ?? textModel;
+
+    if (!workerTextModel) {
+        throw new Error(API_ERROR_CODES.MODEL_NOT_CONFIGURED);
+    }
 
     return {
         config: {
-            text: resolveModelAdapter(extractModel, options.secret).adapter,
+            text: resolveModelAdapter(workerTextModel, options.secret).adapter,
             embedding: resolveEmbeddingModelAdapter(embeddingModel, options.secret).adapter,
-            ...(imageModel ? { image: imageModel.adapter } : {}),
-            ...(audioModel ? { audio: audioModel.adapter } : {}),
-            ...(videoModel ? { video: videoModel.adapter } : {}),
+            ...(imageModel ? { image: resolveModelAdapter(imageModel, options.secret).adapter } : {}),
+            ...(audioModel ? { audio: resolveTranscriptionModelAdapter(audioModel, options.secret).adapter } : {}),
+            ...(videoModel ? { video: resolveTranscriptionModelAdapter(videoModel, options.secret).adapter } : {}),
         },
     };
 }
