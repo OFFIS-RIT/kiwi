@@ -73,6 +73,8 @@ const {
 } = await import("../graph-suggestions");
 const { API_ERROR_CODES } = await import("../../types");
 
+mock.restore();
+
 describe("graph suggestion apply helpers", () => {
     beforeEach(() => {
         for (const key of Object.keys(dbMock)) {

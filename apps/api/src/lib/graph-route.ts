@@ -22,7 +22,7 @@ import type { GraphFileType } from "./graph-file-type";
 import type { FileWithChecksum } from "./graph-upload-file-type";
 
 export { inferGraphFileType, type GraphFileType } from "./graph-file-type";
-export { inferSupportedUploadedFiles, unsupportedUploadResponse } from "./graph-upload-file-type";
+export { assertConfiguredUploadModels, inferSupportedUploadedFiles, unsupportedUploadResponse } from "./graph-upload-file-type";
 export type { FileWithChecksum, SupportedFileWithChecksum, UploadFileTypeCheck } from "./graph-upload-file-type";
 
 export type UploadedFile = {

@@ -18,9 +18,11 @@ describe("turbo environment passthrough", () => {
         expect(config.globalPassThroughEnv).toContain("AI_EMBEDDING_CONCURRENCY");
         expect(config.globalPassThroughEnv).toContain("AI_AUDIO_CONCURRENCY");
         expect(config.globalPassThroughEnv).toContain("AI_VIDEO_CONCURRENCY");
-        expect(config.globalPassThroughEnv).not.toContain("AI_AUDIO_KEY");
-        expect(config.globalPassThroughEnv).not.toContain("AI_VIDEO_KEY");
-        expect(config.globalPassThroughEnv).not.toContain("AI_TEXT_KEY");
+        expect(config.globalPassThroughEnv).toContain("AI_TEXT_KEY");
+        expect(config.globalPassThroughEnv).toContain("AI_EXTRACT_KEY");
+        expect(config.globalPassThroughEnv).toContain("AI_EMBEDDING_KEY");
+        expect(config.globalPassThroughEnv).toContain("AI_AUDIO_KEY");
+        expect(config.globalPassThroughEnv).toContain("AI_VIDEO_KEY");
     });
 
     test("production compose provides usable AI concurrency defaults and worker auth secret", () => {
@@ -33,8 +35,10 @@ describe("turbo environment passthrough", () => {
         expect(compose).toContain("AI_EMBEDDING_CONCURRENCY: ${AI_EMBEDDING_CONCURRENCY:-64}");
         expect(compose).toContain("AI_AUDIO_CONCURRENCY: ${AI_AUDIO_CONCURRENCY:-64}");
         expect(compose).toContain("AI_VIDEO_CONCURRENCY: ${AI_VIDEO_CONCURRENCY:-64}");
-        expect(compose).not.toContain("AI_AUDIO_KEY: ${AI_AUDIO_KEY}");
-        expect(compose).not.toContain("AI_VIDEO_KEY: ${AI_VIDEO_KEY}");
-        expect(compose).not.toContain("AI_TEXT_KEY: ${AI_TEXT_KEY}");
+        expect(compose).toContain("AI_TEXT_KEY: ${AI_TEXT_KEY:-}");
+        expect(compose).toContain("AI_EXTRACT_KEY: ${AI_EXTRACT_KEY:-}");
+        expect(compose).toContain("AI_EMBEDDING_KEY: ${AI_EMBEDDING_KEY:-}");
+        expect(compose).toContain("AI_AUDIO_KEY: ${AI_AUDIO_KEY:-}");
+        expect(compose).toContain("AI_VIDEO_KEY: ${AI_VIDEO_KEY:-}");
     });
 });

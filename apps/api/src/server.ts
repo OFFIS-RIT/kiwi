@@ -1,4 +1,5 @@
 import { cors } from "@elysiajs/cors";
+import { bootstrapLegacyModelsFromEnv } from "@kiwi/ai/models";
 import { info } from "@kiwi/logger";
 import { Elysia } from "elysia";
 import { DEFAULT_CONTEXT_WINDOW, env, isContextWindowDefaulted } from "./env";
@@ -18,6 +19,7 @@ import { teamChatRoute } from "./routes/team-chat";
 import { teamRoute } from "./routes/team";
 
 initLogger();
+const legacyModelBootstrap = await bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET });
 
 const trustedOrigins =
     env.TRUSTED_ORIGINS?.split(",")
@@ -62,6 +64,7 @@ info("api server started", {
     host: app.server?.hostname ?? "unknown",
     port: app.server?.port ?? 4321,
     contextWindow: env.CONTEXT_WINDOW,
+    legacyModelSeedCount: legacyModelBootstrap.seededModelCount,
     ...(isContextWindowDefaulted
         ? {
               contextWindowNotice: `CONTEXT_WINDOW is not set; using ${DEFAULT_CONTEXT_WINDOW}. Set CONTEXT_WINDOW to your text model's context window for best compaction behavior.`,

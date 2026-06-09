@@ -2,6 +2,7 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
 import { ulid } from "ulid";
+import { getDefaultModelOrganizationId } from "@kiwi/ai/models";
 import { db } from "@kiwi/db";
 import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
 import { teamTable } from "@kiwi/db/tables/auth";
@@ -30,6 +31,7 @@ import {
     cleanupFailedGraphCreation,
     mapGraphError,
     toGraphFileRecord,
+    assertConfiguredUploadModels,
     inferSupportedUploadedFiles,
     restoreGraphFileChangeFailure,
     selectFileFields,
@@ -45,6 +47,34 @@ import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
 import { ow } from "../openworkflow";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
+
+type NewGraphOwner =
+    | {
+          ownerMode: "team";
+          organizationId: string;
+          teamId: string;
+      }
+    | {
+          ownerMode: "organization";
+          organizationId: string;
+      }
+    | {
+          ownerMode: "graph";
+          graphId: string;
+      };
+
+async function getGraphOwnerModelOrganizationId(owner: NewGraphOwner) {
+    if (owner.ownerMode !== "graph") {
+        return owner.organizationId;
+    }
+
+    const rootOwner = await resolveGraphOwnerRoot(owner.graphId);
+    if (rootOwner.mode === "user") {
+        return getDefaultModelOrganizationId();
+    }
+
+    return rootOwner.organizationId;
+}
 
 export const graphRoute = new Elysia({ prefix: "/graphs" })
     .use(authMiddleware)
@@ -204,6 +234,17 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             const supportedUpload = inferSupportedUploadedFiles(filesWithChecksums);
             if (!supportedUpload.ok) {
                 return unsupportedUploadResponse(status, supportedUpload);
+            }
+
+            const uploadModelResult = await Result.tryPromise(async () => {
+                await assertConfiguredUploadModels({
+                    organizationId: await getGraphOwnerModelOrganizationId(owner),
+                    files: supportedUpload.files,
+                    secret: env.AUTH_SECRET,
+                });
+            });
+            if (uploadModelResult.isErr()) {
+                return mapGraphError(status, uploadModelResult.error);
             }
 
             const hidden = owner.ownerMode === "graph" ? true : body.hidden === true || body.hidden === "true";
@@ -534,6 +575,20 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             const supportedUpload = inferSupportedUploadedFiles(filesWithChecksums);
             if (!supportedUpload.ok) {
                 return unsupportedUploadResponse(status, supportedUpload);
+            }
+
+            const uploadModelResult = await Result.tryPromise(async () => {
+                await assertConfiguredUploadModels({
+                    organizationId: await getGraphOwnerModelOrganizationId({
+                        ownerMode: "graph",
+                        graphId: existingGraph.id,
+                    }),
+                    files: supportedUpload.files,
+                    secret: env.AUTH_SECRET,
+                });
+            });
+            if (uploadModelResult.isErr()) {
+                return mapGraphError(status, uploadModelResult.error);
             }
 
             const uploadedFiles: UploadedFile[] = [];

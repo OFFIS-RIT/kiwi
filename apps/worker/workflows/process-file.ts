@@ -290,7 +290,6 @@ export const processFile = defineWorkflow(
                 fileId: input.fileId,
                 fileKey: fileData.key,
             });
-            const client = await createWorkerClient(input.graphId);
 
             const baseFile = await step.run({ name: "preprocess-file" }, async () => {
                 if (await stopIfFileDeleted(input.fileId)) {
@@ -299,6 +298,7 @@ export const processFile = defineWorkflow(
 
                 await updateFileProcessingState(input.fileId, "preprocessing", "processing");
                 const start = performance.now();
+                const client = await createWorkerClient(input.graphId);
                 const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
                 const fileContent = await s3Loader.getBinary();
                 const declaredType = coerceGraphFileType(fileData.type);
@@ -377,6 +377,7 @@ export const processFile = defineWorkflow(
                 }
 
                 await updateFileProcessingState(input.fileId, "metadata", "processing");
+                const client = await createWorkerClient(input.graphId);
                 const metadata = await buildMetadata(client.text, fileData.name, baseFile.metadataExcerpt);
 
                 await db
@@ -471,6 +472,7 @@ export const processFile = defineWorkflow(
 
                 await updateFileProcessingState(input.fileId, "extracting", "processing");
                 const start = performance.now();
+                const client = await createWorkerClient(input.graphId);
 
                 const loadedUnits = await getFile<Unit[]>(unitsResult.unitsKey, env.S3_BUCKET, "json");
                 if (!loadedUnits) {

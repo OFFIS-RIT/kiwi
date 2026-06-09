@@ -8,6 +8,7 @@ mock.module("@kiwi/db", () => ({
 const {
     allocateUniqueModelId,
     assertValidModelConfiguration,
+    collectLegacyModelSeeds,
     decryptModelCredentials,
     encryptModelCredentials,
     normalizeModelId,
@@ -67,5 +68,35 @@ describe("AI model registry helpers", () => {
                 credentials: { apiKey: "key" },
             })
         ).not.toThrow();
+    });
+
+    test("collects complete legacy env model seeds and skips invalid optional media config", () => {
+        const seeds = collectLegacyModelSeeds({
+            AI_TEXT_ADAPTER: "openai",
+            AI_TEXT_MODEL: "gpt-test",
+            AI_TEXT_KEY: "text-key",
+            AI_SUBAGENT_MODEL: "gpt-subagent",
+            AI_EXTRACT_ADAPTER: "openai",
+            AI_EXTRACT_MODEL: "gpt-extract",
+            AI_EXTRACT_KEY: "extract-key",
+            AI_EMBEDDING_ADAPTER: "openai",
+            AI_EMBEDDING_MODEL: "text-embedding-test",
+            AI_EMBEDDING_KEY: "embedding-key",
+            AI_AUDIO_ADAPTER: "openaiAPI",
+            AI_AUDIO_MODEL: "transcribe-test",
+            AI_AUDIO_KEY: "audio-key",
+            AI_AUDIO_URL: "https://example.test/v1",
+            AI_VIDEO_ADAPTER: "anthropic",
+            AI_VIDEO_MODEL: "claude-test",
+            AI_VIDEO_KEY: "video-key",
+        });
+
+        expect(seeds.map((seed) => seed.type)).toEqual(["text", "embedding", "extract", "audio", "subagent"]);
+        expect(seeds.find((seed) => seed.type === "text")?.modelId).toBe("gpt-test");
+        expect(seeds.find((seed) => seed.type === "embedding")?.modelId).toBe("embedding-text-embedding-test");
+        expect(seeds.find((seed) => seed.type === "audio")?.credentials).toEqual({
+            apiKey: "audio-key",
+            url: "https://example.test/v1",
+        });
     });
 });

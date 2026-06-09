@@ -472,7 +472,6 @@ export function toModelMessage(message: ChatMessage): ModelMessage[] {
 
 export * from "./ui";
 export * from "./chat";
-export * from "./models";
 export * from "./citation";
 export * from "./tools/toolsets";
 export * from "./agents/subagents";

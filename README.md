@@ -280,7 +280,10 @@ Copy `.env.sample` to `.env` and configure:
 
 AI model adapters, provider model names, and provider credentials are managed
 per organization through the `/models` API. Model credentials are encrypted with
-`AUTH_SECRET` before being stored in PostgreSQL.
+`AUTH_SECRET` before being stored in PostgreSQL. Existing `AI_*` model
+environment variables are still read during startup as a bootstrap source: when
+an organization has no row for a model type, Kiwi seeds one from those legacy
+variables and then uses the database-backed configuration.
 
 ### Authentication Mode (Credentials vs LDAP)
 

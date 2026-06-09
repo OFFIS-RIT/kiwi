@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { toUIMessage, type ChatUIMessage } from "@kiwi/ai";
+import type { ChatUIMessage } from "@kiwi/ai";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import type { ChatRuntime } from "../chat-compaction";
 import { API_ERROR_CODES } from "../../types";
@@ -18,7 +18,7 @@ mock.module("../../env", () => ({
     env: envMock,
 }));
 
-const { estimateToken } = await import("@kiwi/ai");
+const { estimateToken, toUIMessage } = await import("@kiwi/ai");
 const {
     deriveActiveCompaction,
     getProtectedTailStartIndex,

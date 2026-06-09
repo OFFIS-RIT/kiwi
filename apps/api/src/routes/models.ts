@@ -4,6 +4,7 @@ import {
     assertValidModelConfiguration,
     decryptModelCredentials,
     encryptModelCredentials,
+    lockModelOrganization,
     normalizeModelId,
     toAdminModelRecord,
     toPublicModelRecord,
@@ -27,6 +28,9 @@ import { authMiddleware, type AuthUser } from "../middleware/auth";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
 
 type RouteStatus = (code: number, body: unknown) => unknown;
+type ModelQueryRunner = {
+    select: typeof db.select;
+};
 
 const modelTypeSchema = z.enum(AI_MODEL_TYPE_VALUES);
 const modelAdapterSchema = z.enum(AI_MODEL_ADAPTER_VALUES);
@@ -107,8 +111,8 @@ async function runModelAction<T>(options: {
     return options.success(result.value);
 }
 
-async function getModelForUpdate(organizationId: string, modelId: string) {
-    const [model] = await db
+async function getModelForUpdate(queryRunner: ModelQueryRunner, organizationId: string, modelId: string) {
+    const [model] = await queryRunner
         .select()
         .from(modelsTable)
         .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.modelId, normalizeModelId(modelId))))
@@ -187,6 +191,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                     });
 
                     return db.transaction(async (tx) => {
+                        await lockModelOrganization(tx, organizationId);
                         const modelId = await allocateModelId(tx, organizationId, body.model_id);
                         const [existingTypeModel] = await tx
                             .select({ id: modelsTable.id })
@@ -199,7 +204,9 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                             await tx
                                 .update(modelsTable)
                                 .set({ isDefault: false })
-                                .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, body.type)));
+                                .where(
+                                    and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, body.type))
+                                );
                         }
 
                         const [model] = await tx
@@ -238,38 +245,42 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                 action: async (currentUser) => {
                     const membership = await requireOrganizationAdmin(currentUser);
                     const organizationId = membership.organizationId;
-                    const currentModel = await getModelForUpdate(organizationId, params.modelId);
-                    const credentials = body.credentials
-                        ? normalizeCredentials(body.credentials)
-                        : decryptModelCredentials(currentModel.encryptedCredentials, env.AUTH_SECRET);
-                    const nextAdapter = body.adapter ?? currentModel.adapter;
-                    const nextProviderModel = body.provider_model?.trim() ?? currentModel.providerModel;
 
-                    assertCreateModelInput({
-                        type: currentModel.type,
-                        adapter: nextAdapter,
-                        providerModel: nextProviderModel,
-                        credentials,
-                    });
+                    return db.transaction(async (tx) => {
+                        await lockModelOrganization(tx, organizationId);
+                        const currentModel = await getModelForUpdate(tx, organizationId, params.modelId);
+                        const credentials = body.credentials
+                            ? normalizeCredentials(body.credentials)
+                            : decryptModelCredentials(currentModel.encryptedCredentials, env.AUTH_SECRET);
+                        const nextAdapter = body.adapter ?? currentModel.adapter;
+                        const nextProviderModel = body.provider_model?.trim() ?? currentModel.providerModel;
 
-                    const [model] = await db
-                        .update(modelsTable)
-                        .set({
-                            ...(body.display_name !== undefined ? { displayName: body.display_name.trim() } : {}),
+                        assertCreateModelInput({
+                            type: currentModel.type,
                             adapter: nextAdapter,
                             providerModel: nextProviderModel,
-                            ...(body.credentials
-                                ? { encryptedCredentials: encryptModelCredentials(credentials, env.AUTH_SECRET) }
-                                : {}),
-                        })
-                        .where(eq(modelsTable.id, currentModel.id))
-                        .returning();
+                            credentials,
+                        });
 
-                    if (!model) {
-                        throw new Error(API_ERROR_CODES.MODEL_NOT_FOUND);
-                    }
+                        const [model] = await tx
+                            .update(modelsTable)
+                            .set({
+                                ...(body.display_name !== undefined ? { displayName: body.display_name.trim() } : {}),
+                                adapter: nextAdapter,
+                                providerModel: nextProviderModel,
+                                ...(body.credentials
+                                    ? { encryptedCredentials: encryptModelCredentials(credentials, env.AUTH_SECRET) }
+                                    : {}),
+                            })
+                            .where(eq(modelsTable.id, currentModel.id))
+                            .returning();
 
-                    return toAdminModelRecord(model);
+                        if (!model) {
+                            throw new Error(API_ERROR_CODES.MODEL_NOT_FOUND);
+                        }
+
+                        return toAdminModelRecord(model);
+                    });
                 },
                 success: (value) => status(200, successResponse(value)),
             }),
@@ -291,6 +302,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                     const organizationId = membership.organizationId;
 
                     return db.transaction(async (tx) => {
+                        await lockModelOrganization(tx, organizationId);
                         const [currentModel] = await tx
                             .select()
                             .from(modelsTable)
@@ -345,6 +357,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                     const organizationId = membership.organizationId;
 
                     await db.transaction(async (tx) => {
+                        await lockModelOrganization(tx, organizationId);
                         const [currentModel] = await tx
                             .select()
                             .from(modelsTable)
@@ -380,7 +393,10 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                             .limit(1);
 
                         if (replacement) {
-                            await tx.update(modelsTable).set({ isDefault: true }).where(eq(modelsTable.id, replacement.id));
+                            await tx
+                                .update(modelsTable)
+                                .set({ isDefault: true })
+                                .where(eq(modelsTable.id, replacement.id));
                         }
                     });
                 },

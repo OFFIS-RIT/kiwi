@@ -45,6 +45,24 @@ type ModelQueryRunner = {
     select: typeof db.select;
 };
 
+type ModelMutationRunner = ModelQueryRunner & {
+    insert: typeof db.insert;
+};
+
+type LegacyModelSeed = {
+    type: AiModelType;
+    modelId: string;
+    displayName: string;
+    adapter: AiModelAdapter;
+    providerModel: string;
+    credentials: ModelCredentials;
+};
+
+export type LegacyModelBootstrapSummary = {
+    organizationCount: number;
+    seededModelCount: number;
+};
+
 export type ResolvedModelAdapter = {
     row: AiModel;
     adapter: Adapter;
@@ -108,6 +126,19 @@ export async function allocateModelId(
     });
 }
 
+export async function lockModelOrganization(queryRunner: ModelQueryRunner, organizationId: string): Promise<void> {
+    const [organization] = await queryRunner
+        .select({ id: organizationTable.id })
+        .from(organizationTable)
+        .where(eq(organizationTable.id, organizationId))
+        .limit(1)
+        .for("update");
+
+    if (!organization) {
+        throw new Error(API_ERROR_CODES.MODEL_NOT_CONFIGURED);
+    }
+}
+
 function deriveEncryptionKey(secret: string): Buffer {
     return createHash("sha256").update(secret).digest();
 }
@@ -158,6 +189,159 @@ function assertValidCredentials(credentials: ModelCredentials) {
     if (!credentials || typeof credentials.apiKey !== "string" || credentials.apiKey.trim().length === 0) {
         throw new Error(API_ERROR_CODES.INVALID_MODEL);
     }
+}
+
+function normalizeOptionalEnvString(value: string | undefined): string | undefined {
+    const normalized = value?.trim();
+    return normalized ? normalized : undefined;
+}
+
+function readLegacyModelSeed(
+    legacyEnv: Record<string, string | undefined>,
+    options: {
+        type: AiModelType;
+        prefix: string;
+        modelIdPrefix?: string;
+    }
+): LegacyModelSeed | null {
+    const adapterValue = normalizeOptionalEnvString(legacyEnv[`${options.prefix}_ADAPTER`]);
+    const providerModel = normalizeOptionalEnvString(legacyEnv[`${options.prefix}_MODEL`]);
+    const apiKey = normalizeOptionalEnvString(legacyEnv[`${options.prefix}_KEY`]);
+    const url = normalizeOptionalEnvString(legacyEnv[`${options.prefix}_URL`]);
+    const resourceName = normalizeOptionalEnvString(legacyEnv[`${options.prefix}_RESOURCE_NAME`]);
+
+    if (!adapterValue || !providerModel || !apiKey || !isModelAdapter(adapterValue)) {
+        return null;
+    }
+
+    const credentials = {
+        apiKey,
+        ...(url ? { url } : {}),
+        ...(resourceName ? { resourceName } : {}),
+    };
+
+    try {
+        assertValidModelConfiguration({
+            type: options.type,
+            adapter: adapterValue,
+            providerModel,
+            credentials,
+        });
+    } catch {
+        return null;
+    }
+
+    return {
+        type: options.type,
+        modelId: options.modelIdPrefix ? `${options.modelIdPrefix}-${providerModel}` : providerModel,
+        displayName: providerModel,
+        adapter: adapterValue,
+        providerModel,
+        credentials,
+    };
+}
+
+export function collectLegacyModelSeeds(
+    legacyEnv: Record<string, string | undefined> = process.env
+): LegacyModelSeed[] {
+    const textModel = readLegacyModelSeed(legacyEnv, { type: "text", prefix: "AI_TEXT" });
+    const embeddingModel = readLegacyModelSeed(legacyEnv, {
+        type: "embedding",
+        prefix: "AI_EMBEDDING",
+        modelIdPrefix: "embedding",
+    });
+    const seeds = [
+        textModel,
+        embeddingModel,
+        readLegacyModelSeed(legacyEnv, { type: "extract", prefix: "AI_EXTRACT", modelIdPrefix: "extract" }),
+        readLegacyModelSeed(legacyEnv, { type: "image", prefix: "AI_IMAGE", modelIdPrefix: "image" }),
+        readLegacyModelSeed(legacyEnv, { type: "audio", prefix: "AI_AUDIO", modelIdPrefix: "audio" }),
+        readLegacyModelSeed(legacyEnv, { type: "video", prefix: "AI_VIDEO", modelIdPrefix: "video" }),
+    ].filter((seed): seed is LegacyModelSeed => seed !== null);
+
+    const subagentModel = normalizeOptionalEnvString(legacyEnv.AI_SUBAGENT_MODEL);
+    if (textModel && subagentModel && subagentModel !== textModel.providerModel) {
+        seeds.push({
+            ...textModel,
+            type: "subagent",
+            modelId: `subagent-${subagentModel}`,
+            displayName: subagentModel,
+            providerModel: subagentModel,
+        });
+    }
+
+    return seeds;
+}
+
+async function hasModelForType(queryRunner: ModelQueryRunner, organizationId: string, type: AiModelType) {
+    const [model] = await queryRunner
+        .select({ id: modelsTable.id })
+        .from(modelsTable)
+        .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, type)))
+        .limit(1);
+
+    return Boolean(model);
+}
+
+async function insertLegacyModelSeed(
+    queryRunner: ModelMutationRunner,
+    organizationId: string,
+    seed: LegacyModelSeed,
+    secret: string
+) {
+    if (await hasModelForType(queryRunner, organizationId, seed.type)) {
+        return false;
+    }
+
+    const modelId = await allocateModelId(queryRunner, organizationId, seed.modelId);
+    await queryRunner.insert(modelsTable).values({
+        organizationId,
+        modelId,
+        displayName: seed.displayName,
+        type: seed.type,
+        adapter: seed.adapter,
+        providerModel: seed.providerModel,
+        encryptedCredentials: encryptModelCredentials(seed.credentials, secret),
+        isDefault: true,
+    });
+
+    return true;
+}
+
+export async function bootstrapLegacyModelsFromEnv(options: {
+    secret: string;
+    env?: Record<string, string | undefined>;
+}): Promise<LegacyModelBootstrapSummary> {
+    const seeds = collectLegacyModelSeeds(options.env);
+    if (seeds.length === 0) {
+        return {
+            organizationCount: 0,
+            seededModelCount: 0,
+        };
+    }
+
+    const organizations = await db.select({ id: organizationTable.id }).from(organizationTable);
+    let seededModelCount = 0;
+
+    for (const organization of organizations) {
+        seededModelCount += await db.transaction(async (tx) => {
+            await lockModelOrganization(tx, organization.id);
+            let seededForOrganization = 0;
+
+            for (const seed of seeds) {
+                if (await insertLegacyModelSeed(tx, organization.id, seed, options.secret)) {
+                    seededForOrganization += 1;
+                }
+            }
+
+            return seededForOrganization;
+        });
+    }
+
+    return {
+        organizationCount: organizations.length,
+        seededModelCount,
+    };
 }
 
 function isModelType(value: string): value is AiModelType {
@@ -392,7 +576,9 @@ export async function resolveWorkerModelConfig(options: {
     organizationId: string;
     secret: string;
 }): Promise<ResolvedWorkerModels> {
-    const extractModel = await requireDefaultModel(options.organizationId, "extract");
+    const extractModel =
+        (await findDefaultModel(options.organizationId, "extract")) ??
+        (await requireDefaultModel(options.organizationId, "text"));
     const embeddingModel = await requireDefaultModel(options.organizationId, "embedding");
     const imageModel = await resolveOptionalModelAdapter(options.organizationId, "image", options.secret);
     const audioModel = await resolveOptionalTranscriptionAdapter(options.organizationId, "audio", options.secret);
