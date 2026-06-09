@@ -11,7 +11,11 @@ const listFilesSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-export const listFilesTool = (graphId: string) =>
+type FileToolOptions = {
+    onConsideredFileIds?: (fileIds: Iterable<string>) => void;
+};
+
+export const listFilesTool = (graphId: string, options: FileToolOptions = {}) =>
     tool({
         description:
             "Use when you need file IDs to narrow other tools. Best for scanning the graph's files or finding a file by partial name.",
@@ -54,6 +58,7 @@ export const listFilesTool = (graphId: string) =>
 
                     const hasMore = rows.length > limit;
                     const items = hasMore ? rows.slice(0, limit) : rows;
+                    options.onConsideredFileIds?.(items.map((row) => row.id));
 
                     return [
                         "## Files",

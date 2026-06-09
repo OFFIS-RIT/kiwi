@@ -18,23 +18,35 @@ type SubagentOptions = GraphToolsetOptions & {
     requestInformation?: RequestInformation;
 };
 
-export function createGraphExploreAgent({ model, graphId, embeddingModel, requestInformation }: SubagentOptions) {
+export function createGraphExploreAgent({
+    model,
+    graphId,
+    embeddingModel,
+    requestInformation,
+    onConsideredFileIds,
+}: SubagentOptions) {
     return new ToolLoopAgent({
         id: "graph-explore-agent",
         model,
         instructions: createExploreSubagentPrompt({ requestInformation }),
-        tools: buildGraphExplorationToolset({ graphId, embeddingModel }),
+        tools: buildGraphExplorationToolset({ graphId, embeddingModel, onConsideredFileIds }),
         temperature: 0.2,
         stopWhen: stepCountIs(30),
     });
 }
 
-export function createSourceCuratorAgent({ model, graphId, embeddingModel, requestInformation }: SubagentOptions) {
+export function createSourceCuratorAgent({
+    model,
+    graphId,
+    embeddingModel,
+    requestInformation,
+    onConsideredFileIds,
+}: SubagentOptions) {
     return new ToolLoopAgent({
         id: "source-curator-agent",
         model,
         instructions: createSourceCuratorSubagentPrompt({ requestInformation }),
-        tools: buildSourceCurationToolset({ graphId, embeddingModel }),
+        tools: buildSourceCurationToolset({ graphId, embeddingModel, onConsideredFileIds }),
         temperature: 0.1,
         stopWhen: stepCountIs(20),
     });
