@@ -49,6 +49,7 @@ type GraphListRow = {
     team_name: string | null;
     user_id: string | null;
     hidden: boolean;
+    has_failed_files: boolean;
 };
 
 type RunRow = {
@@ -127,6 +128,13 @@ export const selectGraphListFields = {
     team_name: teamTable.name,
     user_id: graphTable.userId,
     hidden: graphTable.hidden,
+    has_failed_files: sql<boolean>`exists (
+        select 1
+        from ${filesTable}
+        where ${filesTable.graphId} = ${graphTable.id}
+          and ${filesTable.status} = 'failed'
+          and ${filesTable.deleted} = false
+    )`,
 };
 
 export const toGraphFileRecord = (file: GraphFileRow): GraphDetailFileRecord => ({
@@ -421,6 +429,7 @@ export const mapGraphListItem = (
         team_name: graph.team_name,
         scope,
         hidden: graph.hidden,
+        has_failed_files: graph.has_failed_files ?? false,
         recent_chats: recentChats,
         ...(graph.graph_state === "updating"
             ? {

@@ -130,6 +130,7 @@ export type GraphListItem = {
     team_name: string | null;
     scope: "organization" | "team" | "private";
     hidden: boolean;
+    has_failed_files: boolean;
     process_step?: ApiBatchStepProgressLike;
     process_percentage?: number;
     process_estimated_duration?: number;
@@ -371,6 +372,12 @@ export type GraphDeleteFilesSuccessData = {
     workflowRunId: string | null;
 };
 
+export type GraphFileRetrySuccessData = {
+    graph: GraphRecord;
+    fileId: string;
+    workflowRunId: string | null;
+};
+
 export type GraphFileDownloadSuccessData = {
     url: string;
 };
@@ -495,6 +502,16 @@ export type GraphDeleteFilesResponse = ApiResponse<
     | "INVALID_GRAPH_OWNER"
     | "INVALID_FILE_IDS"
     | "NO_CHANGES"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphFileRetryResponse = ApiResponse<
+    GraphFileRetrySuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INVALID_FILE_IDS"
     | "INTERNAL_SERVER_ERROR"
 >;
 

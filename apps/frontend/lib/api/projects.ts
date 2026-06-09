@@ -28,6 +28,8 @@ import type {
     GraphDetailResponse,
     GraphDetailSuccessData,
     GraphFileDownloadResponse,
+    GraphFileRetryResponse,
+    GraphFileRetrySuccessData,
     GraphFilesResponse,
     GraphPatchResponse,
     GraphPatchSuccessData,
@@ -187,12 +189,29 @@ export async function deleteProjectFiles(
     return unwrapApiResponse(response);
 }
 
+/**
+ * Re-submits a failed file for processing. The backend resets the file to a
+ * processing state and enqueues a fresh process run for that single file.
+ * @param projectId - Project containing the file
+ * @param fileId - File to retry
+ */
+export async function retryProjectFile(
+    client: KiwiApiClient,
+    projectId: string,
+    fileId: string
+): Promise<GraphFileRetrySuccessData> {
+    const response = await client.post<GraphFileRetryResponse>(`/graphs/${projectId}/files/${fileId}/retry`);
+
+    return unwrapApiResponse(response);
+}
+
 export type {
     GraphAddFilesSuccessData,
     GraphCreateSuccessData,
     GraphDeleteFilesSuccessData,
     GraphDeleteSuccessData,
     GraphDetailSuccessData,
+    GraphFileRetrySuccessData,
     GraphPatchSuccessData,
     GraphSuggestionApplySuccessData,
     GraphSuggestionRecord,

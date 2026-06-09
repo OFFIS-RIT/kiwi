@@ -29,6 +29,7 @@ export type Project = {
     state: ProjectState;
     lastUpdated?: Date;
     sourcesCount?: number;
+    hasFailedFiles?: boolean;
     processStep?: ProcessStep;
     processProgress?: ApiBatchStepProgress;
     processPercentage?: number;

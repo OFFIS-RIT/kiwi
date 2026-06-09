@@ -41,6 +41,10 @@ vi.mock("@/hooks/use-data", () => ({
         error: null,
         refetch: vi.fn(),
     }),
+    useRetryProjectFile: () => ({
+        mutate: vi.fn(),
+        isPending: false,
+    }),
 }));
 
 vi.mock("@/lib/api/projects", () => ({

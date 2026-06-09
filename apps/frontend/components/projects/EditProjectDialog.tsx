@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { useGroupsWithProjects, useProjectFiles } from "@/hooks/use-data";
+import { useGroupsWithProjects, useProjectFiles, useRetryProjectFile } from "@/hooks/use-data";
 import { addFilesToProject, deleteProjectFiles, updateProject } from "@/lib/api/projects";
 import { canManageProjectFilesInGroup, canMutateProjectInGroup } from "@/lib/capabilities";
 import { queryKeys } from "@/lib/query-keys";
@@ -25,10 +25,14 @@ import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useQueryClient } from "@tanstack/react-query";
-import { Calendar, Loader2, XIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Calendar, Loader2, RefreshCw, XIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { FileStatusIcon } from "./FileStatusIcon";
 import { FileUploader } from "./FileUploader";
+
+import type { ApiProjectFile, FileStatus } from "@/types/api";
+
+const FILE_GROUP_ORDER = ["failed", "processing", "processed", "no_status"] as const satisfies readonly FileStatus[];
 
 type EditProjectDialogProps = {
     open: boolean;
@@ -64,6 +68,8 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
     const [uploadSpeed, setUploadSpeed] = useState(0);
     const [editedName, setEditedName] = useState("");
     const [filesToDelete, setFilesToDelete] = useState<string[]>([]);
+    const [retryingFileIds, setRetryingFileIds] = useState<string[]>([]);
+    const retryFile = useRetryProjectFile();
     const projectId = project?.id;
     const projectName = project?.name;
 
@@ -96,6 +102,37 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
             prev.includes(fileKey) ? prev.filter((key) => key !== fileKey) : [...prev, fileKey]
         );
     };
+
+    const handleRetryFile = (fileId: string) => {
+        if (!project) return;
+        setRetryingFileIds((prev) => (prev.includes(fileId) ? prev : [...prev, fileId]));
+        setError(null);
+        retryFile.mutate(
+            { projectId: project.id, fileId },
+            {
+                onError: (err) => {
+                    setError(err instanceof Error ? err.message : t("error.retry.file"));
+                },
+                onSettled: () => {
+                    setRetryingFileIds((prev) => prev.filter((id) => id !== fileId));
+                },
+            }
+        );
+    };
+
+    const groupedFiles = useMemo(() => {
+        const groups: Record<FileStatus, ApiProjectFile[]> = {
+            failed: [],
+            processing: [],
+            processed: [],
+            no_status: [],
+        };
+        for (const file of projectFiles) {
+            const key: FileStatus = file.status ?? "no_status";
+            (groups[key] ?? groups.no_status).push(file);
+        }
+        return groups;
+    }, [projectFiles]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -224,6 +261,92 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
         });
     };
 
+    const renderFileCard = (file: ApiProjectFile) => {
+        const isMarkedForDeletion = filesToDelete.includes(file.file_key);
+        const isRetrying = retryingFileIds.includes(file.id);
+        const errorKey =
+            file.status === "failed" && file.process_error_code
+                ? `file.process.error.${file.process_error_code.toLowerCase()}`
+                : null;
+        // t() returns the key unchanged when no translation exists; fall back to a
+        // generic message so an unknown error code never renders as a raw key.
+        const errorLabel = errorKey ? t(errorKey) : null;
+        const failureReason = errorKey ? (errorLabel === errorKey ? t("file.status.failed") : errorLabel) : null;
+        const stepLabel =
+            file.status === "processing" && file.process_step
+                ? t(`file.process.step.${file.process_step}`)
+                : null;
+
+        return (
+            <div
+                key={file.id}
+                className={cn(
+                    "relative rounded-md border p-2 text-xs",
+                    isMarkedForDeletion && "opacity-50 ring-2 ring-destructive"
+                )}
+            >
+                <div className={cn("flex items-start gap-2", canDeleteFiles && "pr-6")}>
+                    <FileStatusIcon
+                        status={file.status}
+                        processErrorCode={file.process_error_code}
+                        className="mt-0.5"
+                    />
+                    <div className="min-w-0 flex-1">
+                        <p
+                            className={cn(
+                                "truncate text-xs font-medium leading-tight",
+                                isMarkedForDeletion && "line-through"
+                            )}
+                            title={file.name}
+                        >
+                            {file.name}
+                        </p>
+                        <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <Calendar className="h-2.5 w-2.5" />
+                            {formatDate(file.created_at) || formatDate(file.updated_at)}
+                        </p>
+                        {stepLabel && <p className="mt-1 text-[10px] text-blue-500">{stepLabel}</p>}
+                        {failureReason && (
+                            <p className="mt-1 text-[10px] text-destructive" title={failureReason}>
+                                {failureReason}
+                            </p>
+                        )}
+                        {file.status === "failed" && canManageFiles && !isMarkedForDeletion && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="mt-2 h-6 gap-1 px-2 text-[10px]"
+                                onClick={() => handleRetryFile(file.id)}
+                                disabled={isRetrying}
+                                aria-label={t("file.retry.aria", { name: file.name })}
+                            >
+                                <RefreshCw className={cn("h-3 w-3", isRetrying && "animate-spin")} />
+                                {t("file.retry")}
+                            </Button>
+                        )}
+                    </div>
+                </div>
+                {canDeleteFiles && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                            "absolute right-1 top-1 h-6 w-6",
+                            isMarkedForDeletion
+                                ? "text-destructive hover:text-destructive"
+                                : "text-muted-foreground hover:text-destructive"
+                        )}
+                        onClick={() => handleToggleFileForDeletion(file.file_key)}
+                        aria-label={isMarkedForDeletion ? t("undo.delete.file") : t("mark.delete.file")}
+                    >
+                        <XIcon className="h-3.5 w-3.5" />
+                    </Button>
+                )}
+            </div>
+        );
+    };
+
     if (!project) {
         return null;
     }
@@ -289,65 +412,23 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
                                 ) : projectFiles.length === 0 && filesToDelete.length === 0 ? (
                                     <div className="py-4 text-center text-muted-foreground">{t("no.files")}</div>
                                 ) : (
-                                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
-                                        {projectFiles.map((file) => {
-                                            const isMarkedForDeletion = filesToDelete.includes(file.file_key);
+                                    <div className="space-y-4">
+                                        {FILE_GROUP_ORDER.map((groupKey) => {
+                                            const files = groupedFiles[groupKey];
+                                            if (files.length === 0) {
+                                                return null;
+                                            }
                                             return (
-                                                <div
-                                                    key={file.id}
-                                                    className={cn(
-                                                        "relative rounded-md border p-2 text-xs",
-                                                        isMarkedForDeletion && "opacity-50 ring-2 ring-destructive"
-                                                    )}
-                                                >
-                                                    <div
-                                                        className={cn(
-                                                            "flex items-start gap-2",
-                                                            canDeleteFiles && "pr-6"
-                                                        )}
-                                                    >
-                                                        <FileStatusIcon
-                                                            status={file.status}
-                                                            processErrorCode={file.process_error_code}
-                                                            className="mt-0.5"
-                                                        />
-                                                        <div className="min-w-0 flex-1">
-                                                            <p
-                                                                className={cn(
-                                                                    "truncate text-xs font-medium leading-tight",
-                                                                    isMarkedForDeletion && "line-through"
-                                                                )}
-                                                                title={file.name}
-                                                            >
-                                                                {file.name}
-                                                            </p>
-                                                            <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
-                                                                <Calendar className="h-2.5 w-2.5" />
-                                                                {formatDate(file.created_at) ||
-                                                                    formatDate(file.updated_at)}
-                                                            </p>
-                                                        </div>
+                                                <div key={groupKey} className="space-y-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <FileStatusIcon status={groupKey} />
+                                                        <h4 className="text-sm font-medium text-muted-foreground">
+                                                            {t(`file.group.${groupKey}`)} ({files.length})
+                                                        </h4>
                                                     </div>
-                                                    {canDeleteFiles && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className={cn(
-                                                                "absolute right-1 top-1 h-6 w-6",
-                                                                isMarkedForDeletion
-                                                                    ? "text-destructive hover:text-destructive"
-                                                                    : "text-muted-foreground hover:text-destructive"
-                                                            )}
-                                                            onClick={() => handleToggleFileForDeletion(file.file_key)}
-                                                            aria-label={
-                                                                isMarkedForDeletion
-                                                                    ? t("undo.delete.file")
-                                                                    : t("mark.delete.file")
-                                                            }
-                                                        >
-                                                            <XIcon className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                    )}
+                                                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
+                                                        {files.map(renderFileCard)}
+                                                    </div>
                                                 </div>
                                             );
                                         })}

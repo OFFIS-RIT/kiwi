@@ -8,6 +8,7 @@ import {
     deleteProject,
     deleteProjectFiles,
     fetchProjectFiles,
+    retryProjectFile,
     updateGroup,
     updateProject,
 } from "@/lib/api";
@@ -51,6 +52,7 @@ function transformGroupsWithGraphs(apiGroups: ApiGroup[], apiGraphs: ApiGraph[])
         id: apiGraph.graph_id,
         name: apiGraph.graph_name,
         state: apiGraph.graph_state,
+        hasFailedFiles: apiGraph.has_failed_files ?? false,
         processStep: determineProcessStep(apiGraph.process_step as ApiBatchStepProgress | undefined),
         processProgress: apiGraph.process_step as ApiBatchStepProgress | undefined,
         processPercentage: apiGraph.process_percentage ?? (apiGraph.graph_state === "update" ? 0 : undefined),
@@ -456,6 +458,61 @@ export function useDeleteProjectFiles() {
         onError: (_err, _variables, context) => {
             if (context?.previousFiles && context.projectId) {
                 queryClient.setQueryData(queryKeys.projectFiles(context.projectId), context.previousFiles);
+            }
+        },
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({
+                queryKey: queryKeys.projectFiles(variables.projectId),
+            });
+            queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
+        },
+    });
+}
+
+/**
+ * Re-submits a failed file for processing. Optimistically flips the file back to
+ * a processing state so the UI updates instantly and the status-polling resumes;
+ * rolls back on error.
+ *
+ * @returns Mutation object with mutate/mutateAsync functions
+ */
+export function useRetryProjectFile() {
+    const queryClient = useQueryClient();
+    const apiClient = useApiClient();
+
+    return useMutation({
+        mutationFn: ({ projectId, fileId }: { projectId: string; fileId: string }) =>
+            retryProjectFile(apiClient, projectId, fileId),
+        onMutate: async ({ projectId, fileId }) => {
+            await queryClient.cancelQueries({
+                queryKey: queryKeys.projectFiles(projectId),
+            });
+
+            // Snapshot only the affected file, so a failed retry reverts just that
+            // file and never clobbers a concurrent retry's optimistic update.
+            const previousFile = queryClient
+                .getQueryData<ApiProjectFile[]>(queryKeys.projectFiles(projectId))
+                ?.find((file) => file.id === fileId);
+
+            queryClient.setQueryData<ApiProjectFile[]>(
+                queryKeys.projectFiles(projectId),
+                (old) =>
+                    old?.map((file) =>
+                        file.id === fileId
+                            ? { ...file, status: "processing", process_step: "pending", process_error_code: null }
+                            : file
+                    ) || []
+            );
+
+            return { previousFile, projectId, fileId };
+        },
+        onError: (_err, _variables, context) => {
+            if (context?.previousFile && context.projectId) {
+                queryClient.setQueryData<ApiProjectFile[]>(
+                    queryKeys.projectFiles(context.projectId),
+                    (old) =>
+                        old?.map((file) => (file.id === context.fileId ? context.previousFile! : file)) || []
+                );
             }
         },
         onSuccess: (_, variables) => {
