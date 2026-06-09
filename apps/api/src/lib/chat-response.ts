@@ -17,7 +17,6 @@ import {
     type ModelMessage,
     type ToolSet,
 } from "ai";
-import { env } from "../env";
 import {
     getFinishMetadata,
     isContextOverflowError,
@@ -46,6 +45,7 @@ export type StartedChatReply = ChatReplyContext & {
     assistantId: string;
     client: Client & {
         text: NonNullable<Client["text"]>;
+        textModelId: string;
     };
     tools: ToolSet;
     isNewChat: boolean;
@@ -251,7 +251,7 @@ export async function runChatCompletion(reply: StartedChatReply) {
         totalTokens: result.totalUsage.totalTokens,
         inputTokens: result.totalUsage.inputTokens,
         outputTokens: result.totalUsage.outputTokens,
-        modelId: env.AI_TEXT_MODEL,
+        modelId: reply.client.textModelId,
         citationFileIds,
     });
     parts.push({ type: "metadata", metadata: finishMetadata });
@@ -291,7 +291,7 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                 messageId: reply.assistantId,
                 messageMetadata: {
                     createdAt: new Date(startedAt).toISOString(),
-                    modelId: env.AI_TEXT_MODEL,
+                    modelId: reply.client.textModelId,
                 },
             });
 
@@ -522,7 +522,7 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                                 totalTokens: part.totalUsage.totalTokens,
                                 inputTokens: part.totalUsage.inputTokens,
                                 outputTokens: part.totalUsage.outputTokens,
-                                modelId: env.AI_TEXT_MODEL,
+                                modelId: reply.client.textModelId,
                                 citationFileIds,
                             });
                             assistantParts.push({

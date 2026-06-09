@@ -34,16 +34,10 @@ import { loadGraphDocument } from "@kiwi/graph/loader/document";
 import { createDetectedGraphLoader } from "@kiwi/graph/loader/factory";
 import { mergeGraphs } from "@kiwi/graph/merge";
 import { createUnitsFromText, processUnit } from "@kiwi/graph/unit";
-import { estimateToken, getClient } from "@kiwi/ai";
+import { estimateToken } from "@kiwi/ai";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
-import {
-    buildAdapter,
-    buildAudioAdapter,
-    buildEmbeddingAdapter,
-    buildVideoAdapter,
-    buildWorkerTextAdapter,
-} from "../lib/ai";
+import { createWorkerClient } from "../lib/ai";
 import { EMPTY_VECTOR_SQL, entityCompactNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
@@ -296,28 +290,7 @@ export const processFile = defineWorkflow(
                 fileId: input.fileId,
                 fileKey: fileData.key,
             });
-            const client = getClient({
-                text: buildWorkerTextAdapter(),
-                embedding: buildEmbeddingAdapter(
-                    env.AI_EMBEDDING_ADAPTER,
-                    env.AI_EMBEDDING_MODEL,
-                    env.AI_EMBEDDING_KEY,
-                    env.AI_EMBEDDING_URL,
-                    env.AI_EMBEDDING_RESOURCE_NAME
-                ),
-                image:
-                    env.AI_IMAGE_ADAPTER && env.AI_IMAGE_MODEL && env.AI_IMAGE_KEY
-                        ? buildAdapter(
-                              env.AI_IMAGE_ADAPTER,
-                              env.AI_IMAGE_MODEL,
-                              env.AI_IMAGE_KEY,
-                              env.AI_IMAGE_URL,
-                              env.AI_IMAGE_RESOURCE_NAME
-                          )
-                        : undefined,
-                audio: buildAudioAdapter(),
-                video: buildVideoAdapter(),
-            });
+            const client = await createWorkerClient(input.graphId);
 
             const baseFile = await step.run({ name: "preprocess-file" }, async () => {
                 if (await stopIfFileDeleted(input.fileId)) {
@@ -404,7 +377,7 @@ export const processFile = defineWorkflow(
                 }
 
                 await updateFileProcessingState(input.fileId, "metadata", "processing");
-                const metadata = await buildMetadata(client.text!, fileData.name, baseFile.metadataExcerpt);
+                const metadata = await buildMetadata(client.text, fileData.name, baseFile.metadataExcerpt);
 
                 await db
                     .update(filesTable)
@@ -509,7 +482,7 @@ export const processFile = defineWorkflow(
                     graphs.push(
                         ...(await Promise.all(
                             units.map((unit) =>
-                                processUnit(unit, client.text!, fileData.name, metadataResult.metadata || undefined)
+                                processUnit(unit, client.text, fileData.name, metadataResult.metadata || undefined)
                             )
                         ))
                     );

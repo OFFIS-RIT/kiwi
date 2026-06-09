@@ -11,6 +11,7 @@ COPY apps/frontend/package.json apps/frontend/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/ai/package.json packages/ai/package.json
 COPY packages/auth/package.json packages/auth/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/files/package.json packages/files/package.json
 COPY packages/graph/package.json packages/graph/package.json
@@ -36,6 +37,8 @@ COPY packages/ai/src packages/ai/src
 COPY packages/ai/tsconfig.json packages/ai/tsconfig.json
 COPY packages/auth/src packages/auth/src
 COPY packages/auth/tsconfig.json packages/auth/tsconfig.json
+COPY packages/contracts/src packages/contracts/src
+COPY packages/contracts/tsconfig.json packages/contracts/tsconfig.json
 COPY packages/db/src packages/db/src
 COPY packages/db/tsconfig.json packages/db/tsconfig.json
 COPY packages/logger/src packages/logger/src

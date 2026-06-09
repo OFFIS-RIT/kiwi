@@ -351,6 +351,17 @@ export function mapGraphError(statusFn: StatusFn, error: unknown) {
         return statusFn(403, errorResponse("Forbidden", API_ERROR_CODES.FORBIDDEN));
     }
 
+    if (error.message === API_ERROR_CODES.INVALID_MODEL) {
+        return statusFn(400, errorResponse("Invalid model", API_ERROR_CODES.INVALID_MODEL));
+    }
+
+    if (error.message === API_ERROR_CODES.MODEL_NOT_CONFIGURED) {
+        return statusFn(
+            400,
+            errorResponse("Define a model for this organization before using AI features", API_ERROR_CODES.MODEL_NOT_CONFIGURED)
+        );
+    }
+
     return statusFn(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
 }
 

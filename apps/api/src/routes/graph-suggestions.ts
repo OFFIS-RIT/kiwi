@@ -88,7 +88,7 @@ export const graphSuggestionsRoute = new Elysia({ prefix: "/graphs" })
 
             const applyResult = await Result.tryPromise(async () => {
                 await assertCanManageGraphSuggestions(user, params.id);
-                return applyGraphSuggestion(params.id, params.suggestionId, user.id);
+                return applyGraphSuggestion(params.id, params.suggestionId, user);
             });
 
             if (applyResult.isErr()) {
