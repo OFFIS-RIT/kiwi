@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SidebarExpansionProvider, useSidebarExpansion } from "./SidebarExpansionProvider";
 
@@ -11,6 +11,10 @@ function wrapper({ children }: { children: ReactNode }) {
 describe("SidebarExpansionProvider", () => {
     beforeEach(() => {
         localStorage.clear();
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     it("expands groups on first visit while tracking graph expansion independently", () => {
@@ -65,6 +69,23 @@ describe("SidebarExpansionProvider", () => {
         });
 
         expect(result.current.expandedGroups.team_1).toBe(false);
+    });
+
+    it("warns and keeps groups collapsed when stored group expansion state is invalid", () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        localStorage.setItem("sidebar-expanded-groups", JSON.stringify({ team_1: "yes" }));
+
+        const { result } = renderHook(() => useSidebarExpansion(), { wrapper });
+
+        act(() => {
+            result.current.initializeExpandedGroups(["team_1"]);
+        });
+
+        expect(result.current.expandedGroups.team_1).toBe(false);
+        expect(warnSpy).toHaveBeenCalledWith(
+            "Ignoring invalid sidebar expansion state from localStorage:",
+            "sidebar-expanded-groups"
+        );
     });
 
     it("expands groups and graphs for selected navigation targets", () => {

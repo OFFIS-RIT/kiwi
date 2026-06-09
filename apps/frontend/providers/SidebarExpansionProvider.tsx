@@ -28,6 +28,10 @@ type StoredExpansionState = {
     hasStoredState: boolean;
 };
 
+const warnInvalidStoredState = (storageKey: string) => {
+    console.warn("Ignoring invalid sidebar expansion state from localStorage:", storageKey);
+};
+
 /**
  * Loads expanded state from localStorage with validation.
  * @returns Stored expansion state and whether the storage key exists
@@ -51,6 +55,7 @@ const loadExpandedStateFromStorage = (storageKey: string): StoredExpansionState 
                 }
             }
         }
+        warnInvalidStoredState(storageKey);
     } catch (error) {
         console.warn("Failed to load sidebar expansion state from localStorage:", error);
     }
