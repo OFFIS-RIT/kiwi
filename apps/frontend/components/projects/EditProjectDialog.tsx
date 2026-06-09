@@ -32,7 +32,7 @@ import { FileUploader } from "./FileUploader";
 
 import type { ApiProjectFile, FileStatus } from "@/types/api";
 
-const FILE_GROUP_ORDER = ["failed", "processing", "processed"] as const satisfies readonly FileStatus[];
+const FILE_GROUP_ORDER = ["failed", "processing", "processed", "no_status"] as const satisfies readonly FileStatus[];
 
 type EditProjectDialogProps = {
     open: boolean;
@@ -268,7 +268,10 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
             file.status === "failed" && file.process_error_code
                 ? t(`file.process.error.${file.process_error_code.toLowerCase()}`)
                 : null;
-        const stepLabel = file.status === "processing" ? t(`file.process.step.${file.process_step}`) : null;
+        const stepLabel =
+            file.status === "processing" && file.process_step
+                ? t(`file.process.step.${file.process_step}`)
+                : null;
 
         return (
             <div

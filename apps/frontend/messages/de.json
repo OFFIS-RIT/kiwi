@@ -216,6 +216,7 @@
     "file.group.processing": "In Bearbeitung",
     "file.group.processed": "Verarbeitet",
     "file.group.failed": "Fehlgeschlagen",
+    "file.group.no_status": "Unbekannter Status",
     "file.process.step.pending": "In Warteschlange",
     "file.process.step.preprocessing": "Vorverarbeitung",
     "file.process.step.metadata": "Metadaten werden extrahiert",

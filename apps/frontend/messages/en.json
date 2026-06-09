@@ -216,6 +216,7 @@
     "file.group.processing": "Processing",
     "file.group.processed": "Processed",
     "file.group.failed": "Failed",
+    "file.group.no_status": "Unknown status",
     "file.process.step.pending": "Queued",
     "file.process.step.preprocessing": "Preprocessing",
     "file.process.step.metadata": "Extracting metadata",
