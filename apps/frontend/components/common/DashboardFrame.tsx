@@ -3,9 +3,12 @@
 import { AppSidebarInset } from "@/components/common/AppSidebarInset";
 import { AppHeader } from "@/components/common/AppHeader";
 import { AppSidebar } from "@/components/sidebar";
+import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
+import { recordLastAppPath } from "@/lib/last-app-path";
+import { SettingsProvider } from "@/providers/SettingsProvider";
 import type { Group, Project } from "@/types";
-import { useRouter } from "next/navigation";
-import { Suspense, lazy, useState, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 
 const DeleteGroupDialog = lazy(() => import("@/components/groups").then((mod) => ({ default: mod.DeleteGroupDialog })));
 const DeleteProjectDialog = lazy(() =>
@@ -28,6 +31,8 @@ type DashboardFrameProps = {
 
 export function DashboardFrame({ children }: DashboardFrameProps) {
     const router = useRouter();
+    const pathname = usePathname();
+    const isSettings = pathname === "/settings";
     const [editProjectDialogOpen, setEditProjectDialogOpen] = useState(false);
     const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
     const [deleteProjectDialogOpen, setDeleteProjectDialogOpen] = useState(false);
@@ -36,6 +41,10 @@ export function DashboardFrame({ children }: DashboardFrameProps) {
     const [editingGroup, setEditingGroup] = useState<Group | null>(null);
     const [deletingProject, setDeletingProject] = useState<DeletingProjectState | null>(null);
     const [deletingGroup, setDeletingGroup] = useState<Group | null>(null);
+
+    useEffect(() => {
+        recordLastAppPath(pathname);
+    }, [pathname]);
 
     const handleEditProject = (project: Project, groupId: string) => {
         setEditingProject({ ...project, groupId });
@@ -46,6 +55,20 @@ export function DashboardFrame({ children }: DashboardFrameProps) {
         setEditingGroup(group);
         setEditGroupDialogOpen(true);
     };
+
+    if (isSettings) {
+        return (
+            <Suspense fallback={null}>
+                <SettingsProvider>
+                    <SettingsSidebar />
+                    <AppSidebarInset>
+                        <AppHeader />
+                        <div className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4">{children}</div>
+                    </AppSidebarInset>
+                </SettingsProvider>
+            </Suspense>
+        );
+    }
 
     return (
         <>
