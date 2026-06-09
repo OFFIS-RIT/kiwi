@@ -109,6 +109,22 @@ describe("AccountSection", () => {
         expect(toastError).toHaveBeenCalledWith("Diese E-Mail ist bereits registriert.");
     });
 
+    test("treats a non-conflict 422 as a generic email failure, not an 'already registered' conflict", async () => {
+        changeEmail.mockResolvedValueOnce({ error: { status: 422, message: "Invalid email format" } });
+        const user = userEvent.setup();
+        renderWithProviders(<AccountSection />);
+
+        const emailInput = screen.getByLabelText("E-Mail");
+        await user.clear(emailInput);
+        await user.type(emailInput, "other@example.com");
+
+        const saveButtons = screen.getAllByRole("button", { name: "Änderungen speichern" });
+        await user.click(saveButtons[0]);
+
+        expect(toastError).toHaveBeenCalledWith("E-Mail-Adresse konnte nicht aktualisiert werden.");
+        expect(toastError).not.toHaveBeenCalledWith("Diese E-Mail ist bereits registriert.");
+    });
+
     test("changes the password via changePassword when both fields match", async () => {
         const user = userEvent.setup();
         renderWithProviders(<AccountSection />);

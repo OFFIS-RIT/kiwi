@@ -24,7 +24,9 @@ function isEmailConflict(error: unknown): boolean {
         return false;
     }
     const { code, message, status } = error as { code?: string; message?: string; status?: number };
-    if (status === 409 || status === 422) {
+    // Only 409 is unambiguously a conflict; 422 is generic in better-auth
+    // (validation, rate-limit, format), so rely on the message/code regex for those.
+    if (status === 409) {
         return true;
     }
     return /exist|already|taken|in.?use|unique|duplicate/i.test(`${code ?? ""} ${message ?? ""}`);
