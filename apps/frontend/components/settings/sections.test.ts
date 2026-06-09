@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
     DEFAULT_SETTINGS_SECTION,
+    getAdminOnlySectionIds,
     getVisibleSettingsCategories,
     resolveActiveSettingsSection,
 } from "./sections";
@@ -35,6 +36,16 @@ describe("settings section visibility", () => {
         const categories = getVisibleSettingsCategories({ isSystemAdmin: false, authMode: "ldap" });
 
         expect(categories.map((category) => category.id)).not.toContain("system-admin");
+    });
+});
+
+describe("admin-only section derivation", () => {
+    test("derives admin-only Section ids from the registry predicates", () => {
+        expect(getAdminOnlySectionIds()).toEqual(["user-management"]);
+    });
+
+    test("does not classify auth-mode-gated Sections (e.g. Account) as admin-only", () => {
+        expect(getAdminOnlySectionIds()).not.toContain("account");
     });
 });
 

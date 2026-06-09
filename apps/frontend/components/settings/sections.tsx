@@ -90,6 +90,29 @@ export function getVisibleSettingsCategories(context: SettingsVisibilityContext)
         .filter((category) => category.sections.length > 0);
 }
 
+const ALL_AUTH_MODES: AuthMode[] = ["credentials", "ldap"];
+
+/**
+ * Derives which Section ids require system-admin rights directly from the
+ * registry's visibility predicates, so server-side guards never drift from this
+ * single source of truth. A Section is admin-only when some auth mode shows it
+ * to an admin but no auth mode shows it to a non-admin.
+ */
+export function getAdminOnlySectionIds(): string[] {
+    return settingsCategories
+        .flatMap((category) => category.sections)
+        .filter((section) => {
+            const predicate = section.isVisible;
+            if (!predicate) {
+                return false;
+            }
+            const visibleToAdmin = ALL_AUTH_MODES.some((authMode) => predicate({ isSystemAdmin: true, authMode }));
+            const visibleToNonAdmin = ALL_AUTH_MODES.some((authMode) => predicate({ isSystemAdmin: false, authMode }));
+            return visibleToAdmin && !visibleToNonAdmin;
+        })
+        .map((section) => section.id);
+}
+
 export function resolveActiveSettingsSection(
     activeId: string,
     context: SettingsVisibilityContext
