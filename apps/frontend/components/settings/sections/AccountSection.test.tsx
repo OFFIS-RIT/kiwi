@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const { currentUser, updateUser, changeEmail, changePassword, toastError, refresh } = vi.hoisted(() => ({
     currentUser: { id: "u1", name: "Test User", email: "test@example.com", role: "user" },
     updateUser: vi.fn(async () => ({ error: null })),
-    changeEmail: vi.fn(async (): Promise<{ error: null | { message: string } }> => ({ error: null })),
+    changeEmail: vi.fn(
+        async (): Promise<{ error: null | { message?: string; status?: number; code?: string } }> => ({ error: null })
+    ),
     changePassword: vi.fn(async () => ({ error: null })),
     toastError: vi.fn(),
     refresh: vi.fn(),
@@ -90,6 +92,21 @@ describe("AccountSection", () => {
         expect(changeEmail).toHaveBeenCalledWith({ newEmail: "new@example.com" });
         expect(refresh).toHaveBeenCalled();
         expect(toastError).toHaveBeenCalled();
+    });
+
+    test("shows an 'already registered' message when the email change conflicts", async () => {
+        changeEmail.mockResolvedValueOnce({ error: { status: 409, message: "email exists" } });
+        const user = userEvent.setup();
+        renderWithProviders(<AccountSection />);
+
+        const emailInput = screen.getByLabelText("E-Mail");
+        await user.clear(emailInput);
+        await user.type(emailInput, "taken@example.com");
+
+        const saveButtons = screen.getAllByRole("button", { name: "Änderungen speichern" });
+        await user.click(saveButtons[0]);
+
+        expect(toastError).toHaveBeenCalledWith("Diese E-Mail ist bereits registriert.");
     });
 
     test("changes the password via changePassword when both fields match", async () => {

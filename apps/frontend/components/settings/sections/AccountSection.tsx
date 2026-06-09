@@ -13,6 +13,23 @@ import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+/**
+ * Detects whether a better-auth error indicates the target email is already in
+ * use, so we can surface a clear "already registered" message instead of a
+ * generic failure. The DB's unique constraint is the actual guard; this only
+ * improves the error response on conflict.
+ */
+function isEmailConflict(error: unknown): boolean {
+    if (!error || typeof error !== "object") {
+        return false;
+    }
+    const { code, message, status } = error as { code?: string; message?: string; status?: number };
+    if (status === 409 || status === 422) {
+        return true;
+    }
+    return /exist|already|taken|in.?use|unique|duplicate/i.test(`${code ?? ""} ${message ?? ""}`);
+}
+
 export function AccountSection() {
     const t = useAppTranslations();
     const authClient = useAuthClient();
@@ -33,7 +50,11 @@ export function AccountSection() {
             setName(user.name);
             setEmail(user.email);
         }
-    }, [user]);
+        // Depend on primitive identity fields, not the `user` object: AuthProvider
+        // rebuilds `user` via useMemo on any session refetch (focus, org switch, role
+        // change), and an object dep would wipe in-progress edits on every refetch.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.id, user?.name, user?.email]);
 
     const trimmedName = name.trim();
     const trimmedEmail = email.trim();
@@ -68,8 +89,12 @@ export function AccountSection() {
                 anySucceeded = true;
             }
             toast.success(t("settings.account.updated"));
-        } catch {
-            toast.error(failedField === "email" ? t("settings.account.email.error") : t("settings.account.error"));
+        } catch (caught) {
+            if (failedField === "email") {
+                toast.error(isEmailConflict(caught) ? t("auth.error.email.taken") : t("settings.account.email.error"));
+            } else {
+                toast.error(t("settings.account.error"));
+            }
         } finally {
             // Refresh even on partial success so the synced context no longer reports
             // an already-saved field as dirty (which would re-send it on the next submit).
