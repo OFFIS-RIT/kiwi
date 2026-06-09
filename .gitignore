@@ -19,6 +19,7 @@
 
 # claude
 docs/
+CONTEXT.md
 
 # solo
 solo.yml
