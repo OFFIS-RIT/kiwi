@@ -13,31 +13,34 @@ export type GraphToolsetOptions = {
     graphId: string;
     embeddingModel: EmbeddingModelV3;
     correction?: CorrectionToolContext;
+    onConsideredFileIds?: (fileIds: Iterable<string>) => void;
 };
 
-export function buildGraphExplorationToolset({ graphId, embeddingModel }: GraphToolsetOptions) {
+export function buildGraphExplorationToolset({ graphId, embeddingModel, onConsideredFileIds }: GraphToolsetOptions) {
     return {
-        list_files: listFilesTool(graphId),
-        search_entities: searchEntityTool(graphId, embeddingModel),
-        list_entities: listEntitiesTool(graphId),
-        search_relationships: searchRelationshipsTool(graphId, embeddingModel),
+        list_files: listFilesTool(graphId, { onConsideredFileIds }),
+        search_entities: searchEntityTool(graphId, embeddingModel, { onConsideredFileIds }),
+        list_entities: listEntitiesTool(graphId, { onConsideredFileIds }),
+        search_relationships: searchRelationshipsTool(graphId, embeddingModel, { onConsideredFileIds }),
         get_relationships: getRelationshipsTool(graphId),
         get_entity_neighbours: getNeighboursTool(graphId),
         get_path_between_entities: getPathBetweenTool(graphId),
     } satisfies ToolSet;
 }
 
-export function buildSourceGroundingToolset({ graphId, embeddingModel }: GraphToolsetOptions) {
+export function buildSourceGroundingToolset({ graphId, embeddingModel, onConsideredFileIds }: GraphToolsetOptions) {
     return {
-        get_entity_sources: getEntitySourcesTool(graphId, embeddingModel),
-        get_relationship_sources: getRelationshipSourcesTool(graphId, embeddingModel),
+        get_entity_sources: getEntitySourcesTool(graphId, embeddingModel, { onConsideredFileIds }),
+        get_relationship_sources: getRelationshipSourcesTool(graphId, embeddingModel, { onConsideredFileIds }),
     } satisfies ToolSet;
 }
 
 export function buildSourceCurationToolset(options: GraphToolsetOptions) {
     return {
         ...buildSourceGroundingToolset(options),
-        get_source_file_metadata: getSourceFileMetadataTool(options.graphId),
+        get_source_file_metadata: getSourceFileMetadataTool(options.graphId, {
+            onConsideredFileIds: options.onConsideredFileIds,
+        }),
     } satisfies ToolSet;
 }
 

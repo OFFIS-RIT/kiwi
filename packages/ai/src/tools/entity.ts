@@ -97,7 +97,11 @@ const searchEntitiesSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModelV3) =>
+type EntityToolOptions = {
+    onConsideredFileIds?: (fileIds: Iterable<string>) => void;
+};
+
+export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModelV3, options: EntityToolOptions = {}) =>
     tool({
         description:
             "Use when you need entity IDs before calling relationship or source tools. Semantic search is primary, with keyword terms used to boost exact or near-exact name matches.",
@@ -117,6 +121,7 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
                     const text = query.trim();
                     const terms = uniqueTerms([...(keywords ?? []), text]);
                     const fileIds = uniqueTerms(files ?? []);
+                    options.onConsideredFileIds?.(fileIds);
                     const next = decodeCursor(cursor, "entity search");
                     const { embedding } = await withAiSlot("embedding", () =>
                         embed({
@@ -201,7 +206,7 @@ const listEntitiesSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-export const listEntitiesTool = (graphId: string) =>
+export const listEntitiesTool = (graphId: string, options: EntityToolOptions = {}) =>
     tool({
         description:
             "Use when you want a broad unranked scan of entity IDs in the graph or inside specific files and do not yet know which entities matter.",
@@ -219,6 +224,7 @@ export const listEntitiesTool = (graphId: string) =>
                 { files, limit, cursor },
                 async () => {
                     const fileIds = uniqueTerms(files ?? []);
+                    options.onConsideredFileIds?.(fileIds);
                     const clauses = [eq(entityTable.graphId, graphId), eq(entityTable.active, true)];
 
                     if (cursor) {

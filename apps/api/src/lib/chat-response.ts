@@ -38,6 +38,7 @@ export type AdditionalChatUsage = {
     totalTokens?: number;
     inputTokens?: number;
     outputTokens?: number;
+    consideredFileIds?: Iterable<string>;
     usedFileIds?: Iterable<string>;
 };
 
@@ -161,7 +162,7 @@ function addOptionalUsage(base: number | undefined, additional: number | undefin
     return base === undefined && additional === undefined ? undefined : (base ?? 0) + (additional ?? 0);
 }
 
-function buildFinishMetadata(options: {
+export function buildFinishMetadata(options: {
     reply: StartedChatReply;
     startedAt: number;
     firstOutputAt: number | null;
@@ -176,6 +177,10 @@ function buildFinishMetadata(options: {
     for (const fileId of additionalUsage?.usedFileIds ?? []) {
         usedFileIds.add(fileId);
     }
+    const consideredFileIds = new Set(additionalUsage?.consideredFileIds ?? []);
+    for (const fileId of usedFileIds) {
+        consideredFileIds.add(fileId);
+    }
 
     return getFinishMetadata({
         startedAt: options.startedAt,
@@ -184,6 +189,7 @@ function buildFinishMetadata(options: {
         inputTokens: addOptionalUsage(options.inputTokens, additionalUsage?.inputTokens),
         outputTokens: addOptionalUsage(options.outputTokens, additionalUsage?.outputTokens),
         modelId: options.modelId,
+        consideredFileCount: consideredFileIds.size,
         usedFileCount: usedFileIds.size,
     });
 }
