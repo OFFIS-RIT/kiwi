@@ -257,29 +257,58 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                     return db.transaction(async (tx) => {
                         await lockModelOrganization(tx, organizationId);
                         const currentModel = await getModelForUpdate(tx, organizationId, params.modelId);
-                        const credentials = body.credentials
-                            ? normalizeCredentials(body.credentials)
-                            : decryptModelCredentials(currentModel.encryptedCredentials, env.AUTH_SECRET);
                         const nextAdapter = body.adapter ?? currentModel.adapter;
                         const nextProviderModel = body.provider_model?.trim() ?? currentModel.providerModel;
+                        const shouldValidateModel =
+                            body.adapter !== undefined ||
+                            body.provider_model !== undefined ||
+                            body.credentials !== undefined;
+                        const modelUpdates: {
+                            displayName?: string;
+                            adapter?: AiModelAdapter;
+                            providerModel?: string;
+                            encryptedCredentials?: string;
+                        } = {};
 
-                        assertCreateModelInput({
-                            type: currentModel.type,
-                            adapter: nextAdapter,
-                            providerModel: nextProviderModel,
-                            credentials,
-                        });
+                        if (body.display_name !== undefined) {
+                            modelUpdates.displayName = body.display_name.trim();
+                        }
+
+                        if (body.adapter !== undefined) {
+                            modelUpdates.adapter = nextAdapter;
+                        }
+
+                        if (body.provider_model !== undefined) {
+                            modelUpdates.providerModel = nextProviderModel;
+                        }
+
+                        if (shouldValidateModel) {
+                            const credentials = body.credentials
+                                ? normalizeCredentials(body.credentials)
+                                : decryptModelCredentials(currentModel.encryptedCredentials, env.AUTH_SECRET);
+
+                            assertCreateModelInput({
+                                type: currentModel.type,
+                                adapter: nextAdapter,
+                                providerModel: nextProviderModel,
+                                credentials,
+                            });
+
+                            if (body.credentials) {
+                                modelUpdates.encryptedCredentials = encryptModelCredentials(
+                                    credentials,
+                                    env.AUTH_SECRET
+                                );
+                            }
+                        }
+
+                        if (Object.keys(modelUpdates).length === 0) {
+                            return toAdminModelRecord(currentModel);
+                        }
 
                         const [model] = await tx
                             .update(modelsTable)
-                            .set({
-                                ...(body.display_name !== undefined ? { displayName: body.display_name.trim() } : {}),
-                                adapter: nextAdapter,
-                                providerModel: nextProviderModel,
-                                ...(body.credentials
-                                    ? { encryptedCredentials: encryptModelCredentials(credentials, env.AUTH_SECRET) }
-                                    : {}),
-                            })
+                            .set(modelUpdates)
                             .where(eq(modelsTable.id, currentModel.id))
                             .returning();
 
