@@ -345,7 +345,7 @@
     "appearance.language.description": "Select the language used across the app.",
     "settings.account.description": "Manage your personal account details.",
     "settings.account.profile.title": "Profile",
-    "settings.account.profile.description": "Update your display name.",
+    "settings.account.profile.description": "Update your display name and email address.",
     "settings.account.email.title": "Email",
     "settings.account.email.description": "Update the email address used for your account.",
     "settings.account.password.title": "Password",

@@ -17,5 +17,10 @@ export function getLastAppPath(): string | null {
         return null;
     }
     const value = window.sessionStorage.getItem(LAST_APP_PATH_KEY);
-    return value && !value.startsWith("/settings") ? value : null;
+    // Only return an in-app, relative path. Reject anything that isn't "/"-rooted,
+    // protocol-relative ("//host"), or points back into settings.
+    if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/settings")) {
+        return null;
+    }
+    return value;
 }

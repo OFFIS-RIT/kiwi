@@ -345,7 +345,7 @@
     "appearance.language.description": "Wähle die in der App verwendete Sprache.",
     "settings.account.description": "Verwalte deine persönlichen Kontodaten.",
     "settings.account.profile.title": "Profil",
-    "settings.account.profile.description": "Aktualisiere deinen Anzeigenamen.",
+    "settings.account.profile.description": "Aktualisiere deinen Anzeigenamen und deine E-Mail-Adresse.",
     "settings.account.email.title": "E-Mail",
     "settings.account.email.description": "Aktualisiere die für dein Konto verwendete E-Mail-Adresse.",
     "settings.account.password.title": "Passwort",
