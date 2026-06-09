@@ -48,24 +48,34 @@ export function AccountSection() {
         }
 
         setSavingProfile(true);
+        let anySucceeded = false;
+        let failedField: "name" | "email" | null = null;
         try {
             if (nameChanged) {
                 const { error } = await authClient.updateUser({ name: trimmedName });
                 if (error) {
+                    failedField = "name";
                     throw error;
                 }
+                anySucceeded = true;
             }
             if (emailChanged) {
                 const { error } = await authClient.changeEmail({ newEmail: trimmedEmail });
                 if (error) {
+                    failedField = "email";
                     throw error;
                 }
+                anySucceeded = true;
             }
             toast.success(t("settings.account.updated"));
-            router.refresh();
         } catch {
-            toast.error(t("settings.account.error"));
+            toast.error(failedField === "email" ? t("settings.account.email.error") : t("settings.account.error"));
         } finally {
+            // Refresh even on partial success so the synced context no longer reports
+            // an already-saved field as dirty (which would re-send it on the next submit).
+            if (anySucceeded) {
+                router.refresh();
+            }
             setSavingProfile(false);
         }
     };

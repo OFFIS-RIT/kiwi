@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const { currentUser, updateUser, changeEmail, changePassword, toastError, refresh } = vi.hoisted(() => ({
     currentUser: { id: "u1", name: "Test User", email: "test@example.com", role: "user" },
     updateUser: vi.fn(async () => ({ error: null })),
-    changeEmail: vi.fn(async () => ({ error: null })),
+    changeEmail: vi.fn(async (): Promise<{ error: null | { message: string } }> => ({ error: null })),
     changePassword: vi.fn(async () => ({ error: null })),
     toastError: vi.fn(),
     refresh: vi.fn(),
@@ -69,6 +69,27 @@ describe("AccountSection", () => {
 
         expect(changeEmail).toHaveBeenCalledWith({ newEmail: "new@example.com" });
         expect(updateUser).not.toHaveBeenCalled();
+    });
+
+    test("on a partial profile failure (name ok, email fails) it still refreshes and reports the error", async () => {
+        changeEmail.mockResolvedValueOnce({ error: { message: "boom" } });
+        const user = userEvent.setup();
+        renderWithProviders(<AccountSection />);
+
+        const nameInput = screen.getByLabelText("Name");
+        await user.clear(nameInput);
+        await user.type(nameInput, "New Name");
+        const emailInput = screen.getByLabelText("E-Mail");
+        await user.clear(emailInput);
+        await user.type(emailInput, "new@example.com");
+
+        const saveButtons = screen.getAllByRole("button", { name: "Änderungen speichern" });
+        await user.click(saveButtons[0]);
+
+        expect(updateUser).toHaveBeenCalledWith({ name: "New Name" });
+        expect(changeEmail).toHaveBeenCalledWith({ newEmail: "new@example.com" });
+        expect(refresh).toHaveBeenCalled();
+        expect(toastError).toHaveBeenCalled();
     });
 
     test("changes the password via changePassword when both fields match", async () => {

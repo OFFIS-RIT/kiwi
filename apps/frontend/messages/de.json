@@ -354,6 +354,7 @@
     "settings.account.new.password": "Neues Passwort",
     "settings.account.confirm.password": "Neues Passwort bestätigen",
     "settings.account.updated": "Konto aktualisiert.",
+    "settings.account.email.error": "E-Mail-Adresse konnte nicht aktualisiert werden.",
     "settings.account.password.updated": "Passwort aktualisiert.",
     "settings.account.error": "Etwas ist schiefgelaufen. Bitte versuche es erneut."
 }

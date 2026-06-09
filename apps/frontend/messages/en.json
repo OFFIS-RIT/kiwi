@@ -354,6 +354,7 @@
     "settings.account.new.password": "New password",
     "settings.account.confirm.password": "Confirm new password",
     "settings.account.updated": "Account updated.",
+    "settings.account.email.error": "Could not update the email address.",
     "settings.account.password.updated": "Password updated.",
     "settings.account.error": "Something went wrong. Please try again."
 }
