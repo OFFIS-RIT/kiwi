@@ -83,6 +83,7 @@ export {
     getProjectFileUrl,
     pinProjectChat,
     pinTeamChat,
+    retryProjectFile,
     searchSidebarTargets,
     unarchiveProjectChat,
     unarchiveTeamChat,

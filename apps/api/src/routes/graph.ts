@@ -739,7 +739,9 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             const [file] = await db
                 .select({
                     id: filesTable.id,
+                    status: filesTable.status,
                     processStep: filesTable.processStep,
+                    processErrorCode: filesTable.processErrorCode,
                 })
                 .from(filesTable)
                 .where(
@@ -793,6 +795,13 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                         fileId: file.id,
                     });
 
+                    // Reset the file so it immediately reads as "processing" again. This makes the
+                    // existing status-polling resume and clears the stale failure reason in the UI.
+                    await tx
+                        .update(filesTable)
+                        .set({ status: "processing", processStep: "pending", processErrorCode: null })
+                        .where(eq(filesTable.id, file.id));
+
                     return {
                         graph: updatedGraph ?? existingGraph,
                         runId: processRun.id,
@@ -836,6 +845,15 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                             .update(graphTable)
                             .set({ state: existingGraph.state })
                             .where(eq(graphTable.id, existingGraph.id));
+
+                        await tx
+                            .update(filesTable)
+                            .set({
+                                status: file.status,
+                                processStep: file.processStep,
+                                processErrorCode: file.processErrorCode,
+                            })
+                            .where(eq(filesTable.id, file.id));
                     });
                 } catch (restoreError) {
                     logError("failed to restore graph state after file retry enqueue failure", {

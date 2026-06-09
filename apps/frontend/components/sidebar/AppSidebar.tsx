@@ -76,6 +76,7 @@ import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSidebarExpansion } from "@/providers/SidebarExpansionProvider";
 import { ProjectProgressChart } from "./ProjectProgressChart";
 import {
+    AlertCircle,
     BookOpen,
     ChevronRight,
     Edit,
@@ -1066,6 +1067,15 @@ function ProjectItem({
                         tooltip={project.name}
                     >
                         {isProcessing ? <ProjectProgressChart project={project} /> : <BookOpen className="shrink-0" />}
+                        {project.hasFailedFiles && (
+                            <span
+                                className="inline-flex shrink-0"
+                                title={t("project.failed_files")}
+                                aria-label={t("project.failed_files")}
+                            >
+                                <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                            </span>
+                        )}
                         <div className="w-0 min-w-0 flex-1 overflow-hidden">
                             <span className="block truncate">{project.name}</span>
                         </div>
