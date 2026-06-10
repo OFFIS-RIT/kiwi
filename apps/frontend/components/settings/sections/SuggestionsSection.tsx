@@ -56,6 +56,19 @@ export function SuggestionsSection() {
     const queryClient = useQueryClient();
     const { projects, isLoading: isLoadingProjects } = useManageableSuggestionProjects();
     const [dismissTarget, setDismissTarget] = useState<SuggestionTarget | null>(null);
+    // Mutation `variables` only reflect the latest mutate() call, so concurrent
+    // applies are tracked here to keep every in-flight suggestion disabled.
+    const [pendingActions, setPendingActions] = useState<ReadonlyMap<string, "apply" | "dismiss">>(new Map());
+
+    const trackPending = (suggestionId: string, action: "apply" | "dismiss") =>
+        setPendingActions((previous) => new Map(previous).set(suggestionId, action));
+
+    const untrackPending = (suggestionId: string) =>
+        setPendingActions((previous) => {
+            const next = new Map(previous);
+            next.delete(suggestionId);
+            return next;
+        });
 
     const suggestionQueries = useQueries({
         queries: projects.map((project) => ({
@@ -98,6 +111,7 @@ export function SuggestionsSection() {
     const applyMutation = useMutation({
         mutationFn: (target: SuggestionTarget) =>
             applyProjectSuggestion(apiClient, target.projectId, target.suggestionId),
+        onMutate: (target) => trackPending(target.suggestionId, "apply"),
         onSuccess: (result) => {
             // A null workflowRunId alone is a normal outcome (nothing to
             // regenerate); a failed enqueue always arrives with warnings.
@@ -112,23 +126,26 @@ export function SuggestionsSection() {
             }
         },
         onError: (error) => handleMutationError(error, "settings.suggestions.apply.error"),
-        onSettled: (_result, _error, target) => invalidateSuggestions(target.projectId),
+        onSettled: (_result, _error, target) => {
+            untrackPending(target.suggestionId);
+            invalidateSuggestions(target.projectId);
+        },
     });
 
     const dismissMutation = useMutation({
         mutationFn: (target: SuggestionTarget) =>
             deleteProjectSuggestion(apiClient, target.projectId, target.suggestionId),
+        onMutate: (target) => trackPending(target.suggestionId, "dismiss"),
         onSuccess: () => toast.success(t("settings.suggestions.dismissed")),
         onError: (error) => handleMutationError(error, "settings.suggestions.dismiss.error"),
         onSettled: (_result, _error, target) => {
+            untrackPending(target.suggestionId);
             setDismissTarget(null);
             invalidateSuggestions(target.projectId);
         },
     });
 
-    const isSuggestionBusy = (suggestionId: string) =>
-        (applyMutation.isPending && applyMutation.variables?.suggestionId === suggestionId) ||
-        (dismissMutation.isPending && dismissMutation.variables?.suggestionId === suggestionId);
+    const isSuggestionBusy = (suggestionId: string) => pendingActions.has(suggestionId);
 
     const projectLists = projects
         .map((project, index) => ({ project, query: suggestionQueries[index] }))
@@ -175,9 +192,7 @@ export function SuggestionsSection() {
                                         suggestionId: suggestion.id,
                                     };
                                     const busy = isSuggestionBusy(suggestion.id);
-                                    const isApplying =
-                                        applyMutation.isPending &&
-                                        applyMutation.variables?.suggestionId === suggestion.id;
+                                    const isApplying = pendingActions.get(suggestion.id) === "apply";
 
                                     return (
                                         <div key={suggestion.id} className="flex flex-col gap-3 rounded-lg border p-4">
