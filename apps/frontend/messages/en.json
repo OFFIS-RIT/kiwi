@@ -235,6 +235,7 @@
     "error.saving": "Failed to save changes",
     "text.reference": "Text Reference",
     "reference.id": "Reference ID",
+    "source.fullPage": "Full page",
     "source.pages.other": "{count} pages",
     "source.jump.highlight": "Jump to highlight {index}",
     "loading.text.content": "Loading text content...",

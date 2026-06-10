@@ -1,8 +1,8 @@
 import type { LoadedGraphDocument, LoaderSourceChunk, SourceChunkRegion } from "../..";
 import { renderPageFence } from "../../lib/page-fence";
 import { DEFAULT_SOURCE_CHUNK_TOKENS } from "../../lib/source-chunk";
-import { getTop } from "./geometry";
-import type { BoundingBox, PDFPageLike } from "./types";
+import type { PDFPageGeometry } from "./page-geometry";
+import type { BoundingBox } from "./types";
 
 export type PDFPageContentEntry = {
     type: "text" | "image";
@@ -82,9 +82,7 @@ export function materializePageEntries(
     return { content, entries: materialized };
 }
 
-export function sourceChunksForMaterializedEntries(
-    entries: PDFMaterializedPageContentEntry[]
-): LoaderSourceChunk[] {
+export function sourceChunksForMaterializedEntries(entries: PDFMaterializedPageContentEntry[]): LoaderSourceChunk[] {
     const chunks: LoaderSourceChunk[] = [];
     let pendingTextEntries: PDFMaterializedPageContentEntry[] = [];
 
@@ -117,10 +115,7 @@ export function sourceChunksForMaterializedEntries(
     return chunks;
 }
 
-export function sourceChunksForWholePageText(
-    text: string,
-    page: Pick<PDFPageLike, "index" | "width" | "height">
-): LoaderSourceChunk[] {
+export function sourceChunksForWholePageText(text: string, geometry: PDFPageGeometry): LoaderSourceChunk[] {
     const chunks: LoaderSourceChunk[] = [];
     let startOffset: number | null = null;
     let endOffset = 0;
@@ -136,9 +131,9 @@ export function sourceChunksForWholePageText(
             chunks.push({
                 type: "text",
                 text: chunkText,
-                startPage: page.index + 1,
-                endPage: page.index + 1,
-                regions: [wholePageRegion(page)],
+                startPage: geometry.pageNumber,
+                endPage: geometry.pageNumber,
+                regions: [wholePageRegion(geometry)],
                 startOffset,
                 endOffset,
             });
@@ -170,17 +165,20 @@ export function sourceChunksForWholePageText(
 
 export function regionForBoundingBox(
     kind: SourceChunkRegion["kind"],
-    page: number,
-    width: number,
-    height: number,
+    geometry: PDFPageGeometry,
     bbox: BoundingBox
-): SourceChunkRegion {
+): SourceChunkRegion | null {
+    const rectangle = toRegionRect(bbox, geometry);
+    if (!rectangle) {
+        return null;
+    }
+
     return {
         kind,
-        page,
-        width,
-        height,
-        rectangles: [toRegionRect(bbox, width, height)],
+        page: geometry.pageNumber,
+        width: geometry.renderedWidth,
+        height: geometry.renderedHeight,
+        rectangles: [rectangle],
     };
 }
 
@@ -248,26 +246,69 @@ function regionForEntries(
     };
 }
 
-function wholePageRegion(page: Pick<PDFPageLike, "index" | "width" | "height">): SourceChunkRegion {
+function wholePageRegion(geometry: PDFPageGeometry): SourceChunkRegion {
     return {
         kind: "page",
-        page: page.index + 1,
-        width: page.width,
-        height: page.height,
+        page: geometry.pageNumber,
+        width: geometry.renderedWidth,
+        height: geometry.renderedHeight,
         rectangles: [{ left: 0, top: 0, width: 1, height: 1 }],
     };
 }
 
-function toRegionRect(
-    bbox: BoundingBox,
-    pageWidth: number,
-    pageHeight: number
-): SourceChunkRegion["rectangles"][number] {
+// Maps a bbox in unrotated PDF user space (origin bottom-left) onto the
+// rasterized page image (origin top-left, /Rotate applied, renderBox cropped).
+function toRegionRect(bbox: BoundingBox, geometry: PDFPageGeometry): SourceChunkRegion["rectangles"][number] | null {
+    const { renderBox, rotation, renderedWidth, renderedHeight } = geometry;
+    const x0 = bbox.x - renderBox.x;
+    const x1 = x0 + bbox.width;
+    const y0 = bbox.y - renderBox.y;
+    const y1 = y0 + bbox.height;
+
+    let left: number;
+    let top: number;
+    let width: number;
+    let height: number;
+    switch (rotation) {
+        case 90:
+            left = y0;
+            top = x0;
+            width = y1 - y0;
+            height = x1 - x0;
+            break;
+        case 180:
+            left = renderBox.width - x1;
+            top = y0;
+            width = x1 - x0;
+            height = y1 - y0;
+            break;
+        case 270:
+            left = renderBox.height - y1;
+            top = renderBox.width - x1;
+            width = y1 - y0;
+            height = x1 - x0;
+            break;
+        default:
+            left = x0;
+            top = renderBox.height - y1;
+            width = x1 - x0;
+            height = y1 - y0;
+            break;
+    }
+
+    const clippedLeft = Math.max(0, left);
+    const clippedTop = Math.max(0, top);
+    const clippedRight = Math.min(renderedWidth, left + width);
+    const clippedBottom = Math.min(renderedHeight, top + height);
+    if (clippedRight <= clippedLeft || clippedBottom <= clippedTop) {
+        return null;
+    }
+
     return {
-        left: clampRatio(bbox.x / pageWidth),
-        top: clampRatio((pageHeight - getTop(bbox)) / pageHeight),
-        width: clampRatio(bbox.width / pageWidth),
-        height: clampRatio(bbox.height / pageHeight),
+        left: clampRatio(clippedLeft / renderedWidth),
+        top: clampRatio(clippedTop / renderedHeight),
+        width: clampRatio((clippedRight - clippedLeft) / renderedWidth),
+        height: clampRatio((clippedBottom - clippedTop) / renderedHeight),
     };
 }
 

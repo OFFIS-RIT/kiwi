@@ -50,6 +50,78 @@ type PDFRegionPreviewGroup = {
     regions: SourceReferencePdfRegion[];
 };
 
+type HighlightRectangle = {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+};
+
+const HIGHLIGHT_MERGE_TOLERANCE = 0.004;
+const FULL_PAGE_RECTANGLE_TOLERANCE = 0.002;
+
+export function mergeHighlightRectangles(rectangles: HighlightRectangle[]): HighlightRectangle[] {
+    const merged = rectangles.map((rectangle) => ({
+        left: clampRatio(rectangle.left),
+        top: clampRatio(rectangle.top),
+        width: clampRatio(rectangle.width),
+        height: clampRatio(rectangle.height),
+    }));
+
+    let didMerge = true;
+    while (didMerge) {
+        didMerge = false;
+
+        for (let index = 0; index < merged.length && !didMerge; index += 1) {
+            for (let otherIndex = index + 1; otherIndex < merged.length; otherIndex += 1) {
+                const current = merged[index]!;
+                const other = merged[otherIndex]!;
+                if (!rectanglesTouch(current, other)) {
+                    continue;
+                }
+
+                merged[index] = unionRectangles(current, other);
+                merged.splice(otherIndex, 1);
+                didMerge = true;
+                break;
+            }
+        }
+    }
+
+    return merged;
+}
+
+function rectanglesTouch(a: HighlightRectangle, b: HighlightRectangle): boolean {
+    return (
+        a.left <= b.left + b.width + HIGHLIGHT_MERGE_TOLERANCE &&
+        b.left <= a.left + a.width + HIGHLIGHT_MERGE_TOLERANCE &&
+        a.top <= b.top + b.height + HIGHLIGHT_MERGE_TOLERANCE &&
+        b.top <= a.top + a.height + HIGHLIGHT_MERGE_TOLERANCE
+    );
+}
+
+function unionRectangles(a: HighlightRectangle, b: HighlightRectangle): HighlightRectangle {
+    const left = Math.min(a.left, b.left);
+    const top = Math.min(a.top, b.top);
+    const right = Math.max(a.left + a.width, b.left + b.width);
+    const bottom = Math.max(a.top + a.height, b.top + b.height);
+
+    return { left, top, width: right - left, height: bottom - top };
+}
+
+function isFullPageRectangle(rectangle: HighlightRectangle): boolean {
+    return (
+        rectangle.left <= FULL_PAGE_RECTANGLE_TOLERANCE &&
+        rectangle.top <= FULL_PAGE_RECTANGLE_TOLERANCE &&
+        rectangle.left + rectangle.width >= 1 - FULL_PAGE_RECTANGLE_TOLERANCE &&
+        rectangle.top + rectangle.height >= 1 - FULL_PAGE_RECTANGLE_TOLERANCE
+    );
+}
+
+function isPageLevelRegion(region: SourceReferencePdfRegion): boolean {
+    return region.kind === "page" || region.rectangles.some(isFullPageRectangle);
+}
+
 export function TextReferenceBadge({ citation, index, onSelect }: TextReferenceBadgeProps) {
     const t = useAppTranslations();
 
@@ -145,12 +217,30 @@ function PDFRegionPreview({
     autoScrollToHighlight?: boolean;
     onImageLoad?: () => void;
 }) {
+    const t = useAppTranslations();
     const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
     const firstHighlightRef = useRef<HTMLDivElement | null>(null);
     const didAutoScroll = useRef(false);
     const imageWidth = getPositiveImageDimension(group.width, 1200);
     const imageHeight = getPositiveImageDimension(group.height, 1600);
-    const firstHighlightRegionIndex = group.regions.findIndex((region) => region.rectangles.length > 0);
+    const { highlightRectangles, hasPageLevelHighlight } = useMemo(() => {
+        const rectangles: HighlightRectangle[] = [];
+        let hasPageLevel = false;
+
+        for (const region of group.regions) {
+            if (isPageLevelRegion(region)) {
+                hasPageLevel = true;
+                continue;
+            }
+
+            rectangles.push(...region.rectangles);
+        }
+
+        return {
+            highlightRectangles: mergeHighlightRectangles(rectangles),
+            hasPageLevelHighlight: hasPageLevel,
+        };
+    }, [group.regions]);
 
     const handleLoaded = () => {
         setStatus("loaded");
@@ -164,7 +254,11 @@ function PDFRegionPreview({
     };
 
     return (
-        <div className="relative overflow-hidden bg-white">
+        <div
+            className={`relative overflow-hidden bg-white ${
+                hasPageLevelHighlight ? "ring-1 ring-inset ring-sky-500/70" : ""
+            }`}
+        >
             {status === "loading" ? (
                 <div className="absolute inset-0 flex min-h-40 items-center justify-center bg-muted/30 text-muted-foreground">
                     <Loader2 className="animate-spin" />
@@ -186,29 +280,41 @@ function PDFRegionPreview({
                 />
             )}
             {status !== "error"
-                ? group.regions.map((region, regionIndex) =>
-                      region.rectangles.map((rectangle, rectangleIndex) => (
-                          <div
-                              key={`${region.chunk_id}-${regionIndex}-${rectangleIndex}`}
-                              ref={
-                                  regionIndex === firstHighlightRegionIndex && rectangleIndex === 0
-                                      ? firstHighlightRef
-                                      : undefined
-                              }
-                              data-testid="pdf-source-region-highlight"
-                              data-pdf-highlight=""
-                              aria-hidden="true"
-                              className="pointer-events-none absolute scroll-mt-4 rounded-[2px] border border-yellow-500/70 bg-yellow-300/35 shadow-[0_0_0_1px_rgba(250,204,21,0.2)]"
-                              style={{
-                                  left: toPercent(clampRatio(rectangle.left)),
-                                  top: toPercent(clampRatio(rectangle.top)),
-                                  width: toPercent(clampRatio(rectangle.width)),
-                                  height: toPercent(clampRatio(rectangle.height)),
-                              }}
-                          />
-                      ))
-                  )
+                ? highlightRectangles.map((rectangle, rectangleIndex) => (
+                      <div
+                          key={rectangleIndex}
+                          ref={rectangleIndex === 0 ? firstHighlightRef : undefined}
+                          data-testid="pdf-source-region-highlight"
+                          data-pdf-highlight=""
+                          aria-hidden="true"
+                          className="pointer-events-none absolute scroll-mt-4 rounded-[2px] border border-sky-600/60 bg-sky-400/20 mix-blend-multiply"
+                          style={{
+                              left: toPercent(rectangle.left),
+                              top: toPercent(rectangle.top),
+                              width: toPercent(rectangle.width),
+                              height: toPercent(rectangle.height),
+                          }}
+                      />
+                  ))
                 : null}
+            {status !== "error" && hasPageLevelHighlight ? (
+                <>
+                    <div
+                        ref={highlightRectangles.length === 0 ? firstHighlightRef : undefined}
+                        data-pdf-highlight=""
+                        data-pdf-page-highlight=""
+                        aria-hidden="true"
+                        className="pointer-events-none absolute left-0 top-0 h-2 w-full scroll-mt-4"
+                    />
+                    <div
+                        data-testid="pdf-source-page-highlight"
+                        aria-hidden="true"
+                        className="pointer-events-none absolute left-2 top-2 rounded-sm border border-sky-600/40 bg-white/90 px-2 py-1 text-[11px] font-medium text-sky-900 shadow-sm"
+                    >
+                        {t("source.fullPage")}
+                    </div>
+                </>
+            ) : null}
         </div>
     );
 }
@@ -308,9 +414,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
         const { scrollHeight, clientHeight } = container;
         const containerTop = container.getBoundingClientRect().top;
         const scrollTop = container.scrollTop;
-        const highlights = Array.from(
-            container.querySelectorAll<HTMLElement>("[data-pdf-highlight]")
-        );
+        const highlights = Array.from(container.querySelectorAll<HTMLElement>("[data-pdf-highlight]"));
 
         setHighlightMarkers(
             highlights.map((element, index) => {
@@ -458,7 +562,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                                             behavior: "smooth",
                                         })
                                     }
-                                    className="pointer-events-auto absolute right-0 min-h-1.5 w-2 rounded-full bg-yellow-400/80 transition-colors hover:bg-yellow-500"
+                                    className="pointer-events-auto absolute right-0 min-h-1.5 w-2 rounded-full bg-sky-500/80 transition-colors hover:bg-sky-600"
                                     style={{ top: `${marker.top * 100}%`, height: `${marker.height * 100}%` }}
                                 />
                             ))}

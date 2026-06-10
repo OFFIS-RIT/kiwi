@@ -235,6 +235,7 @@
     "error.saving": "Änderungen konnten nicht gespeichert werden",
     "text.reference": "Text-Referenz",
     "reference.id": "Referenz-ID",
+    "source.fullPage": "Ganze Seite",
     "source.pages.other": "{count} Seiten",
     "source.jump.highlight": "Zur Markierung {index} springen",
     "loading.text.content": "Lade Textinhalt...",
