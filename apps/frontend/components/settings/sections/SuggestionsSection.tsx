@@ -44,7 +44,9 @@ function formatCreatedAt(value: string) {
 }
 
 function sortNewestFirst(suggestions: GraphSuggestionRecord[]) {
-    return [...suggestions].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    // Code-point comparison matches chronological order for ISO 8601 strings,
+    // unlike locale-sensitive collation.
+    return [...suggestions].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
 }
 
 export function SuggestionsSection() {
