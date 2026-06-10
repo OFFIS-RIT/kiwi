@@ -104,10 +104,11 @@ export async function savePromptText(
     const trimmed = text.trim();
     const [first, ...rest] = existing;
 
+    const deleteAll = (records: PromptRecord[]) =>
+        Promise.all(records.map((record) => deletePrompt(client, scope, record.id)));
+
     if (trimmed.length === 0) {
-        for (const record of existing) {
-            await deletePrompt(client, scope, record.id);
-        }
+        await deleteAll(existing);
         return;
     }
 
@@ -120,9 +121,7 @@ export async function savePromptText(
         await updatePrompt(client, scope, first.id, trimmed);
     }
 
-    for (const record of rest) {
-        await deletePrompt(client, scope, record.id);
-    }
+    await deleteAll(rest);
 }
 
 export type { PromptRecord };

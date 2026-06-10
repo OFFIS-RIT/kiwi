@@ -10,6 +10,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@kiwi/db";
 import { ac, admin as organizationAdmin, member, roleIncludes } from "./permissions";
 import { deriveAuthMode, getLdapConfigState } from "./mode";
+import { DEFAULT_ORGANIZATION_SLUG } from "./organization";
 import { apiKey } from "@better-auth/api-key";
 import * as authTables from "@kiwi/db/tables/auth";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
@@ -56,7 +57,6 @@ const crossSubDomainCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || und
 
 export const API_KEY_RATE_LIMIT_TIME_WINDOW = 60_000;
 export const API_KEY_RATE_LIMIT_MAX_REQUESTS = 60;
-const DEFAULT_ORGANIZATION_SLUG = "default-org";
 const SYSTEM_ADMIN_ROLE = "admin";
 
 let defaultOrganizationIdPromise: Promise<string> | null = null;

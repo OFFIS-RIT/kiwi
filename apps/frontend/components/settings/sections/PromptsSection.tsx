@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useAuthClient } from "@/providers/AuthClientProvider";
+import { pickDefaultOrganization } from "@kiwi/auth/organization";
 import { useQueries } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
@@ -36,7 +37,11 @@ export function PromptsSection() {
     const { isSystemAdmin } = useAuth();
     const authClient = useAuthClient();
     const { groups, isLoading: isLoadingGroups } = useManageablePromptGroups();
-    const { data: activeOrganization, isPending: isOrganizationPending } = authClient.useActiveOrganization();
+    // Chat injection always reads the deployment's default organization, so
+    // the editor must target that one too — not the session's active
+    // organization, which a system admin may have switched away from.
+    const { data: organizations, isPending: isOrganizationsPending } = authClient.useListOrganizations();
+    const defaultOrganization = pickDefaultOrganization(organizations ?? []);
     const [selectedScopeId, setSelectedScopeId] = useState<string | null>(null);
 
     const organizationGroup = groups.find((group) => group.scope === "organization");
@@ -51,11 +56,11 @@ export function PromptsSection() {
     });
 
     const organizationNodes: TreeNode[] =
-        isSystemAdmin && activeOrganization
+        isSystemAdmin && defaultOrganization
             ? [
                   {
-                      scope: { kind: "organization", organizationId: activeOrganization.id },
-                      scopeId: activeOrganization.id,
+                      scope: { kind: "organization", organizationId: defaultOrganization.id },
+                      scopeId: defaultOrganization.id,
                       name: t("prompts.organization"),
                       kind: "organization",
                       indented: false,
@@ -89,7 +94,7 @@ export function PromptsSection() {
     const hasPrompt = (index: number) => (promptQueries[index]?.data?.[0]?.prompt.trim().length ?? 0) > 0;
 
     const selectedNode = nodes.find((node) => node.scopeId === selectedScopeId) ?? nodes[0] ?? null;
-    const isLoading = isLoadingGroups || (isSystemAdmin && !activeOrganization && isOrganizationPending);
+    const isLoading = isLoadingGroups || (isSystemAdmin && !defaultOrganization && isOrganizationsPending);
 
     return (
         <section className="flex flex-col gap-6">
