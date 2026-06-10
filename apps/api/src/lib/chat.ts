@@ -26,7 +26,8 @@ import { getDefaultModelOrganizationId, resolveResearchModelConfig } from "@kiwi
 import { db } from "@kiwi/db";
 import type { MessagePart } from "@kiwi/contracts/chat";
 import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
-import { teamPromptsTable, userPromptsTable } from "@kiwi/db/tables/auth";
+import { getDefaultOrganizationId } from "@kiwi/auth/server";
+import { organizationPromptsTable, teamPromptsTable, userPromptsTable } from "@kiwi/db/tables/auth";
 import { filesTable, graphPromptsTable, processRunsTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { Result } from "better-result";
@@ -78,6 +79,7 @@ export {
 type RuntimeToolset = "server" | "server-and-client" | "mcp";
 
 type ResearchPromptGuidance = {
+    organizationPrompts: string[];
     userPrompts: string[];
     teamPrompts: string[];
     graphPrompts: string[];
@@ -283,6 +285,28 @@ async function listGraphPromptTexts(graphId: string) {
             .from(graphPromptsTable)
             .where(eq(graphPromptsTable.graphId, graphId))
             .orderBy(asc(graphPromptsTable.createdAt), asc(graphPromptsTable.id))
+            .limit(MAX_PROMPTS_PER_SCOPE)
+    );
+}
+
+// Organization Prompts apply to every chat in the deployment, so they are
+// always loaded for the deployment's default organization rather than resolved
+// through the graph's owner chain (personal graphs have no organization).
+export async function listOrganizationPromptTexts() {
+    const organizationIdResult = await Result.tryPromise(getDefaultOrganizationId);
+    if (organizationIdResult.isErr()) {
+        logWarn("Failed to resolve the default organization for organization prompts", {
+            error: organizationIdResult.error,
+        });
+        return [];
+    }
+
+    return normalizePromptTexts(
+        await db
+            .select({ prompt: organizationPromptsTable.prompt })
+            .from(organizationPromptsTable)
+            .where(eq(organizationPromptsTable.organizationId, organizationIdResult.value))
+            .orderBy(asc(organizationPromptsTable.createdAt), asc(organizationPromptsTable.id))
             .limit(MAX_PROMPTS_PER_SCOPE)
     );
 }
@@ -505,12 +529,14 @@ export async function getGraphResearchRuntime(
 ) {
     const rootOwner = options.rootOwner ?? (await resolveGraphOwnerRoot(graphId));
     const organizationId = await getResearchModelOrganizationId(options.user, rootOwner);
-    const [graphPrompts, userPrompts, teamPrompts] = await Promise.all([
+    const [organizationPrompts, graphPrompts, userPrompts, teamPrompts] = await Promise.all([
+        listOrganizationPromptTexts(),
         listGraphPromptTexts(graphId),
         options.user ? listUserPromptTexts(options.user.id) : [],
         options.user ? listTeamPromptTextsForGraph(graphId, rootOwner) : [],
     ]);
     const promptGuidance = {
+        organizationPrompts,
         userPrompts,
         teamPrompts,
         graphPrompts,

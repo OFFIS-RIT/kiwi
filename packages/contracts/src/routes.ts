@@ -350,6 +350,9 @@ export type PromptRecord = {
     updated_at: string;
 };
 
+export const MAX_PROMPT_LENGTH = 20_000;
+export const MAX_PROMPTS_PER_SCOPE = 5;
+
 export type ChatHistoryRecord = {
     id: string;
     title: string;
@@ -742,6 +745,36 @@ export type GraphPromptDeleteResponse = ApiResponse<
     | "INVALID_GRAPH_OWNER"
     | "PROMPT_NOT_FOUND"
     | "INTERNAL_SERVER_ERROR"
+>;
+
+export type OrganizationPromptListResponse = ApiResponse<
+    PromptRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "ORGANIZATION_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type OrganizationPromptCreateResponse = ApiResponse<
+    PromptRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "ORGANIZATION_NOT_FOUND"
+    | "INVALID_PROMPT"
+    | "PROMPT_LIMIT_EXCEEDED"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type OrganizationPromptPatchResponse = ApiResponse<
+    PromptRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "ORGANIZATION_NOT_FOUND"
+    | "PROMPT_NOT_FOUND"
+    | "INVALID_PROMPT"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type OrganizationPromptDeleteResponse = ApiResponse<
+    null,
+    "UNAUTHORIZED" | "FORBIDDEN" | "ORGANIZATION_NOT_FOUND" | "PROMPT_NOT_FOUND" | "INTERNAL_SERVER_ERROR"
 >;
 
 export type SearchResponse = ApiResponse<SearchSuccessData, "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;

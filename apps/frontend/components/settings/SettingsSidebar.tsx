@@ -24,6 +24,8 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type { ComponentProps } from "react";
 
+import { useCanManagePrompts } from "@/hooks/use-prompt-access";
+
 import { getVisibleSettingsCategories } from "./sections";
 
 export function SettingsSidebar(props: ComponentProps<typeof Sidebar>) {
@@ -33,8 +35,9 @@ export function SettingsSidebar(props: ComponentProps<typeof Sidebar>) {
     const { authMode } = useRuntimeConfig();
     const { activeSection, setActiveSection } = useSettings();
     const { canManageSuggestions } = useCanManageSuggestions();
+    const { canManagePrompts } = useCanManagePrompts();
 
-    const categories = getVisibleSettingsCategories({ isSystemAdmin, canManageSuggestions, authMode });
+    const categories = getVisibleSettingsCategories({ isSystemAdmin, canManageSuggestions, canManagePrompts, authMode });
 
     const handleBackToApp = () => {
         router.push(getLastAppPath() ?? "/");

@@ -28,6 +28,7 @@ import {
     getRequiredResearchClient,
     createUserRequestInformation,
     listChatsForTarget,
+    listOrganizationPromptTexts,
     listTeamPromptTexts,
     listUserPromptTexts,
     loadChatHistoryForTarget,
@@ -88,6 +89,7 @@ type TeamUsageContext = {
 type TeamChatRuntime = Omit<ChatRuntime, "tools"> & {
     tools: TeamChatToolset;
     promptGuidance: {
+        organizationPrompts: string[];
         userPrompts: string[];
         teamPrompts: string[];
     };
@@ -449,7 +451,8 @@ export async function getTeamChatRuntime(options: {
     questionContext: TeamQuestionContext;
     requestedModelId?: string;
 }): Promise<TeamChatRuntime> {
-    const [userPrompts, teamPrompts] = await Promise.all([
+    const [organizationPrompts, userPrompts, teamPrompts] = await Promise.all([
+        listOrganizationPromptTexts(),
         listUserPromptTexts(options.user.id),
         listTeamPromptTexts(options.team.id),
     ]);
@@ -461,6 +464,7 @@ export async function getTeamChatRuntime(options: {
     const usageContext = createTeamUsageContext();
     const requestInformation = createUserRequestInformation(options.user);
     const promptGuidance = {
+        organizationPrompts,
         userPrompts,
         teamPrompts,
     };

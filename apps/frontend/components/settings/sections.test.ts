@@ -15,28 +15,37 @@ describe("settings section visibility", () => {
         const categories = getVisibleSettingsCategories({
             isSystemAdmin: false,
             canManageSuggestions: false,
+            canManagePrompts: false,
             authMode: "credentials",
         });
 
         expect(categories.map((category) => category.id)).toEqual(["general"]);
-        expect(sectionIds(categories)).toEqual(["account", "appearance", "api-keys", "archived-chats"]);
+        expect(sectionIds(categories)).toEqual([
+            "account",
+            "appearance",
+            "personalization",
+            "api-keys",
+            "archived-chats",
+        ]);
     });
 
     test("Account Section is hidden in LDAP mode", () => {
         const categories = getVisibleSettingsCategories({
             isSystemAdmin: false,
             canManageSuggestions: false,
+            canManagePrompts: false,
             authMode: "ldap",
         });
 
         expect(sectionIds(categories)).not.toContain("account");
-        expect(sectionIds(categories)).toEqual(["appearance", "api-keys", "archived-chats"]);
+        expect(sectionIds(categories)).toEqual(["appearance", "personalization", "api-keys", "archived-chats"]);
     });
 
     test("system admin additionally sees the System Admin Category with User Management", () => {
         const categories = getVisibleSettingsCategories({
             isSystemAdmin: true,
             canManageSuggestions: false,
+            canManagePrompts: false,
             authMode: "credentials",
         });
 
@@ -48,6 +57,7 @@ describe("settings section visibility", () => {
         const categories = getVisibleSettingsCategories({
             isSystemAdmin: false,
             canManageSuggestions: false,
+            canManagePrompts: false,
             authMode: "ldap",
         });
 
@@ -58,17 +68,33 @@ describe("settings section visibility", () => {
         const categories = getVisibleSettingsCategories({
             isSystemAdmin: false,
             canManageSuggestions: true,
+            canManagePrompts: false,
             authMode: "credentials",
         });
 
         expect(categories.map((category) => category.id)).toEqual(["general", "administration"]);
         expect(sectionIds(categories)).toContain("suggestions");
+        expect(sectionIds(categories)).not.toContain("prompts");
     });
 
-    test("Administration Category is hidden without suggestion management rights, even for system admins", () => {
+    test("prompt managers see the Administration Category with Prompts", () => {
+        const categories = getVisibleSettingsCategories({
+            isSystemAdmin: false,
+            canManageSuggestions: false,
+            canManagePrompts: true,
+            authMode: "credentials",
+        });
+
+        expect(categories.map((category) => category.id)).toEqual(["general", "administration"]);
+        expect(sectionIds(categories)).toContain("prompts");
+        expect(sectionIds(categories)).not.toContain("suggestions");
+    });
+
+    test("Administration Category is hidden without suggestion or prompt rights, even for system admins", () => {
         const categories = getVisibleSettingsCategories({
             isSystemAdmin: true,
             canManageSuggestions: false,
+            canManagePrompts: false,
             authMode: "credentials",
         });
 
@@ -90,12 +116,19 @@ describe("admin-only section derivation", () => {
         // so the server-side system-admin guard must not cover this Section.
         expect(getAdminOnlySectionIds()).not.toContain("suggestions");
     });
+
+    test("does not classify the Prompts Section as admin-only", () => {
+        // Team admins may manage prompts without being system admins, so the
+        // server-side system-admin guard must not cover this Section.
+        expect(getAdminOnlySectionIds()).not.toContain("prompts");
+    });
 });
 
 describe("active section resolution", () => {
     const credentialsContext = {
         isSystemAdmin: false,
         canManageSuggestions: false,
+        canManagePrompts: false,
         authMode: "credentials" as const,
     };
 
@@ -116,9 +149,19 @@ describe("active section resolution", () => {
         expect(resolveActiveSettingsSection("suggestions", credentialsContext)?.id).toBe(DEFAULT_SETTINGS_SECTION);
     });
 
+    test("falls back to the default when Prompts is requested without management rights", () => {
+        expect(resolveActiveSettingsSection("prompts", credentialsContext)?.id).toBe(DEFAULT_SETTINGS_SECTION);
+    });
+
     test("resolves Suggestions for users with management rights", () => {
         const context = { ...credentialsContext, canManageSuggestions: true };
 
         expect(resolveActiveSettingsSection("suggestions", context)?.id).toBe("suggestions");
+    });
+
+    test("resolves Prompts for users with management rights", () => {
+        const context = { ...credentialsContext, canManagePrompts: true };
+
+        expect(resolveActiveSettingsSection("prompts", context)?.id).toBe("prompts");
     });
 });

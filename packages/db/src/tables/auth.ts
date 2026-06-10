@@ -96,6 +96,27 @@ export const teamPromptsTable = pgTable.withRLS(
     (table) => [index("team_prompts_team_created_idx").on(table.teamId, table.createdAt, table.id)]
 );
 
+export const organizationPromptsTable = pgTable.withRLS(
+    "organization_prompts",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        organizationId: text("organization_id")
+            .notNull()
+            .references(() => organizationTable.id, { onDelete: "cascade" }),
+        prompt: text("prompt").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .notNull()
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [
+        index("organization_prompts_organization_created_idx").on(table.organizationId, table.createdAt, table.id),
+    ]
+);
+
 export const sessionTable = pgTable.withRLS("session", {
     id: text("id")
         .primaryKey()

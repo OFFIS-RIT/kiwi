@@ -1,4 +1,5 @@
 export type ScopedPromptGuidance = {
+    organizationPrompts?: string[];
     userPrompts?: string[];
     teamPrompts?: string[];
     graphPrompts?: string[];
@@ -19,6 +20,7 @@ function promptGuidanceSection(title: string, prompts?: string[]) {
 
 export function createPromptGuidancePrompt(guidance?: ScopedPromptGuidance): string | null {
     const sections = [
+        ...promptGuidanceSection("Organization Specific Prompts", guidance?.organizationPrompts),
         ...promptGuidanceSection("User Specific Prompts", guidance?.userPrompts),
         ...promptGuidanceSection("Team Specific Prompts", guidance?.teamPrompts),
         ...promptGuidanceSection("Graph Specific Prompts", guidance?.graphPrompts),

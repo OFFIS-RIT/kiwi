@@ -6,7 +6,8 @@
         "./server": "./src/server.ts",
         "./client": "./src/client.ts",
         "./permissions": "./src/permissions.ts",
-        "./mode": "./src/mode.ts"
+        "./mode": "./src/mode.ts",
+        "./organization": "./src/organization.ts"
     },
     "scripts": {
         "build": "bunx tsc --noEmit",

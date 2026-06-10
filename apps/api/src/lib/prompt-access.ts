@@ -1,6 +1,6 @@
 import { roleIncludes } from "@kiwi/auth/permissions";
 import { db } from "@kiwi/db";
-import { memberTable, teamTable } from "@kiwi/db/tables/auth";
+import { memberTable, organizationTable, teamTable } from "@kiwi/db/tables/auth";
 import { and, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { AuthUser } from "../middleware/auth";
@@ -58,6 +58,27 @@ export async function assertCanManageUserPrompts(user: AuthUser, targetUserId: s
     if (!adminMembership) {
         throw new Error(API_ERROR_CODES.FORBIDDEN);
     }
+}
+
+export async function assertCanManageOrganizationPrompts(user: AuthUser, organizationId: string) {
+    // Permission gate first: only system admins may ever reach this resource,
+    // so non-admins must not be able to probe organization ID validity via
+    // the 403/404 distinction.
+    if (!user.isSystemAdmin) {
+        throw new Error(API_ERROR_CODES.FORBIDDEN);
+    }
+
+    const [organization] = await db
+        .select({ id: organizationTable.id })
+        .from(organizationTable)
+        .where(eq(organizationTable.id, organizationId))
+        .limit(1);
+
+    if (!organization) {
+        throw new Error(API_ERROR_CODES.ORGANIZATION_NOT_FOUND);
+    }
+
+    return organization;
 }
 
 export async function assertCanManageTeamPrompts(user: AuthUser, teamId: string) {
