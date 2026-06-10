@@ -41,6 +41,7 @@ export function PromptsSection() {
     // the editor must target that one too — not the session's active
     // organization, which a system admin may have switched away from.
     const { data: organizations, isPending: isOrganizationsPending } = authClient.useListOrganizations();
+    const { data: activeOrganization } = authClient.useActiveOrganization();
     const defaultOrganization = pickDefaultOrganization(organizations ?? []);
     const [selectedScopeId, setSelectedScopeId] = useState<string | null>(null);
 
@@ -55,6 +56,14 @@ export function PromptsSection() {
         indented: true,
     });
 
+    // The groups query is scoped to the session's active organization, while
+    // the prompt editor targets the default organization. Only nest the
+    // org-owned projects under the organization node when both are the same
+    // organization, so a multi-org admin never sees org B's graphs grouped
+    // under org A's prompt.
+    const organizationProjects =
+        activeOrganization?.id === defaultOrganization?.id ? (organizationGroup?.projects ?? []) : [];
+
     const organizationNodes: TreeNode[] =
         isSystemAdmin && defaultOrganization
             ? [
@@ -65,7 +74,7 @@ export function PromptsSection() {
                       kind: "organization",
                       indented: false,
                   },
-                  ...(organizationGroup?.projects ?? []).map(projectNode),
+                  ...organizationProjects.map(projectNode),
               ]
             : [];
 
