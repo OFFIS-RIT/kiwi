@@ -1,23 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
-import { toUIMessage, type ChatUIMessage } from "@kiwi/ai";
+import type { ChatUIMessage } from "@kiwi/ai";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import type { ChatRuntime } from "../chat-compaction";
 import { API_ERROR_CODES } from "../../types";
 
 const dbMock: { insert?: ReturnType<typeof mock> } = {};
 const envMock = {
-    AI_TEXT_ADAPTER: "openai",
-    AI_TEXT_MODEL: "gpt-test",
+    AUTH_SECRET: "test-auth-secret",
     CONTEXT_WINDOW: 250_000,
-    AI_TEXT_KEY: "key",
-    AI_TEXT_URL: undefined,
-    AI_TEXT_RESOURCE_NAME: undefined,
-    AI_SUBAGENT_MODEL: "gpt-subagent",
-    AI_EMBEDDING_ADAPTER: "openai",
-    AI_EMBEDDING_MODEL: "text-embedding-3-small",
-    AI_EMBEDDING_KEY: "key",
-    AI_EMBEDDING_URL: undefined,
-    AI_EMBEDDING_RESOURCE_NAME: undefined,
 };
 
 mock.module("@kiwi/db", () => ({
@@ -28,7 +18,7 @@ mock.module("../../env", () => ({
     env: envMock,
 }));
 
-const { estimateToken } = await import("@kiwi/ai");
+const { estimateToken, toUIMessage } = await import("@kiwi/ai");
 const {
     deriveActiveCompaction,
     getProtectedTailStartIndex,
@@ -477,6 +467,7 @@ describe("chat context helpers", () => {
                 client: {
                     text: {} as never,
                     embedding: {} as never,
+                    textModelId: "text-default",
                 },
                 tools: {},
             };
@@ -510,6 +501,7 @@ describe("chat context helpers", () => {
                 client: {
                     text: {} as never,
                     embedding: {} as never,
+                    textModelId: "text-default",
                 },
                 tools: {},
             };
@@ -535,6 +527,7 @@ describe("chat context helpers", () => {
             client: {
                 text: {} as never,
                 embedding: {} as never,
+                textModelId: "text-default",
             },
             tools: {
                 ask_clarifying_questions: {
@@ -567,6 +560,7 @@ describe("chat context helpers", () => {
             client: {
                 text: {} as never,
                 embedding: {} as never,
+                textModelId: "text-default",
             },
             tools: {},
             promptGuidance: {
@@ -608,6 +602,7 @@ describe("chat context helpers", () => {
             client: {
                 text: {} as never,
                 embedding: {} as never,
+                textModelId: "text-default",
             },
             tools: {},
         };

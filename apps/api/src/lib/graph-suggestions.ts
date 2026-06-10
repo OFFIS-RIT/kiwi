@@ -1,7 +1,8 @@
 import { embed } from "ai";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { ulid } from "ulid";
-import { estimateToken, withAiSlot } from "@kiwi/ai";
+import { estimateToken, getClient, withAiSlot } from "@kiwi/ai";
+import { resolveRequiredEmbeddingModelAdapter } from "@kiwi/ai/models";
 import type { GraphSuggestionApplySuccessData, GraphSuggestionRecord } from "@kiwi/contracts";
 import { db } from "@kiwi/db";
 import { filesTable, entityTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
@@ -12,8 +13,10 @@ import { updateDescriptionsSpec } from "@kiwi/worker/update-descriptions-spec";
 import { env } from "../env";
 import { ow } from "../openworkflow";
 import { API_ERROR_CODES } from "../types";
-import { getRequiredResearchClient } from "./chat";
 import { cleanupUploadedKeys } from "./graph-route";
+import type { AuthUser } from "../middleware/auth";
+import { resolveGraphOwnerRoot } from "./graph-access";
+import { getActiveOrganizationId, requireOrganizationMembership } from "./team-access";
 
 const MANUAL_SUGGESTION_MIME_TYPE = "text/plain";
 const MANUAL_SUGGESTION_FILE_TYPE = "text";
@@ -161,11 +164,27 @@ export function buildManualSuggestionRows(input: ManualSuggestionRowsInput) {
     };
 }
 
-async function embedSuggestionText(suggestion: string) {
-    const client = getRequiredResearchClient();
+async function getSuggestionModelOrganizationId(graphId: string, user: AuthUser) {
+    const rootOwner = await resolveGraphOwnerRoot(graphId);
+    const organizationId = rootOwner.mode === "user" ? await getActiveOrganizationId(user) : rootOwner.organizationId;
+
+    await requireOrganizationMembership(user, organizationId);
+
+    return organizationId;
+}
+
+async function embedSuggestionText(graphId: string, user: AuthUser, suggestion: string) {
+    const organizationId = await getSuggestionModelOrganizationId(graphId, user);
+    const embeddingModel = await resolveRequiredEmbeddingModelAdapter(organizationId, env.AUTH_SECRET);
+    const client = getClient({ embedding: embeddingModel.adapter });
+    const { embedding: embeddingClient } = client;
+    if (!embeddingClient) {
+        throw new Error(API_ERROR_CODES.MODEL_NOT_CONFIGURED);
+    }
+
     const { embedding } = await withAiSlot("embedding", () =>
         embed({
-            model: client.embedding,
+            model: embeddingClient,
             value: suggestion,
         })
     );
@@ -418,15 +437,15 @@ async function applyEntityAddition(options: {
 export async function applyGraphSuggestion(
     graphId: string,
     suggestionId: string,
-    userId: string
+    user: AuthUser
 ): Promise<GraphSuggestionApplySuccessData> {
     const suggestion = await getPendingSuggestion(graphId, suggestionId);
     await assertSuggestionTargetExists(graphId, suggestion);
-    const embedding = await embedSuggestionText(suggestion.suggestion);
+    const embedding = await embedSuggestionText(graphId, user, suggestion.suggestion);
     const applied =
         suggestion.kind === "source_correction"
-            ? await applySourceCorrection({ graphId, suggestionId, userId, embedding })
-            : await applyEntityAddition({ graphId, suggestionId, userId, embedding });
+            ? await applySourceCorrection({ graphId, suggestionId, userId: user.id, embedding })
+            : await applyEntityAddition({ graphId, suggestionId, userId: user.id, embedding });
 
     try {
         const workflowRunId = await enqueueDescriptionUpdate(graphId, applied.entityIds, applied.relationshipIds);

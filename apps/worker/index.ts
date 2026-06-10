@@ -1,6 +1,7 @@
 import { BackendPostgres } from "openworkflow/postgres";
 import { OpenWorkflow } from "openworkflow";
 import { configureAIConcurrency } from "@kiwi/ai";
+import { bootstrapLegacyModelsFromEnv } from "@kiwi/ai/models";
 import { env } from "./env";
 
 configureAIConcurrency({
@@ -10,6 +11,8 @@ configureAIConcurrency({
     audio: env.AI_AUDIO_CONCURRENCY,
     video: env.AI_VIDEO_CONCURRENCY,
 });
+
+await bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET });
 
 export const backend = await BackendPostgres.connect(env.DATABASE_DIRECT_URL);
 export const ow = new OpenWorkflow({ backend });

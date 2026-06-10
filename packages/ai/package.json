@@ -8,6 +8,7 @@
         "./citation": "./src/citation.ts",
         "./lock": "./src/lock.ts",
         "./mcp": "./src/mcp/index.ts",
+        "./models": "./src/models.ts",
         "./tools/toolsets": "./src/tools/toolsets.ts",
         "./ui": "./src/ui.ts",
         "./prompts/*": "./src/prompts/*.ts"

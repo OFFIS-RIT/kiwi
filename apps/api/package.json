@@ -7,7 +7,7 @@
     },
     "scripts": {
         "build": "bunx tsc --noEmit",
-        "test": "bun test --pass-with-no-tests",
+        "test": "bun test --pass-with-no-tests --isolate",
         "dev": "bun run --watch src/server.ts"
     },
     "dependencies": {
