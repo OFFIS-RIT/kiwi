@@ -278,6 +278,7 @@ function toRegionRect(bbox: BoundingBox, geometry: PDFPageGeometry): SourceChunk
             break;
         case 180:
             left = renderBox.width - x1;
+            // The y-axis flip and 180-degree page rotation cancel out, so top stays relative to PDF y.
             top = y0;
             width = x1 - x0;
             height = y1 - y0;

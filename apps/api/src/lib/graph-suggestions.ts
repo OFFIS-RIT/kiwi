@@ -12,7 +12,7 @@ import { updateDescriptionsSpec } from "@kiwi/worker/update-descriptions-spec";
 import { env } from "../env";
 import { ow } from "../openworkflow";
 import { API_ERROR_CODES } from "../types";
-import { getRequiredResearchClient } from "./chat";
+import { getRequiredResearchClient } from "./chat-client";
 import { cleanupUploadedKeys } from "./graph-route";
 
 const MANUAL_SUGGESTION_MIME_TYPE = "text/plain";

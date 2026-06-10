@@ -282,7 +282,7 @@ function PDFRegionPreview({
             {status !== "error"
                 ? highlightRectangles.map((rectangle, rectangleIndex) => (
                       <div
-                          key={rectangleIndex}
+                          key={`${rectangle.left}-${rectangle.top}-${rectangle.width}-${rectangle.height}`}
                           ref={rectangleIndex === 0 ? firstHighlightRef : undefined}
                           data-testid="pdf-source-region-highlight"
                           data-pdf-highlight=""

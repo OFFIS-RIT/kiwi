@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("@kiwi/ai", () => ({
-    estimateToken: (text: string) => text.length,
-    withAiSlot: async (_capability: string, run: () => Promise<unknown>) => run(),
-}));
-
 mock.module("ai", () => ({
     embed: async () => ({ embedding: [0.1, 0.2, 0.3] }),
 }));
@@ -18,11 +13,15 @@ mock.module("@kiwi/db", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
+    deleteFile: async () => undefined,
+    listFiles: async () => [],
     putGraphFile: async () => ({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),
 }));
 
 mock.module("@kiwi/logger", () => ({
     error: () => undefined,
+    info: () => undefined,
+    warn: () => undefined,
 }));
 
 mock.module("@kiwi/worker/update-descriptions-spec", () => ({
@@ -41,7 +40,7 @@ mock.module("../../openworkflow", () => ({
     },
 }));
 
-mock.module("../chat", () => ({
+mock.module("../chat-client", () => ({
     getRequiredResearchClient: () => ({ embedding: {} }),
 }));
 

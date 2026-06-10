@@ -10,6 +10,7 @@ mock.module("@kiwi/db", () => ({
 mock.module("@kiwi/files", () => ({
     deleteFile: async () => undefined,
     listFiles: async () => [],
+    putGraphFile: async () => ({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),
 }));
 
 mock.module("@kiwi/logger", () => ({
@@ -23,12 +24,6 @@ mock.module("../../env", () => ({
         MASTER_USER_ID: undefined,
         S3_BUCKET: "test",
     },
-}));
-
-mock.module("../../lib/chat", () => ({
-    mapChatError: (status: (code: number, body: unknown) => unknown, error: unknown) => status(500, error),
-    setChatArchived: async () => undefined,
-    setChatPinned: async () => undefined,
 }));
 
 mock.module("../../lib/chat-response", () => ({
