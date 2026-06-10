@@ -23,30 +23,44 @@ const SidebarExpansionContext = createContext<SidebarExpansionContextType | unde
 const GROUP_STORAGE_KEY = "sidebar-expanded-groups";
 const PROJECT_STORAGE_KEY = "sidebar-expanded-projects";
 
+type StoredExpansionState = {
+    expandedState: Record<string, boolean>;
+    hasStoredState: boolean;
+};
+
+const warnInvalidStoredState = (storageKey: string) => {
+    console.warn("Ignoring invalid sidebar expansion state from localStorage:", storageKey);
+};
+
 /**
  * Loads expanded state from localStorage with validation.
- * @returns Record of IDs to expansion state, or empty object on failure
+ * @returns Stored expansion state and whether the storage key exists
  */
-const loadExpandedStateFromStorage = (storageKey: string): Record<string, boolean> => {
-    if (typeof window === "undefined") return {};
+const loadExpandedStateFromStorage = (storageKey: string): StoredExpansionState => {
+    if (typeof window === "undefined") return { expandedState: {}, hasStoredState: false };
 
     try {
         const stored = localStorage.getItem(storageKey);
+        if (stored === null) {
+            return { expandedState: {}, hasStoredState: false };
+        }
+
         if (stored) {
             const parsed = JSON.parse(stored);
             // Validate that parsed data is an object with boolean values
             if (typeof parsed === "object" && parsed !== null) {
                 const isValid = Object.values(parsed).every((val) => typeof val === "boolean");
                 if (isValid) {
-                    return parsed;
+                    return { expandedState: parsed, hasStoredState: true };
                 }
             }
         }
+        warnInvalidStoredState(storageKey);
     } catch (error) {
         console.warn("Failed to load sidebar expansion state from localStorage:", error);
     }
 
-    return {};
+    return { expandedState: {}, hasStoredState: true };
 };
 
 /**
@@ -75,10 +89,10 @@ const areExpansionStatesEqual = (first: Record<string, boolean>, second: Record<
  */
 export function SidebarExpansionProvider({ children }: { children: React.ReactNode }) {
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
-        loadExpandedStateFromStorage(GROUP_STORAGE_KEY)
+        loadExpandedStateFromStorage(GROUP_STORAGE_KEY).expandedState
     );
     const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(() =>
-        loadExpandedStateFromStorage(PROJECT_STORAGE_KEY)
+        loadExpandedStateFromStorage(PROJECT_STORAGE_KEY).expandedState
     );
     const isInitializedRef = useRef(false);
 
@@ -100,7 +114,7 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
         isInitializedRef.current = true;
     }, []);
 
-    // Initialize expanded groups with all groups collapsed by default
+    // First-time visitors have no persisted group state yet, so expose all accessible groups.
     const initializeExpandedGroups = useCallback((groupIds: string[]) => {
         if (groupIds.length === 0) return;
         setExpandedGroups((prev) => {
@@ -108,11 +122,14 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
 
             // Load from localStorage on first initialization if prev is empty
             const storedState =
-                Object.keys(prev).length === 0 ? loadExpandedStateFromStorage(GROUP_STORAGE_KEY) : prev;
+                Object.keys(prev).length === 0
+                    ? loadExpandedStateFromStorage(GROUP_STORAGE_KEY)
+                    : { expandedState: prev, hasStoredState: true };
+            const defaultExpanded = !storedState.hasStoredState;
 
             // Preserve existing state for groups that still exist
             groupIds.forEach((groupId) => {
-                newState[groupId] = storedState[groupId] ?? false;
+                newState[groupId] = storedState.expandedState[groupId] ?? defaultExpanded;
             });
 
             return areExpansionStatesEqual(prev, newState) ? prev : newState;
@@ -123,7 +140,9 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
         if (projectIds.length === 0) return;
         setExpandedProjects((prev) => {
             const storedState =
-                Object.keys(prev).length === 0 ? loadExpandedStateFromStorage(PROJECT_STORAGE_KEY) : prev;
+                Object.keys(prev).length === 0
+                    ? loadExpandedStateFromStorage(PROJECT_STORAGE_KEY).expandedState
+                    : prev;
 
             const newState = Object.fromEntries(
                 projectIds.map((projectId) => [projectId, storedState[projectId] ?? false])

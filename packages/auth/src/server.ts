@@ -302,6 +302,15 @@ export const auth = betterAuth({
     emailAndPassword: {
         enabled: !ldapEnabled,
     },
+    user: {
+        // Allow users to change their own email from the Account settings Section.
+        // No verification flow is configured, so the change applies immediately;
+        // the Account Section is hidden entirely in LDAP mode where identity is
+        // owned by the directory.
+        changeEmail: {
+            enabled: !ldapEnabled,
+        },
+    },
     socialProviders: {
         ...(process.env.APPLE_CLIENT_ID && process.env.APPLE_CLIENT_SECRET
             ? {

@@ -456,10 +456,16 @@ function createGraphResearchRuntime(options: {
     requestInformation?: RequestInformation;
     correction?: CorrectionToolContext;
 }) {
+    const consideredFileIds = new Set<string>();
     const toolsetOptions = {
         graphId: options.graphId,
         embeddingModel: options.client.embedding,
         correction: options.correction,
+        onConsideredFileIds: (fileIds: Iterable<string>) => {
+            for (const fileId of fileIds) {
+                consideredFileIds.add(fileId);
+            }
+        },
     } satisfies GraphToolsetOptions;
     const baseToolset = buildBaseToolset(toolsetOptions, options.toolset);
     const tools = options.deep
@@ -477,6 +483,9 @@ function createGraphResearchRuntime(options: {
         client: options.client,
         tools,
         promptGuidance: options.promptGuidance,
+        getAdditionalUsage: () => ({
+            consideredFileIds,
+        }),
     };
 }
 
@@ -965,6 +974,7 @@ export function getFinishMetadata(options: {
     inputTokens?: number;
     outputTokens?: number;
     modelId: string;
+    consideredFileCount?: number;
     usedFileCount?: number;
 }): ChatMessageMetadata {
     const durationMs = Math.max(1, Date.now() - options.startedAt);
@@ -978,6 +988,7 @@ export function getFinishMetadata(options: {
         durationMs,
         timeToFirstToken: options.firstOutputAt ? options.firstOutputAt - options.startedAt : undefined,
         tokensPerSecond: outputTokens && durationMs > 0 ? outputTokens / Math.max(durationMs / 1000, 0.001) : undefined,
+        consideredFileCount: options.consideredFileCount,
         usedFileCount: options.usedFileCount,
     };
 }

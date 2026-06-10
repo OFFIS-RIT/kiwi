@@ -121,7 +121,15 @@ const searchRelationshipsSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-export const searchRelationshipsTool = (graphId: string, embeddingModel: EmbeddingModelV3) =>
+type RelationshipToolOptions = {
+    onConsideredFileIds?: (fileIds: Iterable<string>) => void;
+};
+
+export const searchRelationshipsTool = (
+    graphId: string,
+    embeddingModel: EmbeddingModelV3,
+    options: RelationshipToolOptions = {}
+) =>
     tool({
         description:
             "Use when you need relationship IDs before calling the source tool, or when the important fact is the connection itself rather than a single entity. Semantic search is primary, with keyword terms boosting connected entity names and relation labels.",
@@ -141,6 +149,7 @@ export const searchRelationshipsTool = (graphId: string, embeddingModel: Embeddi
                     const text = query.trim();
                     const terms = uniqueTerms([...(keywords ?? []), text]);
                     const fileIds = uniqueTerms(files ?? []);
+                    options.onConsideredFileIds?.(fileIds);
                     const next = decodeCursor(cursor, "relationship search");
                     const { embedding } = await withAiSlot("embedding", () =>
                         embed({

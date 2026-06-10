@@ -166,6 +166,10 @@ const getSourceFileMetadataSchema = z.object({
         .describe("Source IDs whose underlying file metadata should be inspected."),
 });
 
+type SourceToolOptions = {
+    onConsideredFileIds?: (fileIds: Iterable<string>) => void;
+};
+
 type GetScopedSourcesArgs = {
     query?: string;
     keywords?: string[];
@@ -174,18 +178,29 @@ type GetScopedSourcesArgs = {
     relationshipIds?: string[];
     limit: number;
     cursor?: string;
+    onConsideredFileIds?: SourceToolOptions["onConsideredFileIds"];
 };
 
 async function getScopedSources(
     graphId: string,
     embeddingModel: EmbeddingModelV3,
-    { query, keywords, files, entityIds: entities, relationshipIds: relationships, limit, cursor }: GetScopedSourcesArgs
+    {
+        query,
+        keywords,
+        files,
+        entityIds: entities,
+        relationshipIds: relationships,
+        limit,
+        cursor,
+        onConsideredFileIds,
+    }: GetScopedSourcesArgs
 ) {
     const fileIds = uniqueTerms(files ?? []);
     const entityIds = uniqueTerms(entities ?? []);
     const relationshipIds = uniqueTerms(relationships ?? []);
     const text = query?.trim() ?? "";
     const terms = uniqueTerms([text, ...(keywords ?? [])]);
+    onConsideredFileIds?.(fileIds);
 
     if (terms.length === 0) {
         const clauses = [eq(sourcesTable.active, true), eq(filesTable.graphId, graphId)];
@@ -237,6 +252,7 @@ async function getScopedSources(
 
         const hasMore = rows.length > limit;
         const items = hasMore ? rows.slice(0, limit) : rows;
+        onConsideredFileIds?.(items.map((row) => row.fileId));
 
         return [
             "## Sources",
@@ -317,6 +333,7 @@ async function getScopedSources(
     const rows = toSearchSourceRows(result.rows);
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;
+    onConsideredFileIds?.(items.map((row) => row.fileId));
 
     return [
         "## Sources",
@@ -334,7 +351,11 @@ async function getScopedSources(
     ].join("\n");
 }
 
-export const getEntitySourcesTool = (graphId: string, embeddingModel: EmbeddingModelV3) =>
+export const getEntitySourcesTool = (
+    graphId: string,
+    embeddingModel: EmbeddingModelV3,
+    options: SourceToolOptions = {}
+) =>
     tool({
         description:
             "Final grounding tool for entities. Use only after identifying entity IDs. When you provide a refinement query, semantic search is primary and keywords boost exact file or source text matches. The returned source IDs are the citation IDs that the final answer must cite.",
@@ -350,11 +371,24 @@ export const getEntitySourcesTool = (graphId: string, embeddingModel: EmbeddingM
                     ],
                 },
                 { query, keywords, files, entityIds, limit, cursor },
-                () => getScopedSources(graphId, embeddingModel, { query, keywords, files, entityIds, limit, cursor })
+                () =>
+                    getScopedSources(graphId, embeddingModel, {
+                        query,
+                        keywords,
+                        files,
+                        entityIds,
+                        limit,
+                        cursor,
+                        onConsideredFileIds: options.onConsideredFileIds,
+                    })
             ),
     });
 
-export const getRelationshipSourcesTool = (graphId: string, embeddingModel: EmbeddingModelV3) =>
+export const getRelationshipSourcesTool = (
+    graphId: string,
+    embeddingModel: EmbeddingModelV3,
+    options: SourceToolOptions = {}
+) =>
     tool({
         description:
             "Final grounding tool for relationships. Use only after identifying relationship IDs. When you provide a refinement query, semantic search is primary and keywords boost exact file or source text matches. The returned source IDs are the citation IDs that the final answer must cite.",
@@ -378,11 +412,12 @@ export const getRelationshipSourcesTool = (graphId: string, embeddingModel: Embe
                         relationshipIds,
                         limit,
                         cursor,
+                        onConsideredFileIds: options.onConsideredFileIds,
                     })
             ),
     });
 
-export const getSourceFileMetadataTool = (graphId: string) =>
+export const getSourceFileMetadataTool = (graphId: string, options: SourceToolOptions = {}) =>
     tool({
         description:
             "Inspect the file metadata behind source IDs. Use this to judge source relevance, authority, document type, dates, binding status, or other document-level context.",
@@ -429,6 +464,7 @@ export const getSourceFileMetadataTool = (graphId: string) =>
                                 inArray(sourcesTable.id, ids)
                             )
                         );
+                    options.onConsideredFileIds?.(rows.map((row) => row.fileId));
 
                     return [
                         "## Source File Metadata",

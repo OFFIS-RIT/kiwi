@@ -84,6 +84,17 @@ export function canViewProjectFilesInGroup() {
     return true;
 }
 
+// Mirrors the API's assertCanManageGraphSuggestions: org graphs need an org
+// admin, team graphs accept team admins/moderators too. User-owned graphs are
+// excluded server-side and never appear in the Group domain model.
+export function canManageGraphSuggestionsInGroup(group: Group, context: RoleContext) {
+    if (group.scope === "organization") {
+        return context.isAdmin;
+    }
+
+    return context.isAdmin || hasTeamGraphAdminRole(group);
+}
+
 export function canAccessSystemAdmin({ isSystemAdmin }: SystemRoleContext) {
     return isSystemAdmin;
 }

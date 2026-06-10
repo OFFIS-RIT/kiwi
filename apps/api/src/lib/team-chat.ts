@@ -81,6 +81,7 @@ type TeamUsageContext = {
     totalTokens: number;
     inputTokens: number;
     outputTokens: number;
+    consideredFileIds: Set<string>;
     usedFileIds: Set<string>;
 };
 
@@ -124,6 +125,7 @@ function createTeamUsageContext(): TeamUsageContext {
         totalTokens: 0,
         inputTokens: 0,
         outputTokens: 0,
+        consideredFileIds: new Set(),
         usedFileIds: new Set(),
     };
 }
@@ -314,6 +316,7 @@ async function querySingleGraph(options: {
         graph_name: options.graph.graph_name,
         answer: result.text,
         source_ids: [...new Set(collectCitationSourceIds(result.text))],
+        considered_file_ids: [...(runtime.getAdditionalUsage?.().consideredFileIds ?? [])],
         usage: {
             totalTokens: result.totalUsage.totalTokens,
             inputTokens: result.totalUsage.inputTokens,
@@ -407,6 +410,9 @@ function buildTeamChatToolset(options: {
                     options.usageContext.totalTokens += result.usage.totalTokens ?? 0;
                     options.usageContext.inputTokens += result.usage.inputTokens ?? 0;
                     options.usageContext.outputTokens += result.usage.outputTokens ?? 0;
+                    for (const fileId of result.considered_file_ids) {
+                        options.usageContext.consideredFileIds.add(fileId);
+                    }
 
                     for (const sourceId of result.source_ids) {
                         options.citationContext.sourceGraphIds.set(sourceId, result.graph_id);
@@ -465,6 +471,7 @@ export async function getTeamChatRuntime(options: {
             totalTokens: usageContext.totalTokens,
             inputTokens: usageContext.inputTokens,
             outputTokens: usageContext.outputTokens,
+            consideredFileIds: usageContext.consideredFileIds,
             usedFileIds: usageContext.usedFileIds,
         }),
         tools: buildTeamChatToolset({
