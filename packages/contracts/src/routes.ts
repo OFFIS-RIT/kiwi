@@ -232,12 +232,59 @@ export type ChatRequestBody =
           id: string;
           message: ChatUIMessage;
           deep?: boolean;
+          modelId?: string;
       }
     | {
           id: string;
           messages: ChatUIMessage[];
           deep?: boolean;
+          modelId?: string;
       };
+
+export const AI_MODEL_TYPE_VALUES = ["text", "subagent", "extract", "embedding", "image", "audio", "video"] as const;
+export type AiModelType = (typeof AI_MODEL_TYPE_VALUES)[number];
+
+export const AI_MODEL_ADAPTER_VALUES = ["openai", "azure", "anthropic", "openaiAPI"] as const;
+export type AiModelAdapter = (typeof AI_MODEL_ADAPTER_VALUES)[number];
+
+export type PublicModelListItem = {
+    model_id: string;
+    display_name: string;
+};
+
+export type AdminModelListItem = PublicModelListItem & {
+    type: AiModelType;
+    adapter: AiModelAdapter;
+    provider_model: string;
+    is_default: boolean;
+    created_at: string;
+    updated_at: string;
+};
+
+export type ModelListSuccessData = PublicModelListItem[] | AdminModelListItem[];
+
+export type ModelCredentialsInput = {
+    apiKey: string;
+    url?: string;
+    resourceName?: string;
+};
+
+export type ModelCreateInput = {
+    model_id: string;
+    display_name: string;
+    type: AiModelType;
+    adapter: AiModelAdapter;
+    provider_model: string;
+    credentials: ModelCredentialsInput;
+    is_default?: boolean;
+};
+
+export type ModelPatchInput = {
+    display_name?: string;
+    adapter?: AiModelAdapter;
+    provider_model?: string;
+    credentials?: ModelCredentialsInput;
+};
 
 export type ChatSummaryItem = {
     id: string;

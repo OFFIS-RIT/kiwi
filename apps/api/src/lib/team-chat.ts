@@ -449,13 +449,17 @@ export async function getTeamChatRuntime(options: {
     user: AuthUser;
     team: TeamAccessTeam;
     questionContext: TeamQuestionContext;
+    requestedModelId?: string;
 }): Promise<TeamChatRuntime> {
     const [organizationPrompts, userPrompts, teamPrompts] = await Promise.all([
         listOrganizationPromptTexts(),
         listUserPromptTexts(options.user.id),
         listTeamPromptTexts(options.team.id),
     ]);
-    const client = getRequiredResearchClient();
+    const client = await getRequiredResearchClient({
+        organizationId: options.team.organizationId,
+        requestedModelId: options.requestedModelId,
+    });
     const citationContext = createTeamCitationContext();
     const usageContext = createTeamUsageContext();
     const requestInformation = createUserRequestInformation(options.user);
@@ -601,7 +605,12 @@ export async function startTeamReply(
     });
 
     const questionContext = createTeamQuestionContext([]);
-    const runtime = await getTeamChatRuntime({ user, team, questionContext });
+    const runtime = await getTeamChatRuntime({
+        user,
+        team,
+        questionContext,
+        requestedModelId: normalizedRequest.modelId,
+    });
     const { contextMessages, systemPrompt } = await refreshTeamReplyContext({
         chatId: normalizedRequest.id,
         runtime,

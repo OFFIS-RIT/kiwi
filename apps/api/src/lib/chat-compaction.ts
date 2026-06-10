@@ -35,6 +35,7 @@ export type ChatRequest = ChatRequestBody;
 export type NormalizedChatRequest = {
     id: string;
     deep?: boolean;
+    modelId?: string;
     latestMessage: ChatUIMessage;
     titleMessages: ChatUIMessage[];
 };
@@ -48,6 +49,7 @@ export type ChatRuntime = {
     client: Client & {
         text: NonNullable<Client["text"]>;
         embedding: NonNullable<Client["embedding"]>;
+        textModelId: string;
     };
     tools: Record<string, unknown>;
     promptGuidance?: ScopedPromptGuidance;
@@ -107,6 +109,7 @@ export function normalizeChatRequest(request: ChatRequest): NormalizedChatReques
         return {
             id: request.id,
             deep: request.deep,
+            modelId: request.modelId,
             latestMessage: request.message,
             titleMessages: [request.message],
         };
@@ -116,6 +119,7 @@ export function normalizeChatRequest(request: ChatRequest): NormalizedChatReques
         return {
             id: request.id,
             deep: request.deep,
+            modelId: request.modelId,
             latestMessage: request.messages[request.messages.length - 1]!,
             titleMessages: request.messages,
         };

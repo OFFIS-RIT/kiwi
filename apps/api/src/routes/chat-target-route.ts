@@ -45,11 +45,13 @@ const requestBodySchema = t.Union([
         id: t.String(),
         message: t.Any(),
         deep: t.Optional(t.Boolean()),
+        modelId: t.Optional(t.String()),
     }),
     t.Object({
         id: t.String(),
         messages: t.Array(t.Any()),
         deep: t.Optional(t.Boolean()),
+        modelId: t.Optional(t.String()),
     }),
 ]);
 

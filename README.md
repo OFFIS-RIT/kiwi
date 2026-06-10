@@ -269,45 +269,21 @@ Copy `.env.sample` to `.env` and configure:
 | `S3_SECRET_ACCESS_KEY`             | S3 secret key                                                           |
 | `S3_BUCKET`                        | S3 bucket name                                                          |
 | `CONTEXT_WINDOW`                   | Required text/chat model context window; compaction starts at 70%        |
-| `AI_TEXT_ADAPTER`                  | Text model adapter: `openai`, `azure`, `anthropic`, `openaiAPI`         |
-| `AI_TEXT_MODEL`                    | Text model name                                                         |
-| `AI_TEXT_KEY`                      | Text model API key                                                      |
-| `AI_TEXT_URL`                      | Optional OpenAI-compatible text endpoint                                |
-| `AI_TEXT_RESOURCE_NAME`            | Azure resource name for text models                                     |
-| `AI_EXTRACT_ADAPTER`               | Optional worker-only text adapter; set with extract model and key       |
-| `AI_EXTRACT_MODEL`                 | Optional worker-only text model; set with extract adapter and key       |
-| `AI_EXTRACT_KEY`                   | Optional worker-only text API key; set with extract adapter and model   |
-| `AI_EXTRACT_URL`                   | Optional worker-only text endpoint                                     |
-| `AI_EXTRACT_RESOURCE_NAME`         | Azure worker-only text resource; required for Azure extract config      |
-| `AI_EMBEDDING_ADAPTER`             | Embedding adapter: `openai`, `azure`, `openaiAPI`                       |
-| `AI_EMBEDDING_MODEL`               | Embedding model name                                                    |
-| `AI_EMBEDDING_KEY`                 | Embedding API key                                                       |
-| `AI_EMBEDDING_URL`                 | Optional OpenAI-compatible embedding endpoint                           |
-| `AI_EMBEDDING_RESOURCE_NAME`       | Azure resource name for embeddings                                      |
-| `AI_IMAGE_ADAPTER`                 | Optional image / vision model adapter                                   |
-| `AI_IMAGE_MODEL`                   | Optional image / vision model name                                      |
-| `AI_IMAGE_KEY`                     | Optional image / vision model API key                                   |
-| `AI_IMAGE_URL`                     | Optional OpenAI-compatible image / vision endpoint                      |
-| `AI_IMAGE_RESOURCE_NAME`           | Optional Azure resource name for image / vision models                  |
-| `AI_AUDIO_ADAPTER`                 | Optional audio model adapter                                            |
-| `AI_AUDIO_MODEL`                   | Optional audio model name                                               |
-| `AI_AUDIO_KEY`                     | Optional audio model API key                                            |
-| `AI_AUDIO_URL`                     | Optional OpenAI-compatible audio endpoint                               |
-| `AI_AUDIO_RESOURCE_NAME`           | Optional Azure resource name for audio models                           |
-| `AI_VIDEO_ADAPTER`                 | Optional video model adapter                                            |
-| `AI_VIDEO_MODEL`                   | Optional video model name                                               |
-| `AI_VIDEO_KEY`                     | Optional video model API key                                            |
-| `AI_VIDEO_URL`                     | Optional OpenAI-compatible video endpoint                               |
-| `AI_VIDEO_RESOURCE_NAME`           | Optional Azure resource name for video models                           |
 | `AI_TEXT_CONCURRENCY`              | Worker-local maximum concurrent text requests                           |
 | `AI_IMAGE_CONCURRENCY`             | Worker-local maximum concurrent image requests                          |
 | `AI_EMBEDDING_CONCURRENCY`         | Worker-local maximum concurrent embedding requests                      |
 | `AI_AUDIO_CONCURRENCY`             | Worker-local maximum concurrent audio requests                          |
 | `AI_VIDEO_CONCURRENCY`             | Worker-local maximum concurrent video requests                          |
-| `AI_EMBED_DIM`                     | Embedding dimension used by migrations                                  |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`      | Optional OTLP endpoint fallback for log export                          |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Optional OTLP logs endpoint                                             |
 | `OTEL_EXPORTER_OTLP_HEADERS`       | Optional OTLP export headers                                            |
+
+AI model adapters, provider model names, and provider credentials are managed
+per organization through the `/models` API. Model credentials are encrypted with
+`AUTH_SECRET` before being stored in PostgreSQL. Existing `AI_*` model
+environment variables are still read during startup as a bootstrap source: when
+an organization has no row for a model type, Kiwi seeds one from those legacy
+variables and then uses the database-backed configuration.
 
 ### Authentication Mode (Credentials vs LDAP)
 
