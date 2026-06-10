@@ -1,5 +1,5 @@
 import type { AuthMode } from "@kiwi/auth/mode";
-import { Archive, KeyRound, Lightbulb, Palette, Users, UserCircle } from "lucide-react";
+import { Archive, KeyRound, Lightbulb, Palette, ScrollText, SlidersHorizontal, Users, UserCircle } from "lucide-react";
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 
@@ -7,12 +7,15 @@ import { AccountSection } from "./sections/AccountSection";
 import { ApiKeysSection } from "./sections/ApiKeysSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
 import { ArchivedChatsSection } from "./sections/ArchivedChatsSection";
+import { PersonalizationSection } from "./sections/PersonalizationSection";
+import { PromptsSection } from "./sections/PromptsSection";
 import { SuggestionsSection } from "./sections/SuggestionsSection";
 import { UserManagementSection } from "./sections/UserManagementSection";
 
 export type SettingsVisibilityContext = {
     isSystemAdmin: boolean;
     canManageSuggestions: boolean;
+    canManagePrompts: boolean;
     authMode: AuthMode;
 };
 
@@ -51,6 +54,12 @@ export const settingsCategories: SettingsCategoryDef[] = [
                 Component: AppearanceSection,
             },
             {
+                id: "personalization",
+                labelKey: "settings.personalization.title",
+                icon: SlidersHorizontal,
+                Component: PersonalizationSection,
+            },
+            {
                 id: "api-keys",
                 labelKey: "apiKey.management",
                 icon: KeyRound,
@@ -74,6 +83,13 @@ export const settingsCategories: SettingsCategoryDef[] = [
                 icon: Lightbulb,
                 Component: SuggestionsSection,
                 isVisible: (context) => context.canManageSuggestions,
+            },
+            {
+                id: "prompts",
+                labelKey: "settings.prompts.title",
+                icon: ScrollText,
+                Component: PromptsSection,
+                isVisible: (context) => context.canManagePrompts,
             },
         ],
     },
@@ -109,7 +125,14 @@ const ALL_AUTH_MODES: AuthMode[] = ["credentials", "ldap"];
 
 function enumerateContexts(isSystemAdmin: boolean): SettingsVisibilityContext[] {
     return ALL_AUTH_MODES.flatMap((authMode) =>
-        [false, true].map((canManageSuggestions) => ({ isSystemAdmin, canManageSuggestions, authMode }))
+        [false, true].flatMap((canManageSuggestions) =>
+            [false, true].map((canManagePrompts) => ({
+                isSystemAdmin,
+                canManageSuggestions,
+                canManagePrompts,
+                authMode,
+            }))
+        )
     );
 }
 

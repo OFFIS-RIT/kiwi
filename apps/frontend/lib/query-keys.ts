@@ -7,6 +7,7 @@ export const queryKeys = {
     projectFiles: (projectId: string) => ["project-files", projectId] as const,
     projectSuggestions: (projectId: string) => ["project-suggestions", projectId] as const,
     organizationMembers: ["organization-members"] as const,
+    prompts: (scopeKind: string, scopeId: string) => ["prompts", scopeKind, scopeId] as const,
     search: (query: string) => ["search", query] as const,
     pinnedChats: ["pinned-chats"] as const,
     archivedChats: ["archived-chats"] as const,

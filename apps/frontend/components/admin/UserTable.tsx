@@ -16,10 +16,11 @@ import {
 import { useAuthClient } from "@/providers/AuthClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
-import { Ban, ChevronLeft, ChevronRight, Loader2, Pencil, Search, ShieldCheck } from "lucide-react";
+import { Ban, ChevronLeft, ChevronRight, Loader2, Pencil, ScrollText, Search, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { EditUserDialog } from "./EditUserDialog";
+import { UserPromptsDialog } from "./UserPromptsDialog";
 
 export type User = {
     id: string;
@@ -51,6 +52,7 @@ export function UserTable() {
     const [searchValue, setSearchValue] = useState("");
     const [offset, setOffset] = useState(0);
     const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [promptsUser, setPromptsUser] = useState<User | null>(null);
 
     const limit = 20;
 
@@ -250,6 +252,16 @@ export function UserTable() {
                                     <Button
                                         variant="ghost"
                                         size="icon"
+                                        className="h-8 w-8"
+                                        onClick={() => setPromptsUser(user)}
+                                        title={t("admin.user.prompts")}
+                                    >
+                                        <ScrollText className="h-3.5 w-3.5" />
+                                    </Button>
+
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
                                         className={`h-8 w-8 ${user.banned ? "text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950" : "text-destructive hover:bg-destructive/10"}`}
                                         onClick={() => handleBanToggle(user)}
                                         disabled={user.id === currentUser?.id}
@@ -303,6 +315,15 @@ export function UserTable() {
                     }
                 }}
                 onUpdated={() => void loadAllUsers()}
+            />
+
+            <UserPromptsDialog
+                user={promptsUser}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPromptsUser(null);
+                    }
+                }}
             />
         </div>
     );

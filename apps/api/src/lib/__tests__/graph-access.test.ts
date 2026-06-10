@@ -46,7 +46,9 @@ const {
     assertCanPatchGraph,
     assertCanViewGraph,
 } = await import("../graph-access");
-const { assertCanManageGraphPrompts, assertCanManageUserPrompts } = await import("../prompt-access");
+const { assertCanManageGraphPrompts, assertCanManageOrganizationPrompts, assertCanManageUserPrompts } = await import(
+    "../prompt-access"
+);
 
 type AuthUser = Parameters<typeof assertCanViewGraph>[0];
 type GraphRecord = Awaited<ReturnType<typeof assertCanViewGraph>>;
@@ -227,6 +229,30 @@ describe("graph access", () => {
         queueDbResults([]);
 
         await expect(assertCanManageUserPrompts(buildUser(), "user-2")).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+    });
+
+    test("allows system admins to manage organization prompts", async () => {
+        queueDbResults([organization]);
+
+        await expect(
+            assertCanManageOrganizationPrompts(buildUser({ isSystemAdmin: true, role: "admin" }), "org-1")
+        ).resolves.toEqual(organization);
+    });
+
+    test("rejects organization prompt management for non-system-admins without touching the database", async () => {
+        // No queued DB result: the permission gate must run before the org
+        // lookup so non-admins cannot probe organization ID validity.
+        await expect(assertCanManageOrganizationPrompts(buildUser(), "org-1")).rejects.toThrow(
+            API_ERROR_CODES.FORBIDDEN
+        );
+    });
+
+    test("rejects organization prompt management for unknown organizations", async () => {
+        queueDbResults([]);
+
+        await expect(
+            assertCanManageOrganizationPrompts(buildUser({ isSystemAdmin: true, role: "admin" }), "org-missing")
+        ).rejects.toThrow(API_ERROR_CODES.ORGANIZATION_NOT_FOUND);
     });
 
     test("allows organization admins to manage organization graphs", async () => {

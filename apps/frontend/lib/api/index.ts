@@ -95,6 +95,10 @@ export {
     updateProject,
 } from "./projects";
 
+// Re-export prompts API
+export { createPrompt, deletePrompt, fetchPrompts, savePromptText, updatePrompt } from "./prompts";
+export type { PromptRecord, PromptScope } from "./prompts";
+
 // Re-export types for convenience
 export type {
     ApiGraph,

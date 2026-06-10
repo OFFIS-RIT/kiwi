@@ -98,3 +98,14 @@ export function canManageGraphSuggestionsInGroup(group: Group, context: RoleCont
 export function canAccessSystemAdmin({ isSystemAdmin }: SystemRoleContext) {
     return isSystemAdmin;
 }
+
+// Mirrors the API's prompt access rules: the Organization Prompt and prompts
+// of organization-owned graphs need a system admin; team and team-graph
+// prompts need a team admin (moderators are excluded) or an org/system admin.
+export function canManageGroupPromptsInGroup(group: Group, context: RoleContext & SystemRoleContext) {
+    if (group.scope === "organization") {
+        return context.isSystemAdmin;
+    }
+
+    return context.isAdmin || group.role === "admin";
+}

@@ -1,2 +1,1 @@
-export const MAX_PROMPT_LENGTH = 20_000;
-export const MAX_PROMPTS_PER_SCOPE = 5;
+export { MAX_PROMPT_LENGTH, MAX_PROMPTS_PER_SCOPE } from "@kiwi/contracts";

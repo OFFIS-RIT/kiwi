@@ -1,11 +1,12 @@
 import { db } from "@kiwi/db";
-import { teamPromptsTable, userPromptsTable } from "@kiwi/db/tables/auth";
+import { organizationPromptsTable, teamPromptsTable, userPromptsTable } from "@kiwi/db/tables/auth";
 import { graphPromptsTable } from "@kiwi/db/tables/graph";
 import { Result } from "better-result";
 import { and, asc, eq } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import {
     assertCanManageGraphPrompts,
+    assertCanManageOrganizationPrompts,
     assertCanManageTeamPrompts,
     assertCanManageUserPrompts,
 } from "../lib/prompt-access";
@@ -59,6 +60,8 @@ function mapPromptError(status: RouteStatus, error: unknown) {
             return status(400, errorResponse("Invalid graph owner chain", API_ERROR_CODES.INVALID_GRAPH_OWNER));
         case API_ERROR_CODES.TEAM_NOT_FOUND:
             return status(404, errorResponse("Team not found", API_ERROR_CODES.TEAM_NOT_FOUND));
+        case API_ERROR_CODES.ORGANIZATION_NOT_FOUND:
+            return status(404, errorResponse("Organization not found", API_ERROR_CODES.ORGANIZATION_NOT_FOUND));
         case API_ERROR_CODES.PROMPT_NOT_FOUND:
             return status(404, errorResponse("Prompt not found", API_ERROR_CODES.PROMPT_NOT_FOUND));
         case API_ERROR_CODES.INVALID_PROMPT:
@@ -200,6 +203,13 @@ const teamPromptFields = {
     prompt: teamPromptsTable.prompt,
     createdAt: teamPromptsTable.createdAt,
     updatedAt: teamPromptsTable.updatedAt,
+};
+
+const organizationPromptFields = {
+    id: organizationPromptsTable.id,
+    prompt: organizationPromptsTable.prompt,
+    createdAt: organizationPromptsTable.createdAt,
+    updatedAt: organizationPromptsTable.updatedAt,
 };
 
 const graphPromptFields = {
@@ -425,6 +435,122 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
         {
             params: t.Object({
                 teamId: t.String(),
+                promptId: t.String(),
+            }),
+        }
+    )
+    .get(
+        "/organizations/:organizationId",
+        ({ params, status, user }) =>
+            listPromptResponse(status, user, async (currentUser) => {
+                await assertCanManageOrganizationPrompts(currentUser, params.organizationId);
+
+                return db
+                    .select(organizationPromptFields)
+                    .from(organizationPromptsTable)
+                    .where(eq(organizationPromptsTable.organizationId, params.organizationId))
+                    .orderBy(asc(organizationPromptsTable.createdAt), asc(organizationPromptsTable.id));
+            }),
+        {
+            params: t.Object({
+                organizationId: t.String(),
+            }),
+        }
+    )
+    .post(
+        "/organizations/:organizationId",
+        ({ body, params, status, user }) =>
+            writePromptResponse(
+                status,
+                user,
+                body.prompt,
+                201,
+                API_ERROR_CODES.INTERNAL_SERVER_ERROR,
+                async (currentUser, rawPrompt) => {
+                    await assertCanManageOrganizationPrompts(currentUser, params.organizationId);
+                    const prompt = normalizePrompt(rawPrompt);
+
+                    return db.transaction(
+                        async (tx) => {
+                            await assertPromptCountBelowLimit(() =>
+                                tx
+                                    .select({ id: organizationPromptsTable.id })
+                                    .from(organizationPromptsTable)
+                                    .where(eq(organizationPromptsTable.organizationId, params.organizationId))
+                                    .limit(MAX_PROMPTS_PER_SCOPE)
+                            );
+
+                            const [row] = await tx
+                                .insert(organizationPromptsTable)
+                                .values({ organizationId: params.organizationId, prompt })
+                                .returning(organizationPromptFields);
+                            return row;
+                        },
+                        { isolationLevel: "serializable" }
+                    );
+                }
+            ),
+        {
+            params: t.Object({
+                organizationId: t.String(),
+            }),
+            body: promptBody,
+        }
+    )
+    .patch(
+        "/organizations/:organizationId/:promptId",
+        ({ body, params, status, user }) =>
+            writePromptResponse(
+                status,
+                user,
+                body.prompt,
+                200,
+                API_ERROR_CODES.PROMPT_NOT_FOUND,
+                async (currentUser, rawPrompt) => {
+                    await assertCanManageOrganizationPrompts(currentUser, params.organizationId);
+                    const prompt = normalizePrompt(rawPrompt);
+
+                    const [row] = await db
+                        .update(organizationPromptsTable)
+                        .set({ prompt })
+                        .where(
+                            and(
+                                eq(organizationPromptsTable.id, params.promptId),
+                                eq(organizationPromptsTable.organizationId, params.organizationId)
+                            )
+                        )
+                        .returning(organizationPromptFields);
+                    return row;
+                }
+            ),
+        {
+            params: t.Object({
+                organizationId: t.String(),
+                promptId: t.String(),
+            }),
+            body: promptBody,
+        }
+    )
+    .delete(
+        "/organizations/:organizationId/:promptId",
+        ({ params, status, user }) =>
+            deletePromptResponse(status, user, async (currentUser) => {
+                await assertCanManageOrganizationPrompts(currentUser, params.organizationId);
+
+                const [row] = await db
+                    .delete(organizationPromptsTable)
+                    .where(
+                        and(
+                            eq(organizationPromptsTable.id, params.promptId),
+                            eq(organizationPromptsTable.organizationId, params.organizationId)
+                        )
+                    )
+                    .returning({ id: organizationPromptsTable.id });
+                return row;
+            }),
+        {
+            params: t.Object({
+                organizationId: t.String(),
                 promptId: t.String(),
             }),
         }

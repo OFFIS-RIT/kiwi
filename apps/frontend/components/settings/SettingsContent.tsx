@@ -1,5 +1,6 @@
 "use client";
 
+import { useCanManagePrompts } from "@/hooks/use-prompt-access";
 import { useCanManageSuggestions } from "@/hooks/use-suggestion-access";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useAuth } from "@/providers/AuthProvider";
@@ -13,10 +14,15 @@ export function SettingsContent() {
     const { authMode } = useRuntimeConfig();
     const { activeSection } = useSettings();
     const { canManageSuggestions, isLoading: isSuggestionAccessLoading } = useCanManageSuggestions();
+    const { canManagePrompts, isLoading: isPromptAccessLoading } = useCanManagePrompts();
 
-    // The Suggestions Section's visibility depends on the groups query; until
-    // it resolves, a deep link would briefly render the fallback Section.
-    if (isSuggestionAccessLoading && activeSection === "suggestions") {
+    // The Suggestions and Prompts Sections' visibility depends on the groups
+    // query; until it resolves, a deep link would briefly render the fallback
+    // Section.
+    if (
+        (isSuggestionAccessLoading && activeSection === "suggestions") ||
+        (isPromptAccessLoading && activeSection === "prompts")
+    ) {
         return (
             <div className="flex h-full items-center justify-center">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -24,7 +30,12 @@ export function SettingsContent() {
         );
     }
 
-    const section = resolveActiveSettingsSection(activeSection, { isSystemAdmin, canManageSuggestions, authMode });
+    const section = resolveActiveSettingsSection(activeSection, {
+        isSystemAdmin,
+        canManageSuggestions,
+        canManagePrompts,
+        authMode,
+    });
     if (!section) {
         return null;
     }

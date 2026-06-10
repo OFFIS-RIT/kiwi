@@ -22,6 +22,7 @@ describe("prompt guidance", () => {
         ];
 
         const nextMessages = insertPromptGuidanceMessage(messages, {
+            organizationPrompts: ["Always answer in German."],
             userPrompts: ["Prefer concise answers."],
             teamPrompts: ["Use the team's glossary."],
             graphPrompts: ["ACME means Acme Corp."],
@@ -31,6 +32,7 @@ describe("prompt guidance", () => {
         expect(nextMessages[0]).toBe(messages[0]);
         expect(nextMessages[1]).toBe(messages[1]);
         expect(nextMessages[2]?.role).toBe("user");
+        expect(nextMessages[2]?.content).toContain("## Organization Specific Prompts");
         expect(nextMessages[2]?.content).toContain("## User Specific Prompts");
         expect(nextMessages[2]?.content).toContain("## Team Specific Prompts");
         expect(nextMessages[2]?.content).toContain("## Graph Specific Prompts");
