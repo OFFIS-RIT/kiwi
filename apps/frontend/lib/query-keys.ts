@@ -5,6 +5,8 @@ export const queryKeys = {
     projectChats: (projectId: string) => ["project-chats", projectId] as const,
     teamChats: (teamId: string) => ["team-chats", teamId] as const,
     projectFiles: (projectId: string) => ["project-files", projectId] as const,
+    projectSuggestions: (projectId: string) => ["project-suggestions", projectId] as const,
+    organizationMembers: ["organization-members"] as const,
     search: (query: string) => ["search", query] as const,
     pinnedChats: ["pinned-chats"] as const,
     archivedChats: ["archived-chats"] as const,

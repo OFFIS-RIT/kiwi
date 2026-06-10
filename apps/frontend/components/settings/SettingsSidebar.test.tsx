@@ -2,14 +2,19 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { isSystemAdmin, setActiveSection, push } = vi.hoisted(() => ({
+const { isSystemAdmin, canManageSuggestions, setActiveSection, push } = vi.hoisted(() => ({
     isSystemAdmin: { value: false },
+    canManageSuggestions: { value: false },
     setActiveSection: vi.fn(),
     push: vi.fn(),
 }));
 
 vi.mock("@/providers/AuthProvider", () => ({
     useAuth: () => ({ isSystemAdmin: isSystemAdmin.value }),
+}));
+
+vi.mock("@/hooks/use-suggestion-access", () => ({
+    useCanManageSuggestions: () => canManageSuggestions.value,
 }));
 
 vi.mock("@/providers/SettingsProvider", () => ({
@@ -43,6 +48,7 @@ describe("SettingsSidebar", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         isSystemAdmin.value = false;
+        canManageSuggestions.value = false;
     });
 
     test("shows General Sections and the Back to app action for a regular credentials user", () => {
@@ -70,6 +76,22 @@ describe("SettingsSidebar", () => {
 
         expect(screen.getByText("System-Admin")).toBeInTheDocument();
         expect(screen.getByText("Benutzerverwaltung")).toBeInTheDocument();
+    });
+
+    test("hides the Administration Category without suggestion management rights", () => {
+        renderSidebar();
+
+        expect(screen.queryByText("Administration")).not.toBeInTheDocument();
+        expect(screen.queryByText("Vorschläge")).not.toBeInTheDocument();
+    });
+
+    test("shows the Administration Category with Suggestions for suggestion managers", () => {
+        canManageSuggestions.value = true;
+
+        renderSidebar();
+
+        expect(screen.getByText("Administration")).toBeInTheDocument();
+        expect(screen.getByText("Vorschläge")).toBeInTheDocument();
     });
 
     test("hides the Account Section in LDAP mode", () => {

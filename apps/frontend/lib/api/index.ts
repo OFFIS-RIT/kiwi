@@ -61,12 +61,14 @@ export {
 // Re-export projects API
 export {
     addFilesToProject,
+    applyProjectSuggestion,
     archiveProjectChat,
     archiveTeamChat,
     createProject,
     deleteProject,
     deleteProjectChat,
     deleteProjectFiles,
+    deleteProjectSuggestion,
     deleteTeamChat,
     downloadProjectFile,
     fetchArchivedChats,
@@ -76,6 +78,7 @@ export {
     fetchProjectChatsPage,
     fetchProjectDetail,
     fetchProjectFiles,
+    fetchProjectSuggestions,
     fetchSourceReference,
     fetchSourceReferences,
     fetchTextUnit,

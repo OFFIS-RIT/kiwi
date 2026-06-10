@@ -1,5 +1,6 @@
 "use client";
 
+import { useCanManageSuggestions } from "@/hooks/use-suggestion-access";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { useSettings } from "@/providers/SettingsProvider";
@@ -10,8 +11,9 @@ export function SettingsContent() {
     const { isSystemAdmin } = useAuth();
     const { authMode } = useRuntimeConfig();
     const { activeSection } = useSettings();
+    const canManageSuggestions = useCanManageSuggestions();
 
-    const section = resolveActiveSettingsSection(activeSection, { isSystemAdmin, authMode });
+    const section = resolveActiveSettingsSection(activeSection, { isSystemAdmin, canManageSuggestions, authMode });
     if (!section) {
         return null;
     }
