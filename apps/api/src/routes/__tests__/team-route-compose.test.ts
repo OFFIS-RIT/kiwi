@@ -14,6 +14,7 @@ mock.module("@kiwi/files", () => ({
 }));
 
 mock.module("@kiwi/logger", () => ({
+    debug: () => undefined,
     error: () => undefined,
     info: () => undefined,
     warn: () => undefined,
@@ -36,9 +37,32 @@ mock.module("../../lib/graph", () => ({
 }));
 
 mock.module("../../lib/team-access", () => ({
+    getActiveOrganizationId: async () => "org-1",
+    getOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
+    getTeamInActiveOrganization: async (_user: unknown, teamId: string) => ({
+        id: teamId,
+        name: "Team",
+        organizationId: "org-1",
+    }),
+    getTeamRole: async () => "admin",
     requireOrganizationAdmin: async () => ({ organizationId: "org-1" }),
     requireOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
     requireTeamAccess: async (_user: unknown, teamId: string) => ({
+        organizationAdmin: true,
+        role: "admin",
+        team: { id: teamId, name: "Team", organizationId: "org-1" },
+    }),
+    requireTeamGraphCreateAccess: async (_user: unknown, teamId: string) => ({
+        organizationAdmin: true,
+        role: "admin",
+        team: { id: teamId, name: "Team", organizationId: "org-1" },
+    }),
+    requireTeamGraphFileManageAccess: async (_user: unknown, teamId: string) => ({
+        organizationAdmin: true,
+        role: "admin",
+        team: { id: teamId, name: "Team", organizationId: "org-1" },
+    }),
+    requireTeamGraphManageAccess: async (_user: unknown, teamId: string) => ({
         organizationAdmin: true,
         role: "admin",
         team: { id: teamId, name: "Team", organizationId: "org-1" },

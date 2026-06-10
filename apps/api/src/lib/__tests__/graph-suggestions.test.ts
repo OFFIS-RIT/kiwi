@@ -1,15 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("@kiwi/ai", () => ({
-    estimateToken: (text: string) => text.length,
-    getClient: () => ({ embedding: {} }),
-    withAiSlot: async (_capability: string, run: () => Promise<unknown>) => run(),
-}));
-
-mock.module("@kiwi/ai/models", () => ({
-    resolveRequiredEmbeddingModelAdapter: async () => ({ adapter: { provider: "openai", model: "text-embedding-3-small" } }),
-}));
-
 mock.module("ai", () => ({
     embed: async () => ({ embedding: [0.1, 0.2, 0.3] }),
 }));
@@ -29,6 +19,7 @@ mock.module("@kiwi/files", () => ({
 }));
 
 mock.module("@kiwi/logger", () => ({
+    debug: () => undefined,
     error: () => undefined,
     info: () => undefined,
     warn: () => undefined,
@@ -65,7 +56,16 @@ mock.module("../graph-access", () => ({
 
 mock.module("../team-access", () => ({
     getActiveOrganizationId: async () => "org-1",
+    getOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
+    getTeamInActiveOrganization: async () => ({ id: "team-1", name: "Team", organizationId: "org-1" }),
+    getTeamRole: async () => "admin",
+    requireOrganizationAdmin: async () => ({ organizationId: "org-1" }),
     requireOrganizationMembership: async () => undefined,
+    requireTeamAccess: async () => ({ organizationAdmin: true, role: "admin" }),
+    requireTeamGraphCreateAccess: async () => undefined,
+    requireTeamGraphFileManageAccess: async () => undefined,
+    requireTeamGraphManageAccess: async () => undefined,
+    requireTeamMemberManageAccess: async () => undefined,
 }));
 
 const {
@@ -78,6 +78,21 @@ const {
 const { API_ERROR_CODES } = await import("../../types");
 
 mock.restore();
+
+const encryptedModelCredentials = "v1:G183hwnvbORsT9EW:kHjjs9mrWpOCxQQ1AODT1w:EVGQ3pTv5NW_68o_oii3Z4EQLD3KOQ";
+const embeddingModelRow = {
+    id: "embedding-model-1",
+    organizationId: "org-1",
+    modelId: "embedding-default",
+    displayName: "Embedding default",
+    type: "embedding",
+    adapter: "openai",
+    providerModel: "text-embedding-3-small",
+    encryptedCredentials: encryptedModelCredentials,
+    isDefault: true,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+};
 
 describe("graph suggestion apply helpers", () => {
     beforeEach(() => {
@@ -177,7 +192,12 @@ describe("graph suggestion apply helpers", () => {
             createdAt: new Date("2026-01-01T00:00:00.000Z"),
             updatedAt: new Date("2026-01-01T00:00:00.000Z"),
         };
-        const selectResults = [[pendingEntitySuggestion], [{ id: "entity-1" }], [pendingEntitySuggestion]];
+        const selectResults = [
+            [pendingEntitySuggestion],
+            [{ id: "entity-1" }],
+            [embeddingModelRow],
+            [pendingEntitySuggestion],
+        ];
 
         dbMock.select = mock(() => ({
             from: () => ({

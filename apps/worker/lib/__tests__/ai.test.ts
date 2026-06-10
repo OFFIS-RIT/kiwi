@@ -1,26 +1,19 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { API_ERROR_CODES } from "@kiwi/contracts/responses";
 
-let clientMockResult: unknown = {
-    text: { kind: "text" },
-    embedding: { kind: "embedding" },
-};
-const getClientMock = mock(() => clientMockResult);
-const resolveGraphModelOrganizationIdMock = mock(async () => "organization-1");
-const resolveWorkerModelConfigMock = mock(async () => ({
-    config: {
-        text: { type: "openai", model: "gpt-extract", credentials: { apiKey: "key" } },
-        embedding: { type: "openai", model: "text-embedding", credentials: { apiKey: "key" } },
+let queuedSelectRows: unknown[][] = [];
+const selectMock = mock(() => ({
+    from: () => ({
+        where: () => ({
+            limit: async () => queuedSelectRows.shift() ?? [],
+        }),
+    }),
+}));
+
+mock.module("@kiwi/db", () => ({
+    db: {
+        select: selectMock,
     },
-}));
-
-mock.module("@kiwi/ai", () => ({
-    getClient: getClientMock,
-}));
-
-mock.module("@kiwi/ai/models", () => ({
-    resolveGraphModelOrganizationId: resolveGraphModelOrganizationIdMock,
-    resolveWorkerModelConfig: resolveWorkerModelConfigMock,
 }));
 
 mock.module("../../env", () => ({
@@ -31,38 +24,54 @@ mock.module("../../env", () => ({
 
 const { createWorkerClient } = await import("../ai");
 
+const encryptedModelCredentials = "v1:G183hwnvbORsT9EW:kHjjs9mrWpOCxQQ1AODT1w:EVGQ3pTv5NW_68o_oii3Z4EQLD3KOQ";
+
+function modelRow(type: "extract" | "embedding", modelId: string, providerModel: string) {
+    return {
+        id: `${type}-${modelId}`,
+        organizationId: "organization-1",
+        modelId,
+        displayName: modelId,
+        type,
+        adapter: "openai",
+        providerModel,
+        encryptedCredentials: encryptedModelCredentials,
+        isDefault: true,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    };
+}
+
+function queueWorkerModelRows(options: { includeTextModel: boolean }) {
+    queuedSelectRows = [
+        [{ id: "graph-1", organizationId: "organization-1", teamId: null, userId: null, graphId: null }],
+        options.includeTextModel ? [modelRow("extract", "extract-default", "gpt-extract")] : [],
+        [],
+        [modelRow("embedding", "embedding-default", "text-embedding-3-small")],
+        [],
+        [],
+        [],
+    ];
+}
+
 describe("createWorkerClient", () => {
     beforeEach(() => {
-        getClientMock.mockClear();
-        resolveGraphModelOrganizationIdMock.mockClear();
-        resolveWorkerModelConfigMock.mockClear();
-        clientMockResult = {
-            text: { kind: "text" },
-            embedding: { kind: "embedding" },
-        };
+        queuedSelectRows = [];
+        selectMock.mockClear();
     });
 
     test("resolves the graph organization and builds a required worker client", async () => {
+        queueWorkerModelRows({ includeTextModel: true });
+
         const client = await createWorkerClient("graph-1");
 
-        expect(resolveGraphModelOrganizationIdMock).toHaveBeenCalledWith("graph-1");
-        expect(resolveWorkerModelConfigMock).toHaveBeenCalledWith({
-            organizationId: "organization-1",
-            secret: "test-auth-secret",
-        });
-        expect(getClientMock).toHaveBeenCalledWith({
-            text: { type: "openai", model: "gpt-extract", credentials: { apiKey: "key" } },
-            embedding: { type: "openai", model: "text-embedding", credentials: { apiKey: "key" } },
-        });
-        expect(client.text as unknown).toEqual({ kind: "text" });
-        expect(client.embedding as unknown).toEqual({ kind: "embedding" });
+        expect(client.text.provider.startsWith("openai.")).toBe(true);
+        expect(client.embedding.provider).toBe("openai.embedding");
+        expect(selectMock).toHaveBeenCalledTimes(7);
     });
 
-    test("fails when required worker models cannot be instantiated", async () => {
-        clientMockResult = {
-            text: undefined,
-            embedding: { kind: "embedding" },
-        };
+    test("fails when required worker models are missing", async () => {
+        queueWorkerModelRows({ includeTextModel: false });
 
         await expect(createWorkerClient("graph-1")).rejects.toThrow(API_ERROR_CODES.MODEL_NOT_CONFIGURED);
     });
