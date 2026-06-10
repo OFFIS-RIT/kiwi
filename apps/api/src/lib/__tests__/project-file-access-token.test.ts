@@ -10,12 +10,6 @@ mock.module("../../env", () => ({
         S3_REGION: "test",
         S3_BUCKET: "test",
         CONTEXT_WINDOW: 250_000,
-        AI_TEXT_ADAPTER: "openai",
-        AI_TEXT_MODEL: "test",
-        AI_TEXT_KEY: "test",
-        AI_EMBEDDING_ADAPTER: "openai",
-        AI_EMBEDDING_MODEL: "test",
-        AI_EMBEDDING_KEY: "test",
     },
 }));
 

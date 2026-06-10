@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+mock.module("@kiwi/ai", () => ({
+    estimateToken: (text: string) => text.length,
+    getClient: () => ({ embedding: {} }),
+    withAiSlot: async (_capability: string, run: () => Promise<unknown>) => run(),
+}));
+
+mock.module("@kiwi/ai/models", () => ({
+    resolveRequiredEmbeddingModelAdapter: async () => ({ adapter: { provider: "openai", model: "text-embedding-3-small" } }),
+}));
+
 mock.module("ai", () => ({
     embed: async () => ({ embedding: [0.1, 0.2, 0.3] }),
 }));
@@ -30,6 +40,7 @@ mock.module("@kiwi/worker/update-descriptions-spec", () => ({
 
 mock.module("../../env", () => ({
     env: {
+        AUTH_SECRET: "test-auth-secret",
         S3_BUCKET: "test",
     },
 }));
@@ -48,6 +59,15 @@ mock.module("../graph-route", () => ({
     cleanupUploadedKeys: cleanupUploadedKeysMock,
 }));
 
+mock.module("../graph-access", () => ({
+    resolveGraphOwnerRoot: async () => ({ mode: "organization", organizationId: "org-1" }),
+}));
+
+mock.module("../team-access", () => ({
+    getActiveOrganizationId: async () => "org-1",
+    requireOrganizationMembership: async () => undefined,
+}));
+
 const {
     applyGraphSuggestion,
     assertPendingGraphSuggestion,
@@ -56,6 +76,8 @@ const {
     buildSourceCorrectionUpdate,
 } = await import("../graph-suggestions");
 const { API_ERROR_CODES } = await import("../../types");
+
+mock.restore();
 
 describe("graph suggestion apply helpers", () => {
     beforeEach(() => {
@@ -171,7 +193,9 @@ describe("graph suggestion apply helpers", () => {
             throw new Error("cleanup failed");
         };
 
-        await expect(applyGraphSuggestion("graph-1", "suggestion-1", "admin-1")).rejects.toBe(originalError);
+        const user = { id: "admin-1" } as Parameters<typeof applyGraphSuggestion>[2];
+
+        await expect(applyGraphSuggestion("graph-1", "suggestion-1", user)).rejects.toBe(originalError);
         expect(cleanupUploadedKeysMock).toHaveBeenCalledWith(["graphs/graph-1/file-1.txt"]);
     });
 });

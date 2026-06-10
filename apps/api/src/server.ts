@@ -1,4 +1,5 @@
 import { cors } from "@elysiajs/cors";
+import { bootstrapLegacyModelsFromEnv } from "@kiwi/ai/models";
 import { info } from "@kiwi/logger";
 import { Elysia } from "elysia";
 import { DEFAULT_CONTEXT_WINDOW, env, isContextWindowDefaulted } from "./env";
@@ -11,12 +12,14 @@ import { graphFilesRoute } from "./routes/graph-files";
 import { graphRoute } from "./routes/graph";
 import { graphSuggestionsRoute } from "./routes/graph-suggestions";
 import { mcpRoute } from "./routes/mcp";
+import { modelsRoute } from "./routes/models";
 import { promptsRoute } from "./routes/prompts";
 import { searchRoute } from "./routes/search";
 import { teamChatRoute } from "./routes/team-chat";
 import { teamRoute } from "./routes/team";
 
 initLogger();
+const legacyModelBootstrap = await bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET });
 
 const trustedOrigins =
     env.TRUSTED_ORIGINS?.split(",")
@@ -49,6 +52,7 @@ const app = new Elysia({
     .use(graphFilesRoute)
     .use(graphSuggestionsRoute)
     .use(graphRoute)
+    .use(modelsRoute)
     .use(promptsRoute)
     .use(searchRoute)
     .use(teamChatRoute)
@@ -60,6 +64,7 @@ info("api server started", {
     host: app.server?.hostname ?? "unknown",
     port: app.server?.port ?? 4321,
     contextWindow: env.CONTEXT_WINDOW,
+    legacyModelSeedCount: legacyModelBootstrap.seededModelCount,
     ...(isContextWindowDefaulted
         ? {
               contextWindowNotice: `CONTEXT_WINDOW is not set; using ${DEFAULT_CONTEXT_WINDOW}. Set CONTEXT_WINDOW to your text model's context window for best compaction behavior.`,

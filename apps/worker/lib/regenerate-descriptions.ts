@@ -2,10 +2,9 @@ import { db } from "@kiwi/db";
 import { entityTable, relationshipTable, sourcesTable } from "@kiwi/db/tables/graph";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { embed, embedMany } from "ai";
-import { getClient, withAiSlot } from "@kiwi/ai";
+import { withAiSlot } from "@kiwi/ai";
 import { buildDescription } from "./description";
-import { buildEmbeddingAdapter, buildWorkerTextAdapter } from "./ai";
-import { env } from "../env";
+import { createWorkerClient } from "./ai";
 import { chunkItems } from "./chunk";
 import { DESCRIPTION_BATCH_SIZE } from "./description-workflow";
 
@@ -14,10 +13,7 @@ type SourceEmbeddingUpdate = {
     embedding: number[];
 };
 
-type DescriptionClient = {
-    text: ReturnType<typeof getClient>["text"];
-    embedding: ReturnType<typeof getClient>["embedding"];
-};
+type DescriptionClient = Awaited<ReturnType<typeof createWorkerClient>>;
 
 type DescriptionSource = {
     id: string;
@@ -31,29 +27,8 @@ type DescriptionItem = {
     sources: DescriptionSource[];
 };
 
-export function createDescriptionClient(): {
-    text: NonNullable<DescriptionClient["text"]>;
-    embedding: NonNullable<DescriptionClient["embedding"]>;
-} {
-    const client = getClient({
-        text: buildWorkerTextAdapter(),
-        embedding: buildEmbeddingAdapter(
-            env.AI_EMBEDDING_ADAPTER,
-            env.AI_EMBEDDING_MODEL,
-            env.AI_EMBEDDING_KEY,
-            env.AI_EMBEDDING_URL,
-            env.AI_EMBEDDING_RESOURCE_NAME
-        ),
-    });
-
-    if (!client.text || !client.embedding) {
-        throw new Error("Text and embedding adapters are required for description generation");
-    }
-
-    return {
-        text: client.text,
-        embedding: client.embedding,
-    };
+export async function createDescriptionClient(graphId: string): Promise<DescriptionClient> {
+    return createWorkerClient(graphId);
 }
 
 export async function updateSourceEmbeddingsBatch(
@@ -104,7 +79,7 @@ function groupSources<T extends { id: string; description: string }, TKey extend
 
 async function regenerateDescriptions(
     items: DescriptionItem[],
-    client: ReturnType<typeof createDescriptionClient>,
+    client: DescriptionClient,
     update: (args: {
         id: string;
         description: string;
@@ -155,10 +130,11 @@ async function regenerateDescriptions(
     }
 }
 
-export async function regenerateEntities(graphId: string, entityIds: string[], client = createDescriptionClient()) {
+export async function regenerateEntities(graphId: string, entityIds: string[], client?: DescriptionClient) {
     if (entityIds.length === 0) {
         return;
     }
+    const descriptionClient = client ?? (await createDescriptionClient(graphId));
 
     const entities = await db
         .select({ id: entityTable.id, name: entityTable.name, description: entityTable.description })
@@ -195,7 +171,7 @@ export async function regenerateEntities(graphId: string, entityIds: string[], c
             description: entity.description,
             sources: sourcesByEntity.get(entity.id) ?? [],
         })),
-        client,
+        descriptionClient,
         async ({ id, description, embedding, sourceEmbeddings }) => {
             await db.transaction(async (tx) => {
                 await tx
@@ -216,11 +192,12 @@ export async function regenerateEntities(graphId: string, entityIds: string[], c
 export async function regenerateRelationships(
     graphId: string,
     relationshipIds: string[],
-    client = createDescriptionClient()
+    client?: DescriptionClient
 ) {
     if (relationshipIds.length === 0) {
         return;
     }
+    const descriptionClient = client ?? (await createDescriptionClient(graphId));
 
     const relationships = await db
         .select({
@@ -274,7 +251,7 @@ export async function regenerateRelationships(
             description: relationship.description,
             sources: relationshipSourcesById.get(relationship.id) ?? [],
         })),
-        client,
+        descriptionClient,
         async ({ id, description, embedding, sourceEmbeddings }) => {
             await db.transaction(async (tx) => {
                 await tx

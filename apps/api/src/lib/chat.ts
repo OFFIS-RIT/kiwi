@@ -21,6 +21,7 @@ import {
     type ResolvedCitationFence,
     uiMessageToMessageParts,
 } from "@kiwi/ai";
+import { getDefaultModelOrganizationId } from "@kiwi/ai/models";
 import { db } from "@kiwi/db";
 import type { MessagePart } from "@kiwi/contracts/chat";
 import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
@@ -61,6 +62,7 @@ import { API_ERROR_CODES, errorResponse } from "../types";
 import type { AuthUser } from "../middleware/auth";
 import { resolveGraphOwnerRoot, type RootOwner } from "./graph-access";
 import { MAX_PROMPTS_PER_SCOPE } from "./prompt-limits";
+import { getActiveOrganizationId, requireOrganizationMembership } from "./team-access";
 
 type RouteStatus = (code: number, body: unknown) => unknown;
 
@@ -409,6 +411,21 @@ export async function setChatArchived(chatId: string, userId: string, archived: 
 export { getRequiredResearchClient };
 export type { RequiredResearchClient };
 
+async function getResearchModelOrganizationId(user: AuthUser | undefined, rootOwner: RootOwner) {
+    const organizationId =
+        rootOwner.mode === "user"
+            ? user
+                ? await getActiveOrganizationId(user)
+                : await getDefaultModelOrganizationId()
+            : rootOwner.organizationId;
+
+    if (user) {
+        await requireOrganizationMembership(user, organizationId);
+    }
+
+    return organizationId;
+}
+
 function createGraphResearchRuntime(options: {
     graphId: string;
     client: RequiredResearchClient;
@@ -458,14 +475,17 @@ export async function getGraphResearchRuntime(
         deep?: boolean;
         user?: AuthUser;
         rootOwner?: RootOwner;
+        requestedModelId?: string;
         requestInformation?: RequestInformation;
         correction?: CorrectionToolContext;
     } = { toolset: "server" }
 ) {
+    const rootOwner = options.rootOwner ?? (await resolveGraphOwnerRoot(graphId));
+    const organizationId = await getResearchModelOrganizationId(options.user, rootOwner);
     const [graphPrompts, userPrompts, teamPrompts] = await Promise.all([
         listGraphPromptTexts(graphId),
         options.user ? listUserPromptTexts(options.user.id) : [],
-        options.user ? listTeamPromptTextsForGraph(graphId, options.rootOwner) : [],
+        options.user ? listTeamPromptTextsForGraph(graphId, rootOwner) : [],
     ]);
     const promptGuidance = {
         userPrompts,
@@ -475,7 +495,10 @@ export async function getGraphResearchRuntime(
 
     return createGraphResearchRuntime({
         graphId,
-        client: getRequiredResearchClient(),
+        client: await getRequiredResearchClient({
+            organizationId,
+            requestedModelId: options.requestedModelId,
+        }),
         toolset: options.toolset,
         deep: options.deep,
         promptGuidance,
@@ -618,6 +641,7 @@ export async function startReply(user: AuthUser, graphId: string, request: ChatR
         ...options,
         user,
         rootOwner,
+        requestedModelId: normalizedRequest.modelId,
         requestInformation: promptOptions.requestInformation,
         correction: includeCorrectionTool
             ? {
@@ -1000,6 +1024,17 @@ export function mapChatError(status: RouteStatus, error: unknown) {
 
     if (hasErrorCode(API_ERROR_CODES.INVALID_CHAT_REQUEST)) {
         return status(400, errorResponse("Invalid chat request", API_ERROR_CODES.INVALID_CHAT_REQUEST));
+    }
+
+    if (hasErrorCode(API_ERROR_CODES.INVALID_MODEL)) {
+        return status(400, errorResponse("Invalid model", API_ERROR_CODES.INVALID_MODEL));
+    }
+
+    if (hasErrorCode(API_ERROR_CODES.MODEL_NOT_CONFIGURED)) {
+        return status(
+            400,
+            errorResponse("Define a model for this organization before using AI features", API_ERROR_CODES.MODEL_NOT_CONFIGURED)
+        );
     }
 
     if (hasErrorCode(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE)) {
