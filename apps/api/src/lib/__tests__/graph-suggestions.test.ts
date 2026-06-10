@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("ai", () => ({
-    embed: async () => ({ embedding: [0.1, 0.2, 0.3] }),
-}));
-
 const dbMock: Record<string, unknown> = {};
 let cleanupUploadedKeysImpl: (keys: string[]) => Promise<unknown> = async () => [];
 const cleanupUploadedKeysMock = mock((keys: string[]) => cleanupUploadedKeysImpl(keys));
@@ -44,6 +40,10 @@ mock.module("../../openworkflow", () => ({
 
 mock.module("../chat-client", () => ({
     getRequiredResearchClient: () => ({ embedding: {} }),
+}));
+
+mock.module("../embed-text", () => ({
+    embedText: async () => [0.1, 0.2, 0.3],
 }));
 
 mock.module("../graph-route", () => ({

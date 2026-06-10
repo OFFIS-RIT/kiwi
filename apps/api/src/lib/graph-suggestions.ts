@@ -1,7 +1,6 @@
-import { embed } from "ai";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { ulid } from "ulid";
-import { estimateToken, getClient, withAiSlot } from "@kiwi/ai";
+import { estimateToken, getClient } from "@kiwi/ai";
 import { resolveRequiredEmbeddingModelAdapter } from "@kiwi/ai/models";
 import type { GraphSuggestionApplySuccessData, GraphSuggestionRecord } from "@kiwi/contracts";
 import { db } from "@kiwi/db";
@@ -15,6 +14,7 @@ import { ow } from "../openworkflow";
 import { API_ERROR_CODES } from "../types";
 import { cleanupUploadedKeys } from "./graph-route";
 import type { AuthUser } from "../middleware/auth";
+import { embedText } from "./embed-text";
 import { resolveGraphOwnerRoot } from "./graph-access";
 import { getActiveOrganizationId, requireOrganizationMembership } from "./team-access";
 
@@ -182,14 +182,7 @@ async function embedSuggestionText(graphId: string, user: AuthUser, suggestion: 
         throw new Error(API_ERROR_CODES.MODEL_NOT_CONFIGURED);
     }
 
-    const { embedding } = await withAiSlot("embedding", () =>
-        embed({
-            model: embeddingClient,
-            value: suggestion,
-        })
-    );
-
-    return embedding;
+    return embedText(embeddingClient, suggestion);
 }
 
 async function getPendingSuggestion(graphId: string, suggestionId: string) {
