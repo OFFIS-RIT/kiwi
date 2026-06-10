@@ -22,7 +22,7 @@ import type {
     UserPromptListResponse,
     UserPromptPatchResponse,
 } from "@kiwi/contracts";
-import { unwrapApiResponse, type KiwiApiClient } from "./client";
+import { ApiError, unwrapApiResponse, type KiwiApiClient } from "./client";
 
 export type PromptScope =
     | { kind: "user"; userId: string }
@@ -104,8 +104,36 @@ export async function savePromptText(
     const trimmed = text.trim();
     const [first, ...rest] = existing;
 
-    const deleteAll = (records: PromptRecord[]) =>
-        Promise.all(records.map((record) => deletePrompt(client, scope, record.id)));
+    // A prompt that is already gone counts as deleted; transient failures get
+    // one retry so a flaky delete doesn't leave extra prompts injected while
+    // the editor already shows the saved text.
+    const attemptDeletes = async (targets: PromptRecord[]) => {
+        const results = await Promise.allSettled(targets.map((record) => deletePrompt(client, scope, record.id)));
+        const failures: { record: PromptRecord; reason: unknown }[] = [];
+        results.forEach((result, index) => {
+            const record = targets[index];
+            if (!record || result.status !== "rejected") {
+                return;
+            }
+            if (result.reason instanceof ApiError && result.reason.code === "PROMPT_NOT_FOUND") {
+                return;
+            }
+            failures.push({ record, reason: result.reason });
+        });
+        return failures;
+    };
+
+    const deleteAll = async (records: PromptRecord[]) => {
+        const failures = await attemptDeletes(records);
+        if (failures.length === 0) {
+            return;
+        }
+
+        const remaining = await attemptDeletes(failures.map((failure) => failure.record));
+        if (remaining.length > 0) {
+            throw remaining[0]?.reason;
+        }
+    };
 
     if (trimmed.length === 0) {
         await deleteAll(existing);

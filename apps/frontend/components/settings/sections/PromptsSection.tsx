@@ -2,6 +2,7 @@
 
 import { PromptEditor } from "@/components/settings/PromptEditor";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useManageablePromptGroups } from "@/hooks/use-prompt-access";
 import { fetchPrompts, type PromptScope } from "@/lib/api";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
@@ -40,7 +41,12 @@ export function PromptsSection() {
     // Chat injection always reads the deployment's default organization, so
     // the editor must target that one too — not the session's active
     // organization, which a system admin may have switched away from.
-    const { data: organizations, isPending: isOrganizationsPending } = authClient.useListOrganizations();
+    const {
+        data: organizations,
+        isPending: isOrganizationsPending,
+        error: organizationsError,
+        refetch: refetchOrganizations,
+    } = authClient.useListOrganizations();
     const { data: activeOrganization } = authClient.useActiveOrganization();
     const defaultOrganization = pickDefaultOrganization(organizations ?? []);
     const [selectedScopeId, setSelectedScopeId] = useState<string | null>(null);
@@ -104,6 +110,9 @@ export function PromptsSection() {
 
     const selectedNode = nodes.find((node) => node.scopeId === selectedScopeId) ?? nodes[0] ?? null;
     const isLoading = isLoadingGroups || (isSystemAdmin && !defaultOrganization && isOrganizationsPending);
+    // Without this, a failed organization fetch would render the tree without
+    // the organization node and look like "no scopes" to a system admin.
+    const hasOrganizationLoadError = isSystemAdmin && !defaultOrganization && organizationsError !== null;
 
     return (
         <section className="flex flex-col gap-6">
@@ -115,6 +124,13 @@ export function PromptsSection() {
             {isLoading ? (
                 <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+            ) : hasOrganizationLoadError ? (
+                <div className="flex items-center gap-3 rounded-md bg-destructive/15 px-4 py-2 text-sm text-destructive">
+                    <span className="flex-1">{t("prompts.load.error")}</span>
+                    <Button variant="outline" size="sm" onClick={() => void refetchOrganizations()}>
+                        {t("prompts.reload")}
+                    </Button>
                 </div>
             ) : !selectedNode ? (
                 <p className="py-12 text-center text-sm text-muted-foreground">{t("settings.prompts.empty")}</p>
