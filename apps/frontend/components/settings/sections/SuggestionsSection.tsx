@@ -97,10 +97,12 @@ export function SuggestionsSection() {
         mutationFn: (target: SuggestionTarget) =>
             applyProjectSuggestion(apiClient, target.projectId, target.suggestionId),
         onSuccess: (result) => {
+            // A null workflowRunId alone is a normal outcome (nothing to
+            // regenerate); a failed enqueue always arrives with warnings.
             const warnings = result.warnings ?? [];
-            if (result.workflowRunId === null || warnings.length > 0) {
+            if (warnings.length > 0) {
                 toast.warning(t("settings.suggestions.applied.warning"), {
-                    description: warnings.length > 0 ? warnings.join("\n") : undefined,
+                    description: warnings.join("\n"),
                     duration: APPLY_WARNING_TOAST_DURATION_MS,
                 });
             } else {

@@ -32,7 +32,7 @@ export function SettingsSidebar(props: ComponentProps<typeof Sidebar>) {
     const { isSystemAdmin } = useAuth();
     const { authMode } = useRuntimeConfig();
     const { activeSection, setActiveSection } = useSettings();
-    const canManageSuggestions = useCanManageSuggestions();
+    const { canManageSuggestions } = useCanManageSuggestions();
 
     const categories = getVisibleSettingsCategories({ isSystemAdmin, canManageSuggestions, authMode });
 

@@ -14,7 +14,7 @@ vi.mock("@/providers/AuthProvider", () => ({
 }));
 
 vi.mock("@/hooks/use-suggestion-access", () => ({
-    useCanManageSuggestions: () => canManageSuggestions.value,
+    useCanManageSuggestions: () => ({ canManageSuggestions: canManageSuggestions.value, isLoading: false }),
 }));
 
 vi.mock("@/providers/SettingsProvider", () => ({

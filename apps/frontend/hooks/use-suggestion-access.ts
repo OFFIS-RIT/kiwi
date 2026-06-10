@@ -39,11 +39,15 @@ export function useManageableSuggestionProjects() {
 /**
  * Whether the current user may manage graph suggestions for at least one
  * group. Gates the Administration settings Category — UX only, the API
- * enforces the permission per request.
+ * enforces the permission per request. `isLoading` lets consumers defer the
+ * visibility decision instead of acting on a stale `false`.
  */
 export function useCanManageSuggestions() {
     const { isAdmin } = useAuth();
-    const { data: groups = [] } = useGroupsWithProjects();
+    const { data: groups = [], isLoading } = useGroupsWithProjects();
 
-    return groups.some((group) => canManageGraphSuggestionsInGroup(group, { isAdmin }));
+    return {
+        canManageSuggestions: groups.some((group) => canManageGraphSuggestionsInGroup(group, { isAdmin })),
+        isLoading,
+    };
 }
