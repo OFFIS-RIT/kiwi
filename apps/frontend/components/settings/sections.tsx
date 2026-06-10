@@ -1,5 +1,5 @@
 import type { AuthMode } from "@kiwi/auth/mode";
-import { Archive, KeyRound, Palette, Users, UserCircle } from "lucide-react";
+import { Archive, KeyRound, Lightbulb, Palette, Users, UserCircle } from "lucide-react";
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 
@@ -7,10 +7,12 @@ import { AccountSection } from "./sections/AccountSection";
 import { ApiKeysSection } from "./sections/ApiKeysSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
 import { ArchivedChatsSection } from "./sections/ArchivedChatsSection";
+import { SuggestionsSection } from "./sections/SuggestionsSection";
 import { UserManagementSection } from "./sections/UserManagementSection";
 
 export type SettingsVisibilityContext = {
     isSystemAdmin: boolean;
+    canManageSuggestions: boolean;
     authMode: AuthMode;
 };
 
@@ -63,6 +65,19 @@ export const settingsCategories: SettingsCategoryDef[] = [
         ],
     },
     {
+        id: "administration",
+        labelKey: "settings.category.administration",
+        sections: [
+            {
+                id: "suggestions",
+                labelKey: "settings.suggestions.title",
+                icon: Lightbulb,
+                Component: SuggestionsSection,
+                isVisible: (context) => context.canManageSuggestions,
+            },
+        ],
+    },
+    {
         id: "system-admin",
         labelKey: "settings.category.systemAdmin",
         sections: [
@@ -92,11 +107,17 @@ export function getVisibleSettingsCategories(context: SettingsVisibilityContext)
 
 const ALL_AUTH_MODES: AuthMode[] = ["credentials", "ldap"];
 
+function enumerateContexts(isSystemAdmin: boolean): SettingsVisibilityContext[] {
+    return ALL_AUTH_MODES.flatMap((authMode) =>
+        [false, true].map((canManageSuggestions) => ({ isSystemAdmin, canManageSuggestions, authMode }))
+    );
+}
+
 /**
  * Derives which Section ids require system-admin rights directly from the
  * registry's visibility predicates, so server-side guards never drift from this
- * single source of truth. A Section is admin-only when some auth mode shows it
- * to an admin but no auth mode shows it to a non-admin.
+ * single source of truth. A Section is admin-only when some context shows it
+ * to a system admin but no context shows it to a non-admin.
  */
 export function getAdminOnlySectionIds(): string[] {
     return settingsCategories
@@ -106,8 +127,8 @@ export function getAdminOnlySectionIds(): string[] {
             if (!predicate) {
                 return false;
             }
-            const visibleToAdmin = ALL_AUTH_MODES.some((authMode) => predicate({ isSystemAdmin: true, authMode }));
-            const visibleToNonAdmin = ALL_AUTH_MODES.some((authMode) => predicate({ isSystemAdmin: false, authMode }));
+            const visibleToAdmin = enumerateContexts(true).some(predicate);
+            const visibleToNonAdmin = enumerateContexts(false).some(predicate);
             return visibleToAdmin && !visibleToNonAdmin;
         })
         .map((section) => section.id);

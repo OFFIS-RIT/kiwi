@@ -13,6 +13,7 @@ import {
     SidebarRail,
     SidebarSeparator,
 } from "@/components/ui/sidebar";
+import { useCanManageSuggestions } from "@/hooks/use-suggestion-access";
 import { getLastAppPath } from "@/lib/last-app-path";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useAuth } from "@/providers/AuthProvider";
@@ -31,8 +32,9 @@ export function SettingsSidebar(props: ComponentProps<typeof Sidebar>) {
     const { isSystemAdmin } = useAuth();
     const { authMode } = useRuntimeConfig();
     const { activeSection, setActiveSection } = useSettings();
+    const { canManageSuggestions } = useCanManageSuggestions();
 
-    const categories = getVisibleSettingsCategories({ isSystemAdmin, authMode });
+    const categories = getVisibleSettingsCategories({ isSystemAdmin, canManageSuggestions, authMode });
 
     const handleBackToApp = () => {
         router.push(getLastAppPath() ?? "/");
