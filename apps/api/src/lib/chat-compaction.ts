@@ -451,6 +451,8 @@ async function insertCompactionCheckpoint(options: {
     }
 
     options.abortSignal?.throwIfAborted();
+    // summary is always non-empty here: normalizeCompactionSummary throws on empty output,
+    // and maybeCompactConversation guards transcriptChunks.length === 0 before calling this.
     if (!summary) {
         throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
     }
