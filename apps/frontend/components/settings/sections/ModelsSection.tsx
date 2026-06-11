@@ -106,21 +106,23 @@ export function ModelsSection() {
                 <h1 className="text-2xl font-bold">{t("settings.models.title")}</h1>
                 <p className="text-sm text-muted-foreground">{t("settings.models.description")}</p>
             </div>
-            <div className="flex flex-col gap-5 md:flex-row md:items-start">
-                <nav className="w-full shrink-0 rounded-md border bg-card p-1.5 md:w-56">
+            <div>
+                <div role="tablist" className="flex flex-wrap border-b">
                     {AI_MODEL_TYPE_VALUES.map((type) => {
                         const count = modelsByType(type).length;
+                        const isActive = type === selectedType;
                         return (
                             <button
                                 key={type}
                                 type="button"
+                                role="tab"
+                                aria-selected={isActive}
                                 onClick={() => setSelectedType(type)}
-                                aria-current={type === selectedType ? "true" : undefined}
                                 className={cn(
-                                    "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm",
-                                    type === selectedType
-                                        ? "bg-secondary font-medium"
-                                        : "text-muted-foreground hover:bg-secondary/50"
+                                    "-mb-px inline-flex items-center gap-2 border-b-2 px-3.5 py-2 text-sm",
+                                    isActive
+                                        ? "border-foreground font-medium text-foreground"
+                                        : "border-transparent text-muted-foreground hover:text-foreground"
                                 )}
                             >
                                 <span
@@ -131,13 +133,13 @@ export function ModelsSection() {
                                     )}
                                 />
                                 {t(MODEL_TYPE_LABEL_KEYS[type])}
-                                <span className="ml-auto text-xs text-muted-foreground">{count > 0 ? count : "–"}</span>
+                                <span className="text-xs text-muted-foreground">{count > 0 ? count : "–"}</span>
                             </button>
                         );
                     })}
-                </nav>
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-3">
+                </div>
+                <div className="min-w-0">
+                    <div className="mt-4 flex items-center justify-between gap-3">
                         <h2 className="text-base font-semibold">
                             {t("settings.models.detail.title", { type: t(MODEL_TYPE_LABEL_KEYS[selectedType]) })}
                         </h2>
