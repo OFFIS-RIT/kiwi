@@ -261,6 +261,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                                 type="url"
                                 value={url}
                                 onChange={(e) => setUrl(e.target.value)}
+                                placeholder={isEdit ? t("settings.models.field.keep") : undefined}
                                 required={requireUrl}
                             />
                         </div>
@@ -272,6 +273,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                                 id="model-resource-name"
                                 value={resourceName}
                                 onChange={(e) => setResourceName(e.target.value)}
+                                placeholder={isEdit ? t("settings.models.field.keep") : undefined}
                                 required={requireResourceName}
                             />
                         </div>
