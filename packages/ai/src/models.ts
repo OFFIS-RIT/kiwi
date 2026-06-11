@@ -32,13 +32,17 @@ export type ModelCredentials = {
 export type PublicModelRecord = {
     model_id: string;
     display_name: string;
+    is_default: boolean;
 };
 
 export type AdminModelRecord = PublicModelRecord & {
     type: AiModelType;
     adapter: AiModelAdapter;
     provider_model: string;
-    is_default: boolean;
+    // Non-secret connection config; lives inside the encrypted credentials
+    // blob but is safe to expose to admins, unlike the API key.
+    url: string | null;
+    resource_name: string | null;
     created_at: string;
     updated_at: string;
 };
@@ -391,25 +395,37 @@ export function assertValidModelConfiguration(input: {
     }
 }
 
-export function toPublicModelRecord(row: Pick<AiModel, "modelId" | "displayName">): PublicModelRecord {
+export function toPublicModelRecord(row: Pick<AiModel, "modelId" | "displayName" | "isDefault">): PublicModelRecord {
     return {
         model_id: row.modelId,
         display_name: row.displayName,
+        is_default: row.isDefault,
     };
 }
 
 export function toAdminModelRecord(
     row: Pick<
         AiModel,
-        "modelId" | "displayName" | "type" | "adapter" | "providerModel" | "isDefault" | "createdAt" | "updatedAt"
-    >
+        | "modelId"
+        | "displayName"
+        | "type"
+        | "adapter"
+        | "providerModel"
+        | "isDefault"
+        | "createdAt"
+        | "updatedAt"
+        | "encryptedCredentials"
+    >,
+    secret: string
 ): AdminModelRecord {
+    const credentials = decryptModelCredentials(row.encryptedCredentials, secret);
     return {
         ...toPublicModelRecord(row),
         type: row.type,
         adapter: row.adapter,
         provider_model: row.providerModel,
-        is_default: row.isDefault,
+        url: credentials.url ?? null,
+        resource_name: credentials.resourceName ?? null,
         created_at: row.createdAt.toISOString(),
         updated_at: row.updatedAt.toISOString(),
     };

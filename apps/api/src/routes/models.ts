@@ -50,11 +50,20 @@ const createModelSchema = z.object({
     is_default: z.boolean().optional(),
 });
 
+// On PATCH every credential field is optional: omitted fields keep their
+// stored value, an empty url/resourceName clears it. Only the API key is a
+// secret; it can never be read back, only replaced.
+const patchCredentialsSchema = z.object({
+    apiKey: z.string().trim().min(1).optional(),
+    url: z.string().trim().optional(),
+    resourceName: z.string().trim().optional(),
+});
+
 const patchModelSchema = z.object({
     display_name: z.string().trim().min(1).optional(),
     adapter: modelAdapterSchema.optional(),
     provider_model: z.string().trim().min(1).optional(),
-    credentials: credentialsSchema.optional(),
+    credentials: patchCredentialsSchema.optional(),
 });
 
 function mapModelError(status: RouteStatus, error: unknown) {
@@ -90,6 +99,14 @@ function normalizeCredentials(credentials: ModelCredentials): ModelCredentials {
         ...(credentials.url ? { url: credentials.url.trim() } : {}),
         ...(credentials.resourceName ? { resourceName: credentials.resourceName.trim() } : {}),
     };
+}
+
+function mergeCredentials(stored: ModelCredentials, patch: z.infer<typeof patchCredentialsSchema>): ModelCredentials {
+    return normalizeCredentials({
+        apiKey: patch.apiKey ?? stored.apiKey,
+        url: patch.url !== undefined ? patch.url : stored.url,
+        resourceName: patch.resourceName !== undefined ? patch.resourceName : stored.resourceName,
+    });
 }
 
 function assertCreateModelInput(input: {
@@ -151,6 +168,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                             .select({
                                 modelId: modelsTable.modelId,
                                 displayName: modelsTable.displayName,
+                                isDefault: modelsTable.isDefault,
                             })
                             .from(modelsTable)
                             .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, "text")))
@@ -169,7 +187,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                         )
                         .orderBy(asc(modelsTable.type), asc(modelsTable.displayName), asc(modelsTable.modelId));
 
-                    return models.map(toAdminModelRecord);
+                    return models.map((model) => toAdminModelRecord(model, env.AUTH_SECRET));
                 },
                 success: (value) => status(200, successResponse(value)),
             }),
@@ -235,7 +253,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                             throw new Error(API_ERROR_CODES.INTERNAL_SERVER_ERROR);
                         }
 
-                        return toAdminModelRecord(model);
+                        return toAdminModelRecord(model, env.AUTH_SECRET);
                     });
                 },
                 success: (value) => status(201, successResponse(value)),
@@ -283,9 +301,8 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                         }
 
                         if (shouldValidateModel) {
-                            const credentials = body.credentials
-                                ? normalizeCredentials(body.credentials)
-                                : decryptModelCredentials(currentModel.encryptedCredentials, env.AUTH_SECRET);
+                            const stored = decryptModelCredentials(currentModel.encryptedCredentials, env.AUTH_SECRET);
+                            const credentials = body.credentials ? mergeCredentials(stored, body.credentials) : stored;
 
                             assertCreateModelInput({
                                 type: currentModel.type,
@@ -303,7 +320,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                         }
 
                         if (Object.keys(modelUpdates).length === 0) {
-                            return toAdminModelRecord(currentModel);
+                            return toAdminModelRecord(currentModel, env.AUTH_SECRET);
                         }
 
                         const [model] = await tx
@@ -316,7 +333,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                             throw new Error(API_ERROR_CODES.MODEL_NOT_FOUND);
                         }
 
-                        return toAdminModelRecord(model);
+                        return toAdminModelRecord(model, env.AUTH_SECRET);
                     });
                 },
                 success: (value) => status(200, successResponse(value)),
@@ -372,7 +389,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                             .where(eq(modelsTable.id, currentModel.id))
                             .returning();
 
-                        return toAdminModelRecord(model ?? currentModel);
+                        return toAdminModelRecord(model ?? currentModel, env.AUTH_SECRET);
                     });
                 },
                 success: (value) => status(200, successResponse(value)),

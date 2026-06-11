@@ -250,13 +250,16 @@ export type AiModelAdapter = (typeof AI_MODEL_ADAPTER_VALUES)[number];
 export type PublicModelListItem = {
     model_id: string;
     display_name: string;
+    is_default: boolean;
 };
 
 export type AdminModelListItem = PublicModelListItem & {
     type: AiModelType;
     adapter: AiModelAdapter;
     provider_model: string;
-    is_default: boolean;
+    // Non-secret connection config; readable by admins, unlike the API key.
+    url: string | null;
+    resource_name: string | null;
     created_at: string;
     updated_at: string;
 };
@@ -279,11 +282,19 @@ export type ModelCreateInput = {
     is_default?: boolean;
 };
 
+// On PATCH every credential field is optional: omitted fields keep their
+// stored value, an empty url/resourceName clears it.
+export type ModelCredentialsPatchInput = {
+    apiKey?: string;
+    url?: string;
+    resourceName?: string;
+};
+
 export type ModelPatchInput = {
     display_name?: string;
     adapter?: AiModelAdapter;
     provider_model?: string;
-    credentials?: ModelCredentialsInput;
+    credentials?: ModelCredentialsPatchInput;
 };
 
 export type ChatSummaryItem = {
