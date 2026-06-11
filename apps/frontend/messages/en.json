@@ -344,6 +344,8 @@
     "appearance.design.twitter": "Twitter",
     "appearance.design.claudePlus": "Claude +",
     "appearance.design.codexPlus": "Codex +",
+    "appearance.design.lightGreen": "Light Green",
+    "appearance.design.violetBloom": "Violet Bloom",
     "appearance.colorMode.title": "Color mode",
     "appearance.colorMode.description": "Choose the light or dark variant of the selected theme.",
     "appearance.colorMode.light": "Light",

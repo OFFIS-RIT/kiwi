@@ -344,6 +344,8 @@
     "appearance.design.twitter": "Twitter",
     "appearance.design.claudePlus": "Claude +",
     "appearance.design.codexPlus": "Codex +",
+    "appearance.design.lightGreen": "Light Green",
+    "appearance.design.violetBloom": "Violet Bloom",
     "appearance.colorMode.title": "Farbmodus",
     "appearance.colorMode.description": "Wähle die helle oder dunkle Variante des ausgewählten Designs.",
     "appearance.colorMode.light": "Hell",
