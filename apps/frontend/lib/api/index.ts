@@ -95,6 +95,16 @@ export {
     updateProject,
 } from "./projects";
 
+// Re-export models API
+export {
+    createModel,
+    deleteModel,
+    fetchAdminModels,
+    fetchSelectableModels,
+    setDefaultModel,
+    updateModel,
+} from "./models";
+
 // Re-export prompts API
 export { createPrompt, deletePrompt, fetchPrompts, savePromptText, updatePrompt } from "./prompts";
 export type { PromptRecord, PromptScope } from "./prompts";

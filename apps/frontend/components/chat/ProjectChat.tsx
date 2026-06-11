@@ -2,6 +2,7 @@
 
 import { chatTemplates } from "@/components/chat/chat-templates";
 import { ChatInput, type ChatInputHandle } from "@/components/chat/ChatInput";
+import { ChatModelSelector, useSelectableModels } from "@/components/chat/ChatModelSelector";
 import { ChatTemplateSidebar } from "@/components/chat/ChatTemplateSidebar";
 import { ClarificationBlock } from "@/components/chat/ClarificationBlock";
 import { shouldAutoContinue, withDefaultAutoContinue } from "@/components/chat/chat-auto-continue";
@@ -25,6 +26,7 @@ import { deleteProjectChat } from "@/lib/api/projects";
 import type { ChatLibraryItem } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
+import { useAuth } from "@/providers/AuthProvider";
 import { useProjectChatSession, type ProjectChatEntry } from "@/providers/ChatSessionsProvider";
 import type { Group, ProjectChatSummary } from "@/types";
 import { splitTextWithCitationFences } from "@kiwi/ai/citation";
@@ -49,6 +51,7 @@ import {
 } from "lucide-react";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useLocale } from "next-intl";
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
@@ -500,6 +503,26 @@ function ProjectChatSession({
     } = useSpeechSynthesis(language);
     const [inputValue, setInputValue] = useState("");
     const [intelligenceLevel, setIntelligenceLevel] = useState<IntelligenceLevel>("default");
+    // Selected AI Model lives per chat session; null means "send no modelId"
+    // so the backend resolves the organization default.
+    const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+    const { isSystemAdmin } = useAuth();
+    const selectableModelsQuery = useSelectableModels();
+    const selectableModels = selectableModelsQuery.data;
+    const noModelsConfigured = selectableModelsQuery.isSuccess && selectableModels?.length === 0;
+
+    useEffect(() => {
+        setSelectedModelId(null);
+    }, [entry.sessionId]);
+
+    // An admin may delete the selected model while this chat is open; fall
+    // back to the default instead of sending a stale modelId.
+    useEffect(() => {
+        if (!selectedModelId || !selectableModels) return;
+        if (!selectableModels.some((model) => model.model_id === selectedModelId)) {
+            setSelectedModelId(null);
+        }
+    }, [selectedModelId, selectableModels]);
 
     const { messages, sendMessage, status, addToolOutput } = useChat<ChatUIMessage>({
         chat: entry.chat,
@@ -696,7 +719,7 @@ function ProjectChatSession({
 
     const handleSendMessage = useCallback(async () => {
         const text = inputValue;
-        if (!text.trim() || isRecording || pendingClarification) return;
+        if (!text.trim() || isRecording || pendingClarification || noModelsConfigured) return;
         const isFirstMessage = displayedMessages.length === 0;
         const cachedGroups = queryClient.getQueryData<Group[]>(queryKeys.groupsWithProjects);
         const cachedProjectChats = queryClient.getQueryData<ProjectChatSummary[]>(queryKeys.projectChats(projectId));
@@ -737,7 +760,15 @@ function ProjectChatSession({
         isAtBottomRef.current = true;
         setIsAtBottom(true);
         try {
-            await sendMessage({ text }, { body: { deep: intelligenceLevel === "high" } });
+            await sendMessage(
+                { text },
+                {
+                    body: {
+                        deep: intelligenceLevel === "high",
+                        ...(selectedModelId ? { modelId: selectedModelId } : {}),
+                    },
+                }
+            );
         } finally {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects }),
@@ -751,10 +782,12 @@ function ProjectChatSession({
         inputValue,
         intelligenceLevel,
         isRecording,
+        noModelsConfigured,
         pathname,
         pendingClarification,
         projectId,
         queryClient,
+        selectedModelId,
         sendMessage,
         setHasUnreadUpdate,
         setIsGenerating,
@@ -817,12 +850,28 @@ function ProjectChatSession({
 
     const inputControls = (
         <div className="flex flex-col gap-2">
+            {noModelsConfigured && (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    <div className="flex-1">
+                        <p>{t("chat.models.notConfigured")}</p>
+                        {isSystemAdmin && (
+                            <Link
+                                href="/settings?section=ai-models"
+                                className="font-medium underline underline-offset-2"
+                            >
+                                {t("chat.models.notConfigured.link")}
+                            </Link>
+                        )}
+                    </div>
+                </div>
+            )}
             <ChatInput
                 ref={inputRef}
                 value={inputValue}
                 onChange={handleInputChange}
                 onSubmit={() => void handleSendMessage()}
-                disabled={isRecording || !!pendingClarification}
+                disabled={isRecording || !!pendingClarification || noModelsConfigured}
                 placeholder={t("ask.question")}
                 projectId={projectId}
                 autoFocus={!pendingClarification && !isRecording}
@@ -858,57 +907,71 @@ function ProjectChatSession({
                     </Button>
                 </div>
                 <div className="flex items-center gap-2">
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button
-                            type="button"
-                            variant="ghost"
+                    {selectableModels && selectableModels.length > 0 ? (
+                        <ChatModelSelector
+                            models={selectableModels}
+                            value={selectedModelId}
+                            onChange={setSelectedModelId}
                             disabled={isAssistantTyping}
-                            aria-label={t("deep.mode")}
-                            className="h-9 shrink-0 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
-                        >
-                            <Brain className="h-4 w-4" />
-                            <span className="text-sm">{t(`deep.mode.${intelligenceLevel}`)}</span>
-                            <ChevronDown className="h-3.5 w-3.5" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="top" sideOffset={8} className="w-44 rounded-xl p-1.5">
-                        <DropdownMenuLabel className="px-2.5 py-1.5 text-sm font-normal text-muted-foreground">
-                            {t("deep.mode.intelligence")}
-                        </DropdownMenuLabel>
-                        {intelligenceLevels.map((level) => (
-                            <DropdownMenuItem
-                                key={level}
-                                onClick={() => setIntelligenceLevel(level)}
-                                className="min-h-9 rounded-lg px-2.5 text-sm"
+                        />
+                    ) : null}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                disabled={isAssistantTyping}
+                                aria-label={t("deep.mode")}
+                                className="h-9 shrink-0 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
                             >
-                                <span>{t(`deep.mode.${level}`)}</span>
-                                {intelligenceLevel === level && <Check className="ml-auto h-4 w-4" />}
-                            </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-                {speechSupported && (
+                                <Brain className="h-4 w-4" />
+                                <span className="text-sm">{t(`deep.mode.${intelligenceLevel}`)}</span>
+                                <ChevronDown className="h-3.5 w-3.5" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" side="top" sideOffset={8} className="w-44 rounded-xl p-1.5">
+                            <DropdownMenuLabel className="px-2.5 py-1.5 text-sm font-normal text-muted-foreground">
+                                {t("deep.mode.intelligence")}
+                            </DropdownMenuLabel>
+                            {intelligenceLevels.map((level) => (
+                                <DropdownMenuItem
+                                    key={level}
+                                    onClick={() => setIntelligenceLevel(level)}
+                                    className="min-h-9 rounded-lg px-2.5 text-sm"
+                                >
+                                    <span>{t(`deep.mode.${level}`)}</span>
+                                    {intelligenceLevel === level && <Check className="ml-auto h-4 w-4" />}
+                                </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    {speechSupported && (
+                        <Button
+                            size="icon"
+                            variant={isRecording ? "destructive" : "outline"}
+                            onClick={toggleRecording}
+                            aria-label={isRecording ? t("stop.recording") : t("start.recording")}
+                            disabled={!!pendingClarification}
+                            className={isEmptyChat ? "h-10 w-10 shrink-0" : undefined}
+                        >
+                            {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                        </Button>
+                    )}
                     <Button
                         size="icon"
-                        variant={isRecording ? "destructive" : "outline"}
-                        onClick={toggleRecording}
-                        aria-label={isRecording ? t("stop.recording") : t("start.recording")}
-                        disabled={!!pendingClarification}
+                        onClick={() => void handleSendMessage()}
+                        disabled={
+                            !inputValue.trim() ||
+                            isAssistantTyping ||
+                            isRecording ||
+                            !!pendingClarification ||
+                            noModelsConfigured
+                        }
                         className={isEmptyChat ? "h-10 w-10 shrink-0" : undefined}
                     >
-                        {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                        <SendIcon className="h-4 w-4" />
+                        <span className="sr-only">{t("send.message")}</span>
                     </Button>
-                )}
-                <Button
-                    size="icon"
-                    onClick={() => void handleSendMessage()}
-                    disabled={!inputValue.trim() || isAssistantTyping || isRecording || !!pendingClarification}
-                    className={isEmptyChat ? "h-10 w-10 shrink-0" : undefined}
-                >
-                    <SendIcon className="h-4 w-4" />
-                    <span className="sr-only">{t("send.message")}</span>
-                </Button>
                 </div>
             </div>
         </div>
@@ -917,14 +980,8 @@ function ProjectChatSession({
     return (
         <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden">
             <div className={`flex flex-1 overflow-hidden ${isTemplateSidebarOpen ? "lg:gap-4" : ""}`}>
-                <Card
-                    className="flex min-w-0 flex-1 flex-col gap-0 overflow-hidden border-0 bg-transparent py-0 shadow-none"
-                >
-                    <div
-                        ref={scrollContainerRef}
-                        className="flex-1 overflow-y-auto"
-                        style={{ scrollbarWidth: "thin" }}
-                    >
+                <Card className="flex min-w-0 flex-1 flex-col gap-0 overflow-hidden border-0 bg-transparent py-0 shadow-none">
+                    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
                         <div className="mx-auto h-full w-full max-w-4xl space-y-4 px-4 pt-4">
                             {isEmptyChat && (
                                 <div className="flex min-h-full items-center justify-center pb-20">
@@ -1000,94 +1057,96 @@ function ProjectChatSession({
                                                         )}
                                                     </div>
                                                     {!isStreamingMessage && (
-                                                    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                                                        <span>
-                                                            {timestamp.toLocaleTimeString([], {
-                                                                hour: "2-digit",
-                                                                minute: "2-digit",
-                                                            })}
-                                                        </span>
-                                                        {message.role === "assistant" &&
-                                                            message.metadata?.consideredFileCount !== undefined && (
+                                                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                                                            <span>
+                                                                {timestamp.toLocaleTimeString([], {
+                                                                    hour: "2-digit",
+                                                                    minute: "2-digit",
+                                                                })}
+                                                            </span>
+                                                            {message.role === "assistant" &&
+                                                                message.metadata?.consideredFileCount !== undefined && (
+                                                                    <>
+                                                                        <span>•</span>
+                                                                        <span>
+                                                                            {t("files.considered", {
+                                                                                count: message.metadata.consideredFileCount.toString(),
+                                                                            })}
+                                                                        </span>
+                                                                    </>
+                                                                )}
+                                                            {message.role === "assistant" &&
+                                                                message.metadata?.usedFileCount !== undefined && (
+                                                                    <>
+                                                                        <span>•</span>
+                                                                        <span>
+                                                                            {t("files.used", {
+                                                                                count: message.metadata.usedFileCount.toString(),
+                                                                            })}
+                                                                        </span>
+                                                                    </>
+                                                                )}
+                                                            {message.role === "assistant" &&
+                                                                message.metadata?.totalTokens && (
+                                                                    <>
+                                                                        <span>•</span>
+                                                                        <span>
+                                                                            {message.metadata.totalTokens} tokens
+                                                                        </span>
+                                                                        {message.metadata.tokensPerSecond && (
+                                                                            <>
+                                                                                <span>•</span>
+                                                                                <span>
+                                                                                    {message.metadata.tokensPerSecond.toFixed(
+                                                                                        1
+                                                                                    )}{" "}
+                                                                                    t/s
+                                                                                </span>
+                                                                            </>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            <span>•</span>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                                                onClick={() => handleCopyMessage(message)}
+                                                                aria-label={
+                                                                    copiedMessageId === message.id
+                                                                        ? t("copied.message")
+                                                                        : t("copy.message")
+                                                                }
+                                                            >
+                                                                {copiedMessageId === message.id ? (
+                                                                    <Check className="h-3 w-3" />
+                                                                ) : (
+                                                                    <Copy className="h-3 w-3" />
+                                                                )}
+                                                            </Button>
+                                                            {ttsSupported && (
                                                                 <>
                                                                     <span>•</span>
-                                                                    <span>
-                                                                        {t("files.considered", {
-                                                                            count: message.metadata.consideredFileCount.toString(),
-                                                                        })}
-                                                                    </span>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                                                        onClick={() => handlePlayMessage(message)}
+                                                                        aria-label={
+                                                                            speakingMessageId === message.id
+                                                                                ? t("stop.speaking")
+                                                                                : t("play.message")
+                                                                        }
+                                                                    >
+                                                                        {speakingMessageId === message.id ? (
+                                                                            <VolumeX className="h-3 w-3" />
+                                                                        ) : (
+                                                                            <Volume2 className="h-3 w-3" />
+                                                                        )}
+                                                                    </Button>
                                                                 </>
                                                             )}
-                                                        {message.role === "assistant" &&
-                                                            message.metadata?.usedFileCount !== undefined && (
-                                                                <>
-                                                                    <span>•</span>
-                                                                    <span>
-                                                                        {t("files.used", {
-                                                                            count: message.metadata.usedFileCount.toString(),
-                                                                        })}
-                                                                    </span>
-                                                                </>
-                                                            )}
-                                                        {message.role === "assistant" &&
-                                                            message.metadata?.totalTokens && (
-                                                                <>
-                                                                    <span>•</span>
-                                                                    <span>{message.metadata.totalTokens} tokens</span>
-                                                                    {message.metadata.tokensPerSecond && (
-                                                                        <>
-                                                                            <span>•</span>
-                                                                            <span>
-                                                                                {message.metadata.tokensPerSecond.toFixed(
-                                                                                    1
-                                                                                )}{" "}
-                                                                                t/s
-                                                                            </span>
-                                                                        </>
-                                                                    )}
-                                                                </>
-                                                            )}
-                                                        <span>•</span>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground"
-                                                            onClick={() => handleCopyMessage(message)}
-                                                            aria-label={
-                                                                copiedMessageId === message.id
-                                                                    ? t("copied.message")
-                                                                    : t("copy.message")
-                                                            }
-                                                        >
-                                                            {copiedMessageId === message.id ? (
-                                                                <Check className="h-3 w-3" />
-                                                            ) : (
-                                                                <Copy className="h-3 w-3" />
-                                                            )}
-                                                        </Button>
-                                                        {ttsSupported && (
-                                                            <>
-                                                                <span>•</span>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground"
-                                                                    onClick={() => handlePlayMessage(message)}
-                                                                    aria-label={
-                                                                        speakingMessageId === message.id
-                                                                            ? t("stop.speaking")
-                                                                            : t("play.message")
-                                                                    }
-                                                                >
-                                                                    {speakingMessageId === message.id ? (
-                                                                        <VolumeX className="h-3 w-3" />
-                                                                    ) : (
-                                                                        <Volume2 className="h-3 w-3" />
-                                                                    )}
-                                                                </Button>
-                                                            </>
-                                                        )}
-                                                    </div>
+                                                        </div>
                                                     )}
                                                 </div>
                                             </div>
@@ -1115,7 +1174,11 @@ function ProjectChatSession({
                                         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                                         <div className="flex-1">
                                             <p className="font-medium">{t("error.chat.api")}</p>
-                                            <p className="mt-0.5 break-words text-xs opacity-80">{streamError}</p>
+                                            <p className="mt-0.5 break-words text-xs opacity-80">
+                                                {streamError.includes("MODEL_NOT_CONFIGURED")
+                                                    ? t("chat.models.notConfigured")
+                                                    : streamError}
+                                            </p>
                                         </div>
                                         <Button
                                             variant="ghost"
