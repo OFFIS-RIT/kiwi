@@ -239,7 +239,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                             id="model-provider-model"
                             value={providerModel}
                             onChange={(e) => setProviderModel(e.target.value)}
-                            placeholder="gpt-4.1-mini"
+                            placeholder="gpt-5.5"
                             required
                         />
                     </div>
