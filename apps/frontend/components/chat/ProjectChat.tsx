@@ -947,7 +947,7 @@ function ProjectChatSession({
                                         <h2 className="mb-8 text-center text-3xl font-semibold tracking-normal text-foreground">
                                             {t("empty.chat.prompt", { projectName })}
                                         </h2>
-                                        <div className="rounded-2xl border bg-card p-2 shadow-sm">{inputControls}</div>
+                                        <div className="rounded-xl border bg-card p-2 shadow-sm">{inputControls}</div>
                                     </div>
                                 </div>
                             )}
@@ -974,7 +974,7 @@ function ProjectChatSession({
                                                     <div
                                                         className={
                                                             message.role === "user"
-                                                                ? "rounded-lg bg-[#f3f3f4] px-4 py-2 dark:bg-[#242424]"
+                                                                ? "rounded-lg bg-muted px-4 py-2"
                                                                 : ""
                                                         }
                                                     >
@@ -1169,7 +1169,7 @@ function ProjectChatSession({
                                     {t("scroll.to.bottom")}
                                 </Button>
                             )}
-                            <div className="rounded-2xl border bg-card p-2 shadow-sm">{inputControls}</div>
+                            <div className="rounded-xl border bg-card p-2 shadow-sm">{inputControls}</div>
                         </div>
                     )}
                 </Card>

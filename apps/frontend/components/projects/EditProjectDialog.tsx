@@ -305,7 +305,7 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
                             <Calendar className="h-2.5 w-2.5" />
                             {formatDate(file.created_at) || formatDate(file.updated_at)}
                         </p>
-                        {stepLabel && <p className="mt-1 text-[10px] text-blue-500">{stepLabel}</p>}
+                        {stepLabel && <p className="mt-1 text-[10px] text-highlight">{stepLabel}</p>}
                         {failureReason && (
                             <p className="mt-1 text-[10px] text-destructive" title={failureReason}>
                                 {failureReason}

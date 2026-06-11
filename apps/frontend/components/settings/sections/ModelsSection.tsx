@@ -138,7 +138,7 @@ export function ModelsSection() {
                                     aria-hidden
                                     className={cn(
                                         "h-2 w-2 rounded-full",
-                                        count > 0 ? "bg-emerald-500" : "bg-muted-foreground/30"
+                                        count > 0 ? "bg-success" : "bg-muted-foreground/30"
                                     )}
                                 />
                                 {t(MODEL_TYPE_LABEL_KEYS[type])}

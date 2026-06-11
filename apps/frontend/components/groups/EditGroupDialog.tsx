@@ -349,8 +349,8 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                                 variant="outline"
                                                                 className={
                                                                     user.role === "admin"
-                                                                        ? "border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
-                                                                        : "border-zinc-200 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+                                                                        ? "border-primary/30 bg-primary/10 text-primary"
+                                                                        : "border-border bg-muted text-muted-foreground"
                                                                 }
                                                             >
                                                                 {user.role}
