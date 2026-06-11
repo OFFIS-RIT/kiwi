@@ -2,6 +2,7 @@
 
 import { DeleteModelDialog } from "@/components/admin/DeleteModelDialog";
 import { MODEL_ADAPTER_LABEL_KEYS, MODEL_TYPE_LABEL_KEYS, ModelFormDialog } from "@/components/admin/ModelFormDialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -81,9 +82,7 @@ export function ModelsSection() {
         return <section className="py-12 text-center text-sm text-muted-foreground">{t("error.loading.data")}</section>;
     }
 
-    const typeModels = modelsByType(selectedType);
-    const defaultModel = typeModels.find((model) => model.is_default);
-    const otherModels = typeModels.filter((model) => !model.is_default);
+    const typeModels = [...modelsByType(selectedType)].sort((a, b) => Number(b.is_default) - Number(a.is_default));
 
     const modelActions = (model: AdminModelListItem) => (
         <div className="flex shrink-0 items-center gap-1">
@@ -164,35 +163,28 @@ export function ModelsSection() {
                             {t("settings.models.add")}
                         </Button>
                     </div>
-                    {defaultModel ? (
-                        <div className="mt-3 flex items-center justify-between gap-3 rounded-md border bg-card px-4 py-3">
-                            <div className="min-w-0">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                    {t("settings.models.default.badge")}
-                                </p>
-                                <p className="truncate font-medium">{defaultModel.display_name}</p>
-                                <ModelMeta model={defaultModel} />
-                            </div>
-                            {modelActions(defaultModel)}
-                        </div>
-                    ) : (
+                    {typeModels.length === 0 ? (
                         <p className="mt-3 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
                             {t("settings.models.detail.empty")}
                         </p>
-                    )}
-                    {otherModels.length > 0 ? (
+                    ) : (
                         <ul className="mt-3 flex flex-col divide-y rounded-md border">
-                            {otherModels.map((model) => (
+                            {typeModels.map((model) => (
                                 <li key={model.model_id} className="flex items-center justify-between gap-3 px-4 py-3">
                                     <div className="min-w-0">
-                                        <p className="truncate font-medium">{model.display_name}</p>
+                                        <div className="flex items-center gap-2">
+                                            <span className="truncate font-medium">{model.display_name}</span>
+                                            {model.is_default ? (
+                                                <Badge variant="secondary">{t("settings.models.default.badge")}</Badge>
+                                            ) : null}
+                                        </div>
                                         <ModelMeta model={model} />
                                     </div>
                                     {modelActions(model)}
                                 </li>
                             ))}
                         </ul>
-                    ) : null}
+                    )}
                 </div>
             </div>
             {formTarget ? (
