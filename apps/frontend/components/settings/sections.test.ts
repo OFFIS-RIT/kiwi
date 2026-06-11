@@ -51,6 +51,7 @@ describe("settings section visibility", () => {
 
         expect(categories.map((category) => category.id)).toEqual(["general", "system-admin"]);
         expect(sectionIds(categories)).toContain("user-management");
+        expect(sectionIds(categories)).toContain("ai-models");
     });
 
     test("system-admin Category never appears for non-system-admins", () => {
@@ -104,7 +105,7 @@ describe("settings section visibility", () => {
 
 describe("admin-only section derivation", () => {
     test("derives admin-only Section ids from the registry predicates", () => {
-        expect(getAdminOnlySectionIds()).toEqual(["user-management"]);
+        expect(getAdminOnlySectionIds()).toEqual(["user-management", "ai-models"]);
     });
 
     test("does not classify auth-mode-gated Sections (e.g. Account) as admin-only", () => {

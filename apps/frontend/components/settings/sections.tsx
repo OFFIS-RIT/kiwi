@@ -1,5 +1,15 @@
 import type { AuthMode } from "@kiwi/auth/mode";
-import { Archive, KeyRound, Lightbulb, Palette, ScrollText, SlidersHorizontal, Users, UserCircle } from "lucide-react";
+import {
+    Archive,
+    Bot,
+    KeyRound,
+    Lightbulb,
+    Palette,
+    ScrollText,
+    SlidersHorizontal,
+    Users,
+    UserCircle,
+} from "lucide-react";
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 
@@ -7,6 +17,7 @@ import { AccountSection } from "./sections/AccountSection";
 import { ApiKeysSection } from "./sections/ApiKeysSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
 import { ArchivedChatsSection } from "./sections/ArchivedChatsSection";
+import { ModelsSection } from "./sections/ModelsSection";
 import { PersonalizationSection } from "./sections/PersonalizationSection";
 import { PromptsSection } from "./sections/PromptsSection";
 import { SuggestionsSection } from "./sections/SuggestionsSection";
@@ -102,6 +113,13 @@ export const settingsCategories: SettingsCategoryDef[] = [
                 labelKey: "admin.user.management",
                 icon: Users,
                 Component: UserManagementSection,
+                isVisible: (context) => context.isSystemAdmin,
+            },
+            {
+                id: "ai-models",
+                labelKey: "settings.models.title",
+                icon: Bot,
+                Component: ModelsSection,
                 isVisible: (context) => context.isSystemAdmin,
             },
         ],
