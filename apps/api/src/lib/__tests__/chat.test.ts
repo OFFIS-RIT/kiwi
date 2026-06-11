@@ -583,13 +583,23 @@ describe("chat context helpers", () => {
                 buildContext: buildTestContext(runtime, "system prompt"),
             });
 
-            const transcripts = compactConversationHistoryMock.mock.calls.map(
-                ([options]) => (options as { transcript: string }).transcript
+            const compactionCalls = compactConversationHistoryMock.mock.calls.map(
+                ([options]) => options as { transcript: string; previousSummary?: string }
             );
+            const transcripts = compactionCalls.map((options) => options.transcript);
 
             expect(insertedCompactions).toHaveLength(1);
             expect(transcripts.length).toBeGreaterThan(1);
-            expect(transcripts.every((transcript) => estimateToken(transcript) <= chunkBudget)).toBe(true);
+            expect(
+                compactionCalls.every(
+                    (options) =>
+                        estimateToken(options.transcript) <=
+                        getCompactionChunkTokenBudget(
+                            runtime.client.compactionContextWindow,
+                            options.previousSummary
+                        )
+                )
+            ).toBe(true);
             expect(insertedCompactions[0]?.parts[0]).toMatchObject({
                 type: "compaction",
                 summarizedThroughMessageId: "msg-huge",
