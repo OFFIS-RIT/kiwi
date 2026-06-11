@@ -415,7 +415,7 @@
     "settings.models.field.modelId": "Model ID",
     "settings.models.field.modelId.hint": "Permanent identifier used in API requests; it cannot be changed later.",
     "settings.models.field.adapter": "Adapter",
-    "settings.models.field.providerModel": "Provider model",
+    "settings.models.field.providerModel": "Provider model name",
     "settings.models.field.apiKey": "API key",
     "settings.models.field.apiKey.keep": "Leave empty to keep the stored key",
     "settings.models.field.url": "Endpoint URL",

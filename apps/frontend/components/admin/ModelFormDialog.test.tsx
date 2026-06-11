@@ -89,7 +89,7 @@ describe("ModelFormDialog", () => {
         await user.type(screen.getByLabelText("Anzeigename"), "GPT 4.1 Mini (EU)");
         expect(screen.getByLabelText("Modell-ID")).toHaveValue("gpt-4.1-mini-eu");
 
-        await user.type(screen.getByLabelText("Provider-Modell"), "gpt-4.1-mini");
+        await user.type(screen.getByLabelText("Provider-Modell-Name"), "gpt-4.1-mini");
         await user.type(screen.getByLabelText("API-Schlüssel"), "secret-key");
         await user.click(screen.getByRole("button", { name: "Modell hinzufügen" }));
 

@@ -415,7 +415,7 @@
     "settings.models.field.modelId": "Modell-ID",
     "settings.models.field.modelId.hint": "Dauerhafte Kennung für API-Anfragen; kann später nicht geändert werden.",
     "settings.models.field.adapter": "Adapter",
-    "settings.models.field.providerModel": "Provider-Modell",
+    "settings.models.field.providerModel": "Provider-Modell-Name",
     "settings.models.field.apiKey": "API-Schlüssel",
     "settings.models.field.apiKey.keep": "Leer lassen, um den gespeicherten Schlüssel zu behalten",
     "settings.models.field.url": "Endpunkt-URL",

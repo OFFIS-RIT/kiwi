@@ -33,11 +33,9 @@ function ModelMeta({ model }: { model: AdminModelListItem }) {
     const t = useAppTranslations();
     return (
         <p className="truncate text-xs text-muted-foreground">
-            <span className="font-mono">{model.model_id}</span>
+            <span className="font-mono">{model.provider_model}</span>
             {" · "}
             {t(MODEL_ADAPTER_LABEL_KEYS[model.adapter])}
-            {" · "}
-            <span className="font-mono">{model.provider_model}</span>
         </p>
     );
 }
