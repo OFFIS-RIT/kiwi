@@ -168,6 +168,25 @@ describe("ModelFormDialog", () => {
         });
     });
 
+    test("clears the stored endpoint URL when switching the adapter away from openaiAPI", async () => {
+        const user = userEvent.setup();
+        const onSaved = vi.fn();
+        renderWithProviders(
+            <ModelFormDialog open onOpenChange={vi.fn()} type="text" model={openaiApiModel} onSaved={onSaved} />
+        );
+
+        await user.click(screen.getByRole("combobox"));
+        await user.click(await screen.findByRole("option", { name: "OpenAI" }));
+        expect(screen.queryByLabelText("Endpunkt-URL")).not.toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalled());
+        expect(updateModel).toHaveBeenCalledWith(expect.anything(), "local-llm", {
+            adapter: "openai",
+            credentials: { url: "" },
+        });
+    });
+
     test("closes without a request when nothing changed", async () => {
         const user = userEvent.setup();
         const onOpenChange = vi.fn();

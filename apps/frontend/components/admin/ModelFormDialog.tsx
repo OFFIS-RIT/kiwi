@@ -111,6 +111,15 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
 
     const adapterOptions = adapterOptionsForType(type);
     const modelId = modelIdTouched ? modelIdInput : slugifyModelId(displayName);
+
+    // Each connection field belongs to one adapter (URL → openaiAPI, resource
+    // name → azure). Clearing them on switch hides the stale field and, via
+    // the empty string, removes the stored value from the credentials blob.
+    const handleAdapterChange = (next: AiModelAdapter) => {
+        setAdapter(next);
+        if (next !== "openaiAPI") setUrl("");
+        if (next !== "azure") setResourceName("");
+    };
     // URL and resource name are readable connection config; only the API key
     // is a write-only secret (empty on edit = keep the stored key).
     const requireApiKey = !isEdit;
@@ -220,7 +229,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                     )}
                     <div className="space-y-2">
                         <Label htmlFor="model-adapter">{t("settings.models.field.adapter")}</Label>
-                        <Select value={adapter} onValueChange={(value) => setAdapter(value as AiModelAdapter)}>
+                        <Select value={adapter} onValueChange={(value) => handleAdapterChange(value as AiModelAdapter)}>
                             <SelectTrigger id="model-adapter" className="w-full">
                                 <SelectValue />
                             </SelectTrigger>
