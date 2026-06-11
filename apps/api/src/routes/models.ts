@@ -168,6 +168,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                             .select({
                                 modelId: modelsTable.modelId,
                                 displayName: modelsTable.displayName,
+                                isDefault: modelsTable.isDefault,
                             })
                             .from(modelsTable)
                             .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, "text")))

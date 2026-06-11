@@ -9,7 +9,7 @@ import {
     updateModel,
 } from "./models";
 
-const publicModel = { model_id: "gpt-41-mini", display_name: "GPT-4.1 mini" };
+const publicModel = { model_id: "gpt-41-mini", display_name: "GPT-4.1 mini", is_default: true };
 
 const adminModel = {
     ...publicModel,

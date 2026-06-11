@@ -32,6 +32,7 @@ export type ModelCredentials = {
 export type PublicModelRecord = {
     model_id: string;
     display_name: string;
+    is_default: boolean;
 };
 
 export type AdminModelRecord = PublicModelRecord & {
@@ -42,7 +43,6 @@ export type AdminModelRecord = PublicModelRecord & {
     // blob but is safe to expose to admins, unlike the API key.
     url: string | null;
     resource_name: string | null;
-    is_default: boolean;
     created_at: string;
     updated_at: string;
 };
@@ -395,10 +395,11 @@ export function assertValidModelConfiguration(input: {
     }
 }
 
-export function toPublicModelRecord(row: Pick<AiModel, "modelId" | "displayName">): PublicModelRecord {
+export function toPublicModelRecord(row: Pick<AiModel, "modelId" | "displayName" | "isDefault">): PublicModelRecord {
     return {
         model_id: row.modelId,
         display_name: row.displayName,
+        is_default: row.isDefault,
     };
 }
 
@@ -425,7 +426,6 @@ export function toAdminModelRecord(
         provider_model: row.providerModel,
         url: credentials.url ?? null,
         resource_name: credentials.resourceName ?? null,
-        is_default: row.isDefault,
         created_at: row.createdAt.toISOString(),
         updated_at: row.updatedAt.toISOString(),
     };

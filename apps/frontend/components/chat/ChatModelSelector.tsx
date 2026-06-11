@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -52,9 +53,10 @@ type ChatModelMenuProps = {
 /**
  * Combined per-chat-session menu for model and intelligence level: models are
  * picked directly at the top level, the intelligence level lives in a hover
- * submenu. The top "default" model entry stands for omitting `modelId` from
- * the request, which lets the backend resolve the organization default; which
- * model that is stays opaque to regular members.
+ * submenu. The organization default appears under its real name with a badge;
+ * selecting it maps to value null, i.e. the request omits `modelId` and the
+ * backend resolves the default at send time — so an admin changing the
+ * default mid-chat takes effect without re-selection.
  */
 export function ChatModelMenu({
     models,
@@ -65,8 +67,11 @@ export function ChatModelMenu({
     disabled,
 }: ChatModelMenuProps) {
     const t = useAppTranslations();
-    const selected = value ? models.find((model) => model.model_id === value) : undefined;
+    const defaultModel = models.find((model) => model.is_default);
+    const sortedModels = [...models].sort((a, b) => Number(b.is_default) - Number(a.is_default));
+    const selected = value ? models.find((model) => model.model_id === value) : defaultModel;
     const modelLabel = selected?.display_name ?? t("chat.model.default");
+    const isChecked = (model: PublicModelListItem) => value === model.model_id || (value === null && model.is_default);
 
     return (
         <DropdownMenu>
@@ -91,18 +96,17 @@ export function ChatModelMenu({
                         <DropdownMenuLabel className="px-2.5 py-1.5 text-sm font-normal text-muted-foreground">
                             {t("chat.model")}
                         </DropdownMenuLabel>
-                        <DropdownMenuItem onClick={() => onChange(null)} className="min-h-9 rounded-lg px-2.5 text-sm">
-                            <span>{t("chat.model.default")}</span>
-                            {value === null && <Check className="ml-auto h-4 w-4" />}
-                        </DropdownMenuItem>
-                        {models.map((model) => (
+                        {sortedModels.map((model) => (
                             <DropdownMenuItem
                                 key={model.model_id}
-                                onClick={() => onChange(model.model_id)}
+                                onClick={() => onChange(model.is_default ? null : model.model_id)}
                                 className="min-h-9 rounded-lg px-2.5 text-sm"
                             >
                                 <span className="truncate">{model.display_name}</span>
-                                {value === model.model_id && <Check className="ml-auto h-4 w-4" />}
+                                {model.is_default ? (
+                                    <Badge variant="secondary">{t("settings.models.default.badge")}</Badge>
+                                ) : null}
+                                {isChecked(model) && <Check className="ml-auto h-4 w-4" />}
                             </DropdownMenuItem>
                         ))}
                         <DropdownMenuSeparator />

@@ -250,6 +250,7 @@ export type AiModelAdapter = (typeof AI_MODEL_ADAPTER_VALUES)[number];
 export type PublicModelListItem = {
     model_id: string;
     display_name: string;
+    is_default: boolean;
 };
 
 export type AdminModelListItem = PublicModelListItem & {
@@ -259,7 +260,6 @@ export type AdminModelListItem = PublicModelListItem & {
     // Non-secret connection config; readable by admins, unlike the API key.
     url: string | null;
     resource_name: string | null;
-    is_default: boolean;
     created_at: string;
     updated_at: string;
 };
