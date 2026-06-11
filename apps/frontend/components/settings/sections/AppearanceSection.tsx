@@ -1,21 +1,23 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { SupportedLocale } from "@/lib/i18n/locale";
 import { clearLocale, setLocale } from "@/lib/i18n/set-locale";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
+import { THEME_PRESETS, isThemePresetId } from "@/lib/theme-presets";
 import { cn } from "@/lib/utils";
+import { useThemePreset } from "@/providers/ThemePresetProvider";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useLocale } from "next-intl";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 
-const THEME_OPTIONS = [
-    { value: "light", icon: Sun, labelKey: "appearance.theme.light" },
-    { value: "system", icon: Monitor, labelKey: "appearance.theme.system" },
-    { value: "dark", icon: Moon, labelKey: "appearance.theme.dark" },
+const COLOR_MODE_OPTIONS = [
+    { value: "light", icon: Sun, labelKey: "appearance.colorMode.light" },
+    { value: "system", icon: Monitor, labelKey: "appearance.colorMode.system" },
+    { value: "dark", icon: Moon, labelKey: "appearance.colorMode.dark" },
 ] as const;
 
 function getExplicitLocale(): SupportedLocale | null {
@@ -44,11 +46,27 @@ function SettingRow({ title, description, control }: { title: string; descriptio
     );
 }
 
+function ThemePresetSwatches({ swatches }: { swatches: readonly string[] }) {
+    return (
+        <span className="flex items-center gap-0.5">
+            {swatches.map((swatch) => (
+                <span
+                    key={swatch}
+                    className="size-3 rounded-sm border border-border"
+                    style={{ backgroundColor: swatch }}
+                    aria-hidden="true"
+                />
+            ))}
+        </span>
+    );
+}
+
 export function AppearanceSection() {
     const t = useAppTranslations();
     const router = useRouter();
     const locale = useLocale();
     const { theme, setTheme } = useTheme();
+    const { themePreset, setThemePreset } = useThemePreset();
     const [mounted, setMounted] = useState(false);
     const [explicitLocale, setExplicitLocale] = useState<SupportedLocale | null | undefined>(undefined);
     const [isPending, startTransition] = useTransition();
@@ -61,8 +79,14 @@ export function AppearanceSection() {
         setExplicitLocale(getExplicitLocale());
     }, [locale]);
 
-    const activeTheme = mounted ? (theme ?? "system") : undefined;
+    const activeColorMode = mounted ? (theme ?? "system") : undefined;
     const languageValue = explicitLocale ?? "auto";
+
+    const handleThemePresetChange = (value: string) => {
+        if (isThemePresetId(value)) {
+            setThemePreset(value);
+        }
+    };
 
     const handleLanguageChange = (value: string) => {
         startTransition(async () => {
@@ -87,13 +111,40 @@ export function AppearanceSection() {
             <Card>
                 <CardContent className="flex flex-col divide-y">
                     <SettingRow
-                        title={t("theme")}
-                        description={t("appearance.theme.description")}
+                        title={t("appearance.design.title")}
+                        description={t("appearance.design.description")}
+                        control={
+                            <Select
+                                value={mounted ? themePreset : undefined}
+                                onValueChange={handleThemePresetChange}
+                                disabled={!mounted}
+                            >
+                                <SelectTrigger className="w-56">
+                                    <SelectValue placeholder={t("appearance.design.title")} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectGroup>
+                                        {THEME_PRESETS.map((preset) => (
+                                            <SelectItem key={preset.id} value={preset.id}>
+                                                <span className="flex items-center gap-2">
+                                                    <ThemePresetSwatches swatches={preset.swatches} />
+                                                    <span>{t(preset.labelKey)}</span>
+                                                </span>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectGroup>
+                                </SelectContent>
+                            </Select>
+                        }
+                    />
+                    <SettingRow
+                        title={t("appearance.colorMode.title")}
+                        description={t("appearance.colorMode.description")}
                         control={
                             <div className="inline-flex items-center rounded-lg border bg-muted p-0.5">
-                                {THEME_OPTIONS.map((option) => {
+                                {COLOR_MODE_OPTIONS.map((option) => {
                                     const Icon = option.icon;
-                                    const isActive = activeTheme === option.value;
+                                    const isActive = activeColorMode === option.value;
                                     return (
                                         <button
                                             key={option.value}
@@ -124,9 +175,11 @@ export function AppearanceSection() {
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="auto">{t("autoDetectLanguage")}</SelectItem>
-                                    <SelectItem value="en">{t("english")}</SelectItem>
-                                    <SelectItem value="de">{t("german")}</SelectItem>
+                                    <SelectGroup>
+                                        <SelectItem value="auto">{t("autoDetectLanguage")}</SelectItem>
+                                        <SelectItem value="en">{t("english")}</SelectItem>
+                                        <SelectItem value="de">{t("german")}</SelectItem>
+                                    </SelectGroup>
                                 </SelectContent>
                             </Select>
                         }

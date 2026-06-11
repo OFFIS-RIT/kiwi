@@ -23,7 +23,7 @@ export function ThemeToggle({ asMenuItem = true }: ThemeToggleProps) {
 
     const content: ReactNode = (
         <>
-            <span>{t("theme")}</span>
+            <span>{t("appearance.colorMode.title")}</span>
             <div className="flex items-center rounded border bg-muted">
                 <button
                     type="button"

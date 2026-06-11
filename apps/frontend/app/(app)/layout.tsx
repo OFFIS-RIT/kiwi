@@ -6,6 +6,7 @@ import { DashboardFrame } from "@/components/common/DashboardFrame";
 import { AppShell } from "@/components/common/AppShell";
 import { getServerSession } from "@/lib/auth/get-server-session";
 import type { InitialClientSession } from "@/lib/auth/types";
+import { ThemePresetProvider } from "@/providers/ThemePresetProvider";
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {
     const session = await getServerSession();
@@ -27,8 +28,10 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
     };
 
     return (
-        <AppShell initialSession={initialSession}>
-            <DashboardFrame>{children}</DashboardFrame>
-        </AppShell>
+        <ThemePresetProvider>
+            <AppShell initialSession={initialSession}>
+                <DashboardFrame>{children}</DashboardFrame>
+            </AppShell>
+        </ThemePresetProvider>
     );
 }
