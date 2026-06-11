@@ -32,6 +32,9 @@ const MAX_COMPACTION_ATTEMPTS = 5;
 const MAX_COMPACTION_MODEL_CALLS = 24;
 // Each summarization request must leave room for the compaction prompt, the
 // previous summary, and the summary output within the compaction model context.
+// insertCompactionCheckpoint recalculates the chunk budget after every model
+// call, so a verbose accumulated summary can shrink later transcript chunks or
+// exhaust the budget before all transcript text is processed.
 const COMPACTION_CHUNK_CONTEXT_RATIO = 0.9;
 
 export type ChatRequest = ChatRequestBody;

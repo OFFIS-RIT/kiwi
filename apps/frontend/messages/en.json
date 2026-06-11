@@ -417,6 +417,7 @@
     "settings.models.field.adapter": "Adapter",
     "settings.models.field.providerModel": "Provider model name",
     "settings.models.field.contextWindow": "Context window (tokens)",
+    "settings.models.field.contextWindow.error": "Enter at least {min} tokens.",
     "settings.models.field.apiKey": "API key",
     "settings.models.field.apiKey.keep": "Leave empty to keep the stored key",
     "settings.models.field.url": "Endpoint URL",

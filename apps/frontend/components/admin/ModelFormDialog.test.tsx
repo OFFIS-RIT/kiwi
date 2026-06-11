@@ -129,6 +129,20 @@ describe("ModelFormDialog", () => {
         expect(idInput).toHaveValue("my-custom-id");
     });
 
+    test("shows an inline error instead of creating when the context window is empty", async () => {
+        const user = userEvent.setup();
+        renderWithProviders(<ModelFormDialog open onOpenChange={vi.fn()} type="text" onSaved={vi.fn()} />);
+
+        await user.type(screen.getByLabelText("Anzeigename"), "GPT 4.1 Mini");
+        await user.type(screen.getByLabelText("Provider-Modell-Name"), "gpt-4.1-mini");
+        await user.clear(screen.getByLabelText("Kontextfenster (Tokens)"));
+        await user.type(screen.getByLabelText("API-Schlüssel"), "secret-key");
+        await user.click(screen.getByRole("button", { name: "Modell hinzufügen" }));
+
+        expect(await screen.findByText("Gib mindestens 1000 Tokens ein.")).toBeInTheDocument();
+        expect(createModel).not.toHaveBeenCalled();
+    });
+
     test("omits the context window for embedding model creation", async () => {
         const user = userEvent.setup();
         const onSaved = vi.fn();
@@ -202,6 +216,19 @@ describe("ModelFormDialog", () => {
         expect(updateModel).toHaveBeenCalledWith(expect.anything(), "gpt-41-mini", {
             context_window: 200_000,
         });
+    });
+
+    test("shows an inline error instead of patching when the context window is empty", async () => {
+        const user = userEvent.setup();
+        renderWithProviders(
+            <ModelFormDialog open onOpenChange={vi.fn()} type="text" model={adminModel} onSaved={vi.fn()} />
+        );
+
+        await user.clear(screen.getByLabelText("Kontextfenster (Tokens)"));
+        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+        expect(await screen.findByText("Gib mindestens 1000 Tokens ein.")).toBeInTheDocument();
+        expect(updateModel).not.toHaveBeenCalled();
     });
 
     test("hides the context window when editing an embedding model", async () => {

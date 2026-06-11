@@ -57,6 +57,11 @@ function supportsContextWindow(type: AiModelType): boolean {
     return type === "text" || type === "subagent";
 }
 
+function parseContextWindowTokens(value: string): number | null {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed >= MIN_CONTEXT_WINDOW_TOKENS ? parsed : null;
+}
+
 export function adapterOptionsForType(type: AiModelType): AiModelAdapter[] {
     return AI_MODEL_ADAPTER_VALUES.filter(
         (adapter) => adapter !== "anthropic" || !ANTHROPIC_UNSUPPORTED_TYPES.includes(type)
@@ -95,6 +100,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
     const [adapter, setAdapter] = useState<AiModelAdapter>("openai");
     const [providerModel, setProviderModel] = useState("");
     const [contextWindow, setContextWindow] = useState(String(DEFAULT_CONTEXT_WINDOW_TOKENS));
+    const [contextWindowError, setContextWindowError] = useState<string | null>(null);
     const [apiKey, setApiKey] = useState("");
     const [url, setUrl] = useState("");
     const [resourceName, setResourceName] = useState("");
@@ -111,6 +117,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
         setAdapter(model?.adapter ?? adapterOptionsForType(type)[0] ?? "openai");
         setProviderModel(model?.provider_model ?? "");
         setContextWindow(String(model?.context_window ?? DEFAULT_CONTEXT_WINDOW_TOKENS));
+        setContextWindowError(null);
         setApiKey("");
         setUrl(model?.url ?? "");
         setResourceName(model?.resource_name ?? "");
@@ -137,6 +144,12 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        const contextWindowValue = showContextWindow ? parseContextWindowTokens(contextWindow) : null;
+        if (showContextWindow && contextWindowValue === null) {
+            setContextWindowError(t("settings.models.field.contextWindow.error", { min: MIN_CONTEXT_WINDOW_TOKENS }));
+            return;
+        }
+        setContextWindowError(null);
         setLoading(true);
         try {
             if (isEdit && model) {
@@ -150,7 +163,6 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                 if (providerModel.trim() !== model.provider_model) {
                     patch.provider_model = providerModel.trim();
                 }
-                const contextWindowValue = showContextWindow ? Number(contextWindow) : null;
                 if (contextWindowValue !== null && contextWindowValue !== model.context_window) {
                     patch.context_window = contextWindowValue;
                 }
@@ -174,7 +186,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                     type,
                     adapter,
                     provider_model: providerModel.trim(),
-                    ...(showContextWindow ? { context_window: Number(contextWindow) } : {}),
+                    ...(contextWindowValue !== null ? { context_window: contextWindowValue } : {}),
                     credentials: {
                         apiKey: apiKey.trim(),
                         ...(url.trim() ? { url: url.trim() } : {}),
@@ -275,9 +287,27 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                                 min={MIN_CONTEXT_WINDOW_TOKENS}
                                 step={1}
                                 value={contextWindow}
-                                onChange={(e) => setContextWindow(e.target.value)}
+                                onChange={(e) => {
+                                    setContextWindow(e.target.value);
+                                    setContextWindowError(null);
+                                }}
+                                onInvalid={(e) => {
+                                    e.preventDefault();
+                                    setContextWindowError(
+                                        t("settings.models.field.contextWindow.error", {
+                                            min: MIN_CONTEXT_WINDOW_TOKENS,
+                                        })
+                                    );
+                                }}
+                                aria-invalid={contextWindowError ? true : undefined}
+                                aria-describedby={contextWindowError ? "model-context-window-error" : undefined}
                                 required
                             />
+                            {contextWindowError ? (
+                                <p id="model-context-window-error" className="text-xs text-destructive">
+                                    {contextWindowError}
+                                </p>
+                            ) : null}
                         </div>
                     ) : null}
                     {adapter === "openaiAPI" || url ? (
