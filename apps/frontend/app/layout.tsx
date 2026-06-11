@@ -1,6 +1,6 @@
 import "@/app/globals.css";
 import "katex/dist/katex.min.css";
-import { Inter } from "next/font/google";
+import { Geist_Mono, Inter, Open_Sans, Outfit, Oxanium, Source_Code_Pro } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale } from "next-intl/server";
 import { ThemeProvider as NextThemesProvider } from "next-themes";
@@ -12,8 +12,14 @@ import { AppMessagesProvider } from "@/lib/i18n/use-app-translations";
 import { RuntimeConfigProvider, type RuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { AuthClientProvider } from "@/providers/AuthClientProvider";
 import { ApiClientProvider } from "@/providers/ApiClientProvider";
+import { ThemePresetScript } from "@/components/theme/ThemePresetScript";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
+const openSans = Open_Sans({ subsets: ["latin"], variable: "--font-open-sans" });
+const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
+const oxanium = Oxanium({ subsets: ["latin"], variable: "--font-oxanium" });
+const sourceCodePro = Source_Code_Pro({ subsets: ["latin"], variable: "--font-source-code-pro" });
 
 export const metadata: Metadata = {
     title: "KI-basiertes Wissensmanagement",
@@ -32,8 +38,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     const messages = (await import(`@/messages/${locale}.json`)).default;
 
     return (
-        <html lang={locale} suppressHydrationWarning>
-            <body className={inter.className}>
+        <html
+            lang={locale}
+            className={`${inter.variable} ${geistMono.variable} ${openSans.variable} ${outfit.variable} ${oxanium.variable} ${sourceCodePro.variable}`}
+            suppressHydrationWarning
+        >
+            <body>
+                <ThemePresetScript />
                 <RuntimeConfigProvider config={SERVER_CONFIG}>
                     <NextIntlClientProvider locale={locale} messages={{}}>
                         <AppMessagesProvider messages={messages}>
