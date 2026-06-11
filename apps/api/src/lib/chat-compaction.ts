@@ -26,7 +26,8 @@ import { insertPromptGuidanceMessage } from "./prompt-guidance";
 const MAX_RAW_TAIL_TARGET_TOKENS = 32_000;
 const MIN_RAW_VISIBLE_MESSAGES = 6;
 const SOFT_COMPACTION_THRESHOLD_RATIO = 0.9;
-const RAW_TAIL_TARGET_CONTEXT_RATIO = 0.1;
+// Keep the tail target equal to the remaining headroom after the soft threshold.
+const RAW_TAIL_TARGET_CONTEXT_RATIO = 1 - SOFT_COMPACTION_THRESHOLD_RATIO;
 const MAX_COMPACTION_ATTEMPTS = 5;
 const MAX_COMPACTION_MODEL_CALLS = 24;
 // Each summarization request must leave room for the compaction prompt, the
@@ -222,7 +223,7 @@ export function getSoftCompactionThreshold(contextWindow: number) {
 }
 
 export function getRawTailTargetTokens(contextWindow: number) {
-    return Math.max(1, Math.floor(Math.min(MAX_RAW_TAIL_TARGET_TOKENS, contextWindow * RAW_TAIL_TARGET_CONTEXT_RATIO)));
+    return Math.max(1, Math.round(Math.min(MAX_RAW_TAIL_TARGET_TOKENS, contextWindow * RAW_TAIL_TARGET_CONTEXT_RATIO)));
 }
 
 export function getCompactionChunkTokenBudget(contextWindow: number) {
@@ -518,6 +519,12 @@ export async function maybeCompactConversation(options: {
             summarizedRows.map((message) => toUIMessage(message)),
             chunkTokenBudget
         );
+        if (transcriptChunks.length === 0) {
+            if (!isForcedCompaction) {
+                break;
+            }
+            throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+        }
         assertCompactionModelCallsRemaining(compactionModelCalls, transcriptChunks.length);
 
         await insertCompactionCheckpoint({

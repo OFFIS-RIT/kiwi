@@ -34,6 +34,7 @@ type ModelQueryRunner = {
 
 const modelTypeSchema = z.enum(AI_MODEL_TYPE_VALUES);
 const modelAdapterSchema = z.enum(AI_MODEL_ADAPTER_VALUES);
+const minContextWindowTokens = 1_000;
 const credentialsSchema = z.object({
     apiKey: z.string().trim().min(1),
     url: z.string().trim().min(1).optional(),
@@ -46,7 +47,7 @@ const createModelSchema = z.object({
     type: modelTypeSchema,
     adapter: modelAdapterSchema,
     provider_model: z.string().trim().min(1),
-    context_window: z.number().int().positive().optional(),
+    context_window: z.number().int().min(minContextWindowTokens).optional(),
     credentials: credentialsSchema,
     is_default: z.boolean().optional(),
 });
@@ -55,7 +56,7 @@ const patchModelSchema = z.object({
     display_name: z.string().trim().min(1).optional(),
     adapter: modelAdapterSchema.optional(),
     provider_model: z.string().trim().min(1).optional(),
-    context_window: z.number().int().positive().optional(),
+    context_window: z.number().int().min(minContextWindowTokens).optional(),
     credentials: credentialsSchema.optional(),
 });
 
