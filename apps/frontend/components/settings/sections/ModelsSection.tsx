@@ -171,7 +171,7 @@ export function ModelsSection() {
                     {otherModels.length > 0 ? (
                         <ul className="mt-3 flex flex-col divide-y rounded-md border">
                             {otherModels.map((model) => (
-                                <li key={model.model_id} className="flex items-center justify-between gap-3 p-3">
+                                <li key={model.model_id} className="flex items-center justify-between gap-3 px-4 py-3">
                                     <div className="min-w-0">
                                         <p className="truncate font-medium">{model.display_name}</p>
                                         <ModelMeta model={model} />
