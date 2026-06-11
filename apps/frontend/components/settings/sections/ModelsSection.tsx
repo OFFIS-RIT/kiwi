@@ -3,6 +3,14 @@
 import { DeleteModelDialog } from "@/components/admin/DeleteModelDialog";
 import { MODEL_ADAPTER_LABEL_KEYS, MODEL_TYPE_LABEL_KEYS, ModelFormDialog } from "@/components/admin/ModelFormDialog";
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { fetchAdminModels, setDefaultModel } from "@/lib/api/models";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { queryKeys } from "@/lib/query-keys";
@@ -40,6 +48,7 @@ export function ModelsSection() {
     const [selectedType, setSelectedType] = useState<AiModelType>("text");
     const [formTarget, setFormTarget] = useState<FormTarget | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<AdminModelListItem | null>(null);
+    const [defaultTarget, setDefaultTarget] = useState<AdminModelListItem | null>(null);
 
     const modelsQuery = useQuery({
         queryKey: queryKeys.adminModels,
@@ -50,7 +59,10 @@ export function ModelsSection() {
 
     const makeDefaultMutation = useMutation({
         mutationFn: (modelId: string) => setDefaultModel(apiClient, modelId),
-        onSuccess: invalidateModels,
+        onSuccess: () => {
+            setDefaultTarget(null);
+            return invalidateModels();
+        },
         onError: () => toast.error(t("error.saving")),
     });
 
@@ -80,7 +92,7 @@ export function ModelsSection() {
                     variant="ghost"
                     size="sm"
                     disabled={makeDefaultMutation.isPending}
-                    onClick={() => makeDefaultMutation.mutate(model.model_id)}
+                    onClick={() => setDefaultTarget(model)}
                 >
                     <Star className="mr-2 h-4 w-4" />
                     {t("settings.models.action.makeDefault")}
@@ -193,6 +205,58 @@ export function ModelsSection() {
                     model={formTarget.model}
                     onSaved={invalidateModels}
                 />
+            ) : null}
+            {defaultTarget ? (
+                <Dialog
+                    open
+                    onOpenChange={(open) => {
+                        if (!open) setDefaultTarget(null);
+                    }}
+                >
+                    <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>{t("settings.models.makeDefault.title")}</DialogTitle>
+                            <DialogDescription>
+                                {(() => {
+                                    const currentDefault = models.find(
+                                        (model) => model.type === defaultTarget.type && model.is_default
+                                    );
+                                    const type = t(MODEL_TYPE_LABEL_KEYS[defaultTarget.type]);
+                                    return currentDefault
+                                        ? t("settings.models.makeDefault.confirm", {
+                                              name: defaultTarget.display_name,
+                                              type,
+                                              current: currentDefault.display_name,
+                                          })
+                                        : t("settings.models.makeDefault.confirm.simple", {
+                                              name: defaultTarget.display_name,
+                                              type,
+                                          });
+                                })()}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setDefaultTarget(null)}
+                                disabled={makeDefaultMutation.isPending}
+                            >
+                                {t("cancel")}
+                            </Button>
+                            <Button
+                                type="button"
+                                disabled={makeDefaultMutation.isPending}
+                                onClick={() => makeDefaultMutation.mutate(defaultTarget.model_id)}
+                            >
+                                {makeDefaultMutation.isPending ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : null}
+                                {t("settings.models.action.makeDefault")}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             ) : null}
             {deleteTarget ? (
                 <DeleteModelDialog
