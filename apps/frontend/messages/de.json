@@ -419,6 +419,7 @@
     "settings.models.field.url": "Endpunkt-URL",
     "settings.models.field.resourceName": "Azure-Ressourcenname",
     "settings.models.field.isDefault": "Als Standard für diesen Typ festlegen",
+    "settings.models.credentials.title": "Zugangsdaten",
     "settings.models.credentials.writeOnly": "Zugangsdaten werden nach dem Speichern nicht wieder angezeigt.",
     "settings.models.adapter.openai": "OpenAI",
     "settings.models.adapter.azure": "Azure OpenAI",

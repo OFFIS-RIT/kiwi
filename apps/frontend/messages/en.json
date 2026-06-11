@@ -419,6 +419,7 @@
     "settings.models.field.url": "Endpoint URL",
     "settings.models.field.resourceName": "Azure resource name",
     "settings.models.field.isDefault": "Set as default for this type",
+    "settings.models.credentials.title": "Credentials",
     "settings.models.credentials.writeOnly": "Credentials are never shown again after saving.",
     "settings.models.adapter.openai": "OpenAI",
     "settings.models.adapter.azure": "Azure OpenAI",

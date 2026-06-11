@@ -241,43 +241,50 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                             required
                         />
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="model-api-key">{t("settings.models.field.apiKey")}</Label>
-                        <Input
-                            id="model-api-key"
-                            type="password"
-                            value={apiKey}
-                            onChange={(e) => setApiKey(e.target.value)}
-                            placeholder={isEdit ? t("settings.models.field.apiKey.keep") : undefined}
-                            required={requireApiKey}
-                        />
-                        <p className="text-xs text-muted-foreground">{t("settings.models.credentials.writeOnly")}</p>
+                    <div className="space-y-4 border-t pt-4">
+                        <div>
+                            <p className="text-sm font-medium">{t("settings.models.credentials.title")}</p>
+                            <p className="text-xs text-muted-foreground">
+                                {t("settings.models.credentials.writeOnly")}
+                            </p>
+                        </div>
+                        {adapter === "openaiAPI" || url ? (
+                            <div className="space-y-2">
+                                <Label htmlFor="model-url">{t("settings.models.field.url")}</Label>
+                                <Input
+                                    id="model-url"
+                                    type="url"
+                                    value={url}
+                                    onChange={(e) => setUrl(e.target.value)}
+                                    placeholder={isEdit ? t("settings.models.field.keep") : undefined}
+                                    required={requireUrl}
+                                />
+                            </div>
+                        ) : null}
+                        {adapter === "azure" || resourceName ? (
+                            <div className="space-y-2">
+                                <Label htmlFor="model-resource-name">{t("settings.models.field.resourceName")}</Label>
+                                <Input
+                                    id="model-resource-name"
+                                    value={resourceName}
+                                    onChange={(e) => setResourceName(e.target.value)}
+                                    placeholder={isEdit ? t("settings.models.field.keep") : undefined}
+                                    required={requireResourceName}
+                                />
+                            </div>
+                        ) : null}
+                        <div className="space-y-2">
+                            <Label htmlFor="model-api-key">{t("settings.models.field.apiKey")}</Label>
+                            <Input
+                                id="model-api-key"
+                                type="password"
+                                value={apiKey}
+                                onChange={(e) => setApiKey(e.target.value)}
+                                placeholder={isEdit ? t("settings.models.field.apiKey.keep") : undefined}
+                                required={requireApiKey}
+                            />
+                        </div>
                     </div>
-                    {adapter === "openaiAPI" || url ? (
-                        <div className="space-y-2">
-                            <Label htmlFor="model-url">{t("settings.models.field.url")}</Label>
-                            <Input
-                                id="model-url"
-                                type="url"
-                                value={url}
-                                onChange={(e) => setUrl(e.target.value)}
-                                placeholder={isEdit ? t("settings.models.field.keep") : undefined}
-                                required={requireUrl}
-                            />
-                        </div>
-                    ) : null}
-                    {adapter === "azure" || resourceName ? (
-                        <div className="space-y-2">
-                            <Label htmlFor="model-resource-name">{t("settings.models.field.resourceName")}</Label>
-                            <Input
-                                id="model-resource-name"
-                                value={resourceName}
-                                onChange={(e) => setResourceName(e.target.value)}
-                                placeholder={isEdit ? t("settings.models.field.keep") : undefined}
-                                required={requireResourceName}
-                            />
-                        </div>
-                    ) : null}
                     {!isEdit ? (
                         <div className="flex items-center justify-between gap-3">
                             <Label htmlFor="model-is-default">{t("settings.models.field.isDefault")}</Label>
