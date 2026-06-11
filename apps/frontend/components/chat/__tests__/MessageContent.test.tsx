@@ -842,6 +842,45 @@ describe("MessageContent", () => {
         expect(screen.queryByText("Alpha evidence")).not.toBeInTheDocument();
     });
 
+    test("renders full-page PDF source regions without a full-page overlay", async () => {
+        const unit: Awaited<ReturnType<typeof fetchSourceReference>>["unit"] = {
+            id: "unit-1",
+            project_file_id: "file-1",
+            start_page: 3,
+            end_page: 4,
+            file_name: "document.pdf",
+            file_type: "pdf",
+            mime_type: "application/pdf",
+            created_at: null,
+            updated_at: null,
+        };
+        mocked(fetchSourceReference).mockResolvedValueOnce(
+            sourceReference(unit, {
+                chunks: [],
+                pdf_regions: [
+                    {
+                        kind: "page",
+                        chunk_id: 1,
+                        page: 3,
+                        width: 200,
+                        height: 100,
+                        image_path: "/graphs/graph-1/units/unit-1/pages/3.png",
+                        crop: { left: 0, top: 0, width: 1, height: 1 },
+                        rectangles: [{ left: 0, top: 0, width: 1, height: 1 }],
+                    },
+                ],
+            })
+        );
+
+        renderMessageContent([{ type: "text", text: `Alpha ${citationFence("src-1")} Omega` }]);
+
+        await userEvent.click(screen.getByRole("button", { name: "1" }));
+
+        expect(await screen.findByRole("img", { name: "document.pdf page 3" })).toBeInTheDocument();
+        expect(screen.queryByTestId("pdf-source-region-highlight")).not.toBeInTheDocument();
+        expect(screen.getByTestId("pdf-source-page-highlight")).toHaveTextContent(/Full page|Ganze Seite/u);
+    });
+
     test("shows selected text chunk fallback for unmatched PDF regions", async () => {
         const unit: Awaited<ReturnType<typeof fetchSourceReference>>["unit"] = {
             id: "unit-1",

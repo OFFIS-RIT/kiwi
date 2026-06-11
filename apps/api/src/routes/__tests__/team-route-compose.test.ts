@@ -10,9 +10,11 @@ mock.module("@kiwi/db", () => ({
 mock.module("@kiwi/files", () => ({
     deleteFile: async () => undefined,
     listFiles: async () => [],
+    putGraphFile: async () => ({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),
 }));
 
 mock.module("@kiwi/logger", () => ({
+    debug: () => undefined,
     error: () => undefined,
     info: () => undefined,
     warn: () => undefined,
@@ -25,12 +27,6 @@ mock.module("../../env", () => ({
     },
 }));
 
-mock.module("../../lib/chat", () => ({
-    mapChatError: (status: (code: number, body: unknown) => unknown, error: unknown) => status(500, error),
-    setChatArchived: async () => undefined,
-    setChatPinned: async () => undefined,
-}));
-
 mock.module("../../lib/chat-response", () => ({
     createChatStreamResponse: () => new Response(),
     runChatCompletion: async () => undefined,
@@ -41,9 +37,32 @@ mock.module("../../lib/graph", () => ({
 }));
 
 mock.module("../../lib/team-access", () => ({
+    getActiveOrganizationId: async () => "org-1",
+    getOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
+    getTeamInActiveOrganization: async (_user: unknown, teamId: string) => ({
+        id: teamId,
+        name: "Team",
+        organizationId: "org-1",
+    }),
+    getTeamRole: async () => "admin",
     requireOrganizationAdmin: async () => ({ organizationId: "org-1" }),
     requireOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
     requireTeamAccess: async (_user: unknown, teamId: string) => ({
+        organizationAdmin: true,
+        role: "admin",
+        team: { id: teamId, name: "Team", organizationId: "org-1" },
+    }),
+    requireTeamGraphCreateAccess: async (_user: unknown, teamId: string) => ({
+        organizationAdmin: true,
+        role: "admin",
+        team: { id: teamId, name: "Team", organizationId: "org-1" },
+    }),
+    requireTeamGraphFileManageAccess: async (_user: unknown, teamId: string) => ({
+        organizationAdmin: true,
+        role: "admin",
+        team: { id: teamId, name: "Team", organizationId: "org-1" },
+    }),
+    requireTeamGraphManageAccess: async (_user: unknown, teamId: string) => ({
         organizationAdmin: true,
         role: "admin",
         team: { id: teamId, name: "Team", organizationId: "org-1" },

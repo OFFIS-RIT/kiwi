@@ -14,6 +14,7 @@ import type {
 } from "./types";
 import { analyzePageContent } from "./content";
 import { extractOCRTextFromPDFPages } from "./ocr";
+import { getPDFPageGeometry, type PDFPageGeometry } from "./page-geometry";
 import { findRepeatedEdgeLinePatterns, renderPageBlocks } from "./render";
 import {
     extractImageFenceId,
@@ -63,7 +64,7 @@ export async function extractFullOCRDocumentFromPDF(
             continue;
         }
 
-        builder.appendPage(page.index, text, sourceChunksForWholePageText(text, page));
+        builder.appendPage(page.index, text, sourceChunksForWholePageText(text, getPDFPageGeometry(pdf, page)));
     }
 
     return builder.build();
@@ -74,6 +75,7 @@ function extractPDFPlainDocumentFromDocument(pdf: PDFDocumentLike): LoadedGraphD
 
     for (const page of pdf.getPages()) {
         const pageText = preparePageText(pdf, page);
+        const geometry = getPDFPageGeometry(pdf, page);
         const entries = pageText.lines
             .map((line): PageContentEntry | null => {
                 const text = getLineText(line);
@@ -81,10 +83,15 @@ function extractPDFPlainDocumentFromDocument(pdf: PDFDocumentLike): LoadedGraphD
                     return null;
                 }
 
+                const region = regionForBoundingBox("text", geometry, line.bbox);
+                if (!region) {
+                    return null;
+                }
+
                 return {
                     type: "text",
                     text,
-                    region: regionForBoundingBox("text", page.index + 1, pageText.width, pageText.height, line.bbox),
+                    region,
                 };
             })
             .filter((entry): entry is PageContentEntry => entry !== null);
@@ -135,11 +142,12 @@ async function extractPDFHybridDocumentFromDocument(
     for (const renderedPage of renderedPages) {
         const { entry, blocks } = renderedPage;
         const page = entry.page;
+        const geometry = getPDFPageGeometry(pdf, page);
 
         if (entry.ocrFallback) {
             const ocrText = ocrFallbackTexts.get(page.index)?.trim();
             if (ocrText) {
-                builder.appendPage(page.index, ocrText, sourceChunksForWholePageText(ocrText, page));
+                builder.appendPage(page.index, ocrText, sourceChunksForWholePageText(ocrText, geometry));
             }
 
             continue;
@@ -147,7 +155,7 @@ async function extractPDFHybridDocumentFromDocument(
 
         const { content, entries } = materializePageEntries(
             blocks.flatMap((block) =>
-                pageContentEntriesForBlock(block, entry.pageText, entry.content.images, imageDescriptions)
+                pageContentEntriesForBlock(block, geometry, entry.content.images, imageDescriptions)
             ),
             "\n\n"
         );
@@ -209,22 +217,21 @@ function collectReferencedImages(
 
 function pageContentEntriesForBlock(
     block: RenderBlock,
-    pageText: PreparedPage["pageText"],
+    geometry: PDFPageGeometry,
     images: ImageOccurrence[],
     imageDescriptions: Map<string, string>
 ): PageContentEntry[] {
     if (block.kind !== "image") {
+        const region = regionForBoundingBox("text", geometry, block.bbox);
+        if (!region) {
+            return [];
+        }
+
         return [
             {
                 type: "text",
                 text: block.text.trim(),
-                region: regionForBoundingBox(
-                    "text",
-                    pageText.pageIndex + 1,
-                    pageText.width,
-                    pageText.height,
-                    block.bbox
-                ),
+                region,
             },
         ];
     }
@@ -236,13 +243,18 @@ function pageContentEntriesForBlock(
     }
 
     const description = imageDescriptions.get(image.id) ?? "";
+    const region = regionForBoundingBox("image", geometry, image.bbox);
+    if (!region) {
+        return [];
+    }
+
     return [
         {
             type: "image",
             text: renderImageTag(image.id, description),
             sourceText: description,
             imageId: image.id,
-            region: regionForBoundingBox("image", image.pageIndex + 1, pageText.width, pageText.height, image.bbox),
+            region,
         },
     ];
 }

@@ -7,7 +7,6 @@ import {
     buildSubagentToolset,
     createChatSystemPrompt,
     createRequestInformation,
-    getClient,
     isPDFCitation,
     isResolvedCitationFence,
     messagePartsToUIMessage,
@@ -22,7 +21,7 @@ import {
     type ResolvedCitationFence,
     uiMessageToMessageParts,
 } from "@kiwi/ai";
-import { getDefaultModelOrganizationId, resolveResearchModelConfig } from "@kiwi/ai/models";
+import { getDefaultModelOrganizationId } from "@kiwi/ai/models";
 import { db } from "@kiwi/db";
 import type { MessagePart } from "@kiwi/contracts/chat";
 import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
@@ -32,7 +31,6 @@ import { filesTable, graphPromptsTable, processRunsTable, sourcesTable, textUnit
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { Result } from "better-result";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { env } from "../env";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
 import {
@@ -48,6 +46,7 @@ import {
     type ChatRequest,
     type ChatRuntime,
 } from "./chat-compaction";
+import { getRequiredResearchClient, type RequiredResearchClient } from "./chat-client";
 import {
     createCachingCitationResolver,
     normalizeMessageCitationFences,
@@ -433,6 +432,9 @@ export async function setChatArchived(chatId: string, userId: string, archived: 
         .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)));
 }
 
+export { getRequiredResearchClient };
+export type { RequiredResearchClient };
+
 async function getResearchModelOrganizationId(user: AuthUser | undefined, rootOwner: RootOwner) {
     const organizationId =
         rootOwner.mode === "user"
@@ -447,31 +449,6 @@ async function getResearchModelOrganizationId(user: AuthUser | undefined, rootOw
 
     return organizationId;
 }
-
-export async function getRequiredResearchClient(options: {
-    organizationId: string;
-    requestedModelId?: string;
-}) {
-    const resolvedModels = await resolveResearchModelConfig({
-        organizationId: options.organizationId,
-        requestedTextModelId: options.requestedModelId,
-        secret: env.AUTH_SECRET,
-    });
-    const client = getClient(resolvedModels.config);
-
-    if (!client.text || !client.embedding) {
-        throw new Error(API_ERROR_CODES.MODEL_NOT_CONFIGURED);
-    }
-
-    return {
-        ...client,
-        text: client.text,
-        embedding: client.embedding,
-        textModelId: resolvedModels.textModelId,
-    };
-}
-
-export type RequiredResearchClient = Awaited<ReturnType<typeof getRequiredResearchClient>>;
 
 function createGraphResearchRuntime(options: {
     graphId: string;
