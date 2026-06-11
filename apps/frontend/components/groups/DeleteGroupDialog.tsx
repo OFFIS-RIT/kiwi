@@ -31,11 +31,16 @@ export function DeleteGroupDialog({ open, onOpenChange, group }: DeleteGroupDial
     const { group: selectedGroup } = useCurrentSelection();
     const deleteGroupMutation = useDeleteGroup();
 
+    // Depend on the stable `reset` function, not the mutation result object:
+    // the result is a new reference each render, so using it as a dep re-runs
+    // the effect after the re-render that reset() itself triggers — an endless
+    // notify loop that starves route transitions while the dialog is closed.
+    const resetDeleteGroupMutation = deleteGroupMutation.reset;
     useEffect(() => {
         if (!open) {
-            deleteGroupMutation.reset();
+            resetDeleteGroupMutation();
         }
-    }, [open, deleteGroupMutation]);
+    }, [open, resetDeleteGroupMutation]);
 
     const handleDelete = async () => {
         if (!group) return;
