@@ -91,6 +91,10 @@ describe("ModelFormDialog", () => {
         expect(screen.getByLabelText("Modell-ID")).toHaveValue("gpt-4.1-mini-eu");
 
         await user.type(screen.getByLabelText("Provider-Modell-Name"), "gpt-4.1-mini");
+        const contextWindowInput = screen.getByLabelText("Kontextfenster (Tokens)");
+        expect(contextWindowInput).toHaveValue(250_000);
+        await user.clear(contextWindowInput);
+        await user.type(contextWindowInput, "64000");
         await user.type(screen.getByLabelText("API-Schlüssel"), "secret-key");
         await user.click(screen.getByRole("button", { name: "Modell hinzufügen" }));
 
@@ -101,6 +105,7 @@ describe("ModelFormDialog", () => {
             type: "text",
             adapter: "openai",
             provider_model: "gpt-4.1-mini",
+            context_window: 64_000,
             credentials: { apiKey: "secret-key" },
         });
     });
@@ -147,6 +152,25 @@ describe("ModelFormDialog", () => {
         await waitFor(() => expect(onSaved).toHaveBeenCalled());
         expect(updateModel).toHaveBeenCalledWith(expect.anything(), "gpt-41-mini", {
             credentials: { apiKey: "new-secret" },
+        });
+    });
+
+    test("patches the context window when it changes", async () => {
+        const user = userEvent.setup();
+        const onSaved = vi.fn();
+        renderWithProviders(
+            <ModelFormDialog open onOpenChange={vi.fn()} type="text" model={adminModel} onSaved={onSaved} />
+        );
+
+        const contextWindowInput = screen.getByLabelText("Kontextfenster (Tokens)");
+        expect(contextWindowInput).toHaveValue(128_000);
+        await user.clear(contextWindowInput);
+        await user.type(contextWindowInput, "200000");
+        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalled());
+        expect(updateModel).toHaveBeenCalledWith(expect.anything(), "gpt-41-mini", {
+            context_window: 200_000,
         });
     });
 

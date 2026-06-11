@@ -50,6 +50,8 @@ export const MODEL_ADAPTER_LABEL_KEYS: Record<AiModelAdapter, string> = {
 
 // Anthropic offers no embedding or transcription models.
 const ANTHROPIC_UNSUPPORTED_TYPES: AiModelType[] = ["embedding", "audio", "video"];
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 250_000;
+const MIN_CONTEXT_WINDOW_TOKENS = 1_000;
 
 export function adapterOptionsForType(type: AiModelType): AiModelAdapter[] {
     return AI_MODEL_ADAPTER_VALUES.filter(
@@ -88,6 +90,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
     const [modelIdTouched, setModelIdTouched] = useState(false);
     const [adapter, setAdapter] = useState<AiModelAdapter>("openai");
     const [providerModel, setProviderModel] = useState("");
+    const [contextWindow, setContextWindow] = useState(String(DEFAULT_CONTEXT_WINDOW_TOKENS));
     const [apiKey, setApiKey] = useState("");
     const [url, setUrl] = useState("");
     const [resourceName, setResourceName] = useState("");
@@ -103,6 +106,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
         setModelIdTouched(false);
         setAdapter(model?.adapter ?? adapterOptionsForType(type)[0] ?? "openai");
         setProviderModel(model?.provider_model ?? "");
+        setContextWindow(String(model?.context_window ?? DEFAULT_CONTEXT_WINDOW_TOKENS));
         setApiKey("");
         setUrl(model?.url ?? "");
         setResourceName(model?.resource_name ?? "");
@@ -130,6 +134,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
         e.preventDefault();
         setLoading(true);
         try {
+            const contextWindowValue = Number(contextWindow);
             if (isEdit && model) {
                 const patch: ModelPatchInput = {};
                 if (displayName.trim() !== model.display_name) {
@@ -140,6 +145,9 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                 }
                 if (providerModel.trim() !== model.provider_model) {
                     patch.provider_model = providerModel.trim();
+                }
+                if (contextWindowValue !== model.context_window) {
+                    patch.context_window = contextWindowValue;
                 }
                 const credentialsPatch: ModelCredentialsPatchInput = {
                     ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
@@ -161,6 +169,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                     type,
                     adapter,
                     provider_model: providerModel.trim(),
+                    context_window: contextWindowValue,
                     credentials: {
                         apiKey: apiKey.trim(),
                         ...(url.trim() ? { url: url.trim() } : {}),
@@ -249,6 +258,18 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                             value={providerModel}
                             onChange={(e) => setProviderModel(e.target.value)}
                             placeholder="gpt-5.5"
+                            required
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="model-context-window">{t("settings.models.field.contextWindow")}</Label>
+                        <Input
+                            id="model-context-window"
+                            type="number"
+                            min={MIN_CONTEXT_WINDOW_TOKENS}
+                            step={1}
+                            value={contextWindow}
+                            onChange={(e) => setContextWindow(e.target.value)}
                             required
                         />
                     </div>
