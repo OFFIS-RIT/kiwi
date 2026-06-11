@@ -2,7 +2,7 @@
 
 import { chatTemplates } from "@/components/chat/chat-templates";
 import { ChatInput, type ChatInputHandle } from "@/components/chat/ChatInput";
-import { ChatModelSelector, useSelectableModels } from "@/components/chat/ChatModelSelector";
+import { ChatModelMenu, useSelectableModels, type IntelligenceLevel } from "@/components/chat/ChatModelSelector";
 import { ChatTemplateSidebar } from "@/components/chat/ChatTemplateSidebar";
 import { ClarificationBlock } from "@/components/chat/ClarificationBlock";
 import { shouldAutoContinue, withDefaultAutoContinue } from "@/components/chat/chat-auto-continue";
@@ -11,13 +11,6 @@ import { hydrateProjectChatSession, projectChatQueryKey } from "@/components/cha
 import { UserMessageText } from "@/components/chat/UserMessageText";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { ApiError } from "@/lib/api/client";
 import { upsertProjectChatSummary } from "@/lib/chat-summaries";
@@ -35,7 +28,6 @@ import { useChat } from "@ai-sdk/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     AlertCircle,
-    Brain,
     Check,
     ChevronDown,
     Copy,
@@ -72,10 +64,6 @@ type ProjectChatProps = {
     groupName: string;
     projectId: string;
 };
-
-type IntelligenceLevel = "default" | "high";
-
-const intelligenceLevels: IntelligenceLevel[] = ["default", "high"];
 
 function isMissingChatError(error: unknown) {
     return error instanceof ApiError && (error.code === "CHAT_NOT_FOUND" || error.message.includes("CHAT_NOT_FOUND"));
@@ -907,44 +895,14 @@ function ProjectChatSession({
                     </Button>
                 </div>
                 <div className="flex items-center gap-2">
-                    {selectableModels && selectableModels.length > 0 ? (
-                        <ChatModelSelector
-                            models={selectableModels}
-                            value={selectedModelId}
-                            onChange={setSelectedModelId}
-                            disabled={isAssistantTyping}
-                        />
-                    ) : null}
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                disabled={isAssistantTyping}
-                                aria-label={t("deep.mode")}
-                                className="h-9 shrink-0 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
-                            >
-                                <Brain className="h-4 w-4" />
-                                <span className="text-sm">{t(`deep.mode.${intelligenceLevel}`)}</span>
-                                <ChevronDown className="h-3.5 w-3.5" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" side="top" sideOffset={8} className="w-44 rounded-xl p-1.5">
-                            <DropdownMenuLabel className="px-2.5 py-1.5 text-sm font-normal text-muted-foreground">
-                                {t("deep.mode.intelligence")}
-                            </DropdownMenuLabel>
-                            {intelligenceLevels.map((level) => (
-                                <DropdownMenuItem
-                                    key={level}
-                                    onClick={() => setIntelligenceLevel(level)}
-                                    className="min-h-9 rounded-lg px-2.5 text-sm"
-                                >
-                                    <span>{t(`deep.mode.${level}`)}</span>
-                                    {intelligenceLevel === level && <Check className="ml-auto h-4 w-4" />}
-                                </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <ChatModelMenu
+                        models={selectableModels ?? []}
+                        value={selectedModelId}
+                        onChange={setSelectedModelId}
+                        intelligenceLevel={intelligenceLevel}
+                        onIntelligenceLevelChange={setIntelligenceLevel}
+                        disabled={isAssistantTyping}
+                    />
                     {speechSupported && (
                         <Button
                             size="icon"
