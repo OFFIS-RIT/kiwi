@@ -18,7 +18,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import type { PublicModelListItem } from "@kiwi/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { Brain, Check, ChevronDown, Cpu } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 
 const SELECTABLE_MODELS_STALE_TIME_MS = 60 * 1000;
 
@@ -78,7 +78,6 @@ export function ChatModelMenu({
                     aria-label={t("chat.model")}
                     className="h-9 shrink-0 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
                 >
-                    <Cpu className="h-4 w-4" />
                     <span className="max-w-40 truncate text-sm">{modelLabel}</span>
                     {intelligenceLevel !== "default" ? (
                         <span className="text-sm opacity-70">{t(`deep.mode.${intelligenceLevel}`)}</span>
@@ -111,7 +110,6 @@ export function ChatModelMenu({
                 ) : null}
                 <DropdownMenuSub>
                     <DropdownMenuSubTrigger className="min-h-9 rounded-lg px-2.5 text-sm">
-                        <Brain className="mr-2 h-4 w-4" />
                         <span>{t("deep.mode.intelligence")}</span>
                         <span className="ml-auto pl-4 text-muted-foreground">
                             {t(`deep.mode.${intelligenceLevel}`)}
