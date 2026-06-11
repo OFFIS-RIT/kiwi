@@ -4,10 +4,9 @@ import type { ChatMessage } from "@kiwi/db/tables/chats";
 import type { ChatRuntime } from "../chat-compaction";
 import { API_ERROR_CODES } from "../../types";
 
-const dbMock: { insert?: ReturnType<typeof mock> } = {};
+const dbMock: { insert?: ReturnType<typeof mock>; select?: ReturnType<typeof mock> } = {};
 const envMock = {
     AUTH_SECRET: "test-auth-secret",
-    CONTEXT_WINDOW: 250_000,
 };
 
 mock.module("@kiwi/db", () => ({
@@ -16,6 +15,16 @@ mock.module("@kiwi/db", () => ({
 
 mock.module("../../env", () => ({
     env: envMock,
+}));
+
+const actualAi = await import("@kiwi/ai");
+const compactConversationHistoryMock = mock(
+    async (_options: Parameters<typeof actualAi.compactConversationHistory>[0]) => "summary"
+);
+
+mock.module("@kiwi/ai", () => ({
+    ...actualAi,
+    compactConversationHistory: compactConversationHistoryMock,
 }));
 
 const { estimateToken, toUIMessage } = await import("@kiwi/ai");
@@ -31,8 +40,11 @@ const {
 } = await import("../chat");
 const {
     assertCompactionAttemptsRemaining,
+    assertCompactionModelCallsRemaining,
     buildActiveChatContext,
+    createCompactionTranscriptChunks,
     createChatMessageValidator,
+    getCompactionChunkTokenBudget,
     getRawTailTargetTokens,
     getSoftCompactionThreshold,
     maybeCompactConversation,
@@ -97,12 +109,7 @@ function graphToolMessage(id: string, toolName = "search_entities", updatedAt = 
     };
 }
 
-function timestampedTextMessage(
-    id: string,
-    role: "user" | "assistant" | "system",
-    text: string,
-    updatedAt: string
-) {
+function timestampedTextMessage(id: string, role: "user" | "assistant" | "system", text: string, updatedAt: string) {
     return {
         ...textMessage(id, role, text),
         updatedAt: new Date(updatedAt),
@@ -284,7 +291,7 @@ describe("chat context helpers", () => {
 
         rows[9] = answeredClarificationMessage(rows[9]!);
 
-        const protectedTailStartIndex = getProtectedTailStartIndex(rows);
+        const protectedTailStartIndex = getProtectedTailStartIndex(rows, 250_000);
 
         expect(protectedTailStartIndex).toBe(4);
         expect(rows.slice(protectedTailStartIndex).map((message) => message.id)).toContain("msg-10");
@@ -297,7 +304,7 @@ describe("chat context helpers", () => {
 
         rows[2] = answeredClarificationMessage(rows[2]!);
 
-        expect(getProtectedTailStartIndex(rows)).toBe(4);
+        expect(getProtectedTailStartIndex(rows, 250_000)).toBe(4);
     });
 
     test("falls back to the minimum protected tail when messages stay below the raw tail token target", () => {
@@ -305,7 +312,7 @@ describe("chat context helpers", () => {
             textMessage(`msg-${index + 1}`, index % 2 === 0 ? "user" : "assistant", `short ${index + 1}`)
         );
 
-        expect(getProtectedTailStartIndex(rows)).toBe(4);
+        expect(getProtectedTailStartIndex(rows, 250_000)).toBe(4);
     });
 
     test("keeps db-shaped tool parts in the compaction transcript even without AI SDK state fields", () => {
@@ -383,12 +390,7 @@ describe("chat context helpers", () => {
                     textMessage("msg-refresh-clarify-1", "user", "what is in the graph?"),
                     graphToolMessage("msg-refresh-clarify-2", "search_entities", "2026-01-01T00:00:00.000Z"),
                     answeredClarificationMessage(
-                        timestampedTextMessage(
-                            "msg-refresh-clarify-3",
-                            "assistant",
-                            "",
-                            "2026-01-03T00:00:00.000Z"
-                        )
+                        timestampedTextMessage("msg-refresh-clarify-3", "assistant", "", "2026-01-03T00:00:00.000Z")
                     ),
                 ],
                 completedWorkflowAt: new Date("2026-01-02T00:00:00.000Z"),
@@ -444,17 +446,20 @@ describe("chat context helpers", () => {
     test("bounds repeated compaction attempts", () => {
         expect(() => assertCompactionAttemptsRemaining(4)).not.toThrow();
         expect(() => assertCompactionAttemptsRemaining(5)).toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+        expect(() => assertCompactionAttemptsRemaining(5, 6)).not.toThrow();
+        expect(() => assertCompactionAttemptsRemaining(6, 6)).toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+        expect(() => assertCompactionModelCallsRemaining(23, 1)).not.toThrow();
+        expect(() => assertCompactionModelCallsRemaining(23, 2)).toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
     });
 
-    test("keeps the protected tail target below the soft threshold for smaller context windows", () => {
-        expect(getSoftCompactionThreshold(32_000)).toBe(22_400);
+    test("uses 90% context budgets while keeping the protected tail below the threshold", () => {
+        expect(getSoftCompactionThreshold(32_000)).toBe(28_800);
+        expect(getCompactionChunkTokenBudget(128_000)).toBe(115_200);
         expect(getRawTailTargetTokens(32_000)).toBeLessThan(getSoftCompactionThreshold(32_000));
-        expect(getRawTailTargetTokens(250_000)).toBe(32_000);
+        expect(getRawTailTargetTokens(250_000)).toBe(25_000);
     });
 
     test("does not turn the soft threshold into a hard failure when only protected tail remains", async () => {
-        const originalContextWindow = envMock.CONTEXT_WINDOW;
-        envMock.CONTEXT_WINDOW = 100;
         dbMock.insert = mock(() => {
             throw new Error("soft compaction should not insert a checkpoint");
         });
@@ -468,6 +473,8 @@ describe("chat context helpers", () => {
                     text: {} as never,
                     embedding: {} as never,
                     textModelId: "text-default",
+                    contextWindow: 100,
+                    compactionContextWindow: 100,
                 },
                 tools: {},
             };
@@ -485,40 +492,112 @@ describe("chat context helpers", () => {
 
             expect(dbMock.insert).not.toHaveBeenCalled();
         } finally {
-            envMock.CONTEXT_WINDOW = originalContextWindow;
             dbMock.insert = undefined;
         }
     });
 
     test("keeps forced compaction strict when the protected tail cannot be reduced", async () => {
-        const originalContextWindow = envMock.CONTEXT_WINDOW;
-        envMock.CONTEXT_WINDOW = 100;
+        const rows: ChatMessage[] = Array.from({ length: 6 }, (_, index) =>
+            textMessage(`msg-forced-${index + 1}`, index % 2 === 0 ? "user" : "assistant", "token ".repeat(30))
+        );
+        const runtime = {
+            client: {
+                text: {} as never,
+                embedding: {} as never,
+                textModelId: "text-default",
+                contextWindow: 100,
+                compactionContextWindow: 100,
+            },
+            tools: {},
+        };
+        const systemPrompt = "system prompt";
+
+        await expect(
+            maybeCompactConversation({
+                chatId: "chat-1",
+                rows,
+                runtime,
+                systemPrompt,
+                buildContext: buildTestContext(runtime, systemPrompt),
+                forceCompaction: true,
+            })
+        ).rejects.toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+    });
+
+    test("splits an oversized compaction transcript across bounded model calls before checkpointing", async () => {
+        const rows: ChatMessage[] = [
+            textMessage("msg-huge", "user", "token ".repeat(500)),
+            ...Array.from({ length: 6 }, (_, index) =>
+                textMessage(`msg-tail-${index + 1}`, index % 2 === 0 ? "assistant" : "user", `tail ${index + 1}`)
+            ),
+        ];
+        const persistedRows: ChatMessage[] = [...rows];
+        const insertedCompactions: ChatMessage[] = [];
+        const values = mock(
+            async (value: Partial<ChatMessage> & Pick<ChatMessage, "chatId" | "role" | "status" | "parts">) => {
+                const compaction = {
+                    ...textMessage(`cmp-${insertedCompactions.length + 1}`, "system", ""),
+                    ...value,
+                    createdAt: new Date(
+                        `2026-01-01T00:00:${String(insertedCompactions.length + 1).padStart(2, "0")}.000Z`
+                    ),
+                    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+                } satisfies ChatMessage;
+
+                insertedCompactions.push(compaction);
+                persistedRows.push(compaction);
+            }
+        );
+        dbMock.insert = mock(() => ({ values }));
+        dbMock.select = mock(() => ({
+            from: () => ({
+                where: () => ({
+                    orderBy: async () => persistedRows,
+                }),
+            }),
+        }));
+        compactConversationHistoryMock.mockClear();
+
         try {
-            const rows: ChatMessage[] = Array.from({ length: 6 }, (_, index) =>
-                textMessage(`msg-forced-${index + 1}`, index % 2 === 0 ? "user" : "assistant", "token ".repeat(30))
-            );
             const runtime = {
                 client: {
                     text: {} as never,
                     embedding: {} as never,
                     textModelId: "text-default",
+                    contextWindow: 150,
+                    compactionContextWindow: 120,
                 },
                 tools: {},
             };
-            const systemPrompt = "system prompt";
+            const chunkBudget = getCompactionChunkTokenBudget(runtime.client.compactionContextWindow);
+            const hugeMessageChunks = createCompactionTranscriptChunks([toUIMessage(rows[0]!)], chunkBudget);
 
-            await expect(
-                maybeCompactConversation({
-                    chatId: "chat-1",
-                    rows,
-                    runtime,
-                    systemPrompt,
-                    buildContext: buildTestContext(runtime, systemPrompt),
-                    forceCompaction: true,
-                })
-            ).rejects.toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+            expect(hugeMessageChunks.length).toBeGreaterThan(1);
+            expect(hugeMessageChunks.every((chunk) => estimateToken(chunk) <= chunkBudget)).toBe(true);
+
+            await maybeCompactConversation({
+                chatId: "chat-1",
+                rows,
+                runtime,
+                systemPrompt: "system prompt",
+                buildContext: buildTestContext(runtime, "system prompt"),
+            });
+
+            const transcripts = compactConversationHistoryMock.mock.calls.map(
+                ([options]) => (options as { transcript: string }).transcript
+            );
+
+            expect(insertedCompactions).toHaveLength(1);
+            expect(transcripts.length).toBeGreaterThan(1);
+            expect(transcripts.every((transcript) => estimateToken(transcript) <= chunkBudget)).toBe(true);
+            expect(insertedCompactions[0]?.parts[0]).toMatchObject({
+                type: "compaction",
+                summarizedThroughMessageId: "msg-huge",
+            });
         } finally {
-            envMock.CONTEXT_WINDOW = originalContextWindow;
+            dbMock.insert = undefined;
+            dbMock.select = undefined;
+            compactConversationHistoryMock.mockClear();
         }
     });
 
@@ -528,6 +607,8 @@ describe("chat context helpers", () => {
                 text: {} as never,
                 embedding: {} as never,
                 textModelId: "text-default",
+                contextWindow: 250_000,
+                compactionContextWindow: 250_000,
             },
             tools: {
                 ask_clarifying_questions: {
@@ -561,6 +642,8 @@ describe("chat context helpers", () => {
                 text: {} as never,
                 embedding: {} as never,
                 textModelId: "text-default",
+                contextWindow: 250_000,
+                compactionContextWindow: 250_000,
             },
             tools: {},
             promptGuidance: {
@@ -603,6 +686,8 @@ describe("chat context helpers", () => {
                 text: {} as never,
                 embedding: {} as never,
                 textModelId: "text-default",
+                contextWindow: 250_000,
+                compactionContextWindow: 250_000,
             },
             tools: {},
         };

@@ -40,6 +40,7 @@ function createModelRow(options: {
     modelId: string;
     providerModel: string;
     adapter?: AiModelAdapter;
+    contextWindow?: number;
 }): AiModel {
     return {
         id: `${options.type}-${options.modelId}`,
@@ -49,6 +50,7 @@ function createModelRow(options: {
         type: options.type,
         adapter: options.adapter ?? "openai",
         providerModel: options.providerModel,
+        contextWindow: options.contextWindow ?? 250_000,
         encryptedCredentials: encryptModelCredentials({ apiKey: "model-key" }, TEST_SECRET),
         isDefault: true,
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -158,6 +160,38 @@ describe("AI model registry helpers", () => {
                 secret: TEST_SECRET,
             })
         ).rejects.toThrow(API_ERROR_CODES.INVALID_MODEL);
+        expect(selectMock).toHaveBeenCalledTimes(3);
+    });
+
+    test("resolves research context windows from text and subagent models", async () => {
+        const textModel = createModelRow({
+            type: "text",
+            modelId: "text-default",
+            providerModel: "gpt-test",
+            contextWindow: 128_000,
+        });
+        const embeddingModel = createModelRow({
+            type: "embedding",
+            modelId: "embedding-default",
+            providerModel: "text-embedding-test",
+        });
+        const subagentModel = createModelRow({
+            type: "subagent",
+            modelId: "subagent-default",
+            providerModel: "gpt-subagent",
+            contextWindow: 64_000,
+        });
+
+        queueModelQueries([textModel], [embeddingModel], [subagentModel]);
+
+        const resolved = await resolveResearchModelConfig({
+            organizationId: "org-1",
+            secret: TEST_SECRET,
+        });
+
+        expect(resolved.textModelId).toBe("text-default");
+        expect(resolved.contextWindow).toBe(128_000);
+        expect(resolved.compactionContextWindow).toBe(64_000);
         expect(selectMock).toHaveBeenCalledTimes(3);
     });
 

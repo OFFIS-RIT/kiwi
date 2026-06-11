@@ -46,6 +46,7 @@ const createModelSchema = z.object({
     type: modelTypeSchema,
     adapter: modelAdapterSchema,
     provider_model: z.string().trim().min(1),
+    context_window: z.number().int().positive().optional(),
     credentials: credentialsSchema,
     is_default: z.boolean().optional(),
 });
@@ -54,6 +55,7 @@ const patchModelSchema = z.object({
     display_name: z.string().trim().min(1).optional(),
     adapter: modelAdapterSchema.optional(),
     provider_model: z.string().trim().min(1).optional(),
+    context_window: z.number().int().positive().optional(),
     credentials: credentialsSchema.optional(),
 });
 
@@ -226,6 +228,7 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                                 type: body.type,
                                 adapter: body.adapter,
                                 providerModel,
+                                ...(body.context_window !== undefined ? { contextWindow: body.context_window } : {}),
                                 encryptedCredentials: encryptModelCredentials(credentials, env.AUTH_SECRET),
                                 isDefault,
                             })
@@ -267,11 +270,16 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                             displayName?: string;
                             adapter?: AiModelAdapter;
                             providerModel?: string;
+                            contextWindow?: number;
                             encryptedCredentials?: string;
                         } = {};
 
                         if (body.display_name !== undefined) {
                             modelUpdates.displayName = body.display_name.trim();
+                        }
+
+                        if (body.context_window !== undefined) {
+                            modelUpdates.contextWindow = body.context_window;
                         }
 
                         if (body.adapter !== undefined) {

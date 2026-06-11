@@ -256,6 +256,7 @@ export type AdminModelListItem = PublicModelListItem & {
     type: AiModelType;
     adapter: AiModelAdapter;
     provider_model: string;
+    context_window: number;
     is_default: boolean;
     created_at: string;
     updated_at: string;
@@ -275,6 +276,7 @@ export type ModelCreateInput = {
     type: AiModelType;
     adapter: AiModelAdapter;
     provider_model: string;
+    context_window?: number;
     credentials: ModelCredentialsInput;
     is_default?: boolean;
 };
@@ -283,6 +285,7 @@ export type ModelPatchInput = {
     display_name?: string;
     adapter?: AiModelAdapter;
     provider_model?: string;
+    context_window?: number;
     credentials?: ModelCredentialsInput;
 };
 

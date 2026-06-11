@@ -38,6 +38,7 @@ export type AdminModelRecord = PublicModelRecord & {
     type: AiModelType;
     adapter: AiModelAdapter;
     provider_model: string;
+    context_window: number;
     is_default: boolean;
     created_at: string;
     updated_at: string;
@@ -78,6 +79,8 @@ export type ResolvedEmbeddingModelAdapter = {
 export type ResolvedResearchModels = {
     config: Required<Pick<ClientConfig, "text" | "embedding">> & Pick<ClientConfig, "subagent">;
     textModelId: string;
+    contextWindow: number;
+    compactionContextWindow: number;
 };
 
 export type ResolvedWorkerModels = {
@@ -401,7 +404,15 @@ export function toPublicModelRecord(row: Pick<AiModel, "modelId" | "displayName"
 export function toAdminModelRecord(
     row: Pick<
         AiModel,
-        "modelId" | "displayName" | "type" | "adapter" | "providerModel" | "isDefault" | "createdAt" | "updatedAt"
+        | "modelId"
+        | "displayName"
+        | "type"
+        | "adapter"
+        | "providerModel"
+        | "contextWindow"
+        | "isDefault"
+        | "createdAt"
+        | "updatedAt"
     >
 ): AdminModelRecord {
     return {
@@ -409,6 +420,7 @@ export function toAdminModelRecord(
         type: row.type,
         adapter: row.adapter,
         provider_model: row.providerModel,
+        context_window: row.contextWindow,
         is_default: row.isDefault,
         created_at: row.createdAt.toISOString(),
         updated_at: row.updatedAt.toISOString(),
@@ -565,6 +577,9 @@ export async function resolveResearchModelConfig(options: {
             ...(resolvedSubagent ? { subagent: resolvedSubagent.adapter } : {}),
         },
         textModelId: textModel.modelId,
+        contextWindow: textModel.contextWindow,
+        // Compaction summarization runs on the subagent model when configured.
+        compactionContextWindow: (subagentModel ?? textModel).contextWindow,
     };
 }
 
