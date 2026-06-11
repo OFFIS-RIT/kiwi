@@ -433,6 +433,7 @@
     "settings.models.delete.confirm": "„{name}“ wirklich löschen?",
     "settings.models.delete.defaultNote": "Dieses Modell ist der Standard seines Typs. Wähle, welches Modell der neue Standard wird.",
     "settings.models.delete.newDefault": "Neuer Standard",
+    "settings.models.delete.defaultFailed": "Das Modell wurde gelöscht, aber der neue Standard konnte nicht gesetzt werden.",
     "settings.models.delete.lastOfType": "Dies ist das letzte Modell vom Typ {type}. Funktionen, die diesen Modelltyp benötigen, fallen aus, bis ein neues Modell konfiguriert ist.",
     "settings.models.delete.lastText": "Der Chat ist dann für niemanden mehr verfügbar.",
     "chat.model": "Modell",

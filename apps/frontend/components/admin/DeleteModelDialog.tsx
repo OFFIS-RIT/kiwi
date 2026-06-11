@@ -62,16 +62,25 @@ export function DeleteModelDialog({ open, onOpenChange, model, siblings, onDelet
         setLoading(true);
         try {
             await deleteModel(apiClient, model.model_id);
-            if (showDefaultPicker && newDefaultId && newDefaultId !== promotedId) {
-                await setDefaultModel(apiClient, newDefaultId);
-            }
-            onOpenChange(false);
-            onDeleted();
         } catch {
             toast.error(t("error.saving"));
-        } finally {
             setLoading(false);
+            return;
         }
+
+        // The deletion stands even if overriding the auto-promoted default
+        // fails — close and refresh either way so the list reflects reality.
+        if (showDefaultPicker && newDefaultId && newDefaultId !== promotedId) {
+            try {
+                await setDefaultModel(apiClient, newDefaultId);
+            } catch {
+                toast.error(t("settings.models.delete.defaultFailed"));
+            }
+        }
+
+        setLoading(false);
+        onOpenChange(false);
+        onDeleted();
     };
 
     return (

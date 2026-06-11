@@ -134,6 +134,29 @@ describe("DeleteModelDialog", () => {
         expect(setDefaultModel).toHaveBeenCalledWith(expect.anything(), "model-c");
     });
 
+    test("still closes and refreshes when the deletion succeeds but the default override fails", async () => {
+        setDefaultModel.mockRejectedValue(new Error("boom"));
+        const user = userEvent.setup();
+        const onDeleted = vi.fn();
+        renderWithProviders(
+            <DeleteModelDialog
+                open
+                onOpenChange={vi.fn()}
+                model={defaultModel}
+                siblings={[newestSibling, oldestSibling]}
+                onDeleted={onDeleted}
+            />
+        );
+
+        await user.click(screen.getByRole("combobox"));
+        await user.click(await screen.findByRole("option", { name: "Model C" }));
+        await user.click(screen.getByRole("button", { name: "Löschen" }));
+
+        await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+        expect(deleteModel).toHaveBeenCalledWith(expect.anything(), "model-a");
+        expect(setDefaultModel).toHaveBeenCalledWith(expect.anything(), "model-c");
+    });
+
     test("warns about the deployment-wide outage when deleting the last text model", () => {
         renderWithProviders(
             <DeleteModelDialog open onOpenChange={vi.fn()} model={defaultModel} siblings={[]} onDeleted={vi.fn()} />

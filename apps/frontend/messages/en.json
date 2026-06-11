@@ -433,6 +433,7 @@
     "settings.models.delete.confirm": "Do you really want to delete \"{name}\"?",
     "settings.models.delete.defaultNote": "This model is the default for its type. Choose which model becomes the new default.",
     "settings.models.delete.newDefault": "New default",
+    "settings.models.delete.defaultFailed": "The model was deleted, but the new default could not be set.",
     "settings.models.delete.lastOfType": "This is the last {type} model. Features that need this model type will stop working until a new model is configured.",
     "settings.models.delete.lastText": "Chat will be unavailable for everyone.",
     "chat.model": "Model",
