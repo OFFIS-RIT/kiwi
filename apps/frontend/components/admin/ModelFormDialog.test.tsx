@@ -40,9 +40,20 @@ const adminModel: AdminModelListItem = {
     type: "text",
     adapter: "openai",
     provider_model: "gpt-4.1-mini",
+    url: null,
+    resource_name: null,
     is_default: true,
     created_at: "2026-06-09T08:02:27.000Z",
     updated_at: "2026-06-09T08:02:27.000Z",
+};
+
+const openaiApiModel: AdminModelListItem = {
+    ...adminModel,
+    model_id: "local-llm",
+    display_name: "Local LLM",
+    adapter: "openaiAPI",
+    provider_model: "gpt-oss-120b",
+    url: "https://llm.example.com/v1",
 };
 
 describe("slugifyModelId", () => {
@@ -135,6 +146,25 @@ describe("ModelFormDialog", () => {
         await waitFor(() => expect(onSaved).toHaveBeenCalled());
         expect(updateModel).toHaveBeenCalledWith(expect.anything(), "gpt-41-mini", {
             credentials: { apiKey: "new-secret" },
+        });
+    });
+
+    test("prefills the stored endpoint URL and patches it without a new API key", async () => {
+        const user = userEvent.setup();
+        const onSaved = vi.fn();
+        renderWithProviders(
+            <ModelFormDialog open onOpenChange={vi.fn()} type="text" model={openaiApiModel} onSaved={onSaved} />
+        );
+
+        const urlInput = screen.getByLabelText("Endpunkt-URL");
+        expect(urlInput).toHaveValue("https://llm.example.com/v1");
+        await user.clear(urlInput);
+        await user.type(urlInput, "https://other.example.com/v1");
+        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalled());
+        expect(updateModel).toHaveBeenCalledWith(expect.anything(), "local-llm", {
+            credentials: { url: "https://other.example.com/v1" },
         });
     });
 

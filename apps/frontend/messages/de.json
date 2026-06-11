@@ -415,7 +415,6 @@
     "settings.models.field.providerModel": "Provider-Modell",
     "settings.models.field.apiKey": "API-Schlüssel",
     "settings.models.field.apiKey.keep": "Leer lassen, um den gespeicherten Schlüssel zu behalten",
-    "settings.models.field.keep": "Leer lassen, um den gespeicherten Wert zu behalten",
     "settings.models.field.url": "Endpunkt-URL",
     "settings.models.field.resourceName": "Azure-Ressourcenname",
     "settings.models.field.isDefault": "Als Standard für diesen Typ festlegen",

@@ -22,6 +22,7 @@ import type {
     AiModelAdapter,
     AiModelType,
     ModelCreateInput,
+    ModelCredentialsPatchInput,
     ModelPatchInput,
 } from "@kiwi/contracts";
 import { AI_MODEL_ADAPTER_VALUES } from "@kiwi/contracts";
@@ -103,20 +104,18 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
         setAdapter(model?.adapter ?? adapterOptionsForType(type)[0] ?? "openai");
         setProviderModel(model?.provider_model ?? "");
         setApiKey("");
-        setUrl("");
-        setResourceName("");
+        setUrl(model?.url ?? "");
+        setResourceName(model?.resource_name ?? "");
         setIsDefault(false);
     }, [open, model, type]);
 
     const adapterOptions = adapterOptionsForType(type);
     const modelId = modelIdTouched ? modelIdInput : slugifyModelId(displayName);
-    // Credentials are write-only and all-or-nothing: on edit they are only
-    // sent when the admin enters a replacement key.
-    const hasCredentialInput = apiKey.trim().length > 0 || url.trim().length > 0 || resourceName.trim().length > 0;
-    const sendCredentials = !isEdit || hasCredentialInput;
-    const requireApiKey = sendCredentials;
-    const requireUrl = sendCredentials && adapter === "openaiAPI";
-    const requireResourceName = sendCredentials && adapter === "azure";
+    // URL and resource name are readable connection config; only the API key
+    // is a write-only secret (empty on edit = keep the stored key).
+    const requireApiKey = !isEdit;
+    const requireUrl = adapter === "openaiAPI";
+    const requireResourceName = adapter === "azure";
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -133,12 +132,15 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                 if (providerModel.trim() !== model.provider_model) {
                     patch.provider_model = providerModel.trim();
                 }
-                if (hasCredentialInput) {
-                    patch.credentials = {
-                        apiKey: apiKey.trim(),
-                        ...(url.trim() ? { url: url.trim() } : {}),
-                        ...(resourceName.trim() ? { resourceName: resourceName.trim() } : {}),
-                    };
+                const credentialsPatch: ModelCredentialsPatchInput = {
+                    ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+                    ...(url.trim() !== (model.url ?? "") ? { url: url.trim() } : {}),
+                    ...(resourceName.trim() !== (model.resource_name ?? "")
+                        ? { resourceName: resourceName.trim() }
+                        : {}),
+                };
+                if (Object.keys(credentialsPatch).length > 0) {
+                    patch.credentials = credentialsPatch;
                 }
                 if (Object.keys(patch).length > 0) {
                     await updateModel(apiClient, model.model_id, patch);
@@ -241,6 +243,29 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                             required
                         />
                     </div>
+                    {adapter === "openaiAPI" || url ? (
+                        <div className="space-y-2">
+                            <Label htmlFor="model-url">{t("settings.models.field.url")}</Label>
+                            <Input
+                                id="model-url"
+                                type="url"
+                                value={url}
+                                onChange={(e) => setUrl(e.target.value)}
+                                required={requireUrl}
+                            />
+                        </div>
+                    ) : null}
+                    {adapter === "azure" || resourceName ? (
+                        <div className="space-y-2">
+                            <Label htmlFor="model-resource-name">{t("settings.models.field.resourceName")}</Label>
+                            <Input
+                                id="model-resource-name"
+                                value={resourceName}
+                                onChange={(e) => setResourceName(e.target.value)}
+                                required={requireResourceName}
+                            />
+                        </div>
+                    ) : null}
                     <div className="space-y-4 border-t pt-4">
                         <div>
                             <p className="text-sm font-medium">{t("settings.models.credentials.title")}</p>
@@ -248,31 +273,6 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                                 {t("settings.models.credentials.writeOnly")}
                             </p>
                         </div>
-                        {adapter === "openaiAPI" || url ? (
-                            <div className="space-y-2">
-                                <Label htmlFor="model-url">{t("settings.models.field.url")}</Label>
-                                <Input
-                                    id="model-url"
-                                    type="url"
-                                    value={url}
-                                    onChange={(e) => setUrl(e.target.value)}
-                                    placeholder={isEdit ? t("settings.models.field.keep") : undefined}
-                                    required={requireUrl}
-                                />
-                            </div>
-                        ) : null}
-                        {adapter === "azure" || resourceName ? (
-                            <div className="space-y-2">
-                                <Label htmlFor="model-resource-name">{t("settings.models.field.resourceName")}</Label>
-                                <Input
-                                    id="model-resource-name"
-                                    value={resourceName}
-                                    onChange={(e) => setResourceName(e.target.value)}
-                                    placeholder={isEdit ? t("settings.models.field.keep") : undefined}
-                                    required={requireResourceName}
-                                />
-                            </div>
-                        ) : null}
                         <div className="space-y-2">
                             <Label htmlFor="model-api-key">{t("settings.models.field.apiKey")}</Label>
                             <Input

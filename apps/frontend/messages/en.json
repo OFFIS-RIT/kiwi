@@ -415,7 +415,6 @@
     "settings.models.field.providerModel": "Provider model",
     "settings.models.field.apiKey": "API key",
     "settings.models.field.apiKey.keep": "Leave empty to keep the stored key",
-    "settings.models.field.keep": "Leave empty to keep the stored value",
     "settings.models.field.url": "Endpoint URL",
     "settings.models.field.resourceName": "Azure resource name",
     "settings.models.field.isDefault": "Set as default for this type",

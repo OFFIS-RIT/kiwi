@@ -16,6 +16,8 @@ const adminModel = {
     type: "text" as const,
     adapter: "openai" as const,
     provider_model: "gpt-4.1-mini",
+    url: null,
+    resource_name: null,
     is_default: true,
     created_at: "2026-06-09T08:02:27.000Z",
     updated_at: "2026-06-09T08:02:27.000Z",
