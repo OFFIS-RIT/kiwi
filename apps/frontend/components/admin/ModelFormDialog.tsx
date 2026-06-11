@@ -53,6 +53,10 @@ const ANTHROPIC_UNSUPPORTED_TYPES: AiModelType[] = ["embedding", "audio", "video
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 250_000;
 const MIN_CONTEXT_WINDOW_TOKENS = 1_000;
 
+function supportsContextWindow(type: AiModelType): boolean {
+    return type === "text" || type === "subagent";
+}
+
 export function adapterOptionsForType(type: AiModelType): AiModelAdapter[] {
     return AI_MODEL_ADAPTER_VALUES.filter(
         (adapter) => adapter !== "anthropic" || !ANTHROPIC_UNSUPPORTED_TYPES.includes(type)
@@ -115,6 +119,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
 
     const adapterOptions = adapterOptionsForType(type);
     const modelId = modelIdTouched ? modelIdInput : slugifyModelId(displayName);
+    const showContextWindow = supportsContextWindow(type);
 
     // Each connection field belongs to one adapter (URL → openaiAPI, resource
     // name → azure). Clearing them on switch hides the stale field and, via
@@ -134,7 +139,6 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
         e.preventDefault();
         setLoading(true);
         try {
-            const contextWindowValue = Number(contextWindow);
             if (isEdit && model) {
                 const patch: ModelPatchInput = {};
                 if (displayName.trim() !== model.display_name) {
@@ -146,7 +150,8 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                 if (providerModel.trim() !== model.provider_model) {
                     patch.provider_model = providerModel.trim();
                 }
-                if (contextWindowValue !== model.context_window) {
+                const contextWindowValue = showContextWindow ? Number(contextWindow) : null;
+                if (contextWindowValue !== null && contextWindowValue !== model.context_window) {
                     patch.context_window = contextWindowValue;
                 }
                 const credentialsPatch: ModelCredentialsPatchInput = {
@@ -169,7 +174,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                     type,
                     adapter,
                     provider_model: providerModel.trim(),
-                    context_window: contextWindowValue,
+                    ...(showContextWindow ? { context_window: Number(contextWindow) } : {}),
                     credentials: {
                         apiKey: apiKey.trim(),
                         ...(url.trim() ? { url: url.trim() } : {}),
@@ -261,18 +266,20 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                             required
                         />
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="model-context-window">{t("settings.models.field.contextWindow")}</Label>
-                        <Input
-                            id="model-context-window"
-                            type="number"
-                            min={MIN_CONTEXT_WINDOW_TOKENS}
-                            step={1}
-                            value={contextWindow}
-                            onChange={(e) => setContextWindow(e.target.value)}
-                            required
-                        />
-                    </div>
+                    {showContextWindow ? (
+                        <div className="space-y-2">
+                            <Label htmlFor="model-context-window">{t("settings.models.field.contextWindow")}</Label>
+                            <Input
+                                id="model-context-window"
+                                type="number"
+                                min={MIN_CONTEXT_WINDOW_TOKENS}
+                                step={1}
+                                value={contextWindow}
+                                onChange={(e) => setContextWindow(e.target.value)}
+                                required
+                            />
+                        </div>
+                    ) : null}
                     {adapter === "openaiAPI" || url ? (
                         <div className="space-y-2">
                             <Label htmlFor="model-url">{t("settings.models.field.url")}</Label>

@@ -57,6 +57,14 @@ const openaiApiModel: AdminModelListItem = {
     url: "https://llm.example.com/v1",
 };
 
+const embeddingModel: AdminModelListItem = {
+    ...adminModel,
+    model_id: "text-embedding-3-small",
+    display_name: "Text embedding 3 small",
+    type: "embedding",
+    provider_model: "text-embedding-3-small",
+};
+
 describe("slugifyModelId", () => {
     test("mirrors the backend normalization", () => {
         expect(slugifyModelId("GPT 4.1 Mini (EU)")).toBe("gpt-4.1-mini-eu");
@@ -121,6 +129,28 @@ describe("ModelFormDialog", () => {
         expect(idInput).toHaveValue("my-custom-id");
     });
 
+    test("omits the context window for embedding model creation", async () => {
+        const user = userEvent.setup();
+        const onSaved = vi.fn();
+        renderWithProviders(<ModelFormDialog open onOpenChange={vi.fn()} type="embedding" onSaved={onSaved} />);
+
+        expect(screen.queryByLabelText("Kontextfenster (Tokens)")).not.toBeInTheDocument();
+        await user.type(screen.getByLabelText("Anzeigename"), "Text embedding 3 small");
+        await user.type(screen.getByLabelText("Provider-Modell-Name"), "text-embedding-3-small");
+        await user.type(screen.getByLabelText("API-Schlüssel"), "secret-key");
+        await user.click(screen.getByRole("button", { name: "Modell hinzufügen" }));
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalled());
+        expect(createModel).toHaveBeenCalledWith(expect.anything(), {
+            model_id: "text-embedding-3-small",
+            display_name: "Text embedding 3 small",
+            type: "embedding",
+            adapter: "openai",
+            provider_model: "text-embedding-3-small",
+            credentials: { apiKey: "secret-key" },
+        });
+    });
+
     test("patches only changed fields and keeps stored credentials when the key stays empty", async () => {
         const user = userEvent.setup();
         const onSaved = vi.fn();
@@ -172,6 +202,26 @@ describe("ModelFormDialog", () => {
         expect(updateModel).toHaveBeenCalledWith(expect.anything(), "gpt-41-mini", {
             context_window: 200_000,
         });
+    });
+
+    test("hides the context window when editing an embedding model", async () => {
+        const user = userEvent.setup();
+        const onOpenChange = vi.fn();
+        renderWithProviders(
+            <ModelFormDialog
+                open
+                onOpenChange={onOpenChange}
+                type="embedding"
+                model={embeddingModel}
+                onSaved={vi.fn()}
+            />
+        );
+
+        expect(screen.queryByLabelText("Kontextfenster (Tokens)")).not.toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+        await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+        expect(updateModel).not.toHaveBeenCalled();
     });
 
     test("prefills the stored endpoint URL and patches it without a new API key", async () => {
