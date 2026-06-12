@@ -480,7 +480,7 @@ export function MessageContent({
 
             {sourceFileCitations.length > 0 && (
                 <div className="border-t border-border/50 pt-3">
-                    <div className="mb-2 text-sm text-muted-foreground">Quellen:</div>
+                    <div className="mb-2 text-sm text-muted-foreground">{t("sources")}:</div>
                     <div className="flex flex-wrap gap-2">
                         {sourceFileCitations.map((sourceFile) => (
                             <Button
