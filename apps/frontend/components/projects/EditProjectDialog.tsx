@@ -273,9 +273,7 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
         const errorLabel = errorKey ? t(errorKey) : null;
         const failureReason = errorKey ? (errorLabel === errorKey ? t("file.status.failed") : errorLabel) : null;
         const stepLabel =
-            file.status === "processing" && file.process_step
-                ? t(`file.process.step.${file.process_step}`)
-                : null;
+            file.status === "processing" && file.process_step ? t(`file.process.step.${file.process_step}`) : null;
 
         return (
             <div

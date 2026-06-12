@@ -8,11 +8,7 @@ import {
     readZipBinary,
     readZipText,
 } from "../ooxml/package";
-import {
-    extractEmbeddedOfficeDocumentText,
-    isEmbeddedOfficeDocumentType,
-    toArrayBuffer,
-} from "../ooxml/embedded";
+import { extractEmbeddedOfficeDocumentText, isEmbeddedOfficeDocumentType, toArrayBuffer } from "../ooxml/embedded";
 import {
     extractRelatedPartTextFromNode,
     findRelationshipByType,
@@ -38,8 +34,10 @@ const RELATIONSHIP_TYPE_NOTES_SLIDE = "http://schemas.openxmlformats.org/officeD
 const RELATIONSHIP_TYPE_COMMENTS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
 const RELATIONSHIP_TYPE_COMMENT_AUTHORS =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/commentAuthors";
-const RELATIONSHIP_TYPE_SLIDE_LAYOUT = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout";
-const RELATIONSHIP_TYPE_SLIDE_MASTER = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster";
+const RELATIONSHIP_TYPE_SLIDE_LAYOUT =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout";
+const RELATIONSHIP_TYPE_SLIDE_MASTER =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster";
 const NOTE_PLACEHOLDER_TYPES = new Set(["title", "ctrTitle", "subTitle", "hdr", "ftr", "dt", "sldNum", "sldImg"]);
 const TEMPLATE_PLACEHOLDER_TYPES = new Set(["hdr", "ftr", "dt", "sldNum"]);
 
@@ -174,7 +172,11 @@ async function parseSlideContainer(
     return blocks;
 }
 
-async function parseSlideNode(node: XMLNodeLike, context: PPTParseContext, mode: SlideParseMode): Promise<SlideBlock[]> {
+async function parseSlideNode(
+    node: XMLNodeLike,
+    context: PPTParseContext,
+    mode: SlideParseMode
+): Promise<SlideBlock[]> {
     switch (getLocalName(node)) {
         case "sp":
             return parseShape(node, context, mode);
@@ -748,7 +750,11 @@ async function readRelatedPartText(partPath: string, context: PPTParseContext): 
     const shapeTree = findFirstDescendant(root, "spTree");
     if (shapeTree) {
         const relationships = await getPartRelationships(context, partPath);
-        const blocks = await parseSlideContainer(shapeTree, { ...context, relationships, depth: context.depth + 1 }, "template");
+        const blocks = await parseSlideContainer(
+            shapeTree,
+            { ...context, relationships, depth: context.depth + 1 },
+            "template"
+        );
         const plain = slideBlocksToPlainText(blocks);
         if (plain) {
             return plain;
@@ -789,9 +795,9 @@ async function extractEmbeddedPackageText(
                 return squashWhitespace(parsed.slides.map((slide) => slideBlocksToPlainText(slide.blocks)).join(" "));
             },
             xlsx: async (embeddedContent, options) =>
-                (await import("../excel/document")).extractExcel(embeddedContent, { depth: options.depth }).then(
-                    (result) => result.text
-                ),
+                (await import("../excel/document"))
+                    .extractExcel(embeddedContent, { depth: options.depth })
+                    .then((result) => result.text),
         },
     });
 }

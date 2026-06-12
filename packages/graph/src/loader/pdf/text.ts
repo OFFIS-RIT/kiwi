@@ -575,9 +575,7 @@ function mergeDetachedScriptLines(lines: TextLine[]): TextLine[] {
 
 function isDetachedScriptLineCandidate(chars: TextChar[]): boolean {
     return (
-        chars.length > 0 &&
-        chars.length <= 4 &&
-        chars.every((char) => getExpandedCharText(char.char).trim().length > 0)
+        chars.length > 0 && chars.length <= 4 && chars.every((char) => getExpandedCharText(char.char).trim().length > 0)
     );
 }
 
@@ -616,11 +614,7 @@ function findDetachedScriptLineTarget(candidateIndex: number, lineInfos: LineInf
     return best?.index ?? null;
 }
 
-function isDetachedScriptLineTarget(
-    candidate: LineInfo,
-    candidateBox: TextChar["bbox"],
-    target: LineInfo
-): boolean {
+function isDetachedScriptLineTarget(candidate: LineInfo, candidateBox: TextChar["bbox"], target: LineInfo): boolean {
     const horizontalSlack = Math.max(4, target.medianFontSize * 0.5);
     const candidateCenterX = candidateBox.x + candidateBox.width / 2;
     const targetRight = target.line.bbox.x + target.line.bbox.width;
@@ -628,7 +622,8 @@ function isDetachedScriptLineTarget(
         return false;
     }
 
-    const verticalOverlap = Math.min(getTop(candidateBox), getTop(target.line.bbox)) - Math.max(candidateBox.y, target.line.bbox.y);
+    const verticalOverlap =
+        Math.min(getTop(candidateBox), getTop(target.line.bbox)) - Math.max(candidateBox.y, target.line.bbox.y);
     const baselineDelta = Math.abs(candidate.line.baseline - target.line.baseline);
     if (verticalOverlap <= 0 && baselineDelta > Math.max(6, target.medianFontSize * 0.6)) {
         return false;
@@ -957,11 +952,7 @@ export function textCharBeginsNewWord(previous: TextChar, current: TextChar): bo
     const ay = previous.bbox.y;
     const cy = current.bbox.y;
     const baselineDelta = Math.abs(current.baseline - previous.baseline);
-    return (
-        cx < ax ||
-        cx > bx + xTolerance ||
-        (Math.abs(cy - ay) > yTolerance && baselineDelta > yTolerance)
-    );
+    return cx < ax || cx > bx + xTolerance || (Math.abs(cy - ay) > yTolerance && baselineDelta > yTolerance);
 }
 
 function inferTextCharPairDirection(previous: TextChar, current: TextChar): TextDirection {
@@ -1028,21 +1019,14 @@ export function shouldKeepCharsJoined(previous: TextChar, current: TextChar, gap
         return true;
     }
 
-    if (
-        ((isLetter(left) && /^\d+$/.test(right)) || (/^\d+$/.test(left) && isLetter(right))) &&
-        gap <= joinTolerance
-    ) {
+    if (((isLetter(left) && /^\d+$/.test(right)) || (/^\d+$/.test(left) && isLetter(right))) && gap <= joinTolerance) {
         return true;
     }
 
     return false;
 }
 
-export function shouldInsertSpaceBetweenChars(
-    previous: TextChar,
-    current: TextChar,
-    gap: number
-): boolean {
+export function shouldInsertSpaceBetweenChars(previous: TextChar, current: TextChar, gap: number): boolean {
     if (gap <= 0 || shouldKeepCharsJoined(previous, current, gap)) {
         return false;
     }

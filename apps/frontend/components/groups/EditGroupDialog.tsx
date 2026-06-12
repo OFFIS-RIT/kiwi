@@ -313,7 +313,9 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                                     onValueChange={(newRole) =>
                                                                         handleUpdateUserRole(user.user_id, newRole)
                                                                     }
-                                                                    disabled={!canEditAdminRole && user.role === "admin"}
+                                                                    disabled={
+                                                                        !canEditAdminRole && user.role === "admin"
+                                                                    }
                                                                 >
                                                                     <SelectTrigger className="h-8 w-[110px] text-xs">
                                                                         <SelectValue placeholder={t("admin.role")} />
@@ -332,17 +334,20 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                                         </SelectItem>
                                                                     </SelectContent>
                                                                 </Select>
-                                                                {canRemoveUser && (canEditAdminRole || user.role !== "admin") && (
-                                                                    <Button
-                                                                        type="button"
-                                                                        variant="ghost"
-                                                                        size="icon"
-                                                                        className="h-8 w-8"
-                                                                        onClick={() => handleRemoveUser(user.user_id)}
-                                                                    >
-                                                                        <X className="h-3.5 w-3.5" />
-                                                                    </Button>
-                                                                )}
+                                                                {canRemoveUser &&
+                                                                    (canEditAdminRole || user.role !== "admin") && (
+                                                                        <Button
+                                                                            type="button"
+                                                                            variant="ghost"
+                                                                            size="icon"
+                                                                            className="h-8 w-8"
+                                                                            onClick={() =>
+                                                                                handleRemoveUser(user.user_id)
+                                                                            }
+                                                                        >
+                                                                            <X className="h-3.5 w-3.5" />
+                                                                        </Button>
+                                                                    )}
                                                             </div>
                                                         ) : (
                                                             <Badge

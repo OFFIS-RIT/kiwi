@@ -9,6 +9,6 @@ describe("extractPrompt", () => {
         expect(prompt).toContain(":::END-SOURCE-CHUNK-<id>:::");
         expect(prompt).toContain("Source attribution fences are not document content");
         expect(prompt).toContain("Read the text between source attribution fences in order as one continuous document");
-        expect(prompt).toContain("\"sourceChunkIds\": [2]");
+        expect(prompt).toContain('"sourceChunkIds": [2]');
     });
 });

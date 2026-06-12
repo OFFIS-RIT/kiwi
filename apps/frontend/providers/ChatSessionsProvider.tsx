@@ -328,10 +328,7 @@ export function useProjectChatSession(projectId: string): UseProjectChatSessionR
         (init: EnsureEntryInit) => store.requestNewEntry(projectId, init),
         [projectId, store]
     );
-    const consumeRequestedNewEntry = useCallback(
-        () => store.consumeRequestedNewEntry(projectId),
-        [projectId, store]
-    );
+    const consumeRequestedNewEntry = useCallback(() => store.consumeRequestedNewEntry(projectId), [projectId, store]);
     const setStreamError = useCallback(
         (error: string | null) => store.setStreamError(projectId, error),
         [projectId, store]

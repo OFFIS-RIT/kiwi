@@ -594,10 +594,7 @@ describe("chat context helpers", () => {
                 compactionCalls.every(
                     (options) =>
                         estimateToken(options.transcript) <=
-                        getCompactionChunkTokenBudget(
-                            runtime.client.compactionContextWindow,
-                            options.previousSummary
-                        )
+                        getCompactionChunkTokenBudget(runtime.client.compactionContextWindow, options.previousSummary)
                 )
             ).toBe(true);
             expect(insertedCompactions[0]?.parts[0]).toMatchObject({

@@ -4,9 +4,7 @@ import type { KiwiAuthClient } from "@kiwi/auth/client";
 import { fetchSessionRaw } from "./transport";
 import "server-only";
 
-type SessionResponse = NonNullable<
-    Awaited<ReturnType<KiwiAuthClient["getSession"]>>["data"]
->;
+type SessionResponse = NonNullable<Awaited<ReturnType<KiwiAuthClient["getSession"]>>["data"]>;
 
 export const getServerSession = cache(async (): Promise<SessionResponse | null> => {
     const url = process.env.INTERNAL_AUTH_URL ?? process.env.AUTH_URL ?? "";

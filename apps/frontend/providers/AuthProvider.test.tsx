@@ -53,7 +53,11 @@ const initialAdmin: InitialClientSession = {
     user: { id: "1", name: "Initial Admin", email: "i@a.com", image: null, role: "admin" },
 };
 
-function renderWithAuth(sessionData: unknown, initialSession: InitialClientSession = initialAdmin, activeRole = "admin") {
+function renderWithAuth(
+    sessionData: unknown,
+    initialSession: InitialClientSession = initialAdmin,
+    activeRole = "admin"
+) {
     fakeUseSession.mockReturnValue(sessionData);
     fakeUseActiveMemberRole.mockReturnValue({
         data: { role: activeRole },

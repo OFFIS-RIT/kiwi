@@ -1,10 +1,6 @@
 import { read, utils, type WorkBook, type WorkSheet } from "xlsx";
 import { getMimeTypeForPath, parseContentTypes, resolveZipPath } from "../ooxml/package";
-import {
-    extractEmbeddedOfficeDocumentText,
-    isEmbeddedOfficeDocumentType,
-    toArrayBuffer,
-} from "../ooxml/embedded";
+import { extractEmbeddedOfficeDocumentText, isEmbeddedOfficeDocumentType, toArrayBuffer } from "../ooxml/embedded";
 import {
     childElements,
     findDescendants,
@@ -113,7 +109,12 @@ async function renderSheet(
     }
 
     const table = matrix.rows.length > 0 ? rowsToMarkdown(matrix.rows, { hasHeader: matrix.hasHeader }) : "";
-    const text = [`## Sheet: ${cleanSheetName(sheetName)}`, ...annotations.beforeTable, table, ...annotations.afterTable]
+    const text = [
+        `## Sheet: ${cleanSheetName(sheetName)}`,
+        ...annotations.beforeTable,
+        table,
+        ...annotations.afterTable,
+    ]
         .filter(Boolean)
         .join("\n\n");
 
@@ -383,7 +384,9 @@ function resolveFormulaFunctions(expression: string, worksheet: WorkSheet, visit
                 case "SUM":
                     return String(numbers.reduce((sum, value) => sum + value, 0));
                 case "AVERAGE":
-                    return String(numbers.length > 0 ? numbers.reduce((sum, value) => sum + value, 0) / numbers.length : 0);
+                    return String(
+                        numbers.length > 0 ? numbers.reduce((sum, value) => sum + value, 0) / numbers.length : 0
+                    );
                 case "MIN":
                     return String(numbers.length > 0 ? Math.min(...numbers) : 0);
                 case "MAX":
@@ -434,7 +437,11 @@ function splitFormulaArguments(value: string): string[] {
     return parts;
 }
 
-function resolveFormulaArgument(argument: string, worksheet: WorkSheet, visited: Set<string>): Array<string | number> | string | number {
+function resolveFormulaArgument(
+    argument: string,
+    worksheet: WorkSheet,
+    visited: Set<string>
+): Array<string | number> | string | number {
     if (/^\$?[A-Z]{1,3}\$?\d+:\$?[A-Z]{1,3}\$?\d+$/i.test(argument)) {
         const [start = "", end = ""] = argument.split(":");
         return getRangeValues(start.replace(/\$/g, ""), end.replace(/\$/g, ""), worksheet, visited);
@@ -456,7 +463,12 @@ function resolveFormulaArgument(argument: string, worksheet: WorkSheet, visited:
     return argument;
 }
 
-function getRangeValues(start: string, end: string, worksheet: WorkSheet, visited: Set<string>): Array<string | number> {
+function getRangeValues(
+    start: string,
+    end: string,
+    worksheet: WorkSheet,
+    visited: Set<string>
+): Array<string | number> {
     if (!start || !end) {
         return [];
     }
@@ -531,10 +543,7 @@ async function extractWorksheetAnnotations(
     };
 }
 
-function extractWorksheetComments(
-    worksheet: WorkSheet | undefined,
-    visibility: SheetVisibility
-): string[] {
+function extractWorksheetComments(worksheet: WorkSheet | undefined, visibility: SheetVisibility): string[] {
     if (!worksheet) {
         return [];
     }
@@ -562,7 +571,11 @@ function extractWorksheetComments(
         });
 }
 
-function extractWorksheetHeaderFooter(workbook: WorkBook, sheetPath: string | null, kind: "header" | "footer"): string[] {
+function extractWorksheetHeaderFooter(
+    workbook: WorkBook,
+    sheetPath: string | null,
+    kind: "header" | "footer"
+): string[] {
     if (!sheetPath) {
         return [];
     }
@@ -695,7 +708,9 @@ async function extractWorksheetRelatedPartText(
     const parts = [...relationshipIds]
         .map((relationshipId) => relationshipTargets.get(relationshipId))
         .filter((target): target is string => Boolean(target));
-    const texts = (await Promise.all(parts.map((target) => readWorkbookRelatedPartText(workbook, target, contentTypes, options))))
+    const texts = (
+        await Promise.all(parts.map((target) => readWorkbookRelatedPartText(workbook, target, contentTypes, options)))
+    )
         .filter((text) => text.length > 0)
         .map((text) => `[Related ${cleanSheetName(sheetName)}: ${text}]`);
 
@@ -790,7 +805,8 @@ async function extractEmbeddedWorkbookPartText(
                 });
                 return parsed.slides.map((slide) => slideBlocksToPlainText(slide.blocks)).join(" ");
             },
-            xlsx: async (embeddedContent, nextOptions) => (await extractExcel(embeddedContent, { depth: nextOptions.depth })).text,
+            xlsx: async (embeddedContent, nextOptions) =>
+                (await extractExcel(embeddedContent, { depth: nextOptions.depth })).text,
         },
     });
 }

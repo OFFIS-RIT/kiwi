@@ -12,11 +12,8 @@ mock.module("../../env", () => ({
     },
 }));
 
-const {
-    createProjectFileAccessToken,
-    importProjectFileAccessTokenSigningKey,
-    verifyProjectFileAccessToken,
-} = await import("../project-file-access-token");
+const { createProjectFileAccessToken, importProjectFileAccessTokenSigningKey, verifyProjectFileAccessToken } =
+    await import("../project-file-access-token");
 
 const testSecret = "test-project-file-access-token-secret";
 const textEncoder = new TextEncoder();

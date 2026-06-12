@@ -1,14 +1,5 @@
-import {
-    getMimeTypeForPath,
-    getRelationshipsForPart,
-    readZipBinary,
-    readZipText,
-} from "../ooxml/package";
-import {
-    extractEmbeddedOfficeDocumentText,
-    isEmbeddedOfficeDocumentType,
-    toArrayBuffer,
-} from "../ooxml/embedded";
+import { getMimeTypeForPath, getRelationshipsForPart, readZipBinary, readZipText } from "../ooxml/package";
+import { extractEmbeddedOfficeDocumentText, isEmbeddedOfficeDocumentType, toArrayBuffer } from "../ooxml/embedded";
 import {
     extractRelatedPartTextFromNode,
     findRelationshipByType,
@@ -216,12 +207,14 @@ export function createDOCRelatedPartParser(parseBlockContainer: DOCBlockContaine
                         markdown: options.markdown ?? true,
                         depth: options.depth,
                     });
-                    return cleanInlineText(parsed.slides.map((slide) => slideBlocksToPlainText(slide.blocks)).join("\n"));
+                    return cleanInlineText(
+                        parsed.slides.map((slide) => slideBlocksToPlainText(slide.blocks)).join("\n")
+                    );
                 },
                 xlsx: async (embeddedContent, options) =>
-                    (await import("../excel/document")).extractExcel(embeddedContent, { depth: options.depth }).then(
-                        (result) => result.text
-                    ),
+                    (await import("../excel/document"))
+                        .extractExcel(embeddedContent, { depth: options.depth })
+                        .then((result) => result.text),
             },
         });
     }
@@ -337,7 +330,9 @@ function rtfToText(value: string): string {
                 .replace(/\\line/gi, "\n")
                 .replace(/\\tab/gi, "\t")
                 .replace(/\\'[0-9a-fA-F]{2}/g, (match) => String.fromCharCode(Number.parseInt(match.slice(2), 16)))
-                .replace(/\\u(-?\d+)\??/g, (_match, code) => decodeNumericCharacter(Number(code) < 0 ? Number(code) + 65536 : Number(code)))
+                .replace(/\\u(-?\d+)\??/g, (_match, code) =>
+                    decodeNumericCharacter(Number(code) < 0 ? Number(code) + 65536 : Number(code))
+                )
                 .replace(/\\[a-z]+-?\d* ?/gi, " ")
                 .replace(/[{}]/g, " ")
         )

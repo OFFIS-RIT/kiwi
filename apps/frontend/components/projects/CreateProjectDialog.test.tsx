@@ -167,7 +167,13 @@ describe("CreateProjectDialog", () => {
         await user.type(screen.getByLabelText("Projektname"), "Neues Projekt");
         await user.click(screen.getByRole("button", { name: "Erstellen" }));
 
-        expect(createProject).toHaveBeenCalledWith(expect.anything(), "team_admin", "Neues Projekt", [], expect.any(Function));
+        expect(createProject).toHaveBeenCalledWith(
+            expect.anything(),
+            "team_admin",
+            "Neues Projekt",
+            [],
+            expect.any(Function)
+        );
         expect(toggleGroupExpanded).toHaveBeenCalledWith("team_admin");
         expect(toggleGroupExpanded).not.toHaveBeenCalledWith("project_1");
     });

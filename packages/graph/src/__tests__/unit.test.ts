@@ -20,12 +20,7 @@ describe("createUnits", () => {
             loader: {
                 getText: async () => "ignored",
             },
-            chunker: fixedChunker([
-                ":::PAGE-1:::\n\nAlpha",
-                "Beta\n\n:::PAGE-2:::\n\nGamma",
-                ":::PAGE-3:::",
-                "Delta",
-            ]),
+            chunker: fixedChunker([":::PAGE-1:::\n\nAlpha", "Beta\n\n:::PAGE-2:::\n\nGamma", ":::PAGE-3:::", "Delta"]),
         };
 
         const units = await createUnits(file);

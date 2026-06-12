@@ -10,10 +10,7 @@ describe("compiled PDF rasterizer startup", () => {
         try {
             const entryPath = join(directory, "entry.ts");
             const executablePath = join(directory, "entry");
-            await Bun.write(
-                entryPath,
-                `import ${JSON.stringify(resolve(import.meta.dir, "../rasterize.ts"))};\n`
-            );
+            await Bun.write(entryPath, `import ${JSON.stringify(resolve(import.meta.dir, "../rasterize.ts"))};\n`);
 
             await expectCommand([process.execPath, "build", "--compile", "--outfile", executablePath, entryPath]);
             await expectCommand([executablePath]);

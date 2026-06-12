@@ -27,7 +27,7 @@ describe("file proxy helpers", () => {
     test("escapes content-disposition filename values", () => {
         expect(escapeHeaderValue('report"\r\n.pdf')).toBe("report___.pdf");
         expect(contentDispositionHeader("Ihre Trinkwasser Versorgung.pdf", "inline")).toBe(
-            'inline; filename="Ihre Trinkwasser Versorgung.pdf"; filename*=UTF-8\'\'Ihre%20Trinkwasser%20Versorgung.pdf'
+            "inline; filename=\"Ihre Trinkwasser Versorgung.pdf\"; filename*=UTF-8''Ihre%20Trinkwasser%20Versorgung.pdf"
         );
     });
 });

@@ -63,10 +63,7 @@ type FieldFrame = {
     events: FieldEvent[];
 };
 
-export function createFieldAwareSink(
-    sink: InlineSink,
-    markdown: boolean
-): { sink: InlineSink; flush: () => void } {
+export function createFieldAwareSink(sink: InlineSink, markdown: boolean): { sink: InlineSink; flush: () => void } {
     const fieldStack: FieldFrame[] = [];
 
     const emitEvent = (event: FieldEvent) => {

@@ -51,10 +51,7 @@ function mapTeamError(status: RouteStatus, error: unknown) {
     }
 
     if (error.message === API_ERROR_CODES.INVALID_TEAM_MEMBERS) {
-        return status(
-            400,
-            errorResponse("A team must have at least one admin", API_ERROR_CODES.INVALID_TEAM_MEMBERS)
-        );
+        return status(400, errorResponse("A team must have at least one admin", API_ERROR_CODES.INVALID_TEAM_MEMBERS));
     }
 
     return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));

@@ -189,11 +189,7 @@ export async function regenerateEntities(graphId: string, entityIds: string[], c
     );
 }
 
-export async function regenerateRelationships(
-    graphId: string,
-    relationshipIds: string[],
-    client?: DescriptionClient
-) {
+export async function regenerateRelationships(graphId: string, relationshipIds: string[], client?: DescriptionClient) {
     if (relationshipIds.length === 0) {
         return;
     }

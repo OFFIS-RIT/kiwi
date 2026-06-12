@@ -145,8 +145,6 @@ describe("processUnit", () => {
         }));
 
         expect(normalizeSourceChunkIds([], { chunks })).toEqual([]);
-        expect(normalizeSourceChunkIds([9, 1, 9, 2, 3, 4, 5, 6, 7, 8], { chunks })).toEqual([
-            9, 1, 2, 3, 4, 5, 6, 7,
-        ]);
+        expect(normalizeSourceChunkIds([9, 1, 9, 2, 3, 4, 5, 6, 7, 8], { chunks })).toEqual([9, 1, 2, 3, 4, 5, 6, 7]);
     });
 });

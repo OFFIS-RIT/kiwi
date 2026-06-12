@@ -73,7 +73,10 @@ function readFirst(properties: VCardProperty[], name: string): string | undefine
 }
 
 function readAll(properties: VCardProperty[], name: string): string[] {
-    return properties.filter((property) => property.name === name).map((property) => property.value).filter(Boolean);
+    return properties
+        .filter((property) => property.name === name)
+        .map((property) => property.value)
+        .filter(Boolean);
 }
 
 function formatStructuredName(value: string | undefined): string | undefined {
@@ -81,7 +84,10 @@ function formatStructuredName(value: string | undefined): string | undefined {
         return undefined;
     }
 
-    const [family, given, additional, prefix, suffix] = value.split(";").map((part) => part.trim()).filter(Boolean);
+    const [family, given, additional, prefix, suffix] = value
+        .split(";")
+        .map((part) => part.trim())
+        .filter(Boolean);
     return [prefix, given, additional, family, suffix].filter(Boolean).join(" ") || value;
 }
 

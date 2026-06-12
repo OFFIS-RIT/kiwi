@@ -12,9 +12,7 @@ describe("project file proxy URLs", () => {
                 page: 3,
                 token: "abc.123",
             })
-        ).toBe(
-            "/graphs/graph-1/files/file-1/Water%20report%20%231.pdf?token=abc.123#page=3"
-        );
+        ).toBe("/graphs/graph-1/files/file-1/Water%20report%20%231.pdf?token=abc.123#page=3");
         expect(getProjectFileProxyPath("graph-1", "file-1", { page: 0 })).toBe("/graphs/graph-1/files/file-1");
     });
 

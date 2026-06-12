@@ -98,7 +98,8 @@ export function escapeHeaderValue(value: string): string {
 }
 
 function encodeRFC5987HeaderValue(value: string): string {
-    return encodeURIComponent(value).replace(/['()*]/g, (character) =>
-        `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    return encodeURIComponent(value).replace(
+        /['()*]/g,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
     );
 }

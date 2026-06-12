@@ -37,13 +37,7 @@ import {
     parseDOCNumbering,
     parseDOCStyles,
 } from "./styles";
-import type {
-    DOCBlock,
-    DOCParseContext,
-    DOCParseOptions,
-    DOCStyles,
-    ParsedDOC,
-} from "./types";
+import type { DOCBlock, DOCParseContext, DOCParseOptions, DOCStyles, ParsedDOC } from "./types";
 
 const RELATIONSHIP_TYPE_HEADER = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header";
 const RELATIONSHIP_TYPE_FOOTER = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer";
@@ -61,8 +55,13 @@ type DocumentSection = {
     sectPr: XMLNodeLike | null;
 };
 
-const { parseReferencedTextPart, parseDocumentLikePart, parseAltChunk, extractRelatedTextFromNode, extractTextBoxText } =
-    createDOCRelatedPartParser(parseBlockContainer);
+const {
+    parseReferencedTextPart,
+    parseDocumentLikePart,
+    parseAltChunk,
+    extractRelatedTextFromNode,
+    extractTextBoxText,
+} = createDOCRelatedPartParser(parseBlockContainer);
 
 export function parseDOCX(content: ArrayBuffer, options: boolean | DOCParseOptions): Promise<ParsedDOC> {
     return parseDOCXDocument(content, normalizeDOCParseOptions(options));
@@ -418,7 +417,9 @@ async function parseTable(table: XMLNodeLike, context: DOCParseContext): Promise
         }
     }
 
-    return renderedRows.length === 0 ? null : { kind: "table", rows: renderedRows, hasHeader: hasHeader || looksLikeHeaderRow(renderedRows) };
+    return renderedRows.length === 0
+        ? null
+        : { kind: "table", rows: renderedRows, hasHeader: hasHeader || looksLikeHeaderRow(renderedRows) };
 }
 
 async function extractTableCellText(cell: XMLNodeLike, context: DOCParseContext): Promise<string> {
@@ -550,7 +551,9 @@ async function parseRun(
             case "t": {
                 const value = child.textContent ?? "";
                 if (value) {
-                    sink.onText(formatInlineText(value, format, context.markdown ? hyperlinkTarget : null, context.markdown));
+                    sink.onText(
+                        formatInlineText(value, format, context.markdown ? hyperlinkTarget : null, context.markdown)
+                    );
                 }
                 break;
             }

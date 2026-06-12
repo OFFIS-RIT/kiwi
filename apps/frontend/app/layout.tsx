@@ -34,7 +34,11 @@ const sourceCodePro = Source_Code_Pro({ subsets: ["latin"], variable: "--font-so
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains-mono" });
 const plusJakartaSans = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-plus-jakarta-sans" });
 const lora = Lora({ subsets: ["latin"], variable: "--font-lora" });
-const ibmPlexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-ibm-plex-mono" });
+const ibmPlexMono = IBM_Plex_Mono({
+    subsets: ["latin"],
+    weight: ["400", "500", "600"],
+    variable: "--font-ibm-plex-mono",
+});
 
 export const metadata: Metadata = {
     title: "KI-basiertes Wissensmanagement",

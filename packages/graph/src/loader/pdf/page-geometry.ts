@@ -102,7 +102,7 @@ function getPageRotation(dict: PDFDictLike, resolver: Resolver): PDFPageRotation
 }
 
 function normalizeRotation(value: number): PDFPageRotation {
-    const normalized = ((Math.round(value / 90) * 90) % 360 + 360) % 360;
+    const normalized = (((Math.round(value / 90) * 90) % 360) + 360) % 360;
     return normalized === 90 || normalized === 180 || normalized === 270 ? normalized : 0;
 }
 

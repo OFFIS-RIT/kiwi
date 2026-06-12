@@ -24,7 +24,11 @@ type RequestOptions = {
 };
 
 function tryParseJson<T>(value: string): T | null {
-    try { return JSON.parse(value) as T; } catch { return null; }
+    try {
+        return JSON.parse(value) as T;
+    } catch {
+        return null;
+    }
 }
 
 function isErrorResponse(value: unknown): value is ErrorResponse {
@@ -95,8 +99,7 @@ export function createKiwiApiClient(baseURL: string, authClient: KiwiAuthClient)
         get: (endpoint) => request(endpoint),
         getQuietly: (endpoint, suppressErrorLog) => request(endpoint, { suppressErrorLog }),
         post: (endpoint, body) => request(endpoint, { method: "POST", body }),
-        postFormData: (endpoint, formData) =>
-            request(endpoint, { method: "POST", body: formData, isFormData: true }),
+        postFormData: (endpoint, formData) => request(endpoint, { method: "POST", body: formData, isFormData: true }),
         sendFormDataWithProgress: <T>(
             method: "POST" | "PATCH",
             endpoint: string,
@@ -117,17 +120,26 @@ export function createKiwiApiClient(baseURL: string, authClient: KiwiAuthClient)
                 xhr.onload = () => {
                     if (xhr.status >= 200 && xhr.status < 300) {
                         if (xhr.status === 204) return resolve(null as T);
-                        try { resolve(JSON.parse(xhr.responseText)); }
-                        catch { resolve(xhr.responseText as unknown as T); }
+                        try {
+                            resolve(JSON.parse(xhr.responseText));
+                        } catch {
+                            resolve(xhr.responseText as unknown as T);
+                        }
                     } else {
                         if (xhr.status === 401) void authClient.signOut();
                         const parsedError = tryParseJson<ErrorResponse>(xhr.responseText);
-                        reject(new ApiError(
-                            isErrorResponse(parsedError) ? parsedError.message : `Request failed: ${xhr.statusText}`,
-                            xhr.status, xhr.statusText, xhr.responseText,
-                            isErrorResponse(parsedError) ? parsedError.code : undefined,
-                            isErrorResponse(parsedError) ? parsedError : undefined
-                        ));
+                        reject(
+                            new ApiError(
+                                isErrorResponse(parsedError)
+                                    ? parsedError.message
+                                    : `Request failed: ${xhr.statusText}`,
+                                xhr.status,
+                                xhr.statusText,
+                                xhr.responseText,
+                                isErrorResponse(parsedError) ? parsedError.code : undefined,
+                                isErrorResponse(parsedError) ? parsedError : undefined
+                            )
+                        );
                     }
                 };
                 xhr.onerror = () => reject(new Error("Network request failed"));

@@ -19,9 +19,7 @@ function Probe() {
 describe("ApiClientProvider", () => {
     it("creates client with apiUrl from RuntimeConfig", () => {
         render(
-            <RuntimeConfigProvider
-                config={{ apiUrl: "https://api.test", authUrl: "/auth", authMode: "credentials" }}
-            >
+            <RuntimeConfigProvider config={{ apiUrl: "https://api.test", authUrl: "/auth", authMode: "credentials" }}>
                 <AuthClientProvider>
                     <ApiClientProvider>
                         <Probe />

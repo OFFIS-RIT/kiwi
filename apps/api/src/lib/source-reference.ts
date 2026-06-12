@@ -115,7 +115,9 @@ async function loadSourceReferenceRows(graphId: string, sourceIds: string[]): Pr
         .from(sourcesTable)
         .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
         .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(and(inArray(sourcesTable.id, sourceIds), eq(filesTable.graphId, graphId), eq(filesTable.deleted, false)));
+        .where(
+            and(inArray(sourcesTable.id, sourceIds), eq(filesTable.graphId, graphId), eq(filesTable.deleted, false))
+        );
 
     return rows.map(normalizeSourceReferenceRow);
 }

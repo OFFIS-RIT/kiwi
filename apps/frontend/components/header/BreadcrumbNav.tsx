@@ -33,11 +33,7 @@ export function BreadcrumbNav() {
                         </BreadcrumbItem>
                         <BreadcrumbSeparator className="shrink-0" />
                         <BreadcrumbItem className="min-w-0 shrink">
-                            <BreadcrumbLink
-                                asChild
-                                className="block max-w-full truncate"
-                                title={selectedGroup.name}
-                            >
+                            <BreadcrumbLink asChild className="block max-w-full truncate" title={selectedGroup.name}>
                                 <Link href={`/${selectedGroup.id}`}>{selectedGroup.name}</Link>
                             </BreadcrumbLink>
                         </BreadcrumbItem>

@@ -16,21 +16,13 @@ export type CorrectionToolContext = {
 export const correctionInputSchema = z.discriminatedUnion("kind", [
     z.object({
         kind: z.literal("source_correction"),
-        sourceId: z
-            .string()
-            .trim()
-            .min(1)
-            .describe("The source ID that supports the answer claim being corrected."),
+        sourceId: z.string().trim().min(1).describe("The source ID that supports the answer claim being corrected."),
         reference: z
             .string()
             .trim()
             .min(1)
             .describe("The specific answer claim, source statement, or topic that the correction refers to."),
-        suggestion: z
-            .string()
-            .trim()
-            .min(1)
-            .describe("The corrected source description suggested by the user."),
+        suggestion: z.string().trim().min(1).describe("The corrected source description suggested by the user."),
     }),
     z.object({
         kind: z.literal("entity_addition"),
@@ -40,11 +32,7 @@ export const correctionInputSchema = z.discriminatedUnion("kind", [
             .trim()
             .min(1)
             .describe("The entity, missing fact, or answer gap that the addition refers to."),
-        suggestion: z
-            .string()
-            .trim()
-            .min(1)
-            .describe("The new factual source description suggested by the user."),
+        suggestion: z.string().trim().min(1).describe("The new factual source description suggested by the user."),
     }),
 ]);
 

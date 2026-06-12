@@ -27,7 +27,10 @@ export function getParagraphHeadingLevel(properties: XMLNodeLike | null, styles:
     return fromStyle ?? detectHeadingLevel(styleId);
 }
 
-export function getParagraphListInfo(properties: XMLNodeLike | null, numbering: DOCNumbering): ParagraphListInfo | null {
+export function getParagraphListInfo(
+    properties: XMLNodeLike | null,
+    numbering: DOCNumbering
+): ParagraphListInfo | null {
     const numPr = properties ? findFirstChild(properties, "numPr") : null;
     if (!numPr) {
         return null;

@@ -164,7 +164,9 @@ describe("dedupe", () => {
                     name: "GAMMA DELTA",
                     type: "ORGANIZATION",
                     description: "",
-                    sources: [{ id: "source-gamma-delta", unitId: "unit-1", description: "Gamma Delta was mentioned." }],
+                    sources: [
+                        { id: "source-gamma-delta", unitId: "unit-1", description: "Gamma Delta was mentioned." },
+                    ],
                 },
             ],
             relationships: [],

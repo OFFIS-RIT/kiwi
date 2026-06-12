@@ -1,7 +1,18 @@
 import type { Relationships, XMLNodeLike } from "./types";
 import { childElements, getAttribute } from "./xml";
 
-const DEFAULT_RELATIONSHIP_ATTRIBUTE_NAMES = ["r:id", "id", "r:embed", "embed", "r:link", "link", "r:dm", "r:lo", "r:qs", "r:cs"] as const;
+const DEFAULT_RELATIONSHIP_ATTRIBUTE_NAMES = [
+    "r:id",
+    "id",
+    "r:embed",
+    "embed",
+    "r:link",
+    "link",
+    "r:dm",
+    "r:lo",
+    "r:qs",
+    "r:cs",
+] as const;
 
 export function findRelationshipByType(relationships: Relationships, type: string) {
     for (const relationship of relationships.values()) {

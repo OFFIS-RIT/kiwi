@@ -510,8 +510,7 @@ export function useRetryProjectFile() {
             if (context?.previousFile && context.projectId) {
                 queryClient.setQueryData<ApiProjectFile[]>(
                     queryKeys.projectFiles(context.projectId),
-                    (old) =>
-                        old?.map((file) => (file.id === context.fileId ? context.previousFile! : file)) || []
+                    (old) => old?.map((file) => (file.id === context.fileId ? context.previousFile! : file)) || []
                 );
             }
         },

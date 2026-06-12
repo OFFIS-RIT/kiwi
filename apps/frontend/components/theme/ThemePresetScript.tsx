@@ -61,5 +61,11 @@ export function ThemePresetScript() {
 `;
 
     // oxlint-disable-next-line next/no-before-interactive-script-outside-document -- App Router uses the root layout instead of pages/_document.
-    return <Script id="kiwi-theme-preset-script" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: script }} />;
+    return (
+        <Script
+            id="kiwi-theme-preset-script"
+            strategy="beforeInteractive"
+            dangerouslySetInnerHTML={{ __html: script }}
+        />
+    );
 }

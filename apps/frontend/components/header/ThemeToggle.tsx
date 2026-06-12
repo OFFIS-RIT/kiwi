@@ -58,9 +58,7 @@ export function ThemeToggle({ asMenuItem = true }: ThemeToggleProps) {
 
     if (!asMenuItem) {
         return (
-            <div className="flex h-9 items-center justify-between gap-4 rounded-md border px-3 text-sm">
-                {content}
-            </div>
+            <div className="flex h-9 items-center justify-between gap-4 rounded-md border px-3 text-sm">{content}</div>
         );
     }
 

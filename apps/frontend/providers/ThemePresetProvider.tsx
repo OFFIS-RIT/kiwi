@@ -3,12 +3,7 @@
 import type { ReactNode } from "react";
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState } from "react";
 
-import {
-    DEFAULT_FONT_SIZE_ID,
-    FONT_SIZE_STORAGE_KEY,
-    type FontSizeId,
-    normalizeFontSizeId,
-} from "@/lib/font-sizes";
+import { DEFAULT_FONT_SIZE_ID, FONT_SIZE_STORAGE_KEY, type FontSizeId, normalizeFontSizeId } from "@/lib/font-sizes";
 import {
     DEFAULT_THEME_PRESET_ID,
     THEME_PRESET_STORAGE_KEY,

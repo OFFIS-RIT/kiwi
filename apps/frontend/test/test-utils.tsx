@@ -15,10 +15,7 @@ const defaultConfig: RuntimeConfig = {
     authMode: "credentials",
 };
 
-export function renderWithProviders(
-    ui: ReactElement,
-    options?: RenderOptions & { config?: Partial<RuntimeConfig> }
-) {
+export function renderWithProviders(ui: ReactElement, options?: RenderOptions & { config?: Partial<RuntimeConfig> }) {
     const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });

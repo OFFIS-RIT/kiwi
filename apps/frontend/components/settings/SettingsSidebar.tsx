@@ -37,7 +37,12 @@ export function SettingsSidebar(props: ComponentProps<typeof Sidebar>) {
     const { canManageSuggestions } = useCanManageSuggestions();
     const { canManagePrompts } = useCanManagePrompts();
 
-    const categories = getVisibleSettingsCategories({ isSystemAdmin, canManageSuggestions, canManagePrompts, authMode });
+    const categories = getVisibleSettingsCategories({
+        isSystemAdmin,
+        canManageSuggestions,
+        canManagePrompts,
+        authMode,
+    });
 
     const handleBackToApp = () => {
         router.push(getLastAppPath() ?? "/");

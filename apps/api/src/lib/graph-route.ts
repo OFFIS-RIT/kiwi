@@ -22,7 +22,11 @@ import type { GraphFileType } from "./graph-file-type";
 import type { FileWithChecksum } from "./graph-upload-file-type";
 
 export { inferGraphFileType, type GraphFileType } from "./graph-file-type";
-export { assertConfiguredUploadModels, inferSupportedUploadedFiles, unsupportedUploadResponse } from "./graph-upload-file-type";
+export {
+    assertConfiguredUploadModels,
+    inferSupportedUploadedFiles,
+    unsupportedUploadResponse,
+} from "./graph-upload-file-type";
 export type { FileWithChecksum, SupportedFileWithChecksum, UploadFileTypeCheck } from "./graph-upload-file-type";
 
 export type UploadedFile = {
@@ -366,7 +370,10 @@ export function mapGraphError(statusFn: StatusFn, error: unknown) {
     if (error.message === API_ERROR_CODES.MODEL_NOT_CONFIGURED) {
         return statusFn(
             400,
-            errorResponse("Define a model for this organization before using AI features", API_ERROR_CODES.MODEL_NOT_CONFIGURED)
+            errorResponse(
+                "Define a model for this organization before using AI features",
+                API_ERROR_CODES.MODEL_NOT_CONFIGURED
+            )
         );
     }
 

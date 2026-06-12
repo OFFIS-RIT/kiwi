@@ -46,9 +46,8 @@ const {
     assertCanPatchGraph,
     assertCanViewGraph,
 } = await import("../graph-access");
-const { assertCanManageGraphPrompts, assertCanManageOrganizationPrompts, assertCanManageUserPrompts } = await import(
-    "../prompt-access"
-);
+const { assertCanManageGraphPrompts, assertCanManageOrganizationPrompts, assertCanManageUserPrompts } =
+    await import("../prompt-access");
 
 type AuthUser = Parameters<typeof assertCanViewGraph>[0];
 type GraphRecord = Awaited<ReturnType<typeof assertCanViewGraph>>;
@@ -179,18 +178,18 @@ describe("graph access", () => {
         const graph = buildTeamGraph();
         queueDbResults([graph], [graph], [team], [], [organization]);
 
-        await expect(
-            assertCanPatchGraph(buildUser({ isSystemAdmin: true, role: "admin" }), graph.id)
-        ).resolves.toEqual(graph);
+        await expect(assertCanPatchGraph(buildUser({ isSystemAdmin: true, role: "admin" }), graph.id)).resolves.toEqual(
+            graph
+        );
     });
 
     test("treats system admins as organization admins over manual member rows", async () => {
         const graph = buildTeamGraph({ teamId: null });
         queueDbResults([graph], [graph], [organizationMemberMembership]);
 
-        await expect(
-            assertCanPatchGraph(buildUser({ isSystemAdmin: true, role: "admin" }), graph.id)
-        ).resolves.toEqual(graph);
+        await expect(assertCanPatchGraph(buildUser({ isSystemAdmin: true, role: "admin" }), graph.id)).resolves.toEqual(
+            graph
+        );
     });
 
     test("rejects file management and mutation for personal graphs", async () => {
@@ -280,9 +279,7 @@ describe("graph access", () => {
         const graph = buildTeamGraph({ teamId: null });
         queueDbResults([graph], [graph], [organizationMemberMembership]);
 
-        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).rejects.toThrow(
-            API_ERROR_CODES.FORBIDDEN
-        );
+        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("allows organization admins to manage suggestions on team graphs", async () => {
@@ -303,14 +300,10 @@ describe("graph access", () => {
         const graph = buildTeamGraph();
         queueTeamGraphAccess(graph, organizationMemberMembership, teamModeratorRole);
 
-        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).rejects.toThrow(
-            API_ERROR_CODES.FORBIDDEN
-        );
+        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
 
         queueTeamGraphAccess(graph, organizationMemberMembership, teamMemberRole);
-        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).rejects.toThrow(
-            API_ERROR_CODES.FORBIDDEN
-        );
+        await expect(assertCanManageGraphSuggestions(buildUser(), graph.id)).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("rejects suggestion management for personal graphs", async () => {

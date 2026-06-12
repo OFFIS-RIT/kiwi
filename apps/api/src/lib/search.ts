@@ -399,13 +399,7 @@ async function listAccessibleChats(
         .leftJoin(graphTable, eq(graphTable.id, chatTable.graphId))
         .leftJoin(chatGraphTeamTable, eq(chatGraphTeamTable.id, graphTable.teamId))
         .leftJoin(chatTargetTeamTable, eq(chatTargetTeamTable.id, chatTable.teamId))
-        .where(
-            and(
-                eq(chatTable.userId, user.id),
-                accessibleChatWhere,
-                options.filter
-            )
-        )
+        .where(and(eq(chatTable.userId, user.id), accessibleChatWhere, options.filter))
         .orderBy(...options.orderBy);
 
     const effectiveLimit = typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;

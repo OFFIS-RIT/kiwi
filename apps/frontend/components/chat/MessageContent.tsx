@@ -17,11 +17,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { openCitationSourceFile } from "./citation-file";
 import { buildSourceFileCitations, citationReferenceKey } from "./source-file-citations";
-import {
-    TextReferenceBadge,
-    TextReferenceDialog,
-    sourceReferenceQueryKey,
-} from "./TextReferenceBadge";
+import { TextReferenceBadge, TextReferenceDialog, sourceReferenceQueryKey } from "./TextReferenceBadge";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
 type MessageContentProps = {
@@ -105,155 +101,150 @@ export function MessageContent({
     const queryClient = useQueryClient();
     const [activeCitationSourceId, setActiveCitationSourceId] = React.useState<string | null>(null);
 
-    const {
-        markdownContent,
-        citations,
-        citationBySourceId,
-        citationIndexBySourceId,
-        thinkingItems,
-    } = React.useMemo(() => {
-        // Find the last "real" tool index, ignoring the client-side
-        // clarification tool which is rendered separately by ClarificationBlock.
-        let lastToolIdx = -1;
-        for (let i = parts.length - 1; i >= 0; i--) {
-            const candidate = parts[i];
-            if (candidate && isToolPart(candidate) && toolNameOf(candidate) !== "ask_clarifying_questions") {
-                lastToolIdx = i;
-                break;
+    const { markdownContent, citations, citationBySourceId, citationIndexBySourceId, thinkingItems } =
+        React.useMemo(() => {
+            // Find the last "real" tool index, ignoring the client-side
+            // clarification tool which is rendered separately by ClarificationBlock.
+            let lastToolIdx = -1;
+            for (let i = parts.length - 1; i >= 0; i--) {
+                const candidate = parts[i];
+                if (candidate && isToolPart(candidate) && toolNameOf(candidate) !== "ask_clarifying_questions") {
+                    lastToolIdx = i;
+                    break;
+                }
             }
-        }
 
-        // While streaming we cannot know yet which text part will be the final
-        // answer, so we keep everything inside the dropdown. Only once the
-        // stream finishes do we promote the trailing text (everything after
-        // the last tool) to the final answer.
-        const partitionIdx = isStreaming ? parts.length : lastToolIdx;
+            // While streaming we cannot know yet which text part will be the final
+            // answer, so we keep everything inside the dropdown. Only once the
+            // stream finishes do we promote the trailing text (everything after
+            // the last tool) to the final answer.
+            const partitionIdx = isStreaming ? parts.length : lastToolIdx;
 
-        const citationOrder: ResolvedCitationFence[] = [];
-        const citationIndexByReferenceKey = new Map<string, number>();
-        const citationBySourceId = new Map<string, ResolvedCitationFence>();
-        const sourceIndexMap = new Map<string, number>();
-        type RawItem =
-            | { kind: "interim-text"; key: string; markdown: string }
-            | { kind: "tool"; key: string; part: ToolPart };
-        const rawItems: RawItem[] = [];
+            const citationOrder: ResolvedCitationFence[] = [];
+            const citationIndexByReferenceKey = new Map<string, number>();
+            const citationBySourceId = new Map<string, ResolvedCitationFence>();
+            const sourceIndexMap = new Map<string, number>();
+            type RawItem =
+                | { kind: "interim-text"; key: string; markdown: string }
+                | { kind: "tool"; key: string; part: ToolPart };
+            const rawItems: RawItem[] = [];
 
-        // Reference key of the citation we last emitted, kept only while no
-        // meaningful text has appeared since. Lets us collapse directly
-        // adjacent duplicate citations into a single inline badge. It is shared
-        // across consecutive final-answer text parts (which render as one
-        // contiguous block) and reset at block boundaries below.
-        let adjacentReferenceKey: string | null = null;
+            // Reference key of the citation we last emitted, kept only while no
+            // meaningful text has appeared since. Lets us collapse directly
+            // adjacent duplicate citations into a single inline badge. It is shared
+            // across consecutive final-answer text parts (which render as one
+            // contiguous block) and reset at block boundaries below.
+            let adjacentReferenceKey: string | null = null;
 
-        // Convert a single text part into markdown, registering any citation
-        // fences in the shared citation maps so badge numbers stay stable
-        // across interim and final blocks.
-        const textPartToMarkdown = (text: string): string => {
-            let md = "";
-            for (const segment of splitTextWithCitationFences(text)) {
-                if (segment.type === "text") {
-                    md += segment.text;
-                    // Whitespace between two fences still counts as "adjacent";
-                    // any non-whitespace text breaks the run.
-                    if (segment.text.trim().length > 0) {
-                        adjacentReferenceKey = null;
+            // Convert a single text part into markdown, registering any citation
+            // fences in the shared citation maps so badge numbers stay stable
+            // across interim and final blocks.
+            const textPartToMarkdown = (text: string): string => {
+                let md = "";
+                for (const segment of splitTextWithCitationFences(text)) {
+                    if (segment.type === "text") {
+                        md += segment.text;
+                        // Whitespace between two fences still counts as "adjacent";
+                        // any non-whitespace text breaks the run.
+                        if (segment.text.trim().length > 0) {
+                            adjacentReferenceKey = null;
+                        }
+                        continue;
                     }
+                    if (!isResolvedCitationFence(segment.citation)) continue;
+
+                    const referenceKey = citationReferenceKey(segment.citation);
+                    let citationIndex = citationIndexByReferenceKey.get(referenceKey);
+                    if (citationIndex === undefined) {
+                        citationIndex = citationOrder.length;
+                        citationIndexByReferenceKey.set(referenceKey, citationIndex);
+                        citationOrder.push(segment.citation);
+                    }
+                    citationBySourceId.set(segment.citation.sourceId, segment.citation);
+                    sourceIndexMap.set(segment.citation.sourceId, citationIndex);
+
+                    // Skip directly adjacent duplicates of the same resolved
+                    // reference so they collapse into one badge; repeated citations
+                    // separated by meaningful text still render distinct badges.
+                    if (referenceKey === adjacentReferenceKey) continue;
+                    adjacentReferenceKey = referenceKey;
+                    md += `[[cite:${segment.citation.sourceId}]]`;
+                }
+                return md;
+            };
+
+            let markdown = "";
+            let interimTextIndex = 0;
+
+            for (let i = 0; i < parts.length; i++) {
+                const part = parts[i];
+                if (!part) continue;
+
+                if (part.type === "reasoning") continue;
+
+                if (isToolPart(part)) {
+                    // A tool block renders separately, breaking visual adjacency.
+                    adjacentReferenceKey = null;
+                    if (toolNameOf(part) === "ask_clarifying_questions") continue;
+                    rawItems.push({ kind: "tool", key: part.toolCallId, part });
                     continue;
                 }
-                if (!isResolvedCitationFence(segment.citation)) continue;
 
-                const referenceKey = citationReferenceKey(segment.citation);
-                let citationIndex = citationIndexByReferenceKey.get(referenceKey);
-                if (citationIndex === undefined) {
-                    citationIndex = citationOrder.length;
-                    citationIndexByReferenceKey.set(referenceKey, citationIndex);
-                    citationOrder.push(segment.citation);
+                if (part.type !== "text") continue;
+
+                if (i > partitionIdx) {
+                    markdown += textPartToMarkdown(part.text);
+                    continue;
                 }
-                citationBySourceId.set(segment.citation.sourceId, segment.citation);
-                sourceIndexMap.set(segment.citation.sourceId, citationIndex);
 
-                // Skip directly adjacent duplicates of the same resolved
-                // reference so they collapse into one badge; repeated citations
-                // separated by meaningful text still render distinct badges.
-                if (referenceKey === adjacentReferenceKey) continue;
-                adjacentReferenceKey = referenceKey;
-                md += `[[cite:${segment.citation.sourceId}]]`;
-            }
-            return md;
-        };
-
-        let markdown = "";
-        let interimTextIndex = 0;
-
-        for (let i = 0; i < parts.length; i++) {
-            const part = parts[i];
-            if (!part) continue;
-
-            if (part.type === "reasoning") continue;
-
-            if (isToolPart(part)) {
-                // A tool block renders separately, breaking visual adjacency.
+                // Each interim block renders in its own container, so adjacency
+                // must not carry across separate interim parts.
                 adjacentReferenceKey = null;
-                if (toolNameOf(part) === "ask_clarifying_questions") continue;
-                rawItems.push({ kind: "tool", key: part.toolCallId, part });
-                continue;
+                const interimMarkdown = textPartToMarkdown(part.text).trim();
+                if (interimMarkdown.length === 0) continue;
+
+                rawItems.push({
+                    kind: "interim-text",
+                    key: `interim-${interimTextIndex++}`,
+                    markdown: normalizeLatexDelimitersForMarkdown(interimMarkdown),
+                });
             }
 
-            if (part.type !== "text") continue;
-
-            if (i > partitionIdx) {
-                markdown += textPartToMarkdown(part.text);
-                continue;
-            }
-
-            // Each interim block renders in its own container, so adjacency
-            // must not carry across separate interim parts.
-            adjacentReferenceKey = null;
-            const interimMarkdown = textPartToMarkdown(part.text).trim();
-            if (interimMarkdown.length === 0) continue;
-
-            rawItems.push({
-                kind: "interim-text",
-                key: `interim-${interimTextIndex++}`,
-                markdown: normalizeLatexDelimitersForMarkdown(interimMarkdown),
-            });
-        }
-
-        // Collapse runs of consecutive tool calls into a single summary
-        // so the dropdown shows one compact line per "thinking burst"
-        // instead of one chip per call.
-        const compactedItems: ThinkingItem[] = [];
-        let toolRun: ToolPart[] = [];
-        let toolRunKey: string | null = null;
-        const flushToolRun = () => {
-            if (toolRun.length === 0) return;
-            compactedItems.push({
-                kind: "tool-run",
-                key: toolRunKey ?? `tool-run-${compactedItems.length}`,
-                tools: toolRun,
-            });
-            toolRun = [];
-            toolRunKey = null;
-        };
-        for (const raw of rawItems) {
-            if (raw.kind === "tool") {
-                toolRunKey ??= `tool-run-${raw.key}`;
-                toolRun.push(raw.part);
-                continue;
+            // Collapse runs of consecutive tool calls into a single summary
+            // so the dropdown shows one compact line per "thinking burst"
+            // instead of one chip per call.
+            const compactedItems: ThinkingItem[] = [];
+            let toolRun: ToolPart[] = [];
+            let toolRunKey: string | null = null;
+            const flushToolRun = () => {
+                if (toolRun.length === 0) return;
+                compactedItems.push({
+                    kind: "tool-run",
+                    key: toolRunKey ?? `tool-run-${compactedItems.length}`,
+                    tools: toolRun,
+                });
+                toolRun = [];
+                toolRunKey = null;
+            };
+            for (const raw of rawItems) {
+                if (raw.kind === "tool") {
+                    toolRunKey ??= `tool-run-${raw.key}`;
+                    toolRun.push(raw.part);
+                    continue;
+                }
+                flushToolRun();
+                compactedItems.push(raw);
             }
             flushToolRun();
-            compactedItems.push(raw);
-        }
-        flushToolRun();
 
-        return {
-            markdownContent: normalizeLatexDelimitersForMarkdown(markdown),
-            citations: citationOrder,
-            citationBySourceId,
-            citationIndexBySourceId: sourceIndexMap,
-            thinkingItems: compactedItems,
-        };
-    }, [parts, isStreaming]);
+            return {
+                markdownContent: normalizeLatexDelimitersForMarkdown(markdown),
+                citations: citationOrder,
+                citationBySourceId,
+                citationIndexBySourceId: sourceIndexMap,
+                thinkingItems: compactedItems,
+            };
+        }, [parts, isStreaming]);
 
     const activeCitationIndex = activeCitationSourceId
         ? citationIndexBySourceId.get(activeCitationSourceId)
@@ -414,18 +405,12 @@ export function MessageContent({
                     h1: ({ children }) => (
                         <h1 className="mb-2 mt-4 text-2xl font-semibold">{injectBadges(children)}</h1>
                     ),
-                    h2: ({ children }) => (
-                        <h2 className="mb-2 mt-4 text-xl font-semibold">{injectBadges(children)}</h2>
-                    ),
-                    h3: ({ children }) => (
-                        <h3 className="mb-1.5 mt-3 text-lg font-medium">{injectBadges(children)}</h3>
-                    ),
+                    h2: ({ children }) => <h2 className="mb-2 mt-4 text-xl font-semibold">{injectBadges(children)}</h2>,
+                    h3: ({ children }) => <h3 className="mb-1.5 mt-3 text-lg font-medium">{injectBadges(children)}</h3>,
                     h4: ({ children }) => (
                         <h4 className="mb-1.5 mt-3 text-base font-medium">{injectBadges(children)}</h4>
                     ),
-                    h5: ({ children }) => (
-                        <h5 className="mb-1 mt-2 text-sm font-medium">{injectBadges(children)}</h5>
-                    ),
+                    h5: ({ children }) => <h5 className="mb-1 mt-2 text-sm font-medium">{injectBadges(children)}</h5>,
                     h6: ({ children }) => (
                         <h6 className="mb-1 mt-2 text-xs font-medium uppercase tracking-wide">
                             {injectBadges(children)}

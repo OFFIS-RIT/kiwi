@@ -118,11 +118,7 @@ export async function addGroupUser(
     return unwrapApiResponse(response);
 }
 
-export async function removeGroupUser(
-    client: KiwiApiClient,
-    groupId: string,
-    userId: string
-): Promise<ApiGroupUser[]> {
+export async function removeGroupUser(client: KiwiApiClient, groupId: string, userId: string): Promise<ApiGroupUser[]> {
     const response = await client.delete<TeamUsersResponse>(`/teams/${groupId}/users/${userId}`);
 
     return unwrapApiResponse(response);

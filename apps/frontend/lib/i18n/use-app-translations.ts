@@ -22,8 +22,11 @@ function interpolate(message: string, params?: Record<string, string | number>) 
 export function useAppTranslations() {
     const messages = useContext(AppMessagesContext);
 
-    return useCallback((key: string, params?: Record<string, string | number>) => {
-        const message = messages[key];
-        return interpolate(typeof message === "string" ? message : key, params);
-    }, [messages]);
+    return useCallback(
+        (key: string, params?: Record<string, string | number>) => {
+            const message = messages[key];
+            return interpolate(typeof message === "string" ? message : key, params);
+        },
+        [messages]
+    );
 }

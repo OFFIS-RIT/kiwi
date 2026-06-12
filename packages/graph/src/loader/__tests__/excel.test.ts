@@ -118,8 +118,7 @@ async function addWorksheetHeaderFooter(
         footer?: [string, string, string];
     }
 ): Promise<Uint8Array> {
-    const renderSection = ([left, center, right]: [string, string, string]) =>
-        `&L${left}&C${center}&R${right}`;
+    const renderSection = ([left, center, right]: [string, string, string]) => `&L${left}&C${center}&R${right}`;
     const headerFooterXml = [
         "<headerFooter>",
         options.header ? `<oddHeader>${renderSection(options.header)}</oddHeader>` : "",
@@ -150,10 +149,7 @@ async function attachWorksheetDrawing(
     }
 
     const relationshipId = options.relationshipId ?? "rDrawing1";
-    zip.file(
-        options.sheetPath,
-        sheetXml.replace("</worksheet>", `<drawing r:id="${relationshipId}"/></worksheet>`)
-    );
+    zip.file(options.sheetPath, sheetXml.replace("</worksheet>", `<drawing r:id="${relationshipId}"/></worksheet>`));
 
     const relsPath = options.sheetPath.replace(/([^/]+)\.xml$/, "_rels/$1.xml.rels");
     const existingRels =
@@ -457,30 +453,33 @@ describe("ExcelLoader", () => {
     });
 
     test("extracts worksheet drawing text and chart fallback text", async () => {
-        const bytes = await attachWorksheetDrawing(buildWorkbookBytes([{ name: "Visuals", rows: [["Name"], ["Foo"]] }]), {
-            sheetPath: "xl/worksheets/sheet1.xml",
-            drawingPath: "xl/drawings/drawing1.xml",
-            drawingXml: `<?xml version="1.0" encoding="UTF-8"?>
+        const bytes = await attachWorksheetDrawing(
+            buildWorkbookBytes([{ name: "Visuals", rows: [["Name"], ["Foo"]] }]),
+            {
+                sheetPath: "xl/worksheets/sheet1.xml",
+                drawingPath: "xl/drawings/drawing1.xml",
+                drawingXml: `<?xml version="1.0" encoding="UTF-8"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <xdr:twoCellAnchor>
     <xdr:sp><xdr:txBody><a:p><a:r><a:t>Textbox alpha</a:t></a:r></a:p></xdr:txBody></xdr:sp>
   </xdr:twoCellAnchor>
   <xdr:graphicFrame><a:graphic><a:graphicData><c:chart r:id="rChart1"/></a:graphicData></a:graphic></xdr:graphicFrame>
 </xdr:wsDr>`,
-            drawingRelationships: [
-                {
-                    id: "rChart1",
-                    target: "../charts/chart1.xml",
-                    type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
-                },
-            ],
-            extra: {
-                "xl/charts/chart1.xml": `<?xml version="1.0" encoding="UTF-8"?>
+                drawingRelationships: [
+                    {
+                        id: "rChart1",
+                        target: "../charts/chart1.xml",
+                        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
+                    },
+                ],
+                extra: {
+                    "xl/charts/chart1.xml": `<?xml version="1.0" encoding="UTF-8"?>
 <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
   <c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Chart title beta</a:t></a:r></a:p></c:rich></c:tx></c:title></c:chart>
 </c:chartSpace>`,
-            },
-        });
+                },
+            }
+        );
         const text = await buildExcelText(bytes);
 
         expect(text).toContain("Textbox alpha");
@@ -495,16 +494,19 @@ describe("ExcelLoader", () => {
     });
 
     test("skips cyclic XLSX related-part traversal without hanging extraction", async () => {
-        const bytes = await attachWorksheetDrawing(buildWorkbookBytes([{ name: "Loop", rows: [["Name"], ["Value"]] }]), {
-            sheetPath: "xl/worksheets/sheet1.xml",
-            drawingPath: "xl/drawings/drawing1.xml",
-            drawingXml: `<?xml version="1.0" encoding="UTF-8"?>
+        const bytes = await attachWorksheetDrawing(
+            buildWorkbookBytes([{ name: "Loop", rows: [["Name"], ["Value"]] }]),
+            {
+                sheetPath: "xl/worksheets/sheet1.xml",
+                drawingPath: "xl/drawings/drawing1.xml",
+                drawingXml: `<?xml version="1.0" encoding="UTF-8"?>
 <loop xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   Loop Diagram
   <ref r:id="rSelf"/>
 </loop>`,
-            drawingRelationships: [{ id: "rSelf", target: "drawing1.xml", type: "urn:test" }],
-        });
+                drawingRelationships: [{ id: "rSelf", target: "drawing1.xml", type: "urn:test" }],
+            }
+        );
         const text = await buildExcelText(bytes);
 
         expect(text).toContain("[Related Loop: Loop Diagram]");

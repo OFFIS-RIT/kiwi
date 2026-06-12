@@ -171,9 +171,11 @@ function buildExtractionInput(unit: Unit): string {
 
     return unit.chunks
         .map((chunk) =>
-            [`:::SOURCE-CHUNK-${chunk.id} type=${chunk.type}:::`, chunk.text, `:::END-SOURCE-CHUNK-${chunk.id}:::`].join(
-                "\n"
-            )
+            [
+                `:::SOURCE-CHUNK-${chunk.id} type=${chunk.type}:::`,
+                chunk.text,
+                `:::END-SOURCE-CHUNK-${chunk.id}:::`,
+            ].join("\n")
         )
         .join("\n\n");
 }

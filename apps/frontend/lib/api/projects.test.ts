@@ -69,9 +69,9 @@ describe("project source references", () => {
         const post = vi.fn(async () => ({ status: "success" as const, data: batch }));
         const apiClient = { baseURL: "/api", post } as unknown as KiwiApiClient;
 
-        await expect(fetchSourceReferences(apiClient, "graph-1", ["source-1", "source-1", " source-2 "])).resolves.toEqual(
-            batch
-        );
+        await expect(
+            fetchSourceReferences(apiClient, "graph-1", ["source-1", "source-1", " source-2 "])
+        ).resolves.toEqual(batch);
         expect(post).toHaveBeenCalledWith("/graphs/graph-1/sources/references", {
             source_ids: ["source-1", "source-2"],
         });

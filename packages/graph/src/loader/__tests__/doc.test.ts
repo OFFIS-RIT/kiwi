@@ -353,7 +353,9 @@ describe("DOCXLoader", () => {
 
         expect(text).toContain("Header text");
         expect(text).toContain("Main body");
-        expect(text).toContain("Alpha [Footnote: Foot note text] Beta [Endnote: End note text] Gamma [Comment: Comment text]");
+        expect(text).toContain(
+            "Alpha [Footnote: Foot note text] Beta [Endnote: End note text] Gamma [Comment: Comment text]"
+        );
         expect(text).toContain("Footer text");
     });
 
@@ -424,14 +426,13 @@ describe("DOCXLoader", () => {
 
     test("extracts tracked changes bookmark fields and chart fallback text", async () => {
         const text = await buildDOCXText(
-            buildDOCXEntries(
-                {
-                    documentNamespaces: `xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"`,
-                    relationships: `<?xml version="1.0"?>
+            buildDOCXEntries({
+                documentNamespaces: `xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"`,
+                relationships: `<?xml version="1.0"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rChart" Target="charts/chart1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"/>
 </Relationships>`,
-                    body: `<w:p>
+                body: `<w:p>
   <w:r><w:t>Keep </w:t></w:r>
   <w:del><w:r><w:delText>Drop </w:delText></w:r></w:del>
   <w:moveFrom><w:r><w:t>Gone </w:t></w:r></w:moveFrom>
@@ -443,14 +444,13 @@ describe("DOCXLoader", () => {
   <w:r><w:fldChar w:fldCharType="end"/></w:r>
 </w:p>
 <w:p><w:r><w:drawing><c:chart r:id="rChart"/></w:drawing></w:r></w:p>`,
-                    extra: {
-                        "word/charts/chart1.xml": `<?xml version="1.0"?>
+                extra: {
+                    "word/charts/chart1.xml": `<?xml version="1.0"?>
 <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
   <c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Quarterly chart title</a:t></a:r></a:p></c:rich></c:tx></c:title></c:chart>
 </c:chartSpace>`,
-                    },
-                }
-            ),
+                },
+            }),
             { ocr: true }
         );
 

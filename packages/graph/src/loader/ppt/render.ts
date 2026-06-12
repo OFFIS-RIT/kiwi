@@ -25,7 +25,9 @@ export function renderMarkdown(slides: SlideContent[]): string {
                     builder.append(block.text);
                     break;
                 case "bullet":
-                    builder.append(`${"  ".repeat(Math.max(0, block.level))}${block.ordered ? "1." : "-"} ${block.text}`);
+                    builder.append(
+                        `${"  ".repeat(Math.max(0, block.level))}${block.ordered ? "1." : "-"} ${block.text}`
+                    );
                     break;
                 case "image":
                     builder.append(`:::IMG-${block.id}:::`);

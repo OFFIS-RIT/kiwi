@@ -12,12 +12,7 @@ type TextCharOptions = {
     baseline?: number;
 };
 
-function textChar(
-    char: string,
-    x: number,
-    sequenceIndex: number,
-    options: TextCharOptions = {}
-): TextChar {
+function textChar(char: string, x: number, sequenceIndex: number, options: TextCharOptions = {}): TextChar {
     const fontSize = options.fontSize ?? 12;
     const y = options.y ?? 100;
     return {
@@ -128,9 +123,7 @@ describe("PDF text reconstruction", () => {
     });
 
     test("keeps stream order for right-to-left placed text", () => {
-        expect(getLineText(textLine([textChar("A", 30, 0), textChar("B", 20, 1), textChar("C", 10, 2)]))).toBe(
-            "ABC"
-        );
+        expect(getLineText(textLine([textChar("A", 30, 0), textChar("B", 20, 1), textChar("C", 10, 2)]))).toBe("ABC");
     });
 
     test("uses positional order for narrow side-by-side text emitted in interleaved stream order", () => {

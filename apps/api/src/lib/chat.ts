@@ -158,9 +158,7 @@ function hasCompletedGraphRetrieval(message: Pick<ChatMessage, "role" | "parts">
         message.role === "assistant" &&
         message.parts.some(
             (part) =>
-                part.type === "tool" &&
-                part.status === "completed" &&
-                GRAPH_RETRIEVAL_TOOL_NAMES.has(part.toolName)
+                part.type === "tool" && part.status === "completed" && GRAPH_RETRIEVAL_TOOL_NAMES.has(part.toolName)
         )
     );
 }
@@ -170,9 +168,7 @@ function hasCompletedClarificationResult(message: Pick<ChatMessage, "role" | "pa
         message.role === "assistant" &&
         message.parts.some(
             (part) =>
-                part.type === "tool" &&
-                part.status === "completed" &&
-                part.toolName === "ask_clarifying_questions"
+                part.type === "tool" && part.status === "completed" && part.toolName === "ask_clarifying_questions"
         )
     );
 }
@@ -199,9 +195,7 @@ function isAcknowledgementOnlyTurn(message: Pick<ChatMessage, "role" | "parts">)
     return text.length > 0 && text.length <= 80 && ACKNOWLEDGEMENT_ONLY_PATTERN.test(text);
 }
 
-function getLatestGraphRetrievalAt(
-    rows: Array<Pick<ChatMessage, "role" | "parts" | "createdAt" | "updatedAt">>
-) {
+function getLatestGraphRetrievalAt(rows: Array<Pick<ChatMessage, "role" | "parts" | "createdAt" | "updatedAt">>) {
     let latest: Date | null = null;
 
     for (const row of rows) {
@@ -219,9 +213,7 @@ function getLatestGraphRetrievalAt(
 }
 
 function getLatestReplyTrigger(rows: Array<Pick<ChatMessage, "role" | "parts" | "createdAt" | "updatedAt">>) {
-    return [...rows]
-        .reverse()
-        .find((row) => row.role === "user" || hasCompletedClarificationResult(row));
+    return [...rows].reverse().find((row) => row.role === "user" || hasCompletedClarificationResult(row));
 }
 
 export function shouldRefreshGraphDataAfterCompletedWorkflow(options: {
@@ -1059,7 +1051,10 @@ export function mapChatError(status: RouteStatus, error: unknown) {
     if (hasErrorCode(API_ERROR_CODES.MODEL_NOT_CONFIGURED)) {
         return status(
             400,
-            errorResponse("Define a model for this organization before using AI features", API_ERROR_CODES.MODEL_NOT_CONFIGURED)
+            errorResponse(
+                "Define a model for this organization before using AI features",
+                API_ERROR_CODES.MODEL_NOT_CONFIGURED
+            )
         );
     }
 

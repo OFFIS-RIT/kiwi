@@ -452,7 +452,10 @@ export function AppSidebar({
                                             </button>
                                             {showTeamMenu ? (
                                                 <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                                                    <DropdownMenuTrigger
+                                                        asChild
+                                                        onClick={(event) => event.stopPropagation()}
+                                                    >
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
@@ -753,9 +756,7 @@ function PinnedChatItem({
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
                         <DialogTitle>{t("delete.chat.confirm")}</DialogTitle>
-                        <DialogDescription>
-                            {t("delete.chat.description", { chatTitle: chat.title })}
-                        </DialogDescription>
+                        <DialogDescription>{t("delete.chat.description", { chatTitle: chat.title })}</DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
                         <Button
@@ -930,9 +931,13 @@ function ProjectItem({
         : null;
     const isMutatingChat =
         togglePinChatMutation.isPending || archiveChatMutation.isPending || deleteChatMutation.isPending;
-    const chatsToShow = showAllChats ? loadedChats ?? project.recentChats : project.recentChats.slice(0, RECENT_CHAT_LIMIT);
+    const chatsToShow = showAllChats
+        ? (loadedChats ?? project.recentChats)
+        : project.recentChats.slice(0, RECENT_CHAT_LIMIT);
     const canExpandChats =
-        hasMoreChats || project.recentChats.length > RECENT_CHAT_LIMIT || (loadedChats?.length ?? 0) > RECENT_CHAT_LIMIT;
+        hasMoreChats ||
+        project.recentChats.length > RECENT_CHAT_LIMIT ||
+        (loadedChats?.length ?? 0) > RECENT_CHAT_LIMIT;
     const runningChatIds = useMemo(
         () => new Set(entries.filter((entry) => entry.isGenerating).map((entry) => entry.sessionId)),
         [entries]
@@ -1291,9 +1296,7 @@ function ProjectItem({
                             onClick={handleDeleteChat}
                             disabled={deleteChatMutation.isPending}
                         >
-                            {deleteChatMutation.isPending ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : null}
+                            {deleteChatMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                             {t("delete")}
                         </Button>
                     </DialogFooter>

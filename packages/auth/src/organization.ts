@@ -20,8 +20,6 @@ export function pickDefaultOrganization<T extends OrganizationLike>(organization
     }
 
     return (
-        [...organizations].sort(
-            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        )[0] ?? null
+        [...organizations].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0] ?? null
     );
 }

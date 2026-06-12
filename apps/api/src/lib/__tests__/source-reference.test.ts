@@ -359,10 +359,7 @@ describe("toSourceReferenceRecord", () => {
                                 page: 1,
                                 width: 200,
                                 height: 100,
-                                rectangles: [
-                                    { left: Number.NaN, top: 0.1, width: 0.2, height: 0.03 },
-                                    validRectangle,
-                                ],
+                                rectangles: [{ left: Number.NaN, top: 0.1, width: 0.2, height: 0.03 }, validRectangle],
                             },
                         ],
                     },

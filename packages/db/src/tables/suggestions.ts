@@ -57,12 +57,7 @@ export const graphSuggestionsTable = pgTable.withRLS(
                 )
             `
         ),
-        index("graph_suggestions_graph_status_created_idx").on(
-            table.graphId,
-            table.status,
-            table.createdAt,
-            table.id
-        ),
+        index("graph_suggestions_graph_status_created_idx").on(table.graphId, table.status, table.createdAt, table.id),
         index("graph_suggestions_source_idx").on(table.sourceId),
         index("graph_suggestions_entity_idx").on(table.entityId),
     ]

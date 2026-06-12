@@ -88,11 +88,11 @@ const areExpansionStatesEqual = (first: Record<string, boolean>, second: Record<
  * Provides utilities for search-related expansion (expand during search, restore after).
  */
 export function SidebarExpansionProvider({ children }: { children: React.ReactNode }) {
-    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
-        loadExpandedStateFromStorage(GROUP_STORAGE_KEY).expandedState
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
+        () => loadExpandedStateFromStorage(GROUP_STORAGE_KEY).expandedState
     );
-    const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(() =>
-        loadExpandedStateFromStorage(PROJECT_STORAGE_KEY).expandedState
+    const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(
+        () => loadExpandedStateFromStorage(PROJECT_STORAGE_KEY).expandedState
     );
     const isInitializedRef = useRef(false);
 
@@ -140,9 +140,7 @@ export function SidebarExpansionProvider({ children }: { children: React.ReactNo
         if (projectIds.length === 0) return;
         setExpandedProjects((prev) => {
             const storedState =
-                Object.keys(prev).length === 0
-                    ? loadExpandedStateFromStorage(PROJECT_STORAGE_KEY).expandedState
-                    : prev;
+                Object.keys(prev).length === 0 ? loadExpandedStateFromStorage(PROJECT_STORAGE_KEY).expandedState : prev;
 
             const newState = Object.fromEntries(
                 projectIds.map((projectId) => [projectId, storedState[projectId] ?? false])

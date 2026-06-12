@@ -50,9 +50,7 @@ export function FileStatusIcon({ status, processErrorCode, className }: FileStat
 
     const { icon, tooltipKey } = config[normalizedStatus];
     const failureReason =
-        normalizedStatus === "failed" && processErrorCode
-            ? t(FILE_PROCESS_ERROR_LABEL_KEYS[processErrorCode])
-            : null;
+        normalizedStatus === "failed" && processErrorCode ? t(FILE_PROCESS_ERROR_LABEL_KEYS[processErrorCode]) : null;
     const tooltip = failureReason ? t("file.status.failed.with_reason", { reason: failureReason }) : t(tooltipKey);
 
     return (

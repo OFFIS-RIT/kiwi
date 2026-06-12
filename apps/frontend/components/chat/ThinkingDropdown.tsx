@@ -25,17 +25,10 @@ function computeElapsedSeconds(startedAtMs: number | undefined): number {
     return Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
 }
 
-export function ThinkingDropdown({
-    children,
-    durationMs,
-    isStreaming = false,
-    startedAtMs,
-}: ThinkingDropdownProps) {
+export function ThinkingDropdown({ children, durationMs, isStreaming = false, startedAtMs }: ThinkingDropdownProps) {
     const t = useAppTranslations();
     const [isOpen, setIsOpen] = useState(isStreaming);
-    const [elapsedSeconds, setElapsedSeconds] = useState(() =>
-        isStreaming ? computeElapsedSeconds(startedAtMs) : 0
-    );
+    const [elapsedSeconds, setElapsedSeconds] = useState(() => (isStreaming ? computeElapsedSeconds(startedAtMs) : 0));
     const previousStreamingRef = useRef(isStreaming);
 
     useEffect(() => {
@@ -56,13 +49,10 @@ export function ThinkingDropdown({
         previousStreamingRef.current = isStreaming;
     }, [isStreaming]);
 
-    const displaySeconds =
-        durationMs !== undefined ? Math.max(0, Math.round(durationMs / 1000)) : elapsedSeconds;
+    const displaySeconds = durationMs !== undefined ? Math.max(0, Math.round(durationMs / 1000)) : elapsedSeconds;
 
     const showLiveLabel = isStreaming && durationMs === undefined && displaySeconds === 0;
-    const labelText = showLiveLabel
-        ? t("worked.live")
-        : t("worked.label", { seconds: displaySeconds.toString() });
+    const labelText = showLiveLabel ? t("worked.live") : t("worked.label", { seconds: displaySeconds.toString() });
 
     const hasBody = React.Children.count(children) > 0;
 
@@ -78,11 +68,7 @@ export function ThinkingDropdown({
                     className="flex cursor-pointer items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
                     <span>{labelText}</span>
-                    {isOpen ? (
-                        <ChevronDown className="h-3.5 w-3.5" />
-                    ) : (
-                        <ChevronRight className="h-3.5 w-3.5" />
-                    )}
+                    {isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                 </button>
             </CollapsibleTrigger>
             <CollapsibleContent>

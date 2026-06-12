@@ -60,10 +60,7 @@ export function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
     return copy.buffer;
 }
 
-function detectEmbeddedOfficeDocumentKind(
-    partPath: string,
-    contentType?: string
-): "docx" | "pptx" | "xlsx" | null {
+function detectEmbeddedOfficeDocumentKind(partPath: string, contentType?: string): "docx" | "pptx" | "xlsx" | null {
     const normalizedContentType = contentType?.toLowerCase() ?? "";
     if (normalizedContentType.includes("wordprocessingml.document")) {
         return "docx";

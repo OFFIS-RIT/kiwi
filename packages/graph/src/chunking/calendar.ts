@@ -16,7 +16,10 @@ export class CalendarChunker implements GraphChunker {
     }
 
     async getChunkSpans(input: string): Promise<GraphTextChunk[]> {
-        return resolveTextChunkSpans(input, await chunkRecordSections(input, CALENDAR_SECTION_HEADING, this.options.maxChunkSize));
+        return resolveTextChunkSpans(
+            input,
+            await chunkRecordSections(input, CALENDAR_SECTION_HEADING, this.options.maxChunkSize)
+        );
     }
 }
 
@@ -73,5 +76,8 @@ function splitSections(input: string, heading: RegExp): { preamble: string; reco
 }
 
 function formatRecordChunk(preamble: string, record: string): string {
-    return [preamble, record].map((part) => part.trim()).filter(Boolean).join("\n\n");
+    return [preamble, record]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join("\n\n");
 }
