@@ -35,6 +35,16 @@ export const THEME_PRESETS = [
         labelKey: "appearance.design.codexPlus",
         swatches: ["#171717", "rgb(232 233 236)", "rgb(245 245 248)"],
     },
+    {
+        id: "light-green",
+        labelKey: "appearance.design.lightGreen",
+        swatches: ["#aff33e", "#334155", "#f0fdf4"],
+    },
+    {
+        id: "violet-bloom",
+        labelKey: "appearance.design.violetBloom",
+        swatches: ["#7033ff", "#e2ebff", "#e7e7ee"],
+    },
 ] as const;
 
 export type ThemePresetId = (typeof THEME_PRESETS)[number]["id"];

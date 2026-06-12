@@ -2,12 +2,13 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FONT_SIZES, isFontSizeId } from "@/lib/font-sizes";
 import type { SupportedLocale } from "@/lib/i18n/locale";
 import { clearLocale, setLocale } from "@/lib/i18n/set-locale";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { THEME_PRESETS, isThemePresetId } from "@/lib/theme-presets";
 import { cn } from "@/lib/utils";
-import { useThemePreset } from "@/providers/ThemePresetProvider";
+import { useFontSize, useThemePreset } from "@/providers/ThemePresetProvider";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useLocale } from "next-intl";
 import { useTheme } from "next-themes";
@@ -67,6 +68,7 @@ export function AppearanceSection() {
     const locale = useLocale();
     const { theme, setTheme } = useTheme();
     const { themePreset, setThemePreset } = useThemePreset();
+    const { fontSize, setFontSize } = useFontSize();
     const [mounted, setMounted] = useState(false);
     const [explicitLocale, setExplicitLocale] = useState<SupportedLocale | null | undefined>(undefined);
     const [isPending, startTransition] = useTransition();
@@ -85,6 +87,12 @@ export function AppearanceSection() {
     const handleThemePresetChange = (value: string) => {
         if (isThemePresetId(value)) {
             setThemePreset(value);
+        }
+    };
+
+    const handleFontSizeChange = (value: string) => {
+        if (isFontSizeId(value)) {
+            setFontSize(value);
         }
     };
 
@@ -129,6 +137,39 @@ export function AppearanceSection() {
                                                 <span className="flex items-center gap-2">
                                                     <ThemePresetSwatches swatches={preset.swatches} />
                                                     <span>{t(preset.labelKey)}</span>
+                                                </span>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectGroup>
+                                </SelectContent>
+                            </Select>
+                        }
+                    />
+                    <SettingRow
+                        title={t("appearance.fontSize.title")}
+                        description={t("appearance.fontSize.description")}
+                        control={
+                            <Select
+                                value={mounted ? fontSize : undefined}
+                                onValueChange={handleFontSizeChange}
+                                disabled={!mounted}
+                            >
+                                <SelectTrigger className="w-56">
+                                    <SelectValue placeholder={t("appearance.fontSize.title")} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectGroup>
+                                        {FONT_SIZES.map((option) => (
+                                            <SelectItem key={option.id} value={option.id}>
+                                                <span className="flex items-center gap-2">
+                                                    <span
+                                                        className="w-7 text-center text-muted-foreground"
+                                                        style={{ fontSize: `${option.scale}em` }}
+                                                        aria-hidden="true"
+                                                    >
+                                                        Aa
+                                                    </span>
+                                                    <span>{t(option.labelKey)}</span>
                                                 </span>
                                             </SelectItem>
                                         ))}

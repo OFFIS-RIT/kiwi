@@ -256,7 +256,7 @@ function PDFRegionPreview({
     return (
         <div
             className={`relative overflow-hidden bg-white ${
-                hasPageLevelHighlight ? "ring-1 ring-inset ring-sky-500/70" : ""
+                hasPageLevelHighlight ? "ring-1 ring-inset ring-highlight/70" : ""
             }`}
         >
             {status === "loading" ? (
@@ -287,7 +287,7 @@ function PDFRegionPreview({
                           data-testid="pdf-source-region-highlight"
                           data-pdf-highlight=""
                           aria-hidden="true"
-                          className="pointer-events-none absolute scroll-mt-4 rounded-[2px] border border-sky-600/60 bg-sky-400/20 mix-blend-multiply"
+                          className="pointer-events-none absolute scroll-mt-4 rounded-[2px] border border-highlight/60 bg-highlight/20 mix-blend-multiply"
                           style={{
                               left: toPercent(rectangle.left),
                               top: toPercent(rectangle.top),
@@ -309,7 +309,7 @@ function PDFRegionPreview({
                     <div
                         data-testid="pdf-source-page-highlight"
                         aria-hidden="true"
-                        className="pointer-events-none absolute left-2 top-2 rounded-sm border border-sky-600/40 bg-white/90 px-2 py-1 text-[11px] font-medium text-sky-900 shadow-sm"
+                        className="pointer-events-none absolute left-2 top-2 rounded-sm border border-highlight/40 bg-highlight/90 px-2 py-1 text-xs font-medium text-highlight-foreground shadow-sm"
                     >
                         {t("source.fullPage")}
                     </div>
@@ -562,7 +562,7 @@ export function TextReferenceDialog({ citation, index, projectId, open, onOpenCh
                                             behavior: "smooth",
                                         })
                                     }
-                                    className="pointer-events-auto absolute right-0 min-h-1.5 w-2 rounded-full bg-sky-500/80 transition-colors hover:bg-sky-600"
+                                    className="pointer-events-auto absolute right-0 min-h-1.5 w-2 rounded-full bg-highlight/80 transition-colors hover:bg-highlight"
                                     style={{ top: `${marker.top * 100}%`, height: `${marker.height * 100}%` }}
                                 />
                             ))}

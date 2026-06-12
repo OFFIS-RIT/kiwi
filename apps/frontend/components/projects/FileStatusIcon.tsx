@@ -31,11 +31,11 @@ export function FileStatusIcon({ status, processErrorCode, className }: FileStat
 
     const config: Record<FileStatus, { icon: React.ReactNode; tooltipKey: string }> = {
         processing: {
-            icon: <Loader2 className={cn("h-3.5 w-3.5 animate-spin text-blue-500", className)} />,
+            icon: <Loader2 className={cn("h-3.5 w-3.5 animate-spin text-highlight", className)} />,
             tooltipKey: "file.status.processing",
         },
         processed: {
-            icon: <CheckCircle2 className={cn("h-3.5 w-3.5 text-green-500", className)} />,
+            icon: <CheckCircle2 className={cn("h-3.5 w-3.5 text-success", className)} />,
             tooltipKey: "file.status.processed",
         },
         failed: {

@@ -166,7 +166,7 @@ export function PromptsSection() {
                                         <span
                                             className={cn(
                                                 "h-1.5 w-1.5 shrink-0 rounded-full",
-                                                hasPrompt(index) ? "bg-emerald-500" : "bg-muted-foreground/30"
+                                                hasPrompt(index) ? "bg-success" : "bg-muted-foreground/30"
                                             )}
                                         />
                                         <span className="min-w-0 flex-1 truncate">{node.name}</span>

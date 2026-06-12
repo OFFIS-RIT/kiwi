@@ -116,7 +116,7 @@ export function ApiKeyList() {
                                         {key.name || t("apiKey.unnamed")}
                                     </span>
                                     {isExpired(key) && (
-                                        <Badge variant="destructive" className="h-4 px-1.5 py-0 text-[10px]">
+                                        <Badge variant="destructive" className="h-4 px-1.5 py-0 text-xs">
                                             {t("apiKey.expired")}
                                         </Badge>
                                     )}

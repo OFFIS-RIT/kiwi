@@ -216,7 +216,7 @@ export function UserTable() {
                                     <div className="flex items-center gap-2">
                                         <span className="truncate text-sm font-medium">{user.name}</span>
                                         {user.banned && (
-                                            <Badge variant="destructive" className="h-4 px-1.5 py-0 text-[10px]">
+                                            <Badge variant="destructive" className="h-4 px-1.5 py-0 text-xs">
                                                 {t("admin.status.banned")}
                                             </Badge>
                                         )}
@@ -262,7 +262,7 @@ export function UserTable() {
                                     <Button
                                         variant="ghost"
                                         size="icon"
-                                        className={`h-8 w-8 ${user.banned ? "text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950" : "text-destructive hover:bg-destructive/10"}`}
+                                        className={`h-8 w-8 ${user.banned ? "text-success hover:bg-success/10 hover:text-success" : "text-destructive hover:bg-destructive/10"}`}
                                         onClick={() => handleBanToggle(user)}
                                         disabled={user.id === currentUser?.id}
                                         title={user.banned ? t("admin.unban.user") : t("admin.ban.user")}

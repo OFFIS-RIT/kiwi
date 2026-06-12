@@ -9,4 +9,4 @@ export { ChatSessionsProvider, useProjectChatSession } from "./ChatSessionsProvi
 export { QueryErrorBoundary } from "./QueryErrorBoundary";
 export { QueryProvider } from "./QueryProvider";
 export { SidebarExpansionProvider, useSidebarExpansion } from "./SidebarExpansionProvider";
-export { ThemePresetProvider, useThemePreset } from "./ThemePresetProvider";
+export { ThemePresetProvider, useFontSize, useThemePreset } from "./ThemePresetProvider";

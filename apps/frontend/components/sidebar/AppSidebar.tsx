@@ -525,7 +525,7 @@ export function AppSidebar({
             </SidebarContent>
             {buildLabel ? (
                 <SidebarFooter className="gap-1 border-t border-sidebar-border group-data-[collapsible=icon]:hidden">
-                    <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/40">
+                    <span className="text-xs font-medium uppercase tracking-[0.2em] text-sidebar-foreground/40">
                         {t("app.build")}
                     </span>
                     <span className="truncate font-mono text-xs text-sidebar-foreground/70" title={buildLabel}>
@@ -701,7 +701,7 @@ function PinnedChatItem({
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     </span>
                 ) : !isMenuOpen && hasBackgroundUpdate ? (
-                    <span className="absolute right-2 h-2 w-2 shrink-0 rounded-full bg-sky-400 group-hover/pinned-row:hidden" />
+                    <span className="absolute right-2 h-2 w-2 shrink-0 rounded-full bg-highlight group-hover/pinned-row:hidden" />
                 ) : !isMenuOpen && relativeUpdatedAt ? (
                     <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/pinned-row:hidden">
                         {relativeUpdatedAt}
@@ -1164,7 +1164,7 @@ function ProjectItem({
                                                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                                     </span>
                                                 ) : !isChatMenuOpen && hasBackgroundUpdate ? (
-                                                    <span className="absolute right-2 h-2 w-2 shrink-0 rounded-full bg-sky-400 group-hover/chat-row:hidden" />
+                                                    <span className="absolute right-2 h-2 w-2 shrink-0 rounded-full bg-highlight group-hover/chat-row:hidden" />
                                                 ) : !isChatMenuOpen && relativeUpdatedAt ? (
                                                     <span className="absolute right-2 shrink-0 text-muted-foreground group-hover/chat-row:hidden">
                                                         {relativeUpdatedAt}
