@@ -69,6 +69,11 @@
   --text-2xl: calc(1.5rem * var(--font-scale));
   --text-3xl: calc(1.875rem * var(--font-scale));
   --text-4xl: calc(2.25rem * var(--font-scale));
+  --text-5xl: calc(3rem * var(--font-scale));
+  --text-6xl: calc(3.75rem * var(--font-scale));
+  --text-7xl: calc(4.5rem * var(--font-scale));
+  --text-8xl: calc(6rem * var(--font-scale));
+  --text-9xl: calc(8rem * var(--font-scale));
 }
 
 :root {
