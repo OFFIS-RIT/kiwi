@@ -309,7 +309,7 @@ function PDFRegionPreview({
                     <div
                         data-testid="pdf-source-page-highlight"
                         aria-hidden="true"
-                        className="pointer-events-none absolute left-2 top-2 rounded-sm border border-highlight/40 bg-highlight/90 px-2 py-1 text-[11px] font-medium text-highlight-foreground shadow-sm"
+                        className="pointer-events-none absolute left-2 top-2 rounded-sm border border-highlight/40 bg-highlight/90 px-2 py-1 text-xs font-medium text-highlight-foreground shadow-sm"
                     >
                         {t("source.fullPage")}
                     </div>

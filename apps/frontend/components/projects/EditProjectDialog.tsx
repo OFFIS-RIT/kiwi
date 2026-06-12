@@ -301,13 +301,13 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
                         >
                             {file.name}
                         </p>
-                        <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                             <Calendar className="h-2.5 w-2.5" />
                             {formatDate(file.created_at) || formatDate(file.updated_at)}
                         </p>
-                        {stepLabel && <p className="mt-1 text-[10px] text-highlight">{stepLabel}</p>}
+                        {stepLabel && <p className="mt-1 text-xs text-highlight">{stepLabel}</p>}
                         {failureReason && (
-                            <p className="mt-1 text-[10px] text-destructive" title={failureReason}>
+                            <p className="mt-1 text-xs text-destructive" title={failureReason}>
                                 {failureReason}
                             </p>
                         )}
@@ -316,7 +316,7 @@ export function EditProjectDialog({ open, onOpenChange, project, groupId }: Edit
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                className="mt-2 h-6 gap-1 px-2 text-[10px]"
+                                className="mt-2 h-6 gap-1 px-2 text-xs"
                                 onClick={() => handleRetryFile(file.id)}
                                 disabled={isRetrying}
                                 aria-label={t("file.retry.aria", { name: file.name })}

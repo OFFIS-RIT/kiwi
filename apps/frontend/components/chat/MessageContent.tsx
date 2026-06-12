@@ -497,7 +497,7 @@ export function MessageContent({
                                     <Badge
                                         variant="secondary"
                                         aria-hidden="true"
-                                        className="px-1 py-0 text-[0.625rem] font-normal"
+                                        className="px-1 py-0 text-xs font-normal"
                                     >
                                         {sourceFile.pageLabel}
                                     </Badge>

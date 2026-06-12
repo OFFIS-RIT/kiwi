@@ -419,7 +419,7 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                                                                                     }}
                                                                                 >
                                                                                     <Avatar className="h-8 w-8 shrink-0">
-                                                                                        <AvatarFallback className="bg-primary/10 text-[11px] font-medium text-primary">
+                                                                                        <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
                                                                                             {getInitials(user.name)}
                                                                                         </AvatarFallback>
                                                                                     </Avatar>

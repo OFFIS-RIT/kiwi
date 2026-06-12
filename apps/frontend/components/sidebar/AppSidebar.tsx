@@ -525,7 +525,7 @@ export function AppSidebar({
             </SidebarContent>
             {buildLabel ? (
                 <SidebarFooter className="gap-1 border-t border-sidebar-border group-data-[collapsible=icon]:hidden">
-                    <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/40">
+                    <span className="text-xs font-medium uppercase tracking-[0.2em] text-sidebar-foreground/40">
                         {t("app.build")}
                     </span>
                     <span className="truncate font-mono text-xs text-sidebar-foreground/70" title={buildLabel}>

@@ -4,6 +4,12 @@ import type { ReactNode } from "react";
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState } from "react";
 
 import {
+    DEFAULT_FONT_SIZE_ID,
+    FONT_SIZE_STORAGE_KEY,
+    type FontSizeId,
+    normalizeFontSizeId,
+} from "@/lib/font-sizes";
+import {
     DEFAULT_THEME_PRESET_ID,
     THEME_PRESET_STORAGE_KEY,
     type ThemePresetId,
@@ -20,10 +26,26 @@ type StoredThemePreset = {
     themePreset: ThemePresetId;
 };
 
+type FontSizeContextValue = {
+    fontSize: FontSizeId;
+    setFontSize: (fontSize: FontSizeId) => void;
+};
+
+type StoredFontSize = {
+    rawFontSize: string | null;
+    fontSize: FontSizeId;
+};
+
 const ThemePresetContext = createContext<ThemePresetContextValue | null>(null);
+
+const FontSizeContext = createContext<FontSizeContextValue | null>(null);
 
 function applyThemePreset(themePreset: ThemePresetId) {
     document.documentElement.dataset.themePreset = themePreset;
+}
+
+function applyFontSize(fontSize: FontSizeId) {
+    document.documentElement.dataset.fontSize = fontSize;
 }
 
 function readStoredThemePreset(): StoredThemePreset {
@@ -43,8 +65,26 @@ function readStoredThemePreset(): StoredThemePreset {
     }
 }
 
+function readStoredFontSize(): StoredFontSize {
+    if (typeof window === "undefined") {
+        return { rawFontSize: null, fontSize: DEFAULT_FONT_SIZE_ID };
+    }
+
+    try {
+        const rawFontSize = window.localStorage.getItem(FONT_SIZE_STORAGE_KEY);
+
+        return {
+            rawFontSize,
+            fontSize: normalizeFontSizeId(rawFontSize),
+        };
+    } catch {
+        return { rawFontSize: null, fontSize: DEFAULT_FONT_SIZE_ID };
+    }
+}
+
 export function ThemePresetProvider({ children }: { children: ReactNode }) {
     const [themePreset, setThemePresetState] = useState<ThemePresetId>(DEFAULT_THEME_PRESET_ID);
+    const [fontSize, setFontSizeState] = useState<FontSizeId>(DEFAULT_FONT_SIZE_ID);
 
     useLayoutEffect(() => {
         const { rawThemePreset, themePreset: storedThemePreset } = readStoredThemePreset();
@@ -63,6 +103,23 @@ export function ThemePresetProvider({ children }: { children: ReactNode }) {
         };
     }, []);
 
+    useLayoutEffect(() => {
+        const { rawFontSize, fontSize: storedFontSize } = readStoredFontSize();
+        setFontSizeState(storedFontSize);
+        applyFontSize(storedFontSize);
+        try {
+            if (rawFontSize !== null && rawFontSize !== storedFontSize) {
+                window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, storedFontSize);
+            }
+        } catch {
+            // Ignore storage access errors; the applied in-memory font size is still valid.
+        }
+
+        return () => {
+            delete document.documentElement.dataset.fontSize;
+        };
+    }, []);
+
     const setThemePreset = useCallback((nextThemePreset: ThemePresetId) => {
         setThemePresetState(nextThemePreset);
         applyThemePreset(nextThemePreset);
@@ -73,9 +130,24 @@ export function ThemePresetProvider({ children }: { children: ReactNode }) {
         }
     }, []);
 
-    const value = useMemo(() => ({ themePreset, setThemePreset }), [themePreset, setThemePreset]);
+    const setFontSize = useCallback((nextFontSize: FontSizeId) => {
+        setFontSizeState(nextFontSize);
+        applyFontSize(nextFontSize);
+        try {
+            window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, nextFontSize);
+        } catch {
+            // Keep the in-memory and DOM font size switch even when storage is blocked.
+        }
+    }, []);
 
-    return <ThemePresetContext.Provider value={value}>{children}</ThemePresetContext.Provider>;
+    const value = useMemo(() => ({ themePreset, setThemePreset }), [themePreset, setThemePreset]);
+    const fontSizeValue = useMemo(() => ({ fontSize, setFontSize }), [fontSize, setFontSize]);
+
+    return (
+        <ThemePresetContext.Provider value={value}>
+            <FontSizeContext.Provider value={fontSizeValue}>{children}</FontSizeContext.Provider>
+        </ThemePresetContext.Provider>
+    );
 }
 
 export function useThemePreset() {
@@ -83,6 +155,16 @@ export function useThemePreset() {
 
     if (!context) {
         throw new Error("useThemePreset must be used within ThemePresetProvider");
+    }
+
+    return context;
+}
+
+export function useFontSize() {
+    const context = useContext(FontSizeContext);
+
+    if (!context) {
+        throw new Error("useFontSize must be used within ThemePresetProvider");
     }
 
     return context;

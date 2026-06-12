@@ -216,7 +216,7 @@ export function UserTable() {
                                     <div className="flex items-center gap-2">
                                         <span className="truncate text-sm font-medium">{user.name}</span>
                                         {user.banned && (
-                                            <Badge variant="destructive" className="h-4 px-1.5 py-0 text-[10px]">
+                                            <Badge variant="destructive" className="h-4 px-1.5 py-0 text-xs">
                                                 {t("admin.status.banned")}
                                             </Badge>
                                         )}
