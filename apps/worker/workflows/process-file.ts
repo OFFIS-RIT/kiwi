@@ -15,26 +15,18 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import z from "zod";
 import { S3Loader } from "@kiwi/graph/loader/s3";
-import { CalendarChunker } from "@kiwi/graph/chunker/calendar";
-import { CSVChunker } from "@kiwi/graph/chunker/csv";
-import { EmailChunker } from "@kiwi/graph/chunker/email";
-import { JSONChunker } from "@kiwi/graph/chunker/json";
-import { SingleChunker } from "@kiwi/graph/chunker/single";
-import { SemanticChunker } from "@kiwi/graph/chunker/semantic";
-import { TOMLChunker } from "@kiwi/graph/chunker/toml";
-import { TranscriptChunker } from "@kiwi/graph/chunker/transcript";
-import { VCardChunker } from "@kiwi/graph/chunker/vcard";
-import { YAMLChunker } from "@kiwi/graph/chunker/yaml";
+import { createGraphChunker } from "@kiwi/graph/chunker/factory";
 import type { FileProcessErrorCode } from "@kiwi/contracts/routes";
 import { env } from "../env";
-import { type Graph, type GraphChunker, type GraphFile, type LoadedGraphDocument, type Unit } from "@kiwi/graph";
+import { type Graph, type GraphFile, type LoadedGraphDocument, type Unit } from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
 import { coerceGraphFileType } from "@kiwi/graph/file-type";
 import { loadGraphDocument } from "@kiwi/graph/loader/document";
-import { createDetectedGraphLoader } from "@kiwi/graph/loader/factory";
+import { createDetectedGraphLoader, detectGraphFileFormat } from "@kiwi/graph/loader/factory";
 import { mergeGraphs } from "@kiwi/graph/merge";
 import { createUnitsFromText, processUnit } from "@kiwi/graph/unit";
 import { estimateToken } from "@kiwi/ai";
+import { resolveGraphModelOrganizationId } from "@kiwi/ai/models";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { createWorkerClient } from "../lib/ai";
@@ -45,6 +37,7 @@ import { deleteGraphFileProcessingArtifacts, getGraphFileArtifactPaths } from ".
 import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
+import { getFileTypeProcessingConfig } from "../lib/file-type-config";
 import { toTextUnitRows } from "../lib/text-unit-rows";
 import { requireReadableContentText } from "../lib/readable-text";
 import { classifyFileProcessError } from "../lib/file-process-error";
@@ -306,11 +299,18 @@ export const processFile = defineWorkflow(
                     bucket: env.S3_BUCKET,
                     imagePrefix: paths.derivedImagePrefix,
                 };
+                const preliminaryFormat = detectGraphFileFormat({
+                    content: fileContent,
+                    declaredType,
+                    mimeType: fileData.mimeType,
+                });
+                const organizationId = await resolveGraphModelOrganizationId(input.graphId);
+                const typeConfig = await getFileTypeProcessingConfig(organizationId, preliminaryFormat.fileType);
                 const { format: detectedFormat, loader } = createDetectedGraphLoader({
                     content: fileContent,
                     declaredType,
                     mimeType: fileData.mimeType,
-                    documentMode: env.DOCUMENT_MODE,
+                    documentMode: typeConfig.documentMode ?? undefined,
                     imageModel: client.image,
                     audioModel: client.audio,
                     videoModel: client.video,
@@ -356,6 +356,8 @@ export const processFile = defineWorkflow(
                     .update(filesTable)
                     .set({
                         tokenCount: tokens,
+                        loader: detectedFormat.loaderKind,
+                        documentMode: typeConfig.documentMode,
                     })
                     .where(eq(filesTable.id, input.fileId));
 
@@ -401,39 +403,20 @@ export const processFile = defineWorkflow(
                 await updateFileProcessingState(input.fileId, "chunking", "processing");
                 const start = performance.now();
 
-                let chunker: GraphChunker;
-                switch (baseFile.filetype) {
-                    case "image":
-                        chunker = new SingleChunker();
-                        break;
-                    case "audio":
-                    case "video":
-                        chunker = new TranscriptChunker({ maxChunkSize: 500 });
-                        break;
-                    case "email":
-                        chunker = new EmailChunker({ maxChunkSize: 500 });
-                        break;
-                    case "calendar":
-                        chunker = new CalendarChunker({ maxChunkSize: 500 });
-                        break;
-                    case "vcard":
-                        chunker = new VCardChunker({ maxChunkSize: 500 });
-                        break;
-                    case "json":
-                        chunker = new JSONChunker({ maxChunkSize: 500 });
-                        break;
-                    case "csv":
-                        chunker = new CSVChunker({ maxChunkSize: 500 });
-                        break;
-                    case "yaml":
-                        chunker = new YAMLChunker({ maxChunkSize: 500 });
-                        break;
-                    case "toml":
-                        chunker = new TOMLChunker({ maxChunkSize: 500 });
-                        break;
-                    default:
-                        chunker = new SemanticChunker(2000);
-                }
+                const organizationId = await resolveGraphModelOrganizationId(input.graphId);
+                const typeConfig = await getFileTypeProcessingConfig(
+                    organizationId,
+                    coerceGraphFileType(baseFile.filetype)
+                );
+                const chunker = createGraphChunker(typeConfig.chunker, typeConfig.chunkSize);
+
+                await db
+                    .update(filesTable)
+                    .set({
+                        chunker: typeConfig.chunker,
+                        chunkSize: typeConfig.chunkSize,
+                    })
+                    .where(eq(filesTable.id, input.fileId));
 
                 const loadedDocument = await getFile<LoadedGraphDocument>(baseFile.documentKey, env.S3_BUCKET, "json");
                 if (!loadedDocument) {

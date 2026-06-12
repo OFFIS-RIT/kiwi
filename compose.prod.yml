@@ -139,7 +139,6 @@ services:
             S3_REGION: ${S3_REGION}
             S3_BUCKET: ${S3_BUCKET}
             AUTH_SECRET: ${AUTH_SECRET}
-            DOCUMENT_MODE: ${DOCUMENT_MODE:-hybrid}
             WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
             AI_TEXT_ADAPTER: ${AI_TEXT_ADAPTER:-}
             AI_TEXT_MODEL: ${AI_TEXT_MODEL:-}

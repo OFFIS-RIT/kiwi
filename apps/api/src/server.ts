@@ -8,6 +8,7 @@ import { authMiddleware } from "./middleware/auth";
 import { authRoute } from "./routes/auth";
 import { chatRoute } from "./routes/chat";
 import { chatLibraryRoute } from "./routes/chat-library";
+import { fileTypesRoute } from "./routes/file-types";
 import { graphFilesRoute } from "./routes/graph-files";
 import { graphRoute } from "./routes/graph";
 import { graphSuggestionsRoute } from "./routes/graph-suggestions";
@@ -49,6 +50,7 @@ const app = new Elysia({
     .use(authRoute)
     .use(chatRoute)
     .use(chatLibraryRoute)
+    .use(fileTypesRoute)
     .use(graphFilesRoute)
     .use(graphSuggestionsRoute)
     .use(graphRoute)

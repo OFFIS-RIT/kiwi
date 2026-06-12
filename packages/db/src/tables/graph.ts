@@ -145,6 +145,10 @@ export const filesTable = pgTable.withRLS(
         processErrorCode: text("process_error_code").$type<FileProcessErrorCode | null>(),
         tokenCount: integer("token_count").notNull().default(0),
         metadata: text("metadata"),
+        loader: text("loader"),
+        chunker: text("chunker"),
+        chunkSize: integer("chunk_size"),
+        documentMode: text("document_mode"),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
         updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
             .defaultNow()

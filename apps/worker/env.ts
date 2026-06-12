@@ -1,8 +1,6 @@
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
-const documentModeEnum = z.enum(["plain", "hybrid", "ocr"]);
-
 export const env = createEnv({
     server: {
         AUTH_SECRET: z.string(),
@@ -18,7 +16,6 @@ export const env = createEnv({
         DATABASE_DIRECT_URL: z.string(),
 
         // Settings
-        DOCUMENT_MODE: documentModeEnum.default("hybrid"),
         WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
         AI_TEXT_CONCURRENCY: z.coerce.number().int().positive().default(64),
         AI_IMAGE_CONCURRENCY: z.coerce.number().int().positive().default(64),

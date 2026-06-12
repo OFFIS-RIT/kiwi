@@ -41,7 +41,36 @@ export type DetectedGraphFileFormat = {
     sniffed: boolean;
 };
 
-const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileFormat, "sniffed">> = {
+export const GRAPH_DOCUMENT_MODES = ["plain", "hybrid", "ocr"] as const;
+export type GraphDocumentMode = (typeof GRAPH_DOCUMENT_MODES)[number];
+
+const graphDocumentModeSet = new Set<string>(GRAPH_DOCUMENT_MODES);
+
+export function isGraphDocumentMode(value: unknown): value is GraphDocumentMode {
+    return typeof value === "string" && graphDocumentModeSet.has(value);
+}
+
+export const DEFAULT_DOCUMENT_MODES: Record<GraphFileType, GraphDocumentMode | null> = {
+    pdf: "hybrid",
+    doc: "hybrid",
+    sheet: null,
+    ppt: "hybrid",
+    image: null,
+    audio: null,
+    video: null,
+    html: null,
+    email: null,
+    calendar: null,
+    vcard: null,
+    json: null,
+    csv: null,
+    xml: null,
+    yaml: null,
+    toml: null,
+    text: null,
+};
+
+export const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileFormat, "sniffed">> = {
     pdf: { fileType: "pdf", loaderKind: "pdf", mimeType: "application/pdf" },
     doc: {
         fileType: "doc",
