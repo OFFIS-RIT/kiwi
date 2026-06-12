@@ -6,7 +6,6 @@ import { useApiClient } from "@/providers/ApiClientProvider";
 import type { ApiProjectFile } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import Placeholder from "@tiptap/extension-placeholder";
-import { Fragment, Slice, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
@@ -192,13 +191,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 // keep their structure — matching Shift+Enter rather than
                 // collapsing into a single line.
                 const { schema } = view.state;
-                const nodes: ProseMirrorNode[] = [];
+                const tr = view.state.tr;
                 pastedText.split(/\r\n?|\n/).forEach((line, index) => {
-                    if (index > 0) nodes.push(schema.nodes.hardBreak.create());
-                    if (line) nodes.push(schema.text(line));
+                    if (index > 0) tr.replaceSelectionWith(schema.nodes.hardBreak.create(), false);
+                    if (line) tr.insertText(line);
                 });
-                const slice = new Slice(Fragment.fromArray(nodes), 0, 0);
-                view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
+                view.dispatch(tr.scrollIntoView());
                 return true;
             },
         },
