@@ -22,7 +22,7 @@ import { type Graph, type GraphFile, type LoadedGraphDocument, type Unit } from 
 import { dedupe } from "@kiwi/graph/dedupe";
 import { coerceGraphFileType } from "@kiwi/graph/file-type";
 import { loadGraphDocument } from "@kiwi/graph/loader/document";
-import { createDetectedGraphLoader, detectGraphFileFormat } from "@kiwi/graph/loader/factory";
+import { createDetectedGraphLoader, detectGraphLoaderFileFormat } from "@kiwi/graph/loader/factory";
 import { mergeGraphs } from "@kiwi/graph/merge";
 import { createUnitsFromText, processUnit } from "@kiwi/graph/unit";
 import { estimateToken } from "@kiwi/ai";
@@ -299,17 +299,20 @@ export const processFile = defineWorkflow(
                     bucket: env.S3_BUCKET,
                     imagePrefix: paths.derivedImagePrefix,
                 };
-                const preliminaryFormat = detectGraphFileFormat({
+                const detectedFormat = detectGraphLoaderFileFormat({
                     content: fileContent,
                     declaredType,
                     mimeType: fileData.mimeType,
+                    audioModel: client.audio,
+                    videoModel: client.video,
                 });
                 const organizationId = await resolveGraphModelOrganizationId(input.graphId);
-                const typeConfig = await getFileTypeProcessingConfig(organizationId, preliminaryFormat.fileType);
-                const { format: detectedFormat, loader } = createDetectedGraphLoader({
+                const typeConfig = await getFileTypeProcessingConfig(organizationId, detectedFormat.fileType);
+                const { loader } = createDetectedGraphLoader({
                     content: fileContent,
                     declaredType,
                     mimeType: fileData.mimeType,
+                    format: detectedFormat,
                     documentMode: typeConfig.documentMode ?? undefined,
                     imageModel: client.image,
                     audioModel: client.audio,

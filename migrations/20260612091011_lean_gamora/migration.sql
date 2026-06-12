@@ -6,6 +6,13 @@
 -- document types. Loaders and chunkers are fixed for now; chunk_size and
 -- document_mode are editable per organization. Organizations created later fall
 -- back to the same defaults in code until a row is written.
+--
+-- NOTE: document_mode is intentionally forced to 'hybrid' for all organizations,
+-- regardless of any DOCUMENT_MODE env value previously in effect. The env var is
+-- removed in this release; deployments that ran with DOCUMENT_MODE=plain or
+-- DOCUMENT_MODE=ocr must set the desired mode per file type after migrating, via
+-- the admin file type settings (or the /file-types API). Until then, 'hybrid'
+-- requires an image-capable model for pdf/doc/ppt processing.
 INSERT INTO "file_type_configs" ("id", "organization_id", "file_type", "loader", "chunker", "chunk_size", "document_mode")
 SELECT
 	'ftc_' || "organization"."id" || '_' || defaults."file_type",

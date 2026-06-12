@@ -161,10 +161,30 @@ export function detectGraphFileFormat(input: {
     };
 }
 
+export function detectGraphLoaderFileFormat(input: {
+    content: ArrayBuffer;
+    declaredType: GraphFileType;
+    mimeType?: string | null;
+    audioModel?: TranscriptionModelV3;
+    videoModel?: TranscriptionModelV3;
+}): DetectedGraphFileFormat {
+    const format = detectGraphFileFormat(input);
+    if (shouldUseVideoFallbackForAudioWebM(input, format)) {
+        return {
+            ...DEFAULT_FILE_FORMATS.video,
+            mimeType: "video/webm",
+            sniffed: true,
+        };
+    }
+
+    return format;
+}
+
 export function createDetectedGraphLoader(input: {
     content: ArrayBuffer;
     declaredType: GraphFileType;
     mimeType?: string | null;
+    format?: DetectedGraphFileFormat;
     documentMode?: PDFMode;
     htmlMode?: HTMLLoaderMode;
     imageModel?: LanguageModelV3;
@@ -177,14 +197,7 @@ export function createDetectedGraphLoader(input: {
     binaryLoader: BufferedGraphBinaryLoader;
 } {
     const binaryLoader = new BufferedGraphBinaryLoader(input.content);
-    let format = detectGraphFileFormat(input);
-    if (shouldUseVideoFallbackForAudioWebM(input, format)) {
-        format = {
-            ...DEFAULT_FILE_FORMATS.video,
-            mimeType: "video/webm",
-            sniffed: true,
-        };
-    }
+    const format = input.format ?? detectGraphLoaderFileFormat(input);
     const documentMode = input.documentMode ?? "hybrid";
     const useDocumentOCR = documentMode !== "plain";
     const bytes = new Uint8Array(input.content);
