@@ -33,11 +33,16 @@ export function DeleteProjectDialog({ open, onOpenChange, project, groupId, grou
     const { project: selectedProject } = useCurrentSelection();
     const deleteProjectMutation = useDeleteProject();
 
+    // Depend on the stable `reset` function, not the mutation result object:
+    // the result is a new reference each render, so using it as a dep re-runs
+    // the effect after the re-render that reset() itself triggers — an endless
+    // notify loop that starves route transitions while the dialog is closed.
+    const resetDeleteProjectMutation = deleteProjectMutation.reset;
     useEffect(() => {
         if (!open) {
-            deleteProjectMutation.reset();
+            resetDeleteProjectMutation();
         }
-    }, [open, deleteProjectMutation]);
+    }, [open, resetDeleteProjectMutation]);
 
     const handleDelete = async () => {
         if (!project) return;
