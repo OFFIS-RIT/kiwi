@@ -960,6 +960,43 @@ describe("MessageContent", () => {
         expect(downloadProjectFile).not.toHaveBeenCalled();
     });
 
+    test("renders fenced code blocks with syntax highlighting and a copy button", async () => {
+        const writeText = vi.fn(async () => undefined);
+        Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: { writeText },
+        });
+
+        renderMessageContent([{ type: "text", text: "Before\n\n```sql\nSELECT name FROM files;\n```\n\nAfter" }]);
+
+        const code = document.querySelector("pre code");
+        expect(code).toHaveTextContent("SELECT name FROM files;");
+        expect(code).toHaveClass("hljs");
+        expect(code?.querySelector(".hljs-keyword")).toBeInTheDocument();
+
+        await userEvent.click(screen.getByRole("button", { name: "Code kopieren" }));
+
+        expect(writeText).toHaveBeenCalledWith("SELECT name FROM files;");
+        expect(screen.getByRole("button", { name: "Code kopiert" })).toBeInTheDocument();
+    });
+
+    test("leaves code blocks without a language label unhighlighted", () => {
+        renderMessageContent([{ type: "text", text: "```\nplain block content\n```" }]);
+
+        const code = document.querySelector("pre code");
+        expect(code).toHaveTextContent("plain block content");
+        expect(code).not.toHaveClass("hljs");
+        expect(code?.querySelector("[class*='hljs-']")).not.toBeInTheDocument();
+    });
+
+    test("renders inline code spans inside regular text", () => {
+        renderMessageContent([{ type: "text", text: "Run `bun install` first" }]);
+
+        const inlineCode = document.querySelector("p code");
+        expect(inlineCode).toHaveTextContent("bun install");
+        expect(document.querySelector("pre")).not.toBeInTheDocument();
+    });
+
     test("keeps legacy file-key fallback for source files without file ids", async () => {
         const openMock = vi.spyOn(window, "open").mockImplementation(() => null);
         renderMessageContent([{ type: "text", text: `Alpha ${citationFence("src-1")}` }]);

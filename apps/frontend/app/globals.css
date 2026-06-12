@@ -121,6 +121,12 @@
     --chart-3: oklch(0.55 0.22 263);
     --chart-4: oklch(0.49 0.22 264);
     --chart-5: oklch(0.42 0.18 266);
+    --syntax-keyword: oklch(0.45 0.17 296);
+    --syntax-string: oklch(0.47 0.11 152);
+    --syntax-comment: oklch(0.55 0.02 260);
+    --syntax-function: oklch(0.45 0.14 252);
+    --syntax-constant: oklch(0.5 0.12 65);
+    --syntax-attribute: oklch(0.45 0.1 200);
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
     --sidebar-primary: oklch(0.205 0 0);
@@ -160,6 +166,12 @@
     --chart-3: oklch(0.55 0.22 263);
     --chart-4: oklch(0.49 0.22 264);
     --chart-5: oklch(0.42 0.18 266);
+    --syntax-keyword: oklch(0.75 0.14 296);
+    --syntax-string: oklch(0.75 0.12 152);
+    --syntax-comment: oklch(0.64 0.02 260);
+    --syntax-function: oklch(0.75 0.11 252);
+    --syntax-constant: oklch(0.77 0.12 70);
+    --syntax-attribute: oklch(0.75 0.1 200);
     --sidebar: oklch(0.205 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -865,4 +877,56 @@
     margin-left: 0.25rem;
     user-select: none;
     pointer-events: none;
+}
+
+/* Chat code blocks: highlight.js (via rehype-highlight) emits token classes;
+   map them onto the semantic --syntax-* tokens so syntax colors follow the
+   color mode and can be overridden per theme preset. */
+.hljs-keyword,
+.hljs-doctag,
+.hljs-template-tag,
+.hljs-type,
+.hljs-selector-tag {
+    color: var(--syntax-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-quote,
+.hljs-addition {
+    color: var(--syntax-string);
+}
+.hljs-comment,
+.hljs-meta,
+.hljs-deletion {
+    color: var(--syntax-comment);
+}
+.hljs-title,
+.hljs-section {
+    color: var(--syntax-function);
+}
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+    color: var(--syntax-constant);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-name,
+.hljs-tag,
+.hljs-property,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+    color: var(--syntax-attribute);
+}
+.hljs-emphasis {
+    font-style: italic;
+}
+.hljs-strong {
+    font-weight: 600;
 }

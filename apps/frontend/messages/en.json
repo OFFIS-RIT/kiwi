@@ -85,6 +85,8 @@
     "reset.chat.description": "Are you sure you want to reset the chat history for {projectName}? This will delete all messages and cannot be undone.",
     "copy.message": "Copy",
     "copied.message": "Copied",
+    "copy.code": "Copy code",
+    "copied.code": "Code copied",
     "start.recording": "Start voice input",
     "stop.recording": "Stop voice input",
     "play.message": "Play",

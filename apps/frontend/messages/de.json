@@ -85,6 +85,8 @@
     "reset.chat.description": "Möchtest du den Chat-Verlauf für {projectName} wirklich zurücksetzen? Alle Nachrichten werden gelöscht und diese Aktion kann nicht rückgängig gemacht werden.",
     "copy.message": "Kopieren",
     "copied.message": "Kopiert",
+    "copy.code": "Code kopieren",
+    "copied.code": "Code kopiert",
     "start.recording": "Spracheingabe starten",
     "stop.recording": "Spracheingabe beenden",
     "play.message": "Abspielen",
