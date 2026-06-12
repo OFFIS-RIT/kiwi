@@ -18,7 +18,6 @@ import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats
 import type { ScopedPromptGuidance } from "@kiwi/ai/prompts/guidance.prompt";
 import { validateUIMessages, type ModelMessage } from "ai";
 import { and, asc, eq, ne } from "drizzle-orm";
-import { env } from "../env";
 import { API_ERROR_CODES } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 import { chatTargetInsertValues, chatTargetMatchesRow, type ChatTarget } from "./chat-target";
@@ -26,9 +25,17 @@ import { insertPromptGuidanceMessage } from "./prompt-guidance";
 
 const MAX_RAW_TAIL_TARGET_TOKENS = 32_000;
 const MIN_RAW_VISIBLE_MESSAGES = 6;
-const SOFT_COMPACTION_THRESHOLD_RATIO = 0.7;
+const SOFT_COMPACTION_THRESHOLD_RATIO = 0.9;
+// Keep the tail target equal to the remaining headroom after the soft threshold.
 const RAW_TAIL_TARGET_CONTEXT_RATIO = 1 - SOFT_COMPACTION_THRESHOLD_RATIO;
 const MAX_COMPACTION_ATTEMPTS = 5;
+const MAX_COMPACTION_MODEL_CALLS = 24;
+// Each summarization request must leave room for the compaction prompt, the
+// previous summary, and the summary output within the compaction model context.
+// insertCompactionCheckpoint recalculates the chunk budget after every model
+// call, so a verbose accumulated summary can shrink later transcript chunks or
+// exhaust the budget before all transcript text is processed.
+const COMPACTION_CHUNK_CONTEXT_RATIO = 0.9;
 
 export type ChatRequest = ChatRequestBody;
 
@@ -50,6 +57,8 @@ export type ChatRuntime = {
         text: NonNullable<Client["text"]>;
         embedding: NonNullable<Client["embedding"]>;
         textModelId: string;
+        contextWindow: number;
+        compactionContextWindow: number;
     };
     tools: Record<string, unknown>;
     promptGuidance?: ScopedPromptGuidance;
@@ -212,25 +221,118 @@ function estimateStoredMessageTokens(message: ChatMessage) {
     return estimateToken(JSON.stringify(toModelMessage(message)));
 }
 
-export function getSoftCompactionThreshold(contextWindow = env.CONTEXT_WINDOW) {
+export function getSoftCompactionThreshold(contextWindow: number) {
     return Math.max(1, Math.floor(contextWindow * SOFT_COMPACTION_THRESHOLD_RATIO));
 }
 
-export function getRawTailTargetTokens(contextWindow = env.CONTEXT_WINDOW) {
-    return Math.max(1, Math.floor(Math.min(MAX_RAW_TAIL_TARGET_TOKENS, contextWindow * RAW_TAIL_TARGET_CONTEXT_RATIO)));
+export function getRawTailTargetTokens(contextWindow: number) {
+    return Math.max(1, Math.round(Math.min(MAX_RAW_TAIL_TARGET_TOKENS, contextWindow * RAW_TAIL_TARGET_CONTEXT_RATIO)));
 }
 
-function shouldCompact(estimatedPromptTokens: number) {
-    return estimatedPromptTokens >= getSoftCompactionThreshold();
+export function getCompactionChunkTokenBudget(contextWindow: number, previousSummary?: string) {
+    const previousSummaryTokens = previousSummary ? estimateToken(previousSummary) : 0;
+    const tokenBudget = Math.floor(contextWindow * COMPACTION_CHUNK_CONTEXT_RATIO) - previousSummaryTokens;
+    if (tokenBudget < 1) {
+        throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+    }
+
+    return tokenBudget;
 }
 
-export function assertCompactionAttemptsRemaining(attemptCount: number) {
-    if (attemptCount >= MAX_COMPACTION_ATTEMPTS) {
+function shouldCompact(estimatedPromptTokens: number, contextWindow: number) {
+    return estimatedPromptTokens >= getSoftCompactionThreshold(contextWindow);
+}
+
+export function assertCompactionAttemptsRemaining(attemptCount: number, maxAttempts = MAX_COMPACTION_ATTEMPTS) {
+    if (attemptCount >= maxAttempts) {
         throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
     }
 }
 
-export function getProtectedTailStartIndex(rows: ChatMessage[]) {
+export function assertCompactionModelCallsRemaining(
+    completedCallCount: number,
+    nextCallCount: number,
+    maxCalls = MAX_COMPACTION_MODEL_CALLS
+) {
+    if (completedCallCount + nextCallCount > maxCalls) {
+        throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+    }
+}
+
+function findTranscriptSplitBoundary(text: string, maxEnd: number) {
+    const minimumUsefulBoundary = Math.max(1, Math.floor(maxEnd * 0.6));
+    const messageBoundary = text.lastIndexOf("\n\n## Message ", maxEnd);
+    if (messageBoundary >= minimumUsefulBoundary) {
+        return messageBoundary;
+    }
+
+    const paragraphBoundary = text.lastIndexOf("\n\n", maxEnd);
+    if (paragraphBoundary >= minimumUsefulBoundary) {
+        return paragraphBoundary;
+    }
+
+    const lineBoundary = text.lastIndexOf("\n", maxEnd);
+    if (lineBoundary >= minimumUsefulBoundary) {
+        return lineBoundary;
+    }
+
+    const wordBoundary = text.lastIndexOf(" ", maxEnd);
+    if (wordBoundary >= minimumUsefulBoundary) {
+        return wordBoundary;
+    }
+
+    return Math.max(1, maxEnd);
+}
+
+function takeTranscriptChunk(text: string, tokenBudget: number) {
+    if (estimateToken(text) <= tokenBudget) {
+        return { chunk: text, rest: "" };
+    }
+
+    let low = 1;
+    let high = text.length;
+    let bestEnd = 1;
+
+    while (low <= high) {
+        const midpoint = Math.floor((low + high) / 2);
+        if (estimateToken(text.slice(0, midpoint)) <= tokenBudget) {
+            bestEnd = midpoint;
+            low = midpoint + 1;
+            continue;
+        }
+
+        high = midpoint - 1;
+    }
+
+    const splitEnd = findTranscriptSplitBoundary(text, bestEnd);
+    return {
+        chunk: text.slice(0, splitEnd).trim(),
+        rest: text.slice(splitEnd).trimStart(),
+    };
+}
+
+function splitTranscriptWithinTokenBudget(transcript: string, tokenBudget: number) {
+    const chunks: string[] = [];
+    let rest = transcript.trim();
+
+    while (rest.length > 0) {
+        const next = takeTranscriptChunk(rest, tokenBudget);
+        if (next.chunk.length === 0) {
+            throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+        }
+
+        chunks.push(next.chunk);
+        rest = next.rest;
+    }
+
+    return chunks;
+}
+
+export function createCompactionTranscriptChunks(messages: ChatUIMessage[], tokenBudget: number) {
+    return splitTranscriptWithinTokenBudget(serializeCompactionTranscript(messages), tokenBudget);
+}
+
+export function getProtectedTailStartIndex(rows: ChatMessage[], contextWindow: number) {
     if (rows.length === 0) {
         return 0;
     }
@@ -238,7 +340,7 @@ export function getProtectedTailStartIndex(rows: ChatMessage[]) {
     let startIndex = rows.length;
     let protectedTokens = 0;
     const minimumProtectedTailStartIndex = Math.max(0, rows.length - MIN_RAW_VISIBLE_MESSAGES);
-    const rawTailTargetTokens = getRawTailTargetTokens();
+    const rawTailTargetTokens = getRawTailTargetTokens(contextWindow);
 
     for (let index = rows.length - 1; index >= 0; index -= 1) {
         startIndex = index;
@@ -339,23 +441,47 @@ async function insertCompactionCheckpoint(options: {
     runtime: ChatRuntime;
     previousSummary?: string;
     basedOnCompactionMessageId?: string;
-    summarizedMessages: ChatUIMessage[];
+    transcript: string;
+    completedModelCalls: number;
     summarizedThroughMessageId: string;
     abortSignal?: AbortSignal;
 }) {
-    const transcript = serializeCompactionTranscript(options.summarizedMessages);
-    const summary = await compactConversationHistory({
-        model: options.runtime.client.subagent ?? options.runtime.client.text,
-        promptGuidance: options.runtime.promptGuidance,
-        previousSummary: options.previousSummary,
-        transcript,
-        abortSignal: options.abortSignal,
-    });
+    let summary = options.previousSummary;
+    let modelCalls = 0;
+    let remainingTranscript = options.transcript.trim();
+
+    while (remainingTranscript.length > 0) {
+        const chunkTokenBudget = getCompactionChunkTokenBudget(options.runtime.client.compactionContextWindow, summary);
+        const nextChunk = takeTranscriptChunk(remainingTranscript, chunkTokenBudget);
+        if (nextChunk.chunk.length === 0) {
+            throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+        }
+        assertCompactionModelCallsRemaining(options.completedModelCalls + modelCalls, 1);
+
+        summary = normalizeCompactionSummary(
+            await compactConversationHistory({
+                model: options.runtime.client.subagent ?? options.runtime.client.text,
+                promptGuidance: options.runtime.promptGuidance,
+                previousSummary: summary,
+                transcript: nextChunk.chunk,
+                abortSignal: options.abortSignal,
+            })
+        );
+        modelCalls += 1;
+        remainingTranscript = nextChunk.rest;
+    }
+
     options.abortSignal?.throwIfAborted();
+    // summary is always non-empty here: normalizeCompactionSummary throws on empty output,
+    // and maybeCompactConversation guards empty transcripts before calling this.
+    if (!summary) {
+        throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+    }
+
     const compactionPart: MessageCompactionPart = {
         type: "compaction",
         version: 1,
-        summary: normalizeCompactionSummary(summary),
+        summary,
         summarizedThroughMessageId: options.summarizedThroughMessageId,
         basedOnCompactionMessageId: options.basedOnCompactionMessageId,
     };
@@ -366,6 +492,8 @@ async function insertCompactionCheckpoint(options: {
         status: "completed",
         parts: [compactionPart],
     });
+
+    return modelCalls;
 }
 
 export async function maybeCompactConversation(options: {
@@ -380,17 +508,19 @@ export async function maybeCompactConversation(options: {
     let context = await options.buildContext(options.rows);
     let forceCompaction = options.forceCompaction === true;
     let compactionAttempts = 0;
+    let compactionModelCalls = 0;
+    const contextWindow = options.runtime.client.contextWindow;
 
-    if (!forceCompaction && !shouldCompact(context.estimatedPromptTokens)) {
+    if (!forceCompaction && !shouldCompact(context.estimatedPromptTokens, contextWindow)) {
         return { context, systemPrompt: options.systemPrompt };
     }
 
-    while (forceCompaction || shouldCompact(context.estimatedPromptTokens)) {
+    while (forceCompaction || shouldCompact(context.estimatedPromptTokens, contextWindow)) {
         const isForcedCompaction = forceCompaction;
         assertCompactionAttemptsRemaining(compactionAttempts);
         compactionAttempts += 1;
         forceCompaction = false;
-        const protectedTailStartIndex = getProtectedTailStartIndex(context.activeRawTailRows);
+        const protectedTailStartIndex = getProtectedTailStartIndex(context.activeRawTailRows, contextWindow);
         if (protectedTailStartIndex <= 0) {
             if (!isForcedCompaction) {
                 break;
@@ -407,15 +537,25 @@ export async function maybeCompactConversation(options: {
             throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
         }
 
-        await insertCompactionCheckpoint({
+        const transcript = serializeCompactionTranscript(summarizedRows.map((message) => toUIMessage(message))).trim();
+        if (transcript.length === 0) {
+            if (!isForcedCompaction) {
+                break;
+            }
+            throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+        }
+
+        const modelCalls = await insertCompactionCheckpoint({
             chatId: options.chatId,
             runtime: options.runtime,
             previousSummary: context.activeSummary,
             basedOnCompactionMessageId: context.activeCompaction?.messageId,
-            summarizedMessages: summarizedRows.map((message) => toUIMessage(message)),
+            transcript,
+            completedModelCalls: compactionModelCalls,
             summarizedThroughMessageId: summarizedThroughMessage.id,
             abortSignal: options.abortSignal,
         });
+        compactionModelCalls += modelCalls;
 
         context = await options.buildContext(await loadChatRows(options.chatId));
         options.abortSignal?.throwIfAborted();

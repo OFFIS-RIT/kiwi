@@ -39,6 +39,7 @@ export type AdminModelRecord = PublicModelRecord & {
     type: AiModelType;
     adapter: AiModelAdapter;
     provider_model: string;
+    context_window: number;
     // Non-secret connection config; lives inside the encrypted credentials
     // blob but is safe to expose to admins, unlike the API key.
     url: string | null;
@@ -82,6 +83,8 @@ export type ResolvedEmbeddingModelAdapter = {
 export type ResolvedResearchModels = {
     config: Required<Pick<ClientConfig, "text" | "embedding">> & Pick<ClientConfig, "subagent">;
     textModelId: string;
+    contextWindow: number;
+    compactionContextWindow: number;
 };
 
 export type ResolvedWorkerModels = {
@@ -411,6 +414,7 @@ export function toAdminModelRecord(
         | "type"
         | "adapter"
         | "providerModel"
+        | "contextWindow"
         | "isDefault"
         | "createdAt"
         | "updatedAt"
@@ -424,6 +428,7 @@ export function toAdminModelRecord(
         type: row.type,
         adapter: row.adapter,
         provider_model: row.providerModel,
+        context_window: row.contextWindow,
         url: credentials.url ?? null,
         resource_name: credentials.resourceName ?? null,
         created_at: row.createdAt.toISOString(),
@@ -581,6 +586,9 @@ export async function resolveResearchModelConfig(options: {
             ...(resolvedSubagent ? { subagent: resolvedSubagent.adapter } : {}),
         },
         textModelId: textModel.modelId,
+        contextWindow: textModel.contextWindow,
+        // Compaction summarization runs on the subagent model when configured.
+        compactionContextWindow: (subagentModel ?? textModel).contextWindow,
     };
 }
 

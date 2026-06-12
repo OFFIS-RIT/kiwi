@@ -1,9 +1,6 @@
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
-export const DEFAULT_CONTEXT_WINDOW = 250_000;
-export const isContextWindowDefaulted = process.env.CONTEXT_WINDOW === undefined;
-
 export const env = createEnv({
     server: {
         MASTER_USER_ID: z.string().optional(),
@@ -23,9 +20,6 @@ export const env = createEnv({
         S3_ENDPOINT: z.url(),
         S3_REGION: z.string(),
         S3_BUCKET: z.string(),
-
-        // Text / Chat
-        CONTEXT_WINDOW: z.coerce.number().int().positive().default(DEFAULT_CONTEXT_WINDOW),
     },
     runtimeEnv: process.env,
 });

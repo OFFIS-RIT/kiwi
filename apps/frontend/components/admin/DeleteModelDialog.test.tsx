@@ -41,6 +41,7 @@ function makeModel(overrides: Partial<AdminModelListItem>): AdminModelListItem {
         type: "text",
         adapter: "openai",
         provider_model: "gpt-4.1-mini",
+        context_window: 128_000,
         url: null,
         resource_name: null,
         is_default: false,

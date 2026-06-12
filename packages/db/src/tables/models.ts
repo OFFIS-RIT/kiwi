@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
 import { organizationTable } from "./auth";
+
+export const DEFAULT_MODEL_CONTEXT_TOKEN_LIMIT = 250_000;
 
 export const AI_MODEL_TYPE_VALUES = ["text", "subagent", "extract", "embedding", "image", "audio", "video"] as const;
 export type AiModelType = (typeof AI_MODEL_TYPE_VALUES)[number];
@@ -23,6 +25,7 @@ export const modelsTable = pgTable.withRLS(
         type: text("type", { enum: AI_MODEL_TYPE_VALUES }).notNull(),
         adapter: text("adapter", { enum: AI_MODEL_ADAPTER_VALUES }).notNull(),
         providerModel: text("provider_model").notNull(),
+        contextWindow: integer("context_window").notNull().default(DEFAULT_MODEL_CONTEXT_TOKEN_LIMIT),
         encryptedCredentials: text("encrypted_credentials").notNull(),
         isDefault: boolean("is_default").notNull().default(false),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),

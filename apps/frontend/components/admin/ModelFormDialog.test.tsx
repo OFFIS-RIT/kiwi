@@ -40,6 +40,7 @@ const adminModel: AdminModelListItem = {
     type: "text",
     adapter: "openai",
     provider_model: "gpt-4.1-mini",
+    context_window: 128_000,
     url: null,
     resource_name: null,
     is_default: true,
@@ -54,6 +55,14 @@ const openaiApiModel: AdminModelListItem = {
     adapter: "openaiAPI",
     provider_model: "gpt-oss-120b",
     url: "https://llm.example.com/v1",
+};
+
+const embeddingModel: AdminModelListItem = {
+    ...adminModel,
+    model_id: "text-embedding-3-small",
+    display_name: "Text embedding 3 small",
+    type: "embedding",
+    provider_model: "text-embedding-3-small",
 };
 
 describe("slugifyModelId", () => {
@@ -90,6 +99,10 @@ describe("ModelFormDialog", () => {
         expect(screen.getByLabelText("Modell-ID")).toHaveValue("gpt-4.1-mini-eu");
 
         await user.type(screen.getByLabelText("Provider-Modell-Name"), "gpt-4.1-mini");
+        const contextWindowInput = screen.getByLabelText("Kontextfenster (Tokens)");
+        expect(contextWindowInput).toHaveValue(250_000);
+        await user.clear(contextWindowInput);
+        await user.type(contextWindowInput, "64000");
         await user.type(screen.getByLabelText("API-Schlüssel"), "secret-key");
         await user.click(screen.getByRole("button", { name: "Modell hinzufügen" }));
 
@@ -100,6 +113,7 @@ describe("ModelFormDialog", () => {
             type: "text",
             adapter: "openai",
             provider_model: "gpt-4.1-mini",
+            context_window: 64_000,
             credentials: { apiKey: "secret-key" },
         });
     });
@@ -113,6 +127,42 @@ describe("ModelFormDialog", () => {
         await user.type(screen.getByLabelText("Anzeigename"), "Renamed Later");
 
         expect(idInput).toHaveValue("my-custom-id");
+    });
+
+    test("shows an inline error instead of creating when the context window is empty", async () => {
+        const user = userEvent.setup();
+        renderWithProviders(<ModelFormDialog open onOpenChange={vi.fn()} type="text" onSaved={vi.fn()} />);
+
+        await user.type(screen.getByLabelText("Anzeigename"), "GPT 4.1 Mini");
+        await user.type(screen.getByLabelText("Provider-Modell-Name"), "gpt-4.1-mini");
+        await user.clear(screen.getByLabelText("Kontextfenster (Tokens)"));
+        await user.type(screen.getByLabelText("API-Schlüssel"), "secret-key");
+        await user.click(screen.getByRole("button", { name: "Modell hinzufügen" }));
+
+        expect(await screen.findByText("Gib mindestens 1000 Tokens ein.")).toBeInTheDocument();
+        expect(createModel).not.toHaveBeenCalled();
+    });
+
+    test("omits the context window for embedding model creation", async () => {
+        const user = userEvent.setup();
+        const onSaved = vi.fn();
+        renderWithProviders(<ModelFormDialog open onOpenChange={vi.fn()} type="embedding" onSaved={onSaved} />);
+
+        expect(screen.queryByLabelText("Kontextfenster (Tokens)")).not.toBeInTheDocument();
+        await user.type(screen.getByLabelText("Anzeigename"), "Text embedding 3 small");
+        await user.type(screen.getByLabelText("Provider-Modell-Name"), "text-embedding-3-small");
+        await user.type(screen.getByLabelText("API-Schlüssel"), "secret-key");
+        await user.click(screen.getByRole("button", { name: "Modell hinzufügen" }));
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalled());
+        expect(createModel).toHaveBeenCalledWith(expect.anything(), {
+            model_id: "text-embedding-3-small",
+            display_name: "Text embedding 3 small",
+            type: "embedding",
+            adapter: "openai",
+            provider_model: "text-embedding-3-small",
+            credentials: { apiKey: "secret-key" },
+        });
     });
 
     test("patches only changed fields and keeps stored credentials when the key stays empty", async () => {
@@ -147,6 +197,58 @@ describe("ModelFormDialog", () => {
         expect(updateModel).toHaveBeenCalledWith(expect.anything(), "gpt-41-mini", {
             credentials: { apiKey: "new-secret" },
         });
+    });
+
+    test("patches the context window when it changes", async () => {
+        const user = userEvent.setup();
+        const onSaved = vi.fn();
+        renderWithProviders(
+            <ModelFormDialog open onOpenChange={vi.fn()} type="text" model={adminModel} onSaved={onSaved} />
+        );
+
+        const contextWindowInput = screen.getByLabelText("Kontextfenster (Tokens)");
+        expect(contextWindowInput).toHaveValue(128_000);
+        await user.clear(contextWindowInput);
+        await user.type(contextWindowInput, "200000");
+        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalled());
+        expect(updateModel).toHaveBeenCalledWith(expect.anything(), "gpt-41-mini", {
+            context_window: 200_000,
+        });
+    });
+
+    test("shows an inline error instead of patching when the context window is empty", async () => {
+        const user = userEvent.setup();
+        renderWithProviders(
+            <ModelFormDialog open onOpenChange={vi.fn()} type="text" model={adminModel} onSaved={vi.fn()} />
+        );
+
+        await user.clear(screen.getByLabelText("Kontextfenster (Tokens)"));
+        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+        expect(await screen.findByText("Gib mindestens 1000 Tokens ein.")).toBeInTheDocument();
+        expect(updateModel).not.toHaveBeenCalled();
+    });
+
+    test("hides the context window when editing an embedding model", async () => {
+        const user = userEvent.setup();
+        const onOpenChange = vi.fn();
+        renderWithProviders(
+            <ModelFormDialog
+                open
+                onOpenChange={onOpenChange}
+                type="embedding"
+                model={embeddingModel}
+                onSaved={vi.fn()}
+            />
+        );
+
+        expect(screen.queryByLabelText("Kontextfenster (Tokens)")).not.toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+        await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+        expect(updateModel).not.toHaveBeenCalled();
     });
 
     test("prefills the stored endpoint URL and patches it without a new API key", async () => {

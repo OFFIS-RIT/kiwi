@@ -268,7 +268,6 @@ Copy `.env.sample` to `.env` and configure:
 | `S3_ACCESS_KEY_ID`                 | S3 access key                                                           |
 | `S3_SECRET_ACCESS_KEY`             | S3 secret key                                                           |
 | `S3_BUCKET`                        | S3 bucket name                                                          |
-| `CONTEXT_WINDOW`                   | Required text/chat model context window; compaction starts at 70%        |
 | `AI_TEXT_CONCURRENCY`              | Worker-local maximum concurrent text requests                           |
 | `AI_IMAGE_CONCURRENCY`             | Worker-local maximum concurrent image requests                          |
 | `AI_EMBEDDING_CONCURRENCY`         | Worker-local maximum concurrent embedding requests                      |

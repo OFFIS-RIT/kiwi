@@ -257,6 +257,7 @@ export type AdminModelListItem = PublicModelListItem & {
     type: AiModelType;
     adapter: AiModelAdapter;
     provider_model: string;
+    context_window: number;
     // Non-secret connection config; readable by admins, unlike the API key.
     url: string | null;
     resource_name: string | null;
@@ -278,6 +279,7 @@ export type ModelCreateInput = {
     type: AiModelType;
     adapter: AiModelAdapter;
     provider_model: string;
+    context_window?: number;
     credentials: ModelCredentialsInput;
     is_default?: boolean;
 };
@@ -294,6 +296,7 @@ export type ModelPatchInput = {
     display_name?: string;
     adapter?: AiModelAdapter;
     provider_model?: string;
+    context_window?: number;
     credentials?: ModelCredentialsPatchInput;
 };
 

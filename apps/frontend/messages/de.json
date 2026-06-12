@@ -416,6 +416,8 @@
     "settings.models.field.modelId.hint": "Dauerhafte Kennung für API-Anfragen; kann später nicht geändert werden.",
     "settings.models.field.adapter": "Adapter",
     "settings.models.field.providerModel": "Provider-Modell-Name",
+    "settings.models.field.contextWindow": "Kontextfenster (Tokens)",
+    "settings.models.field.contextWindow.error": "Gib mindestens {min} Tokens ein.",
     "settings.models.field.apiKey": "API-Schlüssel",
     "settings.models.field.apiKey.keep": "Leer lassen, um den gespeicherten Schlüssel zu behalten",
     "settings.models.field.url": "Endpunkt-URL",

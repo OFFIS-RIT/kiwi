@@ -2,7 +2,7 @@ import { cors } from "@elysiajs/cors";
 import { bootstrapLegacyModelsFromEnv } from "@kiwi/ai/models";
 import { info } from "@kiwi/logger";
 import { Elysia } from "elysia";
-import { DEFAULT_CONTEXT_WINDOW, env, isContextWindowDefaulted } from "./env";
+import { env } from "./env";
 import { initLogger, shutdownLogger } from "./logger";
 import { authMiddleware } from "./middleware/auth";
 import { authRoute } from "./routes/auth";
@@ -63,13 +63,7 @@ const app = new Elysia({
 info("api server started", {
     host: app.server?.hostname ?? "unknown",
     port: app.server?.port ?? 4321,
-    contextWindow: env.CONTEXT_WINDOW,
     legacyModelSeedCount: legacyModelBootstrap.seededModelCount,
-    ...(isContextWindowDefaulted
-        ? {
-              contextWindowNotice: `CONTEXT_WINDOW is not set; using ${DEFAULT_CONTEXT_WINDOW}. Set CONTEXT_WINDOW to your text model's context window for best compaction behavior.`,
-          }
-        : {}),
 });
 
 async function handleShutdown(signal: string) {

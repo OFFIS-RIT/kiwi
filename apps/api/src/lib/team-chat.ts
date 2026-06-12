@@ -36,6 +36,7 @@ import {
     parseCreatedAt,
     touchChat,
     type ChatRequest,
+    type RequiredResearchClient,
 } from "./chat";
 import {
     buildActiveChatContext,
@@ -86,7 +87,8 @@ type TeamUsageContext = {
     usedFileIds: Set<string>;
 };
 
-type TeamChatRuntime = Omit<ChatRuntime, "tools"> & {
+type TeamChatRuntime = Omit<ChatRuntime, "client" | "tools"> & {
+    client: RequiredResearchClient;
     tools: TeamChatToolset;
     promptGuidance: {
         organizationPrompts: string[];

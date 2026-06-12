@@ -1,12 +1,20 @@
-import { getClient } from "@kiwi/ai";
+import { getClient, type Client } from "@kiwi/ai";
 import { resolveResearchModelConfig } from "@kiwi/ai/models";
 import { env } from "../env";
 import { API_ERROR_CODES } from "../types";
 
+export type RequiredResearchClient = Client & {
+    text: NonNullable<Client["text"]>;
+    embedding: NonNullable<Client["embedding"]>;
+    textModelId: string;
+    contextWindow: number;
+    compactionContextWindow: number;
+};
+
 export async function getRequiredResearchClient(options: {
     organizationId: string;
     requestedModelId?: string;
-}) {
+}): Promise<RequiredResearchClient> {
     const resolvedModels = await resolveResearchModelConfig({
         organizationId: options.organizationId,
         requestedTextModelId: options.requestedModelId,
@@ -23,7 +31,7 @@ export async function getRequiredResearchClient(options: {
         text: client.text,
         embedding: client.embedding,
         textModelId: resolvedModels.textModelId,
+        contextWindow: resolvedModels.contextWindow,
+        compactionContextWindow: resolvedModels.compactionContextWindow,
     };
 }
-
-export type RequiredResearchClient = Awaited<ReturnType<typeof getRequiredResearchClient>>;

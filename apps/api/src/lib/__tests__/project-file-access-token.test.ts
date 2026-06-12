@@ -9,7 +9,6 @@ mock.module("../../env", () => ({
         S3_ENDPOINT: "http://localhost:9000",
         S3_REGION: "test",
         S3_BUCKET: "test",
-        CONTEXT_WINDOW: 250_000,
     },
 }));
 
