@@ -41,7 +41,36 @@ export type DetectedGraphFileFormat = {
     sniffed: boolean;
 };
 
-const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileFormat, "sniffed">> = {
+export const GRAPH_DOCUMENT_MODES = ["plain", "hybrid", "ocr"] as const;
+export type GraphDocumentMode = (typeof GRAPH_DOCUMENT_MODES)[number];
+
+const graphDocumentModeSet = new Set<string>(GRAPH_DOCUMENT_MODES);
+
+export function isGraphDocumentMode(value: unknown): value is GraphDocumentMode {
+    return typeof value === "string" && graphDocumentModeSet.has(value);
+}
+
+export const DEFAULT_DOCUMENT_MODES: Record<GraphFileType, GraphDocumentMode | null> = {
+    pdf: "hybrid",
+    doc: "hybrid",
+    sheet: null,
+    ppt: "hybrid",
+    image: null,
+    audio: null,
+    video: null,
+    html: null,
+    email: null,
+    calendar: null,
+    vcard: null,
+    json: null,
+    csv: null,
+    xml: null,
+    yaml: null,
+    toml: null,
+    text: null,
+};
+
+export const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileFormat, "sniffed">> = {
     pdf: { fileType: "pdf", loaderKind: "pdf", mimeType: "application/pdf" },
     doc: {
         fileType: "doc",
@@ -132,10 +161,30 @@ export function detectGraphFileFormat(input: {
     };
 }
 
+export function detectGraphLoaderFileFormat(input: {
+    content: ArrayBuffer;
+    declaredType: GraphFileType;
+    mimeType?: string | null;
+    audioModel?: TranscriptionModelV3;
+    videoModel?: TranscriptionModelV3;
+}): DetectedGraphFileFormat {
+    const format = detectGraphFileFormat(input);
+    if (shouldUseVideoFallbackForAudioWebM(input, format)) {
+        return {
+            ...DEFAULT_FILE_FORMATS.video,
+            mimeType: "video/webm",
+            sniffed: true,
+        };
+    }
+
+    return format;
+}
+
 export function createDetectedGraphLoader(input: {
     content: ArrayBuffer;
     declaredType: GraphFileType;
     mimeType?: string | null;
+    format?: DetectedGraphFileFormat;
     documentMode?: PDFMode;
     htmlMode?: HTMLLoaderMode;
     imageModel?: LanguageModelV3;
@@ -148,14 +197,7 @@ export function createDetectedGraphLoader(input: {
     binaryLoader: BufferedGraphBinaryLoader;
 } {
     const binaryLoader = new BufferedGraphBinaryLoader(input.content);
-    let format = detectGraphFileFormat(input);
-    if (shouldUseVideoFallbackForAudioWebM(input, format)) {
-        format = {
-            ...DEFAULT_FILE_FORMATS.video,
-            mimeType: "video/webm",
-            sniffed: true,
-        };
-    }
+    const format = input.format ?? detectGraphLoaderFileFormat(input);
     const documentMode = input.documentMode ?? "hybrid";
     const useDocumentOCR = documentMode !== "plain";
     const bytes = new Uint8Array(input.content);

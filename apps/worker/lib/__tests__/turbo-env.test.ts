@@ -7,11 +7,11 @@ type TurboConfig = {
 };
 
 describe("turbo environment passthrough", () => {
-    test("passes worker document and AI concurrency configuration through workspace tasks", () => {
+    test("passes worker auth and AI concurrency configuration through workspace tasks", () => {
         const configPath = join(import.meta.dir, "../../../..", "turbo.json");
         const config = JSON.parse(readFileSync(configPath, "utf8")) as TurboConfig;
 
-        expect(config.globalPassThroughEnv).toContain("DOCUMENT_MODE");
+        expect(config.globalPassThroughEnv).not.toContain("DOCUMENT_MODE");
         expect(config.globalPassThroughEnv).toContain("AUTH_SECRET");
         expect(config.globalPassThroughEnv).toContain("AI_TEXT_CONCURRENCY");
         expect(config.globalPassThroughEnv).toContain("AI_IMAGE_CONCURRENCY");
