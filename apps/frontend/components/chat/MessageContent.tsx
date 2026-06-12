@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fetchSourceReferences } from "@/lib/api/projects";
+import { cn } from "@/lib/utils";
 import { normalizeLatexDelimitersForMarkdown } from "@/lib/latex-math";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
@@ -12,10 +13,12 @@ import type { ChatUIMessage } from "@kiwi/ai/ui";
 import { AlertTriangle, FileText, Loader2, Search } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { openCitationSourceFile } from "./citation-file";
+import { MessageCodeBlock } from "./MessageCodeBlock";
 import { buildSourceFileCitations, citationReferenceKey } from "./source-file-citations";
 import { TextReferenceBadge, TextReferenceDialog, sourceReferenceQueryKey } from "./TextReferenceBadge";
 import { ThinkingDropdown } from "./ThinkingDropdown";
@@ -376,7 +379,7 @@ export function MessageContent({
     const hasText = markdownContent.trim().length > 0;
 
     const renderMarkdown = (content: string) => (
-        <div className="prose prose-sm dark:prose-invert max-w-none overflow-x-auto text-sm text-foreground [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden">
+        <div className="overflow-x-auto text-sm text-foreground [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden">
             <ReactMarkdown
                 remarkPlugins={[remarkGfm, remarkMath]}
                 rehypePlugins={[
@@ -387,6 +390,7 @@ export function MessageContent({
                             throwOnError: false,
                         },
                     ],
+                    rehypeHighlight,
                 ]}
                 components={{
                     p: ({ children }) => <p>{injectBadges(children)}</p>,
@@ -417,9 +421,7 @@ export function MessageContent({
                         </h6>
                     ),
                     hr: () => null,
-                    table: ({ children }) => (
-                        <table className="not-prose w-full table-fixed border-collapse">{children}</table>
-                    ),
+                    table: ({ children }) => <table className="w-full table-fixed border-collapse">{children}</table>,
                     thead: ({ children }) => <thead className="bg-muted/30">{children}</thead>,
                     tbody: ({ children }) => <tbody>{children}</tbody>,
                     tr: ({ children }) => <tr>{children}</tr>,
@@ -431,8 +433,10 @@ export function MessageContent({
                             {injectBadges(children)}
                         </th>
                     ),
-                    code: ({ children }) => <code>{children}</code>,
-                    pre: ({ children }) => <pre>{children}</pre>,
+                    code: ({ className, children }) => (
+                        <code className={cn("rounded-sm bg-muted px-1.5 py-0.5 font-mono", className)}>{children}</code>
+                    ),
+                    pre: ({ children }) => <MessageCodeBlock>{children}</MessageCodeBlock>,
                 }}
             >
                 {content}
