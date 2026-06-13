@@ -63,6 +63,8 @@ export const DEFAULT_DOCUMENT_MODES: Record<GraphFileType, GraphDocumentMode | n
     calendar: null,
     vcard: null,
     json: null,
+    jsonl: null,
+    jsonc: null,
     csv: null,
     xml: null,
     yaml: null,
@@ -95,6 +97,8 @@ export const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileF
     calendar: { fileType: "calendar", loaderKind: "calendar", mimeType: "text/calendar" },
     vcard: { fileType: "vcard", loaderKind: "vcard", mimeType: "text/vcard" },
     json: { fileType: "json", loaderKind: "json", mimeType: "application/json" },
+    jsonl: { fileType: "jsonl", loaderKind: "json", mimeType: "application/x-ndjson" },
+    jsonc: { fileType: "jsonc", loaderKind: "json", mimeType: "application/jsonc" },
     csv: { fileType: "csv", loaderKind: "csv", mimeType: "text/csv" },
     xml: { fileType: "xml", loaderKind: "xml", mimeType: "application/xml" },
     yaml: { fileType: "yaml", loaderKind: "text", mimeType: "application/yaml" },
@@ -207,6 +211,10 @@ export function createDetectedGraphLoader(input: {
 
     if (format.loaderKind === "csv" && looksLikeBinary(bytes)) {
         throw new Error("Invalid CSV content: binary files are not valid CSV");
+    }
+
+    if (format.loaderKind === "json" && looksLikeBinary(bytes)) {
+        throw new Error("Invalid JSON content: binary files are not valid JSON");
     }
 
     if (format.loaderKind === "text" && looksLikeBinary(bytes)) {

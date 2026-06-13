@@ -11,6 +11,8 @@ export const GRAPH_FILE_TYPES = [
     "calendar",
     "vcard",
     "json",
+    "jsonl",
+    "jsonc",
     "csv",
     "xml",
     "yaml",
@@ -31,7 +33,9 @@ export function coerceGraphFileType(value: unknown, fallback: GraphFileType = "t
 }
 
 export function inferGraphFileType(file: Pick<File, "name" | "type">): GraphFileType {
-    const normalizedMimeType = file.type?.trim().toLowerCase() ?? "";
+    const mimeType = file.type?.trim().toLowerCase() ?? "";
+    const mimeParameterStart = mimeType.indexOf(";");
+    const normalizedMimeType = mimeParameterStart === -1 ? mimeType : mimeType.slice(0, mimeParameterStart).trim();
     const rawExtension = file.name.split(".").pop()?.trim().toLowerCase();
     const extension = rawExtension && rawExtension !== file.name.toLowerCase() ? rawExtension : "";
 
@@ -128,6 +132,21 @@ export function inferGraphFileType(file: Pick<File, "name" | "type">): GraphFile
         extension === "vcard"
     ) {
         return "vcard";
+    }
+
+    if (
+        normalizedMimeType === "application/jsonl" ||
+        normalizedMimeType === "application/x-ndjson" ||
+        normalizedMimeType === "application/ndjson" ||
+        normalizedMimeType === "application/json-lines" ||
+        extension === "jsonl" ||
+        extension === "ndjson"
+    ) {
+        return "jsonl";
+    }
+
+    if (normalizedMimeType === "application/jsonc" || normalizedMimeType === "text/jsonc" || extension === "jsonc") {
+        return "jsonc";
     }
 
     if (normalizedMimeType === "application/json" || extension === "json") {

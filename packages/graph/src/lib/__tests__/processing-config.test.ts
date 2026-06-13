@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { JSONChunker } from "../../chunking/json";
 import { SemanticChunker } from "../../chunking/semantic";
 import { SingleChunker } from "../../chunking/single";
 import { TranscriptChunker } from "../../chunking/transcript";
@@ -34,6 +35,18 @@ describe("defaultFileTypeProcessingConfig", () => {
         expect(defaultFileTypeProcessingConfig("yaml")).toEqual({
             loader: "text",
             chunker: "yaml",
+            chunkSize: 500,
+            documentMode: null,
+        });
+        expect(defaultFileTypeProcessingConfig("jsonl")).toEqual({
+            loader: "json",
+            chunker: "json",
+            chunkSize: 500,
+            documentMode: null,
+        });
+        expect(defaultFileTypeProcessingConfig("jsonc")).toEqual({
+            loader: "json",
+            chunker: "json",
             chunkSize: 500,
             documentMode: null,
         });
@@ -96,5 +109,6 @@ describe("createGraphChunker", () => {
         expect(createGraphChunker("single", null)).toBeInstanceOf(SingleChunker);
         expect(createGraphChunker("semantic", 2000)).toBeInstanceOf(SemanticChunker);
         expect(createGraphChunker("transcript", 500)).toBeInstanceOf(TranscriptChunker);
+        expect(createGraphChunker("json", 500)).toBeInstanceOf(JSONChunker);
     });
 });
