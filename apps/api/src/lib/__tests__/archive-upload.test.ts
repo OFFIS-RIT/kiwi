@@ -103,8 +103,52 @@ describe("extractArchiveUploadFile", () => {
         await expect(files.find((file) => file.name === "beta.txt")!.text()).resolves.toBe("beta");
     });
 
+    bsdtarTest("extracts zip entries whose names look like options", async () => {
+        const archive = new File([storedZip([{ path: "-v", content: "not verbose output" }])], "documents.zip", {
+            type: "application/zip",
+        });
+
+        const files = await extractArchiveUploadFile(archive);
+
+        expect(files.map((file) => file.name)).toEqual(["-v"]);
+        await expect(files[0]!.text()).resolves.toBe("not verbose output");
+    });
+
+    bsdtarTest("preserves uniqueness for duplicate archive entry basenames", async () => {
+        const archive = new File(
+            [
+                storedZip([
+                    { path: "src/utils.ts", content: "src" },
+                    { path: "lib/utils.ts", content: "lib" },
+                ]),
+            ],
+            "documents.zip",
+            { type: "application/zip" }
+        );
+
+        const files = await extractArchiveUploadFile(archive);
+
+        expect(files.map((file) => file.name)).toEqual(["lib__utils.ts", "src__utils.ts"]);
+        await expect(files.find((file) => file.name === "src__utils.ts")!.text()).resolves.toBe("src");
+        await expect(files.find((file) => file.name === "lib__utils.ts")!.text()).resolves.toBe("lib");
+    });
+
     gzipTest("decompresses single-file gzip uploads", async () => {
         const archive = new File([gzipSync(encoder.encode("hello"))], "notes.txt.gz", { type: "application/gzip" });
+
+        const files = await extractArchiveUploadFile(archive);
+
+        expect(files.map((file) => file.name)).toEqual(["notes.txt"]);
+        await expect(files[0]!.text()).resolves.toBe("hello");
+    });
+
+    gzipTest("streams upload content to disk before extraction", async () => {
+        const archive = new File([gzipSync(encoder.encode("hello"))], "notes.txt.gz", { type: "application/gzip" });
+        Object.defineProperty(archive, "arrayBuffer", {
+            value: () => {
+                throw new Error("arrayBuffer should not be called");
+            },
+        });
 
         const files = await extractArchiveUploadFile(archive);
 

@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, extname, join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
 export type ArchiveUploadLimits = { maxFiles: number; maxBytes: number };
 
@@ -196,7 +200,7 @@ export async function extractArchiveUploadFile(file: File, limits = DEFAULT_ARCH
     try {
         const safeName = basename(file.name).replace(/\0/gu, "").trim();
         const inputPath = join(tempDir, safeName.length > 0 ? safeName : "archive");
-        await writeFile(inputPath, new Uint8Array(await file.arrayBuffer()));
+        await writeBlobToPath(file, inputPath);
 
         const compression = getCompression(file);
         if (compression) {
@@ -224,25 +228,71 @@ export async function extractArchiveUploadFile(file: File, limits = DEFAULT_ARCH
 
         const extracted: File[] = [];
         let totalBytes = 0;
+        const entryNames = archiveEntryNames(entries);
 
-        for (const entry of entries) {
+        for (const [index, entry] of entries.entries()) {
             if (extracted.length + 1 > limits.maxFiles) {
                 throw new ArchiveUploadLimitError("Upload expands to too many files");
             }
 
-            const content = await runTool("bsdtar", ["-xOf", inputPath, entry], {
+            const content = await runTool("bsdtar", ["-xOf", inputPath, "--", entry], {
                 stdout: true,
                 failure: "Archive extraction failed",
                 maxBytes: limits.maxBytes - totalBytes,
             });
             totalBytes += content.byteLength;
-            extracted.push(new File([content], basename(entry)));
+            extracted.push(new File([content], entryNames[index] ?? basename(entry)));
         }
 
         return extracted;
     } finally {
         await rm(tempDir, { recursive: true, force: true });
     }
+}
+
+async function writeBlobToPath(file: Blob, path: string): Promise<void> {
+    const stream = file.stream() as unknown as NodeReadableStream<Uint8Array>;
+    await pipeline(Readable.fromWeb(stream), createWriteStream(path));
+}
+
+function archiveEntryNames(entries: readonly string[]): string[] {
+    const basenameCounts = new Map<string, number>();
+    for (const entry of entries) {
+        const name = basename(entry);
+        basenameCounts.set(name, (basenameCounts.get(name) ?? 0) + 1);
+    }
+
+    const usedNames = new Set<string>();
+    return entries.map((entry) => uniqueArchiveEntryName(entry, basenameCounts, usedNames));
+}
+
+function uniqueArchiveEntryName(
+    entry: string,
+    basenameCounts: ReadonlyMap<string, number>,
+    usedNames: Set<string>
+): string {
+    const name = basename(entry);
+    const candidate = (basenameCounts.get(name) ?? 0) > 1 ? flattenedArchiveEntryName(entry) : name;
+    if (!usedNames.has(candidate)) {
+        usedNames.add(candidate);
+        return candidate;
+    }
+
+    const extension = extname(candidate);
+    const stem = extension.length > 0 ? candidate.slice(0, -extension.length) : candidate;
+    let counter = 2;
+    while (usedNames.has(`${stem}-${counter}${extension}`)) {
+        counter += 1;
+    }
+
+    const uniqueName = `${stem}-${counter}${extension}`;
+    usedNames.add(uniqueName);
+    return uniqueName;
+}
+
+function flattenedArchiveEntryName(entry: string): string {
+    const segments = entry.split("/").filter((segment) => segment.length > 0 && segment !== ".");
+    return segments.length > 0 ? segments.join("__") : basename(entry);
 }
 
 export async function checkArchiveUploadTools(): Promise<{ ok: true } | { ok: false; missing: string[] }> {
