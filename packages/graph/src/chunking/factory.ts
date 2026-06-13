@@ -52,6 +52,8 @@ export const DEFAULT_FILE_TYPE_CHUNKING: Record<GraphFileType, GraphChunkingConf
     calendar: { chunker: "calendar", chunkSize: DEFAULT_STRUCTURED_CHUNK_SIZE },
     vcard: { chunker: "vcard", chunkSize: DEFAULT_STRUCTURED_CHUNK_SIZE },
     json: { chunker: "json", chunkSize: DEFAULT_STRUCTURED_CHUNK_SIZE },
+    jsonl: { chunker: "json", chunkSize: DEFAULT_STRUCTURED_CHUNK_SIZE },
+    jsonc: { chunker: "json", chunkSize: DEFAULT_STRUCTURED_CHUNK_SIZE },
     csv: { chunker: "csv", chunkSize: DEFAULT_STRUCTURED_CHUNK_SIZE },
     xml: { chunker: "semantic", chunkSize: DEFAULT_SEMANTIC_CHUNK_SIZE },
     yaml: { chunker: "yaml", chunkSize: DEFAULT_STRUCTURED_CHUNK_SIZE },
