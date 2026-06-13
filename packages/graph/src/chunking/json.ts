@@ -8,6 +8,15 @@ type JSONChunkerOptions = {
 };
 
 type JSONValue = null | boolean | number | string | JSONValue[] | { [key: string]: JSONValue };
+type JSONLineRecord = {
+    content: string;
+    value: JSONValue;
+};
+
+type ParsedJSONDocument = {
+    value: JSONValue;
+    keyOrder: string[] | undefined;
+};
 
 export class JSONChunker implements GraphChunker {
     private readonly maxChunkSize: number;
@@ -38,15 +47,19 @@ export class JSONChunker implements GraphChunker {
             return [text];
         }
 
-        let raw: JSONValue;
-        try {
-            raw = JSON.parse(text) as JSONValue;
-        } catch {
+        const jsonLines = parseJSONLines(text);
+        if (jsonLines) {
+            return this.chunkJSONLines(jsonLines, tokenCount);
+        }
+
+        const document = parseJSONDocument(text);
+        if (!document) {
             return [text];
         }
 
+        const raw = document.value;
         if (isJSONObject(raw)) {
-            return this.chunkObject(raw, "$", orderedKeys(text), tokenCount);
+            return this.chunkObject(raw, "$", document.keyOrder, tokenCount);
         }
 
         if (Array.isArray(raw)) {
@@ -54,6 +67,42 @@ export class JSONChunker implements GraphChunker {
         }
 
         return [text];
+    }
+
+    private chunkJSONLines(records: JSONLineRecord[], tokenCount: (text: string) => number): string[] {
+        const chunks: string[] = [];
+        let currentRecords: JSONLineRecord[] = [];
+        let currentTokens = 0;
+
+        const flush = () => {
+            if (currentRecords.length === 0) {
+                return;
+            }
+
+            chunks.push(currentRecords.map((record) => record.content).join("\n"));
+            currentRecords = [];
+            currentTokens = 0;
+        };
+
+        records.forEach((record, index) => {
+            const recordTokens = tokenCount(record.content);
+
+            if (recordTokens > this.maxChunkSize) {
+                flush();
+                chunks.push(...this.chunkValue(record.value, `$[${index}]`, tokenCount));
+                return;
+            }
+
+            if (currentTokens + recordTokens > this.maxChunkSize && currentRecords.length > 0) {
+                flush();
+            }
+
+            currentRecords.push(record);
+            currentTokens += recordTokens;
+        });
+
+        flush();
+        return chunks;
     }
 
     private chunkObject(
@@ -164,6 +213,172 @@ export class JSONChunker implements GraphChunker {
 
         return [`Path: ${path}\n${prettyStringify(value)}`];
     }
+}
+function parseJSONDocument(input: string): ParsedJSONDocument | null {
+    try {
+        return {
+            value: JSON.parse(input) as JSONValue,
+            keyOrder: orderedKeys(input),
+        };
+    } catch {
+        const normalized = normalizeJSONC(input);
+        if (normalized === input) {
+            return null;
+        }
+
+        try {
+            return {
+                value: JSON.parse(normalized) as JSONValue,
+                keyOrder: orderedKeys(normalized),
+            };
+        } catch {
+            return null;
+        }
+    }
+}
+
+function parseJSONLines(input: string): JSONLineRecord[] | null {
+    const records: JSONLineRecord[] = [];
+
+    for (const rawLine of input.split(/\r\n|\n|\r/u)) {
+        const content = rawLine.trim();
+        if (content === "") {
+            continue;
+        }
+
+        try {
+            records.push({
+                content,
+                value: JSON.parse(content) as JSONValue,
+            });
+        } catch {
+            return null;
+        }
+    }
+
+    return records.length > 1 ? records : null;
+}
+
+function normalizeJSONC(input: string): string {
+    return removeJSONTrailingCommas(stripJSONComments(input));
+}
+
+function stripJSONComments(input: string): string {
+    let output = "";
+    let inString = false;
+    let escaped = false;
+    let index = 0;
+
+    while (index < input.length) {
+        const char = input[index]!;
+
+        if (inString) {
+            output += char;
+            index += 1;
+            if (escaped) {
+                escaped = false;
+            } else if (char === "\\") {
+                escaped = true;
+            } else if (char === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (char === '"') {
+            inString = true;
+            output += char;
+            index += 1;
+            continue;
+        }
+
+        const next = input[index + 1];
+        if (char === "/" && next === "/") {
+            index += 2;
+            while (index < input.length && input[index] !== "\n" && input[index] !== "\r") {
+                index += 1;
+            }
+            if (index < input.length) {
+                const lineBreak = input[index]!;
+                output += lineBreak;
+                index += 1;
+                if (lineBreak === "\r" && input[index] === "\n") {
+                    output += "\n";
+                    index += 1;
+                }
+            }
+            continue;
+        }
+
+        if (char === "/" && next === "*") {
+            index += 2;
+            output += " ";
+            while (index < input.length) {
+                if (input[index] === "*" && input[index + 1] === "/") {
+                    index += 2;
+                    break;
+                }
+                if (input[index] === "\n") {
+                    output += "\n";
+                }
+                index += 1;
+            }
+            continue;
+        }
+
+        output += char;
+        index += 1;
+    }
+
+    return output;
+}
+
+function removeJSONTrailingCommas(input: string): string {
+    let output = "";
+    let inString = false;
+    let escaped = false;
+    let index = 0;
+
+    while (index < input.length) {
+        const char = input[index]!;
+
+        if (inString) {
+            output += char;
+            index += 1;
+            if (escaped) {
+                escaped = false;
+            } else if (char === "\\") {
+                escaped = true;
+            } else if (char === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (char === '"') {
+            inString = true;
+            output += char;
+            index += 1;
+            continue;
+        }
+
+        if (char === ",") {
+            let nextIndex = index + 1;
+            while (nextIndex < input.length && /\s/u.test(input[nextIndex]!)) {
+                nextIndex += 1;
+            }
+
+            if (input[nextIndex] === "}" || input[nextIndex] === "]") {
+                index += 1;
+                continue;
+            }
+        }
+
+        output += char;
+        index += 1;
+    }
+
+    return output;
 }
 
 function isJSONObject(value: JSONValue): value is Record<string, JSONValue> {

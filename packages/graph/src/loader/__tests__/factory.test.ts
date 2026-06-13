@@ -101,6 +101,32 @@ describe("detectGraphFileFormat", () => {
         });
     });
 
+    test("uses the JSON loader path for JSONL and JSONC declared types", () => {
+        const jsonl = detectGraphFileFormat({
+            declaredType: "jsonl",
+            mimeType: "application/x-ndjson; charset=utf-8",
+            content: toArrayBuffer(encodeASCII('{"ok":true}\n{"ok":false}')),
+        });
+        const jsonc = detectGraphFileFormat({
+            declaredType: "jsonc",
+            mimeType: "application/jsonc; charset=utf-8",
+            content: toArrayBuffer(encodeASCII('{"ok":true,}')),
+        });
+
+        expect(jsonl).toEqual({
+            fileType: "jsonl",
+            loaderKind: "json",
+            mimeType: "application/x-ndjson",
+            sniffed: false,
+        });
+        expect(jsonc).toEqual({
+            fileType: "jsonc",
+            loaderKind: "json",
+            mimeType: "application/jsonc",
+            sniffed: false,
+        });
+    });
+
     test("uses the XML loader for XML and keeps other structured text file types on the text loader path", () => {
         const xml = detectGraphFileFormat({
             declaredType: "xml",
@@ -522,6 +548,18 @@ describe("createDetectedGraphLoader", () => {
                 mimeType: "text/csv",
             })
         ).toThrow("Invalid CSV content: binary files are not valid CSV");
+    });
+
+    test("rejects binary content declared as JSON-family text", () => {
+        for (const declaredType of ["json", "jsonl", "jsonc"] as const) {
+            expect(() =>
+                createDetectedGraphLoader({
+                    content: toArrayBuffer(Uint8Array.of(0x00, 0x01, 0x02, 0x03)),
+                    declaredType,
+                    mimeType: "application/octet-stream",
+                })
+            ).toThrow("Invalid JSON content: binary files are not valid JSON");
+        }
     });
 
     test("rejects binary content on text loaders and legacy Office content on OOXML loaders", () => {

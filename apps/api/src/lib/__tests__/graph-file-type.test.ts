@@ -28,6 +28,15 @@ describe("inferGraphFileType", () => {
         expect(inferGraphFileType(new File([""], "feed.atom", { type: "application/atom+xml" }))).toBe("xml");
         expect(inferGraphFileType(new File([""], "config.yml", { type: "" }))).toBe("yaml");
         expect(inferGraphFileType(new File([""], "settings.toml", { type: "" }))).toBe("toml");
+        expect(inferGraphFileType(new File([""], "records.jsonl", { type: "" }))).toBe("jsonl");
+        expect(inferGraphFileType(new File([""], "events.ndjson", { type: "application/x-ndjson" }))).toBe("jsonl");
+        expect(inferGraphFileType(new File([""], "settings.jsonc", { type: "application/jsonc" }))).toBe("jsonc");
+        expect(inferGraphFileType(new File([""], "records", { type: "application/x-ndjson; charset=utf-8" }))).toBe(
+            "jsonl"
+        );
+        expect(inferGraphFileType(new File([""], "settings", { type: "application/jsonc; charset=utf-8" }))).toBe(
+            "jsonc"
+        );
     });
 
     test("detects web email calendar and contact formats", () => {
