@@ -26,16 +26,6 @@
 		}
 	}
 
-	@s3 path /s3 /s3/*
-	handle @s3 {
-		uri strip_prefix /s3
-		reverse_proxy rustfs:9000 {
-			header_up Host {$APP_DOMAIN:localhost}
-			header_up Range {header.Range}
-			header_up If-Range {header.If-Range}
-		}
-	}
-
 	handle {
 		reverse_proxy frontend:3000
 	}
