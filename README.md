@@ -362,6 +362,14 @@ bun run dev           # Start frontend, API, and worker
 docker compose down   # Stop infrastructure
 ```
 
+Archive uploads in the Docker/production API image include extraction tools automatically.
+Local Bun API development that handles archive uploads requires `bsdtar` from
+`libarchive-tools`, plus `gzip`, `bzip2`, `xz`, `zstd`, and `brotli`:
+
+```bash
+sudo apt-get install -y --no-install-recommends brotli bzip2 gzip libarchive-tools xz-utils zstd
+```
+
 Run database migrations manually after the infrastructure is up and before
 starting the app processes. When `MASTER_USER_ID` is configured, the API also
 ensures the matching user exists as an admin with the configured profile fields.

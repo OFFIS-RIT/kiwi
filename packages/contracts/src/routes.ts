@@ -539,6 +539,8 @@ export type GraphCreateResponse = ApiResponse<
     | "TEAM_NOT_FOUND"
     | "GRAPH_NOT_FOUND"
     | "INVALID_GRAPH_OWNER"
+    | "UNSUPPORTED_FILE_TYPE"
+    | "UPLOAD_LIMIT_EXCEEDED"
     | "INTERNAL_SERVER_ERROR"
 >;
 
@@ -555,7 +557,14 @@ export type GraphPatchResponse = ApiResponse<
 
 export type GraphAddFilesResponse = ApiResponse<
     GraphAddFilesSuccessData,
-    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "NO_CHANGES" | "INTERNAL_SERVER_ERROR"
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "UNSUPPORTED_FILE_TYPE"
+    | "UPLOAD_LIMIT_EXCEEDED"
+    | "NO_CHANGES"
+    | "INTERNAL_SERVER_ERROR"
 >;
 
 export type GraphDeleteFilesResponse = ApiResponse<

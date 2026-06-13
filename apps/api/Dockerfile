@@ -55,7 +55,15 @@ FROM debian:bookworm-slim
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates ghostscript \
+    && apt-get install -y --no-install-recommends \
+        brotli \
+        bzip2 \
+        ca-certificates \
+        ghostscript \
+        gzip \
+        libarchive-tools \
+        xz-utils \
+        zstd \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/apps/api/server server

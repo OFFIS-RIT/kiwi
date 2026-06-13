@@ -17,6 +17,12 @@ describe("inferGraphFileType", () => {
         expect(inferGraphFileType(new File([""], "clip.ogv", { type: "" }))).toBe("video");
     });
 
+    test("detects image files from MIME type and common extensions", () => {
+        expect(inferGraphFileType(new File([""], "photo", { type: "image/png" }))).toBe("image");
+        expect(inferGraphFileType(new File([""], "scan.jpg", { type: "" }))).toBe("image");
+        expect(inferGraphFileType(new File([""], "diagram.svg", { type: "" }))).toBe("image");
+    });
+
     test("detects structured text formats without relying on MIME type", () => {
         expect(inferGraphFileType(new File([""], "export.csv", { type: "text/csv" }))).toBe("csv");
         expect(inferGraphFileType(new File([""], "feed.atom", { type: "application/atom+xml" }))).toBe("xml");
