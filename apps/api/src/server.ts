@@ -1,8 +1,9 @@
 import { cors } from "@elysiajs/cors";
 import { bootstrapLegacyModelsFromEnv } from "@kiwi/ai/models";
-import { info } from "@kiwi/logger";
+import { info, warn as logWarn } from "@kiwi/logger";
 import { Elysia } from "elysia";
 import { env } from "./env";
+import { checkArchiveUploadTools } from "./lib/archive-upload";
 import { initLogger, shutdownLogger } from "./logger";
 import { authMiddleware } from "./middleware/auth";
 import { authRoute } from "./routes/auth";
@@ -20,6 +21,10 @@ import { teamChatRoute } from "./routes/team-chat";
 import { teamRoute } from "./routes/team";
 
 initLogger();
+const archiveToolCheck = await checkArchiveUploadTools();
+if (!archiveToolCheck.ok) {
+    logWarn("archive upload extraction tools are missing", { missingTools: archiveToolCheck.missing });
+}
 const legacyModelBootstrap = await bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET });
 
 const trustedOrigins =

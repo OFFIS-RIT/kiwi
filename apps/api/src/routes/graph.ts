@@ -12,6 +12,7 @@ import { deleteGraphFilesSpec } from "@kiwi/worker/delete-graph-files-spec";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
 import { env } from "../env";
 import { chunk } from "../lib/array";
+import { expandArchiveUploadFiles } from "../lib/archive-upload";
 import { collectGraphClosure } from "../lib/graph";
 import { listAccessibleGraphs } from "../lib/graph-list";
 import { cancelActiveFileProcessingWorkflowRuns, cancelActiveGraphWorkflowRuns } from "../lib/workflow-cancellation";
@@ -62,6 +63,20 @@ type NewGraphOwner =
           ownerMode: "graph";
           graphId: string;
       };
+
+function archiveUploadResponse(
+    statusFn: (code: number, body: unknown) => unknown,
+    expanded: { ok: false; kind: "unsupported" | "limit"; fileName: string; message: string }
+) {
+    if (expanded.kind === "limit") {
+        return statusFn(
+            413,
+            errorResponse(`${expanded.fileName}: ${expanded.message}`, API_ERROR_CODES.UPLOAD_LIMIT_EXCEEDED)
+        );
+    }
+
+    return unsupportedUploadResponse(statusFn, expanded);
+}
 
 async function getGraphOwnerModelOrganizationId(owner: NewGraphOwner) {
     if (owner.ownerMode !== "graph") {
@@ -230,7 +245,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
 
             const owner = ownerResult.value;
             const ownerMode = owner.ownerMode;
-            const filesWithChecksums = await uniqueFilesByChecksum(files);
+            const expanded = await expandArchiveUploadFiles(files);
+            if (!expanded.ok) {
+                return archiveUploadResponse(status, expanded);
+            }
+
+            const filesWithChecksums = await uniqueFilesByChecksum(expanded.files);
             const supportedUpload = inferSupportedUploadedFiles(filesWithChecksums);
             if (!supportedUpload.ok) {
                 return unsupportedUploadResponse(status, supportedUpload);
@@ -534,7 +554,12 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            const uniqueUploadedFiles = await uniqueFilesByChecksum(files);
+            const expanded = await expandArchiveUploadFiles(files);
+            if (!expanded.ok) {
+                return archiveUploadResponse(status, expanded);
+            }
+
+            const uniqueUploadedFiles = await uniqueFilesByChecksum(expanded.files);
             if (uniqueUploadedFiles.length === 0) {
                 return status(200, {
                     status: "success",
