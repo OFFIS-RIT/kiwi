@@ -7210,6 +7210,23 @@
     {
       "nameExplicit": true,
       "columns": [
+        "repository_binding_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "repository_graph_bindings",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "files_repository_binding_id_repository_graph_bindings_id_fk",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "files"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
         "created_by_user_id"
       ],
       "schemaTo": "public",
