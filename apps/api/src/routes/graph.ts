@@ -627,17 +627,18 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             }
             const repositories = repositoriesResult.value;
 
-            const seenSnapshotChecksums = new Set<string>();
+            const seenSnapshotFiles = new Set<string>();
             const repositorySources: RepositoryUploadSource[] = [];
 
             for (const repository of repositories) {
                 for (const file of repository.files) {
                     const checksum = await contentChecksum(file.content);
-                    if (seenSnapshotChecksums.has(checksum)) {
+                    const snapshotFileKey = `${repository.url}:${checksum}`;
+                    if (seenSnapshotFiles.has(snapshotFileKey)) {
                         continue;
                     }
 
-                    seenSnapshotChecksums.add(checksum);
+                    seenSnapshotFiles.add(snapshotFileKey);
                     repositorySources.push({ repository, file, checksum });
                 }
             }
@@ -800,7 +801,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     graphId: existingGraph.id,
                     fileIds: result.addedFiles.map((file) => file.id),
                     processRunId: result.processRunId,
-                    code: { kind: "repository" },
+                    code: { kind: "repository", retiredFileIds: result.supersededFileIds },
                 });
 
                 return status(200, {

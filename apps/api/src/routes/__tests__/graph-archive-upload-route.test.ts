@@ -7,7 +7,7 @@ const workflowInputs: Array<{
     graphId: string;
     fileIds: string[];
     processRunId: string;
-    code?: { kind: "repository" };
+    code?: { kind: "repository"; retiredFileIds?: string[] };
 }> = [];
 const loadedUrls: string[] = [];
 const insertedFileValues: Array<{
@@ -22,6 +22,7 @@ const insertedFileValues: Array<{
     checksum?: string;
 }> = [];
 const existingChecksumRows: Array<{ checksum: string }> = [];
+const supersededFileIds: string[] = [];
 let repositoryLoadMode: "success" | "limit-error" | "git-error" = "success";
 
 class RepositoryUrlError extends Error {
@@ -154,9 +155,10 @@ const transactionDb = {
         }),
     }),
     update: () => ({
-        set: () => ({
+        set: (values: Record<string, unknown>) => ({
             where: () => ({
-                returning: () => [existingGraph],
+                returning: () =>
+                    values.deleted === true ? supersededFileIds.map((id) => ({ id })) : [existingGraph],
             }),
         }),
     }),
@@ -267,15 +269,20 @@ mock.module("../../lib/repository-url", () => ({
         repositoryUrl: string;
         commitSha: string;
         path: string;
-    }) =>
-        repositoryUrl === "https://github.com/acme/widgets.git"
-            ? {
-                  provider: "github",
-                  rawUrl: `https://raw.githubusercontent.com/acme/widgets/${commitSha}/${path}`,
-                  htmlUrl: `https://github.com/acme/widgets/blob/${commitSha}/${path}`,
-                  key: `external:github:acme/widgets@${commitSha}:${path}`,
-              }
-            : null,
+    }) => {
+        const match = repositoryUrl.match(/^https:\/\/github\.com\/acme\/([^/]+)\.git$/);
+        if (!match) {
+            return null;
+        }
+
+        const repositoryName = match[1];
+        return {
+            provider: "github",
+            rawUrl: `https://raw.githubusercontent.com/acme/${repositoryName}/${commitSha}/${path}`,
+            htmlUrl: `https://github.com/acme/${repositoryName}/blob/${commitSha}/${path}`,
+            key: `external:github:acme/${repositoryName}@${commitSha}:${path}`,
+        };
+    },
     loadRepositoryFromUrl: async (url: string) => {
         loadedUrls.push(url);
         if (repositoryLoadMode === "limit-error") {
@@ -287,22 +294,32 @@ mock.module("../../lib/repository-url", () => ({
             });
         }
 
+        const repositoryName = url.includes("tools") ? "tools" : "widgets";
         return {
-            url: "https://github.com/acme/widgets.git",
-            name: "widgets",
+            url: `https://github.com/acme/${repositoryName}.git`,
+            name: repositoryName,
             commitSha: "commit-1",
-            files: [
-                {
-                    path: "src/index.ts",
-                    content: "import { helper } from './helper';\nexport function main() { return helper(); }\n",
-                    size: 75,
-                },
-                {
-                    path: "src/helper.ts",
-                    content: "export function helper() { return 1; }\n",
-                    size: 38,
-                },
-            ],
+            files:
+                repositoryName === "tools"
+                    ? [
+                          {
+                              path: "src/index.ts",
+                              content: "import { helper } from './helper';\nexport function main() { return helper(); }\n",
+                              size: 75,
+                          },
+                      ]
+                    : [
+                          {
+                              path: "src/index.ts",
+                              content: "import { helper } from './helper';\nexport function main() { return helper(); }\n",
+                              size: 75,
+                          },
+                          {
+                              path: "src/helper.ts",
+                              content: "export function helper() { return 1; }\n",
+                              size: 38,
+                          },
+                      ],
         };
     },
 }));
@@ -365,6 +382,7 @@ describe("graph route archive uploads", () => {
         loadedUrls.length = 0;
         insertedFileValues.length = 0;
         existingChecksumRows.length = 0;
+        supersededFileIds.length = 0;
         archiveExpansionMode = "success";
         repositoryLoadMode = "success";
         uploadModelMode = "success";
@@ -532,8 +550,48 @@ describe("graph route archive uploads", () => {
                 graphId: "graph-1",
                 fileIds: body.data.addedFiles.map((file: { id: string }) => file.id),
                 processRunId: "process-run-1",
-                code: { kind: "repository" },
+                code: { kind: "repository", retiredFileIds: [] },
             },
+        ]);
+    });
+
+    test("passes superseded repository file ids to the processing workflow", async () => {
+        supersededFileIds.push("old-file-1", "old-file-2");
+
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/urls", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ urls: ["https://github.com/acme/widgets"] }),
+            })
+        );
+
+        expect(response.status).toBe(200);
+        expect(workflowInputs).toHaveLength(1);
+        expect(workflowInputs[0]?.code).toEqual({
+            kind: "repository",
+            retiredFileIds: ["old-file-1", "old-file-2"],
+        });
+    });
+
+    test("keeps identical repository snapshot content once per repository", async () => {
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/urls", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    urls: ["https://github.com/acme/widgets", "https://github.com/acme/tools"],
+                }),
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body.status).toBe("success");
+        expect(insertedFileValues.map((file) => file.name)).toEqual([
+            "widgets/src/index.ts",
+            "widgets/src/helper.ts",
+            "tools/src/index.ts",
         ]);
     });
 
@@ -580,7 +638,7 @@ describe("graph route archive uploads", () => {
             "widgets/src/helper.ts",
         ]);
         expect(uploadedFiles).toEqual([]);
-        expect(workflowInputs[0]?.code).toEqual({ kind: "repository" });
+        expect(workflowInputs[0]?.code).toEqual({ kind: "repository", retiredFileIds: [] });
     });
 
     test("still enqueues repository workflow when every URL file matches an older checksum", async () => {
