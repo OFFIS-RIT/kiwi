@@ -7842,14 +7842,77 @@
     {
       "nameExplicit": true,
       "columns": [
-        "connector_id",
-        "provider_installation_id",
-        "organization_id",
-        "team_id"
+        {
+          "value": "connector_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "provider_installation_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
       ],
-      "nullsNotDistinct": false,
-      "name": "connector_installations_provider_scope_unique",
-      "entityType": "uniques",
+      "isUnique": true,
+      "where": "\"team_id\" IS NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "connector_installations_org_scope_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "connector_installations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "connector_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "provider_installation_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "team_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"team_id\" IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "connector_installations_team_scope_unique",
+      "entityType": "indexes",
       "schema": "public",
       "table": "connector_installations"
     },
@@ -8282,8 +8345,7 @@
       "entityType": "fks",
       "schema": "public",
       "table": "connector_webhook_events"
-    }
-    ,
+    },
     {
       "nameExplicit": true,
       "columns": [

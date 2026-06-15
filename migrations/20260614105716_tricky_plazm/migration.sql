@@ -51,7 +51,6 @@ CREATE TABLE IF NOT EXISTS "connector_installations" (
     CONSTRAINT "connector_installations_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade,
     CONSTRAINT "connector_installations_team_id_team_id_fk" FOREIGN KEY ("team_id") REFERENCES "public"."team"("id") ON DELETE cascade,
     CONSTRAINT "connector_installations_installed_by_user_id_user_id_fk" FOREIGN KEY ("installed_by_user_id") REFERENCES "public"."user"("id") ON DELETE set null,
-    CONSTRAINT "connector_installations_provider_scope_unique" UNIQUE("connector_id", "provider_installation_id", "organization_id", "team_id"),
     CONSTRAINT "connector_installations_provider_check" CHECK ("connector_installations"."provider" in ('github', 'gitlab')),
     CONSTRAINT "connector_installations_status_check" CHECK ("connector_installations"."status" in ('active', 'disabled')),
     CONSTRAINT "connector_installations_owner_scope_check" CHECK (("organization_id" is not null and "team_id" is null) or ("organization_id" is not null and "team_id" is not null))
@@ -103,6 +102,8 @@ ALTER TABLE "files" DROP CONSTRAINT IF EXISTS "files_repository_binding_id_repos
 ALTER TABLE "files" ADD CONSTRAINT "files_repository_binding_id_repository_graph_bindings_id_fk" FOREIGN KEY ("repository_binding_id") REFERENCES "public"."repository_graph_bindings"("id") ON DELETE set null;
 
 CREATE INDEX IF NOT EXISTS "connectors_provider_status_idx" ON "connectors" ("provider", "status");
+CREATE UNIQUE INDEX IF NOT EXISTS "connector_installations_org_scope_unique" ON "connector_installations" ("connector_id", "provider_installation_id", "organization_id") WHERE "team_id" IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "connector_installations_team_scope_unique" ON "connector_installations" ("connector_id", "provider_installation_id", "organization_id", "team_id") WHERE "team_id" IS NOT NULL;
 CREATE INDEX IF NOT EXISTS "connector_installations_connector_status_idx" ON "connector_installations" ("connector_id", "status");
 CREATE INDEX IF NOT EXISTS "connector_installations_organization_idx" ON "connector_installations" ("organization_id");
 CREATE INDEX IF NOT EXISTS "connector_installations_team_idx" ON "connector_installations" ("team_id");

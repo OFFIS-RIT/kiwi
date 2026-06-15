@@ -4,6 +4,7 @@ import {
     createGitHubAppJwt,
     createGitHubClient,
     createGitHubInstallationToken,
+    getGitHubInstallationAccount,
     loadGitHubRepositorySnapshot,
     normalizeGitHubWebhookEvent,
     verifyGitHubWebhookSignature,
@@ -45,6 +46,34 @@ describe("GitHub connector", () => {
         expect(calls[0]?.method).toBe("POST");
         expect(String((calls[0]?.headers as Record<string, string>).authorization)).toMatch(/^Bearer /);
         expect(calls[0]?.body).toBe(JSON.stringify({ permissions: { contents: "read", metadata: "read" } }));
+    });
+
+    test("loads GitHub installation account metadata", async () => {
+        const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+        const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+        const calls: string[] = [];
+        const fetchImpl: FetchLike = async (input) => {
+            calls.push(String(input));
+            return jsonResponse({
+                account: { login: "acme", type: "Organization" },
+                repository_selection: "selected",
+            });
+        };
+
+        await expect(
+            getGitHubInstallationAccount({
+                credentials: { provider: "github", appId: "42", privateKeyPem },
+                installationId: "99",
+                apiBaseUrl: "https://github.test",
+                fetch: fetchImpl,
+                now: new Date("2026-01-01T00:00:00Z"),
+            })
+        ).resolves.toEqual({
+            login: "acme",
+            type: "organization",
+            repositorySelection: "selected",
+        });
+        expect(calls).toEqual(["https://github.test/app/installations/99"]);
     });
 
     test("lists repositories and branches with pagination", async () => {

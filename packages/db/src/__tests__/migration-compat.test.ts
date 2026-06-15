@@ -16,10 +16,7 @@ const codeGraphMigration = new URL(
     "../../../../migrations/20260613184716_sturdy_triton/migration.sql",
     import.meta.url
 );
-const codeGraphSnapshot = new URL(
-    "../../../../migrations/20260613184716_sturdy_triton/snapshot.json",
-    import.meta.url
-);
+const codeGraphSnapshot = new URL("../../../../migrations/20260613184716_sturdy_triton/snapshot.json", import.meta.url);
 const externalFileStorageMigration = new URL(
     "../../../../migrations/20260613201908_mature_emma_frost/migration.sql",
     import.meta.url
@@ -37,10 +34,7 @@ const sourceValiditySnapshot = new URL(
     import.meta.url
 );
 const saveGraphModule = new URL("../../../../apps/worker/lib/save-graph.ts", import.meta.url);
-const regenerateDescriptionsModule = new URL(
-    "../../../../apps/worker/lib/regenerate-descriptions.ts",
-    import.meta.url
-);
+const regenerateDescriptionsModule = new URL("../../../../apps/worker/lib/regenerate-descriptions.ts", import.meta.url);
 const sourceReferenceModule = new URL("../../../../apps/api/src/lib/source-reference.ts", import.meta.url);
 
 describe("source reference migration compatibility", () => {
@@ -168,8 +162,12 @@ describe("source validity migration compatibility", () => {
         const snapshot = (await Bun.file(sourceValiditySnapshot).json()) as {
             ddl: Array<Record<string, unknown>>;
         };
-        const sourceColumns = snapshot.ddl.filter((entry) => entry.entityType === "columns" && entry.table === "sources");
-        const sourceIndexes = snapshot.ddl.filter((entry) => entry.entityType === "indexes" && entry.table === "sources");
+        const sourceColumns = snapshot.ddl.filter(
+            (entry) => entry.entityType === "columns" && entry.table === "sources"
+        );
+        const sourceIndexes = snapshot.ddl.filter(
+            (entry) => entry.entityType === "indexes" && entry.table === "sources"
+        );
         const connectorTables = snapshot.ddl.filter((entry) => entry.entityType === "tables");
         const connectorColumns = snapshot.ddl.filter((entry) => entry.entityType === "columns");
         const connectorIndexes = snapshot.ddl.filter((entry) => entry.entityType === "indexes");
@@ -206,12 +204,28 @@ describe("source validity migration compatibility", () => {
         );
         expect(connectorIndexes).toContainEqual(expect.objectContaining({ name: "connectors_provider_status_idx" }));
         expect(connectorIndexes).toContainEqual(
+            expect.objectContaining({
+                name: "connector_installations_org_scope_unique",
+                isUnique: true,
+                where: '"team_id" IS NULL',
+            })
+        );
+        expect(connectorIndexes).toContainEqual(
+            expect.objectContaining({
+                name: "connector_installations_team_scope_unique",
+                isUnique: true,
+                where: '"team_id" IS NOT NULL',
+            })
+        );
+        expect(connectorIndexes).toContainEqual(
             expect.objectContaining({ name: "repository_graph_bindings_graph_unique", isUnique: true })
         );
         expect(connectorIndexes).toContainEqual(
             expect.objectContaining({ name: "connector_webhook_events_delivery_unique", isUnique: true })
         );
-        expect(connectorIndexes).toContainEqual(expect.objectContaining({ name: "files_repository_binding_active_idx" }));
+        expect(connectorIndexes).toContainEqual(
+            expect.objectContaining({ name: "files_repository_binding_active_idx" })
+        );
         expect(connectorChecks).toContainEqual(expect.objectContaining({ name: "connectors_provider_check" }));
         expect(connectorChecks).toContainEqual(
             expect.objectContaining({ name: "repository_graph_bindings_sync_status_check" })
@@ -234,6 +248,11 @@ describe("source validity migration compatibility", () => {
         expect(sql).toContain('CREATE TABLE IF NOT EXISTS "connector_webhook_events"');
         expect(sql).toContain('ADD COLUMN IF NOT EXISTS "repository_binding_id" text');
         expect(sql).toContain('ADD CONSTRAINT "files_repository_binding_id_repository_graph_bindings_id_fk"');
+        expect(sql).not.toContain('CONSTRAINT "connector_installations_provider_scope_unique"');
+        expect(sql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS "connector_installations_org_scope_unique"');
+        expect(sql).toContain('WHERE "team_id" IS NULL');
+        expect(sql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS "connector_installations_team_scope_unique"');
+        expect(sql).toContain('WHERE "team_id" IS NOT NULL');
         expect(sql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS "connector_webhook_events_delivery_unique"');
         expect(sql).toContain("\"external_provider\" IS NULL OR \"external_provider\" in ('github', 'gitlab')");
     });
@@ -242,7 +261,7 @@ describe("source validity migration compatibility", () => {
 
         expect(source).toContain("SET valid_until = NOW()");
         expect(source).toContain("old_file.file_type = 'code'");
-        expect(source).toContain("currentSourceSql(\"old_source\")");
+        expect(source).toContain('currentSourceSql("old_source")');
         expect(source).not.toMatch(/DELETE\s+FROM\s+sources\s+source/i);
     });
 

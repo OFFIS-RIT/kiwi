@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, index, pgTable, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, check, index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { ulid } from "ulid";
 import { organizationTable, teamTable, userTable } from "./auth";
 import { graphTable } from "./graph";
@@ -88,12 +88,12 @@ export const connectorInstallationsTable = pgTable.withRLS(
             .$onUpdate(() => sql`NOW()`),
     },
     (table) => [
-        unique("connector_installations_provider_scope_unique").on(
-            table.connectorId,
-            table.providerInstallationId,
-            table.organizationId,
-            table.teamId
-        ),
+        uniqueIndex("connector_installations_org_scope_unique")
+            .on(table.connectorId, table.providerInstallationId, table.organizationId)
+            .where(sql`${table.teamId} is null`),
+        uniqueIndex("connector_installations_team_scope_unique")
+            .on(table.connectorId, table.providerInstallationId, table.organizationId, table.teamId)
+            .where(sql`${table.teamId} is not null`),
         index("connector_installations_connector_status_idx").on(table.connectorId, table.status),
         index("connector_installations_organization_idx").on(table.organizationId),
         index("connector_installations_team_idx").on(table.teamId),

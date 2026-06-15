@@ -15,6 +15,12 @@ export type ProviderBranch = {
     commitSha: string;
 };
 
+export type ProviderInstallationAccount = {
+    login: string;
+    type: "user" | "organization" | "group" | null;
+    repositorySelection: "all" | "selected" | "unknown";
+};
+
 export type ProviderCodeFile = {
     path: string;
     size: number;

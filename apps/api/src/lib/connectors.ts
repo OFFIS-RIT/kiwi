@@ -7,11 +7,13 @@ import {
     decryptConnectorSecret,
     encryptConnectorCredentials,
     encryptConnectorSecret,
+    getGitHubInstallationAccount,
     type ConnectorProvider,
     type ConnectorSecretPayload,
     type GitHubConnectorCredentials,
     type GitLabConnectorCredentials,
     type GitLabInstallationCredentials,
+    type ProviderInstallationAccount,
     type ProviderBranch,
     type ProviderRepository,
     type ProviderRepositoryClient,
@@ -112,7 +114,11 @@ export function signConnectorState(state: Omit<ConnectorState, "createdAt">): st
     return `${STATE_VERSION}.${payload}.${signature}`;
 }
 
-export function verifyConnectorState(value: string, purpose: ConnectorState["purpose"], userId?: string): ConnectorState | null {
+export function verifyConnectorState(
+    value: string,
+    purpose: ConnectorState["purpose"],
+    userId?: string
+): ConnectorState | null {
     const [version, payload, signature] = value.split(".");
     if (version !== STATE_VERSION || !payload || !signature) {
         return null;
@@ -184,7 +190,10 @@ export async function exchangeGitHubManifestCode(code: string) {
     };
 }
 
-export async function createProviderClient(connector: ConnectorRow, installation: InstallationRow): Promise<ProviderRepositoryClient> {
+export async function createProviderClient(
+    connector: ConnectorRow,
+    installation: InstallationRow
+): Promise<ProviderRepositoryClient> {
     const credentials = decryptConnectorCredentials(connector.encryptedCredentials, env.AUTH_SECRET);
     if (connector.provider === "github") {
         if (!isGitHubConnectorCredentials(credentials)) {
@@ -212,7 +221,25 @@ export async function createProviderClient(connector: ConnectorRow, installation
     });
 }
 
-export async function listProviderRepositories(connector: ConnectorRow, installation: InstallationRow): Promise<ProviderRepository[]> {
+export async function getGitHubConnectorInstallationAccount(
+    connector: ConnectorRow,
+    installationId: string
+): Promise<ProviderInstallationAccount> {
+    const credentials = decryptConnectorCredentials(connector.encryptedCredentials, env.AUTH_SECRET);
+    if (connector.provider !== "github" || !isGitHubConnectorCredentials(credentials)) {
+        throw new Error("Invalid connector credentials");
+    }
+
+    return getGitHubInstallationAccount({
+        credentials,
+        installationId,
+    });
+}
+
+export async function listProviderRepositories(
+    connector: ConnectorRow,
+    installation: InstallationRow
+): Promise<ProviderRepository[]> {
     return (await createProviderClient(connector, installation)).listRepositories();
 }
 
@@ -223,7 +250,9 @@ export async function listProviderBranches(
 ): Promise<ProviderBranch[]> {
     const client = await createProviderClient(connector, installation);
     const repositories = await client.listRepositories();
-    const repository = repositories.find((candidate) => candidate.id === repositoryId || candidate.fullName === repositoryId);
+    const repository = repositories.find(
+        (candidate) => candidate.id === repositoryId || candidate.fullName === repositoryId
+    );
     if (!repository) {
         throw new Error("Repository not found");
     }

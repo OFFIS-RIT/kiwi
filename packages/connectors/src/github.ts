@@ -6,6 +6,7 @@ import type {
     NormalizedWebhookEvent,
     ProviderBranch,
     ProviderCodeFile,
+    ProviderInstallationAccount,
     ProviderRepository,
     ProviderRepositoryClient,
     ProviderRepositoryDelta,
@@ -94,6 +95,37 @@ export async function createGitHubInstallationToken(options: InstallationTokenOp
         throw new ConnectorProviderError("auth", "GitHub installation token request failed");
     }
     return { token: json.token, expiresAt: json.expires_at };
+}
+
+export async function getGitHubInstallationAccount(
+    options: InstallationTokenOptions
+): Promise<ProviderInstallationAccount> {
+    const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
+    const response = await (options.fetch ?? fetch)(
+        `${apiBaseUrl}/app/installations/${encodeURIComponent(options.installationId)}`,
+        {
+            headers: githubHeaders(
+                createGitHubAppJwt({
+                    appId: options.credentials.appId,
+                    privateKeyPem: options.credentials.privateKeyPem,
+                    now: options.now,
+                })
+            ),
+        }
+    );
+    const json = await readJson(response);
+    if (!response.ok || !isObject(json) || !isObject(json.account) || typeof json.account.login !== "string") {
+        throw new ConnectorProviderError("provider", "GitHub installation response is invalid");
+    }
+
+    return {
+        login: json.account.login,
+        type: gitHubAccountType(json.account.type),
+        repositorySelection:
+            json.repository_selection === "all" || json.repository_selection === "selected"
+                ? json.repository_selection
+                : "unknown",
+    };
 }
 
 export function createGitHubClient(options: GitHubClientOptions): ProviderRepositoryClient {
@@ -458,6 +490,16 @@ function splitFullName(fullName: string): [string, string] {
 
 function encodePathSegments(value: string): string {
     return value.split("/").map(encodeURIComponent).join("/");
+}
+
+function gitHubAccountType(value: unknown): ProviderInstallationAccount["type"] {
+    if (value === "User") {
+        return "user";
+    }
+    if (value === "Organization") {
+        return "organization";
+    }
+    return null;
 }
 
 async function readJson(response: Response): Promise<unknown> {

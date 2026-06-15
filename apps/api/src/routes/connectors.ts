@@ -9,7 +9,7 @@ import {
 import { graphTable } from "@kiwi/db/tables/graph";
 import { syncRepositoryGraphSpec } from "@kiwi/worker/sync-repository-graph-spec";
 import { Result } from "better-result";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import Elysia from "elysia";
 import z from "zod";
 import { assertCanCreateTeamGraph, assertCanCreateTopLevelGraph } from "../lib/graph-access";
@@ -24,6 +24,7 @@ import {
     encryptCredentials,
     encryptSecret,
     exchangeGitHubManifestCode,
+    getGitHubConnectorInstallationAccount,
     listProviderBranches,
     listProviderRepositories,
     signConnectorState,
@@ -99,7 +100,10 @@ function mapConnectorError(status: RouteStatus, error: unknown) {
     if (error.message === API_ERROR_CODES.GRAPH_NOT_FOUND) {
         return status(404, errorResponse("Not found", API_ERROR_CODES.GRAPH_NOT_FOUND));
     }
-    return status(400, errorResponse(error.message || "Invalid connector request", API_ERROR_CODES.INVALID_CHAT_REQUEST));
+    return status(
+        400,
+        errorResponse(error.message || "Invalid connector request", API_ERROR_CODES.INVALID_CHAT_REQUEST)
+    );
 }
 
 async function runConnectorAction<T>(options: {
@@ -155,7 +159,9 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
             status,
             action: async (currentUser) => {
                 const rows = await db.select().from(connectorsTable).orderBy(asc(connectorsTable.name));
-                return rows.filter((row) => currentUser.isSystemAdmin || row.status === "active").map(toPublicConnector);
+                return rows
+                    .filter((row) => currentUser.isSystemAdmin || row.status === "active")
+                    .map(toPublicConnector);
             },
         })
     )
@@ -256,7 +262,9 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                         .set({
                             ...(body.name ? { name: body.name } : {}),
                             ...(body.status ? { status: body.status } : {}),
-                            ...(body.webhookSecret ? { webhookSecretEncrypted: encryptSecret(body.webhookSecret) } : {}),
+                            ...(body.webhookSecret
+                                ? { webhookSecretEncrypted: encryptSecret(body.webhookSecret) }
+                                : {}),
                         })
                         .where(eq(connectorsTable.id, params.id))
                         .returning();
@@ -318,27 +326,48 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                     } else {
                         await assertCanCreateTopLevelGraph(currentUser);
                     }
+                    const account = await getGitHubConnectorInstallationAccount(connector, query.installation_id);
+                    const ownerOrganizationId = state.organizationId ?? currentUser.activeOrganizationId;
+                    const conflictTarget = state.teamId
+                        ? {
+                              target: [
+                                  connectorInstallationsTable.connectorId,
+                                  connectorInstallationsTable.providerInstallationId,
+                                  connectorInstallationsTable.organizationId,
+                                  connectorInstallationsTable.teamId,
+                              ],
+                              targetWhere: sql`${connectorInstallationsTable.teamId} is not null`,
+                          }
+                        : {
+                              target: [
+                                  connectorInstallationsTable.connectorId,
+                                  connectorInstallationsTable.providerInstallationId,
+                                  connectorInstallationsTable.organizationId,
+                              ],
+                              targetWhere: sql`${connectorInstallationsTable.teamId} is null`,
+                          };
                     const [installation] = await db
                         .insert(connectorInstallationsTable)
                         .values({
                             connectorId: connector.id,
                             provider: "github",
                             providerInstallationId: query.installation_id,
-                            providerAccountLogin: query.installation_id,
-                            providerAccountType: "organization",
-                            organizationId: state.organizationId ?? currentUser.activeOrganizationId,
+                            providerAccountLogin: account.login,
+                            providerAccountType: account.type,
+                            organizationId: ownerOrganizationId,
                             teamId: state.teamId ?? null,
                             installedByUserId: currentUser.id,
-                            repositorySelection: query.setup_action ?? "unknown",
+                            repositorySelection: account.repositorySelection,
                         })
                         .onConflictDoUpdate({
-                            target: [
-                                connectorInstallationsTable.connectorId,
-                                connectorInstallationsTable.providerInstallationId,
-                                connectorInstallationsTable.organizationId,
-                                connectorInstallationsTable.teamId,
-                            ],
-                            set: { status: "active", installedByUserId: currentUser.id },
+                            ...conflictTarget,
+                            set: {
+                                providerAccountLogin: account.login,
+                                providerAccountType: account.type,
+                                repositorySelection: account.repositorySelection,
+                                status: "active",
+                                installedByUserId: currentUser.id,
+                            },
                         })
                         .returning();
                     return toPublicInstallation(installation);
@@ -381,7 +410,10 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                 status,
                 action: async (currentUser) => {
                     const installation = await assertCanUseInstallation(currentUser, query.installationId);
-                    const connector = await requireActiveConnector(params.id, installation.provider as ConnectorProvider);
+                    const connector = await requireActiveConnector(
+                        params.id,
+                        installation.provider as ConnectorProvider
+                    );
                     const repositories = await listProviderRepositories(connector, installation);
                     return repositories.map((repository) => ({
                         id: repository.id,
@@ -404,7 +436,10 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                 status,
                 action: async (currentUser) => {
                     const installation = await assertCanUseInstallation(currentUser, query.installationId);
-                    const connector = await requireActiveConnector(params.id, installation.provider as ConnectorProvider);
+                    const connector = await requireActiveConnector(
+                        params.id,
+                        installation.provider as ConnectorProvider
+                    );
                     const branches = await listProviderBranches(connector, installation, params.repositoryId);
                     return branches.map((branch) => ({ name: branch.name, commitSha: branch.commitSha }));
                 },
@@ -431,9 +466,14 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                         await assertCanCreateTopLevelGraph(currentUser);
                     }
 
-                    const connector = await requireActiveConnector(params.id, installation.provider as ConnectorProvider);
+                    const connector = await requireActiveConnector(
+                        params.id,
+                        installation.provider as ConnectorProvider
+                    );
                     const repositories = await listProviderRepositories(connector, installation);
-                    const repository = repositories.find((candidate) => repositoryMatches(candidate, body.repositoryId));
+                    const repository = repositories.find((candidate) =>
+                        repositoryMatches(candidate, body.repositoryId)
+                    );
                     if (!repository) {
                         throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
                     }
@@ -524,7 +564,10 @@ export const repositoryGraphBindingRoute = new Elysia({ prefix: "/repository-gra
                     .set({ syncStatus: "pending", syncErrorCode: null })
                     .where(eq(repositoryGraphBindingsTable.id, binding.id))
                     .returning();
-                const handle = await ow.runWorkflow(syncRepositoryGraphSpec, { bindingId: binding.id, reason: "manual" });
+                const handle = await ow.runWorkflow(syncRepositoryGraphSpec, {
+                    bindingId: binding.id,
+                    reason: "manual",
+                });
                 return {
                     binding: toBindingResponse(updatedBinding ?? binding),
                     workflowRunId: handle.workflowRun.id,
