@@ -91,3 +91,6 @@ backend/server.exe
 
 # turbo
 .turbo
+
+# AI
+./plans
