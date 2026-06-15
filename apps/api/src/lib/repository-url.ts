@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { isSupportedCodePath } from "@kiwi/graph/code/file-path";
@@ -168,7 +168,7 @@ export async function loadRepositoryFromUrl(input: string): Promise<LoadedReposi
         const commitSha = (await runGit(["rev-parse", "HEAD"], repoPath)).trim();
         const listedFiles = (await runGit(["ls-files", "-z"], repoPath)).split("\0").filter(Boolean);
         const files: RepositorySourceFile[] = [];
-        const repoRoot = path.resolve(repoPath);
+        const repoRoot = await realpath(repoPath);
         let totalBytes = 0;
 
         for (const filePath of listedFiles) {
@@ -177,11 +177,16 @@ export async function loadRepositoryFromUrl(input: string): Promise<LoadedReposi
             }
 
             const absolutePath = path.resolve(repoPath, filePath);
-            if (!absolutePath.startsWith(`${repoRoot}${path.sep}`)) {
+            if (!isPathInsideRoot(repoRoot, absolutePath)) {
                 continue;
             }
 
-            const info = await stat(absolutePath);
+            const realFilePath = await realpath(absolutePath);
+            if (!isPathInsideRoot(repoRoot, realFilePath)) {
+                continue;
+            }
+
+            const info = await stat(realFilePath);
             if (!info.isFile() || info.size > MAX_REPOSITORY_CODE_FILE_BYTES) {
                 continue;
             }
@@ -194,7 +199,7 @@ export async function loadRepositoryFromUrl(input: string): Promise<LoadedReposi
                 throw new RepositoryUrlError("limit", "Repository contains too much supported code");
             }
 
-            const content = await readFile(absolutePath, "utf8");
+            const content = await readFile(realFilePath, "utf8");
             files.push({ path: filePath, content, size: info.size });
             totalBytes += info.size;
         }
@@ -208,6 +213,11 @@ export async function loadRepositoryFromUrl(input: string): Promise<LoadedReposi
     } finally {
         await rm(tempDir, { recursive: true, force: true });
     }
+}
+
+function isPathInsideRoot(root: string, target: string): boolean {
+    const relative = path.relative(root, target);
+    return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 function shouldLoadCodePath(filePath: string): boolean {
