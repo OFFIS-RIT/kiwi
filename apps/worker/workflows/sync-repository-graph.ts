@@ -26,9 +26,15 @@ import {
     connectorWebhookEventsTable,
     repositoryGraphBindingsTable,
 } from "@kiwi/db/tables/connectors";
-import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
+import {
+    filesTable,
+    graphTable,
+    processRunFilesTable,
+    processRunsTable,
+    type ProcessRunStatus,
+} from "@kiwi/db/tables/graph";
 import { serializeCodeFileMetadata } from "@kiwi/graph/code/metadata";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import { parseCodeFileMetadata } from "../lib/code-file-metadata";
 import { env } from "../env";
@@ -63,9 +69,12 @@ type IncrementalSyncPlan = {
     retiredFileIds: string[];
 };
 
+type ReusableProcessRunStatus = Exclude<ProcessRunStatus, "failed">;
+
 type InsertedRepositoryFiles = {
     fileIds: string[];
     processRunId: string;
+    processRunStatus: ReusableProcessRunStatus;
 };
 
 const NO_RETRY = { maximumAttempts: 1 } as const;
@@ -381,6 +390,115 @@ function orderedFilesByKey(rows: ReturnType<typeof fileRows>, files: InsertedFil
     return orderedFiles;
 }
 
+type ReusableProcessRun = {
+    id: string;
+    status: ReusableProcessRunStatus;
+};
+
+function isReusableProcessRunStatus(status: ProcessRunStatus): status is ReusableProcessRunStatus {
+    return status !== "failed";
+}
+
+function processRunStatusPriority(status: ReusableProcessRunStatus) {
+    switch (status) {
+        case "completed":
+            return 0;
+        case "started":
+            return 1;
+        case "pending":
+            return 2;
+    }
+}
+
+async function findReusableProcessRun(
+    tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    graphId: string,
+    fileIds: string[]
+): Promise<ReusableProcessRun | null> {
+    if (fileIds.length === 0) {
+        return null;
+    }
+
+    const matchingRunRows = await tx
+        .select({
+            id: processRunFilesTable.processRunId,
+            status: processRunsTable.status,
+            fileId: processRunFilesTable.fileId,
+        })
+        .from(processRunFilesTable)
+        .innerJoin(processRunsTable, eq(processRunFilesTable.processRunId, processRunsTable.id))
+        .where(
+            and(
+                eq(processRunsTable.graphId, graphId),
+                inArray(processRunsTable.status, ["pending", "started", "completed"]),
+                inArray(processRunFilesTable.fileId, fileIds)
+            )
+        );
+
+    const expectedFileIds = new Set(fileIds);
+    const candidates = new Map<string, ReusableProcessRun & { matchedFileIds: Set<string> }>();
+    for (const row of matchingRunRows) {
+        if (!isReusableProcessRunStatus(row.status)) {
+            continue;
+        }
+        const candidate = candidates.get(row.id);
+        if (candidate) {
+            candidate.matchedFileIds.add(row.fileId);
+        } else {
+            candidates.set(row.id, {
+                id: row.id,
+                status: row.status,
+                matchedFileIds: new Set([row.fileId]),
+            });
+        }
+    }
+
+    const completeCandidateIds = [...candidates.values()]
+        .filter((candidate) => candidate.matchedFileIds.size === expectedFileIds.size)
+        .map((candidate) => candidate.id);
+    if (completeCandidateIds.length === 0) {
+        return null;
+    }
+
+    const runFileRows = await tx
+        .select({ processRunId: processRunFilesTable.processRunId, fileId: processRunFilesTable.fileId })
+        .from(processRunFilesTable)
+        .where(inArray(processRunFilesTable.processRunId, completeCandidateIds));
+    const fileIdsByRun = new Map<string, Set<string>>();
+    for (const row of runFileRows) {
+        const runFileIds = fileIdsByRun.get(row.processRunId);
+        if (runFileIds) {
+            runFileIds.add(row.fileId);
+        } else {
+            fileIdsByRun.set(row.processRunId, new Set([row.fileId]));
+        }
+    }
+
+    const exactCandidates: ReusableProcessRun[] = [];
+    for (const candidateId of completeCandidateIds) {
+        const runFileIds = fileIdsByRun.get(candidateId);
+        if (!runFileIds || runFileIds.size !== expectedFileIds.size) {
+            continue;
+        }
+        let exact = true;
+        for (const fileId of runFileIds) {
+            if (!expectedFileIds.has(fileId)) {
+                exact = false;
+                break;
+            }
+        }
+        if (exact) {
+            const candidate = candidates.get(candidateId);
+            if (candidate) {
+                exactCandidates.push({ id: candidate.id, status: candidate.status });
+            }
+        }
+    }
+
+    exactCandidates.sort((left, right) => processRunStatusPriority(left.status) - processRunStatusPriority(right.status));
+    return exactCandidates[0] ?? null;
+}
+
 async function insertRepositoryFiles(
     row: BindingGraphRow,
     files: ProviderCodeFile[],
@@ -419,47 +537,37 @@ async function insertRepositoryFiles(
             throw new Error("Failed to insert all repository files");
         }
 
-        let processRunId: string | null = null;
+        const fileIds = committedFiles.map((file) => file.id);
         if (insertedFiles.length === 0) {
-            const existingProcessRuns = await tx
-                .select({ id: processRunFilesTable.processRunId })
-                .from(processRunFilesTable)
-                .innerJoin(processRunsTable, eq(processRunFilesTable.processRunId, processRunsTable.id))
-                .where(
-                    and(
-                        eq(processRunsTable.graphId, row.binding.graphId),
-                        ne(processRunsTable.status, "completed"),
-                        inArray(
-                            processRunFilesTable.fileId,
-                            committedFiles.map((file) => file.id)
-                        )
-                    )
-                );
-            processRunId = existingProcessRuns[0]?.id ?? null;
-        }
-
-        if (!processRunId) {
-            const [processRun] = await tx
-                .insert(processRunsTable)
-                .values({ graphId: row.binding.graphId, status: "pending" })
-                .returning({ id: processRunsTable.id });
-            if (!processRun) {
-                throw new Error("Failed to create process run");
+            const reusableProcessRun = await findReusableProcessRun(tx, row.binding.graphId, fileIds);
+            if (reusableProcessRun) {
+                return {
+                    fileIds,
+                    processRunId: reusableProcessRun.id,
+                    processRunStatus: reusableProcessRun.status,
+                };
             }
-            const newProcessRunId = processRun.id;
-            processRunId = newProcessRunId;
-
-            await tx.insert(processRunFilesTable).values(
-                committedFiles.map((file) => ({
-                    processRunId: newProcessRunId,
-                    fileId: file.id,
-                }))
-            );
         }
+
+        const [processRun] = await tx
+            .insert(processRunsTable)
+            .values({ graphId: row.binding.graphId, status: "pending" })
+            .returning({ id: processRunsTable.id });
+        if (!processRun) {
+            throw new Error("Failed to create process run");
+        }
+
+        await tx.insert(processRunFilesTable).values(
+            fileIds.map((fileId) => ({
+                processRunId: processRun.id,
+                fileId,
+            }))
+        );
 
         return {
-            fileIds: committedFiles.map((file) => file.id),
-            processRunId,
+            fileIds,
+            processRunId: processRun.id,
+            processRunStatus: "pending",
         };
     });
 }
@@ -534,23 +642,25 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
             const created = await step.run({ name: "commit-external-files" }, async () =>
                 insertRepositoryFiles(row, snapshot.files, commitSha)
             );
-            try {
-                await step.runWorkflow(processFilesSpec, {
-                    graphId: row.binding.graphId,
-                    fileIds: created.fileIds,
-                    processRunId: created.processRunId,
-                    code: { kind: "repository", retiredFileIds: [] },
-                });
-            } catch (error) {
-                await Promise.all(
-                    created.fileIds.map((fileId) =>
-                        step.runWorkflow(deleteFileSpec, {
-                            graphId: row.binding.graphId,
-                            fileId,
-                        })
-                    )
-                );
-                throw error;
+            if (created.processRunStatus !== "completed") {
+                try {
+                    await step.runWorkflow(processFilesSpec, {
+                        graphId: row.binding.graphId,
+                        fileIds: created.fileIds,
+                        processRunId: created.processRunId,
+                        code: { kind: "repository", retiredFileIds: [] },
+                    });
+                } catch (error) {
+                    await Promise.all(
+                        created.fileIds.map((fileId) =>
+                            step.runWorkflow(deleteFileSpec, {
+                                graphId: row.binding.graphId,
+                                fileId,
+                            })
+                        )
+                    );
+                    throw error;
+                }
             }
 
             await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
@@ -575,23 +685,25 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
                 const created = await step.run({ name: "commit-external-files" }, async () =>
                     insertRepositoryFiles(row, snapshot.files, commitSha)
                 );
-                try {
-                    await step.runWorkflow(processFilesSpec, {
-                        graphId: row.binding.graphId,
-                        fileIds: created.fileIds,
-                        processRunId: created.processRunId,
-                        code: { kind: "repository", retiredFileIds },
-                    });
-                } catch (error) {
-                    await Promise.all(
-                        created.fileIds.map((fileId) =>
-                            step.runWorkflow(deleteFileSpec, {
-                                graphId: row.binding.graphId,
-                                fileId,
-                            })
-                        )
-                    );
-                    throw error;
+                if (created.processRunStatus !== "completed") {
+                    try {
+                        await step.runWorkflow(processFilesSpec, {
+                            graphId: row.binding.graphId,
+                            fileIds: created.fileIds,
+                            processRunId: created.processRunId,
+                            code: { kind: "repository", retiredFileIds },
+                        });
+                    } catch (error) {
+                        await Promise.all(
+                            created.fileIds.map((fileId) =>
+                                step.runWorkflow(deleteFileSpec, {
+                                    graphId: row.binding.graphId,
+                                    fileId,
+                                })
+                            )
+                        );
+                        throw error;
+                    }
                 }
 
                 await step.run({ name: "mark-binding-synced" }, async () =>
@@ -628,23 +740,25 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
             const created = await step.run({ name: "commit-external-files" }, async () =>
                 insertRepositoryFiles(row, changedFiles, commitSha)
             );
-            try {
-                await step.runWorkflow(processFilesSpec, {
-                    graphId: row.binding.graphId,
-                    fileIds: created.fileIds,
-                    processRunId: created.processRunId,
-                    code: { kind: "repository", retiredFileIds: plan.retiredFileIds },
-                });
-            } catch (error) {
-                await Promise.all(
-                    created.fileIds.map((fileId) =>
-                        step.runWorkflow(deleteFileSpec, {
-                            graphId: row.binding.graphId,
-                            fileId,
-                        })
-                    )
-                );
-                throw error;
+            if (created.processRunStatus !== "completed") {
+                try {
+                    await step.runWorkflow(processFilesSpec, {
+                        graphId: row.binding.graphId,
+                        fileIds: created.fileIds,
+                        processRunId: created.processRunId,
+                        code: { kind: "repository", retiredFileIds: plan.retiredFileIds },
+                    });
+                } catch (error) {
+                    await Promise.all(
+                        created.fileIds.map((fileId) =>
+                            step.runWorkflow(deleteFileSpec, {
+                                graphId: row.binding.graphId,
+                                fileId,
+                            })
+                        )
+                    );
+                    throw error;
+                }
             }
             await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
             return { commitSha, fileCount: created.fileIds.length };

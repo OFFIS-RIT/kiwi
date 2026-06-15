@@ -13,6 +13,7 @@ const connector = {
     provider: "github",
     status: "active",
     encryptedCredentials: "encrypted",
+    appSlug: "kiwi-app",
 };
 
 const insertValues: Array<Record<string, unknown>> = [];
@@ -21,7 +22,17 @@ const installationAccountCalls: string[] = [];
 const listBranchesCalls: Array<Record<string, unknown>> = [];
 const listRepositoriesCalls: Array<Record<string, unknown>> = [];
 const updateValues: Array<Record<string, unknown>> = [];
+const signedStates: Array<Record<string, unknown>> = [];
+const organizationAdminChecks: Array<string | undefined> = [];
 let installationConnectorId = "connector-1";
+let teamAccessOrganizationId = "org-1";
+let verifiedState: Record<string, unknown> = {
+    purpose: "github-installation",
+    userId: "user-1",
+    connectorId: "connector-1",
+    organizationId: "org-1",
+    createdAt: Date.now(),
+};
 let workflowError: Error | null = null;
 
 type MockDb = {
@@ -55,8 +66,14 @@ mock.module("../../middleware/auth", () => ({
 }));
 
 mock.module("../../lib/graph-access", () => ({
-    assertCanCreateTeamGraph: async () => ({ team: { id: "team-1", organizationId: "org-1" } }),
-    assertCanCreateTopLevelGraph: async () => ({ organizationId: "org-1" }),
+    assertCanCreateTeamGraph: async () => ({ team: { id: "team-1", organizationId: teamAccessOrganizationId } }),
+}));
+
+mock.module("../../lib/team-access", () => ({
+    requireOrganizationAdmin: async (_user: unknown, organizationId?: string) => {
+        organizationAdminChecks.push(organizationId);
+        return { organizationId: organizationId ?? "org-1" };
+    },
 }));
 
 mock.module("../../lib/connector-access", () => ({
@@ -105,16 +122,13 @@ mock.module("../../lib/connectors", () => ({
             },
         ];
     },
-    signConnectorState: () => "state",
+    signConnectorState: (state: Record<string, unknown>) => {
+        signedStates.push(state);
+        return "state";
+    },
     toPublicConnector: (row: unknown) => row,
     toPublicInstallation: (row: unknown) => row,
-    verifyConnectorState: () => ({
-        purpose: "github-installation",
-        userId: "user-1",
-        connectorId: "connector-1",
-        organizationId: "org-1",
-        createdAt: Date.now(),
-    }),
+    verifyConnectorState: () => verifiedState,
 }));
 
 mock.module("../../openworkflow", () => ({
@@ -174,7 +188,17 @@ describe("connector route", () => {
         listBranchesCalls.length = 0;
         listRepositoriesCalls.length = 0;
         updateValues.length = 0;
+        signedStates.length = 0;
+        organizationAdminChecks.length = 0;
         installationConnectorId = "connector-1";
+        teamAccessOrganizationId = "org-1";
+        verifiedState = {
+            purpose: "github-installation",
+            userId: "user-1",
+            connectorId: "connector-1",
+            organizationId: "org-1",
+            createdAt: Date.now(),
+        };
         workflowError = null;
     });
 
@@ -204,6 +228,56 @@ describe("connector route", () => {
             status: "active",
             installedByUserId: "user-1",
         });
+    });
+
+    test("connect state uses requested organization after admin check", async () => {
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-1/connect?organizationId=org-2")
+        );
+
+        expect(response.status).toBe(200);
+        expect(organizationAdminChecks).toEqual(["org-2"]);
+        expect(signedStates[0]).toMatchObject({
+            purpose: "github-installation",
+            userId: "user-1",
+            connectorId: "connector-1",
+            organizationId: "org-2",
+        });
+        expect(signedStates[0]).not.toHaveProperty("teamId");
+    });
+
+    test("connect state derives organization from team access", async () => {
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-1/connect?teamId=team-1&organizationId=org-2")
+        );
+
+        expect(response.status).toBe(200);
+        expect(organizationAdminChecks).toEqual([]);
+        expect(signedStates[0]).toMatchObject({
+            purpose: "github-installation",
+            userId: "user-1",
+            connectorId: "connector-1",
+            organizationId: "org-1",
+            teamId: "team-1",
+        });
+    });
+
+    test("rejects install callback when team state crosses organization", async () => {
+        verifiedState = {
+            purpose: "github-installation",
+            userId: "user-1",
+            connectorId: "connector-1",
+            organizationId: "org-2",
+            teamId: "team-1",
+            createdAt: Date.now(),
+        };
+
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/github/install/callback?state=state&installation_id=99")
+        );
+
+        expect(response.status).toBe(403);
+        expect(insertValues).toEqual([]);
     });
 
     test("marks manual repository graph sync failed when workflow enqueue fails", async () => {

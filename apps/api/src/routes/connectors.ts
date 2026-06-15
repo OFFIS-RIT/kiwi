@@ -12,13 +12,14 @@ import { Result } from "better-result";
 import { and, asc, eq, sql } from "drizzle-orm";
 import Elysia from "elysia";
 import z from "zod";
-import { assertCanCreateTeamGraph, assertCanCreateTopLevelGraph } from "../lib/graph-access";
+import { assertCanCreateTeamGraph } from "../lib/graph-access";
 import {
     assertCanSyncBinding,
     assertCanUseInstallation,
     assertCanViewBinding,
     requireActiveConnector,
 } from "../lib/connector-access";
+import { requireOrganizationAdmin } from "../lib/team-access";
 import {
     createManifestUrl,
     encryptCredentials,
@@ -288,17 +289,20 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                 status,
                 action: async (currentUser) => {
                     const connector = await requireActiveConnector(params.id);
+                    let owner: { organizationId: string; teamId?: string };
                     if (query.teamId) {
-                        await assertCanCreateTeamGraph(currentUser, query.teamId);
+                        const access = await assertCanCreateTeamGraph(currentUser, query.teamId);
+                        owner = { organizationId: access.team.organizationId, teamId: query.teamId };
                     } else {
-                        await assertCanCreateTopLevelGraph(currentUser);
+                        const membership = await requireOrganizationAdmin(currentUser, query.organizationId);
+                        owner = { organizationId: membership.organizationId };
                     }
                     const state = signConnectorState({
                         purpose: connector.provider === "github" ? "github-installation" : "gitlab-oauth",
                         userId: currentUser.id,
                         connectorId: connector.id,
-                        organizationId: query.organizationId ?? currentUser.activeOrganizationId ?? undefined,
-                        teamId: query.teamId,
+                        organizationId: owner.organizationId,
+                        ...(owner.teamId ? { teamId: owner.teamId } : {}),
                     });
                     if (connector.provider === "github") {
                         if (!connector.appSlug) {
@@ -325,14 +329,20 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                         throw new Error(API_ERROR_CODES.FORBIDDEN);
                     }
                     const connector = await requireActiveConnector(state.connectorId, "github");
+                    let ownerOrganizationId: string;
+                    let ownerTeamId: string | null = null;
                     if (state.teamId) {
-                        await assertCanCreateTeamGraph(currentUser, state.teamId);
+                        const access = await assertCanCreateTeamGraph(currentUser, state.teamId);
+                        ownerOrganizationId = access.team.organizationId;
+                        ownerTeamId = state.teamId;
+                        if (state.organizationId && state.organizationId !== ownerOrganizationId) {
+                            throw new Error(API_ERROR_CODES.FORBIDDEN);
+                        }
                     } else {
-                        await assertCanCreateTopLevelGraph(currentUser);
+                        const membership = await requireOrganizationAdmin(currentUser, state.organizationId);
+                        ownerOrganizationId = membership.organizationId;
                     }
-                    const account = await getGitHubConnectorInstallationAccount(connector, query.installation_id);
-                    const ownerOrganizationId = state.organizationId ?? currentUser.activeOrganizationId;
-                    const conflictTarget = state.teamId
+                    const conflictTarget = ownerTeamId
                         ? {
                               target: [
                                   connectorInstallationsTable.connectorId,
@@ -350,6 +360,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                               ],
                               targetWhere: sql`${connectorInstallationsTable.teamId} is null`,
                           };
+                    const account = await getGitHubConnectorInstallationAccount(connector, query.installation_id);
                     const [installation] = await db
                         .insert(connectorInstallationsTable)
                         .values({
@@ -359,7 +370,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                             providerAccountLogin: account.login,
                             providerAccountType: account.type,
                             organizationId: ownerOrganizationId,
-                            teamId: state.teamId ?? null,
+                            teamId: ownerTeamId,
                             installedByUserId: currentUser.id,
                             repositorySelection: account.repositorySelection,
                         })
@@ -465,12 +476,15 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                         if (installation.teamId !== body.owner.teamId) {
                             throw new Error(API_ERROR_CODES.FORBIDDEN);
                         }
-                        await assertCanCreateTeamGraph(currentUser, body.owner.teamId);
-                    } else {
-                        if (installation.teamId !== null) {
+                        const access = await assertCanCreateTeamGraph(currentUser, body.owner.teamId);
+                        if (installation.organizationId !== access.team.organizationId) {
                             throw new Error(API_ERROR_CODES.FORBIDDEN);
                         }
-                        await assertCanCreateTopLevelGraph(currentUser);
+                    } else {
+                        if (installation.teamId !== null || !installation.organizationId) {
+                            throw new Error(API_ERROR_CODES.FORBIDDEN);
+                        }
+                        await requireOrganizationAdmin(currentUser, installation.organizationId);
                     }
 
                     const connector = await requireActiveConnector(

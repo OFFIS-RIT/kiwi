@@ -408,7 +408,8 @@ describe("syncRepositoryGraph", () => {
         insertedFileRowsOverride = [];
         txSelectResults = [
             [{ id: "existing-file", key: "connector:binding-1:commit-new:src/index.ts" }],
-            [{ id: "existing-process-run" }],
+            [{ id: "existing-process-run", status: "pending", fileId: "existing-file" }],
+            [{ processRunId: "existing-process-run", fileId: "existing-file" }],
         ];
 
         const result = await runWorkflow({ bindingId: "binding-1", reason: "manual", commitSha: "commit-new" });
@@ -425,7 +426,7 @@ describe("syncRepositoryGraph", () => {
         ]);
     });
 
-    test("does not reuse completed process runs when file insert conflicts", async () => {
+    test("skips processing when file insert conflicts with a completed process run", async () => {
         compareChanges = [{ status: "modified", newPath: "src/index.ts" }];
         readFileContents = {
             "src/index.ts": "export const next = shared;\n",
@@ -438,13 +439,52 @@ describe("syncRepositoryGraph", () => {
             },
         ];
         insertedFileRowsOverride = [];
-        txSelectResults = [[{ id: "existing-file", key: "connector:binding-1:commit-new:src/index.ts" }], []];
+        txSelectResults = [
+            [{ id: "existing-file", key: "connector:binding-1:commit-new:src/index.ts" }],
+            [{ id: "completed-process-run", status: "completed", fileId: "existing-file" }],
+            [{ processRunId: "completed-process-run", fileId: "existing-file" }],
+        ];
+
+        const result = await runWorkflow({ bindingId: "binding-1", reason: "manual", commitSha: "commit-new" });
+
+        expect(result).toMatchObject({ commitSha: "commit-new", fileCount: 1 });
+        expect(processRunInsertCount).toBe(0);
+        expect(queryContainsParamValue(txWhereConditions[1], "completed")).toBe(true);
+        expect(processWorkflowInputs).toEqual([]);
+        expect(bindingUpdates).toContainEqual({
+            syncStatus: "synced",
+            lastSeenCommitSha: "commit-new",
+            lastSyncedCommitSha: "commit-new",
+            syncErrorCode: null,
+        });
+    });
+
+    test("creates a process run when matching run has extra files", async () => {
+        compareChanges = [{ status: "modified", newPath: "src/index.ts" }];
+        readFileContents = {
+            "src/index.ts": "export const next = shared;\n",
+        };
+        selectResults = [
+            { kind: "limit", value: [bindingRow("commit-old")] },
+            {
+                kind: "where",
+                value: [activeFile("old-file", "commit-old", "src/index.ts", 25)],
+            },
+        ];
+        insertedFileRowsOverride = [];
+        txSelectResults = [
+            [{ id: "existing-file", key: "connector:binding-1:commit-new:src/index.ts" }],
+            [{ id: "larger-process-run", status: "completed", fileId: "existing-file" }],
+            [
+                { processRunId: "larger-process-run", fileId: "existing-file" },
+                { processRunId: "larger-process-run", fileId: "other-file" },
+            ],
+        ];
 
         const result = await runWorkflow({ bindingId: "binding-1", reason: "manual", commitSha: "commit-new" });
 
         expect(result).toMatchObject({ commitSha: "commit-new", fileCount: 1 });
         expect(processRunInsertCount).toBe(1);
-        expect(queryContainsParamValue(txWhereConditions[1], "completed")).toBe(true);
         expect(processWorkflowInputs).toEqual([
             {
                 graphId: "graph-1",
