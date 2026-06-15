@@ -177,7 +177,20 @@ export async function compareGitLabRepository(
         options.accessToken,
         options.fetch
     );
-    if (!isObject(json) || json.compare_timeout === true || !Array.isArray(json.diffs)) {
+    if (!isObject(json)) {
+        throw new ConnectorProviderError("provider", "GitLab compare response is invalid");
+    }
+
+    if (json.compare_timeout === true) {
+        return {
+            fromCommitSha: options.fromCommitSha,
+            toCommitSha: options.toCommitSha,
+            isIncremental: false,
+            changes: [],
+        };
+    }
+
+    if (!Array.isArray(json.diffs)) {
         throw new ConnectorProviderError("provider", "GitLab compare response is invalid");
     }
 

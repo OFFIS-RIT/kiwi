@@ -176,16 +176,19 @@ describe("GitLab connector", () => {
         });
     });
 
-    test("rejects GitLab compare timeouts", async () => {
+    test("falls back to full snapshot when GitLab compare times out", async () => {
         const client = createGitLabClient({
             baseUrl: "https://gitlab.test",
             accessToken: "token",
             fetch: async () => jsonResponse({ compare_timeout: true, diffs: [] }),
         });
 
-        await expect(client.compareRepository(GITLAB_REPOSITORY, "commit-old", "commit-new")).rejects.toThrow(
-            "GitLab compare response is invalid"
-        );
+        await expect(client.compareRepository(GITLAB_REPOSITORY, "commit-old", "commit-new")).resolves.toEqual({
+            fromCommitSha: "commit-old",
+            toCommitSha: "commit-new",
+            isIncremental: false,
+            changes: [],
+        });
     });
 
     test("rejects malformed GitLab compare responses", async () => {
