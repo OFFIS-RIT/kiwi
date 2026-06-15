@@ -2,13 +2,12 @@ import {
     createGitHubClient,
     createGitHubInstallationToken,
     createGitLabClient,
-    decryptConnectorCredentials,
-    type ConnectorSecretPayload,
     type GitHubConnectorCredentials,
     type GitLabConnectorCredentials,
     type GitLabInstallationCredentials,
     type ProviderRepository,
 } from "@kiwi/connectors";
+import { decryptConnectorCredentials, type ConnectorSecretPayload } from "@kiwi/connectors/credentials";
 import { db } from "@kiwi/db";
 import { connectorInstallationsTable, connectorsTable, repositoryGraphBindingsTable } from "@kiwi/db/tables/connectors";
 import { getFile } from "@kiwi/files";
