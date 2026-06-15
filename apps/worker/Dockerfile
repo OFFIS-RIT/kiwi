@@ -18,6 +18,7 @@ COPY apps/api/package.json apps/api/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/ai/package.json packages/ai/package.json
+COPY packages/connectors/package.json packages/connectors/package.json
 COPY packages/auth/package.json packages/auth/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/db/package.json packages/db/package.json
@@ -25,13 +26,15 @@ COPY packages/files/package.json packages/files/package.json
 COPY packages/graph/package.json packages/graph/package.json
 COPY packages/logger/package.json packages/logger/package.json
 
-RUN bun install --frozen-lockfile
+RUN CXXFLAGS="-std=c++20" bun install --frozen-lockfile
 
 RUN arch="$(node -p 'process.arch')" \
     && cd packages/graph/node_modules/tree-sitter \
     && CXXFLAGS="-std=c++20" node-gyp rebuild \
     && mkdir -p "prebuilds/linux-${arch}" \
-    && cp build/Release/tree_sitter_runtime_binding.node "prebuilds/linux-${arch}/tree-sitter.node"
+    && cp build/Release/tree_sitter_runtime_binding.node "prebuilds/linux-${arch}/tree-sitter.node" \
+    && cd ../@tree-sitter-grammars/tree-sitter-zig \
+    && cp "prebuilds/linux-${arch}/@tree-sitter-grammars+tree-sitter-zig.node" "prebuilds/linux-${arch}/tree-sitter-zig.node"
 
 COPY apps/worker/index.ts apps/worker/index.ts
 COPY apps/worker/env.ts apps/worker/env.ts
@@ -42,6 +45,8 @@ COPY apps/worker/lib apps/worker/lib
 COPY apps/worker/workflows apps/worker/workflows
 COPY packages/ai/src packages/ai/src
 COPY packages/ai/tsconfig.json packages/ai/tsconfig.json
+COPY packages/connectors/src packages/connectors/src
+COPY packages/connectors/tsconfig.json packages/connectors/tsconfig.json
 COPY packages/contracts/src packages/contracts/src
 COPY packages/contracts/tsconfig.json packages/contracts/tsconfig.json
 COPY packages/db/src packages/db/src
