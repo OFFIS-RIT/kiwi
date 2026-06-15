@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const MAX_GIT_OUTPUT_BYTES = 1 * 1024 * 1024;
-let scenario: "limit" | "symlink" = "limit";
+let scenario: "broken-symlink" | "limit" | "symlink" = "limit";
 let spawnCall = 0;
 
 mock.module("node:child_process", () => ({
@@ -22,11 +22,13 @@ mock.module("node:child_process", () => ({
                 child.stdout.emit(
                     "data",
                     Buffer.from(
-                        scenario === "symlink" ? "config.ts\0src/index.ts\0" : Buffer.alloc(MAX_GIT_OUTPUT_BYTES + 1)
+                        scenario === "symlink" || scenario === "broken-symlink"
+                            ? "config.ts\0src/index.ts\0"
+                            : Buffer.alloc(MAX_GIT_OUTPUT_BYTES + 1)
                     )
                 );
             }
-            child.emit("close", spawnCall === 3 && scenario !== "symlink" ? null : 0);
+            child.emit("close", spawnCall === 3 && scenario === "limit" ? null : 0);
         });
 
         return child;
@@ -42,6 +44,9 @@ mock.module("node:fs/promises", () => ({
         return "export const safe = true;\n";
     },
     realpath: async (filePath: string) => {
+        if (scenario === "broken-symlink" && filePath.endsWith("config.ts")) {
+            throw Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" });
+        }
         if (filePath.endsWith("config.ts")) {
             return "/etc/passwd";
         }
@@ -72,6 +77,19 @@ describe("repository URL git loading", () => {
 
     test("skips repository files whose real path escapes the clone root", async () => {
         scenario = "symlink";
+
+        await expect(loadRepositoryFromUrl("https://github.com/acme/app")).resolves.toMatchObject({
+            files: [
+                {
+                    path: "src/index.ts",
+                    content: "export const safe = true;\n",
+                },
+            ],
+        });
+    });
+
+    test("skips repository files whose real path cannot be resolved", async () => {
+        scenario = "broken-symlink";
 
         await expect(loadRepositoryFromUrl("https://github.com/acme/app")).resolves.toMatchObject({
             files: [

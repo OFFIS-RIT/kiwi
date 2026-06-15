@@ -163,6 +163,32 @@ describe("GitHub connector", () => {
         expect(calls.some((url) => url.includes("readme-sha"))).toBe(false);
     });
 
+    test("rejects truncated GitHub repository trees", async () => {
+        const fetchImpl: FetchLike = async (input) => {
+            const url = String(input);
+            if (url.endsWith("/branches/main")) {
+                return jsonResponse({ commit: { sha: "commit-sha", commit: { tree: { sha: "tree-sha" } } } });
+            }
+            if (url.includes("/git/trees/tree-sha")) {
+                return jsonResponse({ truncated: true, tree: [] });
+            }
+            throw new Error(`unexpected URL ${url}`);
+        };
+
+        await expect(
+            loadGitHubRepositorySnapshot({
+                installationToken: "token",
+                apiBaseUrl: "https://github.test",
+                fetch: fetchImpl,
+                repository: GITHUB_REPOSITORY,
+                branch: "main",
+            })
+        ).rejects.toMatchObject({
+            name: "ConnectorProviderError",
+            kind: "limit",
+        });
+    });
+
     test("normalizes incremental compare changes for supported code paths", async () => {
         const client = createGitHubClient({
             installationToken: "token",

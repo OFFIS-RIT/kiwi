@@ -181,7 +181,12 @@ export async function loadRepositoryFromUrl(input: string): Promise<LoadedReposi
                 continue;
             }
 
-            const realFilePath = await realpath(absolutePath);
+            let realFilePath: string;
+            try {
+                realFilePath = await realpath(absolutePath);
+            } catch {
+                continue;
+            }
             if (!isPathInsideRoot(repoRoot, realFilePath)) {
                 continue;
             }

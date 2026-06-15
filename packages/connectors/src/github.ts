@@ -242,6 +242,9 @@ export async function loadGitHubRepositorySnapshot(options: SnapshotOptions): Pr
     if (!isObject(treeJson) || !Array.isArray(treeJson.tree)) {
         throw new ConnectorProviderError("provider", "GitHub tree response is invalid");
     }
+    if (treeJson.truncated === true) {
+        throw new ConnectorProviderError("limit", "GitHub repository tree is too large to load completely");
+    }
 
     const files: ProviderCodeFile[] = [];
     let totalBytes = 0;
