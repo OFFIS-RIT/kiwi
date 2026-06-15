@@ -65,5 +65,8 @@
     },
     "patchedDependencies": {
         "openworkflow@0.9.0": "patches/openworkflow@0.9.0.patch"
-    }
+    },
+    "trustedDependencies": [
+        "tree-sitter"
+    ]
 }

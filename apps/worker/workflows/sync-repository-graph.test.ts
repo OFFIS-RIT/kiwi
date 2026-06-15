@@ -190,22 +190,22 @@ async function runWorkflow(input: { bindingId: string; reason: "manual" | "webho
     return syncRepositoryGraph.fn({
         input,
         step: {
-            run: async (_config: { name: string }, fn: () => Promise<unknown> | unknown) => fn(),
-            runWorkflow: async (spec: { name: string }, workflowInput?: Record<string, unknown>) => {
+            run: async (_config: { name: string }, fn: () => unknown) => fn(),
+            runWorkflow: async (spec: { name: string }, workflowInput?: unknown) => {
                 if (spec.name === "process-files") {
-                    processWorkflowInputs.push(workflowInput ?? {});
+                    processWorkflowInputs.push((workflowInput ?? {}) as Record<string, unknown>);
                     if (processFilesError) {
                         throw processFilesError;
                     }
                     return undefined;
                 }
                 if (spec.name === "delete-file") {
-                    deleteWorkflowInputs.push(workflowInput ?? {});
+                    deleteWorkflowInputs.push((workflowInput ?? {}) as Record<string, unknown>);
                     return undefined;
                 }
                 throw new Error(`Unexpected workflow ${spec.name}`);
             },
-        },
+        } as never,
         version: null,
         run: {
             id: "workflow-run-1",

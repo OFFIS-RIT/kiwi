@@ -61,7 +61,8 @@ export async function invalidateSupersededRepositorySources(options: {
         });
     }
 
-    if (!options.latestFileIds || options.latestFileIds.length === 0) {
+    const latestFileIds = options.latestFileIds;
+    if (!latestFileIds || latestFileIds.length === 0) {
         return { entityIds: [], relationshipIds: [] };
     }
 
@@ -69,7 +70,7 @@ export async function invalidateSupersededRepositorySources(options: {
         const latestRows = await tx
             .select({ id: filesTable.id, metadata: filesTable.metadata })
             .from(filesTable)
-            .where(and(eq(filesTable.graphId, options.graphId), inArray(filesTable.id, options.latestFileIds)));
+            .where(and(eq(filesTable.graphId, options.graphId), inArray(filesTable.id, latestFileIds)));
         const candidateRows = await tx
             .select({ id: filesTable.id, metadata: filesTable.metadata })
             .from(filesTable)
