@@ -233,6 +233,7 @@ function runGit(args: string[], cwd: string): Promise<string> {
         const stderr: Buffer[] = [];
         let stdoutBytes = 0;
         let stderrBytes = 0;
+        let stdoutLimitExceeded = false;
         let settled = false;
 
         const finish = (callback: () => void) => {
@@ -258,9 +259,12 @@ function runGit(args: string[], cwd: string): Promise<string> {
 
         child.stdout.on("data", (chunk: Buffer) => {
             stdoutBytes += chunk.byteLength;
-            if (stdoutBytes <= MAX_GIT_OUTPUT_BYTES) {
-                stdout.push(chunk);
+            if (stdoutBytes > MAX_GIT_OUTPUT_BYTES) {
+                stdoutLimitExceeded = true;
+                child.kill("SIGKILL");
+                return;
             }
+            stdout.push(chunk);
         });
         child.stderr.on("data", (chunk: Buffer) => {
             stderrBytes += chunk.byteLength;
@@ -269,9 +273,22 @@ function runGit(args: string[], cwd: string): Promise<string> {
             }
         });
         child.on("error", (error) =>
-            finish(() => reject(new RepositoryUrlError("load", "Repository could not be loaded", { cause: error })))
+            finish(() =>
+                reject(
+                    stdoutLimitExceeded
+                        ? new RepositoryUrlError("limit", "Repository git output exceeded the supported size")
+                        : new RepositoryUrlError("load", "Repository could not be loaded", { cause: error })
+                )
+            )
         );
         child.on("close", (code) => {
+            if (stdoutLimitExceeded) {
+                finish(() =>
+                    reject(new RepositoryUrlError("limit", "Repository git output exceeded the supported size"))
+                );
+                return;
+            }
+
             if (code === 0) {
                 finish(() => resolve(Buffer.concat(stdout).toString("utf8")));
                 return;

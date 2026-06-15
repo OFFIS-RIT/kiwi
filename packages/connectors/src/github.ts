@@ -138,7 +138,9 @@ export async function listGitHubInstallationRepositories(options: GitHubClientOp
     }
 }
 
-export async function listGitHubBranches(options: GitHubClientOptions & { repository: ProviderRepository }): Promise<ProviderBranch[]> {
+export async function listGitHubBranches(
+    options: GitHubClientOptions & { repository: ProviderRepository }
+): Promise<ProviderBranch[]> {
     const [owner, repo] = splitFullName(options.repository.fullName);
     const branches: ProviderBranch[] = [];
     for (let page = 1; ; page += 1) {
@@ -152,7 +154,12 @@ export async function listGitHubBranches(options: GitHubClientOptions & { reposi
             throw new ConnectorProviderError("provider", "GitHub branches response is invalid");
         }
         for (const branch of json) {
-            if (isObject(branch) && typeof branch.name === "string" && isObject(branch.commit) && typeof branch.commit.sha === "string") {
+            if (
+                isObject(branch) &&
+                typeof branch.name === "string" &&
+                isObject(branch.commit) &&
+                typeof branch.commit.sha === "string"
+            ) {
                 branches.push({ name: branch.name, commitSha: branch.commit.sha });
             }
         }
@@ -256,11 +263,20 @@ export async function compareGitHubRepository(
         options.installationToken,
         options.fetch
     );
-    if (
-        !isObject(json) ||
-        (json.status !== "ahead" && json.status !== "identical") ||
-        !Array.isArray(json.files)
-    ) {
+    if (!isObject(json) || !isGitHubCompareStatus(json.status)) {
+        throw new ConnectorProviderError("provider", "GitHub compare response is invalid");
+    }
+
+    if (json.status === "behind" || json.status === "diverged") {
+        return {
+            fromCommitSha: options.fromCommitSha,
+            toCommitSha: options.toCommitSha,
+            isIncremental: false,
+            changes: [],
+        };
+    }
+
+    if (!Array.isArray(json.files)) {
         throw new ConnectorProviderError("provider", "GitHub compare response is invalid");
     }
 
@@ -310,15 +326,18 @@ export async function compareGitHubRepository(
     return {
         fromCommitSha: options.fromCommitSha,
         toCommitSha: options.toCommitSha,
+        isIncremental: true,
         changes,
     };
 }
 
-export async function readGitHubRepositoryFile(options: GitHubClientOptions & {
-    repository: ProviderRepository;
-    path: string;
-    commitSha: string;
-}): Promise<string> {
+export async function readGitHubRepositoryFile(
+    options: GitHubClientOptions & {
+        repository: ProviderRepository;
+        path: string;
+        commitSha: string;
+    }
+): Promise<string> {
     const [owner, repo] = splitFullName(options.repository.fullName);
     const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
     const response = await (options.fetch ?? fetch)(
@@ -373,11 +392,17 @@ export function normalizeGitHubWebhookEvent(options: {
         provider: "github",
         deliveryId: options.deliveryId,
         eventName: options.eventName,
-        repositoryId: repository && (typeof repository.id === "string" || typeof repository.id === "number") ? String(repository.id) : null,
+        repositoryId:
+            repository && (typeof repository.id === "string" || typeof repository.id === "number")
+                ? String(repository.id)
+                : null,
         repositoryFullName: repository && typeof repository.full_name === "string" ? repository.full_name : null,
         branch: branchNameFromGitRef(payload.ref),
         commitSha: typeof payload.after === "string" ? payload.after : null,
-        installationId: installation && (typeof installation.id === "string" || typeof installation.id === "number") ? String(installation.id) : undefined,
+        installationId:
+            installation && (typeof installation.id === "string" || typeof installation.id === "number")
+                ? String(installation.id)
+                : undefined,
         raw: options.payload,
     };
 }
@@ -386,7 +411,10 @@ async function getGitHubJson(url: string, token: string, fetchImpl: FetchLike | 
     const response = await (fetchImpl ?? fetch)(url, { headers: githubHeaders(token) });
     const json = await readJson(response);
     if (!response.ok) {
-        throw new ConnectorProviderError(response.status === 404 ? "not-found" : "provider", "GitHub API request failed");
+        throw new ConnectorProviderError(
+            response.status === 404 ? "not-found" : "provider",
+            "GitHub API request failed"
+        );
     }
     return json;
 }
@@ -401,7 +429,12 @@ function githubHeaders(token: string): Record<string, string> {
 }
 
 function mapGitHubRepository(value: unknown): ProviderRepository {
-    if (!isObject(value) || typeof value.full_name !== "string" || typeof value.name !== "string" || (typeof value.id !== "string" && typeof value.id !== "number")) {
+    if (
+        !isObject(value) ||
+        typeof value.full_name !== "string" ||
+        typeof value.name !== "string" ||
+        (typeof value.id !== "string" && typeof value.id !== "number")
+    ) {
         throw new ConnectorProviderError("provider", "GitHub repository response is invalid");
     }
     return {
@@ -434,7 +467,10 @@ async function readJson(response: Response): Promise<unknown> {
 
 function shouldLoadCodePath(filePath: string): boolean {
     const normalized = filePath.replaceAll("\\", "/");
-    return isSupportedCodePath(normalized) && normalized.split("/").every((segment) => SKIPPED_PATH_SEGMENTS[segment] !== true);
+    return (
+        isSupportedCodePath(normalized) &&
+        normalized.split("/").every((segment) => SKIPPED_PATH_SEGMENTS[segment] !== true)
+    );
 }
 
 function normalizeApiBaseUrl(value: string): string {
@@ -454,6 +490,10 @@ function isGitHubBlob(value: unknown): value is { path: string; sha: string; siz
         typeof value.size === "number"
     );
 }
+function isGitHubCompareStatus(value: unknown): value is "ahead" | "behind" | "diverged" | "identical" {
+    return value === "ahead" || value === "behind" || value === "diverged" || value === "identical";
+}
+
 function isGitHubCompareFile(value: unknown): value is {
     filename: string;
     status: "added" | "changed" | "copied" | "modified" | "removed" | "renamed" | "unchanged";

@@ -48,14 +48,13 @@ export type ProviderRepositoryChange =
 export type ProviderRepositoryDelta = {
     fromCommitSha: string;
     toCommitSha: string;
+    isIncremental: boolean;
     changes: ProviderRepositoryChange[];
 };
 
 export type ConnectorCredentials = GitHubConnectorCredentials | GitLabConnectorCredentials;
 
-export type ConnectorInstallationCredentials =
-    | GitHubInstallationCredentials
-    | GitLabInstallationCredentials;
+export type ConnectorInstallationCredentials = GitHubInstallationCredentials | GitLabInstallationCredentials;
 
 export type GitHubConnectorCredentials = {
     provider: "github";
@@ -102,8 +101,16 @@ export type ProviderRepositoryClient = {
     readonly provider: ConnectorProvider;
     listRepositories(): Promise<ProviderRepository[]>;
     listBranches(repository: ProviderRepository): Promise<ProviderBranch[]>;
-    loadRepositorySnapshot(repository: ProviderRepository, branch: string, commitSha?: string): Promise<ProviderRepositorySnapshot>;
-    compareRepository(repository: ProviderRepository, fromCommitSha: string, toCommitSha: string): Promise<ProviderRepositoryDelta>;
+    loadRepositorySnapshot(
+        repository: ProviderRepository,
+        branch: string,
+        commitSha?: string
+    ): Promise<ProviderRepositorySnapshot>;
+    compareRepository(
+        repository: ProviderRepository,
+        fromCommitSha: string,
+        toCommitSha: string
+    ): Promise<ProviderRepositoryDelta>;
     readFile(repository: ProviderRepository, path: string, commitSha: string): Promise<string>;
 };
 

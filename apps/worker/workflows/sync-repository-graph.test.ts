@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { ProviderRepositoryChange } from "@kiwi/connectors";
+import type { ProviderCodeFile, ProviderRepositoryChange } from "@kiwi/connectors";
 
-type SelectResult =
-    | { kind: "limit"; value: unknown[] }
-    | { kind: "where"; value: unknown[] };
+type SelectResult = { kind: "limit"; value: unknown[] } | { kind: "where"; value: unknown[] };
 
 const insertedFileValues: Array<Record<string, unknown>> = [];
 const processWorkflowInputs: Array<Record<string, unknown>> = [];
@@ -13,8 +11,13 @@ const compareCalls: Array<{ fromCommitSha: string; toCommitSha: string }> = [];
 const readFileCalls: Array<{ path: string; commitSha: string }> = [];
 
 let selectResults: SelectResult[] = [];
+let txSelectResults: unknown[][] = [];
+let insertedFileRowsOverride: Array<{ id: string; key: string }> | null = null;
+let processRunInsertCount = 0;
 let processFilesError: Error | null = null;
 let compareChanges: ProviderRepositoryChange[] = [];
+let compareIsIncremental = true;
+let snapshotFiles: ProviderCodeFile[] = [];
 let readFileContents: Record<string, string> = {};
 let loadSnapshotCalls = 0;
 
@@ -33,7 +36,23 @@ function createSelectQuery() {
     return chain;
 }
 
+function createTxSelectQuery() {
+    const result = txSelectResults.shift();
+    if (!result) {
+        throw new Error("Unexpected transaction select call");
+    }
+
+    const chain = {
+        from: () => chain,
+        innerJoin: () => chain,
+        where: () => result,
+        limit: () => result,
+    };
+    return chain;
+}
+
 const transactionDb = {
+    select: () => createTxSelectQuery(),
     update: () => ({
         set: (values: Record<string, unknown>) => ({
             where: async () => {
@@ -46,7 +65,10 @@ const transactionDb = {
         values: (values: unknown) => {
             if (
                 Array.isArray(values) &&
-                values.every((value) => typeof value === "object" && value !== null && "processRunId" in value && "fileId" in value)
+                values.every(
+                    (value) =>
+                        typeof value === "object" && value !== null && "processRunId" in value && "fileId" in value
+                )
             ) {
                 return undefined;
             }
@@ -58,10 +80,19 @@ const transactionDb = {
                             throw new Error("Expected file rows");
                         }
                         insertedFileValues.push(...(values as Array<Record<string, unknown>>));
-                        return (values as Array<{ id: string }>).map((value) => ({ id: value.id }));
+                        return (
+                            insertedFileRowsOverride ??
+                            (values as Array<{ id: string; key: string }>).map((value) => ({
+                                id: value.id,
+                                key: value.key,
+                            }))
+                        );
                     },
                 }),
-                returning: () => [{ id: "process-run-1" }],
+                returning: () => {
+                    processRunInsertCount += 1;
+                    return [{ id: "process-run-1" }];
+                },
             };
         },
     }),
@@ -84,7 +115,10 @@ mock.module("@kiwi/db", () => ({
 
 mock.module("@kiwi/connectors", () => ({
     ConnectorProviderError: class ConnectorProviderError extends Error {
-        constructor(public readonly kind: string, message: string) {
+        constructor(
+            public readonly kind: string,
+            message: string
+        ) {
             super(message);
             this.name = "ConnectorProviderError";
         }
@@ -109,12 +143,12 @@ mock.module("@kiwi/connectors", () => ({
                 },
                 branch: { name: "main", commitSha: "commit-new" },
                 commitSha: "commit-new",
-                files: [],
+                files: snapshotFiles,
             };
         },
         compareRepository: async (_repository: unknown, fromCommitSha: string, toCommitSha: string) => {
             compareCalls.push({ fromCommitSha, toCommitSha });
-            return { fromCommitSha, toCommitSha, changes: compareChanges };
+            return { fromCommitSha, toCommitSha, isIncremental: compareIsIncremental, changes: compareChanges };
         },
         readFile: async (_repository: unknown, path: string, commitSha: string) => {
             readFileCalls.push({ path, commitSha });
@@ -233,8 +267,13 @@ describe("syncRepositoryGraph", () => {
         selectResults = [];
         processFilesError = null;
         compareChanges = [];
+        compareIsIncremental = true;
+        snapshotFiles = [];
         readFileContents = {};
         loadSnapshotCalls = 0;
+        txSelectResults = [];
+        insertedFileRowsOverride = null;
+        processRunInsertCount = 0;
     });
 
     test("processes only changed supported connector files", async () => {
@@ -267,6 +306,38 @@ describe("syncRepositoryGraph", () => {
             code: { kind: "repository", retiredFileIds: ["old-file"] },
         });
         expect(String(insertedFileValues[0]?.checksum)).toStartWith("commit-new:src/index.ts:");
+    });
+
+    test("reuses existing repository files and process run when file insert conflicts", async () => {
+        compareChanges = [{ status: "modified", newPath: "src/index.ts" }];
+        readFileContents = {
+            "src/index.ts": "export const next = shared;\n",
+        };
+        selectResults = [
+            { kind: "limit", value: [bindingRow("commit-old")] },
+            {
+                kind: "where",
+                value: [activeFile("old-file", "commit-old", "src/index.ts", 25)],
+            },
+        ];
+        insertedFileRowsOverride = [];
+        txSelectResults = [
+            [{ id: "existing-file", key: "connector:binding-1:commit-new:src/index.ts" }],
+            [{ id: "existing-process-run" }],
+        ];
+
+        const result = await runWorkflow({ bindingId: "binding-1", reason: "manual", commitSha: "commit-new" });
+
+        expect(result).toMatchObject({ commitSha: "commit-new", fileCount: 1 });
+        expect(processRunInsertCount).toBe(0);
+        expect(processWorkflowInputs).toEqual([
+            {
+                graphId: "graph-1",
+                fileIds: ["existing-file"],
+                processRunId: "existing-process-run",
+                code: { kind: "repository", retiredFileIds: ["old-file"] },
+            },
+        ]);
     });
 
     test("finalizes delete-only connector deltas without inserting new files", async () => {
@@ -319,6 +390,42 @@ describe("syncRepositoryGraph", () => {
         });
     });
 
+    test("falls back to a full snapshot when compare is not incremental", async () => {
+        compareIsIncremental = false;
+        snapshotFiles = [
+            {
+                path: "src/reset.ts",
+                size: 24,
+                checksum: "reset-sha",
+                htmlUrl: "https://github.com/acme/widgets/blob/commit-new/src/reset.ts",
+                rawUrl: "https://raw.githubusercontent.com/acme/widgets/commit-new/src/reset.ts",
+                content: "export const reset = true;\n",
+            },
+        ];
+        selectResults = [
+            { kind: "limit", value: [bindingRow("commit-old")] },
+            {
+                kind: "where",
+                value: [
+                    activeFile("old-file", "commit-old", "src/index.ts", 25),
+                    activeFile("shared-file", "commit-old", "src/shared.ts", 22),
+                ],
+            },
+        ];
+
+        const result = await runWorkflow({ bindingId: "binding-1", reason: "webhook", commitSha: "commit-new" });
+
+        expect(result).toMatchObject({ commitSha: "commit-new", fileCount: 1 });
+        expect(loadSnapshotCalls).toBe(1);
+        expect(readFileCalls).toEqual([]);
+        expect(insertedFileValues.map((row) => row.name)).toEqual(["src/reset.ts"]);
+        expect(processWorkflowInputs[0]).toMatchObject({
+            graphId: "graph-1",
+            processRunId: "process-run-1",
+            code: { kind: "repository", retiredFileIds: ["old-file", "shared-file"] },
+        });
+    });
+
     test("rolls back inserted files when incremental processing fails", async () => {
         compareChanges = [{ status: "modified", newPath: "src/index.ts" }];
         readFileContents = {
@@ -336,9 +443,9 @@ describe("syncRepositoryGraph", () => {
             },
         ];
 
-        await expect(runWorkflow({ bindingId: "binding-1", reason: "manual", commitSha: "commit-new" })).rejects.toThrow(
-            "child failure"
-        );
+        await expect(
+            runWorkflow({ bindingId: "binding-1", reason: "manual", commitSha: "commit-new" })
+        ).rejects.toThrow("child failure");
         expect(deleteWorkflowInputs).toEqual([{ graphId: "graph-1", fileId: insertedFileValues[0]?.id }]);
     });
 
@@ -352,9 +459,9 @@ describe("syncRepositoryGraph", () => {
             { kind: "where", value: [activeFile("old-file", "commit-old", "src/index.ts", 25)] },
         ];
 
-        await expect(runWorkflow({ bindingId: "binding-1", reason: "manual", commitSha: "commit-new" })).rejects.toThrow(
-            "Provider delta contained duplicate path src/index.ts"
-        );
+        await expect(
+            runWorkflow({ bindingId: "binding-1", reason: "manual", commitSha: "commit-new" })
+        ).rejects.toThrow("Provider delta contained duplicate path src/index.ts");
         expect(processWorkflowInputs).toEqual([]);
     });
 });

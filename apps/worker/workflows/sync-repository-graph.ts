@@ -29,7 +29,7 @@ import {
 } from "@kiwi/db/tables/connectors";
 import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
 import { serializeCodeFileMetadata } from "@kiwi/graph/code/metadata";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import { parseCodeFileMetadata } from "../lib/code-file-metadata";
 import { env } from "../env";
@@ -155,7 +155,9 @@ async function resolveTargetCommitSha(
         return inputCommitSha;
     }
 
-    const branch = (await client.listBranches(repositoryFromBinding(row))).find((candidate) => candidate.name === row.binding.branch);
+    const branch = (await client.listBranches(repositoryFromBinding(row))).find(
+        (candidate) => candidate.name === row.binding.branch
+    );
     if (!branch) {
         throw new ConnectorProviderError("not-found", "Repository branch was not found");
     }
@@ -163,8 +165,16 @@ async function resolveTargetCommitSha(
     return branch.commitSha;
 }
 
-async function loadSnapshot(row: BindingGraphRow, client: ProviderRepositoryClient, commitSha: string): Promise<Snapshot> {
-    return client.loadRepositorySnapshot(repositoryFromBinding(row), row.binding.branch, commitSha) as Promise<Snapshot>;
+async function loadSnapshot(
+    row: BindingGraphRow,
+    client: ProviderRepositoryClient,
+    commitSha: string
+): Promise<Snapshot> {
+    return client.loadRepositorySnapshot(
+        repositoryFromBinding(row),
+        row.binding.branch,
+        commitSha
+    ) as Promise<Snapshot>;
 }
 
 async function loadActiveBindingFiles(bindingId: string): Promise<Map<string, ActiveBindingFile>> {
@@ -175,7 +185,13 @@ async function loadActiveBindingFiles(bindingId: string): Promise<Map<string, Ac
             metadata: filesTable.metadata,
         })
         .from(filesTable)
-        .where(and(eq(filesTable.repositoryBindingId, bindingId), eq(filesTable.type, "code"), eq(filesTable.deleted, false)));
+        .where(
+            and(
+                eq(filesTable.repositoryBindingId, bindingId),
+                eq(filesTable.type, "code"),
+                eq(filesTable.deleted, false)
+            )
+        );
 
     const filesByPath = new Map<string, ActiveBindingFile>();
     for (const row of rows) {
@@ -279,7 +295,8 @@ function assertBindingSnapshotLimits(
     newFiles: ProviderCodeFile[]
 ) {
     const retiredIds = new Set(retiredFileIds);
-    const totalFileCount = [...activeFiles.values()].filter((file) => !retiredIds.has(file.id)).length + newFiles.length;
+    const totalFileCount =
+        [...activeFiles.values()].filter((file) => !retiredIds.has(file.id)).length + newFiles.length;
     if (totalFileCount > MAX_REPOSITORY_CODE_FILES) {
         throw new ConnectorProviderError("limit", "Repository contains too many supported code files");
     }
@@ -319,6 +336,23 @@ function fileRows(row: BindingGraphRow, files: ProviderCodeFile[], commitSha: st
     }));
 }
 
+type InsertedFileRow = {
+    id: string;
+    key: string;
+};
+
+function orderedFilesByKey(rows: ReturnType<typeof fileRows>, files: InsertedFileRow[]): InsertedFileRow[] {
+    const filesByKey = new Map(files.map((file) => [file.key, file]));
+    const orderedFiles: InsertedFileRow[] = [];
+    for (const row of rows) {
+        const file = filesByKey.get(row.key);
+        if (file) {
+            orderedFiles.push(file);
+        }
+    }
+    return orderedFiles;
+}
+
 async function insertRepositoryFiles(
     row: BindingGraphRow,
     files: ProviderCodeFile[],
@@ -330,32 +364,73 @@ async function insertRepositoryFiles(
             .set({ syncStatus: "syncing", lastSeenCommitSha: commitSha, syncErrorCode: null })
             .where(eq(repositoryGraphBindingsTable.id, row.binding.id));
 
+        const rows = fileRows(row, files, commitSha);
         const insertedFiles = await tx
             .insert(filesTable)
-            .values(fileRows(row, files, commitSha))
+            .values(rows)
             .onConflictDoNothing()
-            .returning({ id: filesTable.id });
-        if (insertedFiles.length !== files.length) {
+            .returning({ id: filesTable.id, key: filesTable.key });
+        let committedFiles = orderedFilesByKey(rows, insertedFiles);
+        if (committedFiles.length !== files.length) {
+            const existingFiles = await tx
+                .select({ id: filesTable.id, key: filesTable.key })
+                .from(filesTable)
+                .where(
+                    and(
+                        eq(filesTable.graphId, row.binding.graphId),
+                        eq(filesTable.deleted, false),
+                        inArray(
+                            filesTable.key,
+                            rows.map((file) => file.key)
+                        )
+                    )
+                );
+            committedFiles = orderedFilesByKey(rows, existingFiles);
+        }
+        if (committedFiles.length !== files.length) {
             throw new Error("Failed to insert all repository files");
         }
 
-        const [processRun] = await tx
-            .insert(processRunsTable)
-            .values({ graphId: row.binding.graphId, status: "pending" })
-            .returning({ id: processRunsTable.id });
-        if (!processRun) {
-            throw new Error("Failed to create process run");
+        let processRunId: string | null = null;
+        if (insertedFiles.length === 0) {
+            const existingProcessRuns = await tx
+                .select({ id: processRunFilesTable.processRunId })
+                .from(processRunFilesTable)
+                .innerJoin(processRunsTable, eq(processRunFilesTable.processRunId, processRunsTable.id))
+                .where(
+                    and(
+                        eq(processRunsTable.graphId, row.binding.graphId),
+                        inArray(
+                            processRunFilesTable.fileId,
+                            committedFiles.map((file) => file.id)
+                        )
+                    )
+                );
+            processRunId = existingProcessRuns[0]?.id ?? null;
         }
 
-        await tx.insert(processRunFilesTable).values(
-            insertedFiles.map((file) => ({
-                processRunId: processRun.id,
-                fileId: file.id,
-            }))
-        );
+        if (!processRunId) {
+            const [processRun] = await tx
+                .insert(processRunsTable)
+                .values({ graphId: row.binding.graphId, status: "pending" })
+                .returning({ id: processRunsTable.id });
+            if (!processRun) {
+                throw new Error("Failed to create process run");
+            }
+            const newProcessRunId = processRun.id;
+            processRunId = newProcessRunId;
+
+            await tx.insert(processRunFilesTable).values(
+                committedFiles.map((file) => ({
+                    processRunId: newProcessRunId,
+                    fileId: file.id,
+                }))
+            );
+        }
+
         return {
-            fileIds: insertedFiles.map((file) => file.id),
-            processRunId: processRun.id,
+            fileIds: committedFiles.map((file) => file.id),
+            processRunId,
         };
     });
 }
@@ -364,19 +439,34 @@ async function markWebhookDuplicate(provider: typeof connectorsTable.$inferSelec
     await db
         .update(connectorWebhookEventsTable)
         .set({ status: "duplicate" })
-        .where(and(eq(connectorWebhookEventsTable.provider, provider), eq(connectorWebhookEventsTable.deliveryId, deliveryId)));
+        .where(
+            and(
+                eq(connectorWebhookEventsTable.provider, provider),
+                eq(connectorWebhookEventsTable.deliveryId, deliveryId)
+            )
+        );
 }
 
 async function markBindingSynced(bindingId: string, commitSha: string) {
     await db
         .update(repositoryGraphBindingsTable)
-        .set({ syncStatus: "synced", lastSeenCommitSha: commitSha, lastSyncedCommitSha: commitSha, syncErrorCode: null })
+        .set({
+            syncStatus: "synced",
+            lastSeenCommitSha: commitSha,
+            lastSyncedCommitSha: commitSha,
+            syncErrorCode: null,
+        })
         .where(eq(repositoryGraphBindingsTable.id, bindingId));
 }
 
 export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async ({ input, step }) => {
     const row = await step.run({ name: "load-binding" }, async () => loadBindingGraph(input.bindingId));
-    if (!row || row.connector.status !== "active" || row.installation.status !== "active" || !row.binding.webhookEnabled) {
+    if (
+        !row ||
+        row.connector.status !== "active" ||
+        row.installation.status !== "active" ||
+        !row.binding.webhookEnabled
+    ) {
         return { skipped: true };
     }
 
@@ -399,7 +489,9 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
             loadSnapshot(row, context.client, commitSha)
         );
         if (snapshot.files.length === 0) {
-            await step.run({ name: "mark-empty-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
+            await step.run({ name: "mark-empty-binding-synced" }, async () =>
+                markBindingSynced(row.binding.id, commitSha)
+            );
             return { commitSha, fileCount: 0 };
         }
 
@@ -435,6 +527,50 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
     const delta = await step.run({ name: "compare-provider-commits" }, async () =>
         context.client.compareRepository(repositoryFromBinding(row), row.binding.lastSyncedCommitSha!, commitSha)
     );
+    if (!delta.isIncremental) {
+        const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
+            loadSnapshot(row, context.client, commitSha)
+        );
+        const retiredFileIds = [...activeFiles.values()].map((file) => file.id);
+        assertBindingSnapshotLimits(activeFiles, retiredFileIds, snapshot.files);
+
+        if (snapshot.files.length > 0) {
+            const created = await step.run({ name: "commit-external-files" }, async () =>
+                insertRepositoryFiles(row, snapshot.files, commitSha)
+            );
+            try {
+                await step.runWorkflow(processFilesSpec, {
+                    graphId: row.binding.graphId,
+                    fileIds: created.fileIds,
+                    processRunId: created.processRunId,
+                    code: { kind: "repository", retiredFileIds },
+                });
+            } catch (error) {
+                await Promise.all(
+                    created.fileIds.map((fileId) =>
+                        step.runWorkflow(deleteFileSpec, {
+                            graphId: row.binding.graphId,
+                            fileId,
+                        })
+                    )
+                );
+                throw error;
+            }
+
+            await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
+            return { commitSha, fileCount: created.fileIds.length };
+        }
+
+        if (retiredFileIds.length > 0) {
+            await step.runWorkflow(processFilesSpec, {
+                graphId: row.binding.graphId,
+                fileIds: [],
+                code: { kind: "repository", retiredFileIds },
+            });
+        }
+        await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
+        return { commitSha, fileCount: 0 };
+    }
     const plan = planIncrementalChanges(activeFiles, delta.changes);
     if (plan.newPaths.length === 0 && plan.retiredFileIds.length === 0) {
         await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));

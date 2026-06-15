@@ -67,10 +67,16 @@ describe("GitHub connector", () => {
             }
             return jsonResponse([{ name: "main", commit: { sha: "commit-sha" } }]);
         };
-        const client = createGitHubClient({ installationToken: "token", apiBaseUrl: "https://github.test", fetch: fetchImpl });
+        const client = createGitHubClient({
+            installationToken: "token",
+            apiBaseUrl: "https://github.test",
+            fetch: fetchImpl,
+        });
 
         await expect(client.listRepositories()).resolves.toEqual([GITHUB_REPOSITORY]);
-        await expect(client.listBranches(GITHUB_REPOSITORY)).resolves.toEqual([{ name: "main", commitSha: "commit-sha" }]);
+        await expect(client.listBranches(GITHUB_REPOSITORY)).resolves.toEqual([
+            { name: "main", commitSha: "commit-sha" },
+        ]);
         expect(urls).toContain("https://github.test/installation/repositories?per_page=100&page=1");
         expect(urls).toContain("https://github.test/repos/acme/app/branches?per_page=100&page=1");
     });
@@ -93,7 +99,10 @@ describe("GitHub connector", () => {
                 });
             }
             if (url.includes("/git/blobs/blob-sha")) {
-                return jsonResponse({ encoding: "base64", content: Buffer.from("export const ok = 1;", "utf8").toString("base64") });
+                return jsonResponse({
+                    encoding: "base64",
+                    content: Buffer.from("export const ok = 1;", "utf8").toString("base64"),
+                });
             }
             throw new Error(`unexpected URL ${url}`);
         };
@@ -148,6 +157,7 @@ describe("GitHub connector", () => {
         await expect(client.compareRepository(GITHUB_REPOSITORY, "commit-old", "commit-new")).resolves.toEqual({
             fromCommitSha: "commit-old",
             toCommitSha: "commit-new",
+            isIncremental: true,
             changes: [
                 { status: "modified", newPath: "src/modified.ts" },
                 { status: "added", newPath: "src/added.ts" },
@@ -158,16 +168,19 @@ describe("GitHub connector", () => {
         });
     });
 
-    test("rejects GitHub compare responses that are not safe to apply incrementally", async () => {
+    test("marks non-forward GitHub compares as requiring a snapshot sync", async () => {
         const client = createGitHubClient({
             installationToken: "token",
             apiBaseUrl: "https://github.test",
-            fetch: async () => jsonResponse({ status: "diverged", files: [] }),
+            fetch: async () => jsonResponse({ status: "diverged" }),
         });
 
-        await expect(client.compareRepository(GITHUB_REPOSITORY, "commit-old", "commit-new")).rejects.toThrow(
-            "GitHub compare response is invalid"
-        );
+        await expect(client.compareRepository(GITHUB_REPOSITORY, "commit-old", "commit-new")).resolves.toEqual({
+            fromCommitSha: "commit-old",
+            toCommitSha: "commit-new",
+            isIncremental: false,
+            changes: [],
+        });
     });
 
     test("verifies webhooks and normalizes push events", () => {
@@ -175,7 +188,9 @@ describe("GitHub connector", () => {
         const signature = `sha256=${createHmac("sha256", "secret").update(body).digest("hex")}`;
 
         expect(verifyGitHubWebhookSignature({ body, webhookSecret: "secret", signatureHeader: signature })).toBe(true);
-        expect(verifyGitHubWebhookSignature({ body, webhookSecret: "secret", signatureHeader: "sha256=bad" })).toBe(false);
+        expect(verifyGitHubWebhookSignature({ body, webhookSecret: "secret", signatureHeader: "sha256=bad" })).toBe(
+            false
+        );
         expect(
             normalizeGitHubWebhookEvent({
                 eventName: "push",
@@ -201,5 +216,9 @@ describe("GitHub connector", () => {
 });
 
 function jsonResponse(value: unknown, init?: ResponseInit): Response {
-    return new Response(JSON.stringify(value), { status: 200, ...init, headers: { "content-type": "application/json", ...init?.headers } });
+    return new Response(JSON.stringify(value), {
+        status: 200,
+        ...init,
+        headers: { "content-type": "application/json", ...init?.headers },
+    });
 }

@@ -169,7 +169,7 @@ export const filesTable = pgTable.withRLS(
         index("files_graph_active_id_idx")
             .on(table.graphId, table.id)
             .where(sql`${table.deleted} = false`),
-        index("files_graph_active_key_idx")
+        uniqueIndex("files_graph_active_key_idx")
             .on(table.graphId, table.key)
             .where(sql`${table.deleted} = false`),
         check(

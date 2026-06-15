@@ -89,7 +89,9 @@ export async function listGitLabProjects(options: GitLabClientOptions): Promise<
     }
 }
 
-export async function listGitLabBranches(options: GitLabClientOptions & { repository: ProviderRepository }): Promise<ProviderBranch[]> {
+export async function listGitLabBranches(
+    options: GitLabClientOptions & { repository: ProviderRepository }
+): Promise<ProviderBranch[]> {
     const branches: ProviderBranch[] = [];
     for (let page = 1; ; page += 1) {
         const json = await getGitLabJson(
@@ -101,7 +103,12 @@ export async function listGitLabBranches(options: GitLabClientOptions & { reposi
             throw new ConnectorProviderError("provider", "GitLab branches response is invalid");
         }
         for (const branch of json) {
-            if (isObject(branch) && typeof branch.name === "string" && isObject(branch.commit) && typeof branch.commit.id === "string") {
+            if (
+                isObject(branch) &&
+                typeof branch.name === "string" &&
+                isObject(branch.commit) &&
+                typeof branch.commit.id === "string"
+            ) {
                 branches.push({ name: branch.name, commitSha: branch.commit.id });
             }
         }
@@ -215,15 +222,18 @@ export async function compareGitLabRepository(
     return {
         fromCommitSha: options.fromCommitSha,
         toCommitSha: options.toCommitSha,
+        isIncremental: true,
         changes,
     };
 }
 
-export async function readGitLabRepositoryFile(options: GitLabClientOptions & {
-    repository: ProviderRepository;
-    path: string;
-    commitSha: string;
-}): Promise<string> {
+export async function readGitLabRepositoryFile(
+    options: GitLabClientOptions & {
+        repository: ProviderRepository;
+        path: string;
+        commitSha: string;
+    }
+): Promise<string> {
     const rawUrl = `${gitLabApiBase(options.baseUrl)}/projects/${encodeURIComponent(options.repository.id)}/repository/files/${encodeURIComponent(options.path)}/raw?ref=${encodeURIComponent(options.commitSha)}`;
     const content = await getGitLabText(rawUrl, options.accessToken, options.fetch);
     if (Buffer.byteLength(content, "utf8") > MAX_REPOSITORY_CODE_FILE_BYTES) {
@@ -250,8 +260,10 @@ export function normalizeGitLabWebhookEvent(options: {
         provider: "gitlab",
         deliveryId: options.deliveryId,
         eventName: options.eventName,
-        repositoryId: project && (typeof project.id === "string" || typeof project.id === "number") ? String(project.id) : null,
-        repositoryFullName: project && typeof project.path_with_namespace === "string" ? project.path_with_namespace : null,
+        repositoryId:
+            project && (typeof project.id === "string" || typeof project.id === "number") ? String(project.id) : null,
+        repositoryFullName:
+            project && typeof project.path_with_namespace === "string" ? project.path_with_namespace : null,
         branch: branchNameFromGitRef(payload.ref),
         commitSha: typeof payload.after === "string" ? payload.after : null,
         raw: options.payload,
@@ -277,11 +289,16 @@ async function listGitLabTree(options: SnapshotOptions, ref: string): Promise<un
 }
 
 async function getGitLabJson(url: string, token: string, fetchImpl: FetchLike | undefined): Promise<unknown> {
-    const response = await (fetchImpl ?? fetch)(url, { headers: { authorization: `Bearer ${token}`, accept: "application/json" } });
+    const response = await (fetchImpl ?? fetch)(url, {
+        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+    });
     const text = await response.text();
     const json = text.length === 0 ? null : JSON.parse(text);
     if (!response.ok) {
-        throw new ConnectorProviderError(response.status === 404 ? "not-found" : "provider", "GitLab API request failed");
+        throw new ConnectorProviderError(
+            response.status === 404 ? "not-found" : "provider",
+            "GitLab API request failed"
+        );
     }
     return json;
 }
@@ -294,13 +311,21 @@ async function getGitLabText(url: string, token: string, fetchImpl: FetchLike | 
     }
     const text = await response.text();
     if (!response.ok) {
-        throw new ConnectorProviderError(response.status === 404 ? "not-found" : "provider", "GitLab raw file request failed");
+        throw new ConnectorProviderError(
+            response.status === 404 ? "not-found" : "provider",
+            "GitLab raw file request failed"
+        );
     }
     return text;
 }
 
 function mapGitLabProject(value: unknown): ProviderRepository {
-    if (!isObject(value) || typeof value.path_with_namespace !== "string" || typeof value.name !== "string" || (typeof value.id !== "string" && typeof value.id !== "number")) {
+    if (
+        !isObject(value) ||
+        typeof value.path_with_namespace !== "string" ||
+        typeof value.name !== "string" ||
+        (typeof value.id !== "string" && typeof value.id !== "number")
+    ) {
         throw new ConnectorProviderError("provider", "GitLab project response is invalid");
     }
     return {
@@ -320,7 +345,10 @@ function gitLabApiBase(baseUrl: string): string {
 
 function shouldLoadCodePath(filePath: string): boolean {
     const normalized = filePath.replaceAll("\\", "/");
-    return isSupportedCodePath(normalized) && normalized.split("/").every((segment) => SKIPPED_PATH_SEGMENTS[segment] !== true);
+    return (
+        isSupportedCodePath(normalized) &&
+        normalized.split("/").every((segment) => SKIPPED_PATH_SEGMENTS[segment] !== true)
+    );
 }
 
 function isGitLabBlob(value: unknown): value is { id: string; path: string } {

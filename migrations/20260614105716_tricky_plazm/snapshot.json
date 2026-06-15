@@ -7681,64 +7681,114 @@
       "table": "files"
     },
     {
+      "value": "\"provider\" in ('github', 'gitlab')",
       "name": "connectors_provider_check",
       "entityType": "checks",
       "schema": "public",
       "table": "connectors"
     },
     {
+      "value": "\"status\" in ('draft', 'active', 'disabled')",
       "name": "connectors_status_check",
       "entityType": "checks",
       "schema": "public",
       "table": "connectors"
     },
     {
+      "value": "\"provider\" in ('github', 'gitlab')",
       "name": "connector_installations_provider_check",
       "entityType": "checks",
       "schema": "public",
       "table": "connector_installations"
     },
     {
+      "value": "\"status\" in ('active', 'disabled')",
       "name": "connector_installations_status_check",
       "entityType": "checks",
       "schema": "public",
       "table": "connector_installations"
     },
     {
+      "value": "(\"organization_id\" is not null and \"team_id\" is null) or (\"organization_id\" is not null and \"team_id\" is not null)",
       "name": "connector_installations_owner_scope_check",
       "entityType": "checks",
       "schema": "public",
       "table": "connector_installations"
     },
     {
+      "value": "\"provider\" in ('github', 'gitlab')",
       "name": "repository_graph_bindings_provider_check",
       "entityType": "checks",
       "schema": "public",
       "table": "repository_graph_bindings"
     },
     {
+      "value": "\"sync_status\" in ('pending', 'syncing', 'synced', 'failed')",
       "name": "repository_graph_bindings_sync_status_check",
       "entityType": "checks",
       "schema": "public",
       "table": "repository_graph_bindings"
     },
     {
+      "value": "\"provider\" in ('github', 'gitlab')",
       "name": "connector_webhook_events_provider_check",
       "entityType": "checks",
       "schema": "public",
       "table": "connector_webhook_events"
     },
     {
+      "value": "\"status\" in ('ignored', 'enqueued', 'duplicate', 'failed')",
       "name": "connector_webhook_events_status_check",
       "entityType": "checks",
       "schema": "public",
       "table": "connector_webhook_events"
     },
     {
+      "value": "\"external_provider\" IS NULL OR \"external_provider\" in ('github', 'gitlab')",
       "name": "files_external_provider_check",
       "entityType": "checks",
       "schema": "public",
       "table": "files"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "connector_installations_pkey",
+      "schema": "public",
+      "table": "connector_installations",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "connector_webhook_events_pkey",
+      "schema": "public",
+      "table": "connector_webhook_events",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "connectors_pkey",
+      "schema": "public",
+      "table": "connectors",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "repository_graph_bindings_pkey",
+      "schema": "public",
+      "table": "repository_graph_bindings",
+      "entityType": "pks"
     },
     {
       "nameExplicit": true,
@@ -7792,42 +7842,14 @@
     {
       "nameExplicit": true,
       "columns": [
-        {
-          "value": "connector_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "provider_installation_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "team_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
+        "connector_id",
+        "provider_installation_id",
+        "organization_id",
+        "team_id"
       ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
+      "nullsNotDistinct": false,
       "name": "connector_installations_provider_scope_unique",
-      "entityType": "indexes",
+      "entityType": "uniques",
       "schema": "public",
       "table": "connector_installations"
     },
@@ -8260,23 +8282,6 @@
       "entityType": "fks",
       "schema": "public",
       "table": "connector_webhook_events"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        "repository_binding_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "repository_graph_bindings",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "files_repository_binding_id_repository_graph_bindings_id_fk",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "files"
     }
   ],
   "renames": []

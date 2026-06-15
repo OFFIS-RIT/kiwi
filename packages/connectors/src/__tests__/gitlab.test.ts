@@ -22,7 +22,9 @@ describe("GitLab connector", () => {
     test("normalizes base URLs", () => {
         expect(normalizeGitLabBaseUrl("https://gitlab.example.com///")).toBe("https://gitlab.example.com");
         expect(normalizeGitLabBaseUrl("https://gitlab.example.com/root/")).toBe("https://gitlab.example.com/root");
-        expect(() => normalizeGitLabBaseUrl("ftp://gitlab.example.com")).toThrow("GitLab base URL must use HTTP or HTTPS");
+        expect(() => normalizeGitLabBaseUrl("ftp://gitlab.example.com")).toThrow(
+            "GitLab base URL must use HTTP or HTTPS"
+        );
     });
 
     test("lists projects and branches", async () => {
@@ -47,7 +49,9 @@ describe("GitLab connector", () => {
         const client = createGitLabClient({ baseUrl: "https://gitlab.test", accessToken: "token", fetch: fetchImpl });
 
         await expect(client.listRepositories()).resolves.toEqual([GITLAB_REPOSITORY]);
-        await expect(client.listBranches(GITLAB_REPOSITORY)).resolves.toEqual([{ name: "main", commitSha: "commit-sha" }]);
+        await expect(client.listBranches(GITLAB_REPOSITORY)).resolves.toEqual([
+            { name: "main", commitSha: "commit-sha" },
+        ]);
         expect(urls).toContain("https://gitlab.test/api/v4/projects?membership=true&per_page=100&page=1");
         expect(urls).toContain("https://gitlab.test/api/v4/projects/7/repository/branches?per_page=100&page=1");
     });
@@ -161,6 +165,7 @@ describe("GitLab connector", () => {
         await expect(client.compareRepository(GITLAB_REPOSITORY, "commit-old", "commit-new")).resolves.toEqual({
             fromCommitSha: "commit-old",
             toCommitSha: "commit-new",
+            isIncremental: true,
             changes: [
                 { status: "modified", newPath: "src/modified.ts" },
                 { status: "added", newPath: "src/added.ts" },
@@ -225,5 +230,9 @@ describe("GitLab connector", () => {
 });
 
 function jsonResponse(value: unknown, init?: ResponseInit): Response {
-    return new Response(JSON.stringify(value), { status: 200, ...init, headers: { "content-type": "application/json", ...init?.headers } });
+    return new Response(JSON.stringify(value), {
+        status: 200,
+        ...init,
+        headers: { "content-type": "application/json", ...init?.headers },
+    });
 }

@@ -34,7 +34,10 @@ export const connectorsTable = pgTable.withRLS(
         clientId: text("client_id"),
         encryptedCredentials: text("encrypted_credentials").notNull(),
         webhookSecretEncrypted: text("webhook_secret_encrypted").notNull(),
-        createdByUserId: text("created_by_user_id").references(() => userTable.id, { onDelete: "set null" }),
+        createdByUserId: text("created_by_user_id").references(() => userTable.id, {
+            name: "connectors_created_by_user_id_user_id_fk",
+            onDelete: "set null",
+        }),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
         updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
             .defaultNow()
@@ -56,14 +59,26 @@ export const connectorInstallationsTable = pgTable.withRLS(
             .$default(() => ulid()),
         connectorId: text("connector_id")
             .notNull()
-            .references(() => connectorsTable.id, { onDelete: "cascade" }),
+            .references(() => connectorsTable.id, {
+                name: "connector_installations_connector_id_connectors_id_fk",
+                onDelete: "cascade",
+            }),
         provider: text("provider", { enum: CONNECTOR_PROVIDER_VALUES }).notNull(),
         providerInstallationId: text("provider_installation_id").notNull(),
         providerAccountLogin: text("provider_account_login").notNull(),
         providerAccountType: text("provider_account_type"),
-        organizationId: text("organization_id").references(() => organizationTable.id, { onDelete: "cascade" }),
-        teamId: text("team_id").references(() => teamTable.id, { onDelete: "cascade" }),
-        installedByUserId: text("installed_by_user_id").references(() => userTable.id, { onDelete: "set null" }),
+        organizationId: text("organization_id").references(() => organizationTable.id, {
+            name: "connector_installations_organization_id_organization_id_fk",
+            onDelete: "cascade",
+        }),
+        teamId: text("team_id").references(() => teamTable.id, {
+            name: "connector_installations_team_id_team_id_fk",
+            onDelete: "cascade",
+        }),
+        installedByUserId: text("installed_by_user_id").references(() => userTable.id, {
+            name: "connector_installations_installed_by_user_id_user_id_fk",
+            onDelete: "set null",
+        }),
         encryptedCredentials: text("encrypted_credentials"),
         repositorySelection: text("repository_selection").notNull().default("unknown"),
         status: text("status", { enum: CONNECTOR_INSTALLATION_STATUS_VALUES }).notNull().default("active"),
@@ -99,10 +114,16 @@ export const repositoryGraphBindingsTable = pgTable.withRLS(
             .$default(() => ulid()),
         graphId: text("graph_id")
             .notNull()
-            .references(() => graphTable.id, { onDelete: "cascade" }),
+            .references(() => graphTable.id, {
+                name: "repository_graph_bindings_graph_id_graphs_id_fk",
+                onDelete: "cascade",
+            }),
         connectorInstallationId: text("connector_installation_id")
             .notNull()
-            .references(() => connectorInstallationsTable.id, { onDelete: "restrict" }),
+            .references(() => connectorInstallationsTable.id, {
+                name: "repository_graph_bindings_connector_installation_id_fk",
+                onDelete: "restrict",
+            }),
         provider: text("provider", { enum: CONNECTOR_PROVIDER_VALUES }).notNull(),
         providerRepositoryId: text("provider_repository_id").notNull(),
         repositoryFullName: text("repository_full_name").notNull(),
@@ -147,7 +168,10 @@ export const connectorWebhookEventsTable = pgTable.withRLS(
             .$default(() => ulid()),
         connectorId: text("connector_id")
             .notNull()
-            .references(() => connectorsTable.id, { onDelete: "cascade" }),
+            .references(() => connectorsTable.id, {
+                name: "connector_webhook_events_connector_id_connectors_id_fk",
+                onDelete: "cascade",
+            }),
         provider: text("provider", { enum: CONNECTOR_PROVIDER_VALUES }).notNull(),
         deliveryId: text("delivery_id").notNull(),
         eventName: text("event_name").notNull(),
@@ -160,7 +184,11 @@ export const connectorWebhookEventsTable = pgTable.withRLS(
     },
     (table) => [
         uniqueIndex("connector_webhook_events_delivery_unique").on(table.connectorId, table.provider, table.deliveryId),
-        index("connector_webhook_events_binding_lookup_idx").on(table.provider, table.providerRepositoryId, table.branch),
+        index("connector_webhook_events_binding_lookup_idx").on(
+            table.provider,
+            table.providerRepositoryId,
+            table.branch
+        ),
         check("connector_webhook_events_provider_check", sql`${table.provider} in ('github', 'gitlab')`),
         check(
             "connector_webhook_events_status_check",
