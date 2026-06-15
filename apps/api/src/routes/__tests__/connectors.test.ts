@@ -18,6 +18,8 @@ const connector = {
 const insertValues: Array<Record<string, unknown>> = [];
 const conflictConfigs: Array<Record<string, unknown>> = [];
 const installationAccountCalls: string[] = [];
+const updateValues: Array<Record<string, unknown>> = [];
+let workflowError: Error | null = null;
 
 mock.module("../../middleware/auth", () => ({
     authMiddleware: new Elysia().derive({ as: "scoped" }, () => ({
@@ -68,7 +70,12 @@ mock.module("../../lib/connectors", () => ({
 
 mock.module("../../openworkflow", () => ({
     ow: {
-        runWorkflow: async () => ({ workflowRun: { id: "run-1" } }),
+        runWorkflow: async () => {
+            if (workflowError) {
+                throw workflowError;
+            }
+            return { workflowRun: { id: "run-1" } };
+        },
     },
 }));
 
@@ -89,11 +96,14 @@ mock.module("@kiwi/db", () => ({
             },
         }),
         update: () => ({
-            set: () => ({
-                where: () => ({
-                    returning: () => [],
-                }),
-            }),
+            set: (values: Record<string, unknown>) => {
+                updateValues.push(values);
+                return {
+                    where: () => ({
+                        returning: () => [],
+                    }),
+                };
+            },
         }),
         select: () => ({
             from: () => ({
@@ -104,13 +114,15 @@ mock.module("@kiwi/db", () => ({
 }));
 
 // Dynamic import is required so module mocks are installed before the route module is evaluated.
-const { connectorRoute } = await import("../connectors");
+const { connectorRoute, repositoryGraphBindingRoute } = await import("../connectors");
 
 describe("connector route", () => {
     beforeEach(() => {
         insertValues.length = 0;
         conflictConfigs.length = 0;
         installationAccountCalls.length = 0;
+        updateValues.length = 0;
+        workflowError = null;
     });
 
     test("stores GitHub installation account metadata and targets org-scope upserts", async () => {
@@ -139,5 +151,17 @@ describe("connector route", () => {
             status: "active",
             installedByUserId: "user-1",
         });
+    });
+
+    test("marks manual repository graph sync failed when workflow enqueue fails", async () => {
+        workflowError = new Error("enqueue failed");
+
+        const response = await repositoryGraphBindingRoute.handle(
+            new Request("http://localhost/repository-graph-bindings/binding-1/sync", { method: "POST" })
+        );
+
+        expect(response.status).toBe(400);
+        expect(updateValues).toContainEqual({ syncStatus: "pending", syncErrorCode: null });
+        expect(updateValues).toContainEqual({ syncStatus: "failed", syncErrorCode: "enqueue_failed" });
     });
 });

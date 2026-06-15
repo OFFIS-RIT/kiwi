@@ -564,14 +564,22 @@ export const repositoryGraphBindingRoute = new Elysia({ prefix: "/repository-gra
                     .set({ syncStatus: "pending", syncErrorCode: null })
                     .where(eq(repositoryGraphBindingsTable.id, binding.id))
                     .returning();
-                const handle = await ow.runWorkflow(syncRepositoryGraphSpec, {
-                    bindingId: binding.id,
-                    reason: "manual",
-                });
-                return {
-                    binding: toBindingResponse(updatedBinding ?? binding),
-                    workflowRunId: handle.workflowRun.id,
-                };
+                try {
+                    const handle = await ow.runWorkflow(syncRepositoryGraphSpec, {
+                        bindingId: binding.id,
+                        reason: "manual",
+                    });
+                    return {
+                        binding: toBindingResponse(updatedBinding ?? binding),
+                        workflowRunId: handle.workflowRun.id,
+                    };
+                } catch (error) {
+                    await db
+                        .update(repositoryGraphBindingsTable)
+                        .set({ syncStatus: "failed", syncErrorCode: "enqueue_failed" })
+                        .where(eq(repositoryGraphBindingsTable.id, binding.id));
+                    throw error;
+                }
             },
         })
     );

@@ -306,14 +306,13 @@ async function getGitLabJson(url: string, token: string, fetchImpl: FetchLike | 
         headers: { authorization: `Bearer ${token}`, accept: "application/json" },
     });
     const text = await response.text();
-    const json = text.length === 0 ? null : JSON.parse(text);
     if (!response.ok) {
         throw new ConnectorProviderError(
             response.status === 404 ? "not-found" : "provider",
             "GitLab API request failed"
         );
     }
-    return json;
+    return text.length === 0 ? null : JSON.parse(text);
 }
 
 async function getGitLabText(url: string, token: string, fetchImpl: FetchLike | undefined): Promise<string> {

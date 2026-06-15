@@ -56,6 +56,19 @@ describe("GitLab connector", () => {
         expect(urls).toContain("https://gitlab.test/api/v4/projects/7/repository/branches?per_page=100&page=1");
     });
 
+    test("throws typed provider errors for non-json GitLab error responses", async () => {
+        const client = createGitLabClient({
+            baseUrl: "https://gitlab.test",
+            accessToken: "token",
+            fetch: async () => new Response("upstream unavailable", { status: 500 }),
+        });
+
+        await expect(client.listBranches(GITLAB_REPOSITORY)).rejects.toMatchObject({
+            name: "ConnectorProviderError",
+            kind: "provider",
+        });
+    });
+
     test("loads supported repository snapshots through tree and file APIs", async () => {
         const calls: string[] = [];
         const fetchImpl: FetchLike = async (input) => {
