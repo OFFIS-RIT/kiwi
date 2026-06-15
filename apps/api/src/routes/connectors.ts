@@ -91,19 +91,17 @@ function mapConnectorError(status: RouteStatus, error: unknown) {
     if (!(error instanceof Error)) {
         return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
     }
-    if (error.message === API_ERROR_CODES.UNAUTHORIZED) {
+    const message = error.message.replace(/^Unhandled exception: /u, "");
+    if (message === API_ERROR_CODES.UNAUTHORIZED) {
         return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
     }
-    if (error.message === API_ERROR_CODES.FORBIDDEN) {
+    if (message === API_ERROR_CODES.FORBIDDEN) {
         return status(403, errorResponse("Forbidden", API_ERROR_CODES.FORBIDDEN));
     }
-    if (error.message === API_ERROR_CODES.GRAPH_NOT_FOUND) {
+    if (message === API_ERROR_CODES.GRAPH_NOT_FOUND) {
         return status(404, errorResponse("Not found", API_ERROR_CODES.GRAPH_NOT_FOUND));
     }
-    return status(
-        400,
-        errorResponse(error.message || "Invalid connector request", API_ERROR_CODES.INVALID_CHAT_REQUEST)
-    );
+    return status(400, errorResponse(message || "Invalid connector request", API_ERROR_CODES.INVALID_CHAT_REQUEST));
 }
 
 async function runConnectorAction<T>(options: {
@@ -129,6 +127,12 @@ function assertSystemAdmin(user: AuthUser) {
 
 function repositoryMatches(repository: { id: string; fullName: string }, requestedId: string) {
     return repository.id === requestedId || repository.fullName === requestedId;
+}
+
+function assertInstallationBelongsToConnector(installation: { connectorId: string }, connectorId: string) {
+    if (installation.connectorId !== connectorId) {
+        throw new Error(API_ERROR_CODES.FORBIDDEN);
+    }
 }
 
 function toBindingResponse(binding: typeof repositoryGraphBindingsTable.$inferSelect) {
@@ -410,6 +414,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                 status,
                 action: async (currentUser) => {
                     const installation = await assertCanUseInstallation(currentUser, query.installationId);
+                    assertInstallationBelongsToConnector(installation, params.id);
                     const connector = await requireActiveConnector(
                         params.id,
                         installation.provider as ConnectorProvider
@@ -436,6 +441,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                 status,
                 action: async (currentUser) => {
                     const installation = await assertCanUseInstallation(currentUser, query.installationId);
+                    assertInstallationBelongsToConnector(installation, params.id);
                     const connector = await requireActiveConnector(
                         params.id,
                         installation.provider as ConnectorProvider
@@ -454,6 +460,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                 status,
                 action: async (currentUser) => {
                     const installation = await assertCanUseInstallation(currentUser, body.connectorInstallationId);
+                    assertInstallationBelongsToConnector(installation, params.id);
                     if (body.owner.kind === "team") {
                         if (installation.teamId !== body.owner.teamId) {
                             throw new Error(API_ERROR_CODES.FORBIDDEN);
