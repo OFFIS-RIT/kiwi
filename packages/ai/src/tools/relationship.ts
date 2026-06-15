@@ -1,6 +1,7 @@
 import { db } from "@kiwi/db";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { entityTable, relationshipTable } from "@kiwi/db/tables/graph";
+import { currentSourceSql, visibleFileSql } from "@kiwi/db/source-validity";
 import { and, asc, cosineDistance, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { embed, tool } from "ai";
 import { withAiSlot } from "../concurrency";
@@ -27,9 +28,21 @@ type SearchRelationshipRow = {
     targetId: string;
     sourceName: string;
     targetName: string;
+    kind: string;
+    directed: boolean;
     description: string;
     rank: number;
     score: number;
+};
+
+type RelationshipEdgeRow = {
+    id: string;
+    sourceId: string;
+    targetId: string;
+    description: string;
+    kind: string;
+    directed: boolean;
+    rank: number;
 };
 
 function buildRelationshipKeywordBoostExpression(terms: string[]) {
@@ -67,7 +80,10 @@ function buildRelationshipFileScopeExpression(fileIds: string[]) {
             select 1
             from sources source
             inner join text_units text_unit on text_unit.id = source.text_unit_id
+            inner join files file on file.id = text_unit.file_id
             where source.relationship_id = r.id
+              and ${currentSourceSql("source")}
+              and ${visibleFileSql("file")}
               and text_unit.file_id in (${sql.join(
                   fileIds.map((fileId) => sql`${fileId}`),
                   sql`, `
@@ -83,23 +99,29 @@ function toSearchRelationshipRows(rows: Record<string, unknown>[]): SearchRelati
         targetId: String(row.targetId ?? ""),
         sourceName: String(row.sourceName ?? "Unknown"),
         targetName: String(row.targetName ?? "Unknown"),
+        kind: String(row.kind ?? "RELATED"),
+        directed: row.directed === true,
         description: String(row.description ?? ""),
         rank: Number(row.rank ?? 0),
         score: Number(row.score ?? 0),
     }));
 }
 
+function formatRelationshipDirection(row: Pick<RelationshipEdgeRow, "sourceId" | "targetId" | "directed">) {
+    return row.directed ? `${row.sourceId} -> ${row.targetId}` : `${row.sourceId} -- ${row.targetId}`;
+}
+
 function formatRelationshipList(
     rows: Array<
         Pick<
             SearchRelationshipRow,
-            "id" | "sourceId" | "targetId" | "sourceName" | "targetName" | "description" | "rank"
+            "id" | "sourceId" | "targetId" | "sourceName" | "targetName" | "kind" | "directed" | "description" | "rank"
         >
     >
 ) {
     return rows.map(
         (row) =>
-            `- ${row.id}, ${row.sourceId} ${row.sourceName} -> ${row.targetId} ${row.targetName}, ${truncateWords(row.description) || "No description"}, rank ${row.rank}`
+            `- ${row.id}, ${formatRelationshipDirection(row)}, ${row.sourceName} to ${row.targetName}, ${row.kind}, ${truncateWords(row.description) || "No description"}, rank ${row.rank}`
     );
 }
 
@@ -178,6 +200,8 @@ export const searchRelationshipsTool = (
                                 r.target_id as "targetId",
                                 coalesce(source_entity.name, 'Unknown') as "sourceName",
                                 coalesce(target_entity.name, 'Unknown') as "targetName",
+                                r.kind,
+                                r.directed,
                                 r.description,
                                 r.rank,
                                 ${semanticScore} as semantic_score,
@@ -197,6 +221,8 @@ export const searchRelationshipsTool = (
                             ranked."targetId",
                             ranked."sourceName",
                             ranked."targetName",
+                            ranked.kind,
+                            ranked.directed,
                             ranked.description,
                             ranked.rank,
                             ranked.score
@@ -278,6 +304,8 @@ export const getRelationshipsTool = (graphId: string) =>
                             id: relationshipTable.id,
                             sourceId: relationshipTable.sourceId,
                             targetId: relationshipTable.targetId,
+                            kind: relationshipTable.kind,
+                            directed: relationshipTable.directed,
                             description: relationshipTable.description,
                             rank: relationshipTable.rank,
                         })
@@ -309,7 +337,7 @@ export const getRelationshipsTool = (graphId: string) =>
                                   const source = entityMap.get(row.sourceId);
                                   const target = entityMap.get(row.targetId);
 
-                                  return `- ${row.id}, ${row.sourceId} ${source?.name ?? "Unknown"} -> ${row.targetId} ${target?.name ?? "Unknown"}, ${description || "No description"}, rank ${row.rank}`;
+                                  return `- ${row.id}, ${formatRelationshipDirection(row)}, ${source?.name ?? "Unknown"} to ${target?.name ?? "Unknown"}, ${row.kind}, ${description || "No description"}, rank ${row.rank}`;
                               })
                             : ["- none"]),
                         ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
@@ -353,6 +381,8 @@ export const getNeighboursTool = (graphId: string) =>
                             id: relationshipTable.id,
                             sourceId: relationshipTable.sourceId,
                             targetId: relationshipTable.targetId,
+                            kind: relationshipTable.kind,
+                            directed: relationshipTable.directed,
                             description: relationshipTable.description,
                             rank: relationshipTable.rank,
                         })
@@ -387,8 +417,9 @@ export const getNeighboursTool = (graphId: string) =>
                                   const neighbour = entityMap.get(neighbourId);
                                   const relationship = truncateWords(row.description, 30);
                                   const description = truncateWords(neighbour?.description ?? "", 20);
+                                  const direction = row.sourceId === entityId ? "outgoing" : "incoming";
 
-                                  return `- ${neighbourId}, ${neighbour?.name ?? "Unknown"}, ${neighbour?.type ?? "Unknown"}, ${description || "No description"}; via ${row.id}, ${relationship || "No relationship description"}, rank ${row.rank}`;
+                                  return `- ${neighbourId}, ${neighbour?.name ?? "Unknown"}, ${neighbour?.type ?? "Unknown"}, ${description || "No description"}; via ${row.id}, ${row.kind}, ${row.directed ? direction : "undirected"}, ${formatRelationshipDirection(row)}, ${relationship || "No relationship description"}, rank ${row.rank}`;
                               })
                             : ["- none"]),
                         ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
@@ -430,10 +461,11 @@ export const getPathBetweenTool = (graphId: string) =>
                             .where(and(eq(entityTable.graphId, graphId), eq(entityTable.id, sourceEntityId)))
                             .limit(1);
 
-                        return [
-                            "## Path",
-                            `- ${entity?.id ?? sourceEntityId}, ${entity?.name ?? "Unknown"}, ${entity?.type ?? "Unknown"}`,
-                        ].join("\n");
+                        if (!entity) {
+                            return "## Path\n- none found within 5 hops";
+                        }
+
+                        return ["## Path", `- ${entity.id}, ${entity.name}, ${entity.type}`].join("\n");
                     }
 
                     const maxDepth = 5;
@@ -451,6 +483,7 @@ export const getPathBetweenTool = (graphId: string) =>
                                 id: relationshipTable.id,
                                 sourceId: relationshipTable.sourceId,
                                 targetId: relationshipTable.targetId,
+                                directed: relationshipTable.directed,
                             })
                             .from(relationshipTable)
                             .where(
@@ -476,7 +509,11 @@ export const getPathBetweenTool = (graphId: string) =>
                                 nextFrontier.push(relationship.targetId);
                             }
 
-                            if (frontier.includes(relationship.targetId) && !visited.has(relationship.sourceId)) {
+                            if (
+                                !relationship.directed &&
+                                frontier.includes(relationship.targetId) &&
+                                !visited.has(relationship.sourceId)
+                            ) {
                                 visited.add(relationship.sourceId);
                                 previous.set(relationship.sourceId, {
                                     entityId: relationship.targetId,
@@ -521,6 +558,10 @@ export const getPathBetweenTool = (graphId: string) =>
                         ? await db
                               .select({
                                   id: relationshipTable.id,
+                                  sourceId: relationshipTable.sourceId,
+                                  targetId: relationshipTable.targetId,
+                                  kind: relationshipTable.kind,
+                                  directed: relationshipTable.directed,
                                   description: relationshipTable.description,
                               })
                               .from(relationshipTable)
@@ -538,7 +579,7 @@ export const getPathBetweenTool = (graphId: string) =>
                             const relationship = relationshipMap.get(pathRelationshipIds[index]!);
                             const description = truncateWords(relationship?.description ?? "", 30);
                             lines.push(
-                                `- ${pathRelationshipIds[index]}, ${description || "No relationship description"}`
+                                `- ${pathRelationshipIds[index]}, ${relationship ? formatRelationshipDirection(relationship) : "Unknown direction"}, ${relationship?.kind ?? "RELATED"}, ${description || "No relationship description"}`
                             );
                         }
                     }

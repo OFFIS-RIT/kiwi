@@ -8,6 +8,9 @@ export type FileWithChecksum = {
 export type SupportedFileWithChecksum = FileWithChecksum & {
     type: GraphFileType;
 };
+type UploadModelFile = {
+    type: GraphFileType;
+};
 export type UploadFileTypeCheck =
     | { ok: true; files: SupportedFileWithChecksum[] }
     | { ok: false; fileName: string; message: string };
@@ -37,7 +40,7 @@ export function unsupportedUploadResponse(statusFn: StatusFn, check: Extract<Upl
 
 export async function assertConfiguredUploadModels(options: {
     organizationId: string;
-    files: SupportedFileWithChecksum[];
+    files: readonly UploadModelFile[];
     secret: string;
     resolveModelAdapter?: UploadModelResolver;
 }) {

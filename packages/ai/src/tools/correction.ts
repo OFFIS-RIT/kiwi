@@ -1,6 +1,7 @@
 import { db } from "@kiwi/db";
 import { graphSuggestionsTable } from "@kiwi/db/tables/suggestions";
 import { entityTable, filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { and, eq } from "drizzle-orm";
 import { tool } from "ai";
 import { z } from "zod";
@@ -44,7 +45,14 @@ async function assertSourceInGraph(graphId: string, sourceId: string) {
         .from(sourcesTable)
         .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
         .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(and(eq(sourcesTable.id, sourceId), eq(filesTable.graphId, graphId)))
+        .where(
+            and(
+                eq(sourcesTable.id, sourceId),
+                eq(filesTable.graphId, graphId),
+                currentSourcePredicate(sourcesTable),
+                visibleFilePredicate(filesTable)
+            )
+        )
         .limit(1);
 
     if (!source) {

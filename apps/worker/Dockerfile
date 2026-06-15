@@ -1,7 +1,13 @@
 FROM oven/bun:1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ghostscript \
+    && apt-get install -y --no-install-recommends \
+        g++ \
+        ghostscript \
+        make \
+        node-gyp \
+        nodejs \
+        python3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -20,6 +26,12 @@ COPY packages/graph/package.json packages/graph/package.json
 COPY packages/logger/package.json packages/logger/package.json
 
 RUN bun install --frozen-lockfile
+
+RUN arch="$(node -p 'process.arch')" \
+    && cd packages/graph/node_modules/tree-sitter \
+    && CXXFLAGS="-std=c++20" node-gyp rebuild \
+    && mkdir -p "prebuilds/linux-${arch}" \
+    && cp build/Release/tree_sitter_runtime_binding.node "prebuilds/linux-${arch}/tree-sitter.node"
 
 COPY apps/worker/index.ts apps/worker/index.ts
 COPY apps/worker/env.ts apps/worker/env.ts

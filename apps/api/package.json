@@ -16,6 +16,7 @@
         "@kiwi/ai": "workspace:*",
         "@kiwi/auth": "workspace:*",
         "@kiwi/contracts": "workspace:*",
+        "@kiwi/connectors": "workspace:*",
         "@kiwi/db": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",

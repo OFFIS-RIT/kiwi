@@ -482,6 +482,162 @@ export type GraphSuggestionApplySuccessData = {
     workflowRunId: string | null;
     warnings?: string[];
 };
+export type ConnectorProvider = "github" | "gitlab";
+export type ConnectorStatus = "draft" | "active" | "disabled";
+export type ConnectorInstallationStatus = "active" | "disabled" | "pending";
+export type ConnectorAccountType = "user" | "organization" | "group" | null;
+export type ConnectorRepositorySelection = "all" | "selected" | "unknown";
+export type RepositoryGraphBindingSyncStatus = "pending" | "syncing" | "synced" | "failed";
+
+export type ConnectorRecord = {
+    id: string;
+    provider: ConnectorProvider;
+    name: string;
+    slug: string;
+    status: ConnectorStatus;
+    appId: string | null;
+    clientId: string | null;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type ConnectorInstallationRecord = {
+    id: string;
+    connectorId: string;
+    provider: ConnectorProvider;
+    providerInstallationId: string;
+    providerAccountLogin: string;
+    providerAccountType: ConnectorAccountType;
+    organizationId: string | null;
+    teamId: string | null;
+    repositorySelection: ConnectorRepositorySelection;
+    status: ConnectorInstallationStatus;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type ConnectorRepositoryRecord = {
+    provider: ConnectorProvider;
+    id: string;
+    fullName: string;
+    name: string;
+    htmlUrl: string;
+    defaultBranch: string | null;
+    private: boolean;
+};
+
+export type ConnectorBranchRecord = {
+    name: string;
+    commitSha: string;
+};
+
+export type RepositoryGraphBindingRecord = {
+    id: string;
+    graphId: string;
+    connectorInstallationId: string;
+    provider: ConnectorProvider;
+    providerRepositoryId: string;
+    repositoryFullName: string;
+    repositoryHtmlUrl: string;
+    branch: string;
+    lastSeenCommitSha: string | null;
+    lastSyncedCommitSha: string | null;
+    syncStatus: RepositoryGraphBindingSyncStatus;
+    syncErrorCode: string | null;
+    webhookEnabled: boolean;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type GitHubConnectorManifestStartInput = {
+    name: string;
+};
+
+export type GitHubConnectorManifestStartSuccessData = {
+    manifestUrl: string;
+    state: string;
+};
+
+export type ConnectorConnectStartSuccessData = {
+    redirectUrl: string;
+};
+
+export type GitLabConnectorCreateInput = {
+    name: string;
+    baseUrl: string;
+    clientId: string;
+    clientSecret: string;
+    webhookSecret: string;
+};
+
+export type ConnectorOwnerScopeInput =
+    | {
+          kind: "organization";
+      }
+    | {
+          kind: "team";
+          teamId: string;
+      };
+
+export type RepositoryGraphCreateInput = {
+    connectorInstallationId: string;
+    repositoryId: string;
+    repositoryFullName: string;
+    repositoryHtmlUrl: string;
+    branch: string;
+    name: string;
+    owner: ConnectorOwnerScopeInput;
+};
+
+export type RepositoryGraphCreateSuccessData = {
+    graph: GraphRecord;
+    binding: RepositoryGraphBindingRecord;
+    workflowRunId: string | null;
+};
+
+export type RepositoryGraphBindingSyncSuccessData = {
+    binding: RepositoryGraphBindingRecord;
+    workflowRunId: string | null;
+};
+
+export type ConnectorListResponse = ApiResponse<ConnectorRecord[], "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;
+
+export type ConnectorConnectStartResponse = ApiResponse<
+    ConnectorConnectStartSuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+>;
+export type GitHubConnectorManifestStartResponse = ApiResponse<
+    GitHubConnectorManifestStartSuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INVALID_NAME" | "INTERNAL_SERVER_ERROR"
+>;
+export type GitLabConnectorCreateResponse = ApiResponse<
+    ConnectorRecord,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INVALID_NAME" | "INTERNAL_SERVER_ERROR"
+>;
+export type ConnectorInstallationListResponse = ApiResponse<
+    ConnectorInstallationRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+export type ConnectorRepositoryListResponse = ApiResponse<
+    ConnectorRepositoryRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+export type ConnectorBranchListResponse = ApiResponse<
+    ConnectorBranchRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+export type RepositoryGraphCreateResponse = ApiResponse<
+    RepositoryGraphCreateSuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "TEAM_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INVALID_NAME" | "INTERNAL_SERVER_ERROR"
+>;
+export type RepositoryGraphBindingResponse = ApiResponse<
+    RepositoryGraphBindingRecord,
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+>;
+export type RepositoryGraphBindingSyncResponse = ApiResponse<
+    RepositoryGraphBindingSyncSuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+>;
 
 export type TeamCreateResponse = ApiResponse<
     TeamCreateSuccessData,

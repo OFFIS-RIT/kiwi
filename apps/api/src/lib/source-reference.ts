@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@kiwi/db";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { getFile } from "@kiwi/files";
 import type { SourceReferenceBatchSuccessData } from "@kiwi/contracts";
 import { env } from "../env";
@@ -103,7 +104,14 @@ async function loadSourceReferenceRow(graphId: string, sourceId: string): Promis
         .from(sourcesTable)
         .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
         .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(and(eq(sourcesTable.id, sourceId), eq(filesTable.graphId, graphId), eq(filesTable.deleted, false)))
+        .where(
+            and(
+                eq(sourcesTable.id, sourceId),
+                eq(filesTable.graphId, graphId),
+                currentSourcePredicate(sourcesTable),
+                visibleFilePredicate(filesTable)
+            )
+        )
         .limit(1);
 
     return row ? normalizeSourceReferenceRow(row) : null;
@@ -116,7 +124,12 @@ async function loadSourceReferenceRows(graphId: string, sourceIds: string[]): Pr
         .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
         .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
         .where(
-            and(inArray(sourcesTable.id, sourceIds), eq(filesTable.graphId, graphId), eq(filesTable.deleted, false))
+            and(
+                inArray(sourcesTable.id, sourceIds),
+                eq(filesTable.graphId, graphId),
+                currentSourcePredicate(sourcesTable),
+                visibleFilePredicate(filesTable)
+            )
         );
 
     return rows.map(normalizeSourceReferenceRow);

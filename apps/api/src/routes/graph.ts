@@ -7,6 +7,7 @@ import { db } from "@kiwi/db";
 import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
 import { teamTable } from "@kiwi/db/tables/auth";
 import { deleteFile, listFiles, putGraphFile } from "@kiwi/files";
+import { serializeCodeFileMetadata } from "@kiwi/graph/code/metadata";
 import { error as logError } from "@kiwi/logger";
 import { deleteGraphFilesSpec } from "@kiwi/worker/delete-graph-files-spec";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
@@ -15,6 +16,13 @@ import { chunk } from "../lib/array";
 import { expandArchiveUploadFiles } from "../lib/archive-upload";
 import { collectGraphClosure } from "../lib/graph";
 import { listAccessibleGraphs } from "../lib/graph-list";
+import {
+    buildGitHubExternalCodeFile,
+    loadRepositoryFromUrl,
+    MAX_REPOSITORY_URLS,
+    RepositoryUrlError,
+    type LoadedRepository,
+} from "../lib/repository-url";
 import { cancelActiveFileProcessingWorkflowRuns, cancelActiveGraphWorkflowRuns } from "../lib/workflow-cancellation";
 import {
     assertCanCreateTopLevelGraph,
@@ -30,6 +38,7 @@ import {
 import {
     cleanupUploadedKeys,
     cleanupFailedGraphCreation,
+    commitGraphFileUploads,
     mapGraphError,
     toGraphFileRecord,
     assertConfiguredUploadModels,
@@ -64,6 +73,12 @@ type NewGraphOwner =
           graphId: string;
       };
 
+type RepositoryUploadSource = {
+    repository: LoadedRepository;
+    file: LoadedRepository["files"][number];
+    checksum: string;
+};
+
 function archiveUploadResponse(
     statusFn: (code: number, body: unknown) => unknown,
     expanded: { ok: false; kind: "unsupported" | "limit"; fileName: string; message: string }
@@ -89,6 +104,41 @@ async function getGraphOwnerModelOrganizationId(owner: NewGraphOwner) {
     }
 
     return rootOwner.organizationId;
+}
+
+async function contentChecksum(content: string): Promise<string> {
+    const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
+
+    return [...new Uint8Array(hashBuffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function getRepositoryUrlError(error: unknown): RepositoryUrlError | undefined {
+    if (error instanceof RepositoryUrlError) {
+        return error;
+    }
+
+    if (error instanceof Error && error.cause instanceof RepositoryUrlError) {
+        return error.cause;
+    }
+
+    return undefined;
+}
+
+function repositoryUrlErrorResponse(statusFn: (code: number, body: unknown) => unknown, error: unknown) {
+    const repositoryError = getRepositoryUrlError(error);
+    if (!repositoryError) {
+        return statusFn(
+            400,
+            errorResponse("Repository could not be loaded", API_ERROR_CODES.UNSUPPORTED_FILE_TYPE)
+        );
+    }
+
+    if (repositoryError.kind === "limit") {
+        return statusFn(413, errorResponse(repositoryError.message, API_ERROR_CODES.UPLOAD_LIMIT_EXCEEDED));
+    }
+
+    const message = repositoryError.kind === "validation" ? repositoryError.message : "Repository could not be loaded";
+    return statusFn(400, errorResponse(message, API_ERROR_CODES.UNSUPPORTED_FILE_TYPE));
 }
 
 export const graphRoute = new Elysia({ prefix: "/graphs" })
@@ -529,6 +579,272 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
         }
     )
     .post(
+        "/:id/urls",
+        async ({ body, params, user, status }) => {
+            if (!user) {
+                return status(401, {
+                    status: "error",
+                    message: "Unauthorized",
+                    code: "UNAUTHORIZED",
+                });
+            }
+
+            const accessResult = await Result.tryPromise(async () => assertCanManageGraphFiles(user, params.id));
+            if (accessResult.isErr()) {
+                return mapGraphError(status, accessResult.error);
+            }
+            const existingGraph = accessResult.value;
+
+            const urls = [...new Set(body.urls.map((url) => url.trim()).filter(Boolean))];
+            if (urls.length === 0) {
+                return status(400, {
+                    status: "error",
+                    message: "No changes requested",
+                    code: API_ERROR_CODES.NO_CHANGES,
+                });
+            }
+
+            if (urls.length > MAX_REPOSITORY_URLS) {
+                return status(
+                    413,
+                    errorResponse(
+                        `At most ${MAX_REPOSITORY_URLS} repository URLs can be processed at once`,
+                        API_ERROR_CODES.UPLOAD_LIMIT_EXCEEDED
+                    )
+                );
+            }
+
+            const repositoriesResult = await Result.tryPromise(async () => {
+                const repositories: LoadedRepository[] = [];
+                for (const url of urls) {
+                    repositories.push(await loadRepositoryFromUrl(url));
+                }
+
+                return repositories;
+            });
+            if (repositoriesResult.isErr()) {
+                return repositoryUrlErrorResponse(status, repositoriesResult.error);
+            }
+            const repositories = repositoriesResult.value;
+
+            const seenSnapshotChecksums = new Set<string>();
+            const repositorySources: RepositoryUploadSource[] = [];
+
+            for (const repository of repositories) {
+                for (const file of repository.files) {
+                    const checksum = await contentChecksum(file.content);
+                    if (seenSnapshotChecksums.has(checksum)) {
+                        continue;
+                    }
+
+                    seenSnapshotChecksums.add(checksum);
+                    repositorySources.push({ repository, file, checksum });
+                }
+            }
+
+            if (repositorySources.length === 0) {
+                return status(200, {
+                    status: "success",
+                    data: {
+                        graph: existingGraph,
+                        addedFiles: [],
+                        workflowRunId: null,
+                    },
+                });
+            }
+
+            const repositoryModelResult = await Result.tryPromise(async () => {
+                await assertConfiguredUploadModels({
+                    organizationId: await getGraphOwnerModelOrganizationId({
+                        ownerMode: "graph",
+                        graphId: existingGraph.id,
+                    }),
+                    files: repositorySources.map(() => ({ type: "code" as const })),
+                    secret: env.AUTH_SECRET,
+                });
+            });
+            if (repositoryModelResult.isErr()) {
+                const error =
+                    repositoryModelResult.error instanceof Error && repositoryModelResult.error.cause instanceof Error
+                        ? repositoryModelResult.error.cause
+                        : repositoryModelResult.error;
+                return mapGraphError(status, error);
+            }
+
+            const uploadedFiles: UploadedFile[] = [];
+            try {
+                for (const source of repositorySources) {
+                    const fileId = ulid();
+                    const name = `${source.repository.name}/${source.file.path}`;
+                    const external = buildGitHubExternalCodeFile({
+                        repositoryUrl: source.repository.url,
+                        commitSha: source.repository.commitSha,
+                        path: source.file.path,
+                    });
+
+                    if (external) {
+                        uploadedFiles.push({
+                            id: fileId,
+                            name,
+                            size: source.file.size,
+                            type: "code",
+                            mimeType: "text/plain",
+                            key: external.key,
+                            storageKind: "external",
+                            externalProvider: external.provider,
+                            externalUrl: external.rawUrl,
+                            checksum: source.checksum,
+                            metadata: serializeCodeFileMetadata({
+                                repositoryUrl: source.repository.url,
+                                repositoryName: source.repository.name,
+                                commitSha: source.repository.commitSha,
+                                path: source.file.path,
+                                external: {
+                                    provider: external.provider,
+                                    rawUrl: external.rawUrl,
+                                    htmlUrl: external.htmlUrl,
+                                },
+                            }),
+                        });
+                        continue;
+                    }
+
+                    const upload = await putGraphFile(
+                        existingGraph.id,
+                        fileId,
+                        name,
+                        source.file.content,
+                        env.S3_BUCKET
+                    );
+
+                    uploadedFiles.push({
+                        id: fileId,
+                        name,
+                        size: source.file.size,
+                        type: "code",
+                        mimeType: "text/plain",
+                        key: upload.key,
+                        storageKind: "internal",
+                        checksum: source.checksum,
+                        metadata: serializeCodeFileMetadata({
+                            repositoryUrl: source.repository.url,
+                            repositoryName: source.repository.name,
+                            commitSha: source.repository.commitSha,
+                            path: source.file.path,
+                        }),
+                    });
+                }
+            } catch (uploadError) {
+                const failedDeletes = await cleanupUploadedKeys(
+                    uploadedFiles.filter((file) => file.storageKind !== "external").map((file) => file.key)
+                );
+
+                logError("graph repository URL add failed during file upload", {
+                    graphId: existingGraph.id,
+                    uploadedKeyCount: uploadedFiles.length,
+                    failedS3CleanupCount: failedDeletes,
+                    error: uploadError,
+                });
+
+                return status(500, {
+                    status: "error",
+                    message: "Internal server error",
+                    code: "INTERNAL_SERVER_ERROR",
+                });
+            }
+
+            let result: Awaited<ReturnType<typeof commitGraphFileUploads>>;
+
+            try {
+                result = await commitGraphFileUploads({
+                    graph: existingGraph,
+                    uploadedFiles,
+                    supersedeRepositoryUrls: repositories.map((repository) => repository.url),
+                });
+            } catch (dbPatchError) {
+                const failedDeletes = await cleanupUploadedKeys(
+                    uploadedFiles.filter((file) => file.storageKind !== "external").map((file) => file.key)
+                );
+
+                logError("graph repository URL add failed during database update", {
+                    graphId: existingGraph.id,
+                    uploadedKeyCount: uploadedFiles.length,
+                    failedS3CleanupCount: failedDeletes,
+                    error: dbPatchError,
+                });
+
+                return status(500, {
+                    status: "error",
+                    message: "Internal server error",
+                    code: "INTERNAL_SERVER_ERROR",
+                });
+            }
+
+            if (result.addedFiles.length === 0) {
+                return status(200, {
+                    status: "success",
+                    data: {
+                        graph: result.graph,
+                        addedFiles: result.addedFiles,
+                        workflowRunId: null,
+                    },
+                });
+            }
+
+            try {
+                if (!result.processRunId) {
+                    throw new Error("Missing process run id");
+                }
+
+                const handle = await ow.runWorkflow(processFilesSpec, {
+                    graphId: existingGraph.id,
+                    fileIds: result.addedFiles.map((file) => file.id),
+                    processRunId: result.processRunId,
+                    code: { kind: "repository" },
+                });
+
+                return status(200, {
+                    status: "success",
+                    data: {
+                        graph: result.graph,
+                        addedFiles: result.addedFiles,
+                        workflowRunId: handle.workflowRun.id,
+                    },
+                });
+            } catch (enqueueError) {
+                await restoreGraphFileChangeFailure(
+                    existingGraph.id,
+                    existingGraph,
+                    result.addedFiles.map((file) => file.id),
+                    uploadedFiles.filter((file) => file.storageKind !== "external").map((file) => file.key),
+                    result.processRunId,
+                    result.supersededFileIds
+                );
+
+                logError("graph repository URL add failed during workflow enqueue", {
+                    graphId: existingGraph.id,
+                    uploadedKeyCount: uploadedFiles.length,
+                    addedFileCount: result.addedFiles.length,
+                    error: enqueueError,
+                });
+
+                return status(500, {
+                    status: "error",
+                    message: "Internal server error",
+                    code: "INTERNAL_SERVER_ERROR",
+                });
+            }
+        },
+        {
+            params: t.Object({
+                id: t.String(),
+            }),
+            body: t.Object({
+                urls: t.Array(t.String()),
+            }),
+        }
+    )
+    .post(
         "/:id/files",
         async ({ body, params, user, status }) => {
             if (!user) {
@@ -649,77 +965,10 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            let graph = existingGraph;
-            let addedFiles: CreatedFileRecord[] = [];
-            let processRunId: string | undefined;
+            let result: Awaited<ReturnType<typeof commitGraphFileUploads>>;
 
             try {
-                const result = await db.transaction(async (tx) => {
-                    const insertedFiles = await tx
-                        .insert(filesTable)
-                        .values(
-                            uploadedFiles.map((file) => ({
-                                id: file.id,
-                                graphId: existingGraph.id,
-                                name: file.name,
-                                size: file.size,
-                                type: file.type,
-                                mimeType: file.mimeType,
-                                key: file.key,
-                                checksum: file.checksum,
-                            }))
-                        )
-                        .onConflictDoNothing()
-                        .returning(selectFileFields);
-
-                    if (insertedFiles.length === 0) {
-                        return {
-                            graph: existingGraph,
-                            addedFiles: insertedFiles,
-                            processRunId: undefined,
-                        };
-                    }
-
-                    const [updatedGraph] = await tx
-                        .update(graphTable)
-                        .set({ state: "updating" })
-                        .where(eq(graphTable.id, existingGraph.id))
-                        .returning(selectGraphFields);
-
-                    const [processRun] = await tx
-                        .insert(processRunsTable)
-                        .values({
-                            graphId: existingGraph.id,
-                            status: "pending",
-                        })
-                        .returning({ id: processRunsTable.id });
-                    if (!processRun) {
-                        throw new Error("Failed to create process run");
-                    }
-
-                    await tx.insert(processRunFilesTable).values(
-                        insertedFiles.map((file) => ({
-                            processRunId: processRun.id,
-                            fileId: file.id,
-                        }))
-                    );
-
-                    return {
-                        graph: updatedGraph ?? existingGraph,
-                        addedFiles: insertedFiles,
-                        processRunId: processRun.id,
-                    };
-                });
-
-                graph = result.graph;
-                addedFiles = result.addedFiles;
-                processRunId = result.processRunId;
-
-                const addedKeys = new Set(addedFiles.map((file) => file.key));
-                const skippedKeys = uploadedFiles.map((file) => file.key).filter((key) => !addedKeys.has(key));
-                if (skippedKeys.length > 0) {
-                    await cleanupUploadedKeys(skippedKeys);
-                }
+                result = await commitGraphFileUploads({ graph: existingGraph, uploadedFiles });
             } catch (dbPatchError) {
                 const failedDeletes = await cleanupUploadedKeys(uploadedFiles.map((file) => file.key));
 
@@ -737,33 +986,33 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 });
             }
 
-            if (addedFiles.length === 0) {
+            if (result.addedFiles.length === 0) {
                 return status(200, {
                     status: "success",
                     data: {
-                        graph,
-                        addedFiles,
+                        graph: result.graph,
+                        addedFiles: result.addedFiles,
                         workflowRunId: null,
                     },
                 });
             }
 
             try {
-                if (!processRunId) {
+                if (!result.processRunId) {
                     throw new Error("Missing process run id");
                 }
 
                 const handle = await ow.runWorkflow(processFilesSpec, {
                     graphId: existingGraph.id,
-                    fileIds: addedFiles.map((file) => file.id),
-                    processRunId,
+                    fileIds: result.addedFiles.map((file) => file.id),
+                    processRunId: result.processRunId,
                 });
 
                 return status(200, {
                     status: "success",
                     data: {
-                        graph,
-                        addedFiles,
+                        graph: result.graph,
+                        addedFiles: result.addedFiles,
                         workflowRunId: handle.workflowRun.id,
                     },
                 });
@@ -771,15 +1020,15 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                 await restoreGraphFileChangeFailure(
                     existingGraph.id,
                     existingGraph,
-                    addedFiles.map((file) => file.id),
+                    result.addedFiles.map((file) => file.id),
                     uploadedFiles.map((file) => file.key),
-                    processRunId
+                    result.processRunId
                 );
 
                 logError("graph file add failed during workflow enqueue", {
                     graphId: existingGraph.id,
                     uploadedKeyCount: uploadedFiles.length,
-                    addedFileCount: addedFiles.length,
+                    addedFileCount: result.addedFiles.length,
                     error: enqueueError,
                 });
 
@@ -819,6 +1068,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             const [file] = await db
                 .select({
                     id: filesTable.id,
+                    type: filesTable.type,
                     status: filesTable.status,
                     processStep: filesTable.processStep,
                     processErrorCode: filesTable.processErrorCode,
@@ -906,6 +1156,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     graphId: existingGraph.id,
                     fileIds: [file.id],
                     processRunId: retry.runId,
+                    ...(file.type === "code" ? { code: { kind: "repository" as const } } : {}),
                 });
 
                 return status(200, {

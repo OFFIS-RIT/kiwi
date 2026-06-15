@@ -4,6 +4,7 @@
     "type": "module",
     "exports": {
         "./utils": "./src/utils.ts",
+        "./source-validity": "./src/source-validity.ts",
         ".": "./src/index.ts",
         "./tables/*": "./src/tables/*.ts"
     },

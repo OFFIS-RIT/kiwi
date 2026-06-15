@@ -1,0 +1,24 @@
+{
+    "name": "@kiwi/connectors",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./credentials": "./src/credentials.ts",
+        "./types": "./src/types.ts",
+        "./github": "./src/github.ts",
+        "./gitlab": "./src/gitlab.ts",
+        "./webhooks": "./src/webhooks.ts"
+    },
+    "scripts": {
+        "build": "bunx tsc --noEmit",
+        "test": "bun test"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

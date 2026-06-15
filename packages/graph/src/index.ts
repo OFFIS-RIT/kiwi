@@ -12,6 +12,8 @@ export type Relationship = {
     id: string;
     sourceId: string;
     targetId: string;
+    kind?: string;
+    directed?: boolean;
     strength: number;
     description?: string;
     sources: Source[];

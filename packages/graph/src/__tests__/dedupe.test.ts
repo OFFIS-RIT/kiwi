@@ -284,4 +284,41 @@ describe("dedupe", () => {
 
         expect(deduped.entities).toHaveLength(2);
     });
+
+    test("does not merge relationships with different kinds", () => {
+        const graph: Graph = {
+            id: "graph-relationship-kinds",
+            units: [textUnit("unit-1", "file-1", "A imports and calls B.")],
+            entities: [
+                { id: "entity-a", name: "A", type: "CODE_FUNCTION", description: "", sources: [] },
+                { id: "entity-b", name: "B", type: "CODE_FUNCTION", description: "", sources: [] },
+            ],
+            relationships: [
+                {
+                    id: "relationship-imports",
+                    sourceId: "entity-a",
+                    targetId: "entity-b",
+                    kind: "IMPORTS",
+                    directed: true,
+                    strength: 0.9,
+                    description: "",
+                    sources: [],
+                },
+                {
+                    id: "relationship-calls",
+                    sourceId: "entity-a",
+                    targetId: "entity-b",
+                    kind: "CALLS",
+                    directed: true,
+                    strength: 0.8,
+                    description: "",
+                    sources: [],
+                },
+            ],
+        };
+
+        const deduped = dedupe(graph);
+
+        expect(deduped.relationships.map((relationship) => relationship.kind).sort()).toEqual(["CALLS", "IMPORTS"]);
+    });
 });

@@ -1,14 +1,8 @@
 import { ulid } from "ulid";
 import type { Entity, Graph, Relationship } from ".";
+import { DEFAULT_RELATIONSHIP_KIND, normalizedRelationshipEndpoints, relationshipKey } from "./relationship-key";
 
 const getEntityKey = (entity: Pick<Entity, "name" | "type">) => `${entity.name}::${entity.type}`;
-
-const getRelationshipKey = (relationship: Pick<Relationship, "sourceId" | "targetId">) => {
-    const sourceId = relationship.sourceId <= relationship.targetId ? relationship.sourceId : relationship.targetId;
-    const targetId = relationship.sourceId <= relationship.targetId ? relationship.targetId : relationship.sourceId;
-
-    return `${sourceId}::${targetId}`;
-};
 
 export function mergeGraphs(graphs: Graph[]): Graph;
 export function mergeGraphs(left: Graph, right: Graph): Graph;
@@ -52,9 +46,17 @@ export function mergeGraphs(input: Graph[] | Graph, right?: Graph): Graph {
                 continue;
             }
 
-            const normalizedSourceId = sourceId <= targetId ? sourceId : targetId;
-            const normalizedTargetId = sourceId <= targetId ? targetId : sourceId;
-            const key = getRelationshipKey({ sourceId: normalizedSourceId, targetId: normalizedTargetId });
+            const endpoints = normalizedRelationshipEndpoints({
+                sourceId,
+                targetId,
+                directed: relationship.directed,
+            });
+            const key = relationshipKey({
+                sourceId: endpoints.sourceId,
+                targetId: endpoints.targetId,
+                kind: relationship.kind,
+                directed: endpoints.directed,
+            });
             const existingRelationship = mergedRelationships.get(key);
 
             if (existingRelationship) {
@@ -70,8 +72,10 @@ export function mergeGraphs(input: Graph[] | Graph, right?: Graph): Graph {
 
             mergedRelationships.set(key, {
                 ...relationship,
-                sourceId: normalizedSourceId,
-                targetId: normalizedTargetId,
+                sourceId: endpoints.sourceId,
+                targetId: endpoints.targetId,
+                kind: relationship.kind ?? DEFAULT_RELATIONSHIP_KIND,
+                directed: endpoints.directed,
                 sources: [...relationship.sources],
             });
         }

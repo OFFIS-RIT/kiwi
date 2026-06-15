@@ -11,6 +11,8 @@ import { chatRoute } from "./routes/chat";
 import { chatLibraryRoute } from "./routes/chat-library";
 import { fileTypesRoute } from "./routes/file-types";
 import { graphFilesRoute } from "./routes/graph-files";
+import { connectorRoute, repositoryGraphBindingRoute } from "./routes/connectors";
+import { connectorWebhookRoute } from "./routes/connector-webhooks";
 import { graphRoute } from "./routes/graph";
 import { graphSuggestionsRoute } from "./routes/graph-suggestions";
 import { mcpRoute } from "./routes/mcp";
@@ -51,6 +53,7 @@ const app = new Elysia({
         )
     )
     .use(mcpRoute)
+    .use(connectorWebhookRoute)
     .use(authMiddleware)
     .use(authRoute)
     .use(chatRoute)
@@ -58,6 +61,8 @@ const app = new Elysia({
     .use(fileTypesRoute)
     .use(graphFilesRoute)
     .use(graphSuggestionsRoute)
+    .use(connectorRoute)
+    .use(repositoryGraphBindingRoute)
     .use(graphRoute)
     .use(modelsRoute)
     .use(promptsRoute)

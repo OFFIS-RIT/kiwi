@@ -1,6 +1,7 @@
 import { db } from "@kiwi/db";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { currentSourcePredicate, currentSourceSql, visibleFilePredicate, visibleFileSql } from "@kiwi/db/source-validity";
 import { and, asc, cosineDistance, eq, gt, inArray, or, sql, type SQL } from "drizzle-orm";
 import { embed, tool } from "ai";
 import { withAiSlot } from "../concurrency";
@@ -203,8 +204,7 @@ async function getScopedSources(
     onConsideredFileIds?.(fileIds);
 
     if (terms.length === 0) {
-        const clauses = [eq(sourcesTable.active, true), eq(filesTable.graphId, graphId)];
-
+        const clauses = [currentSourcePredicate(sourcesTable), eq(filesTable.graphId, graphId), visibleFilePredicate(filesTable)];
         if (cursor) {
             clauses.push(gt(sourcesTable.id, cursor));
         }
@@ -306,7 +306,8 @@ async function getScopedSources(
             from sources source
             inner join text_units text_unit on text_unit.id = source.text_unit_id
             inner join files file on file.id = text_unit.file_id
-            where source.active = true
+            where ${currentSourceSql("source")}
+              and ${visibleFileSql("file")}
               and file.graph_id = ${graphId}
               ${fileScope}
               ${subjectScope}
@@ -459,8 +460,9 @@ export const getSourceFileMetadataTool = (graphId: string, options: SourceToolOp
                         .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
                         .where(
                             and(
-                                eq(sourcesTable.active, true),
+                                currentSourcePredicate(sourcesTable),
                                 eq(filesTable.graphId, graphId),
+                                visibleFilePredicate(filesTable),
                                 inArray(sourcesTable.id, ids)
                             )
                         );

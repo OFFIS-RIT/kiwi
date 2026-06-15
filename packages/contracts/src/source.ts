@@ -18,6 +18,12 @@ export type TextUnitSourceChunk =
           text: string;
           startPage: number | null;
           endPage: number | null;
+          filePath?: string;
+          language?: string;
+          startLine?: number;
+          endLine?: number;
+          startColumn?: number;
+          endColumn?: number;
           regions?: SourceChunkRegion[];
       }
     | {

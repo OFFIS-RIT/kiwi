@@ -14,6 +14,7 @@ import { createRequestInformationSection } from "@kiwi/ai/prompts/request-info.p
 import { db } from "@kiwi/db";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { filesTable, graphTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from "ai";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -511,7 +512,7 @@ export async function enrichTeamCitation(
         .from(sourcesTable)
         .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
         .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(eq(sourcesTable.id, sourceId))
+        .where(and(eq(sourcesTable.id, sourceId), currentSourcePredicate(sourcesTable), visibleFilePredicate(filesTable)))
         .limit(1);
 
     if (!row) {

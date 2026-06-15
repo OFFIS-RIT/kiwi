@@ -28,6 +28,7 @@ import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats
 import { getDefaultOrganizationId } from "@kiwi/auth/server";
 import { organizationPromptsTable, teamPromptsTable, userPromptsTable } from "@kiwi/db/tables/auth";
 import { filesTable, graphPromptsTable, processRunsTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import { Result } from "better-result";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
@@ -707,7 +708,14 @@ export async function enrichCitation(graphId: string, sourceId: string): Promise
         .from(sourcesTable)
         .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
         .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(and(eq(sourcesTable.id, sourceId), eq(filesTable.graphId, graphId)))
+        .where(
+            and(
+                eq(sourcesTable.id, sourceId),
+                eq(filesTable.graphId, graphId),
+                currentSourcePredicate(sourcesTable),
+                visibleFilePredicate(filesTable)
+            )
+        )
         .limit(1);
 
     if (!row) {

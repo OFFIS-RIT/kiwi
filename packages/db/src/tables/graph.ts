@@ -138,6 +138,10 @@ export const filesTable = pgTable.withRLS(
         type: text("file_type").notNull(),
         mimeType: text("mime_type").notNull(),
         key: text("file_key").notNull(),
+        storageKind: text("storage_kind").notNull().default("internal"),
+        externalUrl: text("external_url"),
+        externalProvider: text("external_provider"),
+        repositoryBindingId: text("repository_binding_id"),
         checksum: text("checksum"),
         deleted: boolean("deleted").default(false),
         status: text("status", { enum: FILE_PROCESS_STATUS_VALUES }).notNull().default("processing"),
@@ -167,6 +171,28 @@ export const filesTable = pgTable.withRLS(
             .where(sql`${table.deleted} = false`),
         index("files_graph_active_key_idx")
             .on(table.graphId, table.key)
+            .where(sql`${table.deleted} = false`),
+        check(
+            "files_storage_origin_check",
+            sql`
+                (
+                    ${table.storageKind} = 'internal'
+                    AND ${table.externalUrl} IS NULL
+                    AND ${table.externalProvider} IS NULL
+                )
+                OR (
+                    ${table.storageKind} = 'external'
+                    AND ${table.externalUrl} IS NOT NULL
+                    AND ${table.externalProvider} IS NOT NULL
+                )
+            `
+        ),
+        check(
+            "files_external_provider_check",
+            sql`${table.externalProvider} IS NULL OR ${table.externalProvider} in ('github', 'gitlab')`
+        ),
+        index("files_repository_binding_active_idx")
+            .on(table.repositoryBindingId, table.createdAt, table.id)
             .where(sql`${table.deleted} = false`),
     ]
 );
@@ -245,6 +271,8 @@ export const relationshipTable = pgTable.withRLS(
         graphId: text("graph_id")
             .notNull()
             .references(() => graphTable.id, { onDelete: "cascade" }),
+        kind: text("kind").notNull().default("RELATED"),
+        directed: boolean("directed").notNull().default(false),
         rank: doublePrecision("rank").notNull().default(0),
         description: text("description").notNull(),
         embedding: vector("embedding", { dimensions: 4096 }).notNull(),
@@ -276,6 +304,7 @@ export const sourcesTable = pgTable.withRLS(
             .notNull()
             .references(() => textUnitTable.id, { onDelete: "cascade" }),
         active: boolean("active").notNull().default(false),
+        validUntil: timestamp("valid_until", { withTimezone: true, mode: "date" }),
         description: text("description").notNull(),
         sourceChunkIds: json("source_chunk_ids")
             .$type<number[]>()
@@ -292,6 +321,15 @@ export const sourcesTable = pgTable.withRLS(
         index("sources_active_id_idx").on(table.active, table.id),
         index("sources_entity_active_id_idx").on(table.entityId, table.active, table.id),
         index("sources_relationship_active_id_idx").on(table.relationshipId, table.active, table.id),
+        index("sources_current_id_idx")
+            .on(table.id)
+            .where(sql`${table.active} = true AND ${table.validUntil} IS NULL`),
+        index("sources_entity_current_id_idx")
+            .on(table.entityId, table.id)
+            .where(sql`${table.active} = true AND ${table.validUntil} IS NULL AND ${table.entityId} IS NOT NULL`),
+        index("sources_relationship_current_id_idx")
+            .on(table.relationshipId, table.id)
+            .where(sql`${table.active} = true AND ${table.validUntil} IS NULL AND ${table.relationshipId} IS NOT NULL`),
         index("sources_text_unit_idx").on(table.textUnitId),
         index("sources_description_trgm_idx").using("gin", table.description.op("gin_trgm_ops")),
         index("sources_embedding_diskann_idx").using("diskann", table.embedding.op("vector_cosine_ops")),

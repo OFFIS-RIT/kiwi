@@ -69,6 +69,7 @@ export const DEFAULT_DOCUMENT_MODES: Record<GraphFileType, GraphDocumentMode | n
     xml: null,
     yaml: null,
     toml: null,
+    code: null,
     text: null,
 };
 
@@ -103,6 +104,7 @@ export const DEFAULT_FILE_FORMATS: Record<GraphFileType, Omit<DetectedGraphFileF
     xml: { fileType: "xml", loaderKind: "xml", mimeType: "application/xml" },
     yaml: { fileType: "yaml", loaderKind: "text", mimeType: "application/yaml" },
     toml: { fileType: "toml", loaderKind: "text", mimeType: "application/toml" },
+    code: { fileType: "code", loaderKind: "text", mimeType: "text/plain" },
     text: { fileType: "text", loaderKind: "text", mimeType: "text/plain" },
 };
 

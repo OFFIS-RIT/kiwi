@@ -15,7 +15,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { env } from "../env";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { GraphDetailFileRecord, GraphFileRecord, GraphListItem, GraphRecentChatItem } from "../types/routes";
-import { type GraphRecord } from "./graph-access";
+import { selectGraphFields, type GraphRecord } from "./graph-access";
 import { buildDeleteStepProgress, buildProcessStepProgress } from "./process-progress";
 import { findActiveDeleteGraphFilesProgress, findProcessDescriptionProgress } from "./workflow-progress";
 import type { GraphFileType } from "./graph-file-type";
@@ -37,6 +37,11 @@ export type UploadedFile = {
     mimeType: string;
     key: string;
     checksum?: string;
+    metadata?: string;
+    storageKind?: "internal" | "external";
+    externalUrl?: string;
+    externalProvider?: string;
+    repositoryBindingId?: string;
 };
 export type CreatedFileRecord = GraphFileRecord;
 export type GraphFileRow = Omit<GraphDetailFileRecord, "created_at" | "updated_at"> & {
@@ -226,6 +231,17 @@ function buildTimeEstimate(
     };
 }
 
+function textArray(values: readonly string[]) {
+    if (values.length === 0) {
+        return sql`ARRAY[]::text[]`;
+    }
+
+    return sql`ARRAY[${sql.join(
+        values.map((value) => sql`${value}`),
+        sql`, `
+    )}]::text[]`;
+}
+
 function textList(values: readonly string[]) {
     return sql.join(
         values.map((value) => sql`${value}`),
@@ -298,7 +314,8 @@ export const restoreGraphFileChangeFailure = async (
     previousGraph: GraphRecord,
     addedFileIds: string[],
     uploadedKeys: string[],
-    processRunId?: string
+    processRunId?: string,
+    supersededFileIds: string[] = []
 ) => {
     const failedDeletes = await cleanupUploadedKeys(uploadedKeys);
 
@@ -310,6 +327,9 @@ export const restoreGraphFileChangeFailure = async (
 
             if (addedFileIds.length > 0) {
                 await tx.delete(filesTable).where(inArray(filesTable.id, addedFileIds));
+            }
+            if (supersededFileIds.length > 0) {
+                await tx.update(filesTable).set({ deleted: false }).where(inArray(filesTable.id, supersededFileIds));
             }
 
             await tx
@@ -341,6 +361,108 @@ export const restoreGraphFileChangeFailure = async (
         });
     }
 };
+
+export async function commitGraphFileUploads(options: {
+    graph: GraphRecord;
+    uploadedFiles: UploadedFile[];
+    supersedeRepositoryUrls?: string[];
+}): Promise<{ graph: GraphRecord; addedFiles: CreatedFileRecord[]; processRunId?: string; supersededFileIds: string[] }> {
+    const result = await db.transaction(async (tx) => {
+        const uploadedFileIds = options.uploadedFiles.map((file) => file.id);
+        const supersededFiles =
+            options.supersedeRepositoryUrls && options.supersedeRepositoryUrls.length > 0
+                ? await tx
+                      .update(filesTable)
+                      .set({ deleted: true })
+                      .where(
+                          and(
+                              eq(filesTable.graphId, options.graph.id),
+                              eq(filesTable.type, "code"),
+                              eq(filesTable.deleted, false),
+                              sql`${filesTable.id} <> ALL(${textArray(uploadedFileIds)})`,
+                              sql`(${filesTable.metadata}::jsonb ->> 'repositoryUrl') = ANY(${textArray(
+                                  options.supersedeRepositoryUrls
+                              )})`
+                          )
+                      )
+                      .returning({ id: filesTable.id })
+                : [];
+
+        const insertedFiles = await tx
+            .insert(filesTable)
+            .values(
+                options.uploadedFiles.map((file) => ({
+                    id: file.id,
+                    graphId: options.graph.id,
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    mimeType: file.mimeType,
+                    key: file.key,
+                    storageKind: file.storageKind,
+                    externalUrl: file.externalUrl,
+                    externalProvider: file.externalProvider,
+                    repositoryBindingId: file.repositoryBindingId,
+                    checksum: file.checksum,
+                    metadata: file.metadata,
+                }))
+            )
+            .onConflictDoNothing()
+            .returning(selectFileFields);
+
+        if (insertedFiles.length === 0) {
+            if (supersededFiles.length > 0) {
+                throw new Error("Repository snapshot did not insert replacement files");
+            }
+
+            return {
+                graph: options.graph,
+                addedFiles: insertedFiles,
+                processRunId: undefined,
+                supersededFileIds: [],
+            };
+        }
+
+        const [updatedGraph] = await tx
+            .update(graphTable)
+            .set({ state: "updating" })
+            .where(eq(graphTable.id, options.graph.id))
+            .returning(selectGraphFields);
+
+        const [processRun] = await tx
+            .insert(processRunsTable)
+            .values({
+                graphId: options.graph.id,
+                status: "pending",
+            })
+            .returning({ id: processRunsTable.id });
+        if (!processRun) {
+            throw new Error("Failed to create process run");
+        }
+
+        await tx.insert(processRunFilesTable).values(
+            insertedFiles.map((file) => ({
+                processRunId: processRun.id,
+                fileId: file.id,
+            }))
+        );
+
+        return {
+            graph: updatedGraph ?? options.graph,
+            addedFiles: insertedFiles,
+            processRunId: processRun.id,
+            supersededFileIds: supersededFiles.map((file) => file.id),
+        };
+    });
+
+    const addedKeys = new Set(result.addedFiles.map((file) => file.key));
+    const skippedKeys = options.uploadedFiles.map((file) => file.key).filter((key) => !addedKeys.has(key));
+    if (skippedKeys.length > 0) {
+        await cleanupUploadedKeys(skippedKeys);
+    }
+
+    return result;
+}
 
 export function mapGraphError(statusFn: StatusFn, error: unknown) {
     if (!(error instanceof Error)) {

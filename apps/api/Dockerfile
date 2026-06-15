@@ -2,6 +2,13 @@ FROM oven/bun:1 AS build
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        g++ \
+        make \
+        python3 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Cache workspace dependency installation
 COPY package.json bun.lock ./
 COPY patches patches
@@ -59,6 +66,7 @@ RUN apt-get update \
         brotli \
         bzip2 \
         ca-certificates \
+        git \
         ghostscript \
         gzip \
         libarchive-tools \

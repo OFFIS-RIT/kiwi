@@ -1,5 +1,6 @@
 import { db } from "@kiwi/db";
-import { entityTable, relationshipTable, sourcesTable } from "@kiwi/db/tables/graph";
+import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { unexpiredSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { embed, embedMany } from "ai";
 import { withAiSlot } from "@kiwi/ai";
@@ -50,6 +51,7 @@ export async function updateSourceEmbeddingsBatch(
             )}
         ) AS batch(id, embedding)
         WHERE source.id = batch.id
+          AND source.valid_until IS NULL
     `);
 }
 
@@ -85,12 +87,14 @@ async function regenerateDescriptions(
         description: string;
         embedding: number[];
         sourceEmbeddings: SourceEmbeddingUpdate[];
-    }) => Promise<void>
+    }) => Promise<void>,
+    deactivate: (id: string) => Promise<void>
 ) {
     for (const chunk of chunkItems(items, DESCRIPTION_BATCH_SIZE)) {
         await Promise.all(
             chunk.map(async (item) => {
                 if (item.sources.length === 0) {
+                    await deactivate(item.id);
                     return;
                 }
 
@@ -152,13 +156,17 @@ export async function regenerateEntities(graphId: string, entityIds: string[], c
             description: sourcesTable.description,
         })
         .from(sourcesTable)
+        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
         .where(
             and(
                 inArray(
                     sourcesTable.entityId,
                     entities.map((entity) => entity.id)
                 ),
-                isNotNull(sourcesTable.entityId)
+                isNotNull(sourcesTable.entityId),
+                unexpiredSourcePredicate(sourcesTable),
+                visibleFilePredicate(filesTable)
             )
         );
 
@@ -185,6 +193,9 @@ export async function regenerateEntities(graphId: string, entityIds: string[], c
 
                 await updateSourceEmbeddingsBatch(tx, sourceEmbeddings);
             });
+        },
+        async (id) => {
+            await db.update(entityTable).set({ active: false }).where(eq(entityTable.id, id));
         }
     );
 }
@@ -216,13 +227,17 @@ export async function regenerateRelationships(graphId: string, relationshipIds: 
             description: sourcesTable.description,
         })
         .from(sourcesTable)
+        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
         .where(
             and(
                 inArray(
                     sourcesTable.relationshipId,
                     relationships.map((relationship) => relationship.id)
                 ),
-                isNotNull(sourcesTable.relationshipId)
+                isNotNull(sourcesTable.relationshipId),
+                unexpiredSourcePredicate(sourcesTable),
+                visibleFilePredicate(filesTable)
             )
         );
 
@@ -261,6 +276,9 @@ export async function regenerateRelationships(graphId: string, relationshipIds: 
 
                 await updateSourceEmbeddingsBatch(tx, sourceEmbeddings);
             });
+        },
+        async (id) => {
+            await db.update(relationshipTable).set({ active: false }).where(eq(relationshipTable.id, id));
         }
     );
 }

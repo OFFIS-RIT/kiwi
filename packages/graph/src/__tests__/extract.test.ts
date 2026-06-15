@@ -330,4 +330,53 @@ describe("mergeGraphs", () => {
         expect(merged.entities).toEqual([]);
         expect(merged.relationships).toEqual([]);
     });
+
+    test("does not merge opposite directed relationships", () => {
+        const left: Graph = {
+            id: "graph-left-directed",
+            units: [textUnit("unit-left", "file-1", "A calls B.")],
+            entities: [
+                { id: "entity-a-left", name: "A", type: "CODE_FUNCTION", description: "", sources: [] },
+                { id: "entity-b-left", name: "B", type: "CODE_FUNCTION", description: "", sources: [] },
+            ],
+            relationships: [
+                {
+                    id: "relationship-ab",
+                    sourceId: "entity-a-left",
+                    targetId: "entity-b-left",
+                    kind: "CALLS",
+                    directed: true,
+                    strength: 0.8,
+                    description: "",
+                    sources: [],
+                },
+            ],
+        };
+        const right: Graph = {
+            id: "graph-right-directed",
+            units: [textUnit("unit-right", "file-1", "B calls A.")],
+            entities: [
+                { id: "entity-a-right", name: "A", type: "CODE_FUNCTION", description: "", sources: [] },
+                { id: "entity-b-right", name: "B", type: "CODE_FUNCTION", description: "", sources: [] },
+            ],
+            relationships: [
+                {
+                    id: "relationship-ba",
+                    sourceId: "entity-b-right",
+                    targetId: "entity-a-right",
+                    kind: "CALLS",
+                    directed: true,
+                    strength: 0.6,
+                    description: "",
+                    sources: [],
+                },
+            ],
+        };
+
+        const merged = mergeGraphs(left, right);
+
+        expect(merged.relationships).toHaveLength(2);
+        expect(merged.relationships.every((relationship) => relationship.kind === "CALLS")).toBe(true);
+        expect(merged.relationships.every((relationship) => relationship.directed === true)).toBe(true);
+    });
 });

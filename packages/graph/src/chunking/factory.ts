@@ -58,6 +58,7 @@ export const DEFAULT_FILE_TYPE_CHUNKING: Record<GraphFileType, GraphChunkingConf
     xml: { chunker: "semantic", chunkSize: DEFAULT_SEMANTIC_CHUNK_SIZE },
     yaml: { chunker: "yaml", chunkSize: DEFAULT_STRUCTURED_CHUNK_SIZE },
     toml: { chunker: "toml", chunkSize: DEFAULT_STRUCTURED_CHUNK_SIZE },
+    code: { chunker: "semantic", chunkSize: DEFAULT_SEMANTIC_CHUNK_SIZE },
     text: { chunker: "semantic", chunkSize: DEFAULT_SEMANTIC_CHUNK_SIZE },
 };
 

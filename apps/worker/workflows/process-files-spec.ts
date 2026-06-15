@@ -14,5 +14,11 @@ export const processFilesSpec = defineWorkflowSpec({
         graphId: z.string(),
         fileIds: z.array(z.string()),
         processRunId: z.string().optional(),
+        code: z
+            .object({
+                kind: z.literal("repository"),
+                retiredFileIds: z.array(z.string()).optional(),
+            })
+            .optional(),
     }),
 });

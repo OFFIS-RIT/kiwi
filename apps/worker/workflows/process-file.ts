@@ -1,26 +1,15 @@
 import { db } from "@kiwi/db";
-import {
-    type FileProcessStatus,
-    type FileProcessStep,
-    entityTable,
-    filesTable,
-    graphTable,
-    processRunsTable,
-    processStatsTable,
-    relationshipTable,
-    sourcesTable,
-    textUnitTable,
-} from "@kiwi/db/tables/graph";
+import { filesTable, graphTable, processRunsTable, processStatsTable } from "@kiwi/db/tables/graph";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import z from "zod";
 import { S3Loader } from "@kiwi/graph/loader/s3";
 import { createGraphChunker } from "@kiwi/graph/chunker/factory";
-import type { FileProcessErrorCode } from "@kiwi/contracts/routes";
 import { env } from "../env";
-import { type Graph, type GraphFile, type LoadedGraphDocument, type Unit } from "@kiwi/graph";
+import type { Graph, GraphFile, LoadedGraphDocument, Unit } from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
 import { coerceGraphFileType } from "@kiwi/graph/file-type";
+import type { GraphFileType } from "@kiwi/graph/file-type";
 import { loadGraphDocument } from "@kiwi/graph/loader/document";
 import { createDetectedGraphLoader, detectGraphLoaderFileFormat } from "@kiwi/graph/loader/factory";
 import { mergeGraphs } from "@kiwi/graph/merge";
@@ -30,7 +19,6 @@ import { resolveGraphModelOrganizationId } from "@kiwi/ai/models";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { createWorkerClient } from "../lib/ai";
-import { EMPTY_VECTOR_SQL, entityCompactNameKey, textArray } from "../lib/sql";
 import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
 import { deleteGraphFileProcessingArtifacts, getGraphFileArtifactPaths } from "../lib/derived-files";
@@ -38,9 +26,13 @@ import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { getFileTypeProcessingConfig } from "../lib/file-type-config";
-import { toTextUnitRows } from "../lib/text-unit-rows";
 import { requireReadableContentText } from "../lib/readable-text";
 import { classifyFileProcessError } from "../lib/file-process-error";
+import { collectPendingDescriptionTargets, saveGraphToDatabase } from "../lib/save-graph";
+import { prepareCodeManifest } from "../lib/code-manifest";
+import { invalidateSupersededRepositorySources } from "../lib/code-repository-finalizer";
+import { updateFileProcessingState, stopIfFileDeleted } from "../lib/file-processing-state";
+import { processCodeFile } from "./process-code-file";
 
 const FILE_DELETED = "__file_deleted__" as const;
 const NO_RETRY = { maximumAttempts: 1 } as const;
@@ -54,39 +46,46 @@ function workflowError(error: unknown) {
     return new Error("Workflow failed", { cause: error });
 }
 
-async function updateFileProcessingState(
+export function fileProcessingWorkflow(
+    graphId: string,
     fileId: string,
-    processStep: FileProcessStep,
-    status: FileProcessStatus,
-    processErrorCode?: FileProcessErrorCode | null
+    fileType: GraphFileType | undefined,
+    codeManifestKey?: string
 ) {
-    await db
-        .update(filesTable)
-        .set({
-            processStep,
-            status,
-            ...(processErrorCode !== undefined
-                ? { processErrorCode }
-                : status === "failed"
-                  ? {}
-                  : { processErrorCode: null }),
-        })
-        .where(eq(filesTable.id, fileId));
+    return fileType === "code"
+        ? {
+              spec: processCodeFile.spec,
+              input: {
+                  graphId,
+                  fileId,
+                  ...(codeManifestKey ? { codeManifestKey } : {}),
+              },
+          }
+        : {
+              spec: processFile.spec,
+              input: {
+                  graphId,
+                  fileId,
+              },
+          };
 }
 
-async function stopIfFileDeleted(fileId: string) {
-    const [file] = await db
-        .select({ deleted: filesTable.deleted })
-        .from(filesTable)
-        .where(eq(filesTable.id, fileId))
-        .limit(1);
+export function shouldAbortRepositoryBatch(
+    code: { kind: "repository"; retiredFileIds?: string[] } | undefined,
+    results: PromiseSettledResult<unknown>[]
+) {
+    return code?.kind === "repository" && code.retiredFileIds !== undefined && results.some((result) => result.status === "rejected");
+}
 
-    if (file?.deleted) {
-        await updateFileProcessingState(fileId, "completed", "processed");
-        return true;
-    }
-
-    return false;
+export function shouldFinalizeRepositoryBatch(
+    code: { kind: "repository"; retiredFileIds?: string[] } | undefined,
+    results: PromiseSettledResult<unknown>[]
+) {
+    return (
+        code?.kind === "repository" &&
+        results.every((result) => result.status === "fulfilled") &&
+        (results.length > 0 || (code.retiredFileIds?.length ?? 0) > 0)
+    );
 }
 
 export const processFiles = defineWorkflow(processFilesSpec, async ({ input, step, run }) => {
@@ -118,86 +117,81 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             }
         });
 
-        const fileResults = await Promise.allSettled(
-            input.fileIds.map((fileId) =>
-                step.runWorkflow(processFile.spec, {
-                    graphId: input.graphId,
-                    fileId,
+        const fileTypeRows = await step.run({ name: "load-file-types" }, async () => {
+            if (input.fileIds.length === 0) {
+                return [];
+            }
+
+            return db
+                .select({
+                    id: filesTable.id,
+                    type: filesTable.type,
                 })
-            )
+                .from(filesTable)
+                .where(and(eq(filesTable.graphId, input.graphId), inArray(filesTable.id, input.fileIds)));
+        });
+        const fileTypes = new Map(fileTypeRows.map((file) => [file.id, coerceGraphFileType(file.type)]));
+        const hasCodeFiles = [...fileTypes.values()].some((type) => type === "code");
+
+        const codeManifestKey =
+            input.code && hasCodeFiles
+                ? await step.run({ name: "prepare-code-manifest" }, async () =>
+                      prepareCodeManifest({
+                          graphId: input.graphId,
+                          fileIds: input.fileIds.filter((fileId) => fileTypes.get(fileId) === "code"),
+                          processRunId: input.processRunId,
+                      })
+                  )
+                : undefined;
+
+        const fileResults = await Promise.allSettled(
+            input.fileIds.map((fileId) => {
+                const workflow = fileProcessingWorkflow(input.graphId, fileId, fileTypes.get(fileId), codeManifestKey);
+                return step.runWorkflow(workflow.spec, workflow.input);
+            })
         );
         if (fileResults.length > 0 && fileResults.every((result) => result.status === "rejected")) {
             throw new Error(`All ${fileResults.length} file processing workflows failed`);
         }
+        if (shouldAbortRepositoryBatch(input.code, fileResults)) {
+            throw new Error(
+                `${fileResults.filter((result) => result.status === "rejected").length} repository file processing workflows failed`
+            );
+        }
+
+        if (shouldFinalizeRepositoryBatch(input.code, fileResults)) {
+            const invalidated = await step.run({ name: "finalize-repository-snapshot" }, async () =>
+                invalidateSupersededRepositorySources(
+                    input.code?.retiredFileIds !== undefined
+                        ? {
+                              graphId: input.graphId,
+                              retiredFileIds: input.code.retiredFileIds,
+                          }
+                        : {
+                              graphId: input.graphId,
+                              latestFileIds: input.fileIds.filter((fileId) => fileTypes.get(fileId) === "code"),
+                          }
+                )
+            );
+
+            await Promise.all([
+                ...chunkItems(invalidated.entityIds, DESCRIPTION_BATCH_SIZE).map((entityIds) =>
+                    step.runWorkflow(updateDescriptionsSpec, {
+                        graphId: input.graphId,
+                        entityIds,
+                    })
+                ),
+                ...chunkItems(invalidated.relationshipIds, DESCRIPTION_BATCH_SIZE).map((relationshipIds) =>
+                    step.runWorkflow(updateDescriptionsSpec, {
+                        graphId: input.graphId,
+                        relationshipIds,
+                    })
+                ),
+            ]);
+        }
 
         const descriptions = await step.run({ name: "generate-descriptions" }, async () => {
-            const newEntities = await db
-                .select({ id: entityTable.id, name: entityTable.name })
-                .from(entityTable)
-                .where(and(eq(entityTable.graphId, input.graphId), eq(entityTable.active, false)));
-
-            const updatedEntityRows = await db
-                .selectDistinct({
-                    id: entityTable.id,
-                    name: entityTable.name,
-                    description: entityTable.description,
-                })
-                .from(entityTable)
-                .innerJoin(sourcesTable, eq(sourcesTable.entityId, entityTable.id))
-                .where(
-                    and(
-                        eq(entityTable.graphId, input.graphId),
-                        eq(entityTable.active, true),
-                        eq(sourcesTable.active, false)
-                    )
-                );
-            const updatedEntities = Array.from(
-                new Map(updatedEntityRows.map((entity) => [entity.id, entity])).values()
-            );
-
-            const entityIds = [
-                ...newEntities.map((entity) => entity.id),
-                ...updatedEntities.map((entity) => entity.id),
-            ];
-
-            const newRelationships = await db
-                .select({
-                    id: relationshipTable.id,
-                    sourceId: relationshipTable.sourceId,
-                    targetId: relationshipTable.targetId,
-                })
-                .from(relationshipTable)
-                .where(and(eq(relationshipTable.graphId, input.graphId), eq(relationshipTable.active, false)));
-
-            const updatedRelationshipRows = await db
-                .selectDistinct({
-                    id: relationshipTable.id,
-                    sourceId: relationshipTable.sourceId,
-                    targetId: relationshipTable.targetId,
-                    description: relationshipTable.description,
-                })
-                .from(relationshipTable)
-                .innerJoin(sourcesTable, eq(sourcesTable.relationshipId, relationshipTable.id))
-                .where(
-                    and(
-                        eq(relationshipTable.graphId, input.graphId),
-                        eq(relationshipTable.active, true),
-                        eq(sourcesTable.active, false)
-                    )
-                );
-            const updatedRelationships = Array.from(
-                new Map(updatedRelationshipRows.map((relationship) => [relationship.id, relationship])).values()
-            );
-
-            const relationshipIds = [
-                ...newRelationships.map((relationship) => relationship.id),
-                ...updatedRelationships.map((relationship) => relationship.id),
-            ];
-
-            return {
-                entityIds,
-                relationshipIds,
-            };
+            return collectPendingDescriptionTargets(input.graphId);
         });
 
         await Promise.all([
@@ -501,7 +495,6 @@ export const processFile = defineWorkflow(
                 }
 
                 await updateFileProcessingState(input.fileId, "deduplicating", "processing");
-                const start = performance.now();
 
                 await updateFileProcessingState(input.fileId, "saving", "processing");
 
@@ -511,337 +504,15 @@ export const processFile = defineWorkflow(
                 }
 
                 const graph = loadedGraph.content;
-                const unitRows = toTextUnitRows(graph.units);
-                const entityRows = graph.entities.map((entity) => ({
-                    id: entity.id,
-                    graphId: input.graphId,
-                    active: false,
-                    name: entity.name,
-                    description: "",
-                    type: entity.type,
-                    embedding: EMPTY_VECTOR_SQL,
-                }));
-                const sourceRows = [
-                    ...graph.entities.flatMap((entity) =>
-                        entity.sources.map((source) => ({
-                            id: source.id,
-                            entityId: entity.id,
-                            relationshipId: null,
-                            textUnitId: source.unitId,
-                            active: false,
-                            description: source.description,
-                            sourceChunkIds: source.sourceChunkIds ?? [],
-                            embedding: EMPTY_VECTOR_SQL,
-                        }))
-                    ),
-                    ...graph.relationships.flatMap((relationship) =>
-                        relationship.sources.map((source) => ({
-                            id: source.id,
-                            entityId: null,
-                            relationshipId: relationship.id,
-                            textUnitId: source.unitId,
-                            active: false,
-                            description: source.description,
-                            sourceChunkIds: source.sourceChunkIds ?? [],
-                            embedding: EMPTY_VECTOR_SQL,
-                        }))
-                    ),
-                ];
-                const relationshipRows = graph.relationships.map((relationship) => ({
-                    id: relationship.id,
-                    active: false,
-                    sourceId: relationship.sourceId,
-                    targetId: relationship.targetId,
-                    graphId: input.graphId,
-                    rank: relationship.strength,
-                    description: "",
-                    embedding: EMPTY_VECTOR_SQL,
-                }));
-
-                const insertedEntityIds = entityRows.map((entity) => entity.id);
-                const insertedRelationshipIds = relationshipRows.map((relationship) => relationship.id);
-
-                const metrics = await db.transaction(async (tx) => {
-                    const insertUnitsStart = performance.now();
-                    for (const chunk of chunkItems(unitRows)) {
-                        await tx
-                            .insert(textUnitTable)
-                            .values(chunk)
-                            .onConflictDoUpdate({
-                                target: textUnitTable.id,
-                                set: {
-                                    fileId: sql`excluded.file_id`,
-                                    text: sql`excluded.text`,
-                                    startPage: sql`excluded.start_page`,
-                                    endPage: sql`excluded.end_page`,
-                                    chunks: sql`excluded.chunks`,
-                                    updatedAt: sql`NOW()`,
-                                },
-                            });
-                    }
-                    const insertUnitsDuration = performance.now() - insertUnitsStart;
-
-                    const insertEntitiesStart = performance.now();
-                    for (const chunk of chunkItems(entityRows)) {
-                        await tx.insert(entityTable).values(chunk).onConflictDoNothing();
-                    }
-                    const insertEntitiesDuration = performance.now() - insertEntitiesStart;
-
-                    const insertRelationshipsStart = performance.now();
-                    for (const chunk of chunkItems(relationshipRows)) {
-                        await tx.insert(relationshipTable).values(chunk).onConflictDoNothing();
-                    }
-                    for (const chunk of chunkItems(sourceRows)) {
-                        await tx.insert(sourcesTable).values(chunk).onConflictDoNothing();
-                    }
-                    const insertRelationshipsDuration = performance.now() - insertRelationshipsStart;
-
-                    const dedupeEntitiesStart = performance.now();
-                    if (insertedEntityIds.length > 0) {
-                        const entityIds = textArray(insertedEntityIds);
-                        const candidateNameKeySql = sql.raw(entityCompactNameKey("candidate.name"));
-                        const seededNameKeySql = sql.raw(entityCompactNameKey("seed.name"));
-
-                        await tx.execute(sql`
-                        WITH seeded_keys AS (
-                            SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
-                            FROM entities seed
-                            WHERE seed.graph_id = ${input.graphId}
-                              AND seed.id = ANY(${entityIds})
-                        ), duplicates AS (
-                            SELECT
-                                candidate.id,
-                                first_value(candidate.id) OVER (
-                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameKeySql}
-                                    ORDER BY candidate.active DESC, candidate.id ASC
-                                ) AS canonical_id
-                            FROM entities candidate
-                            JOIN seeded_keys seeded
-                              ON seeded.type = candidate.type
-                             AND seeded.normalized_name = ${candidateNameKeySql}
-                            WHERE candidate.graph_id = ${input.graphId}
-                        )
-                        UPDATE sources source
-                        SET entity_id = duplicates.canonical_id
-                        FROM duplicates
-                        WHERE source.entity_id = duplicates.id
-                          AND duplicates.id <> duplicates.canonical_id
-                    `);
-
-                        await tx.execute(sql`
-                        WITH seeded_keys AS (
-                            SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
-                            FROM entities seed
-                            WHERE seed.graph_id = ${input.graphId}
-                              AND seed.id = ANY(${entityIds})
-                        ), duplicates AS (
-                            SELECT
-                                candidate.id,
-                                first_value(candidate.id) OVER (
-                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameKeySql}
-                                    ORDER BY candidate.active DESC, candidate.id ASC
-                                ) AS canonical_id
-                            FROM entities candidate
-                            JOIN seeded_keys seeded
-                              ON seeded.type = candidate.type
-                             AND seeded.normalized_name = ${candidateNameKeySql}
-                            WHERE candidate.graph_id = ${input.graphId}
-                        )
-                        UPDATE relationships relationship
-                        SET source_id = duplicates.canonical_id
-                        FROM duplicates
-                        WHERE relationship.source_id = duplicates.id
-                          AND relationship.graph_id = ${input.graphId}
-                          AND duplicates.id <> duplicates.canonical_id
-                    `);
-
-                        await tx.execute(sql`
-                        WITH seeded_keys AS (
-                            SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
-                            FROM entities seed
-                            WHERE seed.graph_id = ${input.graphId}
-                              AND seed.id = ANY(${entityIds})
-                        ), duplicates AS (
-                            SELECT
-                                candidate.id,
-                                first_value(candidate.id) OVER (
-                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameKeySql}
-                                    ORDER BY candidate.active DESC, candidate.id ASC
-                                ) AS canonical_id
-                            FROM entities candidate
-                            JOIN seeded_keys seeded
-                              ON seeded.type = candidate.type
-                             AND seeded.normalized_name = ${candidateNameKeySql}
-                            WHERE candidate.graph_id = ${input.graphId}
-                        )
-                        UPDATE relationships relationship
-                        SET target_id = duplicates.canonical_id
-                        FROM duplicates
-                        WHERE relationship.target_id = duplicates.id
-                          AND relationship.graph_id = ${input.graphId}
-                          AND duplicates.id <> duplicates.canonical_id
-                    `);
-
-                        await tx.execute(sql`
-                        WITH seeded_keys AS (
-                            SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
-                            FROM entities seed
-                            WHERE seed.graph_id = ${input.graphId}
-                              AND seed.id = ANY(${entityIds})
-                        ), duplicates AS (
-                            SELECT
-                                candidate.id,
-                                first_value(candidate.id) OVER (
-                                    PARTITION BY candidate.graph_id, candidate.type, ${candidateNameKeySql}
-                                    ORDER BY candidate.active DESC, candidate.id ASC
-                                ) AS canonical_id
-                            FROM entities candidate
-                            JOIN seeded_keys seeded
-                              ON seeded.type = candidate.type
-                             AND seeded.normalized_name = ${candidateNameKeySql}
-                            WHERE candidate.graph_id = ${input.graphId}
-                        )
-                        DELETE FROM entities entity
-                        USING duplicates
-                        WHERE entity.id = duplicates.id
-                          AND duplicates.id <> duplicates.canonical_id
-                    `);
-                    }
-                    const dedupeEntitiesDuration = performance.now() - dedupeEntitiesStart;
-
-                    const dedupeRelationshipsStart = performance.now();
-                    await tx.execute(sql`
-                    DELETE FROM relationships
-                    WHERE graph_id = ${input.graphId}
-                      AND source_id = target_id
-                `);
-
-                    if (insertedRelationshipIds.length > 0) {
-                        const relationshipIds = textArray(insertedRelationshipIds);
-
-                        await tx.execute(sql`
-                        WITH seeded_pairs AS (
-                            SELECT DISTINCT
-                                least(relationship.source_id, relationship.target_id) AS pair_source_id,
-                                greatest(relationship.source_id, relationship.target_id) AS pair_target_id
-                            FROM relationships relationship
-                            WHERE relationship.graph_id = ${input.graphId}
-                              AND relationship.id = ANY(${relationshipIds})
-                        ), duplicates AS (
-                            SELECT
-                                relationship.id,
-                                least(relationship.source_id, relationship.target_id) AS canonical_source_id,
-                                greatest(relationship.source_id, relationship.target_id) AS canonical_target_id,
-                                first_value(relationship.id) OVER (
-                                    PARTITION BY relationship.graph_id, least(relationship.source_id, relationship.target_id), greatest(relationship.source_id, relationship.target_id)
-                                    ORDER BY relationship.active DESC, relationship.id ASC
-                                ) AS canonical_id,
-                                max(relationship.rank) OVER (
-                                    PARTITION BY relationship.graph_id, least(relationship.source_id, relationship.target_id), greatest(relationship.source_id, relationship.target_id)
-                                ) AS canonical_rank
-                            FROM relationships relationship
-                            JOIN seeded_pairs seeded
-                              ON seeded.pair_source_id = least(relationship.source_id, relationship.target_id)
-                             AND seeded.pair_target_id = greatest(relationship.source_id, relationship.target_id)
-                            WHERE relationship.graph_id = ${input.graphId}
-                        )
-                        UPDATE relationships relationship
-                        SET source_id = duplicates.canonical_source_id,
-                            target_id = duplicates.canonical_target_id,
-                            rank = CASE
-                                WHEN relationship.id = duplicates.canonical_id THEN duplicates.canonical_rank
-                                ELSE relationship.rank
-                            END,
-                            updated_at = NOW()
-                        FROM duplicates
-                        WHERE relationship.id = duplicates.id
-                          AND (
-                              relationship.source_id <> duplicates.canonical_source_id
-                              OR relationship.target_id <> duplicates.canonical_target_id
-                              OR (
-                                  relationship.id = duplicates.canonical_id
-                                  AND relationship.rank <> duplicates.canonical_rank
-                              )
-                          )
-                    `);
-
-                        await tx.execute(sql`
-                        WITH seeded_pairs AS (
-                            SELECT DISTINCT
-                                least(relationship.source_id, relationship.target_id) AS pair_source_id,
-                                greatest(relationship.source_id, relationship.target_id) AS pair_target_id
-                            FROM relationships relationship
-                            WHERE relationship.graph_id = ${input.graphId}
-                              AND relationship.id = ANY(${relationshipIds})
-                        ), duplicates AS (
-                            SELECT
-                                relationship.id,
-                                first_value(relationship.id) OVER (
-                                    PARTITION BY relationship.graph_id, least(relationship.source_id, relationship.target_id), greatest(relationship.source_id, relationship.target_id)
-                                    ORDER BY relationship.active DESC, relationship.id ASC
-                                ) AS canonical_id
-                            FROM relationships relationship
-                            JOIN seeded_pairs seeded
-                              ON seeded.pair_source_id = least(relationship.source_id, relationship.target_id)
-                             AND seeded.pair_target_id = greatest(relationship.source_id, relationship.target_id)
-                            WHERE relationship.graph_id = ${input.graphId}
-                        )
-                        UPDATE sources source
-                        SET relationship_id = duplicates.canonical_id
-                        FROM duplicates
-                        WHERE source.relationship_id = duplicates.id
-                          AND duplicates.id <> duplicates.canonical_id
-                    `);
-
-                        await tx.execute(sql`
-                        WITH seeded_pairs AS (
-                            SELECT DISTINCT
-                                least(relationship.source_id, relationship.target_id) AS pair_source_id,
-                                greatest(relationship.source_id, relationship.target_id) AS pair_target_id
-                            FROM relationships relationship
-                            WHERE relationship.graph_id = ${input.graphId}
-                              AND relationship.id = ANY(${relationshipIds})
-                        ), duplicates AS (
-                            SELECT
-                                relationship.id,
-                                first_value(relationship.id) OVER (
-                                    PARTITION BY relationship.graph_id, least(relationship.source_id, relationship.target_id), greatest(relationship.source_id, relationship.target_id)
-                                    ORDER BY relationship.active DESC, relationship.id ASC
-                                ) AS canonical_id
-                            FROM relationships relationship
-                            JOIN seeded_pairs seeded
-                              ON seeded.pair_source_id = least(relationship.source_id, relationship.target_id)
-                             AND seeded.pair_target_id = greatest(relationship.source_id, relationship.target_id)
-                            WHERE relationship.graph_id = ${input.graphId}
-                        )
-                        DELETE FROM relationships relationship
-                        USING duplicates
-                        WHERE relationship.id = duplicates.id
-                          AND duplicates.id <> duplicates.canonical_id
-                    `);
-                    }
-                    const dedupeRelationshipsDuration = performance.now() - dedupeRelationshipsStart;
-
-                    return {
-                        insertUnitsDuration,
-                        insertEntitiesDuration,
-                        insertRelationshipsDuration,
-                        dedupeEntitiesDuration,
-                        dedupeRelationshipsDuration,
-                    };
-                });
-
-                const duration = performance.now() - start;
+                const saveResult = await saveGraphToDatabase(input.graphId, graph);
 
                 return {
                     summary: {
                         fileId: input.fileId,
-                        units: graph.units.length,
-                        entities: graph.entities.length,
-                        relationships: graph.relationships.length,
+                        ...saveResult.summary,
                     },
-                    duration,
-                    metrics,
+                    duration: saveResult.duration,
+                    metrics: saveResult.metrics,
                 };
             });
             if (saveGraphResult === FILE_DELETED) {

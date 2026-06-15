@@ -1,6 +1,7 @@
 import { db } from "@kiwi/db";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
-import { entityTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { entityTable, filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
+import { currentSourcePredicate, currentSourceSql, visibleFilePredicate, visibleFileSql } from "@kiwi/db/source-validity";
 import { and, asc, cosineDistance, eq, exists, gt, inArray, sql } from "drizzle-orm";
 import { embed, tool } from "ai";
 import { withAiSlot } from "../concurrency";
@@ -66,7 +67,10 @@ function buildFileScopeExpression(fileIds: string[]) {
             select 1
             from sources source
             inner join text_units text_unit on text_unit.id = source.text_unit_id
+            inner join files file on file.id = text_unit.file_id
             where source.entity_id = e.id
+              and ${currentSourceSql("source")}
+              and ${visibleFileSql("file")}
               and text_unit.file_id in (${sql.join(
                   fileIds.map((fileId) => sql`${fileId}`),
                   sql`, `
@@ -238,10 +242,13 @@ export const listEntitiesTool = (graphId: string, options: EntityToolOptions = {
                                     .select({ id: sourcesTable.id })
                                     .from(sourcesTable)
                                     .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
                                     .where(
                                         and(
                                             eq(sourcesTable.entityId, entityTable.id),
-                                            inArray(textUnitTable.fileId, fileIds)
+                                            currentSourcePredicate(sourcesTable),
+                                            inArray(textUnitTable.fileId, fileIds),
+                                            visibleFilePredicate(filesTable)
                                         )
                                     )
                             )

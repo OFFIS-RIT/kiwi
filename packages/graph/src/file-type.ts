@@ -1,3 +1,5 @@
+import { isSupportedCodePath } from "./code/file-path";
+
 export const GRAPH_FILE_TYPES = [
     "pdf",
     "doc",
@@ -17,6 +19,7 @@ export const GRAPH_FILE_TYPES = [
     "xml",
     "yaml",
     "toml",
+    "code",
     "text",
 ] as const;
 
@@ -181,6 +184,10 @@ export function inferGraphFileType(file: Pick<File, "name" | "type">): GraphFile
 
     if (mime === "application/toml" || mime === "text/toml" || ext === "toml") {
         return "toml";
+    }
+
+    if (isSupportedCodePath(name)) {
+        return "code";
     }
 
     return "text";

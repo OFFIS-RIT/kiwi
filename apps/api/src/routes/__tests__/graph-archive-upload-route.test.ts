@@ -3,7 +3,38 @@ import { Elysia } from "elysia";
 
 const uploadedFiles: Array<{ graphId: string; fileId: string; name: string }> = [];
 let archiveExpansionMode: "success" | "limit" = "success";
-const workflowInputs: Array<{ graphId: string; fileIds: string[]; processRunId: string }> = [];
+const workflowInputs: Array<{
+    graphId: string;
+    fileIds: string[];
+    processRunId: string;
+    code?: { kind: "repository" };
+}> = [];
+const loadedUrls: string[] = [];
+const insertedFileValues: Array<{
+    name: string;
+    type: string;
+    mimeType: string;
+    key: string;
+    storageKind?: string;
+    externalProvider?: string;
+    externalUrl?: string;
+    metadata?: string;
+    checksum?: string;
+}> = [];
+const existingChecksumRows: Array<{ checksum: string }> = [];
+let repositoryLoadMode: "success" | "limit-error" | "git-error" = "success";
+
+class RepositoryUrlError extends Error {
+    constructor(
+        public readonly kind: "validation" | "limit" | "load",
+        message: string,
+        options?: { cause?: unknown }
+    ) {
+        super(message, options);
+        this.name = "RepositoryUrlError";
+    }
+}
+let uploadModelMode: "success" | "missing" = "success";
 
 const graphRow = {
     id: "graph-1",
@@ -32,6 +63,7 @@ function graphFileRows(
         mimeType: string;
         key: string;
         checksum: string;
+        metadata?: string;
     }>
 ) {
     return values.map((file) => ({
@@ -43,6 +75,7 @@ function graphFileRows(
         mimeType: file.mimeType,
         key: file.key,
         checksum: file.checksum,
+        metadata: file.metadata,
         deleted: false,
     }));
 }
@@ -63,6 +96,7 @@ function insertReturning(values: unknown) {
                 mimeType: string;
                 key: string;
                 checksum: string;
+                metadata?: string;
             }>
         );
     }
@@ -86,7 +120,7 @@ const db = {
     }),
     select: () => ({
         from: () => ({
-            where: async () => [],
+            where: async () => existingChecksumRows,
         }),
     }),
     transaction: async <T>(callback: (tx: typeof transactionDb) => Promise<T>) => callback(transactionDb),
@@ -96,7 +130,25 @@ const transactionDb = {
     insert: () => ({
         values: (values: unknown) => ({
             onConflictDoNothing: () => ({
-                returning: () => insertReturning(values),
+                returning: () => {
+                    if (Array.isArray(values)) {
+                        insertedFileValues.push(
+                            ...(values as Array<{
+                                name: string;
+                                type: string;
+                                mimeType: string;
+                                key: string;
+                                storageKind?: string;
+                                externalProvider?: string;
+                                externalUrl?: string;
+                                metadata?: string;
+                                checksum?: string;
+                            }>)
+                        );
+                    }
+
+                    return insertReturning(values);
+                },
             }),
             returning: () => insertReturning(values),
         }),
@@ -182,6 +234,79 @@ mock.module("../../lib/archive-upload", () => ({
     },
 }));
 
+mock.module("../../lib/graph-upload-file-type", () => ({
+    inferSupportedUploadedFiles: (
+        files: Array<{
+            file: File;
+            checksum: string;
+        }>
+    ) => ({
+        ok: true,
+        files: files.map((file) => ({
+            ...file,
+            type: file.file.name.endsWith(".ts") ? "code" : "text",
+        })),
+    }),
+    unsupportedUploadResponse: (statusFn: (code: number, body: unknown) => unknown) =>
+        statusFn(415, { status: "error", code: "UNSUPPORTED_FILE_TYPE" }),
+    assertConfiguredUploadModels: async () => {
+        if (uploadModelMode === "missing") {
+            throw new Error("MODEL_NOT_CONFIGURED");
+        }
+    },
+}));
+
+mock.module("../../lib/repository-url", () => ({
+    MAX_REPOSITORY_URLS: 5,
+    RepositoryUrlError,
+    buildGitHubExternalCodeFile: ({
+        repositoryUrl,
+        commitSha,
+        path,
+    }: {
+        repositoryUrl: string;
+        commitSha: string;
+        path: string;
+    }) =>
+        repositoryUrl === "https://github.com/acme/widgets.git"
+            ? {
+                  provider: "github",
+                  rawUrl: `https://raw.githubusercontent.com/acme/widgets/${commitSha}/${path}`,
+                  htmlUrl: `https://github.com/acme/widgets/blob/${commitSha}/${path}`,
+                  key: `external:github:acme/widgets@${commitSha}:${path}`,
+              }
+            : null,
+    loadRepositoryFromUrl: async (url: string) => {
+        loadedUrls.push(url);
+        if (repositoryLoadMode === "limit-error") {
+            throw new RepositoryUrlError("limit", "Repository contains too many supported code files");
+        }
+        if (repositoryLoadMode === "git-error") {
+            throw new RepositoryUrlError("load", "Repository could not be loaded", {
+                cause: new Error("fatal: could not read Username for 'https://github.com': terminal prompts disabled"),
+            });
+        }
+
+        return {
+            url: "https://github.com/acme/widgets.git",
+            name: "widgets",
+            commitSha: "commit-1",
+            files: [
+                {
+                    path: "src/index.ts",
+                    content: "import { helper } from './helper';\nexport function main() { return helper(); }\n",
+                    size: 75,
+                },
+                {
+                    path: "src/helper.ts",
+                    content: "export function helper() { return 1; }\n",
+                    size: 38,
+                },
+            ],
+        };
+    },
+}));
+
 mock.module("../../lib/graph", () => ({
     collectGraphClosure: async () => [],
 }));
@@ -237,7 +362,12 @@ describe("graph route archive uploads", () => {
     beforeEach(() => {
         uploadedFiles.length = 0;
         workflowInputs.length = 0;
+        loadedUrls.length = 0;
+        insertedFileValues.length = 0;
+        existingChecksumRows.length = 0;
         archiveExpansionMode = "success";
+        repositoryLoadMode = "success";
+        uploadModelMode = "success";
     });
 
     test("creates one graph file and workflow input per extracted archive file", async () => {
@@ -281,6 +411,32 @@ describe("graph route archive uploads", () => {
         ]);
     });
 
+    test("stores direct source uploads as code files", async () => {
+        const form = new FormData();
+        form.append("files", new File(["export const value = 1;\n"], "src/index.ts", { type: "text/plain" }));
+
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/files", {
+                method: "POST",
+                body: form,
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body.status).toBe("success");
+        expect(insertedFileValues).toHaveLength(1);
+        expect(insertedFileValues[0].name).toBe("src/index.ts");
+        expect(insertedFileValues[0].type).toBe("code");
+        expect(workflowInputs).toEqual([
+            {
+                graphId: "graph-1",
+                fileIds: body.data.addedFiles.map((file: { id: string }) => file.id),
+                processRunId: "process-run-1",
+            },
+        ]);
+    });
+
     test("returns upload limit response when create archive expansion exceeds limits", async () => {
         archiveExpansionMode = "limit";
 
@@ -315,6 +471,184 @@ describe("graph route archive uploads", () => {
         expect(body.status).toBe("error");
         expect(body.code).toBe("UPLOAD_LIMIT_EXCEEDED");
         expect(body.message).toBe("bundle.zip: Upload expands to too many files");
+        expect(uploadedFiles).toEqual([]);
+        expect(workflowInputs).toEqual([]);
+    });
+
+    test("adds repository URL code files with metadata and code workflow input", async () => {
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/urls", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    urls: [" https://github.com/acme/widgets ", "https://github.com/acme/widgets"],
+                }),
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body.status).toBe("success");
+        expect(loadedUrls).toEqual(["https://github.com/acme/widgets"]);
+        expect(uploadedFiles).toEqual([]);
+        expect(insertedFileValues.map((file) => file.type)).toEqual(["code", "code"]);
+        expect(insertedFileValues.map((file) => file.mimeType)).toEqual(["text/plain", "text/plain"]);
+        expect(insertedFileValues.map((file) => file.storageKind)).toEqual(["external", "external"]);
+        expect(insertedFileValues.map((file) => file.externalProvider)).toEqual(["github", "github"]);
+        expect(insertedFileValues.map((file) => file.externalUrl)).toEqual([
+            "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
+            "https://raw.githubusercontent.com/acme/widgets/commit-1/src/helper.ts",
+        ]);
+        expect(insertedFileValues.map((file) => file.key)).toEqual([
+            "external:github:acme/widgets@commit-1:src/index.ts",
+            "external:github:acme/widgets@commit-1:src/helper.ts",
+        ]);
+        expect(insertedFileValues.map((file) => JSON.parse(file.metadata ?? "{}"))).toEqual([
+            {
+                repositoryUrl: "https://github.com/acme/widgets.git",
+                repositoryName: "widgets",
+                commitSha: "commit-1",
+                path: "src/index.ts",
+                external: {
+                    provider: "github",
+                    rawUrl: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
+                    htmlUrl: "https://github.com/acme/widgets/blob/commit-1/src/index.ts",
+                },
+            },
+            {
+                repositoryUrl: "https://github.com/acme/widgets.git",
+                repositoryName: "widgets",
+                commitSha: "commit-1",
+                path: "src/helper.ts",
+                external: {
+                    provider: "github",
+                    rawUrl: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/helper.ts",
+                    htmlUrl: "https://github.com/acme/widgets/blob/commit-1/src/helper.ts",
+                },
+            },
+        ]);
+        expect(workflowInputs).toEqual([
+            {
+                graphId: "graph-1",
+                fileIds: body.data.addedFiles.map((file: { id: string }) => file.id),
+                processRunId: "process-run-1",
+                code: { kind: "repository" },
+            },
+        ]);
+    });
+
+    test("validates repository URL models before upload or workflow side effects", async () => {
+        uploadModelMode = "missing";
+
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/urls", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ urls: ["https://github.com/acme/widgets"] }),
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(body.status).toBe("error");
+        expect(body.code).toBe("MODEL_NOT_CONFIGURED");
+        expect(uploadedFiles).toEqual([]);
+        expect(insertedFileValues).toEqual([]);
+        expect(workflowInputs).toEqual([]);
+    });
+
+    test("creates latest repository snapshot files even when earlier checksums already exist", async () => {
+        const duplicateContent = "import { helper } from './helper';\nexport function main() { return helper(); }\n";
+        const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(duplicateContent));
+        existingChecksumRows.push({
+            checksum: [...new Uint8Array(hashBuffer)].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+        });
+
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/urls", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ urls: ["https://github.com/acme/widgets"] }),
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body.status).toBe("success");
+        expect(body.data.addedFiles.map((file: { name: string }) => file.name)).toEqual([
+            "widgets/src/index.ts",
+            "widgets/src/helper.ts",
+        ]);
+        expect(uploadedFiles).toEqual([]);
+        expect(workflowInputs[0]?.code).toEqual({ kind: "repository" });
+    });
+
+    test("still enqueues repository workflow when every URL file matches an older checksum", async () => {
+        for (const content of [
+            "import { helper } from './helper';\nexport function main() { return helper(); }\n",
+            "export function helper() { return 1; }\n",
+        ]) {
+            const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
+            existingChecksumRows.push({
+                checksum: [...new Uint8Array(hashBuffer)].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+            });
+        }
+
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/urls", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ urls: ["https://github.com/acme/widgets"] }),
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body.data.addedFiles.map((file: { name: string }) => file.name)).toEqual([
+            "widgets/src/index.ts",
+            "widgets/src/helper.ts",
+        ]);
+        expect(body.data.workflowRunId).toBe("workflow-1");
+        expect(uploadedFiles).toEqual([]);
+        expect(workflowInputs).toHaveLength(1);
+    });
+
+    test("maps repository loader limits to upload limit responses", async () => {
+        repositoryLoadMode = "limit-error";
+
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/urls", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ urls: ["https://github.com/acme/widgets"] }),
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(413);
+        expect(body.code).toBe("UPLOAD_LIMIT_EXCEEDED");
+        expect(uploadedFiles).toEqual([]);
+        expect(workflowInputs).toEqual([]);
+    });
+
+    test("sanitizes repository git failures in client responses", async () => {
+        repositoryLoadMode = "git-error";
+
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/urls", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ urls: ["https://github.com/acme/widgets"] }),
+            })
+        );
+        const body = await response.json();
+        const responseText = JSON.stringify(body);
+
+        expect(response.status).toBe(400);
+        expect(body.code).toBe("UNSUPPORTED_FILE_TYPE");
+        expect(body.message).toBe("Repository could not be loaded");
+        expect(responseText).not.toContain("fatal:");
+        expect(responseText).not.toContain("terminal prompts disabled");
         expect(uploadedFiles).toEqual([]);
         expect(workflowInputs).toEqual([]);
     });

@@ -43,6 +43,30 @@ export type {
     SourceReferenceResponse,
     TextUnitResponse,
 } from "@kiwi/contracts";
+export type {
+    ConnectorBranchListResponse,
+    ConnectorBranchRecord,
+    ConnectorInstallationListResponse,
+    ConnectorInstallationRecord,
+    ConnectorListResponse,
+    ConnectorProvider,
+    ConnectorRecord,
+    ConnectorRepositoryListResponse,
+    ConnectorRepositoryRecord,
+    GitHubConnectorManifestStartInput,
+    GitHubConnectorManifestStartResponse,
+    GitHubConnectorManifestStartSuccessData,
+    GitLabConnectorCreateInput,
+    GitLabConnectorCreateResponse,
+    RepositoryGraphBindingRecord,
+    RepositoryGraphBindingResponse,
+    RepositoryGraphBindingSyncResponse,
+    RepositoryGraphBindingSyncSuccessData,
+    RepositoryGraphCreateInput,
+    RepositoryGraphCreateResponse,
+    RepositoryGraphCreateSuccessData,
+} from "@kiwi/contracts";
+
 
 // Re-export team API helpers under the existing frontend group names.
 export {
@@ -57,6 +81,21 @@ export {
     updateGroup,
     updateGroupUsers,
 } from "./groups";
+export {
+    completeGitHubConnectorInstallation,
+    completeGitHubConnectorManifest,
+    createGitLabConnector,
+    createRepositoryGraph,
+    fetchConnectorBranches,
+    fetchConnectorInstallations,
+    fetchConnectorRepositories,
+    fetchConnectors,
+    fetchRepositoryGraphBinding,
+    startConnectorConnect,
+    startGitHubConnectorManifest,
+    syncRepositoryGraphBinding,
+} from "./connectors";
+
 
 // Re-export projects API
 export {

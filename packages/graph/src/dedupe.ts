@@ -1,5 +1,6 @@
 import { ulid } from "ulid";
 import type { Entity, Graph, Relationship, Source, Unit } from ".";
+import { DEFAULT_RELATIONSHIP_KIND, normalizedRelationshipEndpoints, relationshipKey } from "./relationship-key";
 
 const exactOnlyTypes = new Set(["DATE", "FACT"]);
 const organizationSuffixes = new Set([
@@ -243,13 +244,6 @@ const mergeUnits = (units: Unit[]) => {
     return [...merged.values()];
 };
 
-const buildRelationshipKey = (sourceId: string, targetId: string) => {
-    const normalizedSourceId = sourceId <= targetId ? sourceId : targetId;
-    const normalizedTargetId = sourceId <= targetId ? targetId : sourceId;
-
-    return `${normalizedSourceId}::${normalizedTargetId}`;
-};
-
 export function dedupe(graph: Graph): Graph {
     const parents = graph.entities.map((_, index) => index);
 
@@ -321,9 +315,17 @@ export function dedupe(graph: Graph): Graph {
             continue;
         }
 
-        const normalizedSourceId = sourceId <= targetId ? sourceId : targetId;
-        const normalizedTargetId = sourceId <= targetId ? targetId : sourceId;
-        const key = buildRelationshipKey(normalizedSourceId, normalizedTargetId);
+        const endpoints = normalizedRelationshipEndpoints({
+            sourceId,
+            targetId,
+            directed: relationship.directed,
+        });
+        const key = relationshipKey({
+            sourceId: endpoints.sourceId,
+            targetId: endpoints.targetId,
+            kind: relationship.kind,
+            directed: endpoints.directed,
+        });
         const existingRelationship = relationshipMap.get(key);
 
         if (existingRelationship) {
@@ -347,8 +349,10 @@ export function dedupe(graph: Graph): Graph {
 
         relationshipMap.set(key, {
             ...relationship,
-            sourceId: normalizedSourceId,
-            targetId: normalizedTargetId,
+            sourceId: endpoints.sourceId,
+            targetId: endpoints.targetId,
+            kind: relationship.kind ?? DEFAULT_RELATIONSHIP_KIND,
+            directed: endpoints.directed,
             description: (relationship.description ?? "")
                 .trim()
                 .replace(/[\r\n]+/g, " ")
