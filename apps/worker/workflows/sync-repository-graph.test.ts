@@ -9,6 +9,7 @@ const deleteWorkflowInputs: Array<Record<string, unknown>> = [];
 const bindingUpdates: Array<Record<string, unknown>> = [];
 const compareCalls: Array<{ fromCommitSha: string; toCommitSha: string }> = [];
 const readFileCalls: Array<{ path: string; commitSha: string }> = [];
+const txWhereConditions: unknown[] = [];
 
 let selectResults: SelectResult[] = [];
 let txSelectResults: unknown[][] = [];
@@ -45,10 +46,30 @@ function createTxSelectQuery() {
     const chain = {
         from: () => chain,
         innerJoin: () => chain,
-        where: () => result,
+        where: (condition: unknown) => {
+            txWhereConditions.push(condition);
+            return result;
+        },
         limit: () => result,
     };
     return chain;
+}
+
+function queryContainsParamValue(value: unknown, expected: unknown, seen = new WeakSet<object>()): boolean {
+    if (Array.isArray(value)) {
+        return value.some((item) => queryContainsParamValue(item, expected, seen));
+    }
+    if (typeof value === "object" && value !== null) {
+        if (seen.has(value)) {
+            return false;
+        }
+        seen.add(value);
+        if (value.constructor.name === "Param" && "value" in value) {
+            return value.value === expected;
+        }
+        return Object.values(value).some((item) => queryContainsParamValue(item, expected, seen));
+    }
+    return false;
 }
 
 const transactionDb = {
@@ -264,6 +285,7 @@ describe("syncRepositoryGraph", () => {
         bindingUpdates.length = 0;
         compareCalls.length = 0;
         readFileCalls.length = 0;
+        txWhereConditions.length = 0;
         selectResults = [];
         processFilesError = null;
         compareChanges = [];
@@ -335,6 +357,36 @@ describe("syncRepositoryGraph", () => {
                 graphId: "graph-1",
                 fileIds: ["existing-file"],
                 processRunId: "existing-process-run",
+                code: { kind: "repository", retiredFileIds: ["old-file"] },
+            },
+        ]);
+    });
+
+    test("does not reuse completed process runs when file insert conflicts", async () => {
+        compareChanges = [{ status: "modified", newPath: "src/index.ts" }];
+        readFileContents = {
+            "src/index.ts": "export const next = shared;\n",
+        };
+        selectResults = [
+            { kind: "limit", value: [bindingRow("commit-old")] },
+            {
+                kind: "where",
+                value: [activeFile("old-file", "commit-old", "src/index.ts", 25)],
+            },
+        ];
+        insertedFileRowsOverride = [];
+        txSelectResults = [[{ id: "existing-file", key: "connector:binding-1:commit-new:src/index.ts" }], []];
+
+        const result = await runWorkflow({ bindingId: "binding-1", reason: "manual", commitSha: "commit-new" });
+
+        expect(result).toMatchObject({ commitSha: "commit-new", fileCount: 1 });
+        expect(processRunInsertCount).toBe(1);
+        expect(queryContainsParamValue(txWhereConditions[1], "completed")).toBe(true);
+        expect(processWorkflowInputs).toEqual([
+            {
+                graphId: "graph-1",
+                fileIds: ["existing-file"],
+                processRunId: "process-run-1",
                 code: { kind: "repository", retiredFileIds: ["old-file"] },
             },
         ]);

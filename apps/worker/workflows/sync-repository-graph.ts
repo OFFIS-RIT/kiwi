@@ -29,7 +29,7 @@ import {
 } from "@kiwi/db/tables/connectors";
 import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
 import { serializeCodeFileMetadata } from "@kiwi/graph/code/metadata";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import { parseCodeFileMetadata } from "../lib/code-file-metadata";
 import { env } from "../env";
@@ -402,6 +402,7 @@ async function insertRepositoryFiles(
                 .where(
                     and(
                         eq(processRunsTable.graphId, row.binding.graphId),
+                        ne(processRunsTable.status, "completed"),
                         inArray(
                             processRunFilesTable.fileId,
                             committedFiles.map((file) => file.id)
