@@ -119,7 +119,7 @@ export async function getGraphFileProxyResponse(options: {
                 status: 307,
                 headers: {
                     "Cache-Control": "private, no-cache",
-                    Location: metadata.external.htmlUrl,
+                    Location: file.externalUrl,
                     "X-Content-Type-Options": "nosniff",
                 },
             }),

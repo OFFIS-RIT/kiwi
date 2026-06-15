@@ -10,6 +10,7 @@ const bindingUpdates: Array<Record<string, unknown>> = [];
 const compareCalls: Array<{ fromCommitSha: string; toCommitSha: string }> = [];
 const readFileCalls: Array<{ path: string; commitSha: string }> = [];
 const txWhereConditions: unknown[] = [];
+const pendingReadResolutions: Array<() => void> = [];
 
 let selectResults: SelectResult[] = [];
 let txSelectResults: unknown[][] = [];
@@ -21,6 +22,9 @@ let compareIsIncremental = true;
 let snapshotFiles: ProviderCodeFile[] = [];
 let readFileContents: Record<string, string> = {};
 let loadSnapshotCalls = 0;
+let activeReadFileCalls = 0;
+let holdReadFiles = false;
+let maxReadFileConcurrency = 0;
 
 function createSelectQuery() {
     const result = selectResults.shift();
@@ -173,6 +177,14 @@ mock.module("@kiwi/connectors", () => ({
         },
         readFile: async (_repository: unknown, path: string, commitSha: string) => {
             readFileCalls.push({ path, commitSha });
+            activeReadFileCalls += 1;
+            maxReadFileConcurrency = Math.max(maxReadFileConcurrency, activeReadFileCalls);
+            if (holdReadFiles) {
+                await new Promise<void>((resolve) => {
+                    pendingReadResolutions.push(resolve);
+                });
+            }
+            activeReadFileCalls -= 1;
             const content = readFileContents[path];
             if (!content) {
                 throw new Error(`Missing mocked content for ${path}`);
@@ -292,6 +304,7 @@ describe("syncRepositoryGraph", () => {
         compareCalls.length = 0;
         readFileCalls.length = 0;
         txWhereConditions.length = 0;
+        pendingReadResolutions.length = 0;
         selectResults = [];
         processFilesError = null;
         compareChanges = [];
@@ -299,6 +312,9 @@ describe("syncRepositoryGraph", () => {
         snapshotFiles = [];
         readFileContents = {};
         loadSnapshotCalls = 0;
+        activeReadFileCalls = 0;
+        holdReadFiles = false;
+        maxReadFileConcurrency = 0;
         txSelectResults = [];
         insertedFileRowsOverride = null;
         processRunInsertCount = 0;
@@ -334,6 +350,47 @@ describe("syncRepositoryGraph", () => {
             code: { kind: "repository", retiredFileIds: ["old-file"] },
         });
         expect(String(insertedFileValues[0]?.checksum)).toStartWith("commit-new:src/index.ts:");
+    });
+
+    test("limits concurrent provider reads for incremental changed files", async () => {
+        const changedPaths = Array.from({ length: 10 }, (_, index) => `src/file-${index}.ts`);
+        compareChanges = changedPaths.map((newPath) => ({ status: "modified", newPath }));
+        readFileContents = Object.fromEntries(changedPaths.map((path) => [path, `export const value = "${path}";\n`]));
+        holdReadFiles = true;
+        selectResults = [
+            { kind: "limit", value: [bindingRow("commit-old")] },
+            {
+                kind: "where",
+                value: changedPaths.map((path, index) => activeFile(`old-file-${index}`, "commit-old", path, 25)),
+            },
+        ];
+
+        let workflowDone = false;
+        const resultPromise = runWorkflow({
+            bindingId: "binding-1",
+            reason: "manual",
+            commitSha: "commit-new",
+        }).finally(() => {
+            workflowDone = true;
+        });
+
+        while (pendingReadResolutions.length < 4) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        expect(maxReadFileConcurrency).toBeLessThanOrEqual(4);
+
+        while (!workflowDone) {
+            while (pendingReadResolutions.length === 0 && !workflowDone) {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+            pendingReadResolutions.splice(0).forEach((resolve) => resolve());
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+
+        const result = await resultPromise;
+
+        expect(result).toMatchObject({ commitSha: "commit-new", fileCount: 10 });
+        expect(maxReadFileConcurrency).toBeLessThanOrEqual(4);
     });
 
     test("reuses existing repository files and process run when file insert conflicts", async () => {

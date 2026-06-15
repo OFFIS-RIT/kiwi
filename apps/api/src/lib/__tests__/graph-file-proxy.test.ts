@@ -90,7 +90,7 @@ describe("graph file proxy", () => {
         }
     });
 
-    test("redirects external GitHub files to immutable HTML URLs without S3 calls", async () => {
+    test("redirects external GitHub files to immutable raw URLs without S3 calls", async () => {
         selectedFile = {
             key: "external:github:acme/widgets@commit-1:src/index.ts",
             name: "widgets/src/index.ts",
@@ -126,7 +126,7 @@ describe("graph file proxy", () => {
         if (result.status === "ok") {
             expect(result.response.status).toBe(307);
             expect(result.response.headers.get("location")).toBe(
-                "https://github.com/acme/widgets/blob/commit-1/src/index.ts"
+                "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts"
             );
         }
     });

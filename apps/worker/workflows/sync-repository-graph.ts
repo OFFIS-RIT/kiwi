@@ -69,6 +69,7 @@ type InsertedRepositoryFiles = {
 };
 
 const NO_RETRY = { maximumAttempts: 1 } as const;
+const PROVIDER_FILE_READ_CONCURRENCY = 4;
 
 async function loadBindingGraph(bindingId: string): Promise<BindingGraphRow | null> {
     const [row] = await db
@@ -180,17 +181,24 @@ async function compareProviderCommits(row: BindingGraphRow, fromCommitSha: strin
 async function loadChangedFiles(row: BindingGraphRow, commitSha: string, paths: string[]): Promise<ProviderCodeFile[]> {
     const context = await createProviderClient(row);
     const repository = repositoryFromBinding(row);
-    return Promise.all(
-        paths.map(async (path) =>
-            buildConnectorFile(
-                row,
-                context,
-                commitSha,
-                path,
-                await context.client.readFile(repository, path, commitSha)
-            )
-        )
-    );
+    const files: ProviderCodeFile[] = [];
+    for (let index = 0; index < paths.length; index += PROVIDER_FILE_READ_CONCURRENCY) {
+        const batch = paths.slice(index, index + PROVIDER_FILE_READ_CONCURRENCY);
+        files.push(
+            ...(await Promise.all(
+                batch.map(async (path) =>
+                    buildConnectorFile(
+                        row,
+                        context,
+                        commitSha,
+                        path,
+                        await context.client.readFile(repository, path, commitSha)
+                    )
+                )
+            ))
+        );
+    }
+    return files;
 }
 
 async function loadActiveBindingFiles(bindingId: string): Promise<ActiveBindingFile[]> {
