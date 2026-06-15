@@ -69,6 +69,8 @@ type InsertedRepositoryFiles = {
     processRunId: string;
 };
 
+const NO_RETRY = { maximumAttempts: 1 } as const;
+
 async function loadBindingGraph(bindingId: string): Promise<BindingGraphRow | null> {
     const [row] = await db
         .select({
@@ -459,82 +461,50 @@ async function markBindingSynced(bindingId: string, commitSha: string) {
         .where(eq(repositoryGraphBindingsTable.id, bindingId));
 }
 
-export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async ({ input, step }) => {
-    const row = await step.run({ name: "load-binding" }, async () => loadBindingGraph(input.bindingId));
-    if (
-        !row ||
-        row.connector.status !== "active" ||
-        row.installation.status !== "active" ||
-        !row.binding.webhookEnabled
-    ) {
-        return { skipped: true };
-    }
+async function markBindingFailed(bindingId: string) {
+    await db
+        .update(repositoryGraphBindingsTable)
+        .set({ syncStatus: "failed", syncErrorCode: "sync_failed" })
+        .where(eq(repositoryGraphBindingsTable.id, bindingId));
+}
 
-    const context = await step.run({ name: "create-provider-client" }, async () => createProviderClient(row));
-    const commitSha = await step.run({ name: "resolve-target-commit" }, async () =>
-        resolveTargetCommitSha(row, context.client, input.commitSha)
-    );
-
-    if (row.binding.lastSyncedCommitSha === commitSha) {
-        if (input.deliveryId) {
-            await step.run({ name: "mark-webhook-duplicate" }, async () =>
-                markWebhookDuplicate(row.connector.provider, input.deliveryId!)
-            );
-        }
-        return { skipped: true, commitSha };
-    }
-
-    if (!row.binding.lastSyncedCommitSha) {
-        const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
-            loadSnapshot(row, context.client, commitSha)
-        );
-        if (snapshot.files.length === 0) {
-            await step.run({ name: "mark-empty-binding-synced" }, async () =>
-                markBindingSynced(row.binding.id, commitSha)
-            );
-            return { commitSha, fileCount: 0 };
+export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async ({ input, step, run }) => {
+    try {
+        const row = await step.run({ name: "load-binding" }, async () => loadBindingGraph(input.bindingId));
+        if (
+            !row ||
+            row.connector.status !== "active" ||
+            row.installation.status !== "active" ||
+            !row.binding.webhookEnabled
+        ) {
+            return { skipped: true };
         }
 
-        const created = await step.run({ name: "commit-external-files" }, async () =>
-            insertRepositoryFiles(row, snapshot.files, commitSha)
+        const context = await step.run({ name: "create-provider-client" }, async () => createProviderClient(row));
+        const commitSha = await step.run({ name: "resolve-target-commit" }, async () =>
+            resolveTargetCommitSha(row, context.client, input.commitSha)
         );
-        try {
-            await step.runWorkflow(processFilesSpec, {
-                graphId: row.binding.graphId,
-                fileIds: created.fileIds,
-                processRunId: created.processRunId,
-                code: { kind: "repository", retiredFileIds: [] },
-            });
-        } catch (error) {
-            await Promise.all(
-                created.fileIds.map((fileId) =>
-                    step.runWorkflow(deleteFileSpec, {
-                        graphId: row.binding.graphId,
-                        fileId,
-                    })
-                )
-            );
-            throw error;
+
+        if (row.binding.lastSyncedCommitSha === commitSha) {
+            if (input.deliveryId) {
+                await step.run({ name: "mark-webhook-duplicate" }, async () =>
+                    markWebhookDuplicate(row.connector.provider, input.deliveryId!)
+                );
+            }
+            return { skipped: true, commitSha };
         }
 
-        await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
-        return { commitSha, fileCount: created.fileIds.length };
-    }
+        if (!row.binding.lastSyncedCommitSha) {
+            const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
+                loadSnapshot(row, context.client, commitSha)
+            );
+            if (snapshot.files.length === 0) {
+                await step.run({ name: "mark-empty-binding-synced" }, async () =>
+                    markBindingSynced(row.binding.id, commitSha)
+                );
+                return { commitSha, fileCount: 0 };
+            }
 
-    const activeFiles = await step.run({ name: "load-active-binding-files" }, async () =>
-        loadActiveBindingFiles(row.binding.id)
-    );
-    const delta = await step.run({ name: "compare-provider-commits" }, async () =>
-        context.client.compareRepository(repositoryFromBinding(row), row.binding.lastSyncedCommitSha!, commitSha)
-    );
-    if (!delta.isIncremental) {
-        const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
-            loadSnapshot(row, context.client, commitSha)
-        );
-        const retiredFileIds = [...activeFiles.values()].map((file) => file.id);
-        assertBindingSnapshotLimits(activeFiles, retiredFileIds, snapshot.files);
-
-        if (snapshot.files.length > 0) {
             const created = await step.run({ name: "commit-external-files" }, async () =>
                 insertRepositoryFiles(row, snapshot.files, commitSha)
             );
@@ -543,7 +513,7 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
                     graphId: row.binding.graphId,
                     fileIds: created.fileIds,
                     processRunId: created.processRunId,
-                    code: { kind: "repository", retiredFileIds },
+                    code: { kind: "repository", retiredFileIds: [] },
                 });
             } catch (error) {
                 await Promise.all(
@@ -561,71 +531,122 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
             return { commitSha, fileCount: created.fileIds.length };
         }
 
-        if (retiredFileIds.length > 0) {
-            await step.runWorkflow(processFilesSpec, {
-                graphId: row.binding.graphId,
-                fileIds: [],
-                code: { kind: "repository", retiredFileIds },
-            });
-        }
-        await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
-        return { commitSha, fileCount: 0 };
-    }
-    const plan = planIncrementalChanges(activeFiles, delta.changes);
-    if (plan.newPaths.length === 0 && plan.retiredFileIds.length === 0) {
-        await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
-        return { commitSha, fileCount: 0 };
-    }
+        const activeFiles = await step.run({ name: "load-active-binding-files" }, async () =>
+            loadActiveBindingFiles(row.binding.id)
+        );
+        const delta = await step.run({ name: "compare-provider-commits" }, async () =>
+            context.client.compareRepository(repositoryFromBinding(row), row.binding.lastSyncedCommitSha!, commitSha)
+        );
+        if (!delta.isIncremental) {
+            const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
+                loadSnapshot(row, context.client, commitSha)
+            );
+            const retiredFileIds = [...activeFiles.values()].map((file) => file.id);
+            assertBindingSnapshotLimits(activeFiles, retiredFileIds, snapshot.files);
 
-    const changedFiles =
-        plan.newPaths.length > 0
-            ? await step.run({ name: "load-changed-files" }, async () =>
-                  Promise.all(
-                      plan.newPaths.map(async (path) =>
-                          buildConnectorFile(
-                              row,
-                              context,
-                              commitSha,
-                              path,
-                              await context.client.readFile(repositoryFromBinding(row), path, commitSha)
+            if (snapshot.files.length > 0) {
+                const created = await step.run({ name: "commit-external-files" }, async () =>
+                    insertRepositoryFiles(row, snapshot.files, commitSha)
+                );
+                try {
+                    await step.runWorkflow(processFilesSpec, {
+                        graphId: row.binding.graphId,
+                        fileIds: created.fileIds,
+                        processRunId: created.processRunId,
+                        code: { kind: "repository", retiredFileIds },
+                    });
+                } catch (error) {
+                    await Promise.all(
+                        created.fileIds.map((fileId) =>
+                            step.runWorkflow(deleteFileSpec, {
+                                graphId: row.binding.graphId,
+                                fileId,
+                            })
+                        )
+                    );
+                    throw error;
+                }
+
+                await step.run({ name: "mark-binding-synced" }, async () =>
+                    markBindingSynced(row.binding.id, commitSha)
+                );
+                return { commitSha, fileCount: created.fileIds.length };
+            }
+
+            if (retiredFileIds.length > 0) {
+                await step.runWorkflow(processFilesSpec, {
+                    graphId: row.binding.graphId,
+                    fileIds: [],
+                    code: { kind: "repository", retiredFileIds },
+                });
+            }
+            await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
+            return { commitSha, fileCount: 0 };
+        }
+        const plan = planIncrementalChanges(activeFiles, delta.changes);
+        if (plan.newPaths.length === 0 && plan.retiredFileIds.length === 0) {
+            await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
+            return { commitSha, fileCount: 0 };
+        }
+
+        const changedFiles =
+            plan.newPaths.length > 0
+                ? await step.run({ name: "load-changed-files" }, async () =>
+                      Promise.all(
+                          plan.newPaths.map(async (path) =>
+                              buildConnectorFile(
+                                  row,
+                                  context,
+                                  commitSha,
+                                  path,
+                                  await context.client.readFile(repositoryFromBinding(row), path, commitSha)
+                              )
                           )
                       )
                   )
-              )
-            : [];
-    assertBindingSnapshotLimits(activeFiles, plan.retiredFileIds, changedFiles);
+                : [];
+        assertBindingSnapshotLimits(activeFiles, plan.retiredFileIds, changedFiles);
 
-    if (changedFiles.length > 0) {
-        const created = await step.run({ name: "commit-external-files" }, async () =>
-            insertRepositoryFiles(row, changedFiles, commitSha)
-        );
-        try {
-            await step.runWorkflow(processFilesSpec, {
-                graphId: row.binding.graphId,
-                fileIds: created.fileIds,
-                processRunId: created.processRunId,
-                code: { kind: "repository", retiredFileIds: plan.retiredFileIds },
-            });
-        } catch (error) {
-            await Promise.all(
-                created.fileIds.map((fileId) =>
-                    step.runWorkflow(deleteFileSpec, {
-                        graphId: row.binding.graphId,
-                        fileId,
-                    })
-                )
+        if (changedFiles.length > 0) {
+            const created = await step.run({ name: "commit-external-files" }, async () =>
+                insertRepositoryFiles(row, changedFiles, commitSha)
             );
-            throw error;
+            try {
+                await step.runWorkflow(processFilesSpec, {
+                    graphId: row.binding.graphId,
+                    fileIds: created.fileIds,
+                    processRunId: created.processRunId,
+                    code: { kind: "repository", retiredFileIds: plan.retiredFileIds },
+                });
+            } catch (error) {
+                await Promise.all(
+                    created.fileIds.map((fileId) =>
+                        step.runWorkflow(deleteFileSpec, {
+                            graphId: row.binding.graphId,
+                            fileId,
+                        })
+                    )
+                );
+                throw error;
+            }
+            await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
+            return { commitSha, fileCount: created.fileIds.length };
         }
-        await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
-        return { commitSha, fileCount: created.fileIds.length };
-    }
 
-    await step.runWorkflow(processFilesSpec, {
-        graphId: row.binding.graphId,
-        fileIds: [],
-        code: { kind: "repository", retiredFileIds: plan.retiredFileIds },
-    });
-    await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
-    return { commitSha, fileCount: 0 };
+        await step.runWorkflow(processFilesSpec, {
+            graphId: row.binding.graphId,
+            fileIds: [],
+            code: { kind: "repository", retiredFileIds: plan.retiredFileIds },
+        });
+        await step.run({ name: "mark-binding-synced" }, async () => markBindingSynced(row.binding.id, commitSha));
+        return { commitSha, fileCount: 0 };
+    } catch (error) {
+        if (run.retryTerminal) {
+            await step.run({ name: "mark-binding-failed", retryPolicy: NO_RETRY }, async () =>
+                markBindingFailed(input.bindingId)
+            );
+        }
+
+        throw error;
+    }
 });

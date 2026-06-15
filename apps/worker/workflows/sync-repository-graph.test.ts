@@ -449,6 +449,32 @@ describe("syncRepositoryGraph", () => {
         expect(deleteWorkflowInputs).toEqual([{ graphId: "graph-1", fileId: insertedFileValues[0]?.id }]);
     });
 
+    test("marks binding failed when terminal processing fails", async () => {
+        compareChanges = [{ status: "modified", newPath: "src/index.ts" }];
+        readFileContents = {
+            "src/index.ts": "export const next = shared;\n",
+        };
+        processFilesError = new Error("child failure");
+        selectResults = [
+            { kind: "limit", value: [bindingRow("commit-old")] },
+            {
+                kind: "where",
+                value: [
+                    activeFile("old-file", "commit-old", "src/index.ts", 25),
+                    activeFile("shared-file", "commit-old", "src/shared.ts", 22),
+                ],
+            },
+        ];
+
+        await expect(
+            runWorkflow({ bindingId: "binding-1", reason: "manual", commitSha: "commit-new" })
+        ).rejects.toThrow("child failure");
+        expect(bindingUpdates).toContainEqual({
+            syncStatus: "failed",
+            syncErrorCode: "sync_failed",
+        });
+    });
+
     test("rejects duplicate normalized paths from provider deltas", async () => {
         compareChanges = [
             { status: "modified", newPath: "src/index.ts" },
