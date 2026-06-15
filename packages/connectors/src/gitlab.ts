@@ -51,6 +51,9 @@ export function normalizeGitLabBaseUrl(value: string): string {
 export function createGitLabClient(options: GitLabClientOptions): ProviderRepositoryClient {
     return {
         provider: "gitlab",
+        async getRepository(repositoryId) {
+            return getGitLabProject(options, repositoryId);
+        },
         async listRepositories() {
             return listGitLabProjects(options);
         },
@@ -67,6 +70,19 @@ export function createGitLabClient(options: GitLabClientOptions): ProviderReposi
             return readGitLabRepositoryFile({ ...options, repository, path, commitSha });
         },
     };
+}
+
+export async function getGitLabProject(
+    options: GitLabClientOptions,
+    repositoryId: string
+): Promise<ProviderRepository> {
+    return mapGitLabProject(
+        await getGitLabJson(
+            `${gitLabApiBase(options.baseUrl)}/projects/${encodeURIComponent(repositoryId)}`,
+            options.accessToken,
+            options.fetch
+        )
+    );
 }
 
 export async function listGitLabProjects(options: GitLabClientOptions): Promise<ProviderRepository[]> {

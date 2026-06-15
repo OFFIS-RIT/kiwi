@@ -3,13 +3,8 @@ import {
     createGitHubClient,
     createGitHubInstallationToken,
     createGitLabClient,
-    decryptConnectorCredentials,
-    decryptConnectorSecret,
-    encryptConnectorCredentials,
-    encryptConnectorSecret,
     getGitHubInstallationAccount,
     type ConnectorProvider,
-    type ConnectorSecretPayload,
     type GitHubConnectorCredentials,
     type GitLabConnectorCredentials,
     type GitLabInstallationCredentials,
@@ -18,6 +13,13 @@ import {
     type ProviderRepository,
     type ProviderRepositoryClient,
 } from "@kiwi/connectors";
+import {
+    decryptConnectorCredentials,
+    decryptConnectorSecret,
+    encryptConnectorCredentials,
+    encryptConnectorSecret,
+    type ConnectorSecretPayload,
+} from "@kiwi/connectors/credentials";
 import type { connectorsTable, connectorInstallationsTable } from "@kiwi/db/tables/connectors";
 import { env } from "../env";
 
@@ -249,12 +251,6 @@ export async function listProviderBranches(
     repositoryId: string
 ): Promise<ProviderBranch[]> {
     const client = await createProviderClient(connector, installation);
-    const repositories = await client.listRepositories();
-    const repository = repositories.find(
-        (candidate) => candidate.id === repositoryId || candidate.fullName === repositoryId
-    );
-    if (!repository) {
-        throw new Error("Repository not found");
-    }
+    const repository = await client.getRepository(repositoryId);
     return client.listBranches(repository);
 }

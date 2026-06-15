@@ -184,8 +184,11 @@ mock.module("@kiwi/connectors", () => ({
     createGitLabClient: () => {
         throw new Error("GitLab client was not expected");
     },
-    decryptConnectorCredentials: () => ({ provider: "github", appId: "app-1", privateKeyPem: "pem" }),
     normalizeGitLabBaseUrl: (value: string) => value.replace(/\/+$/, ""),
+}));
+
+mock.module("@kiwi/connectors/credentials", () => ({
+    decryptConnectorCredentials: () => ({ provider: "github", appId: "app-1", privateKeyPem: "pem" }),
 }));
 
 mock.module("../env", () => ({
@@ -245,7 +248,10 @@ async function runWorkflow(input: { bindingId: string; reason: "manual" | "webho
     return syncRepositoryGraph.fn({
         input,
         step: {
-            run: async (_config: { name: string }, fn: () => unknown) => fn(),
+            run: async (_config: { name: string }, fn: () => unknown) => {
+                const result = await fn();
+                return result === undefined ? undefined : JSON.parse(JSON.stringify(result));
+            },
             runWorkflow: async (spec: { name: string }, workflowInput?: unknown) => {
                 if (spec.name === "process-files") {
                     processWorkflowInputs.push((workflowInput ?? {}) as Record<string, unknown>);

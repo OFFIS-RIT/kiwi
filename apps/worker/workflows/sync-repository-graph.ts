@@ -6,11 +6,9 @@ import {
     createGitHubClient,
     createGitHubInstallationToken,
     createGitLabClient,
-    decryptConnectorCredentials,
     normalizeGitLabBaseUrl,
 } from "@kiwi/connectors";
 import type {
-    ConnectorSecretPayload,
     GitHubConnectorCredentials,
     GitLabConnectorCredentials,
     GitLabInstallationCredentials,
@@ -20,6 +18,7 @@ import type {
     ProviderRepositoryClient,
     ProviderRepositorySnapshot,
 } from "@kiwi/connectors";
+import { decryptConnectorCredentials, type ConnectorSecretPayload } from "@kiwi/connectors/credentials";
 import { db } from "@kiwi/db";
 import {
     connectorInstallationsTable,
@@ -148,15 +147,12 @@ async function createProviderClient(row: BindingGraphRow): Promise<ProviderClien
     };
 }
 
-async function resolveTargetCommitSha(
-    row: BindingGraphRow,
-    client: ProviderRepositoryClient,
-    inputCommitSha?: string
-): Promise<string> {
+async function resolveTargetCommitSha(row: BindingGraphRow, inputCommitSha?: string): Promise<string> {
     if (inputCommitSha) {
         return inputCommitSha;
     }
 
+    const { client } = await createProviderClient(row);
     const branch = (await client.listBranches(repositoryFromBinding(row))).find(
         (candidate) => candidate.name === row.binding.branch
     );
@@ -167,11 +163,8 @@ async function resolveTargetCommitSha(
     return branch.commitSha;
 }
 
-async function loadSnapshot(
-    row: BindingGraphRow,
-    client: ProviderRepositoryClient,
-    commitSha: string
-): Promise<Snapshot> {
+async function loadSnapshot(row: BindingGraphRow, commitSha: string): Promise<Snapshot> {
+    const { client } = await createProviderClient(row);
     return client.loadRepositorySnapshot(
         repositoryFromBinding(row),
         row.binding.branch,
@@ -179,7 +172,28 @@ async function loadSnapshot(
     ) as Promise<Snapshot>;
 }
 
-async function loadActiveBindingFiles(bindingId: string): Promise<Map<string, ActiveBindingFile>> {
+async function compareProviderCommits(row: BindingGraphRow, fromCommitSha: string, toCommitSha: string) {
+    const { client } = await createProviderClient(row);
+    return client.compareRepository(repositoryFromBinding(row), fromCommitSha, toCommitSha);
+}
+
+async function loadChangedFiles(row: BindingGraphRow, commitSha: string, paths: string[]): Promise<ProviderCodeFile[]> {
+    const context = await createProviderClient(row);
+    const repository = repositoryFromBinding(row);
+    return Promise.all(
+        paths.map(async (path) =>
+            buildConnectorFile(
+                row,
+                context,
+                commitSha,
+                path,
+                await context.client.readFile(repository, path, commitSha)
+            )
+        )
+    );
+}
+
+async function loadActiveBindingFiles(bindingId: string): Promise<ActiveBindingFile[]> {
     const rows = await db
         .select({
             id: filesTable.id,
@@ -211,7 +225,11 @@ async function loadActiveBindingFiles(bindingId: string): Promise<Map<string, Ac
         });
     }
 
-    return filesByPath;
+    return [...filesByPath.values()];
+}
+
+function activeFilesByPath(files: ActiveBindingFile[]): Map<string, ActiveBindingFile> {
+    return new Map(files.map((file) => [file.path, file]));
 }
 
 function planIncrementalChanges(
@@ -481,9 +499,8 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
             return { skipped: true };
         }
 
-        const context = await step.run({ name: "create-provider-client" }, async () => createProviderClient(row));
         const commitSha = await step.run({ name: "resolve-target-commit" }, async () =>
-            resolveTargetCommitSha(row, context.client, input.commitSha)
+            resolveTargetCommitSha(row, input.commitSha)
         );
 
         if (row.binding.lastSyncedCommitSha === commitSha) {
@@ -497,7 +514,7 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
 
         if (!row.binding.lastSyncedCommitSha) {
             const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
-                loadSnapshot(row, context.client, commitSha)
+                loadSnapshot(row, commitSha)
             );
             if (snapshot.files.length === 0) {
                 await step.run({ name: "mark-empty-binding-synced" }, async () =>
@@ -532,15 +549,16 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
             return { commitSha, fileCount: created.fileIds.length };
         }
 
-        const activeFiles = await step.run({ name: "load-active-binding-files" }, async () =>
+        const activeFileRows = await step.run({ name: "load-active-binding-files" }, async () =>
             loadActiveBindingFiles(row.binding.id)
         );
+        const activeFiles = activeFilesByPath(activeFileRows);
         const delta = await step.run({ name: "compare-provider-commits" }, async () =>
-            context.client.compareRepository(repositoryFromBinding(row), row.binding.lastSyncedCommitSha!, commitSha)
+            compareProviderCommits(row, row.binding.lastSyncedCommitSha!, commitSha)
         );
         if (!delta.isIncremental) {
             const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
-                loadSnapshot(row, context.client, commitSha)
+                loadSnapshot(row, commitSha)
             );
             const retiredFileIds = [...activeFiles.values()].map((file) => file.id);
             assertBindingSnapshotLimits(activeFiles, retiredFileIds, snapshot.files);
@@ -593,17 +611,7 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
         const changedFiles =
             plan.newPaths.length > 0
                 ? await step.run({ name: "load-changed-files" }, async () =>
-                      Promise.all(
-                          plan.newPaths.map(async (path) =>
-                              buildConnectorFile(
-                                  row,
-                                  context,
-                                  commitSha,
-                                  path,
-                                  await context.client.readFile(repositoryFromBinding(row), path, commitSha)
-                              )
-                          )
-                      )
+                      loadChangedFiles(row, commitSha, plan.newPaths)
                   )
                 : [];
         assertBindingSnapshotLimits(activeFiles, plan.retiredFileIds, changedFiles);

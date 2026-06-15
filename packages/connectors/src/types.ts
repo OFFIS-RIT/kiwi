@@ -105,6 +105,7 @@ export type NormalizedWebhookEvent = {
 
 export type ProviderRepositoryClient = {
     readonly provider: ConnectorProvider;
+    getRepository(repositoryId: string): Promise<ProviderRepository>;
     listRepositories(): Promise<ProviderRepository[]>;
     listBranches(repository: ProviderRepository): Promise<ProviderBranch[]>;
     loadRepositorySnapshot(

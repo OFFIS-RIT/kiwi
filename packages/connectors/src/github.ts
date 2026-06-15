@@ -131,6 +131,9 @@ export async function getGitHubInstallationAccount(
 export function createGitHubClient(options: GitHubClientOptions): ProviderRepositoryClient {
     return {
         provider: "github",
+        async getRepository(repositoryId) {
+            return getGitHubRepository(options, repositoryId);
+        },
         async listRepositories() {
             return listGitHubInstallationRepositories(options);
         },
@@ -147,6 +150,17 @@ export function createGitHubClient(options: GitHubClientOptions): ProviderReposi
             return readGitHubRepositoryFile({ ...options, repository, path, commitSha });
         },
     };
+}
+
+export async function getGitHubRepository(
+    options: GitHubClientOptions,
+    repositoryId: string
+): Promise<ProviderRepository> {
+    const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
+    const path = repositoryId.includes("/")
+        ? `/repos/${encodePathSegments(repositoryId)}`
+        : `/repositories/${encodeURIComponent(repositoryId)}`;
+    return mapGitHubRepository(await getGitHubJson(`${apiBaseUrl}${path}`, options.installationToken, options.fetch));
 }
 
 export async function listGitHubInstallationRepositories(options: GitHubClientOptions): Promise<ProviderRepository[]> {
