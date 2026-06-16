@@ -5,7 +5,7 @@ let bindingRow: unknown = null;
 let metadataCalls = 0;
 let streamCalls = 0;
 let selectCallCount = 0;
-const providerReadCalls: Array<{ path: string; commitSha: string }> = [];
+const providerReadCalls: Array<{ resourceId: string; path: string; versionId?: string; etag?: string }> = [];
 
 function createSelectQuery() {
     const chain = {
@@ -45,15 +45,15 @@ mock.module("@kiwi/files", () => ({
 
 mock.module("../connectors", () => ({
     createProviderClient: async () => ({
-        readFile: async (_repository: unknown, path: string, commitSha: string) => {
-            providerReadCalls.push({ path, commitSha });
+        readFile: async (locator: { resourceId: string; path: string; versionId?: string; etag?: string }) => {
+            providerReadCalls.push(locator);
             return "export const older = true;\n";
         },
     }),
 }));
 
-// Dynamic import is required so module mocks are installed before graph-file-proxy is evaluated.
-const { getGraphFileProxyResponse } = await import("../graph-file-proxy");
+// Dynamic import is required so module mocks are installed before the graph file proxy module is evaluated.
+const { getGraphFileProxyResponse } = await import("../graph/file-proxy");
 
 describe("graph file proxy", () => {
     beforeEach(() => {
@@ -69,7 +69,7 @@ describe("graph file proxy", () => {
             storageKind: "internal",
             externalProvider: null,
             externalUrl: null,
-            repositoryBindingId: null,
+            connectorBindingId: null,
             metadata: null,
         };
     });
@@ -98,17 +98,19 @@ describe("graph file proxy", () => {
             storageKind: "external",
             externalProvider: "github",
             externalUrl: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
-            repositoryBindingId: null,
+            connectorBindingId: null,
             metadata: JSON.stringify({
-                repositoryUrl: "https://github.com/acme/widgets.git",
-                repositoryName: "widgets",
-                commitSha: "commit-1",
+                schemaVersion: 2,
+                provider: "github",
+                bindingId: "binding-1",
+                resourceKind: "git-repository",
+                providerResourceId: "1",
+                resourceDisplayName: "acme/widgets",
                 path: "src/index.ts",
-                external: {
-                    provider: "github",
-                    rawUrl: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
-                    htmlUrl: "https://github.com/acme/widgets/blob/commit-1/src/index.ts",
-                },
+                displayName: "index.ts",
+                versionId: "commit-1",
+                rawUrl: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
+                webUrl: "https://github.com/acme/widgets/blob/commit-1/src/index.ts",
             }),
         };
 
@@ -131,7 +133,7 @@ describe("graph file proxy", () => {
         }
     });
 
-    test("reads connector-backed files at the row commit without S3 access", async () => {
+    test("reads connector-backed files at the metadata version without S3 access", async () => {
         selectedFile = {
             key: "connector:binding-1:commit-2:src/index.ts",
             name: "widgets/src/index.ts",
@@ -139,20 +141,27 @@ describe("graph file proxy", () => {
             storageKind: "external",
             externalProvider: "github",
             externalUrl: "https://raw.githubusercontent.com/acme/widgets/commit-2/src/index.ts",
-            repositoryBindingId: "binding-1",
+            connectorBindingId: "binding-1",
             metadata: JSON.stringify({
-                repositoryUrl: "https://github.com/acme/widgets.git",
-                repositoryName: "widgets",
-                commitSha: "commit-1",
+                schemaVersion: 2,
+                provider: "github",
+                bindingId: "binding-1",
+                resourceKind: "git-repository",
+                providerResourceId: "1",
+                resourceDisplayName: "acme/widgets",
                 path: "src/index.ts",
+                displayName: "index.ts",
+                versionId: "commit-1",
+                rawUrl: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
+                webUrl: "https://github.com/acme/widgets/blob/commit-1/src/index.ts",
             }),
         };
         bindingRow = {
             binding: {
-                providerRepositoryId: "1",
-                repositoryFullName: "acme/widgets",
-                repositoryHtmlUrl: "https://github.com/acme/widgets",
-                branch: "main",
+                providerResourceId: "1",
+                resourceDisplayName: "acme/widgets",
+                resourceWebUrl: "https://github.com/acme/widgets",
+                versionName: "main",
             },
             installation: { status: "active" },
             connector: { provider: "github", status: "active" },
@@ -168,7 +177,7 @@ describe("graph file proxy", () => {
         expect(result.status).toBe("ok");
         expect(metadataCalls).toBe(0);
         expect(streamCalls).toBe(0);
-        expect(providerReadCalls).toEqual([{ path: "src/index.ts", commitSha: "commit-1" }]);
+        expect(providerReadCalls).toEqual([{ resourceId: "1", path: "src/index.ts", versionId: "commit-1" }]);
         if (result.status === "ok") {
             expect(result.response.status).toBe(200);
             await expect(result.response.text()).resolves.toBe("export const older = true;\n");

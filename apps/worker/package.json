@@ -19,11 +19,13 @@
         "@kiwi/db": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",
+        "@kiwi/loaders": "workspace:*",
         "@kiwi/logger": "workspace:*",
         "@openworkflow/cli": "^0.4.4",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "drizzle-orm": "catalog:",
+        "effect": "catalog:",
         "openworkflow": "catalog:",
         "postgres": "catalog:",
         "zod": "catalog:"

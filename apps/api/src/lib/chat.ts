@@ -62,9 +62,9 @@ import {
 } from "./chat-target";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { AuthUser } from "../middleware/auth";
-import { resolveGraphOwnerRoot, type RootOwner } from "./graph-access";
+import { resolveGraphOwnerRoot, type RootOwner } from "./graph/access";
 import { MAX_PROMPTS_PER_SCOPE } from "./prompt-limits";
-import { getActiveOrganizationId, requireOrganizationMembership } from "./team-access";
+import { getActiveOrganizationId, requireOrganizationMembership } from "./team/access";
 
 type RouteStatus = (code: number, body: unknown) => unknown;
 

@@ -1,4 +1,4 @@
-import { stripPageFences } from "@kiwi/graph/lib/page-fence";
+import { stripPageFences } from "@kiwi/loaders/lib/page-fence";
 
 export function requireReadableContentText(text: string): string {
     const contentText = stripPageFences(text);

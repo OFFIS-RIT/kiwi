@@ -14,6 +14,27 @@ const branchRepositoryCalls: TestRepository[] = [];
 let listRepositoriesCalls = 0;
 
 mock.module("@kiwi/connectors", () => ({
+    createConnectorAdapter: () => ({
+        provider: "github",
+        resourceKind: "git-repository",
+        getRepository: async (repositoryId: string) => ({
+            provider: "github",
+            id: "1",
+            fullName: repositoryId,
+            name: "app",
+            htmlUrl: `https://github.com/${repositoryId}`,
+            defaultBranch: "main",
+            private: true,
+        }),
+        listRepositories: async () => {
+            listRepositoriesCalls += 1;
+            return [];
+        },
+        listBranches: async (repository: TestRepository) => {
+            branchRepositoryCalls.push(repository);
+            return [{ name: "main", commitSha: "commit-sha" }];
+        },
+    }),
     createGitHubClient: () => ({
         provider: "github",
         getRepository: async (repositoryId: string) => ({

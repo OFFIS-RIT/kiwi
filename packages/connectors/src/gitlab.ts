@@ -1,5 +1,7 @@
+import { createGitRepositoryAdapter, readConnectorWebhookHeader } from "./adapters";
 import { isSupportedCodePath } from "./code-files";
 import type {
+    GitResourceAdapter,
     FetchLike,
     NormalizedWebhookEvent,
     ProviderBranch,
@@ -48,8 +50,8 @@ export function normalizeGitLabBaseUrl(value: string): string {
     return parsed.toString().replace(/\/+$/, "");
 }
 
-export function createGitLabClient(options: GitLabClientOptions): ProviderRepositoryClient {
-    return {
+export function createGitLabClient(options: GitLabClientOptions): GitResourceAdapter {
+    const client: ProviderRepositoryClient = {
         provider: "gitlab",
         async getRepository(repositoryId) {
             return getGitLabProject(options, repositoryId);
@@ -70,6 +72,19 @@ export function createGitLabClient(options: GitLabClientOptions): ProviderReposi
             return readGitLabRepositoryFile({ ...options, repository, path, commitSha });
         },
     };
+
+    return createGitRepositoryAdapter({
+        client,
+        verifyWebhook(webhook) {
+            return verifyGitLabWebhookToken({
+                webhookSecret: webhook.webhookSecret,
+                tokenHeader: readConnectorWebhookHeader(webhook.headers, "x-gitlab-token"),
+            });
+        },
+        normalizeWebhook(webhook) {
+            return normalizeGitLabWebhookEvent(webhook);
+        },
+    });
 }
 
 export async function getGitLabProject(
@@ -285,16 +300,26 @@ export function normalizeGitLabWebhookEvent(options: {
 }): NormalizedWebhookEvent {
     const payload = isObject(options.payload) ? options.payload : {};
     const project = isObject(payload.project) ? payload.project : null;
+    const resourceId =
+        project && (typeof project.id === "string" || typeof project.id === "number") ? String(project.id) : null;
+    const resourceDisplayName =
+        project && typeof project.path_with_namespace === "string" ? project.path_with_namespace : null;
+    const versionName = branchNameFromGitRef(payload.ref);
+    const versionId = typeof payload.after === "string" ? payload.after : null;
     return {
         provider: "gitlab",
         deliveryId: options.deliveryId,
         eventName: options.eventName,
-        repositoryId:
-            project && (typeof project.id === "string" || typeof project.id === "number") ? String(project.id) : null,
-        repositoryFullName:
-            project && typeof project.path_with_namespace === "string" ? project.path_with_namespace : null,
-        branch: branchNameFromGitRef(payload.ref),
-        commitSha: typeof payload.after === "string" ? payload.after : null,
+        resourceKind: "git-repository",
+        resourceId,
+        resourceDisplayName,
+        resourceName: resourceDisplayName,
+        versionName,
+        versionId,
+        repositoryId: resourceId,
+        repositoryFullName: resourceDisplayName,
+        branch: versionName,
+        commitSha: versionId,
         raw: options.payload,
     };
 }

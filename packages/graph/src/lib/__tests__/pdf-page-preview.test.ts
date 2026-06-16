@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderPDFPagePreviews } from "../pdf-page-preview";
-import type { PDFDocumentLike, PDFPageLike } from "../../loader/pdf/types";
+import type { PDFDocumentLike, PDFPageLike } from "@kiwi/loaders/loader/pdf/types";
 
 function pdfWithPages(pages: Array<Pick<PDFPageLike, "index" | "width" | "height">>): PDFDocumentLike {
     return {

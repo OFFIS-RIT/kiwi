@@ -7,7 +7,7 @@ import { alias, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { AuthUser } from "../middleware/auth";
 import type { ChatLibraryItem, ChatLibrarySuccessData, SearchChatItem, SearchSuccessData } from "../types/routes";
-import { requireOrganizationMembership } from "./team-access";
+import { requireOrganizationMembership } from "./team/access";
 
 const SEARCH_LIMIT = 8;
 const chatGraphTeamTable = alias(teamTable, "chat_graph_team");

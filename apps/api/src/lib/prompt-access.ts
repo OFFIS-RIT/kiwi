@@ -5,8 +5,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { AuthUser } from "../middleware/auth";
 import { API_ERROR_CODES } from "../types";
-import { getGraphById, resolveGraphOwnerRoot, type GraphRecord } from "./graph-access";
-import { getOrganizationMembership, getTeamRole } from "./team-access";
+import { getGraphById, resolveGraphOwnerRoot, type GraphRecord } from "./graph/access";
+import { getOrganizationMembership, getTeamRole } from "./team/access";
 
 const targetMemberTable = alias(memberTable, "target_member");
 const ADMIN_ROLE_PATTERN = "(^|,)[[:space:]]*admin[[:space:]]*(,|$)";

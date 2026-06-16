@@ -2,7 +2,7 @@ import { db } from "@kiwi/db";
 import { currentSourcePredicate, currentSourceSql } from "@kiwi/db/source-validity";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import { parseCodeFileMetadata } from "./code-file-metadata";
+import { codeRepositoryFileFieldsFromMetadata, parseCodeFileMetadata } from "./code-file-metadata";
 import { textArray } from "./sql";
 
 export type RepositoryFileMetadataRow = {
@@ -27,9 +27,12 @@ export function resolveRepositoryFinalizationTargets(
     const latestFileIds = new Set(latestRows.map((row) => row.id));
     const repositoryUrls = [
         ...new Set(
-            latestRows
-                .map((row) => parseCodeFileMetadata(row.metadata)?.repositoryUrl)
-                .filter((url): url is string => url !== undefined)
+            latestRows.flatMap((row) => {
+                const metadata = parseCodeFileMetadata(row.metadata);
+                return metadata
+                    ? [codeRepositoryFileFieldsFromMetadata(metadata, { graphId: "", name: "" }).repositoryUrl]
+                    : [];
+            })
         ),
     ];
     if (repositoryUrls.length === 0) {
@@ -41,7 +44,10 @@ export function resolveRepositoryFinalizationTargets(
         .filter((row) => !latestFileIds.has(row.id))
         .filter((row) => {
             const metadata = parseCodeFileMetadata(row.metadata);
-            return metadata !== null && repositoryUrlSet.has(metadata.repositoryUrl);
+            return (
+                metadata !== null &&
+                repositoryUrlSet.has(codeRepositoryFileFieldsFromMetadata(metadata, { graphId: "", name: "" }).repositoryUrl)
+            );
         })
         .map((row) => row.id);
 

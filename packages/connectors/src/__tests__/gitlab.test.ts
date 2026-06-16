@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-    createGitLabClient,
-    loadGitLabRepositorySnapshot,
-    normalizeGitLabBaseUrl,
-    normalizeGitLabWebhookEvent,
-    verifyGitLabWebhookToken,
-} from "../gitlab";
-import type { FetchLike, ProviderRepository } from "../types";
+import { createGitLabClient, loadGitLabRepositorySnapshot, normalizeGitLabBaseUrl } from "../gitlab";
+import type { ConnectorResource, FetchLike, ProviderRepository } from "../types";
 
 const GITLAB_REPOSITORY: ProviderRepository = {
     provider: "gitlab",
@@ -18,6 +12,16 @@ const GITLAB_REPOSITORY: ProviderRepository = {
     private: true,
 };
 
+const GITLAB_RESOURCE: ConnectorResource = {
+    provider: "gitlab",
+    kind: "git-repository",
+    id: "7",
+    displayName: "acme/app",
+    webUrl: "https://gitlab.test/acme/app",
+    private: true,
+    defaultBranch: "main",
+};
+
 describe("GitLab connector", () => {
     test("normalizes base URLs", () => {
         expect(normalizeGitLabBaseUrl("https://gitlab.example.com///")).toBe("https://gitlab.example.com");
@@ -27,7 +31,7 @@ describe("GitLab connector", () => {
         );
     });
 
-    test("lists projects and branches", async () => {
+    test("lists projects and resource versions", async () => {
         const urls: string[] = [];
         const fetchImpl: FetchLike = async (input) => {
             const url = String(input);
@@ -44,15 +48,27 @@ describe("GitLab connector", () => {
                     },
                 ]);
             }
+            if (url.endsWith("/projects/7")) {
+                return jsonResponse({
+                    id: 7,
+                    path_with_namespace: "acme/app",
+                    name: "app",
+                    web_url: "https://gitlab.test/acme/app",
+                    default_branch: "main",
+                    visibility: "private",
+                });
+            }
             return jsonResponse([{ name: "main", commit: { id: "commit-sha" } }]);
         };
         const client = createGitLabClient({ baseUrl: "https://gitlab.test", accessToken: "token", fetch: fetchImpl });
 
         await expect(client.listRepositories()).resolves.toEqual([GITLAB_REPOSITORY]);
-        await expect(client.listBranches(GITLAB_REPOSITORY)).resolves.toEqual([
-            { name: "main", commitSha: "commit-sha" },
+        await expect(client.listResources()).resolves.toEqual([GITLAB_RESOURCE]);
+        await expect(client.listResourceVersions("7")).resolves.toEqual([
+            { resourceId: "7", name: "main", versionId: "commit-sha" },
         ]);
         expect(urls).toContain("https://gitlab.test/api/v4/projects?membership=true&per_page=100&page=1");
+        expect(urls).toContain("https://gitlab.test/api/v4/projects/7");
         expect(urls).toContain("https://gitlab.test/api/v4/projects/7/repository/branches?per_page=100&page=1");
     });
 
@@ -122,7 +138,19 @@ describe("GitLab connector", () => {
             baseUrl: "https://gitlab.test",
             accessToken: "token",
             fetch: async (input) => {
-                expect(String(input)).toBe(
+                const url = String(input);
+                if (url.endsWith("/projects/7")) {
+                    return jsonResponse({
+                        id: 7,
+                        path_with_namespace: "acme/app",
+                        name: "app",
+                        web_url: "https://gitlab.test/acme/app",
+                        default_branch: "main",
+                        visibility: "private",
+                    });
+                }
+
+                expect(url).toBe(
                     "https://gitlab.test/api/v4/projects/7/repository/compare?from=commit-old&to=commit-new&straight=true"
                 );
                 return jsonResponse({
@@ -175,9 +203,9 @@ describe("GitLab connector", () => {
             },
         });
 
-        await expect(client.compareRepository(GITLAB_REPOSITORY, "commit-old", "commit-new")).resolves.toEqual({
-            fromCommitSha: "commit-old",
-            toCommitSha: "commit-new",
+        await expect(client.compareVersions("7", "commit-old", "commit-new")).resolves.toEqual({
+            fromVersionId: "commit-old",
+            toVersionId: "commit-new",
             isIncremental: true,
             changes: [
                 { status: "modified", newPath: "src/modified.ts" },
@@ -220,11 +248,25 @@ describe("GitLab connector", () => {
         );
     });
 
-    test("verifies webhook tokens and normalizes push events", () => {
-        expect(verifyGitLabWebhookToken({ webhookSecret: "secret", tokenHeader: "secret" })).toBe(true);
-        expect(verifyGitLabWebhookToken({ webhookSecret: "secret", tokenHeader: "wrong" })).toBe(false);
+    test("verifies webhook tokens and normalizes push events through the adapter", () => {
+        const client = createGitLabClient({ baseUrl: "https://gitlab.test", accessToken: "token" });
+
         expect(
-            normalizeGitLabWebhookEvent({
+            client.verifyWebhook?.({
+                headers: { "x-gitlab-token": "secret" },
+                body: "",
+                webhookSecret: "secret",
+            })
+        ).toBe(true);
+        expect(
+            client.verifyWebhook?.({
+                headers: { "x-gitlab-token": "wrong" },
+                body: "",
+                webhookSecret: "secret",
+            })
+        ).toBe(false);
+        expect(
+            client.normalizeWebhook?.({
                 eventName: "push",
                 deliveryId: "delivery",
                 payload: {

@@ -7,7 +7,7 @@ import {
     refreshTeamReplyContext,
     startTeamReply,
 } from "../lib/team-chat";
-import { requireTeamAccess } from "../lib/team-access";
+import { requireTeamAccess } from "../lib/team/access";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import { createChatTargetRoute } from "./chat-target-route";
 

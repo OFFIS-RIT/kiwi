@@ -1,12 +1,12 @@
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
-import { assertCanManageGraphSuggestions } from "../lib/graph-access";
+import { assertCanManageGraphSuggestions } from "../lib/graph/access";
 import {
     applyGraphSuggestion,
     deletePendingGraphSuggestion,
     listPendingGraphSuggestions,
 } from "../lib/graph-suggestions";
-import { mapGraphError } from "../lib/graph-route";
+import { mapGraphError } from "../lib/graph/route";
 import { authMiddleware } from "../middleware/auth";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
 

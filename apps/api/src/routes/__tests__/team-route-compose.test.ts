@@ -36,7 +36,7 @@ mock.module("../../lib/graph", () => ({
     collectGraphClosure: async () => [],
 }));
 
-mock.module("../../lib/team-access", () => ({
+mock.module("../../lib/team/access", () => ({
     getActiveOrganizationId: async () => "org-1",
     getOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
     getTeamInActiveOrganization: async (_user: unknown, teamId: string) => ({

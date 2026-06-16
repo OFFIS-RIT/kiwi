@@ -6,10 +6,8 @@ import {
     createGitHubInstallationToken,
     getGitHubInstallationAccount,
     loadGitHubRepositorySnapshot,
-    normalizeGitHubWebhookEvent,
-    verifyGitHubWebhookSignature,
 } from "../github";
-import type { FetchLike, ProviderRepository } from "../types";
+import type { ConnectorResource, FetchLike, ProviderRepository } from "../types";
 
 const GITHUB_REPOSITORY: ProviderRepository = {
     provider: "github",
@@ -19,6 +17,16 @@ const GITHUB_REPOSITORY: ProviderRepository = {
     htmlUrl: "https://github.com/acme/app",
     defaultBranch: "main",
     private: true,
+};
+
+const GITHUB_RESOURCE: ConnectorResource = {
+    provider: "github",
+    kind: "git-repository",
+    id: "1",
+    displayName: "acme/app",
+    webUrl: "https://github.com/acme/app",
+    private: true,
+    defaultBranch: "main",
 };
 
 describe("GitHub connector", () => {
@@ -76,11 +84,12 @@ describe("GitHub connector", () => {
         expect(calls).toEqual(["https://github.test/app/installations/99"]);
     });
 
-    test("lists repositories and branches with pagination", async () => {
+    test("lists repositories and resource versions with pagination", async () => {
         const urls: string[] = [];
         const fetchImpl: FetchLike = async (input) => {
-            urls.push(String(input));
-            if (String(input).includes("/installation/repositories")) {
+            const url = String(input);
+            urls.push(url);
+            if (url.includes("/installation/repositories")) {
                 return jsonResponse({
                     repositories: [
                         {
@@ -94,6 +103,16 @@ describe("GitHub connector", () => {
                     ],
                 });
             }
+            if (url.endsWith("/repositories/1")) {
+                return jsonResponse({
+                    id: 1,
+                    full_name: "acme/app",
+                    name: "app",
+                    html_url: "https://github.com/acme/app",
+                    default_branch: "main",
+                    private: true,
+                });
+            }
             return jsonResponse([{ name: "main", commit: { sha: "commit-sha" } }]);
         };
         const client = createGitHubClient({
@@ -103,10 +122,12 @@ describe("GitHub connector", () => {
         });
 
         await expect(client.listRepositories()).resolves.toEqual([GITHUB_REPOSITORY]);
-        await expect(client.listBranches(GITHUB_REPOSITORY)).resolves.toEqual([
-            { name: "main", commitSha: "commit-sha" },
+        await expect(client.listResources()).resolves.toEqual([GITHUB_RESOURCE]);
+        await expect(client.listResourceVersions("1")).resolves.toEqual([
+            { resourceId: "1", name: "main", versionId: "commit-sha" },
         ]);
         expect(urls).toContain("https://github.test/installation/repositories?per_page=100&page=1");
+        expect(urls).toContain("https://github.test/repositories/1");
         expect(urls).toContain("https://github.test/repos/acme/app/branches?per_page=100&page=1");
     });
 
@@ -194,7 +215,19 @@ describe("GitHub connector", () => {
             installationToken: "token",
             apiBaseUrl: "https://github.test",
             fetch: async (input) => {
-                expect(String(input)).toBe("https://github.test/repos/acme/app/compare/commit-old...commit-new");
+                const url = String(input);
+                if (url.endsWith("/repositories/1")) {
+                    return jsonResponse({
+                        id: 1,
+                        full_name: "acme/app",
+                        name: "app",
+                        html_url: "https://github.com/acme/app",
+                        default_branch: "main",
+                        private: true,
+                    });
+                }
+
+                expect(url).toBe("https://github.test/repos/acme/app/compare/commit-old...commit-new");
                 return jsonResponse({
                     status: "ahead",
                     files: [
@@ -209,9 +242,9 @@ describe("GitHub connector", () => {
             },
         });
 
-        await expect(client.compareRepository(GITHUB_REPOSITORY, "commit-old", "commit-new")).resolves.toEqual({
-            fromCommitSha: "commit-old",
-            toCommitSha: "commit-new",
+        await expect(client.compareVersions("1", "commit-old", "commit-new")).resolves.toEqual({
+            fromVersionId: "commit-old",
+            toVersionId: "commit-new",
             isIncremental: true,
             changes: [
                 { status: "modified", newPath: "src/modified.ts" },
@@ -238,16 +271,27 @@ describe("GitHub connector", () => {
         });
     });
 
-    test("verifies webhooks and normalizes push events", () => {
+    test("verifies webhooks and normalizes push events through the adapter", () => {
+        const client = createGitHubClient({ installationToken: "token" });
         const body = JSON.stringify({ ref: "refs/heads/main" });
         const signature = `sha256=${createHmac("sha256", "secret").update(body).digest("hex")}`;
 
-        expect(verifyGitHubWebhookSignature({ body, webhookSecret: "secret", signatureHeader: signature })).toBe(true);
-        expect(verifyGitHubWebhookSignature({ body, webhookSecret: "secret", signatureHeader: "sha256=bad" })).toBe(
-            false
-        );
         expect(
-            normalizeGitHubWebhookEvent({
+            client.verifyWebhook?.({
+                body,
+                headers: { "x-hub-signature-256": signature },
+                webhookSecret: "secret",
+            })
+        ).toBe(true);
+        expect(
+            client.verifyWebhook?.({
+                body,
+                headers: { "x-hub-signature-256": "sha256=bad" },
+                webhookSecret: "secret",
+            })
+        ).toBe(false);
+        expect(
+            client.normalizeWebhook?.({
                 eventName: "push",
                 deliveryId: "delivery",
                 payload: {

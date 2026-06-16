@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { getOrRenderPDFPreviewPage } from "../pdf-preview-cache";
 
 const options = {
@@ -12,11 +13,11 @@ const options = {
 describe("getOrRenderPDFPreviewPage", () => {
     test("returns cached PNG bytes without rendering", async () => {
         const renderPDFPagePreviews = mock(async () => new Map<number, Uint8Array>());
-        const putNamedFile = mock(async () => ({ key: "unused", type: "image/png" }));
+        const putNamedFile = mock(() => Effect.succeed({ key: "unused", type: "image/png" }));
 
         const result = await getOrRenderPDFPreviewPage(options, {
-            getFile: async (key) =>
-                key.endsWith("/page-3.png") ? { type: "bytes", content: new Uint8Array([1]).buffer } : null,
+            getFile: (key) =>
+                Effect.succeed(key.endsWith("/page-3.png") ? { type: "bytes" as const, content: new Uint8Array([1]).buffer } : null),
             putNamedFile,
             renderPDFPagePreviews,
         });
@@ -27,7 +28,7 @@ describe("getOrRenderPDFPreviewPage", () => {
     });
 
     test("renders and stores PNG bytes on cache miss", async () => {
-        const putNamedFile = mock(async () => ({ key: "saved", type: "image/png" }));
+        const putNamedFile = mock(() => Effect.succeed({ key: "saved", type: "image/png" }));
         const renderPDFPagePreviews = mock(
             async () =>
                 new Map([
@@ -37,8 +38,8 @@ describe("getOrRenderPDFPreviewPage", () => {
         );
 
         const result = await getOrRenderPDFPreviewPage(options, {
-            getFile: async (key) =>
-                key === options.fileKey ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+            getFile: (key) =>
+                Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null),
             putNamedFile,
             renderPDFPagePreviews,
         });
@@ -55,9 +56,9 @@ describe("getOrRenderPDFPreviewPage", () => {
     });
 
     test("deduplicates concurrent renders for the same preview page", async () => {
-        const putNamedFile = mock(async () => ({ key: "saved", type: "image/png" }));
-        const getFile = mock(async (key: string) =>
-            key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null
+        const putNamedFile = mock(() => Effect.succeed({ key: "saved", type: "image/png" }));
+        const getFile = mock((key: string) =>
+            Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null)
         );
         const renderPDFPagePreviews = mock(async () => {
             await new Promise((resolve) => setTimeout(resolve, 10));
@@ -80,9 +81,9 @@ describe("getOrRenderPDFPreviewPage", () => {
         const renderGate = new Promise<void>((resolve) => {
             releaseRender = resolve;
         });
-        const putNamedFile = mock(async () => ({ key: "saved", type: "image/png" }));
-        const getFile = mock(async (key: string) =>
-            key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null
+        const putNamedFile = mock(() => Effect.succeed({ key: "saved", type: "image/png" }));
+        const getFile = mock((key: string) =>
+            Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null)
         );
         const renderPDFPagePreviews = mock(async () => {
             await renderGate;
@@ -106,14 +107,12 @@ describe("getOrRenderPDFPreviewPage", () => {
     });
 
     test("returns rendered image when cache writes fail", async () => {
-        const putNamedFile = mock(async () => {
-            throw new Error("Storage unavailable");
-        });
+        const putNamedFile = mock(() => Effect.fail(new Error("Storage unavailable")));
         const renderPDFPagePreviews = mock(async () => new Map([[3, new Uint8Array([3])]]));
 
         const result = await getOrRenderPDFPreviewPage(options, {
-            getFile: async (key) =>
-                key === options.fileKey ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+            getFile: (key) =>
+                Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null),
             putNamedFile,
             renderPDFPagePreviews,
         });
@@ -123,7 +122,7 @@ describe("getOrRenderPDFPreviewPage", () => {
     });
 
     test("renders the requested page together with the preview window", async () => {
-        const putNamedFile = mock(async () => ({ key: "saved", type: "image/png" }));
+        const putNamedFile = mock(() => Effect.succeed({ key: "saved", type: "image/png" }));
         const renderPDFPagePreviews = mock(
             async () =>
                 new Map([
@@ -135,8 +134,8 @@ describe("getOrRenderPDFPreviewPage", () => {
         await getOrRenderPDFPreviewPage(
             { ...options, pagesToRender: [3, 4] },
             {
-                getFile: async (key) =>
-                    key === options.fileKey ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+                getFile: (key) =>
+                    Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null),
                 putNamedFile,
                 renderPDFPagePreviews,
             }
@@ -147,8 +146,8 @@ describe("getOrRenderPDFPreviewPage", () => {
 
     test("reports missing source file", async () => {
         const result = await getOrRenderPDFPreviewPage(options, {
-            getFile: async () => null,
-            putNamedFile: mock(async () => ({ key: "unused", type: "image/png" })),
+            getFile: () => Effect.succeed(null),
+            putNamedFile: mock(() => Effect.succeed({ key: "unused", type: "image/png" })),
             renderPDFPagePreviews: mock(async () => new Map()),
         });
 
@@ -156,12 +155,12 @@ describe("getOrRenderPDFPreviewPage", () => {
     });
 
     test("reports missing rendered page without throwing", async () => {
-        const putNamedFile = mock(async () => ({ key: "unused", type: "image/png" }));
+        const putNamedFile = mock(() => Effect.succeed({ key: "unused", type: "image/png" }));
         const renderPDFPagePreviews = mock(async () => new Map<number, Uint8Array>());
 
         const result = await getOrRenderPDFPreviewPage(options, {
-            getFile: async (key) =>
-                key === options.fileKey ? { type: "bytes", content: new Uint8Array([9]).buffer } : null,
+            getFile: (key) =>
+                Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null),
             putNamedFile,
             renderPDFPagePreviews,
         });

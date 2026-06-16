@@ -5,16 +5,24 @@
     "exports": {
         ".": "./src/index.ts",
         "./chat": "./src/chat.ts",
+        "./connectors": "./src/connectors.ts",
+        "./errors": "./src/errors.ts",
+        "./graphs": "./src/graphs.ts",
+        "./models": "./src/models.ts",
+        "./prompts": "./src/prompts.ts",
         "./responses": "./src/responses.ts",
         "./routes": "./src/routes.ts",
-        "./source": "./src/source.ts"
+        "./schema": "./src/schema.ts",
+        "./source": "./src/source.ts",
+        "./teams": "./src/teams.ts"
     },
     "scripts": {
         "build": "bunx tsc --noEmit",
         "test": "bun test --pass-with-no-tests"
     },
     "dependencies": {
-        "ai": "catalog:"
+        "ai": "catalog:",
+        "effect": "catalog:"
     },
     "devDependencies": {
         "@types/bun": "catalog:"

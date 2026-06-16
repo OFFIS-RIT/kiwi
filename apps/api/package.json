@@ -20,6 +20,7 @@
         "@kiwi/db": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",
+        "@kiwi/loaders": "workspace:*",
         "@kiwi/logger": "workspace:*",
         "@kiwi/worker": "workspace:*",
         "@modelcontextprotocol/sdk": "catalog:",
@@ -29,8 +30,8 @@
         "better-auth-credentials-plugin": "catalog:",
         "better-result": "catalog:",
         "drizzle-orm": "catalog:",
+        "effect": "catalog:",
         "elysia": "1.4.28",
-        "ldap-authentication": "4.0.4",
         "openworkflow": "catalog:",
         "ulid": "^3.0.2",
         "zod": "catalog:"

@@ -13,8 +13,8 @@ export type ConnectorStatus = (typeof CONNECTOR_STATUS_VALUES)[number];
 export const CONNECTOR_INSTALLATION_STATUS_VALUES = ["active", "disabled"] as const;
 export type ConnectorInstallationStatus = (typeof CONNECTOR_INSTALLATION_STATUS_VALUES)[number];
 
-export const REPOSITORY_GRAPH_SYNC_STATUS_VALUES = ["pending", "syncing", "synced", "failed"] as const;
-export type RepositoryGraphSyncStatus = (typeof REPOSITORY_GRAPH_SYNC_STATUS_VALUES)[number];
+export const CONNECTOR_RESOURCE_SYNC_STATUS_VALUES = ["pending", "syncing", "synced", "failed"] as const;
+export type ConnectorResourceSyncStatus = (typeof CONNECTOR_RESOURCE_SYNC_STATUS_VALUES)[number];
 
 export const CONNECTOR_WEBHOOK_EVENT_STATUS_VALUES = ["ignored", "enqueued", "duplicate", "failed"] as const;
 export type ConnectorWebhookEventStatus = (typeof CONNECTOR_WEBHOOK_EVENT_STATUS_VALUES)[number];
@@ -106,8 +106,8 @@ export const connectorInstallationsTable = pgTable.withRLS(
     ]
 );
 
-export const repositoryGraphBindingsTable = pgTable.withRLS(
-    "repository_graph_bindings",
+export const connectorResourceBindingsTable = pgTable.withRLS(
+    "connector_resource_bindings",
     {
         id: text("id")
             .primaryKey()
@@ -115,23 +115,26 @@ export const repositoryGraphBindingsTable = pgTable.withRLS(
         graphId: text("graph_id")
             .notNull()
             .references(() => graphTable.id, {
-                name: "repository_graph_bindings_graph_id_graphs_id_fk",
+                name: "connector_resource_bindings_graph_id_graphs_id_fk",
                 onDelete: "cascade",
             }),
         connectorInstallationId: text("connector_installation_id")
             .notNull()
             .references(() => connectorInstallationsTable.id, {
-                name: "repository_graph_bindings_connector_installation_id_fk",
+                name: "connector_resource_bindings_connector_installation_id_fk",
                 onDelete: "restrict",
             }),
         provider: text("provider", { enum: CONNECTOR_PROVIDER_VALUES }).notNull(),
-        providerRepositoryId: text("provider_repository_id").notNull(),
-        repositoryFullName: text("repository_full_name").notNull(),
-        repositoryHtmlUrl: text("repository_html_url").notNull(),
-        branch: text("branch").notNull(),
-        lastSeenCommitSha: text("last_seen_commit_sha"),
-        lastSyncedCommitSha: text("last_synced_commit_sha"),
-        syncStatus: text("sync_status", { enum: REPOSITORY_GRAPH_SYNC_STATUS_VALUES }).notNull().default("pending"),
+        resourceKind: text("resource_kind").notNull().default("git-repository"),
+        providerResourceId: text("provider_resource_id").notNull(),
+        resourceDisplayName: text("resource_display_name").notNull(),
+        resourceWebUrl: text("resource_web_url").notNull(),
+        versionName: text("version_name").notNull(),
+        lastSeenVersionId: text("last_seen_version_id"),
+        lastSyncedVersionId: text("last_synced_version_id"),
+        syncCursor: text("sync_cursor"),
+        resourceMetadata: text("resource_metadata"),
+        syncStatus: text("sync_status", { enum: CONNECTOR_RESOURCE_SYNC_STATUS_VALUES }).notNull().default("pending"),
         syncErrorCode: text("sync_error_code"),
         webhookEnabled: boolean("webhook_enabled").notNull().default(true),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
@@ -140,21 +143,21 @@ export const repositoryGraphBindingsTable = pgTable.withRLS(
             .$onUpdate(() => sql`NOW()`),
     },
     (table) => [
-        uniqueIndex("repository_graph_bindings_graph_unique").on(table.graphId),
-        uniqueIndex("repository_graph_bindings_repository_branch_unique").on(
+        uniqueIndex("connector_resource_bindings_graph_unique").on(table.graphId),
+        uniqueIndex("connector_resource_bindings_resource_version_unique").on(
             table.connectorInstallationId,
-            table.providerRepositoryId,
-            table.branch
+            table.providerResourceId,
+            table.versionName
         ),
-        index("repository_graph_bindings_provider_repo_branch_idx").on(
+        index("connector_resource_bindings_provider_resource_version_idx").on(
             table.provider,
-            table.providerRepositoryId,
-            table.branch
+            table.providerResourceId,
+            table.versionName
         ),
-        index("repository_graph_bindings_installation_status_idx").on(table.connectorInstallationId, table.syncStatus),
-        check("repository_graph_bindings_provider_check", sql`${table.provider} in ('github', 'gitlab')`),
+        index("connector_resource_bindings_installation_status_idx").on(table.connectorInstallationId, table.syncStatus),
+        check("connector_resource_bindings_provider_check", sql`${table.provider} in ('github', 'gitlab')`),
         check(
-            "repository_graph_bindings_sync_status_check",
+            "connector_resource_bindings_sync_status_check",
             sql`${table.syncStatus} in ('pending', 'syncing', 'synced', 'failed')`
         ),
     ]
@@ -175,19 +178,19 @@ export const connectorWebhookEventsTable = pgTable.withRLS(
         provider: text("provider", { enum: CONNECTOR_PROVIDER_VALUES }).notNull(),
         deliveryId: text("delivery_id").notNull(),
         eventName: text("event_name").notNull(),
-        providerRepositoryId: text("provider_repository_id"),
-        branch: text("branch"),
-        commitSha: text("commit_sha"),
+        providerResourceId: text("provider_resource_id"),
+        versionName: text("version_name"),
+        versionId: text("version_id"),
         status: text("status", { enum: CONNECTOR_WEBHOOK_EVENT_STATUS_VALUES }).notNull(),
         errorCode: text("error_code"),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
     },
     (table) => [
         uniqueIndex("connector_webhook_events_delivery_unique").on(table.connectorId, table.provider, table.deliveryId),
-        index("connector_webhook_events_binding_lookup_idx").on(
+        index("connector_webhook_events_resource_lookup_idx").on(
             table.provider,
-            table.providerRepositoryId,
-            table.branch
+            table.providerResourceId,
+            table.versionName
         ),
         check("connector_webhook_events_provider_check", sql`${table.provider} in ('github', 'gitlab')`),
         check(

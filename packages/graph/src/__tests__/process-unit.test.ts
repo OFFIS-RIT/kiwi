@@ -83,6 +83,13 @@ describe("processUnit", () => {
         );
 
         expect(generateTextMock).toHaveBeenCalledTimes(1);
+        const { extractPrompt } = await import("@kiwi/ai/prompts/extract.prompt");
+        expect(generateTextMock.mock.calls[0]?.[0].system).toBe(
+            extractPrompt(
+                ["ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"],
+                "document.txt"
+            )
+        );
         expect(generateTextMock.mock.calls[0]?.[0].prompt).toBe(
             [
                 ":::SOURCE-CHUNK-1 type=text:::",
@@ -122,6 +129,45 @@ describe("processUnit", () => {
         expect(generateTextMock.mock.calls[0]?.[0].prompt).toBe("Acme hired Alice.");
         expect(graph.entities[0]?.sources[0]?.sourceChunkIds).toEqual([1]);
         expect(graph.relationships[0]?.sources[0]?.sourceChunkIds).toEqual([1]);
+    });
+    test("keeps the Promise boundary while dropping relationships for unknown entities", async () => {
+        generateTextMock.mockImplementationOnce(async () => ({
+            output: {
+                ...extractionOutput,
+                relationships: [
+                    ...extractionOutput.relationships,
+                    {
+                        sourceEntity: "ACME",
+                        targetEntity: "BOB",
+                        description: "Acme mentioned Bob.",
+                        strength: 0.4,
+                        sourceChunkIds: [1],
+                    },
+                ],
+            },
+        }));
+
+        const { processUnit } = await import("../unit.ts");
+        const graphPromise = processUnit(
+            {
+                id: "unit-1",
+                fileId: "file-1",
+                content: "Acme hired Alice.",
+                startPage: null,
+                endPage: null,
+                chunks: [{ id: 1, type: "text", text: "Acme hired Alice.", startPage: null, endPage: null }],
+            },
+            {} as never,
+            "document.txt"
+        );
+
+        expect(graphPromise).toBeInstanceOf(Promise);
+
+        const graph = await graphPromise;
+
+        expect(graph.entities).toHaveLength(2);
+        expect(graph.relationships).toHaveLength(1);
+        expect(graph.relationships[0]?.sources[0]?.description).toBe("Acme hired Alice.");
     });
 
     test("uses the only available source chunk when attribution is omitted", async () => {

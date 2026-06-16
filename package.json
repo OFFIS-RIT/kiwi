@@ -34,6 +34,8 @@
     "packageManager": "bun@1.3.11",
     "catalog": {
         "drizzle-orm": "1.0.0-rc.3",
+        "effect": "^4.0.0-beta.83",
+        "@effect/sql-pg": "^4.0.0-beta.83",
         "@t3-oss/env-core": "^0.13.11",
         "openworkflow": "^0.9.0",
         "postgres": "^3.4.9",

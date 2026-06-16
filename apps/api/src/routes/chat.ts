@@ -8,7 +8,7 @@ import {
     shouldIncludeGraphCorrectionTool,
     startReply as startGraphReply,
 } from "../lib/chat";
-import { assertCanViewGraphWithRootOwner, type RootOwner } from "../lib/graph-access";
+import { assertCanViewGraphWithRootOwner, type RootOwner } from "../lib/graph/access";
 import { createChatTargetRoute } from "./chat-target-route";
 
 type GraphChatTarget = {

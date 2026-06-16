@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { ulid } from "ulid";
 import { estimateToken, getClient } from "@kiwi/ai";
 import { resolveRequiredEmbeddingModelAdapter } from "@kiwi/ai/models";
@@ -12,11 +13,11 @@ import { updateDescriptionsSpec } from "@kiwi/worker/update-descriptions-spec";
 import { env } from "../env";
 import { ow } from "../openworkflow";
 import { API_ERROR_CODES } from "../types";
-import { cleanupUploadedKeys } from "./graph-route";
+import { cleanupUploadedKeys } from "./graph/route";
 import type { AuthUser } from "../middleware/auth";
 import { embedText } from "./embed-text";
-import { resolveGraphOwnerRoot } from "./graph-access";
-import { getActiveOrganizationId, requireOrganizationMembership } from "./team-access";
+import { resolveGraphOwnerRoot } from "./graph/access";
+import { getActiveOrganizationId, requireOrganizationMembership } from "./team/access";
 
 const MANUAL_SUGGESTION_MIME_TYPE = "text/plain";
 const MANUAL_SUGGESTION_FILE_TYPE = "text";
@@ -350,7 +351,7 @@ async function applyEntityAddition(options: {
     const fileName = `manual-suggestion-${suggestion.id}.txt`;
     const content = buildManualSuggestionContent(suggestion);
     const file = new File([content], fileName, { type: MANUAL_SUGGESTION_MIME_TYPE });
-    const upload = await putGraphFile(options.graphId, fileId, fileName, file, env.S3_BUCKET);
+    const upload = await Effect.runPromise(putGraphFile(options.graphId, fileId, fileName, file, env.S3_BUCKET));
 
     try {
         return await db.transaction(async (tx) => {

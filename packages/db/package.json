@@ -5,6 +5,7 @@
     "exports": {
         "./utils": "./src/utils.ts",
         "./source-validity": "./src/source-validity.ts",
+        "./effect": "./src/effect.ts",
         ".": "./src/index.ts",
         "./tables/*": "./src/tables/*.ts"
     },
@@ -14,12 +15,15 @@
     },
     "dependencies": {
         "@kiwi/contracts": "workspace:*",
+        "@effect/sql-pg": "catalog:",
         "drizzle-orm": "catalog:",
+        "effect": "catalog:",
         "pg": "catalog:",
         "ulid": "^3.0.2"
     },
     "devDependencies": {
-        "@types/bun": "catalog:"
+        "@types/bun": "catalog:",
+        "@types/pg": "catalog:"
     },
     "peerDependencies": {
         "typescript": "catalog:"

@@ -17,6 +17,7 @@ const failedLedger = { id: "event-1", status: "failed" };
 
 const selectResults: SelectResult[] = [];
 const insertResults: unknown[][] = [];
+const insertValues: Array<Record<string, unknown>> = [];
 const updates: Array<Record<string, unknown>> = [];
 const joins: unknown[] = [];
 const workflowInputs: Array<Record<string, unknown>> = [];
@@ -44,11 +45,14 @@ mock.module("@kiwi/db", () => ({
     db: {
         select: () => selectQuery(),
         insert: () => ({
-            values: () => ({
-                onConflictDoNothing: () => ({
-                    returning: () => insertResults.shift() ?? [],
-                }),
-            }),
+            values: (values: Record<string, unknown>) => {
+                insertValues.push(values);
+                return {
+                    onConflictDoNothing: () => ({
+                        returning: () => insertResults.shift() ?? [],
+                    }),
+                };
+            },
         }),
         update: () => ({
             set: (values: Record<string, unknown>) => ({
@@ -104,8 +108,9 @@ const { connectorWebhookRoute } = await import("../connector-webhooks");
 describe("connector webhook route", () => {
     beforeEach(() => {
         selectResults.length = 0;
-        insertResults.length = 0;
         updates.length = 0;
+        insertResults.length = 0;
+        insertValues.length = 0;
         joins.length = 0;
         workflowInputs.length = 0;
         workflowFailureIndex = null;
@@ -136,7 +141,18 @@ describe("connector webhook route", () => {
 
         expect(response.status).toBe(500);
         expect(workflowInputs.map((input) => input.bindingId)).toEqual(["binding-1", "binding-2"]);
-        expect(updates).toContainEqual({ lastSeenCommitSha: "commit-new", syncStatus: "pending", syncErrorCode: null });
+        expect(updates).toContainEqual({ lastSeenVersionId: "commit-new", syncStatus: "pending", syncErrorCode: null });
+        expect(workflowInputs).toContainEqual({
+            bindingId: "binding-1",
+            reason: "webhook",
+            versionId: "commit-new",
+            deliveryId: "delivery-1",
+        });
+        expect(insertValues[0]).toMatchObject({
+            providerResourceId: "7",
+            versionName: "main",
+            versionId: "commit-new",
+        });
         expect(updates).toContainEqual({ syncStatus: "failed", syncErrorCode: "enqueue_failed" });
         expect(updates).toContainEqual({ status: "failed", errorCode: "enqueue_failed" });
         expect(joins).toHaveLength(1);

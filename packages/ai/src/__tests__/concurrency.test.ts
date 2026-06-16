@@ -2,27 +2,57 @@ import { describe, expect, test } from "bun:test";
 
 import { configureAIConcurrency, withAiSlot } from "../concurrency";
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+
+    const promise = new Promise<T>((nextResolve) => {
+        resolve = nextResolve;
+    });
+
+    return { promise, resolve };
+}
 
 describe("withAiSlot", () => {
     test("limits concurrent work per capability", async () => {
         configureAIConcurrency({ image: 2 });
 
+        const release = createDeferred<void>();
+        const firstStarted = createDeferred<void>();
+        const secondStarted = createDeferred<void>();
+        let thirdStarted = false;
         let active = 0;
         let maxActive = 0;
 
-        await Promise.all(
-            Array.from({ length: 5 }, (_, index) =>
-                withAiSlot("image", async () => {
-                    active += 1;
-                    maxActive = Math.max(maxActive, active);
+        const work = [
+            withAiSlot("image", async () => {
+                active += 1;
+                maxActive = Math.max(maxActive, active);
+                firstStarted.resolve();
+                await release.promise;
+                active -= 1;
+            }),
+            withAiSlot("image", async () => {
+                active += 1;
+                maxActive = Math.max(maxActive, active);
+                secondStarted.resolve();
+                await release.promise;
+                active -= 1;
+            }),
+            withAiSlot("image", async () => {
+                thirdStarted = true;
+                active += 1;
+                maxActive = Math.max(maxActive, active);
+                active -= 1;
+            }),
+        ];
 
-                    await sleep(10 + index);
+        await Promise.all([firstStarted.promise, secondStarted.promise]);
+        await Promise.resolve();
 
-                    active -= 1;
-                })
-            )
-        );
+        expect(thirdStarted).toBe(false);
+
+        release.resolve();
+        await Promise.all(work);
 
         expect(maxActive).toBe(2);
     });
@@ -30,14 +60,30 @@ describe("withAiSlot", () => {
     test("releases slots after failures", async () => {
         configureAIConcurrency({ text: 1 });
 
-        await expect(
-            Promise.allSettled([
-                withAiSlot("text", async () => {
-                    throw new Error("boom");
-                }),
-                withAiSlot("text", async () => "ok"),
-            ])
-        ).resolves.toEqual([
+        const error = new Error("boom");
+        const firstStarted = createDeferred<void>();
+        const releaseFirst = createDeferred<void>();
+        let secondStarted = false;
+
+        const first = withAiSlot("text", async () => {
+            firstStarted.resolve();
+            await releaseFirst.promise;
+            throw error;
+        });
+
+        const second = withAiSlot("text", async () => {
+            secondStarted = true;
+            return "ok";
+        });
+
+        await firstStarted.promise;
+        await Promise.resolve();
+
+        expect(secondStarted).toBe(false);
+
+        releaseFirst.resolve();
+
+        await expect(Promise.allSettled([first, second])).resolves.toEqual([
             {
                 status: "rejected",
                 reason: expect.any(Error),
@@ -47,29 +93,42 @@ describe("withAiSlot", () => {
                 value: "ok",
             },
         ]);
+        expect(secondStarted).toBe(true);
     });
 
-    test("keeps video and audio slots independent", async () => {
-        configureAIConcurrency({ audio: 1, video: 2 });
+    test("keeps capability slots isolated", async () => {
+        configureAIConcurrency({ audio: 1, video: 1 });
 
-        let activeVideo = 0;
-        let maxActiveVideo = 0;
+        const releaseAudio = createDeferred<void>();
+        const releaseVideo = createDeferred<void>();
+        const firstAudioStarted = createDeferred<void>();
+        const videoStarted = createDeferred<void>();
+        let secondAudioStarted = false;
 
-        await Promise.all([
-            withAiSlot("video", async () => {
-                activeVideo += 1;
-                maxActiveVideo = Math.max(maxActiveVideo, activeVideo);
-                await sleep(10);
-                activeVideo -= 1;
-            }),
-            withAiSlot("video", async () => {
-                activeVideo += 1;
-                maxActiveVideo = Math.max(maxActiveVideo, activeVideo);
-                await sleep(10);
-                activeVideo -= 1;
-            }),
-        ]);
+        const firstAudio = withAiSlot("audio", async () => {
+            firstAudioStarted.resolve();
+            await releaseAudio.promise;
+        });
 
-        expect(maxActiveVideo).toBe(2);
+        const secondAudio = withAiSlot("audio", async () => {
+            secondAudioStarted = true;
+        });
+
+        const video = withAiSlot("video", async () => {
+            videoStarted.resolve();
+            await releaseVideo.promise;
+        });
+
+        await Promise.all([firstAudioStarted.promise, videoStarted.promise]);
+        await Promise.resolve();
+
+        expect(secondAudioStarted).toBe(false);
+
+        releaseVideo.resolve();
+        releaseAudio.resolve();
+
+        await Promise.all([firstAudio, secondAudio, video]);
+
+        expect(secondAudioStarted).toBe(true);
     });
 });

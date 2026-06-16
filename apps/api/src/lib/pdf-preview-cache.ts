@@ -1,4 +1,5 @@
 import { getFile, getGraphFileArtifactPaths, putNamedFile } from "@kiwi/files";
+import * as Effect from "effect/Effect";
 import { renderPDFPagePreviews } from "@kiwi/graph/lib/pdf-page-preview";
 import { getPdfPreviewPageKey } from "./text-unit-preview";
 
@@ -15,7 +16,7 @@ export type PDFPreviewPageResult =
           status: "page_missing";
       };
 
-type GetBytes = (key: string, bucket: string, type: "bytes") => Promise<{ type: "bytes"; content: ArrayBuffer } | null>;
+type GetBytes = (key: string, bucket: string, type: "bytes") => Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, unknown>;
 
 type PutNamedFile = typeof putNamedFile;
 type RenderPDFPagePreviews = typeof renderPDFPagePreviews;
@@ -57,7 +58,7 @@ export async function getOrRenderPDFPreviewPage(
         fileKey: options.fileKey,
         page: options.page,
     });
-    const cachedImage = await loadFile(cacheKey, options.bucket, "bytes");
+    const cachedImage = await Effect.runPromise(loadFile(cacheKey, options.bucket, "bytes"));
 
     if (cachedImage) {
         return {
@@ -102,7 +103,7 @@ async function loadAndRenderPDFPreviewPages(
     },
     deps: Required<PDFPreviewCacheDeps>
 ): Promise<PDFPreviewRenderResult> {
-    const sourceFile = await deps.getFile(options.fileKey, options.bucket, "bytes");
+    const sourceFile = await Effect.runPromise(deps.getFile(options.fileKey, options.bucket, "bytes"));
     if (!sourceFile) {
         return { status: "source_missing" };
     }
@@ -136,7 +137,7 @@ async function renderAndCachePDFPreviewPages(
 
     await Promise.allSettled(
         [...renderedPages.entries()].map(([page, renderedImage]) =>
-            deps.putNamedFile(`page-${page}.png`, renderedImage, paths.derivedPdfPreviewPrefix, options.bucket)
+            Effect.runPromise(deps.putNamedFile(`page-${page}.png`, renderedImage, paths.derivedPdfPreviewPrefix, options.bucket))
         )
     );
 

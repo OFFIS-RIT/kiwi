@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 import {
     deleteGraphFileArtifacts,
@@ -34,23 +35,23 @@ describe("derived-files", () => {
                 bucket: "bucket-1",
             },
             {
-                listFiles: async (path) => {
+                listFiles: (path) => {
                     listedPaths.push(path);
                     switch (path) {
                         case "graphs/graph-1/file-1.pdf/file-1":
-                            return [
+                            return Effect.succeed([
                                 "graphs/graph-1/file-1.pdf/file-1/source.txt",
                                 "graphs/graph-1/file-1.pdf/file-1/images/img-1.png",
-                            ];
+                            ]);
                         case "graphs/graph-1/workflows/v1/file-1":
-                            return ["graphs/graph-1/workflows/v1/file-1/units.json"];
+                            return Effect.succeed(["graphs/graph-1/workflows/v1/file-1/units.json"]);
                         default:
-                            return [];
+                            return Effect.succeed([]);
                     }
                 },
-                deleteFile: async (key) => {
+                deleteFile: (key) => {
                     deletedKeys.push(key);
-                    return true;
+                    return Effect.succeed(true);
                 },
             }
         );
@@ -78,25 +79,25 @@ describe("derived-files", () => {
                 bucket: "bucket-1",
             },
             {
-                listFiles: async (path) => {
+                listFiles: (path) => {
                     switch (path) {
                         case "graphs/graph-1/derived/file-1":
-                            return [
+                            return Effect.succeed([
                                 "graphs/graph-1/derived/file-1/source.txt",
                                 "graphs/graph-1/derived/file-1/images/img-1.png",
-                            ];
+                            ]);
                         case "graphs/graph-1/workflows/v1/file-1":
-                            return [
+                            return Effect.succeed([
                                 "graphs/graph-1/workflows/v1/file-1/units.json",
                                 "graphs/graph-1/workflows/v1/file-1/graph.json",
-                            ];
+                            ]);
                         default:
-                            return [];
+                            return Effect.succeed([]);
                     }
                 },
-                deleteFile: async (key) => {
+                deleteFile: (key) => {
                     deletedKeys.push(key);
-                    return true;
+                    return Effect.succeed(true);
                 },
             }
         );
@@ -121,17 +122,17 @@ describe("derived-files", () => {
                 bucket: "bucket-1",
             },
             {
-                listFiles: async (path) => {
+                listFiles: (path) => {
                     listedPaths.push(path);
-                    return [
+                    return Effect.succeed([
                         "graphs/graph-1/file-1.pdf/file-1/derived/document.json",
                         "graphs/graph-1/file-1.pdf/file-1/derived/units.json",
                         "graphs/graph-1/file-1.pdf/file-1/derived/graph.json",
-                    ];
+                    ]);
                 },
-                deleteFile: async (key) => {
+                deleteFile: (key) => {
                     deletedKeys.push(key);
-                    return true;
+                    return Effect.succeed(true);
                 },
             }
         );

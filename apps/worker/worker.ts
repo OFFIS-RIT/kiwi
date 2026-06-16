@@ -63,19 +63,17 @@ function startClusterPrimary() {
         const workers = Object.values(cluster.workers ?? {}).filter(
             (worker): worker is NonNullable<typeof worker> => worker !== undefined
         );
-        const workerExits = workers.map(
-            (worker) =>
-                new Promise<void>((resolve) => {
-                    if (worker.isDead()) {
-                        resolve();
-                        return;
-                    }
-
-                    worker.once("exit", () => {
-                        resolve();
-                    });
-                })
-        );
+        const workerExits = workers.map((worker) => {
+            const { promise, resolve } = Promise.withResolvers<void>();
+            if (worker.isDead()) {
+                resolve();
+            } else {
+                worker.once("exit", () => {
+                    resolve();
+                });
+            }
+            return promise;
+        });
 
         for (const worker of workers) {
             worker.kill(signal);
@@ -102,6 +100,7 @@ function startClusterPrimary() {
 }
 
 async function startWorkerProcess() {
+    // Dynamic imports keep worker-only side effects out of the cluster primary process.
     const [
         { backend, ow },
         { env },
@@ -110,7 +109,7 @@ async function startWorkerProcess() {
         { processFile, processFiles },
         { processCodeFile },
         { updateDescriptions },
-        { syncRepositoryGraph },
+        { syncConnectorResourceGraph },
     ] = await Promise.all([
         import("."),
         import("./env"),
@@ -119,7 +118,7 @@ async function startWorkerProcess() {
         import("./workflows/process-file"),
         import("./workflows/process-code-file"),
         import("./workflows/update-descriptions"),
-        import("./workflows/sync-repository-graph"),
+        import("./workflows/sync-connector-resource-graph"),
     ]);
 
     const parentPid = process.ppid;
@@ -131,7 +130,7 @@ async function startWorkerProcess() {
     ow.implementWorkflow(deleteProjectFile.spec, deleteProjectFile.fn);
     ow.implementWorkflow(deleteGraphFiles.spec, deleteGraphFiles.fn);
     ow.implementWorkflow(updateDescriptions.spec, updateDescriptions.fn);
-    ow.implementWorkflow(syncRepositoryGraph.spec, syncRepositoryGraph.fn);
+    ow.implementWorkflow(syncConnectorResourceGraph.spec, syncConnectorResourceGraph.fn);
 
     const worker = ow.newWorker({ concurrency });
     let shuttingDown = false;

@@ -1,7 +1,7 @@
 import { PDF } from "@libpdf/core";
 import { PDF_PREVIEW_SCALE } from "@kiwi/files";
-import type { PDFDocumentLike, PDFPageLike } from "../loader/pdf/types";
-import { rasterizeSelectedPDFPages } from "../loader/pdf/rasterize";
+import type { PDFDocumentLike, PDFPageLike } from "@kiwi/loaders/loader/pdf/types";
+import { rasterizeSelectedPDFPages } from "@kiwi/loaders/loader/pdf/rasterize";
 
 export type PDFPagePreviewOptions = {
     scale?: number;

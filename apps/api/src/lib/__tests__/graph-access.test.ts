@@ -45,7 +45,7 @@ const {
     assertCanManageGraphSuggestions,
     assertCanPatchGraph,
     assertCanViewGraph,
-} = await import("../graph-access");
+} = await import("../graph/access");
 const { assertCanManageGraphPrompts, assertCanManageOrganizationPrompts, assertCanManageUserPrompts } =
     await import("../prompt-access");
 

@@ -1,20 +1,20 @@
 import { db } from "@kiwi/db";
 import {
     connectorInstallationsTable,
+    connectorResourceBindingsTable,
     connectorsTable,
-    repositoryGraphBindingsTable,
     type ConnectorProvider,
 } from "@kiwi/db/tables/connectors";
 import { graphTable } from "@kiwi/db/tables/graph";
 import { and, eq } from "drizzle-orm";
 import type { AuthUser } from "../middleware/auth";
 import { API_ERROR_CODES } from "../types";
-import { assertCanCreateTopLevelGraph, assertCanViewGraphWithRootOwner } from "./graph-access";
-import { requireOrganizationAdmin, requireTeamGraphCreateAccess } from "./team-access";
+import { assertCanCreateTopLevelGraph, assertCanViewGraphWithRootOwner } from "./graph/access";
+import { requireOrganizationAdmin, requireTeamGraphCreateAccess } from "./team/access";
 
 export type ConnectorRow = typeof connectorsTable.$inferSelect;
 export type ConnectorInstallationRow = typeof connectorInstallationsTable.$inferSelect;
-export type RepositoryGraphBindingRow = typeof repositoryGraphBindingsTable.$inferSelect;
+export type ConnectorResourceBindingRow = typeof connectorResourceBindingsTable.$inferSelect;
 
 export async function requireConnector(id: string): Promise<ConnectorRow> {
     const [connector] = await db.select().from(connectorsTable).where(eq(connectorsTable.id, id)).limit(1);
@@ -64,10 +64,10 @@ export async function assertCanUseInstallation(user: AuthUser, installationId: s
 
 export async function assertCanViewBinding(user: AuthUser, bindingId: string) {
     const [row] = await db
-        .select({ binding: repositoryGraphBindingsTable, graph: graphTable })
-        .from(repositoryGraphBindingsTable)
-        .innerJoin(graphTable, eq(graphTable.id, repositoryGraphBindingsTable.graphId))
-        .where(eq(repositoryGraphBindingsTable.id, bindingId))
+        .select({ binding: connectorResourceBindingsTable, graph: graphTable })
+        .from(connectorResourceBindingsTable)
+        .innerJoin(graphTable, eq(graphTable.id, connectorResourceBindingsTable.graphId))
+        .where(eq(connectorResourceBindingsTable.id, bindingId))
         .limit(1);
 
     if (!row) {
@@ -93,19 +93,19 @@ export async function assertCanSyncBinding(user: AuthUser, bindingId: string) {
 export async function loadConnectorBindingGraph(bindingId: string) {
     const [row] = await db
         .select({
-            binding: repositoryGraphBindingsTable,
+            binding: connectorResourceBindingsTable,
             installation: connectorInstallationsTable,
             connector: connectorsTable,
             graph: graphTable,
         })
-        .from(repositoryGraphBindingsTable)
+        .from(connectorResourceBindingsTable)
         .innerJoin(
             connectorInstallationsTable,
-            eq(connectorInstallationsTable.id, repositoryGraphBindingsTable.connectorInstallationId)
+            eq(connectorInstallationsTable.id, connectorResourceBindingsTable.connectorInstallationId)
         )
         .innerJoin(connectorsTable, eq(connectorsTable.id, connectorInstallationsTable.connectorId))
-        .innerJoin(graphTable, eq(graphTable.id, repositoryGraphBindingsTable.graphId))
-        .where(eq(repositoryGraphBindingsTable.id, bindingId))
+        .innerJoin(graphTable, eq(graphTable.id, connectorResourceBindingsTable.graphId))
+        .where(eq(connectorResourceBindingsTable.id, bindingId))
         .limit(1);
 
     return row ?? null;

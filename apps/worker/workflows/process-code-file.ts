@@ -1,4 +1,5 @@
 import { db } from "@kiwi/db";
+import * as Effect from "effect/Effect";
 import { filesTable, processStatsTable } from "@kiwi/db/tables/graph";
 import { and, eq } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
@@ -13,7 +14,7 @@ import { deleteGraphFileProcessingArtifacts, getGraphFileArtifactPaths } from ".
 import { classifyFileProcessError } from "../lib/file-process-error";
 import { loadCodeManifest } from "../lib/code-manifest";
 import { fileContentSourceFromRow, readFileContentSource } from "../lib/file-content-source";
-import { parseCodeFileMetadata } from "../lib/code-file-metadata";
+import { codeRepositoryFileFieldsFromMetadata, parseCodeFileMetadata } from "../lib/code-file-metadata";
 import { updateFileProcessingState, stopIfFileDeleted } from "../lib/file-processing-state";
 import { saveGraphToDatabase } from "../lib/save-graph";
 
@@ -32,12 +33,11 @@ function workflowError(error: unknown) {
 function codeRepositoryFileFromRow(file: ProcessFileRow, content: string): CodeRepositoryFile {
     const metadata = parseCodeFileMetadata(file.metadata);
 
+    const fields = codeRepositoryFileFieldsFromMetadata(metadata, { graphId: file.graphId, name: file.name });
+
     return {
         fileId: file.id,
-        repositoryUrl: metadata?.repositoryUrl ?? `graph:${file.graphId}`,
-        repositoryName: metadata?.repositoryName ?? "code",
-        commitSha: metadata?.commitSha ?? "unknown",
-        path: metadata?.path ?? file.name,
+        ...fields,
         content,
     };
 }
@@ -129,11 +129,8 @@ export const processCodeFile = defineWorkflow(
                     ? await loadCodeManifest(input.codeManifestKey)
                     : buildCodeRepositoryManifest([baseFile.repositoryFile]);
                 const graph = buildCodeFileGraph(baseFile.repositoryFile, manifest);
-                const uploadedGraph = await putNamedFile(
-                    "graph.json",
-                    JSON.stringify(graph),
-                    paths.processingPrefix,
-                    env.S3_BUCKET
+                const uploadedGraph = await Effect.runPromise(
+                    putNamedFile("graph.json", JSON.stringify(graph), paths.processingPrefix, env.S3_BUCKET)
                 );
 
                 return {
@@ -151,7 +148,7 @@ export const processCodeFile = defineWorkflow(
                 }
 
                 await updateFileProcessingState(input.fileId, "saving", "processing");
-                const loadedGraph = await getFile<Graph>(graphResult.graphKey, env.S3_BUCKET, "json");
+                const loadedGraph = await Effect.runPromise(getFile<Graph>(graphResult.graphKey, env.S3_BUCKET, "json"));
                 if (!loadedGraph) {
                     throw new Error(`Failed to load graph from ${graphResult.graphKey}`);
                 }

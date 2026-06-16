@@ -141,7 +141,7 @@ export const filesTable = pgTable.withRLS(
         storageKind: text("storage_kind").notNull().default("internal"),
         externalUrl: text("external_url"),
         externalProvider: text("external_provider"),
-        repositoryBindingId: text("repository_binding_id"),
+        connectorBindingId: text("connector_binding_id"),
         checksum: text("checksum"),
         deleted: boolean("deleted").default(false),
         status: text("status", { enum: FILE_PROCESS_STATUS_VALUES }).notNull().default("processing"),
@@ -191,8 +191,8 @@ export const filesTable = pgTable.withRLS(
             "files_external_provider_check",
             sql`${table.externalProvider} IS NULL OR ${table.externalProvider} in ('github', 'gitlab')`
         ),
-        index("files_repository_binding_active_idx")
-            .on(table.repositoryBindingId, table.createdAt, table.id)
+        index("files_connector_binding_active_idx")
+            .on(table.connectorBindingId, table.createdAt, table.id)
             .where(sql`${table.deleted} = false`),
     ]
 );

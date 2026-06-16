@@ -236,7 +236,7 @@ mock.module("../../lib/archive-upload", () => ({
     },
 }));
 
-mock.module("../../lib/graph-upload-file-type", () => ({
+mock.module("../../lib/graph/upload-file-type", () => ({
     inferSupportedUploadedFiles: (
         files: Array<{
             file: File;
@@ -328,7 +328,7 @@ mock.module("../../lib/graph", () => ({
     collectGraphClosure: async () => [],
 }));
 
-mock.module("../../lib/graph-list", () => ({
+mock.module("../../lib/graph/list", () => ({
     listAccessibleGraphs: async () => [],
 }));
 
@@ -337,7 +337,7 @@ mock.module("../../lib/workflow-cancellation", () => ({
     cancelActiveGraphWorkflowRuns: async () => undefined,
 }));
 
-mock.module("../../lib/graph-access", () => ({
+mock.module("../../lib/graph/access", () => ({
     assertCanCreateTopLevelGraph: async () => ({ organizationId: "org-1" }),
     assertCanCreateUnderParentGraph: async () => undefined,
     assertCanCreateTeamGraph: async () => ({ team: { id: "team-1", organizationId: "org-1" } }),

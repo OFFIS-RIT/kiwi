@@ -46,15 +46,15 @@ mock.module("../embed-text", () => ({
     embedText: async () => [0.1, 0.2, 0.3],
 }));
 
-mock.module("../graph-route", () => ({
+mock.module("../graph/route", () => ({
     cleanupUploadedKeys: cleanupUploadedKeysMock,
 }));
 
-mock.module("../graph-access", () => ({
+mock.module("../graph/access", () => ({
     resolveGraphOwnerRoot: async () => ({ mode: "organization", organizationId: "org-1" }),
 }));
 
-mock.module("../team-access", () => ({
+mock.module("../team/access", () => ({
     getActiveOrganizationId: async () => "org-1",
     getOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
     getTeamInActiveOrganization: async () => ({ id: "team-1", name: "Team", organizationId: "org-1" }),

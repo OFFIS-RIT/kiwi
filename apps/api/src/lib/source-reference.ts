@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
@@ -87,7 +88,7 @@ export async function loadSourceReferenceImage(
         throw new Error(API_ERROR_CODES.SOURCE_NOT_FOUND);
     }
 
-    const file = await getFile(chunk.imageKey, env.S3_BUCKET, "bytes");
+    const file = await Effect.runPromise(getFile(chunk.imageKey, env.S3_BUCKET, "bytes"));
     if (!file) {
         throw new Error(API_ERROR_CODES.SOURCE_NOT_FOUND);
     }

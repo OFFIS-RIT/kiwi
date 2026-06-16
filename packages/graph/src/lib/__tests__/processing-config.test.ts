@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { JSONChunker } from "../../chunking/json";
-import { SemanticChunker } from "../../chunking/semantic";
-import { SingleChunker } from "../../chunking/single";
-import { TranscriptChunker } from "../../chunking/transcript";
-import { createGraphChunker } from "../../chunking/factory";
+import { JSONChunker } from "@kiwi/loaders/chunker/json";
+import { SemanticChunker } from "@kiwi/loaders/chunker/semantic";
+import { SingleChunker } from "@kiwi/loaders/chunker/single";
+import { TranscriptChunker } from "@kiwi/loaders/chunker/transcript";
+import { createGraphChunker } from "@kiwi/loaders/chunker/factory";
 import {
     defaultFileTypeProcessingConfig,
     fileTypeSupportsChunkSize,

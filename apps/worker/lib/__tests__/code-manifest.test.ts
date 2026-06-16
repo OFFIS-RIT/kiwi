@@ -7,7 +7,7 @@ type MockFileRow = {
     storageKind: string;
     externalUrl: string | null;
     externalProvider: string | null;
-    repositoryBindingId: string | null;
+    connectorBindingId: string | null;
     metadata: string;
 };
 
@@ -19,7 +19,7 @@ const baseRows: MockFileRow[] = [
         storageKind: "internal",
         externalUrl: null,
         externalProvider: null,
-        repositoryBindingId: null,
+        connectorBindingId: null,
         metadata: JSON.stringify({
             repositoryUrl: "https://github.com/acme/widgets.git",
             repositoryName: "widgets",
@@ -34,7 +34,7 @@ const baseRows: MockFileRow[] = [
         storageKind: "internal",
         externalUrl: null,
         externalProvider: null,
-        repositoryBindingId: null,
+        connectorBindingId: null,
         metadata: JSON.stringify({
             repositoryUrl: "https://github.com/acme/widgets.git",
             repositoryName: "widgets",
@@ -49,7 +49,7 @@ const baseRows: MockFileRow[] = [
         storageKind: "internal",
         externalUrl: null,
         externalProvider: null,
-        repositoryBindingId: null,
+        connectorBindingId: null,
         metadata: JSON.stringify({
             repositoryUrl: "https://github.com/acme/other.git",
             repositoryName: "other",
@@ -132,7 +132,7 @@ describe("prepareCodeManifest", () => {
                 storageKind: "internal",
                 externalUrl: null,
                 externalProvider: null,
-                repositoryBindingId: "binding-1",
+                connectorBindingId: "binding-1",
                 metadata: JSON.stringify({
                     repositoryUrl: "https://github.com/acme/widgets.git",
                     repositoryName: "widgets",
@@ -147,7 +147,7 @@ describe("prepareCodeManifest", () => {
                 storageKind: "internal",
                 externalUrl: null,
                 externalProvider: null,
-                repositoryBindingId: "binding-1",
+                connectorBindingId: "binding-1",
                 metadata: JSON.stringify({
                     repositoryUrl: "https://github.com/acme/widgets.git",
                     repositoryName: "widgets",
@@ -162,7 +162,7 @@ describe("prepareCodeManifest", () => {
                 storageKind: "internal",
                 externalUrl: null,
                 externalProvider: null,
-                repositoryBindingId: "binding-2",
+                connectorBindingId: "binding-2",
                 metadata: JSON.stringify({
                     repositoryUrl: "https://github.com/acme/widgets.git",
                     repositoryName: "widgets",
@@ -196,7 +196,7 @@ describe("prepareCodeManifest", () => {
                 storageKind: "external",
                 externalUrl: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/external.ts",
                 externalProvider: "github",
-                repositoryBindingId: null,
+                connectorBindingId: null,
                 metadata: JSON.stringify({
                     repositoryUrl: "https://github.com/acme/widgets.git",
                     repositoryName: "widgets",

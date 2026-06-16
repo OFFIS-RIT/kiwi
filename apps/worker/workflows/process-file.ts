@@ -1,17 +1,18 @@
 import { db } from "@kiwi/db";
+import * as Effect from "effect/Effect";
 import { filesTable, graphTable, processRunsTable, processStatsTable } from "@kiwi/db/tables/graph";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import z from "zod";
-import { S3Loader } from "@kiwi/graph/loader/s3";
-import { createGraphChunker } from "@kiwi/graph/chunker/factory";
+import { S3Loader } from "@kiwi/loaders/loader/s3";
+import { createGraphChunker } from "@kiwi/loaders/chunker/factory";
 import { env } from "../env";
 import type { Graph, GraphFile, LoadedGraphDocument, Unit } from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
 import { coerceGraphFileType } from "@kiwi/graph/file-type";
 import type { GraphFileType } from "@kiwi/graph/file-type";
-import { loadGraphDocument } from "@kiwi/graph/loader/document";
-import { createDetectedGraphLoader, detectGraphLoaderFileFormat } from "@kiwi/graph/loader/factory";
+import { loadGraphDocument } from "@kiwi/loaders/loader/document";
+import { createDetectedGraphLoader, detectGraphLoaderFileFormat } from "@kiwi/loaders/loader/factory";
 import { mergeGraphs } from "@kiwi/graph/merge";
 import { createUnitsFromText, processUnit } from "@kiwi/graph/unit";
 import { estimateToken } from "@kiwi/ai";
@@ -340,11 +341,8 @@ export const processFile = defineWorkflow(
                 const document = await loadGraphDocument(graphFile.loader);
                 const contentText = requireReadableContentText(document.text);
                 const tokens = estimateToken(contentText);
-                const uploadedDocument = await putNamedFile(
-                    "document.json",
-                    JSON.stringify(document),
-                    paths.processingPrefix,
-                    env.S3_BUCKET
+                const uploadedDocument = await Effect.runPromise(
+                    putNamedFile("document.json", JSON.stringify(document), paths.processingPrefix, env.S3_BUCKET)
                 );
 
                 const duration = performance.now() - start;
@@ -415,7 +413,7 @@ export const processFile = defineWorkflow(
                     })
                     .where(eq(filesTable.id, input.fileId));
 
-                const loadedDocument = await getFile<LoadedGraphDocument>(baseFile.documentKey, env.S3_BUCKET, "json");
+                const loadedDocument = await Effect.runPromise(getFile<LoadedGraphDocument>(baseFile.documentKey, env.S3_BUCKET, "json"));
                 if (!loadedDocument) {
                     throw new Error(`Failed to load document from ${baseFile.documentKey}`);
                 }
@@ -427,11 +425,8 @@ export const processFile = defineWorkflow(
                     chunker,
                     loaderSourceChunks: loadedDocument.content.sourceChunks,
                 });
-                const uploadedUnits = await putNamedFile(
-                    "units.json",
-                    JSON.stringify(units),
-                    paths.processingPrefix,
-                    env.S3_BUCKET
+                const uploadedUnits = await Effect.runPromise(
+                    putNamedFile("units.json", JSON.stringify(units), paths.processingPrefix, env.S3_BUCKET)
                 );
 
                 const duration = performance.now() - start;
@@ -454,7 +449,7 @@ export const processFile = defineWorkflow(
                 const start = performance.now();
                 const client = await createWorkerClient(input.graphId);
 
-                const loadedUnits = await getFile<Unit[]>(unitsResult.unitsKey, env.S3_BUCKET, "json");
+                const loadedUnits = await Effect.runPromise(getFile<Unit[]>(unitsResult.unitsKey, env.S3_BUCKET, "json"));
                 if (!loadedUnits) {
                     throw new Error(`Failed to load units from ${unitsResult.unitsKey}`);
                 }
@@ -471,11 +466,8 @@ export const processFile = defineWorkflow(
                 }
                 const mergedGraph = mergeGraphs(graphs);
                 const graph = dedupe(mergedGraph);
-                const uploadedGraph = await putNamedFile(
-                    "graph.json",
-                    JSON.stringify(graph),
-                    paths.processingPrefix,
-                    env.S3_BUCKET
+                const uploadedGraph = await Effect.runPromise(
+                    putNamedFile("graph.json", JSON.stringify(graph), paths.processingPrefix, env.S3_BUCKET)
                 );
 
                 const duration = performance.now() - start;
@@ -498,7 +490,7 @@ export const processFile = defineWorkflow(
 
                 await updateFileProcessingState(input.fileId, "saving", "processing");
 
-                const loadedGraph = await getFile<Graph>(graphResult.graphKey, env.S3_BUCKET, "json");
+                const loadedGraph = await Effect.runPromise(getFile<Graph>(graphResult.graphKey, env.S3_BUCKET, "json"));
                 if (!loadedGraph) {
                     throw new Error(`Failed to load graph from ${graphResult.graphKey}`);
                 }

@@ -1,4 +1,4 @@
-import { DEFAULT_FILE_TYPE_CHUNKING, isGraphChunkerKind, type GraphChunkerKind } from "../chunking/factory";
+import { DEFAULT_FILE_TYPE_CHUNKING, isGraphChunkerKind, type GraphChunkerKind } from "@kiwi/loaders/chunker/factory";
 import type { GraphFileType } from "../file-type";
 import {
     DEFAULT_DOCUMENT_MODES,
@@ -6,7 +6,7 @@ import {
     isGraphDocumentMode,
     type GraphDocumentMode,
     type GraphLoaderKind,
-} from "../loader/factory";
+} from "@kiwi/loaders/loader/factory";
 
 export type FileTypeProcessingConfig = {
     loader: GraphLoaderKind;

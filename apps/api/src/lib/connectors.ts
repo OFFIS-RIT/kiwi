@@ -1,17 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
-    createGitHubClient,
-    createGitHubInstallationToken,
-    createGitLabClient,
+    createConnectorAdapter,
     getGitHubInstallationAccount,
+    type ConnectorInstallationCredentials,
     type ConnectorProvider,
     type GitHubConnectorCredentials,
+    type GitResourceAdapter,
     type GitLabConnectorCredentials,
     type GitLabInstallationCredentials,
     type ProviderInstallationAccount,
     type ProviderBranch,
     type ProviderRepository,
-    type ProviderRepositoryClient,
 } from "@kiwi/connectors";
 import {
     decryptConnectorCredentials,
@@ -195,32 +194,32 @@ export async function exchangeGitHubManifestCode(code: string) {
 export async function createProviderClient(
     connector: ConnectorRow,
     installation: InstallationRow
-): Promise<ProviderRepositoryClient> {
+): Promise<GitResourceAdapter> {
     const credentials = decryptConnectorCredentials(connector.encryptedCredentials, env.AUTH_SECRET);
+    let installationCredentials: ConnectorInstallationCredentials;
     if (connector.provider === "github") {
         if (!isGitHubConnectorCredentials(credentials)) {
             throw new Error("Invalid connector credentials");
         }
-        const token = await createGitHubInstallationToken({
-            credentials,
-            installationId: installation.providerInstallationId,
-        });
-        return createGitHubClient({ installationToken: token.token });
+        installationCredentials = { provider: "github", installationId: installation.providerInstallationId };
+    } else {
+        if (!isGitLabConnectorCredentials(credentials)) {
+            throw new Error("Invalid connector credentials");
+        }
+        const decryptedInstallation = installation.encryptedCredentials
+            ? decryptConnectorCredentials(installation.encryptedCredentials, env.AUTH_SECRET)
+            : null;
+        if (!decryptedInstallation || !isGitLabInstallationCredentials(decryptedInstallation)) {
+            throw new Error("Invalid connector installation credentials");
+        }
+        installationCredentials = decryptedInstallation;
     }
 
-    if (!isGitLabConnectorCredentials(credentials)) {
-        throw new Error("Invalid connector credentials");
-    }
-    const installationCredentials = installation.encryptedCredentials
-        ? decryptConnectorCredentials(installation.encryptedCredentials, env.AUTH_SECRET)
-        : null;
-    if (!installationCredentials || !isGitLabInstallationCredentials(installationCredentials)) {
-        throw new Error("Invalid connector installation credentials");
-    }
-    return createGitLabClient({
-        baseUrl: credentials.baseUrl,
-        accessToken: installationCredentials.accessToken,
-    });
+    return (await createConnectorAdapter({
+        provider: connector.provider,
+        credentials,
+        installation: installationCredentials,
+    })) as GitResourceAdapter;
 }
 
 export async function getGitHubConnectorInstallationAccount(

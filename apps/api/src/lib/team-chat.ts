@@ -55,7 +55,7 @@ import {
     DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES,
 } from "./chat-citation-normalization";
 import { teamChatTarget } from "./chat-target";
-import { resolveGraphOwnerRoot } from "./graph-access";
+import { resolveGraphOwnerRoot } from "./graph/access";
 
 type TeamAccessTeam = {
     id: string;

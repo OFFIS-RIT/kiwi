@@ -1,7 +1,7 @@
 import { db } from "@kiwi/db";
 import { fileTypeConfigsTable } from "@kiwi/db/tables/file-types";
 import { GRAPH_FILE_TYPES, isGraphFileType, type GraphFileType } from "@kiwi/graph/file-type";
-import { GRAPH_DOCUMENT_MODES } from "@kiwi/graph/loader/factory";
+import { GRAPH_DOCUMENT_MODES } from "@kiwi/loaders/loader/factory";
 import {
     defaultFileTypeProcessingConfig,
     fileTypeSupportsChunkSize,
@@ -13,7 +13,7 @@ import { Result } from "better-result";
 import { asc, eq, sql } from "drizzle-orm";
 import Elysia from "elysia";
 import z from "zod";
-import { requireOrganizationAdmin } from "../lib/team-access";
+import { requireOrganizationAdmin } from "../lib/team/access";
 import { authMiddleware, type AuthUser } from "../middleware/auth";
 import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
 

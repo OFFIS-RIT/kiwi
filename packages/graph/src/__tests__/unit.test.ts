@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createUnits, createUnitsFromText } from "../unit.ts";
 import type { GraphChunker, GraphFile, LoaderSourceChunk } from "../index.ts";
-import { resolveTextChunkSpans } from "../chunking/span.ts";
+import { resolveTextChunkSpans } from "@kiwi/loaders/chunker/span";
 
 function fixedChunker(chunks: string[]): GraphChunker {
     return {

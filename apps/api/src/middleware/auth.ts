@@ -1,203 +1,48 @@
 import Elysia from "elysia";
-import { defaultKeyHasher } from "@better-auth/api-key";
-import { and, eq } from "drizzle-orm";
-import { hashPassword } from "better-auth/crypto";
-import {
-    API_KEY_RATE_LIMIT_MAX_REQUESTS,
-    API_KEY_RATE_LIMIT_TIME_WINDOW,
-    auth,
-    ensureDefaultOrganizationMember,
-    ensureSystemAdminOrganizationMemberships,
-    isSystemAdminRole,
-} from "@kiwi/auth/server";
-import { db } from "@kiwi/db";
-import { accountTable, apikey as apiKeyTable, userTable } from "@kiwi/db/tables/auth";
-import { error as logError, info as logInfo } from "@kiwi/logger";
-import { env } from "../env";
+import { auth, isSystemAdminRole } from "@kiwi/auth/server";
 
-const masterUserId = env.MASTER_USER_ID?.trim() || undefined;
-const masterUserName = env.MASTER_USER_NAME?.trim() || "Master User";
-const masterUserEmail = env.MASTER_USER_EMAIL?.trim() || undefined;
-const masterUserPassword = env.MASTER_USER_PASSWORD?.trim() || undefined;
-const masterUserApiKey = env.MASTER_USER_API_KEY?.trim() || undefined;
-const masterUserApiKeyRecordId = masterUserId ? `master-user-api-key:${masterUserId}` : undefined;
+export type AuthSessionUser = {
+    id: string;
+    email?: string | null;
+    name?: string | null;
+    role?: string | null;
+} & Record<string, unknown>;
 
-let ensureMasterUserPromise: Promise<void> | null = null;
-
-export async function ensureMasterUser() {
-    if (!masterUserId) {
-        return;
-    }
-
-    if (!ensureMasterUserPromise) {
-        ensureMasterUserPromise = (async () => {
-            const existingUsers = await db.select({ id: userTable.id, email: userTable.email }).from(userTable);
-            const existingUser = existingUsers.find((user) => user.id === masterUserId);
-
-            const email = masterUserEmail || existingUser?.email || `${masterUserId}@local`;
-
-            await db
-                .insert(userTable)
-                .values({
-                    id: masterUserId,
-                    name: masterUserName,
-                    email,
-                    emailVerified: true,
-                    role: "admin",
-                    banned: false,
-                    banReason: null,
-                    banExpires: null,
-                })
-                .onConflictDoUpdate({
-                    target: userTable.id,
-                    set: {
-                        name: masterUserName,
-                        email,
-                        emailVerified: true,
-                        role: "admin",
-                        banned: false,
-                        banReason: null,
-                        banExpires: null,
-                    },
-                });
-
-            await ensureDefaultOrganizationMember(masterUserId, "admin");
-            await ensureSystemAdminOrganizationMemberships(masterUserId);
-
-            if (masterUserPassword) {
-                const password = await hashPassword(masterUserPassword);
-                const existingCredentialAccount = await db
-                    .select({ id: accountTable.id })
-                    .from(accountTable)
-                    .where(and(eq(accountTable.userId, masterUserId), eq(accountTable.providerId, "credential")))
-                    .limit(1);
-
-                if (existingCredentialAccount.length > 0) {
-                    await db
-                        .update(accountTable)
-                        .set({
-                            accountId: masterUserId,
-                            password,
-                        })
-                        .where(and(eq(accountTable.userId, masterUserId), eq(accountTable.providerId, "credential")));
-                } else {
-                    await db.insert(accountTable).values({
-                        userId: masterUserId,
-                        accountId: masterUserId,
-                        providerId: "credential",
-                        password,
-                    });
-                }
-            } else if (masterUserEmail) {
-                logInfo("master user password not configured; skipping credential account bootstrap", {
-                    userId: masterUserId,
-                    email,
-                });
-            }
-
-            if (masterUserApiKeyRecordId) {
-                if (!masterUserApiKey) {
-                    await db.delete(apiKeyTable).where(eq(apiKeyTable.id, masterUserApiKeyRecordId));
-                } else {
-                    const hashedApiKey = await defaultKeyHasher(masterUserApiKey);
-                    const now = new Date();
-
-                    await db
-                        .insert(apiKeyTable)
-                        .values({
-                            id: masterUserApiKeyRecordId,
-                            configId: "default",
-                            name: "Master User API Key",
-                            start: masterUserApiKey.slice(0, 6) || null,
-                            prefix: null,
-                            key: hashedApiKey,
-                            referenceId: masterUserId,
-                            refillInterval: null,
-                            refillAmount: null,
-                            lastRefillAt: null,
-                            enabled: true,
-                            rateLimitEnabled: true,
-                            rateLimitTimeWindow: API_KEY_RATE_LIMIT_TIME_WINDOW,
-                            rateLimitMax: API_KEY_RATE_LIMIT_MAX_REQUESTS,
-                            requestCount: 0,
-                            remaining: null,
-                            lastRequest: null,
-                            expiresAt: null,
-                            createdAt: now,
-                            updatedAt: now,
-                            permissions: null,
-                            metadata: null,
-                        })
-                        .onConflictDoUpdate({
-                            target: apiKeyTable.id,
-                            set: {
-                                configId: "default",
-                                name: "Master User API Key",
-                                start: masterUserApiKey.slice(0, 6) || null,
-                                prefix: null,
-                                key: hashedApiKey,
-                                referenceId: masterUserId,
-                                refillInterval: null,
-                                refillAmount: null,
-                                lastRefillAt: null,
-                                enabled: true,
-                                rateLimitEnabled: true,
-                                rateLimitTimeWindow: API_KEY_RATE_LIMIT_TIME_WINDOW,
-                                rateLimitMax: API_KEY_RATE_LIMIT_MAX_REQUESTS,
-                                requestCount: 0,
-                                remaining: null,
-                                lastRequest: null,
-                                expiresAt: null,
-                                updatedAt: now,
-                                permissions: null,
-                                metadata: null,
-                            },
-                        });
-                }
-            }
-
-            logInfo("ensured master user", { userId: masterUserId, systemRole: "admin", organizationRole: "admin" });
-        })().catch((error) => {
-            ensureMasterUserPromise = null;
-
-            logError("failed to ensure master user", { userId: masterUserId, error });
-        });
-    }
-
-    await ensureMasterUserPromise;
-}
-
-export const getAuthSession = (headers: Headers) =>
-    auth.api.getSession({
-        headers: getAuthHeaders(headers),
-    });
-
-export type AuthSession = Awaited<ReturnType<typeof getAuthSession>>;
-type SessionUser = NonNullable<AuthSession>["user"];
-type SessionRecord = NonNullable<AuthSession>["session"];
-type SessionWithTeam = SessionRecord & {
+export type AuthSessionRecord = {
+    activeOrganizationId?: string | null;
     activeTeamId?: string | null;
-};
-export type AuthUser = SessionUser & {
+} & Record<string, unknown>;
+
+export type AuthSession = {
+    user: AuthSessionUser;
+    session: AuthSessionRecord;
+} | null;
+
+export type AuthUser = AuthSessionUser & {
     role?: string | null;
     activeOrganizationId: string | null;
     activeTeamId: string | null;
     isSystemAdmin: boolean;
 };
 
-function toAuthUser(session: { user: SessionUser; session: SessionRecord } | null): AuthUser | null {
+export async function getAuthSession(headers: Headers): Promise<AuthSession> {
+    return (await auth.api.getSession({
+        headers: getAuthHeaders(headers),
+    })) as AuthSession;
+}
+
+function toAuthUser(session: AuthSession): AuthUser | null {
     if (!session) {
         return null;
     }
 
-    const role = "role" in session.user && typeof session.user.role === "string" ? session.user.role : null;
-    const sessionRecord = session.session as SessionWithTeam;
+    const role = typeof session.user.role === "string" ? session.user.role : null;
 
     return {
         ...session.user,
         role,
-        activeOrganizationId: sessionRecord.activeOrganizationId ?? null,
-        activeTeamId: sessionRecord.activeTeamId ?? null,
+        activeOrganizationId: session.session.activeOrganizationId ?? null,
+        activeTeamId: session.session.activeTeamId ?? null,
         isSystemAdmin: isSystemAdminRole(role),
     };
 }
@@ -244,11 +89,9 @@ export function getApiKeyHeaders(headers: Headers) {
 
 function createAuthMiddleware(name: string, getHeaders: (headers: Headers) => Headers) {
     return new Elysia({ name }).derive({ as: "scoped" }, async ({ request }) => {
-        await ensureMasterUser();
-
-        const session = await auth.api.getSession({
+        const session = (await auth.api.getSession({
             headers: getHeaders(request.headers),
-        });
+        })) as AuthSession;
 
         return {
             session,
@@ -258,5 +101,4 @@ function createAuthMiddleware(name: string, getHeaders: (headers: Headers) => He
 }
 
 export const authMiddleware = createAuthMiddleware("auth-middleware", getAuthHeaders);
-
 export const mcpAuthMiddleware = createAuthMiddleware("mcp-auth-middleware", getApiKeyHeaders);

@@ -29,6 +29,7 @@
         "ai": "catalog:",
         "better-result": "catalog:",
         "drizzle-orm": "catalog:",
+        "effect": "catalog:",
         "js-tiktoken": "^1.0.21",
         "jsonrepair": "^3.14.0",
         "zod": "catalog:"

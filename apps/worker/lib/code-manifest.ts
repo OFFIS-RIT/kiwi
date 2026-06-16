@@ -1,11 +1,12 @@
 import { and, eq, inArray } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { filesTable } from "@kiwi/db/tables/graph";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { buildCodeRepositoryManifest } from "@kiwi/graph/code/repository";
 import type { CodeRepositoryFile, CodeRepositoryManifest } from "@kiwi/graph/code/repository";
 import { env } from "../env";
-import { parseCodeFileMetadata } from "./code-file-metadata";
+import { codeRepositoryFileFieldsFromMetadata, parseCodeFileMetadata } from "./code-file-metadata";
 import { fileContentSourceFromRow, readFileContentSource } from "./file-content-source";
 
 type ManifestFileRow = {
@@ -16,7 +17,7 @@ type ManifestFileRow = {
     storageKind: string;
     externalUrl: string | null;
     externalProvider: string | null;
-    repositoryBindingId: string | null;
+    connectorBindingId: string | null;
 };
 
 export async function prepareCodeManifest(options: {
@@ -37,7 +38,7 @@ export async function prepareCodeManifest(options: {
             storageKind: filesTable.storageKind,
             externalUrl: filesTable.externalUrl,
             externalProvider: filesTable.externalProvider,
-            repositoryBindingId: filesTable.repositoryBindingId,
+            connectorBindingId: filesTable.connectorBindingId,
         })
         .from(filesTable)
         .where(
@@ -64,7 +65,7 @@ export async function prepareCodeManifest(options: {
                   storageKind: filesTable.storageKind,
                   externalUrl: filesTable.externalUrl,
                   externalProvider: filesTable.externalProvider,
-                  repositoryBindingId: filesTable.repositoryBindingId,
+                  connectorBindingId: filesTable.connectorBindingId,
               })
               .from(filesTable)
               .where(and(eq(filesTable.graphId, options.graphId), eq(filesTable.type, "code"), eq(filesTable.deleted, false)))
@@ -86,7 +87,7 @@ export async function prepareCodeManifest(options: {
         files.push({
             fileId: row.id,
             content,
-            ...metadata,
+            ...codeRepositoryFileFieldsFromMetadata(metadata, { graphId: options.graphId, name: row.name }),
         });
     }
 
@@ -95,19 +96,21 @@ export async function prepareCodeManifest(options: {
     }
 
     const manifest = buildCodeRepositoryManifest(files);
-    const uploaded = await putNamedFile(
-        "code-manifest.json",
-        JSON.stringify(manifest),
-        `graphs/${options.graphId}/process-runs/${options.processRunId ?? "adhoc"}`,
-        env.S3_BUCKET
+    const uploaded = await Effect.runPromise(
+        putNamedFile(
+            "code-manifest.json",
+            JSON.stringify(manifest),
+            `graphs/${options.graphId}/process-runs/${options.processRunId ?? "adhoc"}`,
+            env.S3_BUCKET
+        )
     );
 
     return uploaded.key;
 }
 
-function repositoryManifestScopeKey(row: Pick<ManifestFileRow, "repositoryBindingId" | "metadata">): string | null {
-    if (row.repositoryBindingId) {
-        return `binding:${row.repositoryBindingId}`;
+function repositoryManifestScopeKey(row: Pick<ManifestFileRow, "connectorBindingId" | "metadata">): string | null {
+    if (row.connectorBindingId) {
+        return `binding:${row.connectorBindingId}`;
     }
 
     const metadata = parseCodeFileMetadata(row.metadata);
@@ -115,11 +118,12 @@ function repositoryManifestScopeKey(row: Pick<ManifestFileRow, "repositoryBindin
         return null;
     }
 
-    return `repository:${metadata.repositoryUrl}\0${metadata.commitSha}`;
+    const fields = codeRepositoryFileFieldsFromMetadata(metadata, { graphId: "", name: "" });
+    return `repository:${fields.repositoryUrl}\0${fields.commitSha}`;
 }
 
 export async function loadCodeManifest(key: string): Promise<CodeRepositoryManifest> {
-    const manifest = await getFile<CodeRepositoryManifest>(key, env.S3_BUCKET, "json");
+    const manifest = await Effect.runPromise(getFile<CodeRepositoryManifest>(key, env.S3_BUCKET, "json"));
     if (!manifest) {
         throw new Error(`Failed to load code manifest from ${key}`);
     }

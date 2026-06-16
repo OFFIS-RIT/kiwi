@@ -1,15 +1,15 @@
-import {
-    createGitHubClient,
-    createGitHubInstallationToken,
-    createGitLabClient,
-    type GitHubConnectorCredentials,
-    type GitLabConnectorCredentials,
-    type GitLabInstallationCredentials,
-    type ProviderRepository,
+import { createConnectorAdapter } from "@kiwi/connectors";
+import * as Effect from "effect/Effect";
+import type {
+    ConnectorCredentials,
+    ConnectorFileLocator,
+    ConnectorInstallationCredentials,
+    ConnectorProvider,
 } from "@kiwi/connectors";
-import { decryptConnectorCredentials, type ConnectorSecretPayload } from "@kiwi/connectors/credentials";
+import { decryptConnectorCredentials } from "@kiwi/connectors/credentials";
+import type { ConnectorSecretPayload } from "@kiwi/connectors/credentials";
 import { db } from "@kiwi/db";
-import { connectorInstallationsTable, connectorsTable, repositoryGraphBindingsTable } from "@kiwi/db/tables/connectors";
+import { connectorInstallationsTable, connectorsTable, connectorResourceBindingsTable } from "@kiwi/db/tables/connectors";
 import { getFile } from "@kiwi/files";
 import { eq } from "drizzle-orm";
 import { env } from "../env";
@@ -20,6 +20,16 @@ export type FileContentSource =
     | { kind: "external"; provider: "github"; url: string; metadata?: string | null }
     | { kind: "connector"; bindingId: string; provider: "github" | "gitlab"; metadata?: string | null };
 
+type CompatibleCodeFileMetadata = {
+    bindingId?: string;
+    providerResourceId?: string;
+    providerFileId?: string;
+    path: string;
+    versionId?: string;
+    etag?: string;
+    git?: { commitSha?: string };
+};
+
 const MAX_CODE_FILE_BYTES = 2 * 1024 * 1024;
 
 export function fileContentSourceFromRow(row: {
@@ -27,18 +37,18 @@ export function fileContentSourceFromRow(row: {
     storageKind?: string | null;
     externalProvider?: string | null;
     externalUrl?: string | null;
-    repositoryBindingId?: string | null;
+    connectorBindingId?: string | null;
     metadata?: string | null;
 }): FileContentSource {
     if (row.storageKind === "external") {
-        if (row.repositoryBindingId) {
+        if (row.connectorBindingId) {
             if (row.externalProvider !== "github" && row.externalProvider !== "gitlab") {
                 throw new Error("Unsupported connector file source");
             }
             return {
                 kind: "connector",
                 provider: row.externalProvider,
-                bindingId: row.repositoryBindingId,
+                bindingId: row.connectorBindingId,
                 metadata: row.metadata,
             };
         }
@@ -55,7 +65,7 @@ export function fileContentSourceFromRow(row: {
 
 export async function readFileContentSource(source: FileContentSource): Promise<string | null> {
     if (source.kind === "internal") {
-        const file = await getFile(source.key, env.S3_BUCKET, "text");
+        const file = await Effect.runPromise(getFile(source.key, env.S3_BUCKET, "text"));
         return file?.content ?? null;
     }
 
@@ -66,88 +76,94 @@ export async function readFileContentSource(source: FileContentSource): Promise<
     return readExternalGitHubFile(source.url);
 }
 
-function isGitHubConnectorCredentials(value: ConnectorSecretPayload): value is GitHubConnectorCredentials {
-    return "provider" in value && value.provider === "github";
+function isConnectorProvider(value: string): value is ConnectorProvider {
+    return value === "github" || value === "gitlab";
 }
 
-function isGitLabConnectorCredentials(value: ConnectorSecretPayload): value is GitLabConnectorCredentials {
-    return "provider" in value && value.provider === "gitlab" && "baseUrl" in value;
+function isConnectorCredentials(value: ConnectorSecretPayload, provider: ConnectorProvider): value is ConnectorCredentials {
+    return "provider" in value && value.provider === provider && (provider === "github" ? "appId" in value : "baseUrl" in value);
 }
 
-function isGitLabInstallationCredentials(value: ConnectorSecretPayload): value is GitLabInstallationCredentials {
-    return "provider" in value && value.provider === "gitlab" && "accessToken" in value;
+function isInstallationCredentials(
+    value: ConnectorSecretPayload,
+    provider: ConnectorProvider
+): value is ConnectorInstallationCredentials {
+    return (
+        "provider" in value &&
+        value.provider === provider &&
+        (provider === "github" ? "installationId" in value : "accessToken" in value)
+    );
 }
 
 async function readConnectorFile(bindingId: string, metadataValue?: string | null): Promise<string | null> {
-    const metadata = parseCodeFileMetadata(metadataValue);
+    const metadata = parseCodeFileMetadata(metadataValue) as CompatibleCodeFileMetadata | null;
     if (!metadata) {
         return null;
     }
 
     const [row] = await db
         .select({
-            binding: repositoryGraphBindingsTable,
+            binding: connectorResourceBindingsTable,
             installation: connectorInstallationsTable,
             connector: connectorsTable,
         })
-        .from(repositoryGraphBindingsTable)
+        .from(connectorResourceBindingsTable)
         .innerJoin(
             connectorInstallationsTable,
-            eq(connectorInstallationsTable.id, repositoryGraphBindingsTable.connectorInstallationId)
+            eq(connectorInstallationsTable.id, connectorResourceBindingsTable.connectorInstallationId)
         )
         .innerJoin(connectorsTable, eq(connectorsTable.id, connectorInstallationsTable.connectorId))
-        .where(eq(repositoryGraphBindingsTable.id, bindingId))
+        .where(eq(connectorResourceBindingsTable.id, bindingId))
         .limit(1);
 
     if (!row || row.connector.status !== "active" || row.installation.status !== "active") {
         return null;
     }
+    if (!isConnectorProvider(row.connector.provider)) {
+        return null;
+    }
 
     const connectorCredentials = decryptConnectorCredentials(row.connector.encryptedCredentials, env.AUTH_SECRET);
-    if (row.connector.provider === "github") {
-        if (!isGitHubConnectorCredentials(connectorCredentials)) {
-            return null;
-        }
-        const installationToken = await createGitHubInstallationToken({
-            credentials: connectorCredentials,
-            installationId: row.installation.providerInstallationId,
-        });
-        const client = createGitHubClient({ installationToken: installationToken.token });
-        const repository: ProviderRepository = {
-            provider: "github",
-            id: row.binding.providerRepositoryId,
-            fullName: row.binding.repositoryFullName,
-            name: row.binding.repositoryFullName.split("/").at(-1) ?? row.binding.repositoryFullName,
-            htmlUrl: row.binding.repositoryHtmlUrl,
-            defaultBranch: row.binding.branch,
-            private: true,
-        };
-        return client.readFile(repository, metadata.path, metadata.commitSha);
+    if (!isConnectorCredentials(connectorCredentials, row.connector.provider)) {
+        return null;
     }
 
-    if (!isGitLabConnectorCredentials(connectorCredentials)) {
+    const installationCredentials = readInstallationCredentials(row, row.connector.provider);
+    if (!installationCredentials) {
         return null;
     }
-    const installationCredentials = row.installation.encryptedCredentials
-        ? decryptConnectorCredentials(row.installation.encryptedCredentials, env.AUTH_SECRET)
-        : null;
-    if (!installationCredentials || !isGitLabInstallationCredentials(installationCredentials)) {
-        return null;
-    }
-    const client = createGitLabClient({
-        baseUrl: connectorCredentials.baseUrl,
-        accessToken: installationCredentials.accessToken,
+
+    const adapter = await createConnectorAdapter({
+        provider: row.connector.provider,
+        credentials: connectorCredentials,
+        installation: installationCredentials,
     });
-    const repository: ProviderRepository = {
-        provider: "gitlab",
-        id: row.binding.providerRepositoryId,
-        fullName: row.binding.repositoryFullName,
-        name: row.binding.repositoryFullName.split("/").at(-1) ?? row.binding.repositoryFullName,
-        htmlUrl: row.binding.repositoryHtmlUrl,
-        defaultBranch: row.binding.branch,
-        private: true,
+    return adapter.readFile(connectorFileLocator(row.binding.providerResourceId, metadata));
+}
+
+function readInstallationCredentials(
+    row: {
+        installation: typeof connectorInstallationsTable.$inferSelect;
+    },
+    provider: ConnectorProvider
+): ConnectorInstallationCredentials | null {
+    if (provider === "github") {
+        return { provider: "github", installationId: row.installation.providerInstallationId };
+    }
+    if (!row.installation.encryptedCredentials) {
+        return null;
+    }
+    const installationCredentials = decryptConnectorCredentials(row.installation.encryptedCredentials, env.AUTH_SECRET);
+    return isInstallationCredentials(installationCredentials, provider) ? installationCredentials : null;
+}
+
+function connectorFileLocator(resourceId: string, metadata: CompatibleCodeFileMetadata): ConnectorFileLocator {
+    return {
+        resourceId: metadata.providerResourceId ?? resourceId,
+        path: metadata.path,
+        ...(metadata.versionId ?? metadata.git?.commitSha ? { versionId: metadata.versionId ?? metadata.git?.commitSha } : {}),
+        ...(metadata.etag ? { etag: metadata.etag } : {}),
     };
-    return client.readFile(repository, metadata.path, metadata.commitSha);
 }
 
 async function readExternalGitHubFile(url: string): Promise<string> {

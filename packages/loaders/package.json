@@ -1,0 +1,39 @@
+{
+    "name": "@kiwi/loaders",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./file-type": "./src/file-type.ts",
+        "./loader/*": "./src/loader/*.ts",
+        "./chunker/*": "./src/chunking/*.ts",
+        "./lib/*": "./src/lib/*.ts"
+    },
+    "scripts": {
+        "build": "bunx tsc --noEmit",
+        "test": "bun test"
+    },
+    "dependencies": {
+        "@ai-sdk/provider": "catalog:",
+        "@kiwi/ai": "workspace:*",
+        "@kiwi/contracts": "workspace:*",
+        "@kiwi/files": "workspace:*",
+        "@libpdf/core": "^0.3.6",
+        "@xmldom/xmldom": "^0.9.10",
+        "ai": "catalog:",
+        "effect": "catalog:",
+        "dom-serializer": "^3.1.1",
+        "domhandler": "^6.0.1",
+        "htmlparser2": "^12.0.0",
+        "js-tiktoken": "^1.0.21",
+        "jszip": "^3.10.1",
+        "pdf-to-img": "^6.1.0",
+        "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    },
+    "devDependencies": {
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

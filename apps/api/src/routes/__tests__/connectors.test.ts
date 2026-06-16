@@ -22,6 +22,7 @@ const installationAccountCalls: string[] = [];
 const listBranchesCalls: Array<Record<string, unknown>> = [];
 const listRepositoriesCalls: Array<Record<string, unknown>> = [];
 const updateValues: Array<Record<string, unknown>> = [];
+const workflowInputs: Array<Record<string, unknown>> = [];
 const signedStates: Array<Record<string, unknown>> = [];
 const organizationAdminChecks: Array<string | undefined> = [];
 let installationConnectorId = "connector-1";
@@ -65,11 +66,11 @@ mock.module("../../middleware/auth", () => ({
     })),
 }));
 
-mock.module("../../lib/graph-access", () => ({
+mock.module("../../lib/graph/access", () => ({
     assertCanCreateTeamGraph: async () => ({ team: { id: "team-1", organizationId: teamAccessOrganizationId } }),
 }));
 
-mock.module("../../lib/team-access", () => ({
+mock.module("../../lib/team/access", () => ({
     requireOrganizationAdmin: async (_user: unknown, organizationId?: string) => {
         organizationAdminChecks.push(organizationId);
         return { organizationId: organizationId ?? "org-1" };
@@ -133,7 +134,8 @@ mock.module("../../lib/connectors", () => ({
 
 mock.module("../../openworkflow", () => ({
     ow: {
-        runWorkflow: async () => {
+        runWorkflow: async (_spec: unknown, input: Record<string, unknown>) => {
+            workflowInputs.push(input);
             if (workflowError) {
                 throw workflowError;
             }
@@ -187,6 +189,7 @@ describe("connector route", () => {
         installationAccountCalls.length = 0;
         listBranchesCalls.length = 0;
         listRepositoriesCalls.length = 0;
+        workflowInputs.length = 0;
         updateValues.length = 0;
         signedStates.length = 0;
         organizationAdminChecks.length = 0;
@@ -278,6 +281,41 @@ describe("connector route", () => {
 
         expect(response.status).toBe(403);
         expect(insertValues).toEqual([]);
+    });
+
+    test("creates generic resource binding rows and enqueues initial sync with a version id", async () => {
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-1/repository-graphs", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    connectorInstallationId: "installation-1",
+                    repositoryId: "repo-1",
+                    repositoryFullName: "acme/app",
+                    repositoryHtmlUrl: "https://github.com/acme/app",
+                    branch: "main",
+                    name: "App",
+                    owner: { kind: "organization" },
+                }),
+            })
+        );
+
+        expect(response.status).toBe(200);
+        expect(insertValues[1]).toMatchObject({
+            provider: "github",
+            resourceKind: "git-repository",
+            providerResourceId: "repo-1",
+            resourceDisplayName: "acme/app",
+            resourceWebUrl: "https://github.com/acme/app",
+            versionName: "main",
+            lastSeenVersionId: "commit-sha",
+            syncStatus: "pending",
+        });
+        expect(workflowInputs[0]).toEqual({
+            bindingId: "row-1",
+            reason: "initial",
+            versionId: "commit-sha",
+        });
     });
 
     test("marks manual repository graph sync failed when workflow enqueue fails", async () => {

@@ -1,13 +1,14 @@
+import * as Effect from "effect/Effect";
 import { ulid } from "ulid";
 import { withAiSlot } from "@kiwi/ai/lock";
 import { extractPrompt } from "@kiwi/ai/prompts/extract.prompt";
 import { generateText, Output } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { Graph, GraphChunker, GraphFile, GraphTextChunk, LoaderSourceChunk, TextUnitSourceChunk, Unit } from ".";
-import { SemanticChunker } from "./chunking/semantic";
-import { loadGraphDocument } from "./loader/document";
-import { toPageAwareChunksWithSource } from "./lib/page-fence";
-import { createSourceChunks, DEFAULT_SOURCE_CHUNK_TOKENS } from "./lib/source-chunk";
+import { SemanticChunker } from "@kiwi/loaders/chunker/semantic";
+import { loadGraphDocument } from "@kiwi/loaders/loader/document";
+import { toPageAwareChunksWithSource } from "@kiwi/loaders/lib/page-fence";
+import { createSourceChunks, DEFAULT_SOURCE_CHUNK_TOKENS } from "@kiwi/loaders/lib/source-chunk";
 import z from "zod";
 
 export const MAX_SOURCE_CHUNKS_PER_SOURCE = 8;
@@ -180,6 +181,125 @@ function buildExtractionInput(unit: Unit): string {
         .join("\n\n");
 }
 
+class ProcessUnitAiError extends Error {
+    readonly _tag = "ProcessUnitAiError";
+
+    constructor(override readonly cause: unknown) {
+        super("Failed to extract graph data from unit.");
+    }
+}
+
+class ProcessUnitGraphMappingError extends Error {
+    readonly _tag = "ProcessUnitGraphMappingError";
+
+    constructor(override readonly cause: unknown) {
+        super("Failed to map extracted graph data.");
+    }
+}
+
+function extractGraphData(
+    unit: Unit,
+    model: LanguageModelV3,
+    prompt: string
+): Effect.Effect<z.infer<typeof extractOutputSchema>, ProcessUnitAiError> {
+    return Effect.tryPromise({
+        try: async () => {
+            const { output } = await withAiSlot("text", () =>
+                generateText({
+                    model,
+                    system: prompt,
+                    prompt: buildExtractionInput(unit),
+                    temperature: 0.1,
+                    output: Output.object({
+                        description: "The extracted entities and relationships from the text.",
+                        schema: extractOutputSchema,
+                    }),
+                })
+            );
+
+            return output;
+        },
+        catch: (cause) => new ProcessUnitAiError(cause),
+    });
+}
+
+function mapGraphEntities(
+    unit: Unit,
+    output: z.infer<typeof extractOutputSchema>
+): Effect.Effect<
+    {
+        entityNameToId: Map<string, string>;
+        graphEntities: Graph["entities"];
+    },
+    ProcessUnitGraphMappingError
+> {
+    return Effect.try({
+        try: () => {
+            const entityNameToId = new Map<string, string>();
+            const graphEntities = output.entities.map((entity) => {
+                const entityId = ulid();
+
+                entityNameToId.set(entity.name, entityId);
+
+                return {
+                    id: entityId,
+                    name: entity.name,
+                    type: entity.type,
+                    description: "",
+                    sources: [
+                        {
+                            id: ulid(),
+                            unitId: unit.id,
+                            description: entity.description,
+                            sourceChunkIds: normalizeSourceChunkIds(entity.sourceChunkIds, unit),
+                        },
+                    ],
+                };
+            });
+
+            return { entityNameToId, graphEntities };
+        },
+        catch: (cause) => new ProcessUnitGraphMappingError(cause),
+    });
+}
+
+function mapGraphRelationships(
+    unit: Unit,
+    output: z.infer<typeof extractOutputSchema>,
+    entityNameToId: Map<string, string>
+): Effect.Effect<Graph["relationships"], ProcessUnitGraphMappingError> {
+    return Effect.try({
+        try: () =>
+            output.relationships.flatMap((relationship) => {
+                const sourceId = entityNameToId.get(relationship.sourceEntity);
+                const targetId = entityNameToId.get(relationship.targetEntity);
+
+                if (!sourceId || !targetId) {
+                    return [];
+                }
+
+                return [
+                    {
+                        id: ulid(),
+                        sourceId,
+                        targetId,
+                        strength: relationship.strength,
+                        description: "",
+                        sources: [
+                            {
+                                id: ulid(),
+                                unitId: unit.id,
+                                description: relationship.description,
+                                sourceChunkIds: normalizeSourceChunkIds(relationship.sourceChunkIds, unit),
+                            },
+                        ],
+                    },
+                ];
+            }),
+        catch: (cause) => new ProcessUnitGraphMappingError(cause),
+    });
+}
+
 export async function processUnit(
     unit: Unit,
     model: LanguageModelV3,
@@ -189,72 +309,18 @@ export async function processUnit(
     const entities = ["ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"];
     const prompt = extractPrompt(entities, documentName, metadata);
 
-    const { output } = await withAiSlot("text", () =>
-        generateText({
-            model,
-            system: prompt,
-            prompt: buildExtractionInput(unit),
-            temperature: 0.1,
-            output: Output.object({
-                description: "The extracted entities and relationships from the text.",
-                schema: extractOutputSchema,
-            }),
-        })
-    );
-
-    const entityNameToId = new Map<string, string>();
-    const graphEntities = output.entities.map((entity) => {
-        const entityId = ulid();
-
-        entityNameToId.set(entity.name, entityId);
+    const program = Effect.gen(function* () {
+        const output = yield* extractGraphData(unit, model, prompt);
+        const { entityNameToId, graphEntities } = yield* mapGraphEntities(unit, output);
+        const graphRelationships = yield* mapGraphRelationships(unit, output, entityNameToId);
 
         return {
-            id: entityId,
-            name: entity.name,
-            type: entity.type,
-            description: "",
-            sources: [
-                {
-                    id: ulid(),
-                    unitId: unit.id,
-                    description: entity.description,
-                    sourceChunkIds: normalizeSourceChunkIds(entity.sourceChunkIds, unit),
-                },
-            ],
+            id: ulid(),
+            units: [unit],
+            entities: graphEntities,
+            relationships: graphRelationships,
         };
     });
 
-    const graphRelationships = output.relationships.flatMap((relationship) => {
-        const sourceId = entityNameToId.get(relationship.sourceEntity);
-        const targetId = entityNameToId.get(relationship.targetEntity);
-
-        if (!sourceId || !targetId) {
-            return [];
-        }
-
-        return [
-            {
-                id: ulid(),
-                sourceId,
-                targetId,
-                strength: relationship.strength,
-                description: "",
-                sources: [
-                    {
-                        id: ulid(),
-                        unitId: unit.id,
-                        description: relationship.description,
-                        sourceChunkIds: normalizeSourceChunkIds(relationship.sourceChunkIds, unit),
-                    },
-                ],
-            },
-        ];
-    });
-
-    return {
-        id: ulid(),
-        units: [unit],
-        entities: graphEntities,
-        relationships: graphRelationships,
-    };
+    return Effect.runPromise(Effect.mapError(program, (error) => error.cause));
 }

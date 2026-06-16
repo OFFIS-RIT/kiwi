@@ -1,0 +1,19 @@
+{
+    "name": "@kiwi/sync",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "build": "bunx tsc --noEmit",
+        "test": "bun test --pass-with-no-tests"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

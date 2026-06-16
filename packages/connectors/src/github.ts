@@ -1,6 +1,8 @@
 import { createSign } from "node:crypto";
 import { isSupportedCodePath } from "./code-files";
+import { createGitRepositoryAdapter, readConnectorWebhookHeader } from "./adapters";
 import type {
+    GitResourceAdapter,
     FetchLike,
     GitHubConnectorCredentials,
     NormalizedWebhookEvent,
@@ -128,8 +130,8 @@ export async function getGitHubInstallationAccount(
     };
 }
 
-export function createGitHubClient(options: GitHubClientOptions): ProviderRepositoryClient {
-    return {
+export function createGitHubClient(options: GitHubClientOptions): GitResourceAdapter {
+    const client: ProviderRepositoryClient = {
         provider: "github",
         async getRepository(repositoryId) {
             return getGitHubRepository(options, repositoryId);
@@ -150,6 +152,20 @@ export function createGitHubClient(options: GitHubClientOptions): ProviderReposi
             return readGitHubRepositoryFile({ ...options, repository, path, commitSha });
         },
     };
+
+    return createGitRepositoryAdapter({
+        client,
+        verifyWebhook(webhook) {
+            return verifyGitHubWebhookSignature({
+                body: webhook.body,
+                webhookSecret: webhook.webhookSecret,
+                signatureHeader: readConnectorWebhookHeader(webhook.headers, "x-hub-signature-256"),
+            });
+        },
+        normalizeWebhook(webhook) {
+            return normalizeGitHubWebhookEvent(webhook);
+        },
+    });
 }
 
 export async function getGitHubRepository(
@@ -437,17 +453,27 @@ export function normalizeGitHubWebhookEvent(options: {
     const payload = isObject(options.payload) ? options.payload : {};
     const repository = isObject(payload.repository) ? payload.repository : null;
     const installation = isObject(payload.installation) ? payload.installation : null;
+    const resourceId =
+        repository && (typeof repository.id === "string" || typeof repository.id === "number")
+            ? String(repository.id)
+            : null;
+    const resourceDisplayName = repository && typeof repository.full_name === "string" ? repository.full_name : null;
+    const versionName = branchNameFromGitRef(payload.ref);
+    const versionId = typeof payload.after === "string" ? payload.after : null;
     return {
         provider: "github",
         deliveryId: options.deliveryId,
         eventName: options.eventName,
-        repositoryId:
-            repository && (typeof repository.id === "string" || typeof repository.id === "number")
-                ? String(repository.id)
-                : null,
-        repositoryFullName: repository && typeof repository.full_name === "string" ? repository.full_name : null,
-        branch: branchNameFromGitRef(payload.ref),
-        commitSha: typeof payload.after === "string" ? payload.after : null,
+        resourceKind: "git-repository",
+        resourceId,
+        resourceDisplayName,
+        resourceName: resourceDisplayName,
+        versionName,
+        versionId,
+        repositoryId: resourceId,
+        repositoryFullName: resourceDisplayName,
+        branch: versionName,
+        commitSha: versionId,
         installationId:
             installation && (typeof installation.id === "string" || typeof installation.id === "number")
                 ? String(installation.id)

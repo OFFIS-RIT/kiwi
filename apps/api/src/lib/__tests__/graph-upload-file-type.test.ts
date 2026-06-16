@@ -4,7 +4,7 @@ import { API_ERROR_CODES } from "../../types";
 const resolveRequiredModelAdapterMock = mock(async () => ({ adapter: {} }));
 
 const { assertConfiguredUploadModels, inferSupportedUploadedFiles, unsupportedUploadResponse } =
-    await import("../graph-upload-file-type");
+    await import("../graph/upload-file-type");
 
 describe("inferSupportedUploadedFiles", () => {
     beforeEach(() => {

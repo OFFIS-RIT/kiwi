@@ -1,4 +1,5 @@
-import type { LoadedGraphDocument, TextUnitSourceChunk } from "@kiwi/contracts/source";
+import type { TextUnitSourceChunk } from "@kiwi/contracts/source";
+import type { GraphChunker, GraphLoader } from "@kiwi/loaders";
 
 export type Entity = {
     id: string;
@@ -33,6 +34,7 @@ export type {
     TextUnitSourceChunk,
 } from "@kiwi/contracts/source";
 export { isLoaderSourceChunk, isSourceChunkRegion, isTextUnitSourceChunk } from "@kiwi/contracts/source";
+export type { GraphBinaryLoader, GraphChunker, GraphDocumentLoader, GraphLoader, GraphTextChunk } from "@kiwi/loaders";
 
 export type Unit = {
     id: string;
@@ -50,29 +52,6 @@ export type Graph = {
     relationships: Relationship[];
 };
 
-export interface GraphLoader {
-    getText: () => Promise<string>;
-}
-
-export interface GraphDocumentLoader extends GraphLoader {
-    getDocument: () => Promise<LoadedGraphDocument>;
-}
-
-export interface GraphBinaryLoader extends GraphLoader {
-    getBinary: () => Promise<ArrayBuffer>;
-}
-
-export type GraphTextChunk = {
-    content: string;
-    startOffset: number;
-    endOffset: number;
-};
-
-export interface GraphChunker {
-    getChunkSpans: (content: string) => Promise<GraphTextChunk[]>;
-    getChunks: (content: string) => Promise<string[]>;
-}
-
 export type GraphFile = {
     id: string;
     key: string;
@@ -81,14 +60,3 @@ export type GraphFile = {
     chunker: GraphChunker;
     loader: GraphLoader;
 };
-
-export { CSVChunker } from "./chunking/csv";
-export { CalendarChunker } from "./chunking/calendar";
-export { EmailChunker } from "./chunking/email";
-export { JSONChunker } from "./chunking/json";
-export { SemanticChunker } from "./chunking/semantic";
-export { SingleChunker } from "./chunking/single";
-export { TOMLChunker } from "./chunking/toml";
-export { TranscriptChunker } from "./chunking/transcript";
-export { VCardChunker } from "./chunking/vcard";
-export { YAMLChunker } from "./chunking/yaml";

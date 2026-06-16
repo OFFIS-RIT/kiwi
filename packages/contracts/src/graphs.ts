@@ -1,0 +1,586 @@
+import type { ChatUIMessage } from "./chat";
+import type { ApiResponse } from "./errors";
+import type { PromptRecord } from "./prompts";
+import { Schema } from "effect";
+import type { MutableSchemaType } from "./schema";
+
+export type GraphState = "ready" | "updating";
+
+export type GraphRecord = {
+    id: string;
+    name: string;
+    description: string | null;
+    organizationId: string | null;
+    teamId: string | null;
+    userId: string | null;
+    graphId: string | null;
+    hidden: boolean;
+    state: GraphState;
+};
+
+export type GraphFileRecord = {
+    id: string;
+    name: string;
+    type: string;
+    mimeType: string;
+    size: number;
+    key: string;
+};
+
+export const FILE_PROCESS_ERROR_CODE_VALUES = [
+    "UNSUPPORTED_FILE_TYPE",
+    "INVALID_FILE_FORMAT",
+    "PASSWORD_PROTECTED_FILE",
+    "NO_READABLE_TEXT",
+    "FILE_TOO_LARGE_OR_COMPLEX",
+    "OCR_REQUIRED_UNAVAILABLE",
+    "EXTRACTION_FAILED",
+    "SOURCE_FILE_MISSING",
+    "INTERNAL_SERVER_ERROR",
+] as const;
+export type FileProcessErrorCode = (typeof FILE_PROCESS_ERROR_CODE_VALUES)[number];
+
+export type GraphFileListItem = {
+    id: string;
+    project_id: string;
+    name: string;
+    file_key: string;
+    status: "processing" | "processed" | "failed";
+    process_step:
+        | "pending"
+        | "preprocessing"
+        | "metadata"
+        | "chunking"
+        | "extracting"
+        | "deduplicating"
+        | "saving"
+        | "completed"
+        | "failed";
+    process_error_code: FileProcessErrorCode | null;
+    created_at: string | null;
+    updated_at: string | null;
+};
+
+export type GraphDetailFileRecord = GraphFileListItem;
+
+export type ApiBatchStepProgressLike = {
+    waiting_worker?: string;
+    deleting?: string;
+    pending?: string;
+    preprocessing?: string;
+    metadata?: string;
+    chunking?: string;
+    extracting?: string;
+    deduplicating?: string;
+    saving?: string;
+    describing?: string;
+    completed?: string;
+    failed?: string;
+};
+
+export type GraphRecentChatItem = {
+    id: string;
+    title: string;
+    isPinned: boolean;
+    updatedAt: string | null;
+};
+
+export type GraphListItem = {
+    graph_id: string;
+    graph_name: string;
+    graph_state: "ready" | "update";
+    organization_id: string | null;
+    team_id: string | null;
+    team_name: string | null;
+    scope: "organization" | "team" | "private";
+    hidden: boolean;
+    has_failed_files: boolean;
+    process_step?: ApiBatchStepProgressLike;
+    process_percentage?: number;
+    process_estimated_duration?: number;
+    process_time_remaining?: number;
+    recent_chats: GraphRecentChatItem[];
+};
+
+export type TextUnitRecord = {
+    id: string;
+    project_file_id: string;
+    text: string;
+    start_page: number | null;
+    end_page: number | null;
+    file_name: string;
+    file_type: string;
+    mime_type: string;
+    preview: TextUnitPreview;
+    created_at: string | null;
+    updated_at: string | null;
+};
+
+export type TextUnitPreview =
+    | {
+          type: "pdf_pages";
+          start_page: number;
+          end_page: number;
+          pages: Array<{
+              page: number;
+              image_path: string;
+          }>;
+      }
+    | {
+          type: "none";
+      };
+
+export type SourceReferenceUnitRecord = {
+    id: string;
+    project_file_id: string;
+    start_page: number | null;
+    end_page: number | null;
+    file_name: string;
+    file_type: string;
+    mime_type: string;
+    created_at: string | null;
+    updated_at: string | null;
+};
+
+export type SourceReferenceChunk =
+    | {
+          type: "text";
+          chunk_id: number;
+          text: string;
+      }
+    | {
+          type: "image";
+          chunk_id: number;
+          image_path: string;
+          alt: string;
+      };
+
+export type SourceReferencePdfRegionRect = {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+};
+
+export type SourceReferencePdfRegion = {
+    kind: "text" | "image" | "page";
+    chunk_id: number;
+    page: number;
+    width: number;
+    height: number;
+    image_path: string;
+    crop: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    };
+    rectangles: SourceReferencePdfRegionRect[];
+};
+
+export type SourceReferenceRecord = {
+    source_id: string;
+    description: string;
+    unit: SourceReferenceUnitRecord;
+    chunks: SourceReferenceChunk[];
+    pdf_regions: SourceReferencePdfRegion[];
+};
+
+export type SourceReferenceBatchSuccessData = {
+    items: SourceReferenceRecord[];
+    missing_source_ids: string[];
+};
+
+export type ChatRequestBody =
+    | {
+          id: string;
+          message: ChatUIMessage;
+          deep?: boolean;
+          modelId?: string;
+      }
+    | {
+          id: string;
+          messages: ChatUIMessage[];
+          deep?: boolean;
+          modelId?: string;
+      };
+
+export type ChatSummaryItem = {
+    id: string;
+    title: string;
+    isPinned: boolean;
+    updatedAt: string | null;
+};
+
+export type ChatListSuccessData = {
+    items: ChatSummaryItem[];
+    hasMore: boolean;
+};
+
+export type SearchProjectItem = {
+    id: string;
+    name: string;
+    scope: "organization" | "team" | "private";
+    teamId: string | null;
+    teamName: string | null;
+};
+
+export type SearchTeamItem = {
+    id: string;
+    name: string;
+};
+
+export type SearchGraphChatItem = {
+    id: string;
+    title: string;
+    isPinned: boolean;
+    targetType: "graph";
+    projectId: string;
+    projectName: string;
+    scope: "organization" | "team" | "private";
+    teamId: string | null;
+    teamName: string | null;
+};
+
+export type SearchTeamChatItem = {
+    id: string;
+    title: string;
+    isPinned: boolean;
+    targetType: "team";
+    projectId: null;
+    projectName: null;
+    scope: "team";
+    teamId: string;
+    teamName: string;
+};
+
+export type SearchChatItem = SearchGraphChatItem | SearchTeamChatItem;
+
+export type SearchSuccessData = {
+    projects: SearchProjectItem[];
+    teams: SearchTeamItem[];
+    chats: SearchChatItem[];
+};
+
+export type ChatHistoryRecord = {
+    id: string;
+    title: string;
+    messages: ChatUIMessage[];
+};
+
+export type ChatCreateSuccessData = {
+    id: string;
+    message: ChatUIMessage;
+};
+
+export type GraphDetailSuccessData = {
+    project_id: string;
+    project_name: string;
+    project_state: "ready" | "update";
+    description: string | null;
+    hidden: boolean;
+    organization_id: string | null;
+    team_id: string | null;
+    team_name: string | null;
+    scope: "organization" | "team" | "private";
+    files: GraphFileListItem[];
+};
+
+export type GraphCreateSuccessData = {
+    graph: GraphRecord;
+    files: GraphFileRecord[];
+    workflowRunId: string | null;
+};
+
+export type GraphPatchSuccessData = {
+    graph: GraphRecord;
+};
+
+export type GraphAddFilesSuccessData = {
+    graph: GraphRecord;
+    addedFiles: GraphFileRecord[];
+    workflowRunId: string | null;
+};
+
+export type GraphDeleteFilesSuccessData = {
+    graph: GraphRecord;
+    removedFileKeys: string[];
+    workflowRunId: string | null;
+};
+
+export type GraphFileRetrySuccessData = {
+    graph: GraphRecord;
+    fileId: string;
+    workflowRunId: string | null;
+};
+
+export type GraphFileDownloadSuccessData = {
+    url: string;
+};
+
+export type GraphDeleteSuccessData = {
+    graphId: string;
+    deletedGraphCount: number;
+    deletedFileCount: number;
+    s3Cleanup: {
+        attemptedKeyCount: number;
+        failedKeyCount: number;
+    };
+    warnings?: string[];
+};
+
+export type GraphSuggestionKind = "source_correction" | "entity_addition";
+export type GraphSuggestionStatus = "pending" | "applied";
+
+export type GraphSuggestionRecord = {
+    id: string;
+    graph_id: string;
+    kind: GraphSuggestionKind;
+    status: GraphSuggestionStatus;
+    source_id: string | null;
+    entity_id: string | null;
+    reference: string;
+    suggestion: string;
+    suggested_by_user_id: string;
+    chat_id: string | null;
+    message_id: string | null;
+    applied_by_user_id: string | null;
+    applied_source_id: string | null;
+    applied_at: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+export type GraphSuggestionApplySuccessData = {
+    suggestion: GraphSuggestionRecord;
+    sourceId: string;
+    workflowRunId: string | null;
+    warnings?: string[];
+};
+
+export const GraphCreateFieldsSchema = Schema.Struct({
+    name: Schema.String,
+    description: Schema.optional(Schema.String),
+    teamId: Schema.optional(Schema.String),
+    graphId: Schema.optional(Schema.String),
+    hidden: Schema.optional(Schema.Union([Schema.Boolean, Schema.Literals(["true", "false"] as const)])),
+});
+export type GraphCreateFields = MutableSchemaType<Schema.Schema.Type<typeof GraphCreateFieldsSchema>>;
+
+export const GraphPatchFieldsSchema = Schema.Struct({
+    name: Schema.optional(Schema.String),
+    description: Schema.optional(Schema.String),
+    hidden: Schema.optional(Schema.Union([Schema.Boolean, Schema.Literals(["true", "false"] as const)])),
+});
+export type GraphPatchFields = MutableSchemaType<Schema.Schema.Type<typeof GraphPatchFieldsSchema>>;
+
+export const GraphAddUrlFieldsSchema = Schema.Struct({
+    urls: Schema.Array(Schema.String),
+});
+export type GraphAddUrlFields = MutableSchemaType<Schema.Schema.Type<typeof GraphAddUrlFieldsSchema>>;
+
+export const GraphDeleteFilesFieldsSchema = Schema.Struct({
+    fileKeys: Schema.optional(Schema.Union([Schema.String, Schema.Array(Schema.String)])),
+});
+export type GraphDeleteFilesFields = MutableSchemaType<Schema.Schema.Type<typeof GraphDeleteFilesFieldsSchema>>;
+
+export type GraphDetailResponse = ApiResponse<
+    GraphDetailSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "TEAM_NOT_FOUND"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphListResponse = ApiResponse<GraphListItem[], "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;
+
+export type GraphFilesResponse = ApiResponse<
+    GraphFileListItem[],
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "TEAM_NOT_FOUND"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphCreateResponse = ApiResponse<
+    GraphCreateSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "TEAM_NOT_FOUND"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "UNSUPPORTED_FILE_TYPE"
+    | "UPLOAD_LIMIT_EXCEEDED"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphPatchResponse = ApiResponse<
+    GraphPatchSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INVALID_NAME"
+    | "NO_CHANGES"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphAddFilesResponse = ApiResponse<
+    GraphAddFilesSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "UNSUPPORTED_FILE_TYPE"
+    | "UPLOAD_LIMIT_EXCEEDED"
+    | "NO_CHANGES"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphDeleteFilesResponse = ApiResponse<
+    GraphDeleteFilesSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INVALID_FILE_IDS"
+    | "NO_CHANGES"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphFileRetryResponse = ApiResponse<
+    GraphFileRetrySuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INVALID_FILE_IDS"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphFileDownloadResponse = ApiResponse<
+    GraphFileDownloadSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INVALID_FILE_IDS"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphDeleteResponse = ApiResponse<
+    GraphDeleteSuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphSuggestionListResponse = ApiResponse<
+    GraphSuggestionRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphSuggestionDeleteResponse = ApiResponse<
+    null,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "SUGGESTION_NOT_FOUND"
+    | "INVALID_SUGGESTION"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphSuggestionApplyResponse = ApiResponse<
+    GraphSuggestionApplySuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "SUGGESTION_NOT_FOUND"
+    | "INVALID_SUGGESTION"
+    | "SOURCE_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type TextUnitResponse = ApiResponse<
+    TextUnitRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "TEXT_UNIT_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type SourceReferenceResponse = ApiResponse<
+    SourceReferenceRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "SOURCE_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type SourceReferenceBatchResponse = ApiResponse<
+    SourceReferenceBatchSuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type ChatListResponse = ApiResponse<
+    ChatListSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "CHAT_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type ChatDetailResponse = ApiResponse<
+    ChatHistoryRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "CHAT_NOT_FOUND"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type ChatCreateResponse = ApiResponse<
+    ChatCreateSuccessData,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "GRAPH_NOT_FOUND"
+    | "INVALID_GRAPH_OWNER"
+    | "INVALID_CHAT_REQUEST"
+    | "CHAT_NOT_FOUND"
+    | "CHAT_CONTEXT_TOO_LARGE"
+    | "INTERNAL_SERVER_ERROR"
+>;
+
+export type SearchResponse = ApiResponse<SearchSuccessData, "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;
+
+export type ChatLibraryItem = SearchChatItem & {
+    updatedAt: string | null;
+};
+
+export type ChatLibrarySuccessData = {
+    items: ChatLibraryItem[];
+    hasMore: boolean;
+};
+
+export type PinnedChatsResponse = ApiResponse<
+    ChatLibrarySuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type ArchivedChatsResponse = ApiResponse<
+    ChatLibrarySuccessData,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type GraphPromptListRecord = PromptRecord;
