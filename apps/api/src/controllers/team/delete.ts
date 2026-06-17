@@ -1,15 +1,13 @@
-import { db } from "@kiwi/db";
 import * as Effect from "effect/Effect";
+import { tryDb, type Database } from "@kiwi/db/effect";
 import { teamTable } from "@kiwi/db/tables/auth";
 import { filesTable, graphTable } from "@kiwi/db/tables/graph";
 import { deleteFile, listFiles } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
-import type { TeamDeleteSuccessData } from "@kiwi/contracts/teams";
-import { API_ERROR_CODES } from "@kiwi/contracts/errors";
+import { internalServerError, teamNotFoundError } from "@kiwi/contracts/errors";
 import { and, eq, inArray } from "drizzle-orm";
 import { env } from "../../env";
 import { chunk } from "../../lib/array";
-import { collectGraphClosure } from "../../lib/graph";
 import { requireOrganizationAdmin } from "../../lib/team/access";
 import { cancelActiveFileProcessingWorkflowRuns, cancelActiveGraphWorkflowRuns } from "../../lib/workflow-cancellation";
 import type { AuthUser } from "../../middleware/auth";
@@ -21,48 +19,70 @@ type TeamDeleteScope = {
     organizationId: string;
 };
 
-function getTeamDeleteScope(user: AuthUser, teamId: string): Effect.Effect<TeamDeleteScope, unknown> {
+function collectTeamGraphIds(rootGraphIds: string[]) {
+    return Effect.gen(function* () {
+        if (rootGraphIds.length === 0) {
+            return [];
+        }
+
+        const graphIds = new Set(rootGraphIds);
+        let frontier = [...graphIds];
+
+        while (frontier.length > 0) {
+            const childRows = yield* tryDb((db) =>
+                db.select({ id: graphTable.id }).from(graphTable).where(inArray(graphTable.graphId, frontier))
+            );
+
+            const nextFrontier: string[] = [];
+            for (const child of childRows) {
+                if (graphIds.has(child.id)) {
+                    continue;
+                }
+
+                graphIds.add(child.id);
+                nextFrontier.push(child.id);
+            }
+
+            frontier = nextFrontier;
+        }
+
+        return [...graphIds];
+    });
+}
+
+function getTeamDeleteScope(user: AuthUser, teamId: string) {
     return Effect.gen(function* () {
         const membership = yield* requireOrganizationAdmin(user);
         const organizationId = membership.organizationId;
 
-        const [team] = yield* Effect.tryPromise({
-            try: () =>
-                db
-                    .select({ id: teamTable.id })
-                    .from(teamTable)
-                    .where(and(eq(teamTable.id, teamId), eq(teamTable.organizationId, organizationId)))
-                    .limit(1),
-            catch: (error) => error,
-        });
+        const [team] = yield* tryDb((db) =>
+            db
+                .select({ id: teamTable.id })
+                .from(teamTable)
+                .where(and(eq(teamTable.id, teamId), eq(teamTable.organizationId, organizationId)))
+                .limit(1)
+        );
 
         if (!team) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.TEAM_NOT_FOUND));
+            return yield* Effect.fail(teamNotFoundError());
         }
 
-        const directGraphRows = yield* Effect.tryPromise({
-            try: () => db.select({ id: graphTable.id }).from(graphTable).where(eq(graphTable.teamId, teamId)),
-            catch: (error) => error,
-        });
-
-        const graphIds = yield* collectGraphClosure(
-            db,
-            directGraphRows.map((graph) => graph.id)
+        const directGraphRows = yield* tryDb((db) =>
+            db.select({ id: graphTable.id }).from(graphTable).where(eq(graphTable.teamId, teamId))
         );
+        const graphIds = yield* collectTeamGraphIds(directGraphRows.map((graph) => graph.id));
         const fileRows =
             graphIds.length > 0
-                ? yield* Effect.tryPromise({
-                      try: () =>
-                          db
-                              .select({
-                                  id: filesTable.id,
-                                  graphId: filesTable.graphId,
-                                  key: filesTable.key,
-                              })
-                              .from(filesTable)
-                              .where(inArray(filesTable.graphId, graphIds)),
-                      catch: (error) => error,
-                  })
+                ? yield* tryDb((db) =>
+                      db
+                          .select({
+                              id: filesTable.id,
+                              graphId: filesTable.graphId,
+                              key: filesTable.key,
+                          })
+                          .from(filesTable)
+                          .where(inArray(filesTable.graphId, graphIds))
+                  )
                 : [];
 
         return {
@@ -73,7 +93,7 @@ function getTeamDeleteScope(user: AuthUser, teamId: string): Effect.Effect<TeamD
     });
 }
 
-function cancelTeamGraphWorkflows(teamId: string, scope: TeamDeleteScope): Effect.Effect<void, unknown> {
+function cancelTeamGraphWorkflows(teamId: string, scope: TeamDeleteScope): Effect.Effect<void, unknown, Database> {
     const fileIdsByGraphId = new Map<string, string[]>();
     for (const file of scope.fileRows) {
         const fileIds = fileIdsByGraphId.get(file.graphId) ?? [];
@@ -102,7 +122,7 @@ function cancelTeamGraphWorkflows(teamId: string, scope: TeamDeleteScope): Effec
                     error,
                 });
 
-                return Effect.fail(new Error(API_ERROR_CODES.INTERNAL_SERVER_ERROR));
+                return Effect.fail(internalServerError());
             },
             onSuccess: () => Effect.void,
         }
@@ -110,29 +130,29 @@ function cancelTeamGraphWorkflows(teamId: string, scope: TeamDeleteScope): Effec
 }
 
 function deleteTeamRow(teamId: string, scope: TeamDeleteScope) {
-    return Effect.tryPromise({
-        try: () =>
-            db.transaction(async (tx) => {
-                const [team] = await tx
+    return tryDb((db) =>
+        db.transaction((tx) =>
+            Effect.gen(function* () {
+                const [team] = yield* tx
                     .select({ id: teamTable.id })
                     .from(teamTable)
                     .where(and(eq(teamTable.id, teamId), eq(teamTable.organizationId, scope.organizationId)))
                     .limit(1);
 
                 if (!team) {
-                    throw new Error(API_ERROR_CODES.TEAM_NOT_FOUND);
+                    return yield* Effect.fail(teamNotFoundError());
                 }
 
-                await tx.delete(teamTable).where(eq(teamTable.id, teamId));
+                yield* tx.delete(teamTable).where(eq(teamTable.id, teamId));
 
                 return {
                     teamId,
                     graphIds: scope.graphIds,
                     fileRows: scope.fileRows,
                 };
-            }),
-        catch: (error) => error,
-    });
+            })
+        )
+    );
 }
 
 function cleanupTeamS3Objects(input: {

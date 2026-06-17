@@ -13,10 +13,10 @@ export type CitationResolver = (citation: CitationFence) => Promise<ResolvedCita
 export const DEFAULT_CITATION_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
 export const DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES = 2048;
 
-function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, unknown> {
+function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, Error> {
     return Effect.tryPromise({
         try: thunk,
-        catch: (error) => error,
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
 }
 
@@ -129,7 +129,7 @@ function normalizeCitationFencesInTextDetailed(
     text: string,
     resolveCitation: CitationResolver,
     partIndex: number
-): Effect.Effect<NormalizedCitationText, unknown> {
+): Effect.Effect<NormalizedCitationText, Error> {
     const segments = splitTextWithCitationFences(text);
     const hasLegacyCitation = segments.some(
         (segment) => segment.type === "citation" && needsCanonicalCitation(segment.citation)
@@ -176,7 +176,7 @@ function normalizeCitationFencesInTextDetailed(
 export function normalizeCitationFencesInText(
     text: string,
     resolveCitation: CitationResolver
-): Effect.Effect<string, unknown> {
+): Effect.Effect<string, Error> {
     return Effect.gen(function* () {
         const normalized = yield* normalizeCitationFencesInTextDetailed(text, resolveCitation, 0);
         return normalized.text;
@@ -186,7 +186,7 @@ export function normalizeCitationFencesInText(
 export function normalizeMessageCitationFences(
     parts: MessagePart[],
     resolveCitation: CitationResolver
-): Effect.Effect<{ parts: MessagePart[]; changed: boolean; unresolvedCitations: UnresolvedCitation[] }, unknown> {
+): Effect.Effect<{ parts: MessagePart[]; changed: boolean; unresolvedCitations: UnresolvedCitation[] }, Error> {
     return Effect.gen(function* () {
         let changed = false;
         const normalized = yield* Effect.all(

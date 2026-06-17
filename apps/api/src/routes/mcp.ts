@@ -3,6 +3,7 @@ import { linkifyResearchCitations, runMcpResearch } from "@kiwi/ai/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Elysia } from "elysia";
+import { DatabaseLayer, runDatabaseEffect, type Database } from "@kiwi/db/effect";
 import * as Effect from "effect/Effect";
 import { z } from "zod/v4";
 import { assertCanViewGraphWithRootOwner } from "../lib/graph/access";
@@ -47,7 +48,7 @@ function jsonRpcErrorResponse(status: number, code: number, message: string) {
     );
 }
 
-function assertMcpGraphViewPermission(headers: Headers): Effect.Effect<void, Error> {
+function assertMcpGraphViewPermission(headers: Headers): Effect.Effect<void, Error, Database> {
     return Effect.matchEffect(assertPermissions(headers, { graph: ["view"] }, { apiKeyOnly: true }), {
         onFailure: (error) => {
             if (error instanceof Error && error.message === API_ERROR_CODES.FORBIDDEN) {
@@ -90,9 +91,9 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
             version: "0.2.0",
         });
         server.tool("get_graphs", "List the graphs/projects that the current API key can access.", async () => {
-            await Effect.runPromise(assertMcpGraphViewPermission(request.headers));
+            await runDatabaseEffect(assertMcpGraphViewPermission(request.headers));
 
-            const graphs = await Effect.runPromise(listAccessibleGraphs(user));
+            const graphs = await runDatabaseEffect(listAccessibleGraphs(user));
 
             return {
                 content: [
@@ -116,10 +117,10 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
             "Research a question against one graph/project and return a Markdown answer with document links.",
             researchInput,
             async ({ graphId, question }) => {
-                await Effect.runPromise(assertMcpGraphViewPermission(request.headers));
-                const { rootOwner } = await Effect.runPromise(assertMcpCanViewGraph(user, graphId));
+                await runDatabaseEffect(assertMcpGraphViewPermission(request.headers));
+                const { rootOwner } = await runDatabaseEffect(assertMcpCanViewGraph(user, graphId));
 
-                const { client, promptGuidance, tools } = await Effect.runPromise(
+                const { client, promptGuidance, tools } = await runDatabaseEffect(
                     getGraphResearchRuntime(graphId, {
                         toolset: "mcp",
                         user,
@@ -127,7 +128,7 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
                     })
                 );
 
-                const result = await Effect.runPromise(
+                const result = await runDatabaseEffect(
                     runMcpResearch({
                         model: client.text!,
                         question,
@@ -137,10 +138,13 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
                         providerOptions: getProviderOptions({ thinking: "medium" }),
                         transformAnswer: (text) =>
                             linkifyResearchCitations(text, (citation) =>
-                                resolveCitationDocumentLink(graphId, citation, {
-                                    baseUrl: getPublicApiBaseUrl(request, env.API_URL),
-                                    signed: true,
-                                })
+                                Effect.provide(
+                                    resolveCitationDocumentLink(graphId, citation, {
+                                        baseUrl: getPublicApiBaseUrl(request, env.API_URL),
+                                        signed: true,
+                                    }),
+                                    DatabaseLayer
+                                )
                             ),
                     })
                 );

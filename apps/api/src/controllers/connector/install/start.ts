@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import type { Database } from "@kiwi/db/effect";
 import type { ConnectorConnectQuery } from "@kiwi/contracts/connectors";
 import { API_ERROR_CODES } from "@kiwi/contracts/errors";
 import { requireOrganizationAdmin, requireTeamGraphCreateAccess } from "../../../lib/team/access";
@@ -7,7 +8,7 @@ import { signConnectorState } from "../../../lib/connectors";
 import type { AuthUser } from "../../../middleware/auth";
 import { connectorApiErrorOptions, toApiError } from "../../_shared/api-effect"
 
-export function startConnectorInstall(input: { user: AuthUser; connectorId: string; query: ConnectorConnectQuery }) {
+export function startConnectorInstall(input: { user: AuthUser; connectorId: string; query: ConnectorConnectQuery }): Effect.Effect<{ redirectUrl: string }, ReturnType<typeof toApiError>, Database> {
     return Effect.mapError(Effect.gen(function* () {
         const connector = yield* requireActiveConnector(input.connectorId);
         let owner: { organizationId: string; teamId?: string };

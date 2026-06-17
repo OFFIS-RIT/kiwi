@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import { API_ERROR_CODES } from "../../types";
 
+const runApiTestEffect = <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+    Effect.runPromise(effect as Effect.Effect<T, E, never>);
+
 const resolveRequiredModelAdapterMock = mock(() => Effect.succeed({ adapter: {} }));
 
 const { assertConfiguredUploadModels, inferSupportedUploadedFiles, unsupportedUploadResponse } =
@@ -40,7 +43,7 @@ describe("inferSupportedUploadedFiles", () => {
             throw new Error("expected supported upload");
         }
 
-        await Effect.runPromise(assertConfiguredUploadModels({
+        await runApiTestEffect(assertConfiguredUploadModels({
             organizationId: "org-1",
             files: result.files,
             secret: "test-secret",

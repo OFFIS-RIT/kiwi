@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { error as logError } from "@kiwi/logger";
 import { sql } from "drizzle-orm";
 import { ow } from "../openworkflow";
@@ -42,7 +42,7 @@ function isAlreadyTerminalCancelError(error: unknown) {
     );
 }
 
-function findActiveWorkflowRunIds(context: CancellationContext): Effect.Effect<string[], unknown> {
+function findActiveWorkflowRunIds(context: CancellationContext): Effect.Effect<string[], DatabaseError, Database> {
     if (context.graphIds.length === 0) {
         return Effect.succeed([]);
     }
@@ -57,28 +57,26 @@ function findActiveWorkflowRunIds(context: CancellationContext): Effect.Effect<s
             : sql``;
 
     return Effect.map(
-        Effect.tryPromise({
-            try: () =>
-                db.execute(sql<WorkflowRunIdRow>`
-                    SELECT "id"
-                    FROM openworkflow.workflow_runs
-                    WHERE "namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
-                      AND "status" IN (${textList(ACTIVE_WORKFLOW_STATUSES)})
-                      AND "input"->>'graphId' IN (${textList(context.graphIds)})
-                      ${fileFilter}
-                      ${workflowNameFilter}
-                    ORDER BY "created_at" DESC
-                `),
-            catch: (error) => error,
-        }),
-        (result) => [...new Set((result.rows as WorkflowRunIdRow[]).map((row) => row.id))]
+        tryDb((db) =>
+            db.execute(sql<WorkflowRunIdRow>`
+                SELECT "id"
+                FROM openworkflow.workflow_runs
+                WHERE "namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
+                  AND "status" IN (${textList(ACTIVE_WORKFLOW_STATUSES)})
+                  AND "input"->>'graphId' IN (${textList(context.graphIds)})
+                  ${fileFilter}
+                  ${workflowNameFilter}
+                ORDER BY "created_at" DESC
+            `)
+        ),
+        (rows) => [...new Set((rows as readonly WorkflowRunIdRow[]).map((row) => row.id))]
     );
 }
 
 function cancelWorkflowRunIds(
     workflowRunIds: string[],
     context: CancellationContext
-): Effect.Effect<WorkflowCancellationSummary, unknown> {
+): Effect.Effect<WorkflowCancellationSummary, unknown, Database> {
     return Effect.gen(function* () {
         let canceledCount = 0;
         let skippedCount = 0;
@@ -129,7 +127,7 @@ function cancelWorkflowRunIds(
     });
 }
 
-function cancelActiveWorkflowRuns(context: CancellationContext): Effect.Effect<WorkflowCancellationSummary, unknown> {
+function cancelActiveWorkflowRuns(context: CancellationContext): Effect.Effect<WorkflowCancellationSummary, unknown, Database> {
     return Effect.gen(function* () {
         const seenWorkflowRunIds = new Set<string>();
         let canceledCount = 0;
@@ -173,14 +171,14 @@ function cancelActiveWorkflowRuns(context: CancellationContext): Effect.Effect<W
     });
 }
 
-export function cancelActiveGraphWorkflowRuns(graphIds: string[]): Effect.Effect<WorkflowCancellationSummary, unknown> {
+export function cancelActiveGraphWorkflowRuns(graphIds: string[]): Effect.Effect<WorkflowCancellationSummary, unknown, Database> {
     return cancelActiveWorkflowRuns({ graphIds });
 }
 
 export function cancelActiveFileProcessingWorkflowRuns(
     graphId: string,
     fileIds: string[]
-): Effect.Effect<WorkflowCancellationSummary, unknown> {
+): Effect.Effect<WorkflowCancellationSummary, unknown, Database> {
     if (fileIds.length === 0) {
         return Effect.succeed({
             requestedCount: 0,

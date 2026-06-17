@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import type { Database } from "@kiwi/db/effect";
+import { useWorkerDb, useWorkerDbVoid } from "./effect";
 import { filesTable, type FileProcessStatus, type FileProcessStep } from "@kiwi/db/tables/graph";
 import type { FileProcessErrorCode } from "@kiwi/contracts/routes";
 import { eq } from "drizzle-orm";
@@ -9,8 +10,8 @@ export function updateFileProcessingState(
     processStep: FileProcessStep,
     status: FileProcessStatus,
     processErrorCode?: FileProcessErrorCode | null
-): Effect.Effect<void, unknown> {
-    return Effect.tryPromise(() =>
+): Effect.Effect<void, unknown, Database> {
+    return useWorkerDbVoid((db) =>
         db
             .update(filesTable)
             .set({
@@ -23,18 +24,13 @@ export function updateFileProcessingState(
                       : { processErrorCode: null }),
             })
             .where(eq(filesTable.id, fileId))
-            .then(() => undefined)
     );
 }
 
-export function stopIfFileDeleted(fileId: string): Effect.Effect<boolean, unknown> {
+export function stopIfFileDeleted(fileId: string): Effect.Effect<boolean, unknown, Database> {
     return Effect.gen(function* () {
-        const [file] = yield* Effect.tryPromise(() =>
-            db
-                .select({ deleted: filesTable.deleted })
-                .from(filesTable)
-                .where(eq(filesTable.id, fileId))
-                .limit(1)
+        const [file] = yield* useWorkerDb((db) =>
+            db.select({ deleted: filesTable.deleted }).from(filesTable).where(eq(filesTable.id, fileId)).limit(1)
         );
 
         if (file?.deleted) {

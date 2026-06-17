@@ -16,7 +16,7 @@ import {
 } from "@opentelemetry/semantic-conventions";
 import * as Effect from "effect/Effect";
 import { shapeFields } from "./normalize";
-import type { LogFields, LogLevel, LoggerInstance } from "./types";
+import { LoggerError, type LogFields, type LogLevel, type LoggerInstance } from "./types";
 
 export type OpenTelemetryLoggerOptions = {
     serviceName: string;
@@ -149,12 +149,18 @@ class OpenTelemetryLogger implements LoggerInstance {
         this.emit("fatal", message, fields);
     }
 
-    flush(): Effect.Effect<void, unknown> {
-        return Effect.tryPromise(() => this.provider.forceFlush());
+    flush(): Effect.Effect<void, LoggerError> {
+        return Effect.tryPromise({
+            try: () => this.provider.forceFlush(),
+            catch: (cause) => new LoggerError("flush", { cause }),
+        });
     }
 
-    shutdown(): Effect.Effect<void, unknown> {
-        return Effect.tryPromise(() => this.provider.shutdown());
+    shutdown(): Effect.Effect<void, LoggerError> {
+        return Effect.tryPromise({
+            try: () => this.provider.shutdown(),
+            catch: (cause) => new LoggerError("shutdown", { cause }),
+        });
     }
 }
 

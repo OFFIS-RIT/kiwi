@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
+const runApiTestEffect = <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+    Effect.runPromise(effect as Effect.Effect<T, E, never>);
 
 type DbRow = Record<string, unknown>;
 
@@ -32,9 +34,14 @@ mock.module("@kiwi/auth/server", () => ({
     getDefaultOrganizationId: () => "org-1",
 }));
 
-mock.module("@kiwi/db", () => ({
-    db: {
+mock.module("@kiwi/db/effect", () => ({
+    Database: Effect.succeed({
         select: () => createSelectQuery(),
+    }),
+    DatabaseError: class DatabaseError extends Error {},
+    tryDb: (thunk: (db: { select: typeof createSelectQuery }) => unknown) => {
+        const result = thunk({ select: () => createSelectQuery() });
+        return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
     },
 }));
 
@@ -142,44 +149,44 @@ describe("graph access", () => {
         const graph = buildTeamGraph();
         queueTeamGraphAccess(graph, organizationAdminMembership);
 
-        await expect(Effect.runPromise(assertCanPatchGraph(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanPatchGraph(buildUser(), graph.id))).resolves.toEqual(graph);
     });
 
     test("allows team admins to mutate team graphs", async () => {
         const graph = buildTeamGraph();
         queueTeamGraphAccess(graph, organizationMemberMembership, teamAdminRole);
 
-        await expect(Effect.runPromise(assertCanPatchGraph(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanPatchGraph(buildUser(), graph.id))).resolves.toEqual(graph);
     });
 
     test("allows team moderators to manage team graphs and graph files", async () => {
         const graph = buildTeamGraph();
         queueTeamGraphAccess(graph, organizationMemberMembership, teamModeratorRole);
 
-        await expect(Effect.runPromise(assertCanManageGraphFiles(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanManageGraphFiles(buildUser(), graph.id))).resolves.toEqual(graph);
 
         queueTeamGraphAccess(graph, organizationMemberMembership, teamModeratorRole);
-        await expect(Effect.runPromise(assertCanPatchGraph(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanPatchGraph(buildUser(), graph.id))).resolves.toEqual(graph);
 
         queueDbResults([graph], [team], [organizationMemberMembership], [teamModeratorRole]);
-        await expect(Effect.runPromise(assertCanCreateUnderParentGraph(buildUser(), graph.id))).resolves.toBeUndefined();
+        await expect(runApiTestEffect(assertCanCreateUnderParentGraph(buildUser(), graph.id))).resolves.toBeUndefined();
     });
 
     test("allows team members to view team graphs without managing files", async () => {
         const graph = buildTeamGraph();
         queueTeamGraphAccess(graph, organizationMemberMembership, teamMemberRole);
 
-        await expect(Effect.runPromise(assertCanViewGraph(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanViewGraph(buildUser(), graph.id))).resolves.toEqual(graph);
 
         queueTeamGraphAccess(graph, organizationMemberMembership, teamMemberRole);
-        await expect(Effect.runPromise(assertCanManageGraphFiles(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanManageGraphFiles(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("treats system admins as organization admins for existing organizations", async () => {
         const graph = buildTeamGraph();
         queueDbResults([graph], [graph], [team], [], [organization]);
 
-        await expect(Effect.runPromise(assertCanPatchGraph(buildUser({ isSystemAdmin: true, role: "admin" }), graph.id))).resolves.toEqual(
+        await expect(runApiTestEffect(assertCanPatchGraph(buildUser({ isSystemAdmin: true, role: "admin" }), graph.id))).resolves.toEqual(
             graph
         );
     });
@@ -188,7 +195,7 @@ describe("graph access", () => {
         const graph = buildTeamGraph({ teamId: null });
         queueDbResults([graph], [graph], [organizationMemberMembership]);
 
-        await expect(Effect.runPromise(assertCanPatchGraph(buildUser({ isSystemAdmin: true, role: "admin" }), graph.id))).resolves.toEqual(
+        await expect(runApiTestEffect(assertCanPatchGraph(buildUser({ isSystemAdmin: true, role: "admin" }), graph.id))).resolves.toEqual(
             graph
         );
     });
@@ -197,52 +204,52 @@ describe("graph access", () => {
         const graph = buildTeamGraph({ organizationId: null, teamId: null, userId: "user-1" });
         queueDbResults([graph], [graph]);
 
-        await expect(Effect.runPromise(assertCanPatchGraph(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanPatchGraph(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
 
         queueDbResults([graph], [graph]);
-        await expect(Effect.runPromise(assertCanManageGraphFiles(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanManageGraphFiles(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("allows personal graph owners to manage graph prompts", async () => {
         const graph = buildTeamGraph({ organizationId: null, teamId: null, userId: "user-1" });
         queueDbResults([graph], [graph]);
 
-        await expect(Effect.runPromise(assertCanManageGraphPrompts(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanManageGraphPrompts(buildUser(), graph.id))).resolves.toEqual(graph);
     });
 
     test("rejects graph prompt management for other users' personal graphs", async () => {
         const graph = buildTeamGraph({ organizationId: null, teamId: null, userId: "user-2" });
         queueDbResults([graph], [graph]);
 
-        await expect(Effect.runPromise(assertCanManageGraphPrompts(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanManageGraphPrompts(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("allows organization admins to manage user prompts outside their active organization", async () => {
         queueDbResults([{ userId: "user-1" }]);
 
         await expect(
-            Effect.runPromise(assertCanManageUserPrompts(buildUser({ activeOrganizationId: "org-1" }), "user-2"))
+            runApiTestEffect(assertCanManageUserPrompts(buildUser({ activeOrganizationId: "org-1" }), "user-2"))
         ).resolves.toBeUndefined();
     });
 
     test("rejects user prompt management for users outside administered organizations", async () => {
         queueDbResults([]);
 
-        await expect(Effect.runPromise(assertCanManageUserPrompts(buildUser(), "user-2"))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanManageUserPrompts(buildUser(), "user-2"))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("allows system admins to manage organization prompts", async () => {
         queueDbResults([organization]);
 
         await expect(
-            Effect.runPromise(assertCanManageOrganizationPrompts(buildUser({ isSystemAdmin: true, role: "admin" }), "org-1"))
+            runApiTestEffect(assertCanManageOrganizationPrompts(buildUser({ isSystemAdmin: true, role: "admin" }), "org-1"))
         ).resolves.toEqual(organization);
     });
 
     test("rejects organization prompt management for non-system-admins without touching the database", async () => {
         // No queued DB result: the permission gate must run before the org
         // lookup so non-admins cannot probe organization ID validity.
-        await expect(Effect.runPromise(assertCanManageOrganizationPrompts(buildUser(), "org-1"))).rejects.toThrow(
+        await expect(runApiTestEffect(assertCanManageOrganizationPrompts(buildUser(), "org-1"))).rejects.toThrow(
             API_ERROR_CODES.FORBIDDEN
         );
     });
@@ -251,7 +258,7 @@ describe("graph access", () => {
         queueDbResults([]);
 
         await expect(
-            Effect.runPromise(assertCanManageOrganizationPrompts(buildUser({ isSystemAdmin: true, role: "admin" }), "org-missing"))
+            runApiTestEffect(assertCanManageOrganizationPrompts(buildUser({ isSystemAdmin: true, role: "admin" }), "org-missing"))
         ).rejects.toThrow(API_ERROR_CODES.ORGANIZATION_NOT_FOUND);
     });
 
@@ -260,86 +267,86 @@ describe("graph access", () => {
 
         queueDbResults([graph], [graph], [organizationAdminMembership]);
 
-        await expect(Effect.runPromise(assertCanPatchGraph(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanPatchGraph(buildUser(), graph.id))).resolves.toEqual(graph);
 
         queueDbResults([graph], [graph], [organizationAdminMembership]);
-        await expect(Effect.runPromise(assertCanManageGraphFiles(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanManageGraphFiles(buildUser(), graph.id))).resolves.toEqual(graph);
 
         queueDbResults([graph], [organizationAdminMembership]);
-        await expect(Effect.runPromise(assertCanCreateUnderParentGraph(buildUser(), graph.id))).resolves.toBeUndefined();
+        await expect(runApiTestEffect(assertCanCreateUnderParentGraph(buildUser(), graph.id))).resolves.toBeUndefined();
     });
 
     test("allows organization admins to manage suggestions on organization graphs", async () => {
         const graph = buildTeamGraph({ teamId: null });
         queueDbResults([graph], [graph], [organizationAdminMembership]);
 
-        await expect(Effect.runPromise(assertCanManageGraphSuggestions(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanManageGraphSuggestions(buildUser(), graph.id))).resolves.toEqual(graph);
     });
 
     test("rejects organization members managing suggestions on organization graphs", async () => {
         const graph = buildTeamGraph({ teamId: null });
         queueDbResults([graph], [graph], [organizationMemberMembership]);
 
-        await expect(Effect.runPromise(assertCanManageGraphSuggestions(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanManageGraphSuggestions(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("allows organization admins to manage suggestions on team graphs", async () => {
         const graph = buildTeamGraph();
         queueTeamGraphAccess(graph, organizationAdminMembership);
 
-        await expect(Effect.runPromise(assertCanManageGraphSuggestions(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanManageGraphSuggestions(buildUser(), graph.id))).resolves.toEqual(graph);
     });
 
     test("allows team admins to manage suggestions on team graphs", async () => {
         const graph = buildTeamGraph();
         queueTeamGraphAccess(graph, organizationMemberMembership, teamAdminRole);
 
-        await expect(Effect.runPromise(assertCanManageGraphSuggestions(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanManageGraphSuggestions(buildUser(), graph.id))).resolves.toEqual(graph);
     });
 
     test("rejects team moderators and members managing suggestions on team graphs", async () => {
         const graph = buildTeamGraph();
         queueTeamGraphAccess(graph, organizationMemberMembership, teamModeratorRole);
 
-        await expect(Effect.runPromise(assertCanManageGraphSuggestions(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanManageGraphSuggestions(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
 
         queueTeamGraphAccess(graph, organizationMemberMembership, teamMemberRole);
-        await expect(Effect.runPromise(assertCanManageGraphSuggestions(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanManageGraphSuggestions(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("rejects suggestion management for personal graphs", async () => {
         const graph = buildTeamGraph({ organizationId: null, teamId: null, userId: "user-1" });
         queueDbResults([graph], [graph]);
 
-        await expect(Effect.runPromise(assertCanManageGraphSuggestions(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanManageGraphSuggestions(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("limits organization members to viewing organization graphs", async () => {
         const graph = buildTeamGraph({ teamId: null });
 
         queueDbResults([graph], [graph], [organizationMemberMembership]);
-        await expect(Effect.runPromise(assertCanViewGraph(buildUser(), graph.id))).resolves.toEqual(graph);
+        await expect(runApiTestEffect(assertCanViewGraph(buildUser(), graph.id))).resolves.toEqual(graph);
 
         queueDbResults([graph], [graph], [organizationMemberMembership]);
 
-        await expect(Effect.runPromise(assertCanPatchGraph(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanPatchGraph(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
 
         queueDbResults([graph], [graph], [organizationMemberMembership]);
-        await expect(Effect.runPromise(assertCanManageGraphFiles(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanManageGraphFiles(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
 
         queueDbResults([graph], [organizationMemberMembership]);
-        await expect(Effect.runPromise(assertCanCreateUnderParentGraph(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanCreateUnderParentGraph(buildUser(), graph.id))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 
     test("allows top-level graph creation for organization admins", async () => {
         queueDbResults([organizationAdminMembership]);
 
-        await expect(Effect.runPromise(assertCanCreateTopLevelGraph(buildUser()))).resolves.toEqual(organizationAdminMembership);
+        await expect(runApiTestEffect(assertCanCreateTopLevelGraph(buildUser()))).resolves.toEqual(organizationAdminMembership);
     });
 
     test("rejects top-level graph creation for organization members", async () => {
         queueDbResults([organizationMemberMembership]);
 
-        await expect(Effect.runPromise(assertCanCreateTopLevelGraph(buildUser()))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
+        await expect(runApiTestEffect(assertCanCreateTopLevelGraph(buildUser()))).rejects.toThrow(API_ERROR_CODES.FORBIDDEN);
     });
 });

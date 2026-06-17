@@ -1,13 +1,18 @@
 import * as Effect from "effect/Effect";
 import { type PromptRecord, NormalizedPromptBodySchema } from "@kiwi/contracts/prompts";
-import { invalidPromptError, promptLimitExceededError, retryableInternalError } from "@kiwi/contracts/errors";
+import { invalidPromptError, retryableInternalError } from "@kiwi/contracts/errors";
 import { decodeApiSchemaSync } from "@kiwi/contracts/schema";
 import { graphPromptsTable } from "@kiwi/db/tables/graph";
 import { organizationPromptsTable, teamPromptsTable, userPromptsTable } from "@kiwi/db/tables/auth";
-import { assertCanManageGraphPrompts, assertCanManageOrganizationPrompts, assertCanManageTeamPrompts, assertCanManageUserPrompts } from "../../lib/prompt-access";
-import { MAX_PROMPTS_PER_SCOPE } from "../../lib/prompt-limits";
+import type { Database } from "@kiwi/db/effect";
+import {
+    assertCanManageGraphPrompts,
+    assertCanManageOrganizationPrompts,
+    assertCanManageTeamPrompts,
+    assertCanManageUserPrompts,
+} from "../../lib/prompt-access";
 import type { AuthUser } from "../../middleware/auth";
-import { tryApiPromise, type ApiEffect } from "../_shared/api-effect";
+import { toApiError, type ApiEffect } from "../_shared/api-effect";
 
 const decodePromptBody = decodeApiSchemaSync(NormalizedPromptBodySchema);
 
@@ -52,25 +57,28 @@ export const graphPromptFields = {
     updatedAt: graphPromptsTable.updatedAt,
 };
 
-export function authorizePromptScope(user: AuthUser, scope: PromptScopeInput): ApiEffect<PromptScopeInput> {
-    return tryApiPromise(async () => {
-        switch (scope.kind) {
-            case "user": {
-                const userId = scope.userId === "me" ? user.id : scope.userId;
-                await Effect.runPromise(assertCanManageUserPrompts(user, userId));
-                return { kind: "user", userId };
+export function authorizePromptScope(user: AuthUser, scope: PromptScopeInput): ApiEffect<PromptScopeInput, never, Database> {
+    return Effect.mapError(
+        Effect.gen(function* () {
+            switch (scope.kind) {
+                case "user": {
+                    const userId = scope.userId === "me" ? user.id : scope.userId;
+                    yield* assertCanManageUserPrompts(user, userId);
+                    return { kind: "user" as const, userId };
+                }
+                case "team":
+                    yield* assertCanManageTeamPrompts(user, scope.teamId);
+                    return scope;
+                case "organization":
+                    yield* assertCanManageOrganizationPrompts(user, scope.organizationId);
+                    return scope;
+                case "graph":
+                    yield* assertCanManageGraphPrompts(user, scope.graphId);
+                    return scope;
             }
-            case "team":
-                await Effect.runPromise(assertCanManageTeamPrompts(user, scope.teamId));
-                return scope;
-            case "organization":
-                await Effect.runPromise(assertCanManageOrganizationPrompts(user, scope.organizationId));
-                return scope;
-            case "graph":
-                await Effect.runPromise(assertCanManageGraphPrompts(user, scope.graphId));
-                return scope;
-        }
-    });
+        }),
+        toApiError
+    );
 }
 
 export function normalizePrompt(rawPrompt: string): string {
@@ -81,14 +89,6 @@ export function normalizePrompt(rawPrompt: string): string {
     }
 }
 
-export function assertPromptCountBelowLimit(loadPromptIds: () => Promise<unknown[]>) {
-    return tryApiPromise(async () => {
-        const promptIds = await loadPromptIds();
-        if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
-            throw promptLimitExceededError();
-        }
-    });
-}
 
 export function toPromptResponse(row: PromptRow): PromptRecord {
     return {

@@ -28,7 +28,6 @@
         "ai": "catalog:",
         "better-auth": "catalog:",
         "better-auth-credentials-plugin": "catalog:",
-        "better-result": "catalog:",
         "drizzle-orm": "catalog:",
         "effect": "catalog:",
         "elysia": "1.4.28",

@@ -11,6 +11,15 @@ export type NormalizedLogPayload = {
     attributes: LogAttributes;
 };
 
+export class LoggerError extends Error {
+    readonly _tag = "LoggerError";
+
+    constructor(operation: string, options?: { cause?: unknown }) {
+        super(`Logger operation failed: ${operation}`, options);
+        this.name = "LoggerError";
+    }
+}
+
 export interface LoggerInstance {
     log(message: string, fields?: LogFields): void;
     debug(message: string, fields?: LogFields): void;
@@ -18,6 +27,6 @@ export interface LoggerInstance {
     warn(message: string, fields?: LogFields): void;
     error(message: string, fields?: LogFields): void;
     fatal(message: string, fields?: LogFields): void;
-    flush?(): Effect.Effect<void, unknown>;
-    shutdown?(): Effect.Effect<void, unknown>;
+    flush?(): Effect.Effect<void, LoggerError>;
+    shutdown?(): Effect.Effect<void, LoggerError>;
 }

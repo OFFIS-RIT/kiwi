@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import { roleIncludes } from "@kiwi/auth/permissions";
-import { db } from "@kiwi/db";
+import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { chatTable } from "@kiwi/db/tables/chats";
 import { teamMemberTable, teamTable } from "@kiwi/db/tables/auth";
 import { graphTable } from "@kiwi/db/tables/graph";
@@ -215,19 +215,23 @@ function toChatLibraryItem(row: ChatResultRow & { updatedAt: Date | null }): Cha
     };
 }
 
-function listAccessibleTeamIds(userId: string, organizationId: string) {
-    return Effect.tryPromise(async () => {
-        const rows = await db
-            .select({ teamId: teamMemberTable.teamId })
-            .from(teamMemberTable)
-            .innerJoin(teamTable, eq(teamTable.id, teamMemberTable.teamId))
-            .where(and(eq(teamMemberTable.userId, userId), eq(teamTable.organizationId, organizationId)));
-
-        return rows.map((row) => row.teamId);
-    });
+function listAccessibleTeamIds(
+    userId: string,
+    organizationId: string
+): Effect.Effect<string[], DatabaseError, Database> {
+    return Effect.map(
+        tryDb((db) =>
+            db
+                .select({ teamId: teamMemberTable.teamId })
+                .from(teamMemberTable)
+                .innerJoin(teamTable, eq(teamTable.id, teamMemberTable.teamId))
+                .where(and(eq(teamMemberTable.userId, userId), eq(teamTable.organizationId, organizationId)))
+        ),
+        (rows) => rows.map((row) => row.teamId)
+    );
 }
 
-export function searchWorkspace(user: AuthUser, rawQuery: string): Effect.Effect<SearchSuccessData, unknown> {
+export function searchWorkspace(user: AuthUser, rawQuery: string): Effect.Effect<SearchSuccessData, unknown, Database> {
     return Effect.gen(function* () {
         const query = rawQuery.trim();
         if (query.length < 2) {
@@ -264,92 +268,95 @@ export function searchWorkspace(user: AuthUser, rawQuery: string): Effect.Effect
         const teamScore = buildSearchScore(teamTable.name, query);
         const chatScore = buildSearchScore(chatTable.title, query);
 
-        const [projects, teams, chats] = yield* Effect.tryPromise(() =>
-            Promise.all([
-                db
-                    .select({
-                        id: graphTable.id,
-                        name: graphTable.name,
-                        scope: graphScope,
-                        teamId: graphTable.teamId,
-                        teamName: teamTable.name,
-                        score: projectScore,
-                    })
-                    .from(graphTable)
-                    .leftJoin(teamTable, eq(teamTable.id, graphTable.teamId))
-                    .where(
-                        and(
-                            isNull(graphTable.graphId),
-                            eq(graphTable.hidden, false),
-                            accessibleGraphWhere,
-                            buildSearchWhere(graphTable.name, query)
-                        )
-                    )
-                    .orderBy(desc(projectScore), asc(graphTable.name))
-                    .limit(SEARCH_LIMIT),
-                organizationAdmin
-                    ? db
-                          .select({
-                              id: teamTable.id,
-                              name: teamTable.name,
-                              score: teamScore,
-                          })
-                          .from(teamTable)
-                          .where(and(eq(teamTable.organizationId, organizationId), buildSearchWhere(teamTable.name, query)))
-                          .orderBy(desc(teamScore), asc(teamTable.name))
-                          .limit(SEARCH_LIMIT)
-                    : accessibleTeamIds.length > 0
-                      ? db
-                            .select({
-                                id: teamTable.id,
-                                name: teamTable.name,
-                                score: teamScore,
-                            })
-                            .from(teamTable)
-                            .where(
-                                and(
-                                    eq(teamTable.organizationId, organizationId),
-                                    inArray(teamTable.id, accessibleTeamIds),
-                                    buildSearchWhere(teamTable.name, query)
-                                )
+        const [projects, teams, chats] = yield* tryDb((db) =>
+            Effect.all(
+                [
+                    db
+                        .select({
+                            id: graphTable.id,
+                            name: graphTable.name,
+                            scope: graphScope,
+                            teamId: graphTable.teamId,
+                            teamName: teamTable.name,
+                            score: projectScore,
+                        })
+                        .from(graphTable)
+                        .leftJoin(teamTable, eq(teamTable.id, graphTable.teamId))
+                        .where(
+                            and(
+                                isNull(graphTable.graphId),
+                                eq(graphTable.hidden, false),
+                                accessibleGraphWhere,
+                                buildSearchWhere(graphTable.name, query)
                             )
-                            .orderBy(desc(teamScore), asc(teamTable.name))
-                            .limit(SEARCH_LIMIT)
-                      : Promise.resolve([]),
-                db
-                    .select({
-                        id: chatTable.id,
-                        title: chatTable.title,
-                        isPinned: sql<boolean>`${chatTable.pinnedAt} IS NOT NULL`,
-                        targetType: chatTable.scope,
-                        projectId: graphTable.id,
-                        projectName: graphTable.name,
-                        scope: chatScope,
-                        teamId: chatTeamId,
-                        teamName: chatTeamName,
-                        score: chatScore,
-                        updatedAt: chatTable.updatedAt,
-                    })
-                    .from(chatTable)
-                    .leftJoin(graphTable, eq(graphTable.id, chatTable.graphId))
-                    .leftJoin(chatGraphTeamTable, eq(chatGraphTeamTable.id, graphTable.teamId))
-                    .leftJoin(chatTargetTeamTable, eq(chatTargetTeamTable.id, chatTable.teamId))
-                    .where(
-                        and(
-                            eq(chatTable.userId, user.id),
-                            isNull(chatTable.archivedAt),
-                            accessibleChatWhere,
-                            buildSearchWhere(chatTable.title, query)
                         )
-                    )
-                    .orderBy(
-                        desc(chatScore),
-                        sql`case when ${chatTable.pinnedAt} is null then 1 else 0 end`,
-                        desc(chatTable.updatedAt),
-                        asc(chatTable.title)
-                    )
-                    .limit(SEARCH_LIMIT),
-            ])
+                        .orderBy(desc(projectScore), asc(graphTable.name))
+                        .limit(SEARCH_LIMIT),
+                    organizationAdmin
+                        ? db
+                              .select({
+                                  id: teamTable.id,
+                                  name: teamTable.name,
+                                  score: teamScore,
+                              })
+                              .from(teamTable)
+                              .where(and(eq(teamTable.organizationId, organizationId), buildSearchWhere(teamTable.name, query)))
+                              .orderBy(desc(teamScore), asc(teamTable.name))
+                              .limit(SEARCH_LIMIT)
+                        : accessibleTeamIds.length > 0
+                          ? db
+                                .select({
+                                    id: teamTable.id,
+                                    name: teamTable.name,
+                                    score: teamScore,
+                                })
+                                .from(teamTable)
+                                .where(
+                                    and(
+                                        eq(teamTable.organizationId, organizationId),
+                                        inArray(teamTable.id, accessibleTeamIds),
+                                        buildSearchWhere(teamTable.name, query)
+                                    )
+                                )
+                                .orderBy(desc(teamScore), asc(teamTable.name))
+                                .limit(SEARCH_LIMIT)
+                          : Effect.succeed([]),
+                    db
+                        .select({
+                            id: chatTable.id,
+                            title: chatTable.title,
+                            isPinned: sql<boolean>`${chatTable.pinnedAt} IS NOT NULL`,
+                            targetType: chatTable.scope,
+                            projectId: graphTable.id,
+                            projectName: graphTable.name,
+                            scope: chatScope,
+                            teamId: chatTeamId,
+                            teamName: chatTeamName,
+                            score: chatScore,
+                            updatedAt: chatTable.updatedAt,
+                        })
+                        .from(chatTable)
+                        .leftJoin(graphTable, eq(graphTable.id, chatTable.graphId))
+                        .leftJoin(chatGraphTeamTable, eq(chatGraphTeamTable.id, graphTable.teamId))
+                        .leftJoin(chatTargetTeamTable, eq(chatTargetTeamTable.id, chatTable.teamId))
+                        .where(
+                            and(
+                                eq(chatTable.userId, user.id),
+                                isNull(chatTable.archivedAt),
+                                accessibleChatWhere,
+                                buildSearchWhere(chatTable.title, query)
+                            )
+                        )
+                        .orderBy(
+                            desc(chatScore),
+                            sql`case when ${chatTable.pinnedAt} is null then 1 else 0 end`,
+                            desc(chatTable.updatedAt),
+                            asc(chatTable.title)
+                        )
+                        .limit(SEARCH_LIMIT),
+                ],
+                { concurrency: "unbounded" }
+            )
         );
 
         return {
@@ -366,7 +373,7 @@ export function searchWorkspace(user: AuthUser, rawQuery: string): Effect.Effect
 function listAccessibleChats(
     user: AuthUser,
     options: { filter: SQL; orderBy: SQL[]; offset?: number; limit?: number }
-): Effect.Effect<ChatLibrarySuccessData, unknown> {
+): Effect.Effect<ChatLibrarySuccessData, unknown, Database> {
     return Effect.gen(function* () {
         const membership = yield* requireOrganizationMembership(user);
         const organizationId = membership.organizationId;
@@ -390,37 +397,37 @@ function listAccessibleChats(
         );
         const accessibleChatWhere = buildAccessibleChatWhere(accessibleGraphWhere, accessibleTeamChatWhere);
 
-        const baseQuery = db
-            .select({
-                id: chatTable.id,
-                title: chatTable.title,
-                isPinned: sql<boolean>`${chatTable.pinnedAt} IS NOT NULL`,
-                targetType: chatTable.scope,
-                projectId: graphTable.id,
-                projectName: graphTable.name,
-                scope: chatScope,
-                teamId: chatTeamId,
-                teamName: chatTeamName,
-                updatedAt: chatTable.updatedAt,
-            })
-            .from(chatTable)
-            .leftJoin(graphTable, eq(graphTable.id, chatTable.graphId))
-            .leftJoin(chatGraphTeamTable, eq(chatGraphTeamTable.id, graphTable.teamId))
-            .leftJoin(chatTargetTeamTable, eq(chatTargetTeamTable.id, chatTable.teamId))
-            .where(and(eq(chatTable.userId, user.id), accessibleChatWhere, options.filter))
-            .orderBy(...options.orderBy);
-
         const effectiveLimit = typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
 
-        const rows = yield* Effect.tryPromise(() =>
-            typeof effectiveLimit === "number"
+        const rows = yield* tryDb((db) => {
+            const baseQuery = db
+                .select({
+                    id: chatTable.id,
+                    title: chatTable.title,
+                    isPinned: sql<boolean>`${chatTable.pinnedAt} IS NOT NULL`,
+                    targetType: chatTable.scope,
+                    projectId: graphTable.id,
+                    projectName: graphTable.name,
+                    scope: chatScope,
+                    teamId: chatTeamId,
+                    teamName: chatTeamName,
+                    updatedAt: chatTable.updatedAt,
+                })
+                .from(chatTable)
+                .leftJoin(graphTable, eq(graphTable.id, chatTable.graphId))
+                .leftJoin(chatGraphTeamTable, eq(chatGraphTeamTable.id, graphTable.teamId))
+                .leftJoin(chatTargetTeamTable, eq(chatTargetTeamTable.id, chatTable.teamId))
+                .where(and(eq(chatTable.userId, user.id), accessibleChatWhere, options.filter))
+                .orderBy(...options.orderBy);
+
+            return typeof effectiveLimit === "number"
                 ? typeof options.offset === "number" && options.offset > 0
                     ? baseQuery.limit(effectiveLimit).offset(options.offset)
                     : baseQuery.limit(effectiveLimit)
                 : typeof options.offset === "number" && options.offset > 0
                   ? baseQuery.offset(options.offset)
-                  : baseQuery
-        );
+                  : baseQuery;
+        });
 
         const hasMore = typeof options.limit === "number" && options.limit > 0 ? rows.length > options.limit : false;
         const items = (hasMore ? rows.slice(0, options.limit) : rows).flatMap((row) => {
@@ -432,7 +439,7 @@ function listAccessibleChats(
     });
 }
 
-export function listPinnedChats(user: AuthUser): Effect.Effect<ChatLibrarySuccessData, unknown> {
+export function listPinnedChats(user: AuthUser): Effect.Effect<ChatLibrarySuccessData, unknown, Database> {
     return listAccessibleChats(user, {
         filter: and(isNotNull(chatTable.pinnedAt), isNull(chatTable.archivedAt))!,
         orderBy: [desc(chatTable.pinnedAt), desc(chatTable.updatedAt), asc(chatTable.title)],
@@ -442,7 +449,7 @@ export function listPinnedChats(user: AuthUser): Effect.Effect<ChatLibrarySucces
 export function listArchivedChats(
     user: AuthUser,
     options: { offset?: number; limit?: number } = {}
-): Effect.Effect<ChatLibrarySuccessData, unknown> {
+): Effect.Effect<ChatLibrarySuccessData, unknown, Database> {
     return listAccessibleChats(user, {
         filter: isNotNull(chatTable.archivedAt),
         orderBy: [desc(chatTable.archivedAt), desc(chatTable.updatedAt), asc(chatTable.title)],

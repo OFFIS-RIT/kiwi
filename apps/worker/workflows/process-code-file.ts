@@ -1,5 +1,5 @@
-import { db } from "@kiwi/db";
 import * as Effect from "effect/Effect";
+import { useWorkerDb, useWorkerDbVoid } from "../lib/effect";
 import { filesTable, processStatsTable } from "@kiwi/db/tables/graph";
 import { and, eq } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
@@ -17,6 +17,7 @@ import { fileContentSourceFromRow, readFileContentSource } from "../lib/file-con
 import { codeRepositoryFileFieldsFromMetadata, parseCodeFileMetadata } from "../lib/code-file-metadata";
 import { updateFileProcessingState, stopIfFileDeleted } from "../lib/file-processing-state";
 import { saveGraphToDatabase } from "../lib/save-graph";
+import { runWorkerEffect } from "../lib/effect";
 
 const FILE_DELETED = "__file_deleted__" as const;
 
@@ -61,8 +62,8 @@ export const processCodeFile = defineWorkflow(
     async ({ input, step, run }) => {
         try {
             const [fileData] = await step.run({ name: "get-code-file-data" }, async () =>
-                Effect.runPromise(
-                    Effect.tryPromise(() =>
+                runWorkerEffect(
+                    useWorkerDb((db) =>
                         db
                             .select()
                             .from(filesTable)
@@ -77,7 +78,7 @@ export const processCodeFile = defineWorkflow(
             }
 
             if (fileData.deleted) {
-                await Effect.runPromise(updateFileProcessingState(input.fileId, "completed", "processed"));
+                await runWorkerEffect(updateFileProcessingState(input.fileId, "completed", "processed"));
                 return;
             }
 
@@ -88,30 +89,32 @@ export const processCodeFile = defineWorkflow(
             });
 
             const baseFile = await step.run({ name: "preprocess-code-file" }, async () =>
-                Effect.runPromise(
-                    Effect.tryPromise(async () => {
-                        if (await Effect.runPromise(stopIfFileDeleted(input.fileId))) {
+                runWorkerEffect(
+                    Effect.gen(function* () {
+                        if (yield* stopIfFileDeleted(input.fileId)) {
                             return FILE_DELETED;
                         }
 
-                        await Effect.runPromise(updateFileProcessingState(input.fileId, "preprocessing", "processing"));
-                const start = performance.now();
-                const source = await Effect.runPromise(readFileContentSource(fileContentSourceFromRow(fileData)));
-                if (source === null) {
-                    throw new Error(`Failed to load file ${fileData.key}`);
-                }
+                        yield* updateFileProcessingState(input.fileId, "preprocessing", "processing");
+                        const start = performance.now();
+                        const source = yield* readFileContentSource(fileContentSourceFromRow(fileData));
+                        if (source === null) {
+                            return yield* Effect.fail(new Error(`Failed to load file ${fileData.key}`));
+                        }
 
-                if (source.trim() === "") {
-                    throw new Error("No readable text found in file");
-                }
+                        if (source.trim() === "") {
+                            return yield* Effect.fail(new Error("No readable text found in file"));
+                        }
 
-                const repositoryFile = codeRepositoryFileFromRow(fileData, source);
-                const tokenCount = estimateToken(source);
+                        const repositoryFile = codeRepositoryFileFromRow(fileData, source);
+                        const tokenCount = estimateToken(source);
 
-                        await db
-                            .update(filesTable)
-                            .set({ tokenCount, loader: "repository", chunker: "ast" })
-                            .where(eq(filesTable.id, input.fileId));
+                        yield* useWorkerDbVoid((db) =>
+                            db
+                                .update(filesTable)
+                                .set({ tokenCount, loader: "repository", chunker: "ast" })
+                                .where(eq(filesTable.id, input.fileId))
+                        );
 
                         return {
                             repositoryFile,
@@ -126,22 +129,27 @@ export const processCodeFile = defineWorkflow(
             }
 
             const graphResult = await step.run({ name: "build-code-graph" }, async () =>
-                Effect.runPromise(
-                    Effect.tryPromise(async () => {
-                        if (await Effect.runPromise(stopIfFileDeleted(input.fileId))) {
+                runWorkerEffect(
+                    Effect.gen(function* () {
+                        if (yield* stopIfFileDeleted(input.fileId)) {
                             return FILE_DELETED;
                         }
 
-                        await Effect.runPromise(updateFileProcessingState(input.fileId, "extracting", "processing"));
-                const start = performance.now();
-                const { buildCodeFileGraph, buildCodeRepositoryManifest } = await import("@kiwi/graph/code/repository");
-                const manifest = input.codeManifestKey
-                    ? await Effect.runPromise(loadCodeManifest(input.codeManifestKey))
-                    : buildCodeRepositoryManifest([baseFile.repositoryFile]);
-                const graph = buildCodeFileGraph(baseFile.repositoryFile, manifest);
-                const uploadedGraph = await Effect.runPromise(
-                    putNamedFile("graph.json", JSON.stringify(graph), paths.processingPrefix, env.S3_BUCKET)
-                );
+                        yield* updateFileProcessingState(input.fileId, "extracting", "processing");
+                        const start = performance.now();
+                        const { buildCodeFileGraph, buildCodeRepositoryManifest } = yield* Effect.tryPromise(() =>
+                            import("@kiwi/graph/code/repository")
+                        );
+                        const manifest = input.codeManifestKey
+                            ? yield* loadCodeManifest(input.codeManifestKey)
+                            : buildCodeRepositoryManifest([baseFile.repositoryFile]);
+                        const graph = buildCodeFileGraph(baseFile.repositoryFile, manifest);
+                        const uploadedGraph = yield* putNamedFile(
+                            "graph.json",
+                            JSON.stringify(graph),
+                            paths.processingPrefix,
+                            env.S3_BUCKET
+                        );
 
                         return {
                             graphKey: uploadedGraph.key,
@@ -155,19 +163,19 @@ export const processCodeFile = defineWorkflow(
             }
 
             const saveGraphResult = await step.run({ name: "save-code-graph" }, async () =>
-                Effect.runPromise(
-                    Effect.tryPromise(async () => {
-                        if (await Effect.runPromise(stopIfFileDeleted(input.fileId))) {
+                runWorkerEffect(
+                    Effect.gen(function* () {
+                        if (yield* stopIfFileDeleted(input.fileId)) {
                             return FILE_DELETED;
                         }
 
-                        await Effect.runPromise(updateFileProcessingState(input.fileId, "saving", "processing"));
-                const loadedGraph = await Effect.runPromise(getFile<Graph>(graphResult.graphKey, env.S3_BUCKET, "json"));
-                if (!loadedGraph) {
-                    throw new Error(`Failed to load graph from ${graphResult.graphKey}`);
-                }
+                        yield* updateFileProcessingState(input.fileId, "saving", "processing");
+                        const loadedGraph = yield* getFile<Graph>(graphResult.graphKey, env.S3_BUCKET, "json");
+                        if (!loadedGraph) {
+                            return yield* Effect.fail(new Error(`Failed to load graph from ${graphResult.graphKey}`));
+                        }
 
-                const saveResult = await Effect.runPromise(saveGraphToDatabase(input.graphId, loadedGraph.content));
+                        const saveResult = yield* saveGraphToDatabase(input.graphId, loadedGraph.content);
 
                         return {
                             summary: {
@@ -185,26 +193,30 @@ export const processCodeFile = defineWorkflow(
             }
 
             const statsResult = await step.run({ name: "store-code-process-stats" }, async () =>
-                Effect.runPromise(
-                    Effect.tryPromise(async () => {
-                        if (await Effect.runPromise(stopIfFileDeleted(input.fileId))) {
+                runWorkerEffect(
+                    Effect.gen(function* () {
+                        if (yield* stopIfFileDeleted(input.fileId)) {
                             return FILE_DELETED;
                         }
-                        try {
-                            await db.insert(processStatsTable).values({
-                                totalTime: baseFile.duration + graphResult.duration + saveGraphResult.duration,
-                                files: 1,
-                                fileSizes: fileData.size,
-                                fileType: "code",
-                                tokenCount: baseFile.tokenCount,
-                            });
-                        } catch (error) {
-                            logError("failed to store code file process stats", {
-                                graphId: input.graphId,
-                                fileId: input.fileId,
-                                error,
-                            });
-                        }
+                        yield* Effect.catch(
+                            useWorkerDbVoid((db) =>
+                                db.insert(processStatsTable).values({
+                                    totalTime: baseFile.duration + graphResult.duration + saveGraphResult.duration,
+                                    files: 1,
+                                    fileSizes: fileData.size,
+                                    fileType: "code",
+                                    tokenCount: baseFile.tokenCount,
+                                })
+                            ),
+                            (error: unknown) =>
+                                Effect.sync(() => {
+                                    logError("failed to store code file process stats", {
+                                        graphId: input.graphId,
+                                        fileId: input.fileId,
+                                        error,
+                                    });
+                                })
+                        );
                     })
                 )
             );
@@ -213,11 +225,11 @@ export const processCodeFile = defineWorkflow(
             }
 
             await step.run({ name: "mark-code-file-complete" }, async () =>
-                Effect.runPromise(updateFileProcessingState(input.fileId, "completed", "processed"))
+                runWorkerEffect(updateFileProcessingState(input.fileId, "completed", "processed"))
             );
 
             await step.run({ name: "cleanup-code-processing-artifacts" }, async () =>
-                Effect.runPromise(
+                runWorkerEffect(
                     Effect.matchEffect(
                         deleteGraphFileProcessingArtifacts({
                             graphId: input.graphId,
@@ -244,9 +256,9 @@ export const processCodeFile = defineWorkflow(
             return saveGraphResult.summary;
         } catch (error) {
             if (run.retryTerminal) {
-                await Effect.runPromise(updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error)));
+                await runWorkerEffect(updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error)));
             } else {
-                await Effect.runPromise(updateFileProcessingState(input.fileId, "pending", "processing", null));
+                await runWorkerEffect(updateFileProcessingState(input.fileId, "pending", "processing", null));
             }
 
             throw workflowError(error);

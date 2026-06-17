@@ -1,10 +1,11 @@
 import * as Effect from "effect/Effect";
+import type { Database } from "@kiwi/db/effect";
 import type { AuthUser } from "../../../middleware/auth";
 import { assertCanSyncBinding } from "../../../lib/connector-access";
 import { enqueueManualBindingSync, toBindingResponse } from "../../../lib/connector/api";
 import { connectorApiErrorOptions, toApiError } from "../../_shared/api-effect"
 
-export function syncConnectorGraphBinding(input: { user: AuthUser; bindingId: string }) {
+export function syncConnectorGraphBinding(input: { user: AuthUser; bindingId: string }): Effect.Effect<{ binding: ReturnType<typeof toBindingResponse>; workflowRunId: string }, ReturnType<typeof toApiError>, Database> {
     return Effect.mapError(Effect.gen(function* () {
         const { binding } = yield* assertCanSyncBinding(input.user, input.bindingId);
         const synced = yield* enqueueManualBindingSync(binding);

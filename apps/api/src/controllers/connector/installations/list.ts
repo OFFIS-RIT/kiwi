@@ -1,15 +1,15 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb, type Database } from "@kiwi/db/effect";
 import { connectorInstallationsTable } from "@kiwi/db/tables/connectors";
 import { and, asc, eq } from "drizzle-orm";
 import { assertCanUseInstallation, requireActiveConnector } from "../../../lib/connector-access";
 import { toPublicInstallation } from "../../../lib/connectors";
 import type { AuthUser } from "../../../middleware/auth";
 import { connectorApiErrorOptions, toApiError } from "../../_shared/api-effect";
-export function listConnectorInstallations(input: { user: AuthUser; connectorId: string }) {
+export function listConnectorInstallations(input: { user: AuthUser; connectorId: string }): Effect.Effect<ReturnType<typeof toPublicInstallation>[], ReturnType<typeof toApiError>, Database> {
     return Effect.mapError(Effect.gen(function* () {
         yield* requireActiveConnector(input.connectorId);
-        const rows = yield* Effect.tryPromise(() =>
+        const rows = yield* tryDb((db) =>
             db
                 .select()
                 .from(connectorInstallationsTable)

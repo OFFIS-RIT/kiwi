@@ -1,102 +1,137 @@
 import { and, eq, inArray } from "drizzle-orm";
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb, tryDbVoid } from "@kiwi/db/effect";
 import { filesTable, graphTable } from "@kiwi/db/tables/graph";
 import { error as logError } from "@kiwi/logger";
 import { deleteGraphFilesSpec } from "@kiwi/worker/delete-graph-files-spec";
-import type { GraphDeleteFilesFields, GraphDeleteFilesSuccessData } from "@kiwi/contracts/graphs";
+import type { GraphDeleteFilesFields } from "@kiwi/contracts/graphs";
 import { API_ERROR_CODES, internalServerError, makeApiError, noChangesError } from "@kiwi/contracts/errors";
 import { assertCanManageGraphFiles, selectGraphFields } from "../../lib/graph/access";
 import { cancelActiveFileProcessingWorkflowRuns } from "../../lib/workflow-cancellation";
 import type { AuthUser } from "../../middleware/auth";
 import { ow } from "../../openworkflow";
-import { tryApiPromise } from "../_shared/api-effect";
+import { toApiError } from "../_shared/api-effect";
 
 function normalizeFileKeys(fileKeys: GraphDeleteFilesFields["fileKeys"]) {
     return fileKeys ? [...new Set((Array.isArray(fileKeys) ? fileKeys : [fileKeys]).filter((fileKey) => fileKey.length > 0))] : [];
 }
 
 export function deleteGraphFiles(input: { user: AuthUser; graphId: string; body: GraphDeleteFilesFields }) {
-    return tryApiPromise(async (): Promise<GraphDeleteFilesSuccessData> => {
-        const existingGraph = await Effect.runPromise(assertCanManageGraphFiles(input.user, input.graphId));
+    return Effect.mapError(Effect.catchDefect(Effect.gen(function* () {
+        const existingGraph = yield* assertCanManageGraphFiles(input.user, input.graphId);
         const fileKeys = normalizeFileKeys(input.body.fileKeys);
         if (fileKeys.length === 0) {
-            throw noChangesError();
+            return yield* Effect.fail(noChangesError());
         }
 
-        const existingFiles = await db
-            .select({ id: filesTable.id, key: filesTable.key })
-            .from(filesTable)
-            .where(and(eq(filesTable.graphId, existingGraph.id), eq(filesTable.deleted, false)));
+        const existingFiles = yield* tryDb((db) =>
+            db
+                .select({ id: filesTable.id, key: filesTable.key })
+                .from(filesTable)
+                .where(and(eq(filesTable.graphId, existingGraph.id), eq(filesTable.deleted, false)))
+        );
         const fileIdByKey = new Map(existingFiles.map((file) => [file.key, file.id]));
         if (fileKeys.some((fileKey) => !fileIdByKey.has(fileKey))) {
-            throw makeApiError(400, API_ERROR_CODES.INVALID_FILE_IDS, "Invalid file IDs");
+            return yield* Effect.fail(makeApiError(400, API_ERROR_CODES.INVALID_FILE_IDS, "Invalid file IDs"));
         }
 
         const fileIds = fileKeys.map((fileKey) => fileIdByKey.get(fileKey)!);
-        let graph = existingGraph;
-        try {
-            const [updatedGraph] = await db.transaction(async (tx) => {
-                const updatedGraphs = await tx
-                    .update(graphTable)
-                    .set({ state: "updating" })
-                    .where(eq(graphTable.id, existingGraph.id))
-                    .returning(selectGraphFields);
+        const graph = yield* Effect.matchEffect(
+            tryDb((db) =>
+                db.transaction((tx) =>
+                    Effect.gen(function* () {
+                        const updatedGraphs = yield* tx
+                            .update(graphTable)
+                            .set({ state: "updating" })
+                            .where(eq(graphTable.id, existingGraph.id))
+                            .returning(selectGraphFields);
 
-                await tx
-                    .update(filesTable)
-                    .set({ deleted: true })
-                    .where(and(eq(filesTable.graphId, existingGraph.id), inArray(filesTable.id, fileIds)));
+                        yield* tx
+                            .update(filesTable)
+                            .set({ deleted: true })
+                            .where(and(eq(filesTable.graphId, existingGraph.id), inArray(filesTable.id, fileIds)));
 
-                return updatedGraphs;
-            });
-            graph = updatedGraph ?? existingGraph;
-        } catch (dbPatchError) {
-            logError("graph file delete failed during database update", {
-                graphId: existingGraph.id,
-                removedFileCount: fileKeys.length,
-                error: dbPatchError,
-            });
-            throw internalServerError();
-        }
-
-        try {
-            const handle = await ow.runWorkflow(deleteGraphFilesSpec, { graphId: existingGraph.id, fileIds });
-            try {
-                await Effect.runPromise(cancelActiveFileProcessingWorkflowRuns(existingGraph.id, fileIds));
-            } catch (cancellationError) {
-                logError("graph file processing workflow cancellation failed after delete enqueue", {
-                    graphId: existingGraph.id,
-                    removedFileCount: fileKeys.length,
-                    workflowRunId: handle.workflowRun.id,
-                    error: cancellationError,
-                });
+                        return updatedGraphs[0] ?? existingGraph;
+                    })
+                )
+            ),
+            {
+                onFailure: (dbPatchError) =>
+                    Effect.gen(function* () {
+                        logError("graph file delete failed during database update", {
+                            graphId: existingGraph.id,
+                            removedFileCount: fileKeys.length,
+                            error: dbPatchError,
+                        });
+                        return yield* Effect.fail(internalServerError());
+                    }),
+                onSuccess: Effect.succeed,
             }
+        );
 
-            return { graph, removedFileKeys: fileKeys, workflowRunId: handle.workflowRun.id };
-        } catch (enqueueError) {
-            try {
-                await db.transaction(async (tx) => {
-                    await tx
-                        .update(filesTable)
-                        .set({ deleted: false })
-                        .where(and(eq(filesTable.graphId, existingGraph.id), inArray(filesTable.id, fileIds)));
-                    await tx.update(graphTable).set({ state: existingGraph.state }).where(eq(graphTable.id, existingGraph.id));
+        return yield* Effect.matchEffect(
+            Effect.catchDefect(Effect.gen(function* () {
+                const handle = yield* Effect.tryPromise({
+                    try: () => ow.runWorkflow(deleteGraphFilesSpec, { graphId: existingGraph.id, fileIds }),
+                    catch: (error) => error,
                 });
-            } catch (restoreError) {
-                logError("failed to restore graph state after file delete enqueue failure", {
-                    graphId: existingGraph.id,
-                    removedFileCount: fileKeys.length,
-                    error: restoreError,
+                yield* Effect.matchEffect(cancelActiveFileProcessingWorkflowRuns(existingGraph.id, fileIds), {
+                    onFailure: (cancellationError) =>
+                        Effect.sync(() => {
+                            logError("graph file processing workflow cancellation failed after delete enqueue", {
+                                graphId: existingGraph.id,
+                                removedFileCount: fileKeys.length,
+                                workflowRunId: handle.workflowRun.id,
+                                error: cancellationError,
+                            });
+                        }),
+                    onSuccess: () => Effect.void,
                 });
+
+                return { graph, removedFileKeys: fileKeys, workflowRunId: handle.workflowRun.id };
+            }), (defect) => Effect.fail(defect)),
+            {
+                onFailure: (enqueueError) =>
+                    Effect.gen(function* () {
+                        yield* Effect.matchEffect(
+                            tryDbVoid((db) =>
+                                db.transaction((tx) =>
+                                    Effect.gen(function* () {
+                                        yield* tx
+                                            .update(filesTable)
+                                            .set({ deleted: false })
+                                            .where(
+                                                and(eq(filesTable.graphId, existingGraph.id), inArray(filesTable.id, fileIds))
+                                            );
+                                        yield* tx
+                                            .update(graphTable)
+                                            .set({ state: existingGraph.state })
+                                            .where(eq(graphTable.id, existingGraph.id));
+                                    })
+                                )
+                            ),
+                            {
+                                onFailure: (restoreError) =>
+                                    Effect.sync(() => {
+                                        logError("failed to restore graph state after file delete enqueue failure", {
+                                            graphId: existingGraph.id,
+                                            removedFileCount: fileKeys.length,
+                                            error: restoreError,
+                                        });
+                                    }),
+                                onSuccess: () => Effect.void,
+                            }
+                        );
+
+                        logError("graph file delete failed during workflow enqueue", {
+                            graphId: existingGraph.id,
+                            removedFileCount: fileKeys.length,
+                            error: enqueueError,
+                        });
+                        return yield* Effect.fail(internalServerError());
+                    }),
+                onSuccess: Effect.succeed,
             }
-
-            logError("graph file delete failed during workflow enqueue", {
-                graphId: existingGraph.id,
-                removedFileCount: fileKeys.length,
-                error: enqueueError,
-            });
-            throw internalServerError();
-        }
-    });
+        );
+    }), (defect) => Effect.fail(defect)), toApiError);
 }

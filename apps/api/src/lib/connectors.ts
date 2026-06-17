@@ -21,6 +21,7 @@ import {
     type ConnectorSecretPayload,
 } from "@kiwi/connectors/credentials";
 import type { connectorsTable, connectorInstallationsTable } from "@kiwi/db/tables/connectors";
+import { API_ERROR_CODES, makeApiError, type ApiError } from "@kiwi/contracts/errors";
 import { env } from "../env";
 
 const frontendUrl =
@@ -33,6 +34,14 @@ const STATE_TTL_MS = 10 * 60 * 1000;
 
 type ConnectorRow = typeof connectorsTable.$inferSelect;
 type InstallationRow = typeof connectorInstallationsTable.$inferSelect;
+
+function connectorRequestError(error: unknown): ApiError {
+    return makeApiError(
+        400,
+        API_ERROR_CODES.INVALID_CHAT_REQUEST,
+        error instanceof Error ? error.message.replace(/^Unhandled exception:\s*/u, "") || "Invalid connector request" : "Invalid connector request"
+    );
+}
 
 export type ConnectorState = {
     purpose: "github-manifest" | "github-installation" | "gitlab-oauth";
@@ -167,90 +176,107 @@ export function createManifestUrl(state: string, name: string): string {
     return url.href;
 }
 
-export function exchangeGitHubManifestCode(code: string) {
-    return Effect.tryPromise(async () => {
-        const response = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(code)}/conversions`, {
-            method: "POST",
-            headers: {
-                Accept: "application/vnd.github+json",
-                "User-Agent": "kiwi-connectors",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-        });
+export function exchangeGitHubManifestCode(code: string): Effect.Effect<{
+    id: number | string;
+    slug?: string;
+    name: string;
+    client_id?: string;
+    client_secret?: string;
+    pem: string;
+    webhook_secret?: string;
+}, ApiError> {
+    return Effect.tryPromise({
+        try: async () => {
+            const response = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(code)}/conversions`, {
+                method: "POST",
+                headers: {
+                    Accept: "application/vnd.github+json",
+                    "User-Agent": "kiwi-connectors",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            });
 
-        if (!response.ok) {
-            throw new Error("Invalid connector manifest code");
-        }
+            if (!response.ok) {
+                throw new Error("Invalid connector manifest code");
+            }
 
-        return (await response.json()) as {
-            id: number | string;
-            slug?: string;
-            name: string;
-            client_id?: string;
-            client_secret?: string;
-            pem: string;
-            webhook_secret?: string;
-        };
+            return (await response.json()) as {
+                id: number | string;
+                slug?: string;
+                name: string;
+                client_id?: string;
+                client_secret?: string;
+                pem: string;
+                webhook_secret?: string;
+            };
+        },
+        catch: connectorRequestError,
     });
 }
 
 export function createProviderClient(
     connector: ConnectorRow,
     installation: InstallationRow
-): Effect.Effect<GitResourceAdapter, unknown> {
+): Effect.Effect<GitResourceAdapter, ApiError> {
     return Effect.gen(function* () {
         const credentials = decryptConnectorCredentials(connector.encryptedCredentials, env.AUTH_SECRET);
         let installationCredentials: ConnectorInstallationCredentials;
         if (connector.provider === "github") {
             if (!isGitHubConnectorCredentials(credentials)) {
-                return yield* Effect.fail(new Error("Invalid connector credentials"));
+                return yield* Effect.fail(connectorRequestError(new Error("Invalid connector credentials")));
             }
             installationCredentials = { provider: "github", installationId: installation.providerInstallationId };
         } else {
             if (!isGitLabConnectorCredentials(credentials)) {
-                return yield* Effect.fail(new Error("Invalid connector credentials"));
+                return yield* Effect.fail(connectorRequestError(new Error("Invalid connector credentials")));
             }
             const decryptedInstallation = installation.encryptedCredentials
                 ? decryptConnectorCredentials(installation.encryptedCredentials, env.AUTH_SECRET)
                 : null;
             if (!decryptedInstallation || !isGitLabInstallationCredentials(decryptedInstallation)) {
-                return yield* Effect.fail(new Error("Invalid connector installation credentials"));
+                return yield* Effect.fail(connectorRequestError(new Error("Invalid connector installation credentials")));
             }
             installationCredentials = decryptedInstallation;
         }
 
-        return (yield* createConnectorAdapter({
-            provider: connector.provider,
-            credentials,
-            installation: installationCredentials,
-        })) as GitResourceAdapter;
+        return (yield* Effect.mapError(
+            createConnectorAdapter({
+                provider: connector.provider,
+                credentials,
+                installation: installationCredentials,
+            }),
+            connectorRequestError
+        )) as GitResourceAdapter;
     });
 }
 
 export function getGitHubConnectorInstallationAccount(
     connector: ConnectorRow,
     installationId: string
-): Effect.Effect<ProviderInstallationAccount, unknown> {
+): Effect.Effect<ProviderInstallationAccount, ApiError> {
     return Effect.gen(function* () {
         const credentials = decryptConnectorCredentials(connector.encryptedCredentials, env.AUTH_SECRET);
         if (connector.provider !== "github" || !isGitHubConnectorCredentials(credentials)) {
-            return yield* Effect.fail(new Error("Invalid connector credentials"));
+            return yield* Effect.fail(connectorRequestError(new Error("Invalid connector credentials")));
         }
 
-        return yield* getGitHubInstallationAccount({
-            credentials,
-            installationId,
-        });
+        return yield* Effect.mapError(
+            getGitHubInstallationAccount({
+                credentials,
+                installationId,
+            }),
+            connectorRequestError
+        );
     });
 }
 
 export function listProviderRepositories(
     connector: ConnectorRow,
     installation: InstallationRow
-): Effect.Effect<ProviderRepository[], unknown> {
+): Effect.Effect<ProviderRepository[], ApiError> {
     return Effect.gen(function* () {
         const client = yield* createProviderClient(connector, installation);
-        return yield* client.listRepositories();
+        return yield* Effect.mapError(client.listRepositories(), connectorRequestError);
     });
 }
 
@@ -258,10 +284,10 @@ export function listProviderBranches(
     connector: ConnectorRow,
     installation: InstallationRow,
     repositoryId: string
-): Effect.Effect<ProviderBranch[], unknown> {
+): Effect.Effect<ProviderBranch[], ApiError> {
     return Effect.gen(function* () {
         const client = yield* createProviderClient(connector, installation);
-        const repository = yield* client.getRepository(repositoryId);
-        return yield* client.listBranches(repository);
+        const repository = yield* Effect.mapError(client.getRepository(repositoryId), connectorRequestError);
+        return yield* Effect.mapError(client.listBranches(repository), connectorRequestError);
     });
 }

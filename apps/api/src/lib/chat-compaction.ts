@@ -14,7 +14,7 @@ import {
 } from "@kiwi/ai";
 import * as Effect from "effect/Effect";
 import type { MessageCompactionPart, MessagePart } from "@kiwi/contracts/chat";
-import { db } from "@kiwi/db";
+import { tryDb, tryDbVoid, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
 import type { ScopedPromptGuidance } from "@kiwi/ai/prompts/guidance.prompt";
 import { validateUIMessages, type ModelMessage } from "ai";
@@ -38,13 +38,12 @@ const MAX_COMPACTION_MODEL_CALLS = 24;
 // exhaust the budget before all transcript text is processed.
 const COMPACTION_CHUNK_CONTEXT_RATIO = 0.9;
 
-function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, unknown> {
+function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, Error> {
     return Effect.tryPromise({
         try: thunk,
-        catch: (error) => error,
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
 }
-
 
 export type ChatRequest = ChatRequestBody;
 
@@ -146,8 +145,11 @@ export function normalizeChatRequest(request: ChatRequest): NormalizedChatReques
     throw new Error(API_ERROR_CODES.INVALID_CHAT_REQUEST);
 }
 
-export function loadChatRows(chatId: string, options?: { includeFailed?: boolean }) {
-    return chatEffect(() =>
+export function loadChatRows(
+    chatId: string,
+    options?: { includeFailed?: boolean }
+): Effect.Effect<ChatMessage[], DatabaseError, Database> {
+    return tryDb((db) =>
         db
             .select()
             .from(messageTable)
@@ -500,7 +502,7 @@ function insertCompactionCheckpoint(options: {
             basedOnCompactionMessageId: options.basedOnCompactionMessageId,
         };
 
-        yield* chatEffect(() =>
+        yield* tryDbVoid((db) =>
             db.insert(messageTable).values({
                 chatId: options.chatId,
                 role: "system",
@@ -591,7 +593,7 @@ export function ensureChatRecord(options: {
     defaultTitle: string;
 }) {
     return Effect.gen(function* () {
-        const [insertedChat] = yield* chatEffect(() =>
+        const [insertedChat] = yield* tryDb((db) =>
             db
                 .insert(chatTable)
                 .values({
@@ -608,7 +610,7 @@ export function ensureChatRecord(options: {
             return { isNewChat: true };
         }
 
-        const [existingChat] = yield* chatEffect(() =>
+        const [existingChat] = yield* tryDb((db) =>
             db
                 .select({
                     id: chatTable.id,
@@ -636,7 +638,7 @@ export function ensureChatRecord(options: {
 
 export function createPendingAssistantMessage(chatId: string) {
     return Effect.gen(function* () {
-        const [assistantMessage] = yield* chatEffect(() =>
+        const [assistantMessage] = yield* tryDb((db) =>
             db
                 .insert(messageTable)
                 .values({
@@ -676,7 +678,7 @@ export function syncChatMessage(options: {
             ...metrics,
         };
 
-        const [syncedMessage] = yield* chatEffect(() =>
+        const [syncedMessage] = yield* tryDb((db) =>
             db
                 .insert(messageTable)
                 .values({

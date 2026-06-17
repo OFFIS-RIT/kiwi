@@ -1,4 +1,4 @@
-import { db } from "@kiwi/db";
+import { DatabaseLayer, tryDbVoid, type Database } from "@kiwi/db/effect";
 import { chatTable } from "@kiwi/db/tables/chats";
 import type { KiwiPermissions } from "@kiwi/auth/permissions";
 import { eq } from "drizzle-orm";
@@ -27,21 +27,21 @@ type ChatRouteSpec<TTarget> = {
         archive?: boolean;
     };
     mapError?: (status: RouteStatus, error: unknown) => unknown;
-    resolveTarget: (user: AuthUser, targetId: string) => Effect.Effect<TTarget, unknown>;
+    resolveTarget: (user: AuthUser, targetId: string) => Effect.Effect<TTarget, unknown, Database>;
     listChats: (
         userId: string,
         target: TTarget,
         options: { offset?: number; limit?: number }
-    ) => Effect.Effect<unknown, unknown>;
-    loadHistory: (userId: string, target: TTarget, chatId: string) => Effect.Effect<unknown, unknown>;
-    loadSummary: (userId: string, target: TTarget, chatId: string) => Effect.Effect<{ id: string }, unknown>;
+    ) => Effect.Effect<unknown, unknown, Database>;
+    loadHistory: (userId: string, target: TTarget, chatId: string) => Effect.Effect<unknown, unknown, Database>;
+    loadSummary: (userId: string, target: TTarget, chatId: string) => Effect.Effect<{ id: string }, unknown, Database>;
     startReply: (options: {
         user: AuthUser;
         target: TTarget;
         request: ChatRequest;
         mode: "completion" | "stream";
         abortSignal: AbortSignal;
-    }) => Effect.Effect<StartedChatReply, unknown>;
+    }) => Effect.Effect<StartedChatReply, unknown, Database>;
 };
 
 const requestBodySchema = t.Union([
@@ -80,7 +80,7 @@ function runChatAction<T>(options: {
     user: AuthUser | null;
     status: RouteStatus;
     mapError: (status: RouteStatus, error: unknown) => unknown;
-    action: (user: AuthUser) => Effect.Effect<T, unknown>;
+    action: (user: AuthUser) => Effect.Effect<T, unknown, Database>;
     success: (value: T) => unknown;
 }) {
     const user = options.user;
@@ -88,10 +88,13 @@ function runChatAction<T>(options: {
         return Effect.succeed(options.status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED)));
     }
 
-    return Effect.match(options.action(user), {
-        onFailure: (error) => options.mapError(options.status, error),
-        onSuccess: options.success,
-    });
+    return Effect.provide(
+        Effect.match(options.action(user), {
+            onFailure: (error) => options.mapError(options.status, error),
+            onSuccess: options.success,
+        }),
+        DatabaseLayer
+    );
 }
 
 export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
@@ -102,7 +105,7 @@ export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
     const pinningEnabled = spec.libraryActions?.pin ?? true;
     const archivingEnabled = spec.libraryActions?.archive ?? true;
 
-    const resolveTarget = (user: AuthUser, params: RouteParams): Effect.Effect<TTarget, unknown> =>
+    const resolveTarget = (user: AuthUser, params: RouteParams): Effect.Effect<TTarget, unknown, Database> =>
         Effect.gen(function* () {
             const targetId = yield* Effect.try({
                 try: () => getParam(params, spec.targetParam),
@@ -114,7 +117,7 @@ export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
     const loadChat = (
         user: AuthUser,
         params: RouteParams
-    ): Effect.Effect<{ id: string }, unknown> =>
+    ): Effect.Effect<{ id: string }, unknown, Database> =>
         Effect.gen(function* () {
             const target = yield* resolveTarget(user, params);
             const chatId = yield* Effect.try({
@@ -127,8 +130,8 @@ export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
     const mutateChat = (
         user: AuthUser,
         params: RouteParams,
-        update: (chatId: string, userId: string) => Effect.Effect<void, unknown>
-    ): Effect.Effect<void, unknown> =>
+        update: (chatId: string, userId: string) => Effect.Effect<void, unknown, Database>
+    ): Effect.Effect<void, unknown, Database> =>
         Effect.gen(function* () {
             const chat = yield* loadChat(user, params);
             yield* update(chat.id, user.id);
@@ -205,10 +208,7 @@ export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
                         action: (currentUser) =>
                             Effect.gen(function* () {
                                 const chat = yield* loadChat(currentUser, params);
-                                yield* Effect.tryPromise({
-                                    try: () => db.delete(chatTable).where(eq(chatTable.id, chat.id)),
-                                    catch: (error) => error,
-                                });
+                                yield* tryDbVoid((db) => db.delete(chatTable).where(eq(chatTable.id, chat.id)));
                             }),
                         success: () => status(204, null),
                     })

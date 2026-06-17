@@ -1,4 +1,4 @@
-import { db } from "@kiwi/db";
+import { tryDb, tryDbVoid, type Database } from "@kiwi/db/effect";
 import * as Effect from "effect/Effect";
 import {
     type FileProcessStep,
@@ -307,33 +307,35 @@ export const restoreGraphFileChangeFailure = (
     uploadedKeys: string[],
     processRunId?: string,
     supersededFileIds: string[] = []
-): Effect.Effect<void, unknown> =>
+): Effect.Effect<void, unknown, Database> =>
     Effect.gen(function* () {
         const failedDeletes = yield* cleanupUploadedKeys(uploadedKeys);
 
         const cleanupResult = yield* Effect.match(
-            tryUnknownPromise(() =>
-                db.transaction(async (tx) => {
-                    if (processRunId) {
-                        await tx.delete(processRunsTable).where(eq(processRunsTable.id, processRunId));
-                    }
+            tryDbVoid((db) =>
+                db.transaction((tx) =>
+                    Effect.gen(function* () {
+                        if (processRunId) {
+                            yield* tx.delete(processRunsTable).where(eq(processRunsTable.id, processRunId));
+                        }
 
-                    if (addedFileIds.length > 0) {
-                        await tx.delete(filesTable).where(inArray(filesTable.id, addedFileIds));
-                    }
-                    if (supersededFileIds.length > 0) {
-                        await tx.update(filesTable).set({ deleted: false }).where(inArray(filesTable.id, supersededFileIds));
-                    }
+                        if (addedFileIds.length > 0) {
+                            yield* tx.delete(filesTable).where(inArray(filesTable.id, addedFileIds));
+                        }
+                        if (supersededFileIds.length > 0) {
+                            yield* tx.update(filesTable).set({ deleted: false }).where(inArray(filesTable.id, supersededFileIds));
+                        }
 
-                    await tx
-                        .update(graphTable)
-                        .set({
-                            name: previousGraph.name,
-                            description: previousGraph.description,
-                            state: previousGraph.state,
-                        })
-                        .where(eq(graphTable.id, graphId));
-                })
+                        yield* tx
+                            .update(graphTable)
+                            .set({
+                                name: previousGraph.name,
+                                description: previousGraph.description,
+                                state: previousGraph.state,
+                            })
+                            .where(eq(graphTable.id, graphId));
+                    })
+                )
             ),
             {
                 onFailure: (cleanupError) => ({ ok: false as const, cleanupError }),
@@ -366,96 +368,98 @@ export function commitGraphFileUploads(options: {
     graph: GraphRecord;
     uploadedFiles: UploadedFile[];
     supersedeRepositoryUrls?: string[];
-}): Effect.Effect<GraphFileUploadCommit, unknown> {
+}): Effect.Effect<GraphFileUploadCommit, unknown, Database> {
     return Effect.gen(function* () {
-        const result = yield* tryUnknownPromise(() =>
-            db.transaction(async (tx) => {
-                const uploadedFileIds = options.uploadedFiles.map((file) => file.id);
-                const supersededFiles =
-                    options.supersedeRepositoryUrls && options.supersedeRepositoryUrls.length > 0
-                        ? await tx
-                              .update(filesTable)
-                              .set({ deleted: true })
-                              .where(
-                                  and(
-                                      eq(filesTable.graphId, options.graph.id),
-                                      eq(filesTable.type, "code"),
-                                      eq(filesTable.deleted, false),
-                                      sql`${filesTable.id} <> ALL(${textArray(uploadedFileIds)})`,
-                                      sql`(${filesTable.metadata}::jsonb ->> 'repositoryUrl') = ANY(${textArray(
-                                          options.supersedeRepositoryUrls
-                                      )})`
+        const result = yield* tryDb((db) =>
+            db.transaction((tx) =>
+                Effect.gen(function* (): Generator<Effect.Effect<unknown, unknown>, GraphFileUploadCommit> {
+                    const uploadedFileIds = options.uploadedFiles.map((file) => file.id);
+                    const supersededFiles =
+                        options.supersedeRepositoryUrls && options.supersedeRepositoryUrls.length > 0
+                            ? yield* tx
+                                  .update(filesTable)
+                                  .set({ deleted: true })
+                                  .where(
+                                      and(
+                                          eq(filesTable.graphId, options.graph.id),
+                                          eq(filesTable.type, "code"),
+                                          eq(filesTable.deleted, false),
+                                          sql`${filesTable.id} <> ALL(${textArray(uploadedFileIds)})`,
+                                          sql`(${filesTable.metadata}::jsonb ->> 'repositoryUrl') = ANY(${textArray(
+                                              options.supersedeRepositoryUrls
+                                          )})`
+                                      )
                                   )
-                              )
-                              .returning({ id: filesTable.id })
-                        : [];
+                                  .returning({ id: filesTable.id })
+                            : [];
 
-                const insertedFiles = await tx
-                    .insert(filesTable)
-                    .values(
-                        options.uploadedFiles.map((file) => ({
-                            id: file.id,
-                            graphId: options.graph.id,
-                            name: file.name,
-                            size: file.size,
-                            type: file.type,
-                            mimeType: file.mimeType,
-                            key: file.key,
-                            storageKind: file.storageKind,
-                            externalUrl: file.externalUrl,
-                            externalProvider: file.externalProvider,
-                            connectorBindingId: file.connectorBindingId,
-                            checksum: file.checksum,
-                            metadata: file.metadata,
-                        }))
-                    )
-                    .onConflictDoNothing()
-                    .returning(selectFileFields);
+                    const insertedFiles = yield* tx
+                        .insert(filesTable)
+                        .values(
+                            options.uploadedFiles.map((file) => ({
+                                id: file.id,
+                                graphId: options.graph.id,
+                                name: file.name,
+                                size: file.size,
+                                type: file.type,
+                                mimeType: file.mimeType,
+                                key: file.key,
+                                storageKind: file.storageKind,
+                                externalUrl: file.externalUrl,
+                                externalProvider: file.externalProvider,
+                                connectorBindingId: file.connectorBindingId,
+                                checksum: file.checksum,
+                                metadata: file.metadata,
+                            }))
+                        )
+                        .onConflictDoNothing()
+                        .returning(selectFileFields);
 
-                if (insertedFiles.length === 0) {
-                    if (supersededFiles.length > 0) {
-                        throw new Error("Repository snapshot did not insert replacement files");
+                    if (insertedFiles.length === 0) {
+                        if (supersededFiles.length > 0) {
+                            return yield* Effect.fail(new Error("Repository snapshot did not insert replacement files"));
+                        }
+
+                        return {
+                            graph: options.graph,
+                            addedFiles: insertedFiles,
+                            processRunId: undefined,
+                            supersededFileIds: [],
+                        };
                     }
 
+                    const [updatedGraph] = yield* tx
+                        .update(graphTable)
+                        .set({ state: "updating" })
+                        .where(eq(graphTable.id, options.graph.id))
+                        .returning(selectGraphFields);
+
+                    const [processRun] = yield* tx
+                        .insert(processRunsTable)
+                        .values({
+                            graphId: options.graph.id,
+                            status: "pending",
+                        })
+                        .returning({ id: processRunsTable.id });
+                    if (!processRun) {
+                        return yield* Effect.fail(new Error("Failed to create process run"));
+                    }
+
+                    yield* tx.insert(processRunFilesTable).values(
+                        insertedFiles.map((file) => ({
+                            processRunId: processRun.id,
+                            fileId: file.id,
+                        }))
+                    );
+
                     return {
-                        graph: options.graph,
+                        graph: updatedGraph ?? options.graph,
                         addedFiles: insertedFiles,
-                        processRunId: undefined,
-                        supersededFileIds: [],
-                    };
-                }
-
-                const [updatedGraph] = await tx
-                    .update(graphTable)
-                    .set({ state: "updating" })
-                    .where(eq(graphTable.id, options.graph.id))
-                    .returning(selectGraphFields);
-
-                const [processRun] = await tx
-                    .insert(processRunsTable)
-                    .values({
-                        graphId: options.graph.id,
-                        status: "pending",
-                    })
-                    .returning({ id: processRunsTable.id });
-                if (!processRun) {
-                    throw new Error("Failed to create process run");
-                }
-
-                await tx.insert(processRunFilesTable).values(
-                    insertedFiles.map((file) => ({
                         processRunId: processRun.id,
-                        fileId: file.id,
-                    }))
-                );
-
-                return {
-                    graph: updatedGraph ?? options.graph,
-                    addedFiles: insertedFiles,
-                    processRunId: processRun.id,
-                    supersededFileIds: supersededFiles.map((file) => file.id),
-                };
-            })
+                        supersededFileIds: supersededFiles.map((file) => file.id),
+                    };
+                })
+            )
         );
 
         const addedKeys = new Set(result.addedFiles.map((file) => file.key));
@@ -475,9 +479,9 @@ export function mapGraphError(statusFn: StatusFn, error: unknown) {
 function listRecentChatsByGraphId(
     graphIds: string[],
     userId: string
-): Effect.Effect<Map<string, GraphRecentChatItem[]>, unknown> {
+): Effect.Effect<Map<string, GraphRecentChatItem[]>, unknown, Database> {
     return Effect.map(
-        tryUnknownPromise(() =>
+        tryDb((db) =>
             db.execute(sql<RecentChatRow>`
                 WITH ranked AS (
                     SELECT
@@ -510,7 +514,7 @@ function listRecentChatsByGraphId(
         ),
         (result) => {
             const recentChatsByGraphId = new Map<string, GraphRecentChatItem[]>();
-            for (const row of result.rows as RecentChatRow[]) {
+            for (const row of result as RecentChatRow[]) {
                 const recentChats = recentChatsByGraphId.get(row.graphId) ?? [];
                 const updatedAt = row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt;
                 recentChats.push({
@@ -561,7 +565,7 @@ export const mapGraphListItem = (
 export function mapGraphListItemsWithProcessing(
     graphs: GraphListRow[],
     userId: string
-): Effect.Effect<GraphListItem[], unknown> {
+): Effect.Effect<GraphListItem[], unknown, Database> {
     return Effect.catchDefect(Effect.gen(function* () {
         if (graphs.length === 0) {
             return [];
@@ -579,7 +583,7 @@ export function mapGraphListItemsWithProcessing(
             yield* Effect.all(
                 [
                     listRecentChatsByGraphId(graphIds, userId),
-                    tryUnknownPromise(() =>
+                    tryDb((db) =>
                         db
                             .select({
                                 id: processRunsTable.id,
@@ -595,7 +599,7 @@ export function mapGraphListItemsWithProcessing(
                             )
                             .orderBy(asc(processRunsTable.graphId), asc(processRunsTable.createdAt))
                     ),
-                    tryUnknownPromise(() =>
+                    tryDb((db) =>
                         db
                             .select({
                                 file_type: processStatsTable.fileType,
@@ -606,7 +610,7 @@ export function mapGraphListItemsWithProcessing(
                             .from(processStatsTable)
                             .groupBy(processStatsTable.fileType, sizeBucket)
                     ),
-                    tryUnknownPromise(() =>
+                    tryDb((db) =>
                         db
                             .select({
                                 file_type: processStatsTable.fileType,
@@ -616,7 +620,7 @@ export function mapGraphListItemsWithProcessing(
                             .from(processStatsTable)
                             .groupBy(processStatsTable.fileType)
                     ),
-                    tryUnknownPromise(() =>
+                    tryDb((db) =>
                         db
                             .select({
                                 average_duration: sql<
@@ -642,7 +646,7 @@ export function mapGraphListItemsWithProcessing(
         const [runFiles, descriptionProgressByRunId] = yield* Effect.all(
             [
                 runIds.length > 0
-                    ? tryUnknownPromise(() =>
+                    ? tryDb((db) =>
                           db
                               .select({
                                   process_run_id: processRunFilesTable.processRunId,

@@ -19,7 +19,7 @@
         "@kiwi/logger": "workspace:*",
         "better-auth": "catalog:",
         "better-auth-credentials-plugin": "catalog:",
-        "better-result": "catalog:",
+        "effect": "catalog:",
         "ldap-authentication": "4.0.4",
         "zod": "catalog:"
     },

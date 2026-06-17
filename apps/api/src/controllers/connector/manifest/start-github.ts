@@ -5,7 +5,7 @@ import { createManifestUrl, signConnectorState } from "../../../lib/connectors";
 import { assertSystemAdmin } from "../../../lib/connector/api";
 import { connectorApiErrorOptions, toApiError, tryApiSync } from "../../_shared/api-effect"
 
-export function startGitHubConnectorManifest(input: { user: AuthUser; body: GitHubConnectorManifestStartInput }) {
+export function startGitHubConnectorManifest(input: { user: AuthUser; body: GitHubConnectorManifestStartInput }): Effect.Effect<{ state: string; manifestUrl: string }, ReturnType<typeof toApiError>> {
     return Effect.mapError(Effect.gen(function* () {
         yield* tryApiSync(() => assertSystemAdmin(input.user));
         const state = signConnectorState({ purpose: "github-manifest", userId: input.user.id });

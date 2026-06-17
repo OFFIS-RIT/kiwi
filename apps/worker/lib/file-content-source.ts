@@ -8,7 +8,8 @@ import type {
 } from "@kiwi/connectors";
 import { decryptConnectorCredentials } from "@kiwi/connectors/credentials";
 import type { ConnectorSecretPayload } from "@kiwi/connectors/credentials";
-import { db } from "@kiwi/db";
+import type { Database } from "@kiwi/db/effect";
+import { useWorkerDb } from "./effect";
 import { connectorInstallationsTable, connectorsTable, connectorResourceBindingsTable } from "@kiwi/db/tables/connectors";
 import { getFile } from "@kiwi/files";
 import { eq } from "drizzle-orm";
@@ -63,7 +64,7 @@ export function fileContentSourceFromRow(row: {
     return { kind: "internal", key: row.key };
 }
 
-export function readFileContentSource(source: FileContentSource): Effect.Effect<string | null, unknown> {
+export function readFileContentSource(source: FileContentSource): Effect.Effect<string | null, unknown, Database> {
     return Effect.gen(function* () {
         if (source.kind === "internal") {
             const file = yield* getFile(source.key, env.S3_BUCKET, "text");
@@ -97,33 +98,29 @@ function isInstallationCredentials(
     );
 }
 
-function readConnectorFile(bindingId: string, metadataValue?: string | null): Effect.Effect<string | null, unknown> {
+function readConnectorFile(bindingId: string, metadataValue?: string | null): Effect.Effect<string | null, unknown, Database> {
     return Effect.gen(function* () {
         const metadata = parseCodeFileMetadata(metadataValue) as CompatibleCodeFileMetadata | null;
         if (!metadata) {
             return null;
         }
 
-        const [row] = yield* Effect.tryPromise({
-            try: () =>
-                Promise.resolve(
-                    db
-                        .select({
-                            binding: connectorResourceBindingsTable,
-                            installation: connectorInstallationsTable,
-                            connector: connectorsTable,
-                        })
-                        .from(connectorResourceBindingsTable)
-                        .innerJoin(
-                            connectorInstallationsTable,
-                            eq(connectorInstallationsTable.id, connectorResourceBindingsTable.connectorInstallationId)
-                        )
-                        .innerJoin(connectorsTable, eq(connectorsTable.id, connectorInstallationsTable.connectorId))
-                        .where(eq(connectorResourceBindingsTable.id, bindingId))
-                        .limit(1)
-                ),
-            catch: (error) => error,
-        });
+        const [row] = yield* useWorkerDb((db) =>
+            db
+                .select({
+                    binding: connectorResourceBindingsTable,
+                    installation: connectorInstallationsTable,
+                    connector: connectorsTable,
+                })
+                .from(connectorResourceBindingsTable)
+                .innerJoin(
+                    connectorInstallationsTable,
+                    eq(connectorInstallationsTable.id, connectorResourceBindingsTable.connectorInstallationId)
+                )
+                .innerJoin(connectorsTable, eq(connectorsTable.id, connectorInstallationsTable.connectorId))
+                .where(eq(connectorResourceBindingsTable.id, bindingId))
+                .limit(1)
+        );
 
         if (!row || row.connector.status !== "active" || row.installation.status !== "active") {
             return null;

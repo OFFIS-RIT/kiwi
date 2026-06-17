@@ -7,7 +7,8 @@ import * as Effect from "effect/Effect";
 import { authenticate } from "ldap-authentication";
 import { z } from "zod";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { db } from "@kiwi/db";
+import { db as betterAuthDb } from "@kiwi/db";
+import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import { ac, admin as organizationAdmin, member, roleIncludes } from "./permissions";
 import { deriveAuthMode, getLdapConfigState } from "./mode";
 import { DEFAULT_ORGANIZATION_SLUG } from "./organization";
@@ -59,7 +60,6 @@ export const API_KEY_RATE_LIMIT_TIME_WINDOW = 60_000;
 export const API_KEY_RATE_LIMIT_MAX_REQUESTS = 60;
 const SYSTEM_ADMIN_ROLE = "admin";
 
-let defaultOrganizationIdPromise: Promise<string> | null = null;
 
 const ldapCredentialsSchema = z.object({
     credential: z.string().min(1),
@@ -82,39 +82,40 @@ type AdminMembershipInput = {
     userId: string;
 };
 
-function loadDefaultOrganizationId(): Effect.Effect<string, unknown> {
-    return Effect.tryPromise(async () => {
-        const [organization] = await db
-            .select({ id: authTables.organizationTable.id })
-            .from(authTables.organizationTable)
-            .orderBy(
-                sql`CASE WHEN ${authTables.organizationTable.slug} = ${DEFAULT_ORGANIZATION_SLUG} THEN 0 ELSE 1 END`,
-                authTables.organizationTable.createdAt
-            )
-            .limit(1);
+function mapDatabaseError<T, E, R>(effect: Effect.Effect<T, E, R>): Effect.Effect<T, DatabaseError, R> {
+    return effect.pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
+}
+
+function loadDefaultOrganizationId(): Effect.Effect<string, DatabaseError | Error, Database> {
+    return Effect.gen(function* () {
+        const db = yield* Database;
+        const [organization] = yield* mapDatabaseError(
+            db
+                .select({ id: authTables.organizationTable.id })
+                .from(authTables.organizationTable)
+                .orderBy(
+                    sql`CASE WHEN ${authTables.organizationTable.slug} = ${DEFAULT_ORGANIZATION_SLUG} THEN 0 ELSE 1 END`,
+                    authTables.organizationTable.createdAt
+                )
+                .limit(1)
+        );
 
         if (!organization) {
-            throw new Error("Expected a default organization");
+            return yield* Effect.fail(new Error("Expected a default organization"));
         }
 
         return organization.id;
     });
 }
 
-export function getDefaultOrganizationId(): Effect.Effect<string, unknown> {
-    return Effect.tryPromise(() => {
-        defaultOrganizationIdPromise ??= Effect.runPromise(loadDefaultOrganizationId()).catch((error) => {
-            defaultOrganizationIdPromise = null;
-            throw error;
-        });
-
-        return defaultOrganizationIdPromise;
-    });
+export function getDefaultOrganizationId(): Effect.Effect<string, DatabaseError | Error, Database> {
+    return loadDefaultOrganizationId();
 }
 
-function getInitialOrganizationId(userId: string): Effect.Effect<string, unknown> {
+function getInitialOrganizationId(userId: string): Effect.Effect<string, DatabaseError | Error, Database> {
     return Effect.gen(function* () {
-        const [membership] = yield* Effect.tryPromise(() =>
+        const db = yield* Database;
+        const [membership] = yield* mapDatabaseError(
             db
                 .select({ organizationId: authTables.memberTable.organizationId })
                 .from(authTables.memberTable)
@@ -147,13 +148,14 @@ function requireSystemAdminRole(user: unknown) {
     }
 }
 
-function ensureAdminMemberships(members: AdminMembershipInput[]): Effect.Effect<void, unknown> {
+function ensureAdminMemberships(members: AdminMembershipInput[]): Effect.Effect<void, DatabaseError, Database> {
     if (members.length === 0) {
         return Effect.void;
     }
 
-    return Effect.asVoid(
-        Effect.tryPromise(() =>
+    return Effect.gen(function* () {
+        const db = yield* Database;
+        yield* mapDatabaseError(
             db
                 .insert(authTables.memberTable)
                 .values(
@@ -171,13 +173,14 @@ function ensureAdminMemberships(members: AdminMembershipInput[]): Effect.Effect<
                     },
                     setWhere: eq(authTables.memberTable.systemRoleProvisioned, true),
                 })
-        )
-    );
+        );
+    });
 }
 
-export function ensureSystemAdminOrganizationMemberships(userId: string): Effect.Effect<void, unknown> {
+export function ensureSystemAdminOrganizationMemberships(userId: string): Effect.Effect<void, DatabaseError, Database> {
     return Effect.gen(function* () {
-        const organizations = yield* Effect.tryPromise(() =>
+        const db = yield* Database;
+        const organizations = yield* mapDatabaseError(
             db.select({ id: authTables.organizationTable.id }).from(authTables.organizationTable)
         );
 
@@ -185,43 +188,51 @@ export function ensureSystemAdminOrganizationMemberships(userId: string): Effect
     });
 }
 
-function removeSystemAdminOrganizationMemberships(userId: string): Effect.Effect<void, unknown> {
+function removeSystemAdminOrganizationMemberships(userId: string): Effect.Effect<void, DatabaseError | Error, Database> {
     return Effect.gen(function* () {
+        const db = yield* Database;
         const defaultOrganizationId = yield* getDefaultOrganizationId();
 
-        yield* Effect.tryPromise(() =>
-            db.transaction(async (tx) => {
-                await tx
-                    .update(authTables.memberTable)
-                    .set({
-                        role: "member",
-                        systemRoleProvisioned: false,
-                    })
-                    .where(
-                        and(
-                            eq(authTables.memberTable.userId, userId),
-                            eq(authTables.memberTable.organizationId, defaultOrganizationId),
-                            eq(authTables.memberTable.systemRoleProvisioned, true)
-                        )
+        yield* db
+            .transaction((tx) =>
+                Effect.gen(function* () {
+                    yield* mapDatabaseError(
+                        tx
+                            .update(authTables.memberTable)
+                            .set({
+                                role: "member",
+                                systemRoleProvisioned: false,
+                            })
+                            .where(
+                                and(
+                                    eq(authTables.memberTable.userId, userId),
+                                    eq(authTables.memberTable.organizationId, defaultOrganizationId),
+                                    eq(authTables.memberTable.systemRoleProvisioned, true)
+                                )
+                            )
                     );
 
-                await tx
-                    .delete(authTables.memberTable)
-                    .where(
-                        and(
-                            eq(authTables.memberTable.userId, userId),
-                            ne(authTables.memberTable.organizationId, defaultOrganizationId),
-                            eq(authTables.memberTable.systemRoleProvisioned, true)
-                        )
+                    yield* mapDatabaseError(
+                        tx
+                            .delete(authTables.memberTable)
+                            .where(
+                                and(
+                                    eq(authTables.memberTable.userId, userId),
+                                    ne(authTables.memberTable.organizationId, defaultOrganizationId),
+                                    eq(authTables.memberTable.systemRoleProvisioned, true)
+                                )
+                            )
                     );
-            })
-        );
+                })
+            )
+            .pipe(Effect.mapError((cause) => (cause instanceof DatabaseError ? cause : new DatabaseError({ cause }))));
     });
 }
 
-function ensureOrganizationSystemAdminMembers(organizationId: string): Effect.Effect<void, unknown> {
+function ensureOrganizationSystemAdminMembers(organizationId: string): Effect.Effect<void, DatabaseError, Database> {
     return Effect.gen(function* () {
-        const systemAdmins = yield* Effect.tryPromise(() =>
+        const db = yield* Database;
+        const systemAdmins = yield* mapDatabaseError(
             db
                 .select({ id: authTables.userTable.id })
                 .from(authTables.userTable)
@@ -237,11 +248,12 @@ function ensureOrganizationSystemAdminMembers(organizationId: string): Effect.Ef
 export function ensureDefaultOrganizationMember(
     userId: string,
     role: "admin" | "member" = "member"
-): Effect.Effect<string, unknown> {
+): Effect.Effect<string, DatabaseError | Error, Database> {
     return Effect.gen(function* () {
+        const db = yield* Database;
         const organizationId = yield* getDefaultOrganizationId();
 
-        yield* Effect.tryPromise(() =>
+        yield* mapDatabaseError(
             db
                 .insert(authTables.memberTable)
                 .values({
@@ -309,7 +321,7 @@ function authenticateLdapCredentials(parsed: LdapCredentials) {
 export const auth = betterAuth({
     secret: process.env.AUTH_SECRET as string,
     baseURL: process.env.AUTH_URL as string,
-    database: drizzleAdapter(db, {
+    database: drizzleAdapter(betterAuthDb, {
         provider: "pg",
         schema: {
             user: authTables.userTable,
@@ -328,7 +340,7 @@ export const auth = betterAuth({
         user: {
             create: {
                 after: async (user) => {
-                    await Effect.runPromise(
+                    await runDatabaseEffect(
                         Effect.gen(function* () {
                             yield* ensureDefaultOrganizationMember(user.id, "member");
 
@@ -341,7 +353,7 @@ export const auth = betterAuth({
             },
             update: {
                 after: async (user) => {
-                    await Effect.runPromise(
+                    await runDatabaseEffect(
                         isSystemAdminRole(user.role)
                             ? ensureSystemAdminOrganizationMemberships(user.id)
                             : removeSystemAdminOrganizationMemberships(user.id)
@@ -352,7 +364,7 @@ export const auth = betterAuth({
         session: {
             create: {
                 before: async (session) => {
-                    const organizationId = await Effect.runPromise(getInitialOrganizationId(session.userId));
+                    const organizationId = await runDatabaseEffect(getInitialOrganizationId(session.userId));
 
                     return {
                         data: {
@@ -445,12 +457,12 @@ export const auth = betterAuth({
                 beforeDeleteOrganization: async ({ organization, user }) => {
                     requireSystemAdminRole(user);
 
-                    if (organization.id === (await Effect.runPromise(getDefaultOrganizationId()))) {
+                    if (organization.id === (await runDatabaseEffect(getDefaultOrganizationId()))) {
                         throw new APIError("FORBIDDEN", { message: "The default organization cannot be deleted" });
                     }
                 },
                 afterCreateOrganization: async ({ organization }) => {
-                    await Effect.runPromise(ensureOrganizationSystemAdminMembers(organization.id));
+                    await runDatabaseEffect(ensureOrganizationSystemAdminMembers(organization.id));
                 },
             },
             roles: {

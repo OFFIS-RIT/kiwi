@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import { DatabaseLayer, type Database } from "@kiwi/db/effect";
 import {
     API_ERROR_CODES,
     type ApiErrorCode,
@@ -92,14 +93,8 @@ export function mapApiError(status: RouteStatus, error: unknown, options: ApiErr
     return status(apiError.status, errorResponse(apiError.responseMessage, apiError.code));
 }
 
-export type ApiEffect<T> = Effect.Effect<T, ApiError>;
+export type ApiEffect<T, E = never, R = never> = Effect.Effect<T, ApiError | E, R>;
 
-export function tryApiPromise<T>(thunk: () => Promise<T>, options: ApiErrorOptions = {}): ApiEffect<T> {
-    return Effect.tryPromise({
-        try: thunk,
-        catch: (error) => toApiError(error, options),
-    });
-}
 
 export function tryApiSync<T>(thunk: () => T, options: ApiErrorOptions = {}): ApiEffect<T> {
     return Effect.try({
@@ -112,7 +107,7 @@ export function runApiAction<T>(
     options: ApiErrorOptions & {
         status: RouteStatus;
         user: AuthUser | null | undefined;
-        action: (user: AuthUser) => Effect.Effect<T, unknown>;
+        action: (user: AuthUser) => Effect.Effect<T, unknown, Database>;
         success: (value: T) => unknown;
     }
 ) {
@@ -122,9 +117,12 @@ export function runApiAction<T>(
     }
 
     return Effect.runPromise(
-        Effect.match(options.action(options.user), {
-            onFailure: (error) => mapApiError(options.status, error, options),
-            onSuccess: options.success,
-        })
+        Effect.provide(
+            Effect.match(options.action(options.user), {
+                onFailure: (error) => mapApiError(options.status, error, options),
+                onSuccess: options.success,
+            }),
+            DatabaseLayer
+        )
     );
 }

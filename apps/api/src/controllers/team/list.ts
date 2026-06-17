@@ -1,46 +1,53 @@
 import * as Effect from "effect/Effect";
 import { roleIncludes } from "@kiwi/auth/permissions";
-import { db } from "@kiwi/db";
+import { tryDb } from "@kiwi/db/effect";
 import { teamMemberRolesTable, teamMemberTable, teamTable, type TeamMemberRole } from "@kiwi/db/tables/auth";
 import type { TeamListItem } from "@kiwi/contracts/teams";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { requireOrganizationMembership } from "../../lib/team/access";
 import type { AuthUser } from "../../middleware/auth";
-import { tryApiPromise } from "../_shared/api-effect";
+import { toApiError } from "../_shared/api-effect";
 
 export function listTeams(input: { user: AuthUser }) {
-    return tryApiPromise(async (): Promise<TeamListItem[]> => {
-        const membership = await Effect.runPromise(requireOrganizationMembership(input.user));
-        const organizationId = membership.organizationId;
+    return Effect.mapError(
+        Effect.gen(function* () {
+            const membership = yield* requireOrganizationMembership(input.user);
+            const organizationId = membership.organizationId;
 
-        if (roleIncludes(membership.role, "admin")) {
-            const teams = await db
-                .select({
-                    team_id: teamTable.id,
-                    team_name: teamTable.name,
-                })
-                .from(teamTable)
-                .where(eq(teamTable.organizationId, organizationId))
-                .orderBy(asc(teamTable.name));
+            if (roleIncludes(membership.role, "admin")) {
+                const teams = yield* tryDb((db) =>
+                    db
+                        .select({
+                            team_id: teamTable.id,
+                            team_name: teamTable.name,
+                        })
+                        .from(teamTable)
+                        .where(eq(teamTable.organizationId, organizationId))
+                        .orderBy(asc(teamTable.name))
+                );
 
-            return teams.map((team) => ({
-                ...team,
-                role: "admin" as const,
-            }));
-        }
+                return teams.map((team): TeamListItem => ({
+                    ...team,
+                    role: "admin",
+                }));
+            }
 
-        const role = sql<TeamMemberRole>`coalesce(${teamMemberRolesTable.role}, 'member')`;
+            const role = sql<TeamMemberRole>`coalesce(${teamMemberRolesTable.role}, 'member')`;
 
-        return db
-            .select({
-                team_id: teamTable.id,
-                team_name: teamTable.name,
-                role,
-            })
-            .from(teamMemberTable)
-            .innerJoin(teamTable, eq(teamTable.id, teamMemberTable.teamId))
-            .leftJoin(teamMemberRolesTable, eq(teamMemberRolesTable.teamMemberId, teamMemberTable.id))
-            .where(and(eq(teamTable.organizationId, organizationId), eq(teamMemberTable.userId, input.user.id)))
-            .orderBy(asc(teamTable.name));
-    });
+            return yield* tryDb((db) =>
+                db
+                    .select({
+                        team_id: teamTable.id,
+                        team_name: teamTable.name,
+                        role,
+                    })
+                    .from(teamMemberTable)
+                    .innerJoin(teamTable, eq(teamTable.id, teamMemberTable.teamId))
+                    .leftJoin(teamMemberRolesTable, eq(teamMemberRolesTable.teamMemberId, teamMemberTable.id))
+                    .where(and(eq(teamTable.organizationId, organizationId), eq(teamMemberTable.userId, input.user.id)))
+                    .orderBy(asc(teamTable.name))
+            );
+        }),
+        toApiError
+    );
 }

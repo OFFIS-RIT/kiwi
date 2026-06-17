@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
 
+const runWorkerTestEffect = <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+    Effect.runPromise(effect as Effect.Effect<T, E, never>);
+
 type MockFileRow = {
     id: string;
     name: string;
@@ -74,17 +77,27 @@ let selectedFileIds = ["file-new"];
 let selectCallCount = 0;
 let uploadedManifest: unknown;
 
-mock.module("@kiwi/db", () => ({
-    db: {
-        select: () => ({
-            from: () => ({
-                where: async () => {
-                    selectCallCount += 1;
-                    return selectCallCount === 1 ? rows.filter((row) => selectedFileIds.includes(row.id)) : rows;
-                },
-            }),
+const mockDb = {
+    select: () => ({
+        from: () => ({
+            where: () => {
+                selectCallCount += 1;
+                return Effect.succeed(selectCallCount === 1 ? rows.filter((row) => selectedFileIds.includes(row.id)) : rows);
+            },
         }),
+    }),
+};
+
+mock.module("@kiwi/db/effect", () => ({
+    Database: Effect.succeed(mockDb),
+    DatabaseError: class DatabaseError extends Error {
+        override readonly cause: unknown;
+        constructor(options: { cause: unknown }) {
+            super("DatabaseError");
+            this.cause = options.cause;
+        }
     },
+    DatabaseLayer: {},
 }));
 
 mock.module("@kiwi/files", () => ({
@@ -116,7 +129,7 @@ describe("prepareCodeManifest", () => {
     });
 
     test("includes active files from the same repository commit as selected files", async () => {
-        const key = await Effect.runPromise(prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" }));
+        const key = await runWorkerTestEffect(prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" }));
 
         expect(key).toBe("manifest-key");
         expect((uploadedManifest as { files: Array<{ path: string }> }).files.map((file) => file.path).sort()).toEqual([
@@ -175,7 +188,7 @@ describe("prepareCodeManifest", () => {
         ];
         selectedFileIds = ["file-connector-new"];
 
-        const key = await Effect.runPromise(prepareCodeManifest({ graphId: "graph-1", fileIds: selectedFileIds, processRunId: "run-1" }));
+        const key = await runWorkerTestEffect(prepareCodeManifest({ graphId: "graph-1", fileIds: selectedFileIds, processRunId: "run-1" }));
 
         expect(key).toBe("manifest-key");
         expect((uploadedManifest as { files: Array<{ path: string }> }).files.map((file) => file.path).sort()).toEqual([
@@ -212,7 +225,7 @@ describe("prepareCodeManifest", () => {
                 headers: { "content-type": "text/plain" },
             })) as unknown as typeof fetch;
 
-        const key = await Effect.runPromise(prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" }));
+        const key = await runWorkerTestEffect(prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" }));
 
         expect(key).toBe("manifest-key");
         expect((uploadedManifest as { files: Array<{ path: string }> }).files.map((file) => file.path).sort()).toEqual([
@@ -225,7 +238,7 @@ describe("prepareCodeManifest", () => {
 
 describe("readFileContentSource", () => {
     test("reads internal S3 content", async () => {
-        await expect(Effect.runPromise(readFileContentSource({ kind: "internal", key: "key-new" }))).resolves.toBe(
+        await expect(runWorkerTestEffect(readFileContentSource({ kind: "internal", key: "key-new" }))).resolves.toBe(
             "import { helper } from './helper';\nexport function main() { return helper(); }\n"
         );
     });
@@ -237,7 +250,7 @@ describe("readFileContentSource", () => {
             })) as unknown as typeof fetch;
 
         await expect(
-            Effect.runPromise(
+            runWorkerTestEffect(
                 readFileContentSource({
                     kind: "external",
                     provider: "github",
@@ -255,7 +268,7 @@ describe("readFileContentSource", () => {
         }) as unknown as typeof fetch;
 
         await expect(
-            Effect.runPromise(
+            runWorkerTestEffect(
                 readFileContentSource({
                     kind: "external",
                     provider: "github",
@@ -276,7 +289,7 @@ describe("readFileContentSource", () => {
             })) as unknown as typeof fetch;
 
         await expect(
-            Effect.runPromise(
+            runWorkerTestEffect(
                 readFileContentSource({
                     kind: "external",
                     provider: "github",

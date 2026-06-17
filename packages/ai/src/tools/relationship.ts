@@ -1,4 +1,4 @@
-import { db } from "@kiwi/db";
+import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { entityTable, relationshipTable } from "@kiwi/db/tables/graph";
 import { currentSourceSql, visibleFileSql } from "@kiwi/db/source-validity";
@@ -93,7 +93,7 @@ function buildRelationshipFileScopeExpression(fileIds: string[]) {
     `;
 }
 
-function toSearchRelationshipRows(rows: Record<string, unknown>[]): SearchRelationshipRow[] {
+function toSearchRelationshipRows(rows: readonly Record<string, unknown>[]): SearchRelationshipRow[] {
     return rows.map((row) => ({
         id: String(row.id ?? ""),
         sourceId: String(row.sourceId ?? ""),
@@ -158,7 +158,7 @@ export const searchRelationshipsTool = (
             "Use when you need relationship IDs before calling the source tool, or when the important fact is the connection itself rather than a single entity. Semantic search is primary, with keyword terms boosting connected entity names and relation labels.",
         inputSchema: searchRelationshipsSchema,
         execute: ({ query, keywords, files, limit, cursor }) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Relationships",
@@ -171,6 +171,7 @@ export const searchRelationshipsTool = (
                     { query, keywords, files, limit, cursor },
                     () =>
                         Effect.gen(function* () {
+                            const db = yield* Database;
                             const text = query.trim();
                             const terms = uniqueTerms([...(keywords ?? []), text]);
                             const fileIds = uniqueTerms(files ?? []);
@@ -198,8 +199,8 @@ export const searchRelationshipsTool = (
                                       )
                                   `
                                 : sql``;
-                            const result = yield* Effect.tryPromise(() =>
-                                db.execute(sql<SearchRelationshipRow>`
+                            const result = yield* db
+                                .execute(sql<SearchRelationshipRow>`
                                     with ranked as (
                                         select
                                             r.id,
@@ -243,8 +244,8 @@ export const searchRelationshipsTool = (
                                     order by ranked.score desc, ranked.id asc
                                     limit ${limit + 1}
                                 `)
-                            );
-                            const relationships = toSearchRelationshipRows(result.rows);
+                                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
+                            const relationships = toSearchRelationshipRows(result);
 
                             const hasMore = relationships.length > limit;
                             const items = hasMore ? relationships.slice(0, limit) : relationships;
@@ -281,7 +282,7 @@ export const getRelationshipsTool = (graphId: string) =>
             "Use when you already have entity IDs and want the direct edges touching them. Good for understanding how a small set of entities is connected.",
         inputSchema: getRelationshipsSchema,
         execute: ({ entityIds, limit, cursor }) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Relationships",
@@ -294,6 +295,7 @@ export const getRelationshipsTool = (graphId: string) =>
                     { entityIds, limit, cursor },
                     () =>
                         Effect.gen(function* () {
+                            const db = yield* Database;
                             const ids = uniqueTerms(entityIds);
 
                             if (ids.length === 0) {
@@ -310,37 +312,35 @@ export const getRelationshipsTool = (graphId: string) =>
                                 clauses.push(gt(relationshipTable.id, cursor));
                             }
 
-                            const relationships = yield* Effect.tryPromise(() =>
-                                db
-                                    .select({
-                                        id: relationshipTable.id,
-                                        sourceId: relationshipTable.sourceId,
-                                        targetId: relationshipTable.targetId,
-                                        kind: relationshipTable.kind,
-                                        directed: relationshipTable.directed,
-                                        description: relationshipTable.description,
-                                        rank: relationshipTable.rank,
-                                    })
-                                    .from(relationshipTable)
-                                    .where(and(...clauses))
-                                    .orderBy(asc(relationshipTable.id))
-                                    .limit(limit + 1)
-                            );
+                            const relationships = yield* db
+                                .select({
+                                    id: relationshipTable.id,
+                                    sourceId: relationshipTable.sourceId,
+                                    targetId: relationshipTable.targetId,
+                                    kind: relationshipTable.kind,
+                                    directed: relationshipTable.directed,
+                                    description: relationshipTable.description,
+                                    rank: relationshipTable.rank,
+                                })
+                                .from(relationshipTable)
+                                .where(and(...clauses))
+                                .orderBy(asc(relationshipTable.id))
+                                .limit(limit + 1)
+                                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
 
                             const hasMore = relationships.length > limit;
                             const items = hasMore ? relationships.slice(0, limit) : relationships;
                             const entityLookupIds = [...new Set(items.flatMap((row) => [row.sourceId, row.targetId]))];
                             const entities = entityLookupIds.length
-                                ? yield* Effect.tryPromise(() =>
-                                      db
-                                          .select({
-                                              id: entityTable.id,
-                                              name: entityTable.name,
-                                              type: entityTable.type,
-                                          })
-                                          .from(entityTable)
-                                          .where(inArray(entityTable.id, entityLookupIds))
-                                  )
+                                ? yield* db
+                                      .select({
+                                          id: entityTable.id,
+                                          name: entityTable.name,
+                                          type: entityTable.type,
+                                      })
+                                      .from(entityTable)
+                                      .where(inArray(entityTable.id, entityLookupIds))
+                                      .pipe(Effect.mapError((cause) => new DatabaseError({ cause })))
                                 : [];
                             const entityMap = new Map(entities.map((row) => [row.id, row]));
 
@@ -374,7 +374,7 @@ export const getNeighboursTool = (graphId: string) =>
             "Use when you have one entity ID and want the entities directly connected to it, along with the relationship that connects them.",
         inputSchema: getNeighbourSchema,
         execute: ({ entityId, limit, cursor }) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Neighbours",
@@ -384,6 +384,7 @@ export const getNeighboursTool = (graphId: string) =>
                     { entityId, limit, cursor },
                     () =>
                         Effect.gen(function* () {
+                            const db = yield* Database;
                             const clauses = [
                                 eq(relationshipTable.graphId, graphId),
                                 eq(relationshipTable.active, true),
@@ -394,22 +395,21 @@ export const getNeighboursTool = (graphId: string) =>
                                 clauses.push(gt(relationshipTable.id, cursor));
                             }
 
-                            const relationships = yield* Effect.tryPromise(() =>
-                                db
-                                    .select({
-                                        id: relationshipTable.id,
-                                        sourceId: relationshipTable.sourceId,
-                                        targetId: relationshipTable.targetId,
-                                        kind: relationshipTable.kind,
-                                        directed: relationshipTable.directed,
-                                        description: relationshipTable.description,
-                                        rank: relationshipTable.rank,
-                                    })
-                                    .from(relationshipTable)
-                                    .where(and(...clauses))
-                                    .orderBy(asc(relationshipTable.id))
-                                    .limit(limit + 1)
-                            );
+                            const relationships = yield* db
+                                .select({
+                                    id: relationshipTable.id,
+                                    sourceId: relationshipTable.sourceId,
+                                    targetId: relationshipTable.targetId,
+                                    kind: relationshipTable.kind,
+                                    directed: relationshipTable.directed,
+                                    description: relationshipTable.description,
+                                    rank: relationshipTable.rank,
+                                })
+                                .from(relationshipTable)
+                                .where(and(...clauses))
+                                .orderBy(asc(relationshipTable.id))
+                                .limit(limit + 1)
+                                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
 
                             const hasMore = relationships.length > limit;
                             const items = hasMore ? relationships.slice(0, limit) : relationships;
@@ -417,17 +417,16 @@ export const getNeighboursTool = (graphId: string) =>
                                 ...new Set(items.map((row) => (row.sourceId === entityId ? row.targetId : row.sourceId))),
                             ];
                             const entities = neighbourIds.length
-                                ? yield* Effect.tryPromise(() =>
-                                      db
-                                          .select({
-                                              id: entityTable.id,
-                                              name: entityTable.name,
-                                              type: entityTable.type,
-                                              description: entityTable.description,
-                                          })
-                                          .from(entityTable)
-                                          .where(inArray(entityTable.id, neighbourIds))
-                                  )
+                                ? yield* db
+                                      .select({
+                                          id: entityTable.id,
+                                          name: entityTable.name,
+                                          type: entityTable.type,
+                                          description: entityTable.description,
+                                      })
+                                      .from(entityTable)
+                                      .where(inArray(entityTable.id, neighbourIds))
+                                      .pipe(Effect.mapError((cause) => new DatabaseError({ cause })))
                                 : [];
                             const entityMap = new Map(entities.map((row) => [row.id, row]));
 
@@ -462,7 +461,7 @@ export const getPathBetweenTool = (graphId: string) =>
             "Use when you have two entity IDs and want one short connection path between them. This searches direct graph hops and returns a compact path summary.",
         inputSchema: getPathBetweenSchema,
         execute: ({ sourceEntityId, targetEntityId }) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Path",
@@ -475,18 +474,18 @@ export const getPathBetweenTool = (graphId: string) =>
                     { sourceEntityId, targetEntityId },
                     () =>
                         Effect.gen(function* () {
+                            const db = yield* Database;
                             if (sourceEntityId === targetEntityId) {
-                                const [entity] = yield* Effect.tryPromise(() =>
-                                    db
-                                        .select({
-                                            id: entityTable.id,
-                                            name: entityTable.name,
-                                            type: entityTable.type,
-                                        })
-                                        .from(entityTable)
-                                        .where(and(eq(entityTable.graphId, graphId), eq(entityTable.id, sourceEntityId)))
-                                        .limit(1)
-                                );
+                                const [entity] = yield* db
+                                    .select({
+                                        id: entityTable.id,
+                                        name: entityTable.name,
+                                        type: entityTable.type,
+                                    })
+                                    .from(entityTable)
+                                    .where(and(eq(entityTable.graphId, graphId), eq(entityTable.id, sourceEntityId)))
+                                    .limit(1)
+                                    .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
 
                                 if (!entity) {
                                     return "## Path\n- none found within 5 hops";
@@ -505,26 +504,25 @@ export const getPathBetweenTool = (graphId: string) =>
                                 depth < maxDepth && frontier.length > 0 && !visited.has(targetEntityId);
                                 depth += 1
                             ) {
-                                const relationships = yield* Effect.tryPromise(() =>
-                                    db
-                                        .select({
-                                            id: relationshipTable.id,
-                                            sourceId: relationshipTable.sourceId,
-                                            targetId: relationshipTable.targetId,
-                                            directed: relationshipTable.directed,
-                                        })
-                                        .from(relationshipTable)
-                                        .where(
-                                            and(
-                                                eq(relationshipTable.graphId, graphId),
-                                                eq(relationshipTable.active, true),
-                                                or(
-                                                    inArray(relationshipTable.sourceId, frontier),
-                                                    inArray(relationshipTable.targetId, frontier)
-                                                )!
-                                            )
+                                const relationships = yield* db
+                                    .select({
+                                        id: relationshipTable.id,
+                                        sourceId: relationshipTable.sourceId,
+                                        targetId: relationshipTable.targetId,
+                                        directed: relationshipTable.directed,
+                                    })
+                                    .from(relationshipTable)
+                                    .where(
+                                        and(
+                                            eq(relationshipTable.graphId, graphId),
+                                            eq(relationshipTable.active, true),
+                                            or(
+                                                inArray(relationshipTable.sourceId, frontier),
+                                                inArray(relationshipTable.targetId, frontier)
+                                            )!
                                         )
-                                );
+                                    )
+                                    .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
 
                                 const nextFrontier: string[] = [];
 
@@ -575,30 +573,28 @@ export const getPathBetweenTool = (graphId: string) =>
                                 currentEntityId = step.entityId;
                             }
 
-                            const entities = yield* Effect.tryPromise(() =>
-                                db
-                                    .select({
-                                        id: entityTable.id,
-                                        name: entityTable.name,
-                                        type: entityTable.type,
-                                    })
-                                    .from(entityTable)
-                                    .where(inArray(entityTable.id, pathEntityIds))
-                            );
+                            const entities = yield* db
+                                .select({
+                                    id: entityTable.id,
+                                    name: entityTable.name,
+                                    type: entityTable.type,
+                                })
+                                .from(entityTable)
+                                .where(inArray(entityTable.id, pathEntityIds))
+                                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
                             const relationships = pathRelationshipIds.length
-                                ? yield* Effect.tryPromise(() =>
-                                      db
-                                          .select({
-                                              id: relationshipTable.id,
-                                              sourceId: relationshipTable.sourceId,
-                                              targetId: relationshipTable.targetId,
-                                              kind: relationshipTable.kind,
-                                              directed: relationshipTable.directed,
-                                              description: relationshipTable.description,
-                                          })
-                                          .from(relationshipTable)
-                                          .where(inArray(relationshipTable.id, pathRelationshipIds))
-                                  )
+                                ? yield* db
+                                      .select({
+                                          id: relationshipTable.id,
+                                          sourceId: relationshipTable.sourceId,
+                                          targetId: relationshipTable.targetId,
+                                          kind: relationshipTable.kind,
+                                          directed: relationshipTable.directed,
+                                          description: relationshipTable.description,
+                                      })
+                                      .from(relationshipTable)
+                                      .where(inArray(relationshipTable.id, pathRelationshipIds))
+                                      .pipe(Effect.mapError((cause) => new DatabaseError({ cause })))
                                 : [];
                             const entityMap = new Map(entities.map((row) => [row.id, row]));
                             const relationshipMap = new Map(relationships.map((row) => [row.id, row]));

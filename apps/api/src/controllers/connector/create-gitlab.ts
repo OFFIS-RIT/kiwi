@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb, type Database } from "@kiwi/db/effect";
 import { connectorsTable } from "@kiwi/db/tables/connectors";
 import type { GitLabConnectorCreateInput } from "@kiwi/contracts/connectors";
 import type { AuthUser } from "../../middleware/auth";
@@ -7,10 +7,10 @@ import { encryptCredentials, encryptSecret, toPublicConnector } from "../../lib/
 import { assertSystemAdmin } from "../../lib/connector/api";
 import { connectorApiErrorOptions, toApiError, tryApiSync } from "../_shared/api-effect"
 
-export function createGitLabConnector(input: { user: AuthUser; body: GitLabConnectorCreateInput }) {
+export function createGitLabConnector(input: { user: AuthUser; body: GitLabConnectorCreateInput }): Effect.Effect<ReturnType<typeof toPublicConnector>, ReturnType<typeof toApiError>, Database> {
     return Effect.mapError(Effect.gen(function* () {
         yield* tryApiSync(() => assertSystemAdmin(input.user));
-        const [connector] = yield* Effect.tryPromise(() =>
+        const [connector] = yield* tryDb((db) =>
             db
                 .insert(connectorsTable)
                 .values({

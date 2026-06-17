@@ -1,4 +1,4 @@
-import { db } from "@kiwi/db";
+import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import { filesTable } from "@kiwi/db/tables/graph";
 import { and, asc, eq, gt, ilike } from "drizzle-orm";
 import * as Effect from "effect/Effect";
@@ -22,7 +22,7 @@ export const listFilesTool = (graphId: string, options: FileToolOptions = {}) =>
             "Use when you need file IDs to narrow other tools. Best for scanning the graph's files or finding a file by partial name.",
         inputSchema: listFilesSchema,
         execute: ({ name, limit, cursor }) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Files",
@@ -35,6 +35,7 @@ export const listFilesTool = (graphId: string, options: FileToolOptions = {}) =>
                     { name, limit, cursor },
                     () =>
                         Effect.gen(function* () {
+                            const db = yield* Database;
                             const clauses = [eq(filesTable.graphId, graphId), eq(filesTable.deleted, false)];
 
                             if (cursor) {
@@ -45,21 +46,20 @@ export const listFilesTool = (graphId: string, options: FileToolOptions = {}) =>
                                 clauses.push(ilike(filesTable.name, `%${name.trim()}%`));
                             }
 
-                            const rows = yield* Effect.tryPromise(() =>
-                                db
-                                    .select({
-                                        id: filesTable.id,
-                                        name: filesTable.name,
-                                        type: filesTable.type,
-                                        mimeType: filesTable.mimeType,
-                                        size: filesTable.size,
-                                        tokenCount: filesTable.tokenCount,
-                                    })
-                                    .from(filesTable)
-                                    .where(and(...clauses))
-                                    .orderBy(asc(filesTable.id))
-                                    .limit(limit + 1)
-                            );
+                            const rows = yield* db
+                                .select({
+                                    id: filesTable.id,
+                                    name: filesTable.name,
+                                    type: filesTable.type,
+                                    mimeType: filesTable.mimeType,
+                                    size: filesTable.size,
+                                    tokenCount: filesTable.tokenCount,
+                                })
+                                .from(filesTable)
+                                .where(and(...clauses))
+                                .orderBy(asc(filesTable.id))
+                                .limit(limit + 1)
+                                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
 
                             const hasMore = rows.length > limit;
                             const items = hasMore ? rows.slice(0, limit) : rows;

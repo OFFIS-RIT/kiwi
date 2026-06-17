@@ -13,9 +13,21 @@ import z from "zod";
 
 export const MAX_SOURCE_CHUNKS_PER_SOURCE = 8;
 
-export function createUnits(file: GraphFile): Effect.Effect<Unit[], unknown> {
+export class UnitCreationError extends Error {
+    readonly _tag = "UnitCreationError";
+
+    constructor(override readonly cause: unknown) {
+        super("Failed to create graph units.");
+        this.name = "UnitCreationError";
+    }
+}
+
+export function createUnits(file: GraphFile): Effect.Effect<Unit[], UnitCreationError> {
     return Effect.gen(function* () {
-        const document = yield* Effect.tryPromise(() => loadGraphDocument(file.loader));
+        const document = yield* Effect.tryPromise({
+            try: () => loadGraphDocument(file.loader),
+            catch: (cause) => new UnitCreationError(cause),
+        });
 
         return yield* createUnitsFromText({
             fileId: file.id,
@@ -33,37 +45,40 @@ export function createUnitsFromText(options: {
     text: string;
     chunker: GraphChunker;
     loaderSourceChunks?: LoaderSourceChunk[];
-}): Effect.Effect<Unit[], unknown> {
-    return Effect.tryPromise(async () => {
-        const textChunks = await options.chunker.getChunkSpans(options.text);
-        const chunks = toPageAwareChunksWithSource(textChunks, (chunk) => chunk.content);
-        const loaderSourceChunks = prepareLoaderSourceChunks(options.loaderSourceChunks ?? []);
-        let fallbackTextChunker: GraphChunker | undefined;
-        const units: Unit[] = [];
+}): Effect.Effect<Unit[], UnitCreationError> {
+    return Effect.tryPromise({
+        try: async () => {
+            const textChunks = await options.chunker.getChunkSpans(options.text);
+            const chunks = toPageAwareChunksWithSource(textChunks, (chunk) => chunk.content);
+            const loaderSourceChunks = prepareLoaderSourceChunks(options.loaderSourceChunks ?? []);
+            let fallbackTextChunker: GraphChunker | undefined;
+            const units: Unit[] = [];
 
-        for (const chunk of chunks) {
-            const unit: Unit = {
-                id: ulid(),
-                fileId: options.fileId,
-                content: chunk.content,
-                startPage: chunk.startPage,
-                endPage: chunk.endPage,
-                chunks: sourceChunksForUnit(loaderSourceChunks, chunk.source),
-            };
-
-            if (unit.chunks.length === 0) {
-                unit.chunks = await createSourceChunks(chunk.content, {
-                    fileType: options.fileType,
+            for (const chunk of chunks) {
+                const unit: Unit = {
+                    id: ulid(),
+                    fileId: options.fileId,
+                    content: chunk.content,
                     startPage: chunk.startPage,
                     endPage: chunk.endPage,
-                    textChunker: (fallbackTextChunker ??= new SemanticChunker(DEFAULT_SOURCE_CHUNK_TOKENS)),
-                });
+                    chunks: sourceChunksForUnit(loaderSourceChunks, chunk.source),
+                };
+
+                if (unit.chunks.length === 0) {
+                    unit.chunks = await createSourceChunks(chunk.content, {
+                        fileType: options.fileType,
+                        startPage: chunk.startPage,
+                        endPage: chunk.endPage,
+                        textChunker: (fallbackTextChunker ??= new SemanticChunker(DEFAULT_SOURCE_CHUNK_TOKENS)),
+                    });
+                }
+
+                units.push(unit);
             }
 
-            units.push(unit);
-        }
-
-        return units;
+            return units;
+        },
+        catch: (cause) => new UnitCreationError(cause),
     });
 }
 
@@ -186,7 +201,7 @@ function buildExtractionInput(unit: Unit): string {
         .join("\n\n");
 }
 
-class ProcessUnitAiError extends Error {
+export class ProcessUnitAiError extends Error {
     readonly _tag = "ProcessUnitAiError";
 
     constructor(override readonly cause: unknown) {
@@ -194,7 +209,7 @@ class ProcessUnitAiError extends Error {
     }
 }
 
-class ProcessUnitGraphMappingError extends Error {
+export class ProcessUnitGraphMappingError extends Error {
     readonly _tag = "ProcessUnitGraphMappingError";
 
     constructor(override readonly cause: unknown) {
@@ -311,11 +326,11 @@ export function processUnit(
     model: LanguageModelV3,
     documentName = unit.fileId,
     metadata?: string
-): Effect.Effect<Graph, unknown> {
+): Effect.Effect<Graph, ProcessUnitAiError | ProcessUnitGraphMappingError> {
     const entities = ["ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"];
     const prompt = extractPrompt(entities, documentName, metadata);
 
-    const program = Effect.gen(function* () {
+    return Effect.gen(function* () {
         const output = yield* extractGraphData(unit, model, prompt);
         const { entityNameToId, graphEntities } = yield* mapGraphEntities(unit, output);
         const graphRelationships = yield* mapGraphRelationships(unit, output, entityNameToId);
@@ -327,6 +342,4 @@ export function processUnit(
             relationships: graphRelationships,
         };
     });
-
-    return Effect.mapError(program, (error) => error.cause);
 }

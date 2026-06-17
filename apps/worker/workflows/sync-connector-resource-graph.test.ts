@@ -147,19 +147,31 @@ const transactionDb = {
     }),
 };
 
-mock.module("@kiwi/db", () => ({
-    db: {
-        select: () => createSelectQuery(),
-        update: () => ({
-            set: (values: Record<string, unknown>) => ({
-                where: async () => {
-                    bindingUpdates.push(values);
-                    return undefined;
-                },
-            }),
+const mockDb = {
+    select: () => createSelectQuery(),
+    update: () => ({
+        set: (values: Record<string, unknown>) => ({
+            where: async () => {
+                bindingUpdates.push(values);
+                return undefined;
+            },
         }),
-        transaction: async <T>(callback: (tx: typeof transactionDb) => Promise<T>) => callback(transactionDb),
-    },
+    }),
+    transaction: async <T>(callback: (tx: typeof transactionDb) => Promise<T>) => callback(transactionDb),
+};
+
+function runMockDbEffect(thunk: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown>) {
+    const result = thunk(mockDb);
+    return typeof result === "object" && result !== null && Symbol.iterator in result
+        ? (result as Effect.Effect<unknown>)
+        : Effect.tryPromise(() => result as PromiseLike<unknown>);
+}
+
+mock.module("../lib/effect", () => ({
+    useWorkerDb: runMockDbEffect,
+    useWorkerDbVoid: (thunk: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown>) =>
+        Effect.asVoid(runMockDbEffect(thunk)),
+    runWorkerEffect: <T, E>(effect: Effect.Effect<T, E>) => Effect.runPromise(effect),
 }));
 
 mock.module("@kiwi/connectors", () => ({

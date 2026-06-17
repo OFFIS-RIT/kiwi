@@ -187,40 +187,40 @@ export type ConnectorWebhookNormalizationOptions = {
 
 export type GitResourceClient = {
     readonly provider: ConnectorProvider;
-    getRepository(repositoryId: string): Effect.Effect<GitResource, unknown>;
-    listRepositories(): Effect.Effect<GitResource[], unknown>;
-    listBranches(repository: GitResource): Effect.Effect<GitResourceVersion[], unknown>;
+    getRepository(repositoryId: string): Effect.Effect<GitResource, ConnectorProviderError>;
+    listRepositories(): Effect.Effect<GitResource[], ConnectorProviderError>;
+    listBranches(repository: GitResource): Effect.Effect<GitResourceVersion[], ConnectorProviderError>;
     loadRepositorySnapshot(
         repository: GitResource,
         branch: string,
         commitSha?: string
-    ): Effect.Effect<GitResourceSnapshot, unknown>;
+    ): Effect.Effect<GitResourceSnapshot, ConnectorProviderError>;
     compareRepository(
         repository: GitResource,
         fromCommitSha: string,
         toCommitSha: string
-    ): Effect.Effect<GitResourceDelta, unknown>;
-    readFile(repository: GitResource, path: string, commitSha: string): Effect.Effect<string, unknown>;
+    ): Effect.Effect<GitResourceDelta, ConnectorProviderError>;
+    readFile(repository: GitResource, path: string, commitSha: string): Effect.Effect<string, ConnectorProviderError>;
 };
 export type ProviderRepositoryClient = GitResourceClient;
 
 export type ConnectorAdapter = {
     readonly provider: ConnectorProvider;
     readonly resourceKind: ConnectorResourceKind;
-    getResource(resourceId: string): Effect.Effect<ConnectorResource, unknown>;
-    listResources(): Effect.Effect<ConnectorResource[], unknown>;
-    listResourceVersions(resourceId: string): Effect.Effect<ConnectorResourceVersion[], unknown>;
+    getResource(resourceId: string): Effect.Effect<ConnectorResource, ConnectorProviderError>;
+    listResources(): Effect.Effect<ConnectorResource[], ConnectorProviderError>;
+    listResourceVersions(resourceId: string): Effect.Effect<ConnectorResourceVersion[], ConnectorProviderError>;
     loadSnapshot(
         resourceId: string,
         versionName: string,
         versionId?: string
-    ): Effect.Effect<ConnectorResourceSnapshot, unknown>;
+    ): Effect.Effect<ConnectorResourceSnapshot, ConnectorProviderError>;
     compareVersions(
         resourceId: string,
         fromVersionId: string,
         toVersionId: string
-    ): Effect.Effect<ConnectorResourceDelta, unknown>;
-    readFile(locator: ConnectorFileLocator): Effect.Effect<string, unknown>;
+    ): Effect.Effect<ConnectorResourceDelta, ConnectorProviderError>;
+    readFile(locator: ConnectorFileLocator): Effect.Effect<string, ConnectorProviderError>;
     verifyWebhook?(options: ConnectorWebhookVerificationOptions): boolean;
     normalizeWebhook?(options: ConnectorWebhookNormalizationOptions): NormalizedWebhookEvent;
 };
@@ -241,7 +241,7 @@ export type ConnectorAdapterFactoryOptions = {
 export type ConnectorAdapterRegistryEntry = {
     provider: ConnectorProvider;
     resourceKind: ConnectorResourceKind;
-    create(options: ConnectorAdapterFactoryOptions): Effect.Effect<ConnectorAdapter, unknown>;
+    create(options: ConnectorAdapterFactoryOptions): Effect.Effect<ConnectorAdapter, ConnectorProviderError>;
     verifyWebhook?(options: ConnectorWebhookVerificationOptions): boolean;
     normalizeWebhook?(options: ConnectorWebhookNormalizationOptions): NormalizedWebhookEvent;
 };

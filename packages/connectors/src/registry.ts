@@ -36,11 +36,11 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
             return Effect.gen(function* () {
                 const credentials = yield* Effect.try({
                     try: () => requireGitHubConnectorCredentials(options.provider, options.credentials),
-                    catch: (error) => error,
+                    catch: toConnectorProviderError,
                 });
                 const installation = yield* Effect.try({
                     try: () => requireGitHubInstallationCredentials(options.provider, options.installation),
-                    catch: (error) => error,
+                    catch: toConnectorProviderError,
                 });
                 const token = yield* createGitHubInstallationToken({
                     credentials,
@@ -74,11 +74,11 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
             return Effect.gen(function* () {
                 const credentials = yield* Effect.try({
                     try: () => requireGitLabConnectorCredentials(options.provider, options.credentials),
-                    catch: (error) => error,
+                    catch: toConnectorProviderError,
                 });
                 const installation = yield* Effect.try({
                     try: () => requireGitLabInstallationCredentials(options.provider, options.installation),
-                    catch: (error) => error,
+                    catch: toConnectorProviderError,
                 });
 
                 return createGitLabClient({
@@ -104,7 +104,7 @@ export function getConnectorAdapterRegistryEntry(provider: ConnectorProvider): C
     return connectorAdapterRegistry[provider];
 }
 
-export function createConnectorAdapter(options: ConnectorAdapterFactoryOptions): Effect.Effect<ConnectorAdapter, unknown> {
+export function createConnectorAdapter(options: ConnectorAdapterFactoryOptions): Effect.Effect<ConnectorAdapter, ConnectorProviderError> {
     return connectorAdapterRegistry[options.provider].create(options);
 }
 
@@ -130,6 +130,12 @@ export function normalizeConnectorWebhook(
     }
 
     return normalizeWebhook(options);
+}
+
+function toConnectorProviderError(error: unknown): ConnectorProviderError {
+    return error instanceof ConnectorProviderError
+        ? error
+        : new ConnectorProviderError("validation", "Connector configuration is invalid", { cause: error });
 }
 
 function requireGitHubConnectorCredentials(

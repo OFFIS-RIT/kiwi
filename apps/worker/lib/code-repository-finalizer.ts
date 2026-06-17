@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import type { Database, DatabaseTransaction } from "@kiwi/db/effect";
+import { useWorkerDb } from "./effect";
 import { currentSourcePredicate, currentSourceSql } from "@kiwi/db/source-validity";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -59,7 +60,7 @@ export function invalidateSupersededRepositorySources(options: {
     graphId: string;
     latestFileIds?: string[];
     retiredFileIds?: string[];
-}): Effect.Effect<RepositorySourceInvalidationResult, unknown> {
+}): Effect.Effect<RepositorySourceInvalidationResult, unknown, Database> {
     return Effect.gen(function* () {
         if (options.retiredFileIds !== undefined) {
             return yield* invalidateRepositorySourceTargets({
@@ -74,19 +75,21 @@ export function invalidateSupersededRepositorySources(options: {
             return { entityIds: [], relationshipIds: [] };
         }
 
-        return yield* Effect.tryPromise(() =>
-            db.transaction(async (tx) => {
-                const latestRows = await tx
-                    .select({ id: filesTable.id, metadata: filesTable.metadata })
-                    .from(filesTable)
-                    .where(and(eq(filesTable.graphId, options.graphId), inArray(filesTable.id, latestFileIds)));
-                const candidateRows = await tx
-                    .select({ id: filesTable.id, metadata: filesTable.metadata })
-                    .from(filesTable)
-                    .where(and(eq(filesTable.graphId, options.graphId), eq(filesTable.type, "code")));
-                const targets = resolveRepositoryFinalizationTargets(latestRows, candidateRows);
-                return Effect.runPromise(invalidateRepositorySources(tx, options.graphId, targets.olderFileIds, false));
-            })
+        return yield* useWorkerDb((db) =>
+            db.transaction((tx) =>
+                Effect.gen(function* () {
+                    const latestRows = yield* tx
+                        .select({ id: filesTable.id, metadata: filesTable.metadata })
+                        .from(filesTable)
+                        .where(and(eq(filesTable.graphId, options.graphId), inArray(filesTable.id, latestFileIds)));
+                    const candidateRows = yield* tx
+                        .select({ id: filesTable.id, metadata: filesTable.metadata })
+                        .from(filesTable)
+                        .where(and(eq(filesTable.graphId, options.graphId), eq(filesTable.type, "code")));
+                    const targets = resolveRepositoryFinalizationTargets(latestRows, candidateRows);
+                    return yield* invalidateRepositorySources(tx, options.graphId, targets.olderFileIds, false);
+                })
+            )
         );
     });
 }
@@ -95,22 +98,20 @@ function invalidateRepositorySourceTargets(options: {
     graphId: string;
     retiredFileIds: string[];
     markDeleted: boolean;
-}): Effect.Effect<RepositorySourceInvalidationResult, unknown> {
+}): Effect.Effect<RepositorySourceInvalidationResult, unknown, Database> {
     return Effect.gen(function* () {
         if (options.retiredFileIds.length === 0) {
             return { entityIds: [], relationshipIds: [] };
         }
 
-        return yield* Effect.tryPromise(() =>
-            db.transaction((tx) =>
-                Effect.runPromise(invalidateRepositorySources(tx, options.graphId, options.retiredFileIds, options.markDeleted))
-            )
+        return yield* useWorkerDb((db) =>
+            db.transaction((tx) => invalidateRepositorySources(tx, options.graphId, options.retiredFileIds, options.markDeleted))
         );
     });
 }
 
 function invalidateRepositorySources(
-    tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    tx: DatabaseTransaction,
     graphId: string,
     retiredFileIds: string[],
     markDeleted: boolean
@@ -121,46 +122,33 @@ function invalidateRepositorySources(
         }
 
         if (markDeleted) {
-            yield* Effect.tryPromise(() =>
-                tx
-                    .update(filesTable)
-                    .set({ deleted: true })
-                    .where(and(eq(filesTable.graphId, graphId), eq(filesTable.deleted, false), inArray(filesTable.id, retiredFileIds)))
-                    .then(() => undefined)
-            );
+            yield* tx
+                .update(filesTable)
+                .set({ deleted: true })
+                .where(and(eq(filesTable.graphId, graphId), eq(filesTable.deleted, false), inArray(filesTable.id, retiredFileIds)));
         }
 
-        const affectedEntityRows = yield* Effect.tryPromise(() =>
-            tx
-                .selectDistinct({ id: sourcesTable.entityId })
-                .from(sourcesTable)
-                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                .where(and(inArray(textUnitTable.fileId, retiredFileIds), currentSourcePredicate(), isNotNull(sourcesTable.entityId)))
-        );
-        const affectedRelationshipRows = yield* Effect.tryPromise(() =>
-            tx
-                .selectDistinct({ id: sourcesTable.relationshipId })
-                .from(sourcesTable)
-                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                .where(
-                    and(
-                        inArray(textUnitTable.fileId, retiredFileIds),
-                        currentSourcePredicate(),
-                        isNotNull(sourcesTable.relationshipId)
-                    )
-                )
-        );
+        const affectedEntityRows = yield* tx
+            .selectDistinct({ id: sourcesTable.entityId })
+            .from(sourcesTable)
+            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+            .where(and(inArray(textUnitTable.fileId, retiredFileIds), currentSourcePredicate(), isNotNull(sourcesTable.entityId)));
+        const affectedRelationshipRows = yield* tx
+            .selectDistinct({ id: sourcesTable.relationshipId })
+            .from(sourcesTable)
+            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+            .where(
+                and(inArray(textUnitTable.fileId, retiredFileIds), currentSourcePredicate(), isNotNull(sourcesTable.relationshipId))
+            );
 
-        yield* Effect.tryPromise(() =>
-            tx.execute(sql`
-                UPDATE sources source
-                SET valid_until = NOW()
-                FROM text_units text_unit
-                WHERE source.text_unit_id = text_unit.id
-                  AND text_unit.file_id = ANY(${textArray(retiredFileIds)})
-                  AND ${currentSourceSql("source")}
-            `).then(() => undefined)
-        );
+        yield* tx.execute(sql`
+            UPDATE sources source
+            SET valid_until = NOW()
+            FROM text_units text_unit
+            WHERE source.text_unit_id = text_unit.id
+              AND text_unit.file_id = ANY(${textArray(retiredFileIds)})
+              AND ${currentSourceSql("source")}
+        `);
         return {
             entityIds: affectedEntityRows.map((row) => row.id).filter((id): id is string => id !== null),
             relationshipIds: affectedRelationshipRows.map((row) => row.id).filter((id): id is string => id !== null),

@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import { getDefaultOrganizationId } from "@kiwi/auth/server";
 import { roleIncludes } from "@kiwi/auth/permissions";
-import { db } from "@kiwi/db";
+import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import {
     memberTable,
     organizationTable,
@@ -12,11 +12,11 @@ import {
 } from "@kiwi/db/tables/auth";
 import { and, eq, sql } from "drizzle-orm";
 import type { AuthUser } from "../../middleware/auth";
-import { API_ERROR_CODES } from "../../types";
+import { forbiddenError, teamNotFoundError } from "@kiwi/contracts/errors";
 
 export type TeamRole = TeamMemberRole;
 
-export function getActiveOrganizationId(user: AuthUser): Effect.Effect<string, unknown> {
+export function getActiveOrganizationId(user: AuthUser): Effect.Effect<string, DatabaseError | Error, Database> {
     if (user.activeOrganizationId) {
         return Effect.succeed(user.activeOrganizationId);
     }
@@ -24,22 +24,23 @@ export function getActiveOrganizationId(user: AuthUser): Effect.Effect<string, u
     return getDefaultOrganizationId();
 }
 
-function organizationExists(organizationId: string): Effect.Effect<boolean, unknown> {
-    return Effect.tryPromise(async () => {
-        const [organization] = await db
-            .select({ id: organizationTable.id })
-            .from(organizationTable)
-            .where(eq(organizationTable.id, organizationId))
-            .limit(1);
-
-        return Boolean(organization);
-    });
+function organizationExists(organizationId: string): Effect.Effect<boolean, DatabaseError, Database> {
+    return Effect.map(
+        tryDb((db) =>
+            db
+                .select({ id: organizationTable.id })
+                .from(organizationTable)
+                .where(eq(organizationTable.id, organizationId))
+                .limit(1)
+        ),
+        ([organization]) => Boolean(organization)
+    );
 }
 
 export function getOrganizationMembership(user: AuthUser, organizationId?: string) {
     return Effect.gen(function* () {
         const activeOrganizationId = organizationId ?? (yield* getActiveOrganizationId(user));
-        const [membership] = yield* Effect.tryPromise(() =>
+        const [membership] = yield* tryDb((db) =>
             db
                 .select({
                     organizationId: memberTable.organizationId,
@@ -71,7 +72,7 @@ export function requireOrganizationMembership(user: AuthUser, organizationId?: s
     return Effect.gen(function* () {
         const membership = yield* getOrganizationMembership(user, organizationId);
         if (!membership) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            return yield* Effect.fail(forbiddenError());
         }
 
         return membership;
@@ -82,32 +83,33 @@ export function requireOrganizationAdmin(user: AuthUser, organizationId?: string
     return Effect.gen(function* () {
         const membership = yield* getOrganizationMembership(user, organizationId);
         if (!membership || !roleIncludes(membership.role, "admin")) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            return yield* Effect.fail(forbiddenError());
         }
 
         return membership;
     });
 }
 
-export function getTeamRole(userId: string, teamId: string): Effect.Effect<TeamRole | null, unknown> {
-    return Effect.tryPromise(async () => {
-        const [membership] = await db
-            .select({
-                role: sql<TeamRole>`coalesce(${teamMemberRolesTable.role}, 'member')`,
-            })
-            .from(teamMemberTable)
-            .leftJoin(teamMemberRolesTable, eq(teamMemberRolesTable.teamMemberId, teamMemberTable.id))
-            .where(and(eq(teamMemberTable.teamId, teamId), eq(teamMemberTable.userId, userId)))
-            .limit(1);
-
-        return membership?.role ?? null;
-    });
+export function getTeamRole(userId: string, teamId: string): Effect.Effect<TeamRole | null, DatabaseError, Database> {
+    return Effect.map(
+        tryDb((db) =>
+            db
+                .select({
+                    role: sql<TeamRole>`coalesce(${teamMemberRolesTable.role}, 'member')`,
+                })
+                .from(teamMemberTable)
+                .leftJoin(teamMemberRolesTable, eq(teamMemberRolesTable.teamMemberId, teamMemberTable.id))
+                .where(and(eq(teamMemberTable.teamId, teamId), eq(teamMemberTable.userId, userId)))
+                .limit(1)
+        ),
+        ([membership]) => membership?.role ?? null
+    );
 }
 
 export function getTeamInActiveOrganization(user: AuthUser, teamId: string) {
     return Effect.gen(function* () {
         const organizationId = yield* getActiveOrganizationId(user);
-        const [team] = yield* Effect.tryPromise(() =>
+        const [team] = yield* tryDb((db) =>
             db
                 .select({
                     id: teamTable.id,
@@ -127,7 +129,7 @@ export function requireTeamAccess(user: AuthUser, teamId: string) {
     return Effect.gen(function* () {
         const team = yield* getTeamInActiveOrganization(user, teamId);
         if (!team) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.TEAM_NOT_FOUND));
+            return yield* Effect.fail(teamNotFoundError());
         }
 
         const organizationMembership = yield* getOrganizationMembership(user, team.organizationId);
@@ -140,12 +142,12 @@ export function requireTeamAccess(user: AuthUser, teamId: string) {
         }
 
         if (!organizationMembership) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            return yield* Effect.fail(forbiddenError());
         }
 
         const role = yield* getTeamRole(user.id, teamId);
         if (!role) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            return yield* Effect.fail(forbiddenError());
         }
 
         return {
@@ -163,7 +165,7 @@ export function requireTeamGraphCreateAccess(user: AuthUser, teamId: string) {
             return access;
         }
 
-        return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        return yield* Effect.fail(forbiddenError());
     });
 }
 
@@ -174,7 +176,7 @@ export function requireTeamGraphFileManageAccess(user: AuthUser, teamId: string)
             return access;
         }
 
-        return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        return yield* Effect.fail(forbiddenError());
     });
 }
 
@@ -185,6 +187,6 @@ export function requireTeamMemberManageAccess(user: AuthUser, teamId: string) {
             return access;
         }
 
-        return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        return yield* Effect.fail(forbiddenError());
     });
 }

@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { connectorsTable, type ConnectorProvider } from "@kiwi/db/tables/connectors";
 import { normalizeConnectorWebhook, verifyConnectorWebhook, type ConnectorResourceKind } from "@kiwi/connectors";
 import { and, eq } from "drizzle-orm";
@@ -7,9 +7,6 @@ import { decryptSecret } from "../connectors";
 
 const CONNECTOR_PROVIDERS: Record<ConnectorProvider, true> = { github: true, gitlab: true };
 
-function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
-    return Effect.tryPromise({ try: thunk, catch: (error) => error });
-}
 const ZERO_SHA = /^0+$/;
 
 export type ConnectorWebhookCandidate = typeof connectorsTable.$inferSelect;
@@ -33,8 +30,8 @@ export function parseConnectorWebhookProvider(provider: string): ConnectorProvid
     return Object.hasOwn(CONNECTOR_PROVIDERS, provider) ? (provider as ConnectorProvider) : null;
 }
 
-export function listActiveConnectorWebhookCandidates(provider: ConnectorProvider) {
-    return tryUnknownPromise(async () =>
+export function listActiveConnectorWebhookCandidates(provider: ConnectorProvider): Effect.Effect<ConnectorWebhookCandidate[], DatabaseError, Database> {
+    return tryDb((db) =>
         db
             .select()
             .from(connectorsTable)

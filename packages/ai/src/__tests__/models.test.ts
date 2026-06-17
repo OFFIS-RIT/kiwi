@@ -2,21 +2,24 @@ import { describe, expect, mock, test } from "bun:test";
 import { API_ERROR_CODES } from "@kiwi/contracts/responses";
 import type { AiModel, AiModelAdapter, AiModelType } from "@kiwi/db/tables/models";
 import * as Effect from "effect/Effect";
+import { Database, type EffectDatabase } from "@kiwi/db/effect";
 
 let queuedModelRows: unknown[][] = [];
 const selectMock = mock(() => ({
     from: () => ({
         where: () => ({
-            limit: async () => queuedModelRows.shift() ?? [],
+            limit: () => Effect.succeed(queuedModelRows.shift() ?? []),
         }),
     }),
 }));
 
-mock.module("@kiwi/db", () => ({
-    db: {
-        select: selectMock,
-    },
-}));
+const testDatabase = {
+    select: selectMock,
+} as unknown as EffectDatabase;
+
+function runWithDatabase<T, E>(effect: Effect.Effect<T, E, Database>): Promise<T> {
+    return Effect.runPromise(Effect.provideService(effect, Database, testDatabase));
+}
 
 const {
     allocateUniqueModelId,
@@ -148,16 +151,10 @@ describe("AI model registry helpers", () => {
     });
 
     test("rejects unknown requested text models instead of falling back to the default", async () => {
-        const embeddingModel = createModelRow({
-            type: "embedding",
-            modelId: "embedding-default",
-            providerModel: "text-embedding-test",
-        });
-
-        queueModelQueries([], [embeddingModel], []);
+        queueModelQueries([]);
 
         await expect(
-            Effect.runPromise(
+            runWithDatabase(
                 resolveResearchModelConfig({
                     organizationId: "org-1",
                     requestedTextModelId: "missing-model",
@@ -165,7 +162,7 @@ describe("AI model registry helpers", () => {
                 })
             )
         ).rejects.toThrow(API_ERROR_CODES.INVALID_MODEL);
-        expect(selectMock).toHaveBeenCalledTimes(3);
+        expect(selectMock).toHaveBeenCalledTimes(1);
     });
 
     test("resolves research context windows from text and subagent models", async () => {
@@ -189,7 +186,7 @@ describe("AI model registry helpers", () => {
 
         queueModelQueries([textModel], [embeddingModel], [subagentModel]);
 
-        const resolved = await Effect.runPromise(
+        const resolved = await runWithDatabase(
             resolveResearchModelConfig({
                 organizationId: "org-1",
                 secret: TEST_SECRET,
@@ -216,7 +213,7 @@ describe("AI model registry helpers", () => {
 
         queueModelQueries([extractModel], [], [embeddingModel], [], [], []);
 
-        const resolved = await Effect.runPromise(
+        const resolved = await runWithDatabase(
             resolveWorkerModelConfig({
                 organizationId: "org-1",
                 secret: TEST_SECRET,

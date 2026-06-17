@@ -14,7 +14,9 @@
         "build": "bunx tsc --noEmit",
         "test": "bun test"
     },
-    "dependencies": {},
+    "dependencies": {
+        "effect": "catalog:"
+    },
     "devDependencies": {
         "@types/bun": "catalog:"
     },

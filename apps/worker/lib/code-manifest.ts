@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import type { Database } from "@kiwi/db/effect";
+import { useWorkerDb } from "./effect";
 import { filesTable } from "@kiwi/db/tables/graph";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { buildCodeRepositoryManifest } from "@kiwi/graph/code/repository";
@@ -24,13 +25,13 @@ export function prepareCodeManifest(options: {
     graphId: string;
     fileIds: string[];
     processRunId?: string;
-}): Effect.Effect<string | undefined, unknown> {
+}): Effect.Effect<string | undefined, unknown, Database> {
     return Effect.gen(function* () {
         if (options.fileIds.length === 0) {
             return undefined;
         }
 
-        const selectedRows = yield* Effect.tryPromise(() =>
+        const selectedRows = yield* useWorkerDb((db) =>
             db
                 .select({
                     id: filesTable.id,
@@ -59,7 +60,7 @@ export function prepareCodeManifest(options: {
 
         const selectedScopes = new Set(selectedRows.map(repositoryManifestScopeKey).filter((scope): scope is string => scope !== null));
         const rows = selectedScopes.size
-            ? yield* Effect.tryPromise(() =>
+            ? yield* useWorkerDb((db) =>
                   db
                       .select({
                           id: filesTable.id,

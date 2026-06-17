@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import type { Database } from "@kiwi/db/effect";
+import { useWorkerDb } from "./effect";
 import { fileTypeConfigsTable } from "@kiwi/db/tables/file-types";
 import { and, eq } from "drizzle-orm";
 import type { GraphFileType } from "@kiwi/graph/file-type";
@@ -8,9 +9,9 @@ import { resolveFileTypeProcessingConfig, type FileTypeProcessingConfig } from "
 export function getFileTypeProcessingConfig(
     organizationId: string,
     fileType: GraphFileType
-): Effect.Effect<FileTypeProcessingConfig, unknown> {
+): Effect.Effect<FileTypeProcessingConfig, unknown, Database> {
     return Effect.gen(function* () {
-        const [row] = yield* Effect.tryPromise(() =>
+        const [row] = yield* useWorkerDb((db) =>
             db
                 .select({
                     chunker: fileTypeConfigsTable.chunker,
@@ -18,9 +19,7 @@ export function getFileTypeProcessingConfig(
                     documentMode: fileTypeConfigsTable.documentMode,
                 })
                 .from(fileTypeConfigsTable)
-                .where(
-                    and(eq(fileTypeConfigsTable.organizationId, organizationId), eq(fileTypeConfigsTable.fileType, fileType))
-                )
+                .where(and(eq(fileTypeConfigsTable.organizationId, organizationId), eq(fileTypeConfigsTable.fileType, fileType)))
                 .limit(1)
         );
 

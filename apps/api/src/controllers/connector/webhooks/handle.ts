@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb, tryDbVoid, type Database, type DatabaseError } from "@kiwi/db/effect";
 import {
     connectorInstallationsTable,
     connectorResourceBindingsTable,
@@ -13,9 +13,6 @@ import { toApiError } from "../../_shared/api-effect";
 
 type ConnectorResourceBinding = typeof connectorResourceBindingsTable.$inferSelect;
 
-function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
-    return Effect.tryPromise({ try: thunk, catch: (error) => error });
-}
 
 export type HandleConnectorWebhookInput = {
     connector: ConnectorWebhookCandidate;
@@ -31,9 +28,9 @@ function loadWebhookEvent(
     connectorId: string,
     provider: NormalizedConnectorWebhook["provider"],
     deliveryId: string
-) {
+): Effect.Effect<typeof connectorWebhookEventsTable.$inferSelect | null, DatabaseError, Database> {
     return Effect.map(
-        tryUnknownPromise(async () =>
+        tryDb((db) =>
             db
                 .select()
                 .from(connectorWebhookEventsTable)
@@ -50,53 +47,65 @@ function loadWebhookEvent(
     );
 }
 
-function markWebhookEvent(id: string, values: { status: "enqueued" | "failed"; errorCode: string | null }) {
-    return Effect.asVoid(
-        tryUnknownPromise(async () =>
-            db.update(connectorWebhookEventsTable).set(values).where(eq(connectorWebhookEventsTable.id, id))
-        )
+function markWebhookEvent(id: string, values: { status: "enqueued" | "failed"; errorCode: string | null }): Effect.Effect<void, DatabaseError, Database> {
+    return tryDbVoid((db) =>
+        db.update(connectorWebhookEventsTable).set(values).where(eq(connectorWebhookEventsTable.id, id))
     );
 }
 
 function enqueueBindingWorkflows(
     bindings: ConnectorResourceBinding[],
     trigger: { versionId: string; cursor: string | null; deliveryId: string }
-) {
-    return tryUnknownPromise(async () => {
+): Effect.Effect<void, ReturnType<typeof toApiError> | DatabaseError, Database> {
+    return Effect.gen(function* () {
         const enqueuedBindingIds = new Set<string>();
-        try {
-            for (const binding of bindings) {
-                await ow.runWorkflow(syncConnectorResourceGraphSpec, {
-                    bindingId: binding.id,
-                    reason: "webhook",
-                    versionId: trigger.versionId,
-                    ...(trigger.cursor ? { cursor: trigger.cursor } : {}),
-                    deliveryId: trigger.deliveryId,
-                });
-                enqueuedBindingIds.add(binding.id);
+        yield* Effect.matchEffect(
+            Effect.tryPromise({
+                try: async () => {
+                    for (const binding of bindings) {
+                        await ow.runWorkflow(syncConnectorResourceGraphSpec, {
+                            bindingId: binding.id,
+                            reason: "webhook",
+                            versionId: trigger.versionId,
+                            ...(trigger.cursor ? { cursor: trigger.cursor } : {}),
+                            deliveryId: trigger.deliveryId,
+                        });
+                        enqueuedBindingIds.add(binding.id);
+                    }
+                },
+                catch: toApiError,
+            }),
+            {
+                onFailure: (error) =>
+                    Effect.gen(function* () {
+                        yield* tryDbVoid((db) =>
+                            Promise.all(
+                                bindings.map((binding) =>
+                                    db
+                                        .update(connectorResourceBindingsTable)
+                                        .set(
+                                            enqueuedBindingIds.has(binding.id)
+                                                ? { lastSeenVersionId: trigger.versionId, syncStatus: "pending", syncErrorCode: null }
+                                                : { syncStatus: "failed", syncErrorCode: "enqueue_failed" }
+                                        )
+                                        .where(eq(connectorResourceBindingsTable.id, binding.id))
+                                )
+                            )
+                        );
+                        return yield* Effect.fail(error);
+                    }),
+                onSuccess: () => Effect.void,
             }
-        } catch (error) {
-            await Promise.all(
+        );
+
+        yield* tryDbVoid((db) =>
+            Promise.all(
                 bindings.map((binding) =>
                     db
                         .update(connectorResourceBindingsTable)
-                        .set(
-                            enqueuedBindingIds.has(binding.id)
-                                ? { lastSeenVersionId: trigger.versionId, syncStatus: "pending", syncErrorCode: null }
-                                : { syncStatus: "failed", syncErrorCode: "enqueue_failed" }
-                        )
+                        .set({ lastSeenVersionId: trigger.versionId, syncStatus: "pending", syncErrorCode: null })
                         .where(eq(connectorResourceBindingsTable.id, binding.id))
                 )
-            );
-            throw error;
-        }
-
-        await Promise.all(
-            bindings.map((binding) =>
-                db
-                    .update(connectorResourceBindingsTable)
-                    .set({ lastSeenVersionId: trigger.versionId, syncStatus: "pending", syncErrorCode: null })
-                    .where(eq(connectorResourceBindingsTable.id, binding.id))
             )
         );
     });
@@ -124,7 +133,7 @@ function listMatchingBindings(connector: ConnectorWebhookCandidate, event: Norma
             : eq(connectorResourceBindingsTable.providerResourceId, event.resourceId)
         : eq(connectorResourceBindingsTable.resourceDisplayName, event.resourceName!);
     return Effect.map(
-        tryUnknownPromise(async () =>
+        tryDb((db) =>
             db
                 .select({ binding: connectorResourceBindingsTable })
                 .from(connectorResourceBindingsTable)
@@ -146,11 +155,11 @@ function listMatchingBindings(connector: ConnectorWebhookCandidate, event: Norma
     );
 }
 
-export function handleConnectorWebhook({ connector, event }: HandleConnectorWebhookInput) {
+export function handleConnectorWebhook({ connector, event }: HandleConnectorWebhookInput): Effect.Effect<HandleConnectorWebhookResult, ReturnType<typeof toApiError>, Database> {
     return Effect.mapError(Effect.gen(function* () {
         const bindings = yield* listMatchingBindings(connector, event);
         const status = event.eventType !== "push" || event.deleted || bindings.length === 0 ? "ignored" : "enqueued";
-        const [ledger] = yield* tryUnknownPromise(async () =>
+        const [ledger] = yield* tryDb((db) =>
             db
                 .insert(connectorWebhookEventsTable)
                 .values({

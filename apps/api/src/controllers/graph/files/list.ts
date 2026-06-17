@@ -1,23 +1,24 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb } from "@kiwi/db/effect";
 import { filesTable } from "@kiwi/db/tables/graph";
-import type { GraphDetailFileRecord } from "@kiwi/contracts/graphs";
 import { and, asc, eq } from "drizzle-orm";
 import { assertCanViewGraph } from "../../../lib/graph/access";
 import { selectGraphDetailFileFields, toGraphFileRecord, type GraphFileRow } from "../../../lib/graph/route";
 import type { AuthUser } from "../../../middleware/auth";
-import { tryApiPromise } from "../../_shared/api-effect";
+import { toApiError } from "../../_shared/api-effect";
 
 export function listGraphFiles(input: { user: AuthUser; graphId: string }) {
-    return tryApiPromise(async (): Promise<GraphDetailFileRecord[]> => {
-        await Effect.runPromise(assertCanViewGraph(input.user, input.graphId));
+    return Effect.mapError(Effect.catchDefect(Effect.gen(function* () {
+        yield* assertCanViewGraph(input.user, input.graphId);
 
-        const fileRows: GraphFileRow[] = await db
-            .select(selectGraphDetailFileFields)
-            .from(filesTable)
-            .where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.deleted, false)))
-            .orderBy(asc(filesTable.createdAt), asc(filesTable.name));
+        const fileRows: GraphFileRow[] = yield* tryDb((db) =>
+            db
+                .select(selectGraphDetailFileFields)
+                .from(filesTable)
+                .where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.deleted, false)))
+                .orderBy(asc(filesTable.createdAt), asc(filesTable.name))
+        );
 
         return fileRows.map(toGraphFileRecord);
-    });
+    }), (defect) => Effect.fail(defect)), toApiError);
 }

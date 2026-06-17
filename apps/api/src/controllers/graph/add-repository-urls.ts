@@ -4,7 +4,7 @@ import { serializeCodeFileMetadata } from "@kiwi/graph/code/metadata";
 import { putGraphFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
-import type { GraphAddFilesSuccessData, GraphAddUrlFields } from "@kiwi/contracts/graphs";
+import type { GraphAddUrlFields } from "@kiwi/contracts/graphs";
 import { API_ERROR_CODES, internalServerError, makeApiError, noChangesError } from "@kiwi/contracts/errors";
 import { env } from "../../env";
 import {

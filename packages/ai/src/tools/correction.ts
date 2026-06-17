@@ -1,4 +1,4 @@
-import { db } from "@kiwi/db";
+import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import { graphSuggestionsTable } from "@kiwi/db/tables/suggestions";
 import { entityTable, filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
@@ -40,24 +40,24 @@ export const correctionInputSchema = z.discriminatedUnion("kind", [
 
 const correctionOutputSchema = z.string().catch("");
 
-function assertSourceInGraph(graphId: string, sourceId: string): Effect.Effect<void, unknown> {
+function assertSourceInGraph(graphId: string, sourceId: string): Effect.Effect<void, DatabaseError | Error, Database> {
     return Effect.gen(function* () {
-        const [source] = yield* Effect.tryPromise(() =>
-            db
-                .select({ id: sourcesTable.id })
-                .from(sourcesTable)
-                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                .where(
-                    and(
-                        eq(sourcesTable.id, sourceId),
-                        eq(filesTable.graphId, graphId),
-                        currentSourcePredicate(sourcesTable),
-                        visibleFilePredicate(filesTable)
-                    )
+        const db = yield* Database;
+        const [source] = yield* db
+            .select({ id: sourcesTable.id })
+            .from(sourcesTable)
+            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+            .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+            .where(
+                and(
+                    eq(sourcesTable.id, sourceId),
+                    eq(filesTable.graphId, graphId),
+                    currentSourcePredicate(sourcesTable),
+                    visibleFilePredicate(filesTable)
                 )
-                .limit(1)
-        );
+            )
+            .limit(1)
+            .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
 
         if (!source) {
             return yield* Effect.fail(new Error("Source not found in this graph"));
@@ -65,15 +65,15 @@ function assertSourceInGraph(graphId: string, sourceId: string): Effect.Effect<v
     });
 }
 
-function assertActiveEntityInGraph(graphId: string, entityId: string): Effect.Effect<void, unknown> {
+function assertActiveEntityInGraph(graphId: string, entityId: string): Effect.Effect<void, DatabaseError | Error, Database> {
     return Effect.gen(function* () {
-        const [entity] = yield* Effect.tryPromise(() =>
-            db
-                .select({ id: entityTable.id })
-                .from(entityTable)
-                .where(and(eq(entityTable.id, entityId), eq(entityTable.graphId, graphId), eq(entityTable.active, true)))
-                .limit(1)
-        );
+        const db = yield* Database;
+        const [entity] = yield* db
+            .select({ id: entityTable.id })
+            .from(entityTable)
+            .where(and(eq(entityTable.id, entityId), eq(entityTable.graphId, graphId), eq(entityTable.active, true)))
+            .limit(1)
+            .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
 
         if (!entity) {
             return yield* Effect.fail(new Error("Entity not found in this graph"));
@@ -87,7 +87,7 @@ export const correctionTool = (context: CorrectionToolContext) =>
             "Store a pending graph correction suggestion when the user corrects an answer or adds factual information. Use source_correction for an existing cited/source-backed statement, and entity_addition for new information that belongs to an existing entity. This tool stores the suggestion only; it does not apply the change.",
         inputSchema: correctionInputSchema,
         execute: (input) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Correction suggestion",
@@ -100,28 +100,28 @@ export const correctionTool = (context: CorrectionToolContext) =>
                     input,
                     () =>
                         Effect.gen(function* () {
+                            const db = yield* Database;
                             if (input.kind === "source_correction") {
                                 yield* assertSourceInGraph(context.graphId, input.sourceId);
                             } else {
                                 yield* assertActiveEntityInGraph(context.graphId, input.entityId);
                             }
 
-                            const [suggestion] = yield* Effect.tryPromise(() =>
-                                db
-                                    .insert(graphSuggestionsTable)
-                                    .values({
-                                        graphId: context.graphId,
-                                        kind: input.kind,
-                                        sourceId: input.kind === "source_correction" ? input.sourceId : null,
-                                        entityId: input.kind === "entity_addition" ? input.entityId : null,
-                                        reference: input.reference,
-                                        suggestion: input.suggestion,
-                                        suggestedByUserId: context.userId,
-                                        chatId: context.chatId,
-                                        messageId: context.messageId,
-                                    })
-                                    .returning({ id: graphSuggestionsTable.id })
-                            );
+                            const [suggestion] = yield* db
+                                .insert(graphSuggestionsTable)
+                                .values({
+                                    graphId: context.graphId,
+                                    kind: input.kind,
+                                    sourceId: input.kind === "source_correction" ? input.sourceId : null,
+                                    entityId: input.kind === "entity_addition" ? input.entityId : null,
+                                    reference: input.reference,
+                                    suggestion: input.suggestion,
+                                    suggestedByUserId: context.userId,
+                                    chatId: context.chatId,
+                                    messageId: context.messageId,
+                                })
+                                .returning({ id: graphSuggestionsTable.id })
+                                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
 
                             return [
                                 "## Correction suggestion",

@@ -11,7 +11,7 @@ import {
 } from "@kiwi/ai";
 import { prependPromptGuidance } from "@kiwi/ai/prompts/guidance.prompt";
 import { createRequestInformationSection } from "@kiwi/ai/prompts/request-info.prompt";
-import { db } from "@kiwi/db";
+import { runDatabaseEffect, tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { filesTable, graphTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
@@ -230,12 +230,12 @@ function collectCitationSourceIds(text: string) {
 export function listTeamGraphs(
     teamId: string,
     options: { offset?: number; limit?: number } = {}
-): Effect.Effect<{ items: TeamGraphRow[]; hasMore: boolean; nextOffset: number | null }, unknown> {
+): Effect.Effect<{ items: TeamGraphRow[]; hasMore: boolean; nextOffset: number | null }, DatabaseError, Database> {
     return Effect.gen(function* () {
         const offset = Math.max(0, options.offset ?? 0);
         const limit = Math.min(Math.max(1, options.limit ?? TEAM_CHAT_LIST_DEFAULT_LIMIT), TEAM_CHAT_LIST_MAX_LIMIT);
 
-        const rows = yield* tryUnknownPromise(() =>
+        const rows = yield* tryDb((db) =>
             db
                 .select({
                     graph_id: graphTable.id,
@@ -271,7 +271,7 @@ function loadTeamGraphsById(teamId: string, graphIds: string[]) {
         return Effect.succeed([]);
     }
 
-    return tryUnknownPromise(() =>
+    return tryDb((db) =>
         db
             .select({
                 graph_id: graphTable.id,
@@ -365,18 +365,21 @@ function buildTeamChatToolset(options: {
                     .describe("Maximum number of graphs to return."),
                 offset: z.number().int().min(0).default(0).describe("Zero-based graph offset for pagination."),
             }),
-            execute: async ({ limit, offset }) => {
-                const result = await Effect.runPromise(listTeamGraphs(options.team.id, { limit, offset }));
-                return {
-                    items: result.items,
-                    pagination: {
-                        offset,
-                        limit,
-                        has_more: result.hasMore,
-                        next_offset: result.nextOffset,
-                    },
-                };
-            },
+            execute: ({ limit, offset }) =>
+                runDatabaseEffect(
+                    Effect.gen(function* () {
+                        const result = yield* listTeamGraphs(options.team.id, { limit, offset });
+                        return {
+                            items: result.items,
+                            pagination: {
+                                offset,
+                                limit,
+                                has_more: result.hasMore,
+                                next_offset: result.nextOffset,
+                            },
+                        };
+                    })
+                ),
         }),
         query_graphs: tool({
             description:
@@ -388,77 +391,82 @@ function buildTeamChatToolset(options: {
                     .max(TEAM_QUERY_GRAPHS_MAX)
                     .describe("Graph IDs from list_graphs to query."),
             }),
-            execute: async ({ graph_ids }, { abortSignal }) => {
-                assertTeamQuestionContextReady(options.questionContext);
+            execute: ({ graph_ids }, { abortSignal }) =>
+                runDatabaseEffect(
+                    Effect.gen(function* () {
+                        assertTeamQuestionContextReady(options.questionContext);
 
-                const uniqueGraphIds = [...new Set(graph_ids)];
-                const graphs = await Effect.runPromise(loadTeamGraphsById(options.team.id, uniqueGraphIds));
-                const graphById = new Map(graphs.map((graph) => [graph.graph_id, graph]));
-                const orderedGraphs = uniqueGraphIds.flatMap((graphId) => {
-                    const graph = graphById.get(graphId);
-                    return graph ? [graph] : [];
-                });
-                const missingGraphIds = uniqueGraphIds.filter((graphId) => !graphById.has(graphId));
-                const settled = await Promise.allSettled(
-                    orderedGraphs.map((graph) =>
-                        Effect.runPromise(
-                            querySingleGraph({
-                                graph,
-                                runtime: options.graphRuntime,
-                                questionContext: options.questionContext.text,
-                                abortSignal,
-                            })
-                        )
-                    )
-                );
-                abortSignal?.throwIfAborted();
-                const results = settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
-                const failedGraphs = settled.flatMap((result, index) => {
-                    if (result.status === "fulfilled") {
-                        return [];
-                    }
-
-                    const graph = orderedGraphs[index]!;
-                    return [
-                        {
-                            graph_id: graph.graph_id,
-                            graph_name: graph.graph_name,
-                            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-                        },
-                    ];
-                });
-
-                for (const result of results) {
-                    options.usageContext.totalTokens += result.usage.totalTokens ?? 0;
-                    options.usageContext.inputTokens += result.usage.inputTokens ?? 0;
-                    options.usageContext.outputTokens += result.usage.outputTokens ?? 0;
-                    for (const fileId of result.considered_file_ids) {
-                        options.usageContext.consideredFileIds.add(fileId);
-                    }
-
-                    for (const sourceId of result.source_ids) {
-                        options.citationContext.sourceGraphIds.set(sourceId, result.graph_id);
-                    }
-
-                    const citations = await Effect.runPromise(
-                        Effect.all(
-                            result.source_ids.map((sourceId) => enrichCitation(result.graph_id, sourceId)),
+                        const uniqueGraphIds = [...new Set(graph_ids)];
+                        const graphs = yield* loadTeamGraphsById(options.team.id, uniqueGraphIds);
+                        const graphById = new Map(graphs.map((graph) => [graph.graph_id, graph]));
+                        const orderedGraphs = uniqueGraphIds.flatMap((graphId) => {
+                            const graph = graphById.get(graphId);
+                            return graph ? [graph] : [];
+                        });
+                        const missingGraphIds = uniqueGraphIds.filter((graphId) => !graphById.has(graphId));
+                        const settled = yield* Effect.all(
+                            orderedGraphs.map((graph) =>
+                                Effect.match(
+                                    querySingleGraph({
+                                        graph,
+                                        runtime: options.graphRuntime,
+                                        questionContext: options.questionContext.text,
+                                        abortSignal,
+                                    }),
+                                    {
+                                        onFailure: (error) => ({ status: "rejected" as const, graph, error }),
+                                        onSuccess: (value) => ({ status: "fulfilled" as const, value }),
+                                    }
+                                )
+                            ),
                             { concurrency: "unbounded" }
-                        )
-                    );
-                    for (const citation of citations) {
-                        if (citation) {
-                            addCitationFileId(options.usageContext.usedFileIds, citation);
-                        }
-                    }
-                }
+                        );
+                        abortSignal?.throwIfAborted();
+                        const results = settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+                        const failedGraphs = settled.flatMap((result) => {
+                            if (result.status === "fulfilled") {
+                                return [];
+                            }
 
-                return {
-                    results,
-                    failed_graphs: failedGraphs,
-                    missing_graph_ids: missingGraphIds,
-                };
-            },
+                            return [
+                                {
+                                    graph_id: result.graph.graph_id,
+                                    graph_name: result.graph.graph_name,
+                                    error: result.error instanceof Error ? result.error.message : String(result.error),
+                                },
+                            ];
+                        });
+
+                        for (const result of results) {
+                            options.usageContext.totalTokens += result.usage.totalTokens ?? 0;
+                            options.usageContext.inputTokens += result.usage.inputTokens ?? 0;
+                            options.usageContext.outputTokens += result.usage.outputTokens ?? 0;
+                            for (const fileId of result.considered_file_ids) {
+                                options.usageContext.consideredFileIds.add(fileId);
+                            }
+
+                            for (const sourceId of result.source_ids) {
+                                options.citationContext.sourceGraphIds.set(sourceId, result.graph_id);
+                            }
+
+                            const citations = yield* Effect.all(
+                                result.source_ids.map((sourceId) => enrichCitation(result.graph_id, sourceId)),
+                                { concurrency: "unbounded" }
+                            );
+                            for (const citation of citations) {
+                                if (citation) {
+                                    addCitationFileId(options.usageContext.usedFileIds, citation);
+                                }
+                            }
+                        }
+
+                        return {
+                            results,
+                            failed_graphs: failedGraphs,
+                            missing_graph_ids: missingGraphIds,
+                        };
+                    })
+                ),
         }),
     } satisfies TeamChatToolset;
 }
@@ -473,7 +481,7 @@ export function getTeamChatRuntime(options: {
     team: TeamAccessTeam;
     questionContext: TeamQuestionContext;
     requestedModelId?: string;
-}): Effect.Effect<TeamChatRuntime, unknown> {
+}): Effect.Effect<TeamChatRuntime, unknown, Database> {
     return Effect.gen(function* () {
         const [organizationPrompts, userPrompts, teamPrompts] = yield* Effect.all([
             listOrganizationPromptTexts(),
@@ -521,14 +529,14 @@ export function enrichTeamCitation(
     teamId: string,
     sourceId: string,
     citationContext?: TeamCitationContext
-): Effect.Effect<ResolvedCitationFence | null, unknown> {
+): Effect.Effect<ResolvedCitationFence | null, unknown, Database> {
     return Effect.gen(function* () {
         const knownGraphId = citationContext?.sourceGraphIds.get(sourceId);
         if (knownGraphId) {
             return yield* enrichCitation(knownGraphId, sourceId);
         }
 
-        const [row] = yield* tryUnknownPromise(() =>
+        const [row] = yield* tryDb((db) =>
             db
                 .select({
                     graphId: filesTable.graphId,
@@ -559,7 +567,7 @@ function createTeamCitationResolver(teamId: string, citationContext?: TeamCitati
         negativeCache: unresolvedTeamCitationCache,
         negativeCacheMaxEntries: DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES,
         negativeCacheKey: (citation) => `${teamId}:${citation.sourceId}`,
-        resolveCitation: (sourceId) => Effect.runPromise(enrichTeamCitation(teamId, sourceId, citationContext)),
+        resolveCitation: (sourceId) => runDatabaseEffect(enrichTeamCitation(teamId, sourceId, citationContext)),
     });
 }
 
@@ -569,7 +577,7 @@ export function refreshTeamReplyContext(options: {
     teamName: string;
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
-}): Effect.Effect<{ systemPrompt: string; contextMessages: ModelMessage[]; estimatedPromptTokens: number }, unknown> {
+}): Effect.Effect<{ systemPrompt: string; contextMessages: ModelMessage[]; estimatedPromptTokens: number }, unknown, Database> {
     return Effect.gen(function* () {
         const systemPrompt = prependPromptGuidance(
             createTeamChatSystemPrompt(options.teamName, options.runtime.requestInformation),
@@ -619,7 +627,8 @@ export function startTeamReply(
         systemPrompt: string;
         contextMessages: ModelMessage[];
     },
-    unknown
+    unknown,
+    Database
 > {
     return Effect.gen(function* () {
         const normalizedRequest = normalizeChatRequest(request);

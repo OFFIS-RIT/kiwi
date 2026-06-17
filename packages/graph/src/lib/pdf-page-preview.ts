@@ -16,12 +16,21 @@ type PDFPagePreviewDeps = {
 
 const DEFAULT_MAX_DIMENSION_PIXELS = 2400;
 
+export class PDFPagePreviewError extends Error {
+    readonly _tag = "PDFPagePreviewError";
+
+    constructor(override readonly cause: unknown) {
+        super("Failed to render PDF page previews.");
+        this.name = "PDFPagePreviewError";
+    }
+}
+
 export function renderPDFPagePreviews(
     content: Uint8Array,
     pageNumbers: number[],
     options: PDFPagePreviewOptions = {},
     deps: PDFPagePreviewDeps = {}
-): Effect.Effect<Map<number, Uint8Array>, unknown> {
+): Effect.Effect<Map<number, Uint8Array>, PDFPagePreviewError> {
     if (pageNumbers.length === 0) {
         return Effect.succeed(new Map());
     }
@@ -52,7 +61,7 @@ export function renderPDFPagePreviews(
 
             return renderedByPageNumber;
         },
-        catch: (error) => error,
+        catch: (cause) => new PDFPagePreviewError(cause),
     });
 }
 

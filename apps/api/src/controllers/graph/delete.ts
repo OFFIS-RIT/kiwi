@@ -1,18 +1,16 @@
 import { eq, inArray } from "drizzle-orm";
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb } from "@kiwi/db/effect";
 import { filesTable, graphTable } from "@kiwi/db/tables/graph";
 import { deleteFile, listFiles } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
-import type { GraphDeleteSuccessData } from "@kiwi/contracts/graphs";
 import { API_ERROR_CODES, internalServerError } from "@kiwi/contracts/errors";
 import { env } from "../../env";
 import { chunk } from "../../lib/array";
-import { collectGraphClosure } from "../../lib/graph";
 import { assertCanPatchGraph } from "../../lib/graph/access";
 import { cancelActiveGraphWorkflowRuns } from "../../lib/workflow-cancellation";
 import type { AuthUser } from "../../middleware/auth";
-import { tryApiPromise } from "../_shared/api-effect";
+import { toApiError } from "../_shared/api-effect";
 
 type DeletedGraphFileRow = {
     id: string;
@@ -27,58 +25,118 @@ type DeletedGraphData = {
 };
 
 export function deleteGraph(input: { user: AuthUser; graphId: string }) {
-    return tryApiPromise(async (): Promise<GraphDeleteSuccessData> => {
-        await Effect.runPromise(assertCanPatchGraph(input.user, input.graphId));
+    return Effect.mapError(Effect.catchDefect(Effect.gen(function* () {
+        yield* assertCanPatchGraph(input.user, input.graphId);
 
-        let graphIds: string[];
-        try {
-            graphIds = await Effect.runPromise(collectGraphClosure(db, [input.graphId]));
-        } catch {
-            throw internalServerError();
-        }
+        const graphIds = yield* Effect.matchEffect(
+            tryDb((db) =>
+                Effect.gen(function* () {
+                    const graphIds = new Set([input.graphId]);
+                    let frontier = [...graphIds];
 
-        try {
-            await Effect.runPromise(cancelActiveGraphWorkflowRuns(graphIds));
-        } catch (cancellationError) {
-            logError("graph workflow cancellation failed before graph delete", {
-                graphId: input.graphId,
-                graphCount: graphIds.length,
-                error: cancellationError,
-            });
-            throw internalServerError();
-        }
+                    while (frontier.length > 0) {
+                        const childRows = yield* db
+                            .select({ id: graphTable.id })
+                            .from(graphTable)
+                            .where(inArray(graphTable.graphId, frontier));
 
-        const deleteResult = await db.transaction(async (tx): Promise<DeletedGraphData> => {
-            const [graph] = await tx
-                .select({ id: graphTable.id })
-                .from(graphTable)
-                .where(eq(graphTable.id, input.graphId))
-                .limit(1);
+                        const nextFrontier: string[] = [];
+                        for (const child of childRows) {
+                            if (graphIds.has(child.id)) {
+                                continue;
+                            }
 
-            if (!graph) {
-                throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
+                            graphIds.add(child.id);
+                            nextFrontier.push(child.id);
+                        }
+
+                        frontier = nextFrontier;
+                    }
+
+                    return [...graphIds];
+                })
+            ),
+            {
+                onFailure: () => Effect.fail(internalServerError()),
+                onSuccess: Effect.succeed,
             }
+        );
 
-            const graphIdsInTransaction = await Effect.runPromise(collectGraphClosure(tx, [input.graphId]));
-            const fileRows = await tx
-                .select({ id: filesTable.id, graphId: filesTable.graphId, key: filesTable.key })
-                .from(filesTable)
-                .where(inArray(filesTable.graphId, graphIdsInTransaction));
-
-            await tx.delete(graphTable).where(eq(graphTable.id, input.graphId));
-
-            return { graphId: input.graphId, graphIds: graphIdsInTransaction, fileRows };
+        yield* Effect.matchEffect(cancelActiveGraphWorkflowRuns(graphIds), {
+            onFailure: (cancellationError) =>
+                Effect.gen(function* () {
+                    logError("graph workflow cancellation failed before graph delete", {
+                        graphId: input.graphId,
+                        graphCount: graphIds.length,
+                        error: cancellationError,
+                    });
+                    return yield* Effect.fail(internalServerError());
+                }),
+            onSuccess: () => Effect.void,
         });
 
+        const deleteResult = yield* tryDb((db) =>
+            db.transaction((tx) =>
+                Effect.gen(function* (): Generator<Effect.Effect<unknown, unknown>, DeletedGraphData> {
+                    const [graph] = yield* tx
+                        .select({ id: graphTable.id })
+                        .from(graphTable)
+                        .where(eq(graphTable.id, input.graphId))
+                        .limit(1);
+
+                    if (!graph) {
+                        return yield* Effect.fail(new Error(API_ERROR_CODES.GRAPH_NOT_FOUND));
+                    }
+
+                    const graphIdsInTransaction = new Set([input.graphId]);
+                    let frontier = [...graphIdsInTransaction];
+
+                    while (frontier.length > 0) {
+                        const childRows = yield* tx
+                            .select({ id: graphTable.id })
+                            .from(graphTable)
+                            .where(inArray(graphTable.graphId, frontier));
+
+                        const nextFrontier: string[] = [];
+                        for (const child of childRows) {
+                            if (graphIdsInTransaction.has(child.id)) {
+                                continue;
+                            }
+
+                            graphIdsInTransaction.add(child.id);
+                            nextFrontier.push(child.id);
+                        }
+
+                        frontier = nextFrontier;
+                    }
+
+                    const fileRows = yield* tx
+                        .select({ id: filesTable.id, graphId: filesTable.graphId, key: filesTable.key })
+                        .from(filesTable)
+                        .where(inArray(filesTable.graphId, [...graphIdsInTransaction]));
+
+                    yield* tx.delete(graphTable).where(eq(graphTable.id, input.graphId));
+
+                    return { graphId: input.graphId, graphIds: [...graphIdsInTransaction], fileRows };
+                })
+            )
+        );
+
         const s3Keys = new Set(deleteResult.fileRows.map((file) => file.key));
-        const listedKeyResults = await Promise.allSettled(
-            deleteResult.graphIds.map((graphId) => Effect.runPromise(listFiles(`graphs/${graphId}/`, env.S3_BUCKET)))
+        const listedKeyResults = yield* Effect.all(
+            deleteResult.graphIds.map((graphId) =>
+                Effect.match(listFiles(`graphs/${graphId}/`, env.S3_BUCKET), {
+                    onFailure: () => ({ ok: false as const }),
+                    onSuccess: (keys) => ({ ok: true as const, keys }),
+                })
+            ),
+            { concurrency: "unbounded" }
         );
 
         let listFailureCount = 0;
         for (const result of listedKeyResults) {
-            if (result.status === "fulfilled") {
-                for (const key of result.value) {
+            if (result.ok) {
+                for (const key of result.keys) {
                     s3Keys.add(key);
                 }
                 continue;
@@ -88,12 +146,16 @@ export function deleteGraph(input: { user: AuthUser; graphId: string }) {
 
         let deleteFailureCount = 0;
         for (const keys of chunk([...s3Keys], 25)) {
-            const deleteResults = await Promise.allSettled(keys.map((key) => Effect.runPromise(deleteFile(key, env.S3_BUCKET))));
-            for (const result of deleteResults) {
-                if (result.status === "rejected") {
-                    deleteFailureCount += 1;
-                }
-            }
+            const deleteResults = yield* Effect.all(
+                keys.map((key) =>
+                    Effect.match(deleteFile(key, env.S3_BUCKET), {
+                        onFailure: () => false,
+                        onSuccess: () => true,
+                    })
+                ),
+                { concurrency: "unbounded" }
+            );
+            deleteFailureCount += deleteResults.filter((deleted) => !deleted).length;
         }
 
         const failedKeyCount = listFailureCount + deleteFailureCount;
@@ -118,5 +180,5 @@ export function deleteGraph(input: { user: AuthUser; graphId: string }) {
                 ? { warnings: ["Some S3 objects could not be deleted after the graph was removed"] }
                 : {}),
         };
-    });
+    }), (defect) => Effect.fail(defect)), toApiError);
 }

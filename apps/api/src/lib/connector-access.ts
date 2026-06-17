@@ -1,4 +1,4 @@
-import { db } from "@kiwi/db";
+import { DatabaseError, tryDb, type Database } from "@kiwi/db/effect";
 import * as Effect from "effect/Effect";
 import {
     connectorInstallationsTable,
@@ -9,7 +9,7 @@ import {
 import { graphTable } from "@kiwi/db/tables/graph";
 import { and, eq } from "drizzle-orm";
 import type { AuthUser } from "../middleware/auth";
-import { API_ERROR_CODES } from "../types";
+import { API_ERROR_CODES, forbiddenError, graphNotFoundError, internalServerError, isApiError, makeApiError, type ApiError } from "@kiwi/contracts/errors";
 import { assertCanCreateTopLevelGraph, assertCanViewGraphWithRootOwner } from "./graph/access";
 import { requireOrganizationAdmin, requireTeamGraphCreateAccess } from "./team/access";
 
@@ -17,27 +17,51 @@ export type ConnectorRow = typeof connectorsTable.$inferSelect;
 export type ConnectorInstallationRow = typeof connectorInstallationsTable.$inferSelect;
 export type ConnectorResourceBindingRow = typeof connectorResourceBindingsTable.$inferSelect;
 
-function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
-    return Effect.tryPromise({ try: thunk, catch: (error) => error });
+function toConnectorAccessError(error: unknown): ApiError | DatabaseError {
+    if (error instanceof DatabaseError) {
+        return error;
+    }
+    if (isApiError(error)) {
+        return error;
+    }
+    const code = error instanceof Error ? error.message.replace(/^Unhandled exception:\s*/u, "") : "";
+    if (code === API_ERROR_CODES.FORBIDDEN) {
+        return forbiddenError();
+    }
+    if (code === API_ERROR_CODES.GRAPH_NOT_FOUND) {
+        return graphNotFoundError();
+    }
+    if (code === API_ERROR_CODES.ORGANIZATION_NOT_FOUND) {
+        return makeApiError(404, API_ERROR_CODES.ORGANIZATION_NOT_FOUND, "Organization not found");
+    }
+    if (code === API_ERROR_CODES.TEAM_NOT_FOUND) {
+        return makeApiError(404, API_ERROR_CODES.TEAM_NOT_FOUND, "Team not found");
+    }
+    return internalServerError();
 }
 
-export function requireConnector(id: string): Effect.Effect<ConnectorRow, unknown> {
+function mapConnectorAccessEffect<T, E, R>(effect: Effect.Effect<T, E, R>): Effect.Effect<T, ApiError | DatabaseError, R> {
+    return Effect.mapError(effect, toConnectorAccessError);
+}
+
+
+export function requireConnector(id: string): Effect.Effect<ConnectorRow, ApiError | DatabaseError, Database> {
     return Effect.gen(function* () {
-        const [connector] = yield* tryUnknownPromise(() =>
+        const [connector] = yield* tryDb((db) =>
             db.select().from(connectorsTable).where(eq(connectorsTable.id, id)).limit(1)
         );
         if (!connector) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.GRAPH_NOT_FOUND));
+            return yield* Effect.fail(graphNotFoundError());
         }
         return connector;
     });
 }
 
-export function requireActiveConnector(id: string, provider?: ConnectorProvider): Effect.Effect<ConnectorRow, unknown> {
+export function requireActiveConnector(id: string, provider?: ConnectorProvider): Effect.Effect<ConnectorRow, ApiError | DatabaseError, Database> {
     return Effect.gen(function* () {
         const connector = yield* requireConnector(id);
         if (connector.status !== "active" || (provider && connector.provider !== provider)) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            return yield* Effect.fail(forbiddenError());
         }
         return connector;
     });
@@ -46,24 +70,24 @@ export function requireActiveConnector(id: string, provider?: ConnectorProvider)
 export function assertCanManageConnectorOwner(
     user: AuthUser,
     input: { organizationId?: string; teamId?: string }
-): Effect.Effect<unknown, unknown> {
+): Effect.Effect<void, ApiError | DatabaseError, Database> {
     if (input.teamId) {
-        return requireTeamGraphCreateAccess(user, input.teamId);
+        return Effect.asVoid(mapConnectorAccessEffect(requireTeamGraphCreateAccess(user, input.teamId)));
     }
 
     if (input.organizationId) {
-        return requireOrganizationAdmin(user, input.organizationId);
+        return Effect.asVoid(mapConnectorAccessEffect(requireOrganizationAdmin(user, input.organizationId)));
     }
 
-    return assertCanCreateTopLevelGraph(user);
+    return Effect.asVoid(mapConnectorAccessEffect(assertCanCreateTopLevelGraph(user)));
 }
 
 export function assertCanUseInstallation(
     user: AuthUser,
     installationId: string
-): Effect.Effect<ConnectorInstallationRow, unknown> {
+): Effect.Effect<ConnectorInstallationRow, ApiError | DatabaseError, Database> {
     return Effect.gen(function* () {
-        const [installation] = yield* tryUnknownPromise(() =>
+        const [installation] = yield* tryDb((db) =>
             db
                 .select()
                 .from(connectorInstallationsTable)
@@ -72,7 +96,7 @@ export function assertCanUseInstallation(
         );
 
         if (!installation || installation.status !== "active") {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            return yield* Effect.fail(forbiddenError());
         }
 
         yield* assertCanManageConnectorOwner(user, {
@@ -83,9 +107,9 @@ export function assertCanUseInstallation(
     });
 }
 
-export function assertCanViewBinding(user: AuthUser, bindingId: string) {
+export function assertCanViewBinding(user: AuthUser, bindingId: string): Effect.Effect<{ binding: ConnectorResourceBindingRow; graph: typeof graphTable.$inferSelect }, ApiError | DatabaseError, Database> {
     return Effect.gen(function* () {
-        const [row] = yield* tryUnknownPromise(() =>
+        const [row] = yield* tryDb((db) =>
             db
                 .select({ binding: connectorResourceBindingsTable, graph: graphTable })
                 .from(connectorResourceBindingsTable)
@@ -95,15 +119,15 @@ export function assertCanViewBinding(user: AuthUser, bindingId: string) {
         );
 
         if (!row) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.GRAPH_NOT_FOUND));
+            return yield* Effect.fail(graphNotFoundError());
         }
 
-        yield* assertCanViewGraphWithRootOwner(user, row.binding.graphId);
+        yield* mapConnectorAccessEffect(assertCanViewGraphWithRootOwner(user, row.binding.graphId));
         return row;
     });
 }
 
-export function assertCanSyncBinding(user: AuthUser, bindingId: string) {
+export function assertCanSyncBinding(user: AuthUser, bindingId: string): Effect.Effect<{ binding: ConnectorResourceBindingRow; graph: typeof graphTable.$inferSelect }, ApiError | DatabaseError, Database> {
     return Effect.gen(function* () {
         const row = yield* assertCanViewBinding(user, bindingId);
         yield* assertCanManageConnectorOwner(user, {
@@ -111,15 +135,15 @@ export function assertCanSyncBinding(user: AuthUser, bindingId: string) {
             teamId: row.graph.teamId ?? undefined,
         });
         if (!row.binding.webhookEnabled) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            return yield* Effect.fail(forbiddenError());
         }
         return row;
     });
 }
 
-export function loadConnectorBindingGraph(bindingId: string) {
+export function loadConnectorBindingGraph(bindingId: string): Effect.Effect<{ binding: ConnectorResourceBindingRow; installation: ConnectorInstallationRow; connector: ConnectorRow; graph: typeof graphTable.$inferSelect } | null, DatabaseError, Database> {
     return Effect.gen(function* () {
-        const [row] = yield* tryUnknownPromise(() =>
+        const [row] = yield* tryDb((db) =>
             db
                 .select({
                     binding: connectorResourceBindingsTable,

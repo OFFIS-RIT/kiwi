@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
+const runApiTestEffect = <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+    Effect.runPromise(effect as Effect.Effect<T, E, never>);
 
 let selectedFile: unknown;
 let bindingRow: unknown = null;
@@ -24,9 +26,14 @@ function createSelectQuery() {
     return chain;
 }
 
-mock.module("@kiwi/db", () => ({
-    db: {
+mock.module("@kiwi/db/effect", () => ({
+    Database: Effect.succeed({
         select: () => createSelectQuery(),
+    }),
+    DatabaseError: class DatabaseError extends Error {},
+    tryDb: (thunk: (db: { select: typeof createSelectQuery }) => unknown) => {
+        const result = thunk({ select: () => createSelectQuery() });
+        return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
     },
 }));
 
@@ -78,7 +85,7 @@ describe("graph file proxy", () => {
     });
 
     test("streams internal files from S3", async () => {
-        const result = await Effect.runPromise(getGraphFileProxyResponse({
+        const result = await runApiTestEffect(getGraphFileProxyResponse({
             graphId: "graph-1",
             fileId: "file-1",
             request: new Request("http://localhost/file"),
@@ -117,7 +124,7 @@ describe("graph file proxy", () => {
             }),
         };
 
-        const result = await Effect.runPromise(getGraphFileProxyResponse({
+        const result = await runApiTestEffect(getGraphFileProxyResponse({
             graphId: "graph-1",
             fileId: "file-1",
             request: new Request("http://localhost/file"),
@@ -170,7 +177,7 @@ describe("graph file proxy", () => {
             connector: { provider: "github", status: "active" },
         };
 
-        const result = await Effect.runPromise(getGraphFileProxyResponse({
+        const result = await runApiTestEffect(getGraphFileProxyResponse({
             graphId: "graph-1",
             fileId: "file-1",
             request: new Request("http://localhost/file"),

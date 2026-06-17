@@ -1,5 +1,6 @@
 import { cors } from "@elysiajs/cors";
 import * as Effect from "effect/Effect";
+import { runDatabaseEffect } from "@kiwi/db/effect";
 import { bootstrapLegacyModelsFromEnv } from "@kiwi/ai/models";
 import { info, warn as logWarn } from "@kiwi/logger";
 import { Elysia } from "elysia";
@@ -29,8 +30,8 @@ const archiveToolCheck = await Effect.runPromise(checkArchiveUploadTools());
 if (!archiveToolCheck.ok) {
     logWarn("archive upload extraction tools are missing", { missingTools: archiveToolCheck.missing });
 }
-const legacyModelBootstrap = await Effect.runPromise(bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET }));
-await Effect.runPromise(ensureMasterUser());
+const legacyModelBootstrap = await runDatabaseEffect(bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET }));
+await runDatabaseEffect(ensureMasterUser());
 
 const trustedOrigins =
     env.TRUSTED_ORIGINS?.split(",")

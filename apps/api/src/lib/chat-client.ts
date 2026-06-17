@@ -1,5 +1,7 @@
 import { getClient, type Client } from "@kiwi/ai";
 import { resolveResearchModelConfig } from "@kiwi/ai/models";
+import { type ApiError } from "@kiwi/contracts/errors";
+import { type Database, type DatabaseError } from "@kiwi/db/effect";
 import * as Effect from "effect/Effect";
 import { env } from "../env";
 import { API_ERROR_CODES } from "../types";
@@ -15,7 +17,7 @@ export type RequiredResearchClient = Client & {
 export function getRequiredResearchClient(options: {
     organizationId: string;
     requestedModelId?: string;
-}): Effect.Effect<RequiredResearchClient, unknown> {
+}): Effect.Effect<RequiredResearchClient, DatabaseError | ApiError | Error, Database> {
     return Effect.gen(function* () {
         const resolvedModels = yield* resolveResearchModelConfig({
             organizationId: options.organizationId,

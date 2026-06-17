@@ -1,4 +1,6 @@
 import * as Effect from "effect/Effect";
+import type { Database } from "@kiwi/db/effect";
+import type { graphTable } from "@kiwi/db/tables/graph";
 import type { RepositoryGraphCreateInput } from "@kiwi/contracts/connectors";
 import { API_ERROR_CODES } from "@kiwi/contracts/errors";
 import type { AuthUser } from "../../../middleware/auth";
@@ -36,7 +38,7 @@ export function createConnectorGraphBinding(input: {
     user: AuthUser;
     connectorId: string;
     body: RepositoryGraphCreateInput;
-}) {
+}): Effect.Effect<{ graph: typeof graphTable.$inferSelect; binding: ReturnType<typeof toBindingResponse>; workflowRunId: string }, ReturnType<typeof toApiError>, Database> {
     return Effect.mapError(Effect.gen(function* () {
         const body = yield* tryApiSync(() => toConnectorBindingCreateInput(input.body));
         const { connector, installation } = yield* requireConnectorInstallationContext({

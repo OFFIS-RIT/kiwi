@@ -36,8 +36,14 @@ const SKIPPED_PATH_SEGMENTS: Record<string, true> = {
     vendor: true,
 };
 
-function tryConnectorPromise<T>(thunk: (signal: AbortSignal) => PromiseLike<T>): Effect.Effect<T, unknown> {
-    return Effect.tryPromise({ try: thunk, catch: (error) => error });
+function tryConnectorPromise<T>(thunk: (signal: AbortSignal) => PromiseLike<T>): Effect.Effect<T, ConnectorProviderError> {
+    return Effect.tryPromise({
+        try: thunk,
+        catch: (error) =>
+            error instanceof ConnectorProviderError
+                ? error
+                : new ConnectorProviderError("provider", "GitHub connector request failed", { cause: error }),
+    });
 }
 
 type GitHubClientOptions = {
@@ -81,7 +87,7 @@ export function createGitHubAppJwt(options: {
 export function createGitHubInstallationToken(options: InstallationTokenOptions): Effect.Effect<{
     token: string;
     expiresAt: string;
-}, unknown> {
+}, ConnectorProviderError> {
     return tryConnectorPromise(async () => {
         const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
         const response = await (options.fetch ?? fetch)(
@@ -98,7 +104,7 @@ export function createGitHubInstallationToken(options: InstallationTokenOptions)
                 body: JSON.stringify({ permissions: { contents: "read", metadata: "read" } }),
             }
         );
-        const json = await Effect.runPromise(readJson(response));
+        const json = await readJsonPromise(response);
         if (!response.ok || !isObject(json) || typeof json.token !== "string" || typeof json.expires_at !== "string") {
             throw new ConnectorProviderError("auth", "GitHub installation token request failed");
         }
@@ -108,7 +114,7 @@ export function createGitHubInstallationToken(options: InstallationTokenOptions)
 
 export function getGitHubInstallationAccount(
     options: InstallationTokenOptions
-): Effect.Effect<ProviderInstallationAccount, unknown> {
+): Effect.Effect<ProviderInstallationAccount, ConnectorProviderError> {
     return tryConnectorPromise(async () => {
         const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
         const response = await (options.fetch ?? fetch)(
@@ -123,7 +129,7 @@ export function getGitHubInstallationAccount(
                 ),
             }
         );
-        const json = await Effect.runPromise(readJson(response));
+        const json = await readJsonPromise(response);
         if (!response.ok || !isObject(json) || !isObject(json.account) || typeof json.account.login !== "string") {
             throw new ConnectorProviderError("provider", "GitHub installation response is invalid");
         }
@@ -180,24 +186,26 @@ export function createGitHubClient(options: GitHubClientOptions): GitResourceAda
 export function getGitHubRepository(
     options: GitHubClientOptions,
     repositoryId: string
-): Effect.Effect<ProviderRepository, unknown> {
+): Effect.Effect<ProviderRepository, ConnectorProviderError> {
     return tryConnectorPromise(async () => {
         const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
         const path = repositoryId.includes("/")
             ? `/repos/${encodePathSegments(repositoryId)}`
             : `/repositories/${encodeURIComponent(repositoryId)}`;
-        return mapGitHubRepository(await Effect.runPromise(getGitHubJson(`${apiBaseUrl}${path}`, options.installationToken, options.fetch)));
+        return mapGitHubRepository(await getGitHubJsonPromise(`${apiBaseUrl}${path}`, options.installationToken, options.fetch));
     });
 }
 
-export function listGitHubInstallationRepositories(options: GitHubClientOptions): Effect.Effect<ProviderRepository[], unknown> {
+export function listGitHubInstallationRepositories(options: GitHubClientOptions): Effect.Effect<ProviderRepository[], ConnectorProviderError> {
     return tryConnectorPromise(async () => {
         const repositories: ProviderRepository[] = [];
         for (let page = 1; ; page += 1) {
             const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
-            const json = await Effect.runPromise(getGitHubJson(`${apiBaseUrl}/installation/repositories?per_page=100&page=${page}`,
-            options.installationToken,
-            options.fetch));
+            const json = await getGitHubJsonPromise(
+                `${apiBaseUrl}/installation/repositories?per_page=100&page=${page}`,
+                options.installationToken,
+                options.fetch
+            );
             if (!isObject(json) || !Array.isArray(json.repositories)) {
                 throw new ConnectorProviderError("provider", "GitHub repository response is invalid");
             }
@@ -213,15 +221,17 @@ export function listGitHubInstallationRepositories(options: GitHubClientOptions)
 
 export function listGitHubBranches(
     options: GitHubClientOptions & { repository: ProviderRepository }
-): Effect.Effect<ProviderBranch[], unknown> {
+): Effect.Effect<ProviderBranch[], ConnectorProviderError> {
     return tryConnectorPromise(async () => {
         const [owner, repo] = splitFullName(options.repository.fullName);
         const branches: ProviderBranch[] = [];
         for (let page = 1; ; page += 1) {
             const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
-            const json = await Effect.runPromise(getGitHubJson(`${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?per_page=100&page=${page}`,
-            options.installationToken,
-            options.fetch));
+            const json = await getGitHubJsonPromise(
+                `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?per_page=100&page=${page}`,
+                options.installationToken,
+                options.fetch
+            );
             if (!Array.isArray(json)) {
                 throw new ConnectorProviderError("provider", "GitHub branches response is invalid");
             }
@@ -242,25 +252,29 @@ export function listGitHubBranches(
     });
 }
 
-export function loadGitHubRepositorySnapshot(options: SnapshotOptions): Effect.Effect<ProviderRepositorySnapshot, unknown> {
+export function loadGitHubRepositorySnapshot(options: SnapshotOptions): Effect.Effect<ProviderRepositorySnapshot, ConnectorProviderError> {
     return tryConnectorPromise(async () => {
         const [owner, repo] = splitFullName(options.repository.fullName);
         const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
         let treeSha: string;
         let branch: ProviderBranch;
         if (options.commitSha) {
-            const commitJson = await Effect.runPromise(getGitHubJson(`${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits/${encodeURIComponent(options.commitSha)}`,
-            options.installationToken,
-            options.fetch));
+            const commitJson = await getGitHubJsonPromise(
+                `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits/${encodeURIComponent(options.commitSha)}`,
+                options.installationToken,
+                options.fetch
+            );
             if (!isObject(commitJson) || !isObject(commitJson.tree) || typeof commitJson.tree.sha !== "string") {
                 throw new ConnectorProviderError("not-found", "GitHub commit was not found");
             }
             treeSha = commitJson.tree.sha;
             branch = { name: options.branch, commitSha: options.commitSha };
         } else {
-            const branchJson = await Effect.runPromise(getGitHubJson(`${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/${encodeURIComponent(options.branch)}`,
-            options.installationToken,
-            options.fetch));
+            const branchJson = await getGitHubJsonPromise(
+                `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/${encodeURIComponent(options.branch)}`,
+                options.installationToken,
+                options.fetch
+            );
             if (!isObject(branchJson) || !isObject(branchJson.commit) || typeof branchJson.commit.sha !== "string") {
                 throw new ConnectorProviderError("not-found", "GitHub branch was not found");
             }
@@ -272,9 +286,11 @@ export function loadGitHubRepositorySnapshot(options: SnapshotOptions): Effect.E
                     : branchJson.commit.sha;
             branch = { name: options.branch, commitSha: branchJson.commit.sha };
         }
-        const treeJson = await Effect.runPromise(getGitHubJson(`${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`,
-        options.installationToken,
-        options.fetch));
+        const treeJson = await getGitHubJsonPromise(
+            `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`,
+            options.installationToken,
+            options.fetch
+        );
         if (!isObject(treeJson) || !Array.isArray(treeJson.tree)) {
             throw new ConnectorProviderError("provider", "GitHub tree response is invalid");
         }
@@ -294,9 +310,11 @@ export function loadGitHubRepositorySnapshot(options: SnapshotOptions): Effect.E
             if (totalBytes + item.size > MAX_REPOSITORY_CODE_BYTES) {
                 throw new ConnectorProviderError("limit", "Repository contains too much supported code");
             }
-            const blobJson = await Effect.runPromise(getGitHubJson(`${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs/${encodeURIComponent(item.sha)}`,
-            options.installationToken,
-            options.fetch));
+            const blobJson = await getGitHubJsonPromise(
+                `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs/${encodeURIComponent(item.sha)}`,
+                options.installationToken,
+                options.fetch
+            );
             if (!isObject(blobJson) || typeof blobJson.content !== "string" || blobJson.encoding !== "base64") {
                 throw new ConnectorProviderError("provider", "GitHub blob response is invalid");
             }
@@ -325,13 +343,15 @@ export function compareGitHubRepository(
         fromCommitSha: string;
         toCommitSha: string;
     }
-): Effect.Effect<ProviderRepositoryDelta, unknown> {
+): Effect.Effect<ProviderRepositoryDelta, ConnectorProviderError> {
     return tryConnectorPromise(async () => {
         const [owner, repo] = splitFullName(options.repository.fullName);
         const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
-        const json = await Effect.runPromise(getGitHubJson(`${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/compare/${encodeURIComponent(options.fromCommitSha)}...${encodeURIComponent(options.toCommitSha)}`,
-        options.installationToken,
-        options.fetch));
+        const json = await getGitHubJsonPromise(
+            `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/compare/${encodeURIComponent(options.fromCommitSha)}...${encodeURIComponent(options.toCommitSha)}`,
+            options.installationToken,
+            options.fetch
+        );
         if (!isObject(json) || !isGitHubCompareStatus(json.status)) {
             throw new ConnectorProviderError("provider", "GitHub compare response is invalid");
         }
@@ -406,7 +426,7 @@ export function readGitHubRepositoryFile(
         path: string;
         commitSha: string;
     }
-): Effect.Effect<string, unknown> {
+): Effect.Effect<string, ConnectorProviderError> {
     return tryConnectorPromise(async () => {
         const [owner, repo] = splitFullName(options.repository.fullName);
         const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
@@ -487,20 +507,24 @@ export function normalizeGitHubWebhookEvent(options: {
     };
 }
 
-function getGitHubJson(url: string, token: string, fetchImpl: FetchLike | undefined): Effect.Effect<unknown, unknown> {
-    return Effect.gen(function* () {
-        const response = yield* tryConnectorPromise(() => (fetchImpl ?? fetch)(url, { headers: githubHeaders(token) }));
-        const json = yield* readJson(response);
-        if (!response.ok) {
-            return yield* Effect.fail(
-                new ConnectorProviderError(
-                    response.status === 404 ? "not-found" : "provider",
-                    "GitHub API request failed"
-                )
-            );
-        }
-        return json;
-    });
+async function getGitHubJsonPromise(
+    url: string,
+    token: string,
+    fetchImpl: FetchLike | undefined
+): Promise<unknown> {
+    const response = await (fetchImpl ?? fetch)(url, { headers: githubHeaders(token) });
+    const json = await readJsonPromise(response);
+    if (!response.ok) {
+        throw new ConnectorProviderError(
+            response.status === 404 ? "not-found" : "provider",
+            "GitHub API request failed"
+        );
+    }
+    return json;
+}
+
+function getGitHubJson(url: string, token: string, fetchImpl: FetchLike | undefined): Effect.Effect<unknown, ConnectorProviderError> {
+    return tryConnectorPromise(() => getGitHubJsonPromise(url, token, fetchImpl));
 }
 
 function githubHeaders(token: string): Record<string, string> {
@@ -554,11 +578,13 @@ function gitHubAccountType(value: unknown): ProviderInstallationAccount["type"] 
     return null;
 }
 
-function readJson(response: Response): Effect.Effect<unknown, unknown> {
-    return tryConnectorPromise(async () => {
-        const text = await response.text();
-        return text.length === 0 ? null : JSON.parse(text);
-    });
+async function readJsonPromise(response: Response): Promise<unknown> {
+    const text = await response.text();
+    return text.length === 0 ? null : JSON.parse(text);
+}
+
+function readJson(response: Response): Effect.Effect<unknown, ConnectorProviderError> {
+    return tryConnectorPromise(() => readJsonPromise(response));
 }
 
 function shouldLoadCodePath(filePath: string): boolean {

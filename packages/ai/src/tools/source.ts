@@ -1,4 +1,4 @@
-import { db } from "@kiwi/db";
+import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, currentSourceSql, visibleFilePredicate, visibleFileSql } from "@kiwi/db/source-validity";
@@ -94,7 +94,7 @@ function buildSubjectScopeExpression(entityIds: string[], relationshipIds: strin
     return sql`and (${sql.join(scopes, sql` or `)})`;
 }
 
-function toSearchSourceRows(rows: Record<string, unknown>[]): SearchSourceRow[] {
+function toSearchSourceRows(rows: readonly Record<string, unknown>[]): SearchSourceRow[] {
     return rows.map((row) => ({
         id: String(row.id ?? ""),
         entityId: String(row.entityId ?? ""),
@@ -196,8 +196,9 @@ function getScopedSources(
         cursor,
         onConsideredFileIds,
     }: GetScopedSourcesArgs
-): Effect.Effect<string, unknown> {
+): Effect.Effect<string, unknown, Database> {
     return Effect.gen(function* () {
+        const db = yield* Database;
         const fileIds = uniqueTerms(files ?? []);
         const entityIds = uniqueTerms(entities ?? []);
         const relationshipIds = uniqueTerms(relationships ?? []);
@@ -239,24 +240,23 @@ function getScopedSources(
                 }
             }
 
-            const rows = yield* Effect.tryPromise(() =>
-                db
-                    .select({
-                        id: sourcesTable.id,
-                        entityId: sourcesTable.entityId,
-                        relationshipId: sourcesTable.relationshipId,
-                        description: sourcesTable.description,
-                        text: textUnitTable.text,
-                        fileId: filesTable.id,
-                        fileName: filesTable.name,
-                    })
-                    .from(sourcesTable)
-                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                    .where(and(...clauses))
-                    .orderBy(asc(sourcesTable.id))
-                    .limit(limit + 1)
-            );
+            const rows = yield* db
+                .select({
+                    id: sourcesTable.id,
+                    entityId: sourcesTable.entityId,
+                    relationshipId: sourcesTable.relationshipId,
+                    description: sourcesTable.description,
+                    text: textUnitTable.text,
+                    fileId: filesTable.id,
+                    fileName: filesTable.name,
+                })
+                .from(sourcesTable)
+                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                .where(and(...clauses))
+                .orderBy(asc(sourcesTable.id))
+                .limit(limit + 1)
+                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
 
             const hasMore = rows.length > limit;
             const items = hasMore ? rows.slice(0, limit) : rows;
@@ -300,8 +300,8 @@ function getScopedSources(
                   )
               `
             : sql``;
-        const result = yield* Effect.tryPromise(() =>
-            db.execute(sql<SearchSourceRow>`
+        const result = yield* db
+            .execute(sql<SearchSourceRow>`
                 with ranked as (
                     select
                         source.id,
@@ -343,8 +343,8 @@ function getScopedSources(
                 order by ranked.score desc, ranked.id asc
                 limit ${limit + 1}
             `)
-        );
-        const rows = toSearchSourceRows(result.rows);
+            .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
+        const rows = toSearchSourceRows(result);
         const hasMore = rows.length > limit;
         const items = hasMore ? rows.slice(0, limit) : rows;
         onConsideredFileIds?.(items.map((row) => row.fileId));
@@ -376,7 +376,7 @@ export const getEntitySourcesTool = (
             "Final grounding tool for entities. Use only after identifying entity IDs. When you provide a refinement query, semantic search is primary and keywords boost exact file or source text matches. The returned source IDs are the citation IDs that the final answer must cite.",
         inputSchema: getEntitySourcesSchema,
         execute: ({ query, keywords, files, entityIds, limit, cursor }) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Sources",
@@ -411,7 +411,7 @@ export const getRelationshipSourcesTool = (
             "Final grounding tool for relationships. Use only after identifying relationship IDs. When you provide a refinement query, semantic search is primary and keywords boost exact file or source text matches. The returned source IDs are the citation IDs that the final answer must cite.",
         inputSchema: getRelationshipSourcesSchema,
         execute: ({ query, keywords, files, relationshipIds, limit, cursor }) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Sources",
@@ -442,7 +442,7 @@ export const getSourceFileMetadataTool = (graphId: string, options: SourceToolOp
             "Inspect the file metadata behind source IDs. Use this to judge source relevance, authority, document type, dates, binding status, or other document-level context.",
         inputSchema: getSourceFileMetadataSchema,
         execute: ({ sourceIds }) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Source file metadata",
@@ -455,39 +455,39 @@ export const getSourceFileMetadataTool = (graphId: string, options: SourceToolOp
                     { sourceIds },
                     () =>
                         Effect.gen(function* () {
+                            const db = yield* Database;
                             const ids = uniqueTerms(sourceIds);
                             if (ids.length === 0) {
                                 return "## Source File Metadata\n- none";
                             }
 
-                            const rows = yield* Effect.tryPromise(() =>
-                                db
-                                    .select({
-                                        sourceId: sourcesTable.id,
-                                        entityId: sourcesTable.entityId,
-                                        relationshipId: sourcesTable.relationshipId,
-                                        sourceDescription: sourcesTable.description,
-                                        unitId: textUnitTable.id,
-                                        fileId: filesTable.id,
-                                        fileName: filesTable.name,
-                                        fileType: filesTable.type,
-                                        mimeType: filesTable.mimeType,
-                                        size: filesTable.size,
-                                        tokenCount: filesTable.tokenCount,
-                                        metadata: filesTable.metadata,
-                                    })
-                                    .from(sourcesTable)
-                                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                                    .where(
-                                        and(
-                                            currentSourcePredicate(sourcesTable),
-                                            eq(filesTable.graphId, graphId),
-                                            visibleFilePredicate(filesTable),
-                                            inArray(sourcesTable.id, ids)
-                                        )
+                            const rows = yield* db
+                                .select({
+                                    sourceId: sourcesTable.id,
+                                    entityId: sourcesTable.entityId,
+                                    relationshipId: sourcesTable.relationshipId,
+                                    sourceDescription: sourcesTable.description,
+                                    unitId: textUnitTable.id,
+                                    fileId: filesTable.id,
+                                    fileName: filesTable.name,
+                                    fileType: filesTable.type,
+                                    mimeType: filesTable.mimeType,
+                                    size: filesTable.size,
+                                    tokenCount: filesTable.tokenCount,
+                                    metadata: filesTable.metadata,
+                                })
+                                .from(sourcesTable)
+                                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                                .where(
+                                    and(
+                                        currentSourcePredicate(sourcesTable),
+                                        eq(filesTable.graphId, graphId),
+                                        visibleFilePredicate(filesTable),
+                                        inArray(sourcesTable.id, ids)
                                     )
-                            );
+                                )
+                                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
                             options.onConsideredFileIds?.(rows.map((row) => row.fileId));
 
                             return [

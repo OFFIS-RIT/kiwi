@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb, type Database } from "@kiwi/db/effect";
 import { connectorInstallationsTable } from "@kiwi/db/tables/connectors";
 import type { GitHubInstallCallbackQuery } from "@kiwi/contracts/connectors";
 import { API_ERROR_CODES } from "@kiwi/contracts/errors";
@@ -10,7 +10,7 @@ import { getGitHubConnectorInstallationAccount, toPublicInstallation, verifyConn
 import type { AuthUser } from "../../../middleware/auth";
 import { connectorApiErrorOptions, toApiError } from "../../_shared/api-effect"
 
-export function completeGitHubConnectorInstall(input: { user: AuthUser; query: GitHubInstallCallbackQuery }) {
+export function completeGitHubConnectorInstall(input: { user: AuthUser; query: GitHubInstallCallbackQuery }): Effect.Effect<ReturnType<typeof toPublicInstallation>, ReturnType<typeof toApiError>, Database> {
     return Effect.mapError(Effect.gen(function* () {
         const state = verifyConnectorState(input.query.state, "github-installation", input.user.id);
         if (!state?.connectorId) {
@@ -52,7 +52,7 @@ export function completeGitHubConnectorInstall(input: { user: AuthUser; query: G
               };
     
         const account = yield* getGitHubConnectorInstallationAccount(connector, input.query.installation_id);
-        const [installation] = yield* Effect.tryPromise(() =>
+        const [installation] = yield* tryDb((db) =>
             db
                 .insert(connectorInstallationsTable)
                 .values({

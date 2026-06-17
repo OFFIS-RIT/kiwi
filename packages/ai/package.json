@@ -27,7 +27,6 @@
         "@kiwi/db": "workspace:*",
         "@kiwi/logger": "workspace:*",
         "ai": "catalog:",
-        "better-result": "catalog:",
         "drizzle-orm": "catalog:",
         "effect": "catalog:",
         "js-tiktoken": "^1.0.21",

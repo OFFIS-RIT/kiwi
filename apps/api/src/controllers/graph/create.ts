@@ -1,12 +1,12 @@
 import { eq } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { ulid } from "ulid";
-import { db } from "@kiwi/db";
+import { tryDb, tryDbVoid, type Database } from "@kiwi/db/effect";
 import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
 import { putGraphFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
-import type { GraphCreateFields, GraphCreateSuccessData } from "@kiwi/contracts/graphs";
+import type { GraphCreateFields } from "@kiwi/contracts/graphs";
 import { API_ERROR_CODES, internalServerError, makeApiError } from "@kiwi/contracts/errors";
 import { env } from "../../env";
 import { expandArchiveUploadFiles } from "../../lib/archive-upload";
@@ -29,7 +29,7 @@ import { ow } from "../../openworkflow";
 import { toApiError } from "../_shared/api-effect";
 import { archiveUploadError, getGraphOwnerModelOrganizationId, unsupportedUploadError, type NewGraphOwner } from "./upload-helpers";
 
-function resolveNewGraphOwner(user: AuthUser, fields: GraphCreateFields): Effect.Effect<NewGraphOwner, unknown> {
+function resolveNewGraphOwner(user: AuthUser, fields: GraphCreateFields): Effect.Effect<NewGraphOwner, unknown, Database> {
     return Effect.gen(function* () {
         if (fields.teamId) {
             const access = yield* assertCanCreateTeamGraph(user, fields.teamId);
@@ -51,15 +51,12 @@ function cleanupFailedGraphCreation(
     uploadedKeys: string[],
     phase: "upload" | "db_insert_files" | "enqueue",
     ownerMode: NewGraphOwner["ownerMode"]
-): Effect.Effect<void, unknown> {
+): Effect.Effect<void, unknown, Database> {
     return Effect.gen(function* () {
         const failedDeletes = yield* cleanupUploadedKeys(uploadedKeys);
 
         const cleanupResult = yield* Effect.match(
-            Effect.tryPromise({
-                try: () => db.delete(graphTable).where(eq(graphTable.id, graphId)),
-                catch: (error) => error,
-            }),
+            tryDbVoid((db) => db.delete(graphTable).where(eq(graphTable.id, graphId))),
             {
                 onFailure: (cleanupError) => ({ ok: false as const, cleanupError }),
                 onSuccess: () => ({ ok: true as const }),
@@ -119,22 +116,20 @@ export function createGraph(input: { user: AuthUser; fields: GraphCreateFields; 
 
         const hidden = owner.ownerMode === "graph" ? true : input.fields.hidden === true || input.fields.hidden === "true";
         const initialState = supportedUpload.files.length > 0 ? "updating" : "ready";
-        const [graph] = yield* Effect.tryPromise({
-            try: () =>
-                db
-                    .insert(graphTable)
-                    .values({
-                        name: input.fields.name,
-                        description: input.fields.description,
-                        hidden,
-                        state: initialState,
-                        organizationId: owner.ownerMode === "graph" ? undefined : owner.organizationId,
-                        teamId: owner.ownerMode === "team" ? owner.teamId : undefined,
-                        graphId: owner.ownerMode === "graph" ? owner.graphId : undefined,
-                    })
-                    .returning(selectGraphFields),
-            catch: (error) => error,
-        });
+        const [graph] = yield* tryDb((db) =>
+            db
+                .insert(graphTable)
+                .values({
+                    name: input.fields.name,
+                    description: input.fields.description,
+                    hidden,
+                    state: initialState,
+                    organizationId: owner.ownerMode === "graph" ? undefined : owner.organizationId,
+                    teamId: owner.ownerMode === "team" ? owner.teamId : undefined,
+                    graphId: owner.ownerMode === "graph" ? owner.graphId : undefined,
+                })
+                .returning(selectGraphFields)
+        );
 
         if (!graph) {
             return yield* Effect.fail(internalServerError());
@@ -183,25 +178,23 @@ export function createGraph(input: { user: AuthUser; fields: GraphCreateFields; 
         );
 
         const createdFiles = yield* Effect.matchEffect(
-            Effect.tryPromise({
-                try: () =>
-                    db
-                        .insert(filesTable)
-                        .values(
-                            uploadedFiles.map((file) => ({
-                                id: file.id,
-                                graphId: graph.id,
-                                name: file.name,
-                                size: file.size,
-                                type: file.type,
-                                mimeType: file.mimeType,
-                                key: file.key,
-                                checksum: file.checksum,
-                            }))
-                        )
-                        .returning(selectFileFields),
-                catch: (error) => error,
-            }),
+            tryDb((db) =>
+                db
+                    .insert(filesTable)
+                    .values(
+                        uploadedFiles.map((file) => ({
+                            id: file.id,
+                            graphId: graph.id,
+                            name: file.name,
+                            size: file.size,
+                            type: file.type,
+                            mimeType: file.mimeType,
+                            key: file.key,
+                            checksum: file.checksum,
+                        }))
+                    )
+                    .returning(selectFileFields)
+            ),
             {
                 onFailure: (dbInsertError) =>
                     Effect.gen(function* () {
@@ -225,28 +218,24 @@ export function createGraph(input: { user: AuthUser; fields: GraphCreateFields; 
 
         return yield* Effect.matchEffect(
             Effect.catchDefect(Effect.gen(function* () {
-                const [processRun] = yield* Effect.tryPromise({
-                    try: () =>
-                        db
-                            .insert(processRunsTable)
-                            .values({ graphId: graph.id, status: "pending" })
-                            .returning({ id: processRunsTable.id }),
-                    catch: (error) => error,
-                });
+                const [processRun] = yield* tryDb((db) =>
+                    db
+                        .insert(processRunsTable)
+                        .values({ graphId: graph.id, status: "pending" })
+                        .returning({ id: processRunsTable.id })
+                );
                 if (!processRun) {
                     return yield* Effect.fail(new Error("Failed to create process run"));
                 }
 
-                yield* Effect.tryPromise({
-                    try: () =>
-                        db.insert(processRunFilesTable).values(
-                            createdFiles.map((file) => ({
-                                processRunId: processRun.id,
-                                fileId: file.id,
-                            }))
-                        ),
-                    catch: (error) => error,
-                });
+                yield* tryDbVoid((db) =>
+                    db.insert(processRunFilesTable).values(
+                        createdFiles.map((file) => ({
+                            processRunId: processRun.id,
+                            fileId: file.id,
+                        }))
+                    )
+                );
 
                 const handle = yield* Effect.tryPromise({
                     try: () =>

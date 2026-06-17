@@ -4,7 +4,7 @@ import { ulid } from "ulid";
 import { estimateToken, getClient } from "@kiwi/ai";
 import { resolveRequiredEmbeddingModelAdapter } from "@kiwi/ai/models";
 import type { GraphSuggestionApplySuccessData, GraphSuggestionRecord } from "@kiwi/contracts";
-import { db } from "@kiwi/db";
+import { tryDb, tryDbVoid, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { filesTable, entityTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { graphSuggestionsTable, type GraphSuggestion } from "@kiwi/db/tables/suggestions";
 import { putGraphFile } from "@kiwi/files";
@@ -169,7 +169,7 @@ export function buildManualSuggestionRows(input: ManualSuggestionRowsInput) {
     };
 }
 
-function getSuggestionModelOrganizationId(graphId: string, user: AuthUser): Effect.Effect<string, unknown> {
+function getSuggestionModelOrganizationId(graphId: string, user: AuthUser): Effect.Effect<string, unknown, Database> {
     return Effect.gen(function* () {
         const rootOwner = yield* resolveGraphOwnerRoot(graphId);
         const organizationId = rootOwner.mode === "user" ? yield* getActiveOrganizationId(user) : rootOwner.organizationId;
@@ -180,7 +180,7 @@ function getSuggestionModelOrganizationId(graphId: string, user: AuthUser): Effe
     });
 }
 
-function embedSuggestionText(graphId: string, user: AuthUser, suggestion: string): Effect.Effect<number[], unknown> {
+function embedSuggestionText(graphId: string, user: AuthUser, suggestion: string): Effect.Effect<number[], unknown, Database> {
     return Effect.gen(function* () {
         const organizationId = yield* getSuggestionModelOrganizationId(graphId, user);
         const embeddingModel = yield* resolveRequiredEmbeddingModelAdapter(organizationId, env.AUTH_SECRET);
@@ -194,9 +194,12 @@ function embedSuggestionText(graphId: string, user: AuthUser, suggestion: string
     });
 }
 
-function getPendingSuggestion(graphId: string, suggestionId: string): Effect.Effect<SelectedGraphSuggestion, unknown> {
+function getPendingSuggestion(
+    graphId: string,
+    suggestionId: string
+): Effect.Effect<SelectedGraphSuggestion, DatabaseError | Error, Database> {
     return Effect.gen(function* () {
-        const [suggestion] = yield* tryUnknownPromise(() =>
+        const [suggestion] = yield* tryDb((db) =>
             db
                 .select(selectGraphSuggestionFields)
                 .from(graphSuggestionsTable)
@@ -206,7 +209,7 @@ function getPendingSuggestion(graphId: string, suggestionId: string): Effect.Eff
 
         return yield* Effect.try({
             try: () => assertPendingGraphSuggestion(suggestion),
-            catch: (error) => error,
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         });
     });
 }
@@ -214,7 +217,7 @@ function getPendingSuggestion(graphId: string, suggestionId: string): Effect.Eff
 function assertSuggestionTargetExists(
     graphId: string,
     suggestion: SelectedGraphSuggestion
-): Effect.Effect<void, unknown> {
+): Effect.Effect<void, unknown, Database> {
     return Effect.gen(function* () {
         if (suggestion.kind === "source_correction") {
             if (!suggestion.sourceId) {
@@ -222,7 +225,7 @@ function assertSuggestionTargetExists(
             }
             const sourceId = suggestion.sourceId;
 
-            const [source] = yield* tryUnknownPromise(() =>
+            const [source] = yield* tryDb((db) =>
                 db
                     .select({ id: sourcesTable.id })
                     .from(sourcesTable)
@@ -244,13 +247,11 @@ function assertSuggestionTargetExists(
         }
         const entityId = suggestion.entityId;
 
-        const [entity] = yield* tryUnknownPromise(() =>
+        const [entity] = yield* tryDb((db) =>
             db
                 .select({ id: entityTable.id })
                 .from(entityTable)
-                .where(
-                    and(eq(entityTable.id, entityId), eq(entityTable.graphId, graphId), eq(entityTable.active, true))
-                )
+                .where(and(eq(entityTable.id, entityId), eq(entityTable.graphId, graphId), eq(entityTable.active, true)))
                 .limit(1)
         );
 
@@ -282,9 +283,11 @@ function enqueueDescriptionUpdate(
     );
 }
 
-export function listPendingGraphSuggestions(graphId: string): Effect.Effect<GraphSuggestionRecord[], unknown> {
+export function listPendingGraphSuggestions(
+    graphId: string
+): Effect.Effect<GraphSuggestionRecord[], DatabaseError, Database> {
     return Effect.map(
-        tryUnknownPromise(() =>
+        tryDb((db) =>
             db
                 .select(selectGraphSuggestionFields)
                 .from(graphSuggestionsTable)
@@ -298,19 +301,21 @@ export function listPendingGraphSuggestions(graphId: string): Effect.Effect<Grap
 export function deletePendingGraphSuggestion(
     graphId: string,
     suggestionId: string
-): Effect.Effect<void, unknown> {
-    return tryUnknownPromise(() =>
-        db.transaction(async (tx) => {
-            const [suggestionRow] = await tx
-                .select(selectGraphSuggestionFields)
-                .from(graphSuggestionsTable)
-                .where(and(eq(graphSuggestionsTable.graphId, graphId), eq(graphSuggestionsTable.id, suggestionId)))
-                .for("update")
-                .limit(1);
-            const suggestion = assertPendingGraphSuggestion(suggestionRow);
+): Effect.Effect<void, unknown, Database> {
+    return tryDbVoid((db) =>
+        db.transaction((tx) =>
+            Effect.gen(function* (): Generator<Effect.Effect<unknown, unknown>, void> {
+                const [suggestionRow] = yield* tx
+                    .select(selectGraphSuggestionFields)
+                    .from(graphSuggestionsTable)
+                    .where(and(eq(graphSuggestionsTable.graphId, graphId), eq(graphSuggestionsTable.id, suggestionId)))
+                    .for("update")
+                    .limit(1);
+                const suggestion = assertPendingGraphSuggestion(suggestionRow);
 
-            await tx.delete(graphSuggestionsTable).where(eq(graphSuggestionsTable.id, suggestion.id));
-        })
+                yield* tx.delete(graphSuggestionsTable).where(eq(graphSuggestionsTable.id, suggestion.id));
+            })
+        )
     );
 }
 
@@ -319,59 +324,61 @@ function applySourceCorrection(options: {
     suggestionId: string;
     userId: string;
     embedding: number[];
-}): Effect.Effect<ApplyMutationResult, unknown> {
-    return tryUnknownPromise(() =>
-        db.transaction(async (tx) => {
-            const [suggestionRow] = await tx
-                .select(selectGraphSuggestionFields)
-                .from(graphSuggestionsTable)
-                .where(and(eq(graphSuggestionsTable.graphId, options.graphId), eq(graphSuggestionsTable.id, options.suggestionId)))
-                .for("update")
-                .limit(1);
-            const suggestion = assertPendingGraphSuggestion(suggestionRow);
-            if (suggestion.kind !== "source_correction" || !suggestion.sourceId) {
-                throw new Error(API_ERROR_CODES.INVALID_SUGGESTION);
-            }
+}): Effect.Effect<ApplyMutationResult, unknown, Database> {
+    return tryDb((db) =>
+        db.transaction((tx) =>
+            Effect.gen(function* (): Generator<Effect.Effect<unknown, unknown>, ApplyMutationResult> {
+                const [suggestionRow] = yield* tx
+                    .select(selectGraphSuggestionFields)
+                    .from(graphSuggestionsTable)
+                    .where(and(eq(graphSuggestionsTable.graphId, options.graphId), eq(graphSuggestionsTable.id, options.suggestionId)))
+                    .for("update")
+                    .limit(1);
+                const suggestion = assertPendingGraphSuggestion(suggestionRow);
+                if (suggestion.kind !== "source_correction" || !suggestion.sourceId) {
+                    throw new Error(API_ERROR_CODES.INVALID_SUGGESTION);
+                }
 
-            const [source] = await tx
-                .select({
-                    id: sourcesTable.id,
-                    entityId: sourcesTable.entityId,
-                    relationshipId: sourcesTable.relationshipId,
-                })
-                .from(sourcesTable)
-                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                .where(and(eq(sourcesTable.id, suggestion.sourceId), eq(filesTable.graphId, options.graphId)))
-                .limit(1);
+                const [source] = yield* tx
+                    .select({
+                        id: sourcesTable.id,
+                        entityId: sourcesTable.entityId,
+                        relationshipId: sourcesTable.relationshipId,
+                    })
+                    .from(sourcesTable)
+                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                    .where(and(eq(sourcesTable.id, suggestion.sourceId), eq(filesTable.graphId, options.graphId)))
+                    .limit(1);
 
-            if (!source) {
-                throw new Error(API_ERROR_CODES.SOURCE_NOT_FOUND);
-            }
+                if (!source) {
+                    throw new Error(API_ERROR_CODES.SOURCE_NOT_FOUND);
+                }
 
-            await tx
-                .update(sourcesTable)
-                .set(buildSourceCorrectionUpdate(suggestion, options.embedding))
-                .where(eq(sourcesTable.id, source.id));
+                yield* tx
+                    .update(sourcesTable)
+                    .set(buildSourceCorrectionUpdate(suggestion, options.embedding))
+                    .where(eq(sourcesTable.id, source.id));
 
-            const [appliedSuggestion] = await tx
-                .update(graphSuggestionsTable)
-                .set({
-                    status: "applied",
-                    appliedByUserId: options.userId,
-                    appliedSourceId: source.id,
-                    appliedAt: sql`NOW()`,
-                })
-                .where(eq(graphSuggestionsTable.id, suggestion.id))
-                .returning(selectGraphSuggestionFields);
+                const [appliedSuggestion] = yield* tx
+                    .update(graphSuggestionsTable)
+                    .set({
+                        status: "applied",
+                        appliedByUserId: options.userId,
+                        appliedSourceId: source.id,
+                        appliedAt: sql`NOW()`,
+                    })
+                    .where(eq(graphSuggestionsTable.id, suggestion.id))
+                    .returning(selectGraphSuggestionFields);
 
-            return {
-                suggestion: toGraphSuggestionRecord(appliedSuggestion ?? suggestion),
-                sourceId: source.id,
-                entityIds: source.entityId ? [source.entityId] : [],
-                relationshipIds: source.relationshipId ? [source.relationshipId] : [],
-            };
-        })
+                return {
+                    suggestion: toGraphSuggestionRecord(appliedSuggestion ?? suggestion),
+                    sourceId: source.id,
+                    entityIds: source.entityId ? [source.entityId] : [],
+                    relationshipIds: source.relationshipId ? [source.relationshipId] : [],
+                };
+            })
+        )
     );
 }
 
@@ -380,7 +387,7 @@ function applyEntityAddition(options: {
     suggestionId: string;
     userId: string;
     embedding: number[];
-}): Effect.Effect<ApplyMutationResult, unknown> {
+}): Effect.Effect<ApplyMutationResult, unknown, Database> {
     return Effect.gen(function* () {
         const suggestion = yield* getPendingSuggestion(options.graphId, options.suggestionId);
         if (suggestion.kind !== "entity_addition" || !suggestion.entityId) {
@@ -396,76 +403,78 @@ function applyEntityAddition(options: {
         const upload = yield* putGraphFile(options.graphId, fileId, fileName, file, env.S3_BUCKET);
 
         return yield* Effect.matchEffect(
-            tryUnknownPromise(() =>
-                db.transaction(async (tx) => {
-                    const [currentSuggestionRow] = await tx
-                        .select(selectGraphSuggestionFields)
-                        .from(graphSuggestionsTable)
-                        .where(and(eq(graphSuggestionsTable.graphId, options.graphId), eq(graphSuggestionsTable.id, options.suggestionId)))
-                        .for("update")
-                        .limit(1);
-                    const currentSuggestion = assertPendingGraphSuggestion(currentSuggestionRow);
-                    if (
-                        currentSuggestion.kind !== "entity_addition" ||
-                        !currentSuggestion.entityId ||
-                        currentSuggestion.entityId !== suggestion.entityId
-                    ) {
-                        throw new Error(API_ERROR_CODES.INVALID_SUGGESTION);
-                    }
+            tryDb((db) =>
+                db.transaction((tx) =>
+                    Effect.gen(function* (): Generator<Effect.Effect<unknown, unknown>, ApplyMutationResult> {
+                        const [currentSuggestionRow] = yield* tx
+                            .select(selectGraphSuggestionFields)
+                            .from(graphSuggestionsTable)
+                            .where(and(eq(graphSuggestionsTable.graphId, options.graphId), eq(graphSuggestionsTable.id, options.suggestionId)))
+                            .for("update")
+                            .limit(1);
+                        const currentSuggestion = assertPendingGraphSuggestion(currentSuggestionRow);
+                        if (
+                            currentSuggestion.kind !== "entity_addition" ||
+                            !currentSuggestion.entityId ||
+                            currentSuggestion.entityId !== suggestion.entityId
+                        ) {
+                            throw new Error(API_ERROR_CODES.INVALID_SUGGESTION);
+                        }
 
-                    const [entity] = await tx
-                        .select({ id: entityTable.id })
-                        .from(entityTable)
-                        .where(
-                            and(
-                                eq(entityTable.id, currentSuggestion.entityId),
-                                eq(entityTable.graphId, options.graphId),
-                                eq(entityTable.active, true)
+                        const [entity] = yield* tx
+                            .select({ id: entityTable.id })
+                            .from(entityTable)
+                            .where(
+                                and(
+                                    eq(entityTable.id, currentSuggestion.entityId),
+                                    eq(entityTable.graphId, options.graphId),
+                                    eq(entityTable.active, true)
+                                )
                             )
-                        )
-                        .limit(1);
+                            .limit(1);
 
-                    if (!entity) {
-                        throw new Error(API_ERROR_CODES.INVALID_SUGGESTION);
-                    }
+                        if (!entity) {
+                            throw new Error(API_ERROR_CODES.INVALID_SUGGESTION);
+                        }
 
-                    const rows = buildManualSuggestionRows({
-                        graphId: options.graphId,
-                        suggestion: currentSuggestion,
-                        fileId,
-                        textUnitId,
-                        sourceId,
-                        fileName,
-                        fileKey: upload.key,
-                        fileSize: file.size,
-                        embedding: options.embedding,
-                    });
+                        const rows = buildManualSuggestionRows({
+                            graphId: options.graphId,
+                            suggestion: currentSuggestion,
+                            fileId,
+                            textUnitId,
+                            sourceId,
+                            fileName,
+                            fileKey: upload.key,
+                            fileSize: file.size,
+                            embedding: options.embedding,
+                        });
 
-                    await tx.insert(filesTable).values(rows.file);
-                    await tx.insert(textUnitTable).values(rows.textUnit);
-                    await tx.insert(sourcesTable).values({
-                        ...rows.source,
-                        entityId: entity.id,
-                    });
+                        yield* tx.insert(filesTable).values(rows.file);
+                        yield* tx.insert(textUnitTable).values(rows.textUnit);
+                        yield* tx.insert(sourcesTable).values({
+                            ...rows.source,
+                            entityId: entity.id,
+                        });
 
-                    const [appliedSuggestion] = await tx
-                        .update(graphSuggestionsTable)
-                        .set({
-                            status: "applied",
-                            appliedByUserId: options.userId,
-                            appliedSourceId: sourceId,
-                            appliedAt: sql`NOW()`,
-                        })
-                        .where(eq(graphSuggestionsTable.id, currentSuggestion.id))
-                        .returning(selectGraphSuggestionFields);
+                        const [appliedSuggestion] = yield* tx
+                            .update(graphSuggestionsTable)
+                            .set({
+                                status: "applied",
+                                appliedByUserId: options.userId,
+                                appliedSourceId: sourceId,
+                                appliedAt: sql`NOW()`,
+                            })
+                            .where(eq(graphSuggestionsTable.id, currentSuggestion.id))
+                            .returning(selectGraphSuggestionFields);
 
-                    return {
-                        suggestion: toGraphSuggestionRecord(appliedSuggestion ?? currentSuggestion),
-                        sourceId,
-                        entityIds: [entity.id],
-                        relationshipIds: [] as string[],
-                    };
-                })
+                        return {
+                            suggestion: toGraphSuggestionRecord(appliedSuggestion ?? currentSuggestion),
+                            sourceId,
+                            entityIds: [entity.id],
+                            relationshipIds: [] as string[],
+                        };
+                    })
+                )
             ),
             {
                 onFailure: (error) =>
@@ -492,7 +501,7 @@ export function applyGraphSuggestion(
     graphId: string,
     suggestionId: string,
     user: AuthUser
-): Effect.Effect<GraphSuggestionApplySuccessData, unknown> {
+): Effect.Effect<GraphSuggestionApplySuccessData, unknown, Database> {
     return Effect.gen(function* () {
         const suggestion = yield* getPendingSuggestion(graphId, suggestionId);
         yield* assertSuggestionTargetExists(graphId, suggestion);

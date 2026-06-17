@@ -3,7 +3,6 @@ import { getDefaultModelOrganizationId } from "@kiwi/ai/models";
 import { API_ERROR_CODES, makeApiError } from "@kiwi/contracts/errors";
 import { resolveGraphOwnerRoot } from "../../lib/graph/access";
 import type { UploadFileTypeCheck } from "../../lib/graph/route";
-import { tryApiPromise } from "../_shared/api-effect";
 
 export type NewGraphOwner =
     | {
@@ -38,16 +37,16 @@ export function archiveUploadError(expanded: {
 }
 
 export function getGraphOwnerModelOrganizationId(owner: NewGraphOwner) {
-    return tryApiPromise(async () => {
+    return Effect.gen(function* () {
         if (owner.ownerMode !== "graph") {
             return owner.organizationId;
         }
-    
-        const rootOwner = await Effect.runPromise(resolveGraphOwnerRoot(owner.graphId));
+
+        const rootOwner = yield* resolveGraphOwnerRoot(owner.graphId);
         if (rootOwner.mode === "user") {
-            return Effect.runPromise(getDefaultModelOrganizationId());
+            return yield* getDefaultModelOrganizationId();
         }
-    
+
         return rootOwner.organizationId;
     });
 }

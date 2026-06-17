@@ -1,22 +1,15 @@
 import { chatTitlePrompt } from "@kiwi/ai/prompts/title.prompt";
 import type { ChatUIMessage, Client } from "@kiwi/ai";
-import { db } from "@kiwi/db";
+import { runDatabaseEffect, tryDbVoid } from "@kiwi/db/effect";
 import { chatTable } from "@kiwi/db/tables/chats";
 import { error as logError } from "@kiwi/logger";
 import { generateText } from "ai";
-import * as Effect from "effect/Effect";
 import { eq, sql } from "drizzle-orm";
 import { createChatTitle } from "./chat";
 
 const GENERATED_CHAT_TITLE_MAX_LENGTH = 80;
 const CHAT_TITLE_SOURCE_MAX_LENGTH = 2_000;
 
-function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, unknown> {
-    return Effect.tryPromise({
-        try: thunk,
-        catch: (error) => error,
-    });
-}
 
 function getFirstUserText(messages: ChatUIMessage[]) {
     const firstUserMessage = messages.find((message) => message.role === "user");
@@ -48,15 +41,15 @@ function normalizeGeneratedChatTitle(text: string) {
 }
 
 function setChatTitle(chatId: string, title: string) {
-    return chatEffect(async () => {
-        await db
+    return tryDbVoid((db) =>
+        db
             .update(chatTable)
             .set({
                 title,
                 updatedAt: sql`${chatTable.updatedAt}`,
             })
-            .where(eq(chatTable.id, chatId));
-    });
+            .where(eq(chatTable.id, chatId))
+    );
 }
 
 export function startChatTitleGeneration({
@@ -78,7 +71,7 @@ export function startChatTitleGeneration({
     const messageText = getFirstUserText(messages).slice(0, CHAT_TITLE_SOURCE_MAX_LENGTH);
 
     if (messageText.length === 0) {
-        void Effect.runPromise(setChatTitle(chatId, createChatTitle(messages))).catch((error) => {
+        void runDatabaseEffect(setChatTitle(chatId, createChatTitle(messages))).catch((error) => {
             logError("failed to apply fallback chat title", {
                 chatId,
                 error,
@@ -96,7 +89,7 @@ export function startChatTitleGeneration({
         });
         const title = normalizeGeneratedChatTitle(result.text) ?? createChatTitle(messages);
 
-        await Effect.runPromise(setChatTitle(chatId, title));
+        await runDatabaseEffect(setChatTitle(chatId, title));
     })().catch(async (error) => {
         logError("failed to generate chat title", {
             chatId,
@@ -104,7 +97,7 @@ export function startChatTitleGeneration({
         });
         const fallbackTitle = createChatTitle(messages);
         try {
-            await Effect.runPromise(setChatTitle(chatId, fallbackTitle));
+            await runDatabaseEffect(setChatTitle(chatId, fallbackTitle));
         } catch (fallbackError) {
             logError("failed to apply fallback chat title", {
                 chatId,

@@ -1,4 +1,4 @@
-import { db } from "@kiwi/db";
+import { tryDb, type Database } from "@kiwi/db/effect";
 import * as Effect from "effect/Effect";
 import { graphTable } from "@kiwi/db/tables/graph";
 import { eq } from "drizzle-orm";
@@ -14,9 +14,6 @@ import {
 } from "../team/access";
 import type { GraphRecord } from "../../types/routes";
 
-function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
-    return Effect.tryPromise({ try: thunk, catch: (error) => error });
-}
 
 export type { GraphRecord } from "../../types/routes";
 
@@ -47,13 +44,13 @@ export const selectGraphFields = {
     state: graphTable.state,
 };
 
-export const getGraphById = (graphId: string): Effect.Effect<GraphRecord | null, unknown> =>
+export const getGraphById = (graphId: string): Effect.Effect<GraphRecord | null, unknown, Database> =>
     Effect.map(
-        tryUnknownPromise(() => db.select(selectGraphFields).from(graphTable).where(eq(graphTable.id, graphId)).limit(1)),
+        tryDb((db) => db.select(selectGraphFields).from(graphTable).where(eq(graphTable.id, graphId)).limit(1)),
         ([graph]) => graph ?? null
     );
 
-export const resolveGraphOwnerRoot = (parentGraphId: string): Effect.Effect<RootOwner, unknown> =>
+export const resolveGraphOwnerRoot = (parentGraphId: string): Effect.Effect<RootOwner, unknown, Database> =>
     Effect.catchDefect(Effect.gen(function* () {
         const visited = new Set<string>();
         let currentGraphId = parentGraphId;
@@ -108,7 +105,7 @@ export const assertCanCreateTeamGraph = (user: AuthUser, teamId: string) => requ
 
 export const assertCanCreateTopLevelGraph = (user: AuthUser) => requireOrganizationAdmin(user);
 
-function assertActiveOrganization(user: AuthUser, organizationId: string): Effect.Effect<void, unknown> {
+function assertActiveOrganization(user: AuthUser, organizationId: string): Effect.Effect<void, unknown, Database> {
     return Effect.gen(function* () {
         const activeOrganizationId = yield* getActiveOrganizationId(user);
         if (activeOrganizationId !== organizationId) {
@@ -120,7 +117,7 @@ function assertActiveOrganization(user: AuthUser, organizationId: string): Effec
 export const assertCanCreateUnderParentGraph = (
     user: AuthUser,
     parentGraphId: string
-): Effect.Effect<void, unknown> =>
+): Effect.Effect<void, unknown, Database> =>
     Effect.catchDefect(Effect.gen(function* () {
         const rootOwner = yield* resolveGraphOwnerRoot(parentGraphId);
 
@@ -144,7 +141,7 @@ const assertGraphAccessWithRootOwner = (
         needsUpdate?: boolean;
         needsFileManage?: boolean;
     }
-): Effect.Effect<{ graph: GraphRecord; rootOwner: RootOwner }, unknown> =>
+): Effect.Effect<{ graph: GraphRecord; rootOwner: RootOwner }, unknown, Database> =>
     Effect.catchDefect(Effect.gen(function* () {
         const graph = yield* getGraphById(graphId);
         if (!graph) {
@@ -196,24 +193,24 @@ const assertGraphAccess = (
         needsUpdate?: boolean;
         needsFileManage?: boolean;
     }
-): Effect.Effect<GraphRecord, unknown> =>
+): Effect.Effect<GraphRecord, unknown, Database> =>
     Effect.map(assertGraphAccessWithRootOwner(user, graphId, options), ({ graph }) => graph);
 
 export const assertCanViewGraphWithRootOwner = (
     user: AuthUser,
     graphId: string
-): Effect.Effect<{ graph: GraphRecord; rootOwner: RootOwner }, unknown> => assertGraphAccessWithRootOwner(user, graphId);
+): Effect.Effect<{ graph: GraphRecord; rootOwner: RootOwner }, unknown, Database> => assertGraphAccessWithRootOwner(user, graphId);
 
-export const assertCanPatchGraph = (user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown> =>
+export const assertCanPatchGraph = (user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown, Database> =>
     assertGraphAccess(user, graphId, { needsUpdate: true });
 
-export const assertCanManageGraphFiles = (user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown> =>
+export const assertCanManageGraphFiles = (user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown, Database> =>
     assertGraphAccess(user, graphId, { needsFileManage: true });
 
 export const assertCanManageGraphSuggestions = (
     user: AuthUser,
     graphId: string
-): Effect.Effect<GraphRecord, unknown> =>
+): Effect.Effect<GraphRecord, unknown, Database> =>
     Effect.catchDefect(Effect.gen(function* () {
         const graph = yield* getGraphById(graphId);
         if (!graph) {
@@ -240,5 +237,5 @@ export const assertCanManageGraphSuggestions = (
         return graph;
     }), (defect) => Effect.fail(defect));
 
-export const assertCanViewGraph = (user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown> =>
+export const assertCanViewGraph = (user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown, Database> =>
     assertGraphAccess(user, graphId);

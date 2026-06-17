@@ -1,6 +1,13 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
-import { API_ERROR_CODES } from "@kiwi/contracts/responses";
-import { db } from "@kiwi/db";
+import {
+    API_ERROR_CODES,
+    ApiError,
+    graphNotFoundError,
+    invalidGraphOwnerError,
+    invalidModelError,
+    modelNotConfiguredError,
+} from "@kiwi/contracts/errors";
+import { Database, DatabaseError, type EffectDatabase } from "@kiwi/db/effect";
 import { organizationTable } from "@kiwi/db/tables/auth";
 import { graphTable } from "@kiwi/db/tables/graph";
 import {
@@ -49,13 +56,13 @@ export type AdminModelRecord = PublicModelRecord & {
     updated_at: string;
 };
 
-type ModelQueryRunner = {
-    select: typeof db.select;
-};
+type ModelQueryRunner = Pick<EffectDatabase, "select">;
 
-type ModelMutationRunner = ModelQueryRunner & {
-    insert: typeof db.insert;
-};
+type ModelMutationRunner = ModelQueryRunner & Pick<EffectDatabase, "insert">;
+
+function mapDatabaseError<T, E, R>(effect: Effect.Effect<T, E, R>): Effect.Effect<T, DatabaseError, R> {
+    return effect.pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
+}
 
 type LegacyModelSeed = {
     type: AiModelType;
@@ -103,10 +110,10 @@ export function normalizeModelId(value: string): string {
     return normalized || "model";
 }
 
-export function allocateUniqueModelId(
+export function allocateUniqueModelId<E>(
     requestedModelId: string,
-    exists: (candidate: string) => Effect.Effect<boolean, unknown>
-): Effect.Effect<string, unknown> {
+    exists: (candidate: string) => Effect.Effect<boolean, E>
+): Effect.Effect<string, E> {
     return Effect.gen(function* () {
         const baseModelId = normalizeModelId(requestedModelId);
         let candidate = baseModelId;
@@ -125,9 +132,9 @@ export function allocateModelId(
     queryRunner: ModelQueryRunner,
     organizationId: string,
     requestedModelId: string
-): Effect.Effect<string, unknown> {
+): Effect.Effect<string, DatabaseError> {
     return allocateUniqueModelId(requestedModelId, (candidate) =>
-        Effect.tryPromise(() =>
+        mapDatabaseError(
             queryRunner
                 .select({ id: modelsTable.id })
                 .from(modelsTable)
@@ -140,9 +147,9 @@ export function allocateModelId(
 export function lockModelOrganization(
     queryRunner: ModelQueryRunner,
     organizationId: string
-): Effect.Effect<void, unknown> {
+): Effect.Effect<void, DatabaseError | ApiError> {
     return Effect.gen(function* () {
-        const [organization] = yield* Effect.tryPromise(() =>
+        const [organization] = yield* mapDatabaseError(
             queryRunner
                 .select({ id: organizationTable.id })
                 .from(organizationTable)
@@ -152,7 +159,7 @@ export function lockModelOrganization(
         );
 
         if (!organization) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.MODEL_NOT_CONFIGURED));
+            return yield* Effect.fail(modelNotConfiguredError());
         }
     });
 }
@@ -295,8 +302,8 @@ function hasModelForType(
     queryRunner: ModelQueryRunner,
     organizationId: string,
     type: AiModelType
-): Effect.Effect<boolean, unknown> {
-    return Effect.tryPromise(() =>
+): Effect.Effect<boolean, DatabaseError> {
+    return mapDatabaseError(
         queryRunner
             .select({ id: modelsTable.id })
             .from(modelsTable)
@@ -310,14 +317,14 @@ function insertLegacyModelSeed(
     organizationId: string,
     seed: LegacyModelSeed,
     secret: string
-): Effect.Effect<boolean, unknown> {
+): Effect.Effect<boolean, DatabaseError | ApiError> {
     return Effect.gen(function* () {
         if (yield* hasModelForType(queryRunner, organizationId, seed.type)) {
             return false;
         }
 
         const modelId = yield* allocateModelId(queryRunner, organizationId, seed.modelId);
-        yield* Effect.tryPromise(() =>
+        yield* mapDatabaseError(
             queryRunner.insert(modelsTable).values({
                 organizationId,
                 modelId,
@@ -337,7 +344,7 @@ function insertLegacyModelSeed(
 export function bootstrapLegacyModelsFromEnv(options: {
     secret: string;
     env?: Record<string, string | undefined>;
-}): Effect.Effect<LegacyModelBootstrapSummary, unknown> {
+}): Effect.Effect<LegacyModelBootstrapSummary, DatabaseError | ApiError, Database> {
     return Effect.gen(function* () {
         const seeds = collectLegacyModelSeeds(options.env);
         if (seeds.length === 0) {
@@ -347,28 +354,31 @@ export function bootstrapLegacyModelsFromEnv(options: {
             };
         }
 
-        const organizations = yield* Effect.tryPromise(() => db.select({ id: organizationTable.id }).from(organizationTable));
+        const db = yield* Database;
+        const organizations = yield* mapDatabaseError(db.select({ id: organizationTable.id }).from(organizationTable));
         let seededModelCount = 0;
 
         for (const organization of organizations) {
-            seededModelCount += yield* Effect.tryPromise(() =>
-                db.transaction((tx) =>
-                    Effect.runPromise(
-                        Effect.gen(function* () {
-                            yield* lockModelOrganization(tx, organization.id);
-                            let seededForOrganization = 0;
+            seededModelCount += yield* db
+                .transaction((tx) =>
+                    Effect.gen(function* () {
+                        yield* lockModelOrganization(tx, organization.id);
+                        let seededForOrganization = 0;
 
-                            for (const seed of seeds) {
-                                if (yield* insertLegacyModelSeed(tx, organization.id, seed, options.secret)) {
-                                    seededForOrganization += 1;
-                                }
+                        for (const seed of seeds) {
+                            if (yield* insertLegacyModelSeed(tx, organization.id, seed, options.secret)) {
+                                seededForOrganization += 1;
                             }
+                        }
 
-                            return seededForOrganization;
-                        })
-                    )
+                        return seededForOrganization;
+                    })
                 )
-            );
+                .pipe(
+                    Effect.mapError((cause) =>
+                        cause instanceof ApiError || cause instanceof DatabaseError ? cause : new DatabaseError({ cause })
+                    )
+                );
         }
 
         return {
@@ -502,43 +512,55 @@ function transcriptionModelAdapter(row: AiModel, credentials: ModelCredentials):
     return modelAdapter(row, credentials);
 }
 
-function findDefaultModel(organizationId: string, type: AiModelType): Effect.Effect<AiModel | null, unknown> {
-    return Effect.tryPromise(() =>
-        db
-            .select()
-            .from(modelsTable)
-            .where(
-                and(
-                    eq(modelsTable.organizationId, organizationId),
-                    eq(modelsTable.type, type),
-                    eq(modelsTable.isDefault, true)
+function findDefaultModel(
+    organizationId: string,
+    type: AiModelType
+): Effect.Effect<AiModel | null, DatabaseError, Database> {
+    return Effect.gen(function* () {
+        const db = yield* Database;
+        const [row] = yield* mapDatabaseError(
+            db
+                .select()
+                .from(modelsTable)
+                .where(
+                    and(
+                        eq(modelsTable.organizationId, organizationId),
+                        eq(modelsTable.type, type),
+                        eq(modelsTable.isDefault, true)
+                    )
                 )
-            )
-            .limit(1)
-    ).pipe(Effect.map(([row]) => row ?? null));
+                .limit(1)
+        );
+        return row ?? null;
+    });
 }
 
-function findTextModelByModelId(organizationId: string, modelId: string): Effect.Effect<AiModel | null, unknown> {
-    return Effect.tryPromise(() =>
-        db
-            .select()
-            .from(modelsTable)
-            .where(
-                and(
-                    eq(modelsTable.organizationId, organizationId),
-                    eq(modelsTable.type, "text"),
-                    eq(modelsTable.modelId, normalizeModelId(modelId))
+function findTextModelByModelId(
+    organizationId: string,
+    modelId: string
+): Effect.Effect<AiModel | null, DatabaseError, Database> {
+    return Effect.gen(function* () {
+        const db = yield* Database;
+        const [row] = yield* mapDatabaseError(
+            db
+                .select()
+                .from(modelsTable)
+                .where(
+                    and(
+                        eq(modelsTable.organizationId, organizationId),
+                        eq(modelsTable.type, "text"),
+                        eq(modelsTable.modelId, normalizeModelId(modelId))
+                    )
                 )
-            )
-            .limit(1)
-    ).pipe(Effect.map(([row]) => row ?? null));
+                .limit(1)
+        );
+        return row ?? null;
+    });
 }
 
-function requireDefaultModel(organizationId: string, type: AiModelType): Effect.Effect<AiModel, unknown> {
+function requireDefaultModel(organizationId: string, type: AiModelType): Effect.Effect<AiModel, DatabaseError | ApiError, Database> {
     return findDefaultModel(organizationId, type).pipe(
-        Effect.flatMap((row) =>
-            row ? Effect.succeed(row) : Effect.fail(new Error(API_ERROR_CODES.MODEL_NOT_CONFIGURED))
-        )
+        Effect.flatMap((row) => (row ? Effect.succeed(row) : Effect.fail(modelNotConfiguredError())))
     );
 }
 
@@ -570,14 +592,14 @@ export function resolveRequiredModelAdapter(
     organizationId: string,
     type: Exclude<AiModelType, "embedding">,
     secret: string
-): Effect.Effect<ResolvedModelAdapter, unknown> {
+): Effect.Effect<ResolvedModelAdapter, DatabaseError | ApiError, Database> {
     return requireDefaultModel(organizationId, type).pipe(Effect.map((row) => resolveModelAdapter(row, secret)));
 }
 
 export function resolveRequiredEmbeddingModelAdapter(
     organizationId: string,
     secret: string
-): Effect.Effect<ResolvedEmbeddingModelAdapter, unknown> {
+): Effect.Effect<ResolvedEmbeddingModelAdapter, DatabaseError | ApiError, Database> {
     return requireDefaultModel(organizationId, "embedding").pipe(
         Effect.map((row) => resolveEmbeddingModelAdapter(row, secret))
     );
@@ -587,21 +609,15 @@ export function resolveResearchModelConfig(options: {
     organizationId: string;
     requestedTextModelId?: string;
     secret: string;
-}): Effect.Effect<ResolvedResearchModels, unknown> {
+}): Effect.Effect<ResolvedResearchModels, DatabaseError | ApiError, Database> {
     return Effect.gen(function* () {
-        const textModelEffect = options.requestedTextModelId
+        const textModel = yield* (options.requestedTextModelId
             ? findTextModelByModelId(options.organizationId, options.requestedTextModelId).pipe(
-                  Effect.flatMap((model) =>
-                      model ? Effect.succeed(model) : Effect.fail(new Error(API_ERROR_CODES.INVALID_MODEL))
-                  )
+                  Effect.flatMap((model) => (model ? Effect.succeed(model) : Effect.fail(invalidModelError())))
               )
-            : requireDefaultModel(options.organizationId, "text");
-        const [textModel, embeddingModel, subagentModel] = yield* Effect.all(
-            [
-                textModelEffect,
-                requireDefaultModel(options.organizationId, "embedding"),
-                findDefaultModel(options.organizationId, "subagent"),
-            ],
+            : requireDefaultModel(options.organizationId, "text"));
+        const [embeddingModel, subagentModel] = yield* Effect.all(
+            [requireDefaultModel(options.organizationId, "embedding"), findDefaultModel(options.organizationId, "subagent")],
             { concurrency: "unbounded" }
         );
         const resolvedText = resolveModelAdapter(textModel, options.secret);
@@ -625,7 +641,7 @@ export function resolveResearchModelConfig(options: {
 export function resolveWorkerModelConfig(options: {
     organizationId: string;
     secret: string;
-}): Effect.Effect<ResolvedWorkerModels, unknown> {
+}): Effect.Effect<ResolvedWorkerModels, DatabaseError | ApiError, Database> {
     return Effect.gen(function* () {
         const [extractModel, textModel, embeddingModel, imageModel, audioModel, videoModel] = yield* Effect.all(
             [
@@ -641,7 +657,7 @@ export function resolveWorkerModelConfig(options: {
         const workerTextModel = extractModel ?? textModel;
 
         if (!workerTextModel) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.MODEL_NOT_CONFIGURED));
+            return yield* Effect.fail(modelNotConfiguredError());
         }
 
         return {
@@ -656,9 +672,10 @@ export function resolveWorkerModelConfig(options: {
     });
 }
 
-export function getDefaultModelOrganizationId(): Effect.Effect<string, unknown> {
+export function getDefaultModelOrganizationId(): Effect.Effect<string, DatabaseError | ApiError, Database> {
     return Effect.gen(function* () {
-        const [organization] = yield* Effect.tryPromise(() =>
+        const db = yield* Database;
+        const [organization] = yield* mapDatabaseError(
             db
                 .select({ id: organizationTable.id })
                 .from(organizationTable)
@@ -671,27 +688,28 @@ export function getDefaultModelOrganizationId(): Effect.Effect<string, unknown> 
         );
 
         if (!organization) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.MODEL_NOT_CONFIGURED));
+            return yield* Effect.fail(modelNotConfiguredError());
         }
 
         return organization.id;
     });
 }
 
-export function resolveGraphModelOrganizationId(graphId: string): Effect.Effect<string, unknown> {
+export function resolveGraphModelOrganizationId(graphId: string): Effect.Effect<string, DatabaseError | ApiError, Database> {
     return Effect.gen(function* () {
+        const db = yield* Database;
         const visited = new Set<string>();
         let currentGraphId = graphId;
         let isRootLookup = true;
 
         while (true) {
             if (visited.has(currentGraphId)) {
-                return yield* Effect.fail(new Error(API_ERROR_CODES.INVALID_GRAPH_OWNER));
+                return yield* Effect.fail(invalidGraphOwnerError());
             }
 
             visited.add(currentGraphId);
 
-            const [graph] = yield* Effect.tryPromise(() =>
+            const [graph] = yield* mapDatabaseError(
                 db
                     .select({
                         id: graphTable.id,
@@ -706,9 +724,7 @@ export function resolveGraphModelOrganizationId(graphId: string): Effect.Effect<
             );
 
             if (!graph) {
-                return yield* Effect.fail(
-                    new Error(isRootLookup ? API_ERROR_CODES.GRAPH_NOT_FOUND : API_ERROR_CODES.INVALID_GRAPH_OWNER)
-                );
+                return yield* Effect.fail(isRootLookup ? graphNotFoundError() : invalidGraphOwnerError());
             }
 
             if (graph.organizationId) {
@@ -720,7 +736,7 @@ export function resolveGraphModelOrganizationId(graphId: string): Effect.Effect<
             }
 
             if (!graph.graphId) {
-                return yield* Effect.fail(new Error(API_ERROR_CODES.INVALID_GRAPH_OWNER));
+                return yield* Effect.fail(invalidGraphOwnerError());
             }
 
             currentGraphId = graph.graphId;

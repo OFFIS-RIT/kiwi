@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { getFile } from "@kiwi/files";
@@ -48,7 +48,7 @@ export function loadSourceReference(graphId: string, sourceId: string) {
 export function loadSourceReferences(
     graphId: string,
     sourceIds: string[]
-): Effect.Effect<SourceReferenceBatchSuccessData, unknown> {
+): Effect.Effect<SourceReferenceBatchSuccessData, unknown, Database> {
     return Effect.gen(function* () {
         const uniqueSourceIds = normalizeSourceIds(sourceIds);
         if (uniqueSourceIds.length === 0) {
@@ -81,7 +81,7 @@ export function loadSourceReferenceImage(
     graphId: string,
     sourceId: string,
     chunkId: number
-): Effect.Effect<SourceReferenceImage, unknown> {
+): Effect.Effect<SourceReferenceImage, unknown, Database> {
     return Effect.gen(function* () {
         const row = yield* loadSourceReferenceRow(graphId, sourceId);
         if (!row) {
@@ -105,45 +105,53 @@ export function loadSourceReferenceImage(
     });
 }
 
-function loadSourceReferenceRow(graphId: string, sourceId: string): Effect.Effect<SourceReferenceRow | null, unknown> {
-    return Effect.tryPromise(async () => {
-        const [row] = await db
-            .select(sourceReferenceSelect)
-            .from(sourcesTable)
-            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-            .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-            .where(
-                and(
-                    eq(sourcesTable.id, sourceId),
-                    eq(filesTable.graphId, graphId),
-                    currentSourcePredicate(sourcesTable),
-                    visibleFilePredicate(filesTable)
+function loadSourceReferenceRow(
+    graphId: string,
+    sourceId: string
+): Effect.Effect<SourceReferenceRow | null, DatabaseError, Database> {
+    return Effect.map(
+        tryDb((db) =>
+            db
+                .select(sourceReferenceSelect)
+                .from(sourcesTable)
+                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                .where(
+                    and(
+                        eq(sourcesTable.id, sourceId),
+                        eq(filesTable.graphId, graphId),
+                        currentSourcePredicate(sourcesTable),
+                        visibleFilePredicate(filesTable)
+                    )
                 )
-            )
-            .limit(1);
-
-        return row ? normalizeSourceReferenceRow(row) : null;
-    });
+                .limit(1)
+        ),
+        ([row]) => (row ? normalizeSourceReferenceRow(row) : null)
+    );
 }
 
-function loadSourceReferenceRows(graphId: string, sourceIds: string[]): Effect.Effect<SourceReferenceRow[], unknown> {
-    return Effect.tryPromise(async () => {
-        const rows = await db
-            .select(sourceReferenceSelect)
-            .from(sourcesTable)
-            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-            .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-            .where(
-                and(
-                    inArray(sourcesTable.id, sourceIds),
-                    eq(filesTable.graphId, graphId),
-                    currentSourcePredicate(sourcesTable),
-                    visibleFilePredicate(filesTable)
+function loadSourceReferenceRows(
+    graphId: string,
+    sourceIds: string[]
+): Effect.Effect<SourceReferenceRow[], DatabaseError, Database> {
+    return Effect.map(
+        tryDb((db) =>
+            db
+                .select(sourceReferenceSelect)
+                .from(sourcesTable)
+                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                .where(
+                    and(
+                        inArray(sourcesTable.id, sourceIds),
+                        eq(filesTable.graphId, graphId),
+                        currentSourcePredicate(sourcesTable),
+                        visibleFilePredicate(filesTable)
+                    )
                 )
-            );
-
-        return rows.map(normalizeSourceReferenceRow);
-    });
+        ),
+        (rows) => rows.map(normalizeSourceReferenceRow)
+    );
 }
 
 function normalizeSourceIds(sourceIds: string[]): string[] {

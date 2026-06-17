@@ -21,6 +21,20 @@ export type StoredFileMetadata = {
     lastModified: Date | null;
 };
 
+export class StorageError extends Error {
+    constructor(operation: string, options?: { cause?: unknown }) {
+        super(`File storage operation failed: ${operation}`, options);
+        this.name = "StorageError";
+    }
+}
+
+function tryStorage<T>(operation: string, thunk: () => PromiseLike<T>): Effect.Effect<T, StorageError> {
+    return Effect.tryPromise({
+        try: thunk,
+        catch: (cause) => new StorageError(operation, { cause }),
+    });
+}
+
 const getClient = (bucket: string) => {
     return new S3Client({
         region: process.env.S3_REGION as string,
@@ -98,8 +112,8 @@ export function getGraphFileArtifactPaths(input: { graphId: string; fileId: stri
     };
 }
 
-function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket: string): Effect.Effect<StoredFile, unknown> {
-    return Effect.tryPromise(async () => {
+function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket: string): Effect.Effect<StoredFile, StorageError> {
+    return tryStorage("write", async () => {
         const client = getClient(bucket);
         const s3File = client.file(key);
 
@@ -112,7 +126,7 @@ function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket:
     });
 }
 
-export function putFile(name: string, file: File | Blob | Uint8Array | string, path: string, bucket: string): Effect.Effect<StoredFile, unknown> {
+export function putFile(name: string, file: File | Blob | Uint8Array | string, path: string, bucket: string): Effect.Effect<StoredFile, StorageError> {
     const extension = name.split(".").pop() || "";
     const key = uuid();
     const filename = extension === "" ? key : `${key}.${extension}`;
@@ -126,39 +140,39 @@ export function putGraphFile(
     name: string,
     file: File | Blob | Uint8Array | string,
     bucket: string
-): Effect.Effect<StoredFile, unknown> {
+): Effect.Effect<StoredFile, StorageError> {
     return writeFile(getGraphFileKey(graphId, fileId, name), file, bucket);
 }
 
-export function putNamedFile(name: string, file: File | Blob | Uint8Array | string, path: string, bucket: string): Effect.Effect<StoredFile, unknown> {
+export function putNamedFile(name: string, file: File | Blob | Uint8Array | string, path: string, bucket: string): Effect.Effect<StoredFile, StorageError> {
     return writeFile(joinPath(path, name), file, bucket);
 }
 
 export function getFile(
     key: string,
     bucket: string
-): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, unknown>;
+): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, StorageError>;
 export function getFile(
     key: string,
     bucket: string,
     type: "bytes"
-): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, unknown>;
+): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, StorageError>;
 export function getFile(
     key: string,
     bucket: string,
     type: "text"
-): Effect.Effect<{ type: "text"; content: string } | null, unknown>;
+): Effect.Effect<{ type: "text"; content: string } | null, StorageError>;
 export function getFile<T = unknown>(
     key: string,
     bucket: string,
     type: "json"
-): Effect.Effect<{ type: "json"; content: T } | null, unknown>;
+): Effect.Effect<{ type: "json"; content: T } | null, StorageError>;
 export function getFile(
     key: string,
     bucket: string,
     type: "bytes" | "text" | "json" = "bytes"
-): Effect.Effect<{ type: "bytes" | "text" | "json"; content: unknown } | null, unknown> {
-    return Effect.tryPromise(async () => {
+): Effect.Effect<{ type: "bytes" | "text" | "json"; content: unknown } | null, StorageError> {
+    return tryStorage("read", async () => {
         const client = getClient(bucket);
         const s3File = client.file(key);
 
@@ -189,8 +203,8 @@ export function getFileStream(
     bucket: string,
     range?: { start: number; end: number },
     metadata?: StoredFileMetadata
-): Effect.Effect<StoredFileStream | null, unknown> {
-    return Effect.tryPromise(async () => {
+): Effect.Effect<StoredFileStream | null, StorageError> {
+    return tryStorage("stream", async () => {
         const client = getClient(bucket);
         const s3File = client.file(key);
 
@@ -224,8 +238,8 @@ export function getFileArrayBuffer(
     key: string,
     bucket: string,
     range?: { start: number; end: number }
-): Effect.Effect<ArrayBuffer | null, unknown> {
-    return Effect.tryPromise(async () => {
+): Effect.Effect<ArrayBuffer | null, StorageError> {
+    return tryStorage("read bytes", async () => {
         const client = getClient(bucket);
         const s3File = client.file(key);
 
@@ -243,8 +257,8 @@ export function getFileArrayBuffer(
     });
 }
 
-export function getFileMetadata(key: string, bucket: string): Effect.Effect<StoredFileMetadata | null, unknown> {
-    return Effect.tryPromise(async () => {
+export function getFileMetadata(key: string, bucket: string): Effect.Effect<StoredFileMetadata | null, StorageError> {
+    return tryStorage("metadata", async () => {
         const client = getClient(bucket);
         const s3File = client.file(key);
 
@@ -263,8 +277,8 @@ export function getFileMetadata(key: string, bucket: string): Effect.Effect<Stor
     });
 }
 
-export function deleteFile(key: string, bucket: string): Effect.Effect<boolean, unknown> {
-    return Effect.tryPromise(async () => {
+export function deleteFile(key: string, bucket: string): Effect.Effect<boolean, StorageError> {
+    return tryStorage("delete", async () => {
         const client = getClient(bucket);
         const s3File = client.file(key);
 
@@ -279,8 +293,8 @@ export function deleteFile(key: string, bucket: string): Effect.Effect<boolean, 
     });
 }
 
-export function listFiles(path: string, bucket: string): Effect.Effect<string[], unknown> {
-    return Effect.tryPromise(async () => {
+export function listFiles(path: string, bucket: string): Effect.Effect<string[], StorageError> {
+    return tryStorage("list", async () => {
         const client = getClient(bucket);
         const trimmedPath = path.replace(/^\/+/u, "").replace(/\/+$/u, "");
         const prefix = trimmedPath === "" ? "" : `${trimmedPath}/`;
@@ -316,13 +330,16 @@ export function getPresignedDownloadUrl(
     key: string,
     bucket: string,
     expiresIn = 3600
-): Effect.Effect<string, unknown> {
-    return Effect.sync(() => {
-        const client = getClient(bucket);
+): Effect.Effect<string, StorageError> {
+    return Effect.try({
+        try: () => {
+            const client = getClient(bucket);
 
-        return client.presign(key, {
-            method: "GET",
-            expiresIn,
-        });
+            return client.presign(key, {
+                method: "GET",
+                expiresIn,
+            });
+        },
+        catch: (cause) => new StorageError("presign", { cause }),
     });
 }

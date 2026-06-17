@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import { roleIncludes } from "@kiwi/auth/permissions";
-import { db } from "@kiwi/db";
+import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { memberTable, organizationTable, teamTable } from "@kiwi/db/tables/auth";
 import { and, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -17,19 +17,20 @@ type TeamRecord = {
     organizationId: string;
 };
 
-function getTeamById(teamId: string): Effect.Effect<TeamRecord | null, unknown> {
-    return Effect.tryPromise(async () => {
-        const [team] = await db
-            .select({
-                id: teamTable.id,
-                organizationId: teamTable.organizationId,
-            })
-            .from(teamTable)
-            .where(eq(teamTable.id, teamId))
-            .limit(1);
-
-        return team ?? null;
-    });
+function getTeamById(teamId: string): Effect.Effect<TeamRecord | null, DatabaseError, Database> {
+    return Effect.map(
+        tryDb((db) =>
+            db
+                .select({
+                    id: teamTable.id,
+                    organizationId: teamTable.organizationId,
+                })
+                .from(teamTable)
+                .where(eq(teamTable.id, teamId))
+                .limit(1)
+        ),
+        ([team]) => team ?? null
+    );
 }
 
 function getOrganizationAccess(user: AuthUser, organizationId: string) {
@@ -48,7 +49,7 @@ export function assertCanManageUserPrompts(user: AuthUser, targetUserId: string)
     }
 
     return Effect.gen(function* () {
-        const [adminMembership] = yield* Effect.tryPromise(() =>
+        const [adminMembership] = yield* tryDb((db) =>
             db
                 .select({ userId: memberTable.userId })
                 .from(memberTable)
@@ -78,7 +79,7 @@ export function assertCanManageOrganizationPrompts(user: AuthUser, organizationI
             return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
         }
 
-        const [organization] = yield* Effect.tryPromise(() =>
+        const [organization] = yield* tryDb((db) =>
             db
                 .select({ id: organizationTable.id })
                 .from(organizationTable)
@@ -123,7 +124,7 @@ export function assertCanManageTeamPrompts(user: AuthUser, teamId: string) {
     });
 }
 
-export function assertCanManageGraphPrompts(user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown> {
+export function assertCanManageGraphPrompts(user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown, Database> {
     return Effect.gen(function* () {
         const graph = yield* getGraphById(graphId);
         if (!graph) {

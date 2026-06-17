@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import type { Database } from "@kiwi/db/effect";
 import { API_ERROR_CODES, errorResponse } from "../../types";
 import { inferGraphFileType, type GraphFileType } from "../graph-file-type";
 
@@ -21,7 +22,7 @@ type UploadModelResolver = (
     organizationId: string,
     type: "audio" | "video",
     secret: string
-) => Effect.Effect<unknown, unknown>;
+) => Effect.Effect<unknown, unknown, Database>;
 
 function getDefaultUploadModelResolver(): Effect.Effect<UploadModelResolver, unknown> {
     return Effect.tryPromise({
@@ -50,7 +51,7 @@ export function assertConfiguredUploadModels(options: {
     files: readonly UploadModelFile[];
     secret: string;
     resolveModelAdapter?: UploadModelResolver;
-}): Effect.Effect<void, unknown> {
+}): Effect.Effect<void, unknown, Database> {
     return Effect.gen(function* () {
         const requiredModelTypes = new Set<"audio" | "video">();
         const resolveModelAdapter = options.resolveModelAdapter ?? (yield* getDefaultUploadModelResolver());

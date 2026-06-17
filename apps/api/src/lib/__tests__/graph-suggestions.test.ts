@@ -1,12 +1,25 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
+const runApiTestEffect = <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+    Effect.runPromise(effect as Effect.Effect<T, E, never>);
 
 const dbMock: Record<string, unknown> = {};
 let cleanupUploadedKeysImpl: (keys: string[]) => Effect.Effect<unknown, unknown> = () => Effect.succeed([]);
 const cleanupUploadedKeysMock = mock((keys: string[]) => cleanupUploadedKeysImpl(keys));
 
-mock.module("@kiwi/db", () => ({
-    db: dbMock,
+mock.module("@kiwi/db/effect", () => ({
+    Database: Effect.succeed(dbMock),
+    DatabaseError: class DatabaseError extends Error {},
+    tryDb: (thunk: (db: typeof dbMock) => unknown) => {
+        const result = thunk(dbMock);
+        return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
+    },
+    tryDbVoid: (thunk: (db: typeof dbMock) => unknown) => {
+        const result = thunk(dbMock);
+        return Effect.isEffect(result) ? Effect.asVoid(result) : Effect.asVoid(Effect.promise(async () => await result));
+    },
+    runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+        Effect.runPromise(effect as Effect.Effect<T, E, never>),
 }));
 
 mock.module("@kiwi/files", () => ({
@@ -204,18 +217,16 @@ describe("graph suggestion apply helpers", () => {
         dbMock.select = mock(() => ({
             from: () => ({
                 where: () => ({
-                    limit: async () => selectResults.shift() ?? [],
+                    limit: () => Effect.succeed(selectResults.shift() ?? []),
                 }),
             }),
         }));
-        dbMock.transaction = mock(async () => {
-            throw originalError;
-        });
+        dbMock.transaction = mock(() => Effect.fail(originalError));
         cleanupUploadedKeysImpl = () => Effect.fail(new Error("cleanup failed"));
 
         const user = { id: "admin-1" } as Parameters<typeof applyGraphSuggestion>[2];
 
-        await expect(Effect.runPromise(applyGraphSuggestion("graph-1", "suggestion-1", user))).rejects.toBe(originalError);
+        await expect(runApiTestEffect(applyGraphSuggestion("graph-1", "suggestion-1", user))).rejects.toBe(originalError);
         expect(cleanupUploadedKeysMock).toHaveBeenCalledWith(["graphs/graph-1/file-1.txt"]);
     });
 });

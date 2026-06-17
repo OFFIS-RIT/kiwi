@@ -63,11 +63,11 @@ function describeFailure(error: unknown) {
     };
 }
 
-export function runToolSafely(
+export function runToolSafely<R>(
     options: ToolRunOptions,
     args: Record<string, unknown>,
-    run: () => Effect.Effect<string, unknown>
-): Effect.Effect<string, never> {
+    run: () => Effect.Effect<string, unknown, R>
+): Effect.Effect<string, never, R> {
     logDebug("ai tool execution started", { toolName: options.name, toolArgs: sanitizeLogValue(args) });
 
     return run().pipe(

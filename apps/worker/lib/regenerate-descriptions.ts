@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import type { Database, DatabaseTransaction } from "@kiwi/db/effect";
+import { useWorkerDb, useWorkerDbVoid } from "./effect";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { unexpiredSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -29,35 +30,38 @@ type DescriptionItem = {
     sources: DescriptionSource[];
 };
 
-export function createDescriptionClient(graphId: string): Effect.Effect<DescriptionClient, unknown> {
+export function createDescriptionClient(graphId: string): Effect.Effect<DescriptionClient, unknown, Database> {
     return createWorkerClient(graphId);
 }
 
+async function updateSourceEmbeddingsBatchRows(
+    tx: Pick<DatabaseTransaction, "execute">,
+    updates: SourceEmbeddingUpdate[]
+): Promise<void> {
+    if (updates.length === 0) {
+        return;
+    }
+
+    await (tx as any).execute(sql`
+        UPDATE sources AS source
+        SET embedding = batch.embedding::vector,
+            active = true
+        FROM (
+            VALUES ${sql.join(
+                updates.map((update) => sql`(${update.id}, ${JSON.stringify(update.embedding)})`),
+                sql`, `
+            )}
+        ) AS batch(id, embedding)
+        WHERE source.id = batch.id
+          AND source.valid_until IS NULL
+    `);
+}
+
 export function updateSourceEmbeddingsBatch(
-    tx: { execute: typeof db.execute },
+    tx: Pick<DatabaseTransaction, "execute">,
     updates: SourceEmbeddingUpdate[]
 ): Effect.Effect<void, unknown> {
-    return Effect.gen(function* () {
-        if (updates.length === 0) {
-            return;
-        }
-
-        yield* Effect.tryPromise(() =>
-            tx.execute(sql`
-                UPDATE sources AS source
-                SET embedding = batch.embedding::vector,
-                    active = true
-                FROM (
-                    VALUES ${sql.join(
-                        updates.map((update) => sql`(${update.id}, ${JSON.stringify(update.embedding)})`),
-                        sql`, `
-                    )}
-                ) AS batch(id, embedding)
-                WHERE source.id = batch.id
-                  AND source.valid_until IS NULL
-            `).then(() => undefined)
-        );
-    });
+    return Effect.tryPromise(() => updateSourceEmbeddingsBatchRows(tx, updates));
 }
 
 function groupSources<T extends { id: string; description: string }, TKey extends string | null | undefined>(
@@ -84,7 +88,7 @@ function groupSources<T extends { id: string; description: string }, TKey extend
     return grouped;
 }
 
-function regenerateDescriptions(
+function regenerateDescriptions<R>(
     items: DescriptionItem[],
     client: DescriptionClient,
     update: (args: {
@@ -92,9 +96,9 @@ function regenerateDescriptions(
         description: string;
         embedding: number[];
         sourceEmbeddings: SourceEmbeddingUpdate[];
-    }) => Effect.Effect<void, unknown>,
-    deactivate: (id: string) => Effect.Effect<void, unknown>
-): Effect.Effect<void, unknown> {
+    }) => Effect.Effect<void, unknown, R>,
+    deactivate: (id: string) => Effect.Effect<void, unknown, R>
+): Effect.Effect<void, unknown, R> {
     return Effect.gen(function* () {
         for (const chunk of chunkItems(items, DESCRIPTION_BATCH_SIZE)) {
             yield* Effect.all(
@@ -154,14 +158,14 @@ export function regenerateEntities(
     graphId: string,
     entityIds: string[],
     client?: DescriptionClient
-): Effect.Effect<void, unknown> {
+): Effect.Effect<void, unknown, Database> {
     return Effect.gen(function* () {
         if (entityIds.length === 0) {
             return;
         }
         const descriptionClient = client ?? (yield* createDescriptionClient(graphId));
 
-        const entities = yield* Effect.tryPromise(() =>
+        const entities = yield* useWorkerDb((db) =>
             db
                 .select({ id: entityTable.id, name: entityTable.name, description: entityTable.description })
                 .from(entityTable)
@@ -172,7 +176,7 @@ export function regenerateEntities(
             return;
         }
 
-        const sources = yield* Effect.tryPromise(() =>
+        const sources = yield* useWorkerDb((db) =>
             db
                 .select({
                     id: sourcesTable.id,
@@ -206,23 +210,25 @@ export function regenerateEntities(
             })),
             descriptionClient,
             ({ id, description, embedding, sourceEmbeddings }) =>
-                Effect.tryPromise(() =>
-                    db.transaction(async (tx) => {
-                        await tx
-                            .update(entityTable)
-                            .set({
-                                description,
-                                embedding,
-                                active: true,
-                            })
-                            .where(eq(entityTable.id, id));
+                useWorkerDbVoid((db) =>
+                    db.transaction((tx) =>
+                        Effect.tryPromise(async () => {
+                            await (tx as any)
+                                .update(entityTable)
+                                .set({
+                                    description,
+                                    embedding,
+                                    active: true,
+                                })
+                                .where(eq(entityTable.id, id));
 
-                        await Effect.runPromise(updateSourceEmbeddingsBatch(tx, sourceEmbeddings));
-                    })
+                            await updateSourceEmbeddingsBatchRows(tx, sourceEmbeddings);
+                        })
+                    )
                 ),
             (id) =>
-                Effect.tryPromise(() =>
-                    db.update(entityTable).set({ active: false }).where(eq(entityTable.id, id)).then(() => undefined)
+                useWorkerDbVoid((db) =>
+                    db.update(entityTable).set({ active: false }).where(eq(entityTable.id, id))
                 )
         );
     });
@@ -232,14 +238,14 @@ export function regenerateRelationships(
     graphId: string,
     relationshipIds: string[],
     client?: DescriptionClient
-): Effect.Effect<void, unknown> {
+): Effect.Effect<void, unknown, Database> {
     return Effect.gen(function* () {
         if (relationshipIds.length === 0) {
             return;
         }
         const descriptionClient = client ?? (yield* createDescriptionClient(graphId));
 
-        const relationships = yield* Effect.tryPromise(() =>
+        const relationships = yield* useWorkerDb((db) =>
             db
                 .select({
                     id: relationshipTable.id,
@@ -255,7 +261,7 @@ export function regenerateRelationships(
             return;
         }
 
-        const relationshipSources = yield* Effect.tryPromise(() =>
+        const relationshipSources = yield* useWorkerDb((db) =>
             db
                 .select({
                     id: sourcesTable.id,
@@ -285,7 +291,7 @@ export function regenerateRelationships(
         ];
         const entityNames =
             entityIds.length > 0
-                ? yield* Effect.tryPromise(() =>
+                ? yield* useWorkerDb((db) =>
                       db
                           .select({ id: entityTable.id, name: entityTable.name })
                           .from(entityTable)
@@ -303,23 +309,25 @@ export function regenerateRelationships(
             })),
             descriptionClient,
             ({ id, description, embedding, sourceEmbeddings }) =>
-                Effect.tryPromise(() =>
-                    db.transaction(async (tx) => {
-                        await tx
-                            .update(relationshipTable)
-                            .set({
-                                description,
-                                embedding,
-                                active: true,
-                            })
-                            .where(eq(relationshipTable.id, id));
+                useWorkerDbVoid((db) =>
+                    db.transaction((tx) =>
+                        Effect.tryPromise(async () => {
+                            await (tx as any)
+                                .update(relationshipTable)
+                                .set({
+                                    description,
+                                    embedding,
+                                    active: true,
+                                })
+                                .where(eq(relationshipTable.id, id));
 
-                        await Effect.runPromise(updateSourceEmbeddingsBatch(tx, sourceEmbeddings));
-                    })
+                            await updateSourceEmbeddingsBatchRows(tx, sourceEmbeddings);
+                        })
+                    )
                 ),
             (id) =>
-                Effect.tryPromise(() =>
-                    db.update(relationshipTable).set({ active: false }).where(eq(relationshipTable.id, id)).then(() => undefined)
+                useWorkerDbVoid((db) =>
+                    db.update(relationshipTable).set({ active: false }).where(eq(relationshipTable.id, id))
                 )
         );
     });

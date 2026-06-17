@@ -1,44 +1,45 @@
 import { eq } from "drizzle-orm";
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb } from "@kiwi/db/effect";
 import { teamTable } from "@kiwi/db/tables/auth";
 import { filesTable } from "@kiwi/db/tables/graph";
-import type { GraphDetailFileRecord, GraphDetailSuccessData } from "@kiwi/contracts/graphs";
+import type { GraphDetailFileRecord } from "@kiwi/contracts/graphs";
 import { API_ERROR_CODES } from "@kiwi/contracts/errors";
 import { assertCanViewGraph, resolveGraphOwnerRoot } from "../../lib/graph/access";
 import { selectGraphDetailFileFields, toGraphFileRecord, type GraphFileRow } from "../../lib/graph/route";
 import type { AuthUser } from "../../middleware/auth";
-import { tryApiPromise } from "../_shared/api-effect";
+import { toApiError } from "../_shared/api-effect";
 
 export function getGraph(input: { user: AuthUser; graphId: string }) {
-    return tryApiPromise(async (): Promise<GraphDetailSuccessData> => {
-        const graph = await Effect.runPromise(assertCanViewGraph(input.user, input.graphId));
-        const rootOwner = await Effect.runPromise(resolveGraphOwnerRoot(graph.id));
+    return Effect.mapError(Effect.catchDefect(Effect.gen(function* () {
+        const graph = yield* assertCanViewGraph(input.user, input.graphId);
+        const rootOwner = yield* resolveGraphOwnerRoot(graph.id);
         let teamId: string | null = null;
         let teamName: string | null = null;
 
         if (rootOwner.mode === "team") {
-            const [team] = await db
-                .select({
-                    id: teamTable.id,
-                    name: teamTable.name,
-                })
-                .from(teamTable)
-                .where(eq(teamTable.id, rootOwner.teamId))
-                .limit(1);
+            const [team] = yield* tryDb((db) =>
+                db
+                    .select({
+                        id: teamTable.id,
+                        name: teamTable.name,
+                    })
+                    .from(teamTable)
+                    .where(eq(teamTable.id, rootOwner.teamId))
+                    .limit(1)
+            );
 
             if (!team) {
-                throw new Error(API_ERROR_CODES.TEAM_NOT_FOUND);
+                return yield* Effect.fail(new Error(API_ERROR_CODES.TEAM_NOT_FOUND));
             }
 
             teamId = team.id;
             teamName = team.name;
         }
 
-        const fileRows: GraphFileRow[] = await db
-            .select(selectGraphDetailFileFields)
-            .from(filesTable)
-            .where(eq(filesTable.graphId, graph.id));
+        const fileRows: GraphFileRow[] = yield* tryDb((db) =>
+            db.select(selectGraphDetailFileFields).from(filesTable).where(eq(filesTable.graphId, graph.id))
+        );
         const files: GraphDetailFileRecord[] = fileRows.map(toGraphFileRecord);
 
         return {
@@ -53,5 +54,5 @@ export function getGraph(input: { user: AuthUser; graphId: string }) {
             scope: rootOwner.mode === "user" ? "private" : rootOwner.mode === "team" ? "team" : "organization",
             files,
         };
-    });
+    }), (defect) => Effect.fail(defect)), toApiError);
 }

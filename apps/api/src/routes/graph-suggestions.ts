@@ -1,4 +1,4 @@
-import { Result } from "better-result";
+import { runDatabaseEffect } from "@kiwi/db/effect";
 import * as Effect from "effect/Effect";
 import { Elysia, t } from "elysia";
 import { assertCanManageGraphSuggestions } from "../lib/graph/access";
@@ -38,16 +38,17 @@ export const graphSuggestionsRoute = new Elysia({ prefix: "/graphs" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            const suggestionsResult = await Result.tryPromise(async () => {
-                await Effect.runPromise(assertCanManageGraphSuggestions(user, params.id));
-                return Effect.runPromise(listPendingGraphSuggestions(params.id));
-            });
-
-            if (suggestionsResult.isErr()) {
-                return mapSuggestionError(status, suggestionsResult.error);
+            try {
+                const suggestions = await runDatabaseEffect(
+                    Effect.gen(function* () {
+                        yield* assertCanManageGraphSuggestions(user, params.id);
+                        return yield* listPendingGraphSuggestions(params.id);
+                    })
+                );
+                return status(200, successResponse(suggestions));
+            } catch (error) {
+                return mapSuggestionError(status, error);
             }
-
-            return status(200, successResponse(suggestionsResult.value));
         },
         {
             params: t.Object({
@@ -62,16 +63,17 @@ export const graphSuggestionsRoute = new Elysia({ prefix: "/graphs" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            const deleteResult = await Result.tryPromise(async () => {
-                await Effect.runPromise(assertCanManageGraphSuggestions(user, params.id));
-                await Effect.runPromise(deletePendingGraphSuggestion(params.id, params.suggestionId));
-            });
-
-            if (deleteResult.isErr()) {
-                return mapSuggestionError(status, deleteResult.error);
+            try {
+                await runDatabaseEffect(
+                    Effect.gen(function* () {
+                        yield* assertCanManageGraphSuggestions(user, params.id);
+                        yield* deletePendingGraphSuggestion(params.id, params.suggestionId);
+                    })
+                );
+                return status(204, null);
+            } catch (error) {
+                return mapSuggestionError(status, error);
             }
-
-            return status(204, null);
         },
         {
             params: t.Object({
@@ -87,16 +89,17 @@ export const graphSuggestionsRoute = new Elysia({ prefix: "/graphs" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            const applyResult = await Result.tryPromise(async () => {
-                await Effect.runPromise(assertCanManageGraphSuggestions(user, params.id));
-                return Effect.runPromise(applyGraphSuggestion(params.id, params.suggestionId, user));
-            });
-
-            if (applyResult.isErr()) {
-                return mapSuggestionError(status, applyResult.error);
+            try {
+                const result = await runDatabaseEffect(
+                    Effect.gen(function* () {
+                        yield* assertCanManageGraphSuggestions(user, params.id);
+                        return yield* applyGraphSuggestion(params.id, params.suggestionId, user);
+                    })
+                );
+                return status(200, successResponse(result));
+            } catch (error) {
+                return mapSuggestionError(status, error);
             }
-
-            return status(200, successResponse(applyResult.value));
         },
         {
             params: t.Object({

@@ -18,6 +18,7 @@ import {
     type ToolSet,
 } from "ai";
 import * as Effect from "effect/Effect";
+import { runDatabaseEffect, type Database } from "@kiwi/db/effect";
 import {
     getFinishMetadata,
     isContextOverflowError,
@@ -52,25 +53,22 @@ export type StartedChatReply = ChatReplyContext & {
     tools: ToolSet;
     isNewChat: boolean;
     titleMessages: ChatUIMessage[];
-    refreshAfterCompaction: () => Effect.Effect<ChatReplyContext, unknown>;
-    resolveCitation: (sourceId: string) => Effect.Effect<ResolvedCitationFence | null, unknown>;
+    refreshAfterCompaction: () => Effect.Effect<ChatReplyContext, unknown, Database>;
+    resolveCitation: (sourceId: string) => Effect.Effect<ResolvedCitationFence | null, unknown, Database>;
     getAdditionalUsage?: () => AdditionalChatUsage;
 };
 
-function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, unknown> {
+function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, Error> {
     return Effect.tryPromise({
         try: thunk,
-        catch: (error) => error,
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
 }
 
 function runUpdateAssistantMessage(...args: Parameters<typeof updateAssistantMessage>) {
-    return Effect.runPromise(updateAssistantMessage(...args));
+    return runDatabaseEffect(updateAssistantMessage(...args));
 }
 
-function runTouchChat(chatId: string) {
-    return Effect.runPromise(touchChat(chatId));
-}
 
 function upsertToolPart(parts: MessagePart[], next: MessagePart) {
     if (next.type !== "tool") {
@@ -400,7 +398,7 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                     providerOptions: getProviderOptions({ thinking: "medium" }),
                 });
 
-            const processResult = (result: ReturnType<typeof streamText>): Effect.Effect<boolean, unknown> =>
+            const processResult = (result: ReturnType<typeof streamText>): Effect.Effect<boolean, unknown, Database> =>
                 Effect.gen(function* () {
                     const iterator = result.fullStream[Symbol.asyncIterator]();
 
@@ -605,7 +603,7 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                     let retryRequested = false;
 
                     try {
-                        retryRequested = await Effect.runPromise(processResult(createResult()));
+                        retryRequested = await runDatabaseEffect(processResult(createResult()));
                     } catch (error) {
                         if (!retriedAfterCompaction && !hasStreamedAssistantOutput && isContextOverflowError(error)) {
                             retryRequested = true;
@@ -621,7 +619,7 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                     retriedAfterCompaction = true;
                     let refreshed;
                     try {
-                        refreshed = await Effect.runPromise(reply.refreshAfterCompaction());
+                        refreshed = await runDatabaseEffect(reply.refreshAfterCompaction());
                     } catch (compactionError) {
                         discardAssistantPartsOnFailure = true;
                         throw compactionError;
@@ -632,7 +630,7 @@ export function createChatStreamResponse(reply: StartedChatReply) {
             } catch (error) {
                 if (!discardAssistantPartsOnFailure) {
                     for (const modelPartId of [...activeUITexts.keys()]) {
-                        await Effect.runPromise(closeUIText(modelPartId));
+                        await runDatabaseEffect(closeUIText(modelPartId));
                     }
                 }
                 const errorText = error instanceof Error ? error.message : "Unknown stream error";

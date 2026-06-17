@@ -66,7 +66,7 @@ describe("getOrRenderPDFPreviewPage", () => {
             Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null)
         );
         const renderPDFPagePreviews = mock(() =>
-            Effect.tryPromise(async () => {
+            Effect.promise(async () => {
                 await new Promise((resolve) => setTimeout(resolve, 10));
                 return new Map([[3, new Uint8Array([3])]]);
             })
@@ -93,7 +93,7 @@ describe("getOrRenderPDFPreviewPage", () => {
             Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null)
         );
         const renderPDFPagePreviews = mock(() =>
-            Effect.tryPromise(async () => {
+            Effect.promise(async () => {
                 await renderGate;
                 return new Map([
                     [3, new Uint8Array([3])],

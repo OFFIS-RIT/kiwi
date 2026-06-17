@@ -1,5 +1,4 @@
-import * as Effect from "effect/Effect";
-import { Result } from "better-result";
+import { runDatabaseEffect } from "@kiwi/db/effect";
 import { Elysia, t } from "elysia";
 import { parseListNumber } from "../lib/parse-query-params";
 import { listArchivedChats, listPinnedChats } from "../lib/search";
@@ -21,12 +20,12 @@ export const chatLibraryRoute = new Elysia({ prefix: "/chats" })
             return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
         }
 
-        const result = await Result.tryPromise(() => Effect.runPromise(listPinnedChats(user)));
-        if (result.isErr()) {
-            return mapLibraryError(status, result.error);
+        try {
+            const result = await runDatabaseEffect(listPinnedChats(user));
+            return status(200, successResponse(result));
+        } catch (error) {
+            return mapLibraryError(status, error);
         }
-
-        return status(200, successResponse(result.value));
     })
     .get(
         "/archived",
@@ -35,19 +34,17 @@ export const chatLibraryRoute = new Elysia({ prefix: "/chats" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            const result = await Result.tryPromise(() =>
-                Effect.runPromise(
+            try {
+                const result = await runDatabaseEffect(
                     listArchivedChats(user, {
                         offset: parseListNumber(query.offset, { minimum: 0, maximum: 10_000 }),
                         limit: parseListNumber(query.limit, { minimum: 1, maximum: 100 }),
                     })
-                )
-            );
-            if (result.isErr()) {
-                return mapLibraryError(status, result.error);
+                );
+                return status(200, successResponse(result));
+            } catch (error) {
+                return mapLibraryError(status, error);
             }
-
-            return status(200, successResponse(result.value));
         },
         {
             query: t.Object({

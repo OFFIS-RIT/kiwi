@@ -1,4 +1,4 @@
-import { db } from "@kiwi/db";
+import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { entityTable, filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, currentSourceSql, visibleFilePredicate, visibleFileSql } from "@kiwi/db/source-validity";
@@ -31,7 +31,7 @@ type SearchEntityRow = {
     score: number;
 };
 
-function toSearchEntityRows(rows: Record<string, unknown>[]): SearchEntityRow[] {
+function toSearchEntityRows(rows: readonly Record<string, unknown>[]): SearchEntityRow[] {
     return rows.map((row) => ({
         id: String(row.id ?? ""),
         name: String(row.name ?? ""),
@@ -112,7 +112,7 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
             "Use when you need entity IDs before calling relationship or source tools. Semantic search is primary, with keyword terms used to boost exact or near-exact name matches.",
         inputSchema: searchEntitiesSchema,
         execute: ({ query, keywords, files, limit, cursor }) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Entities",
@@ -125,6 +125,7 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
                     { query, keywords, files, limit, cursor },
                     () =>
                         Effect.gen(function* () {
+                            const db = yield* Database;
                             const text = query.trim();
                             const terms = uniqueTerms([...(keywords ?? []), text]);
                             const fileIds = uniqueTerms(files ?? []);
@@ -152,8 +153,8 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
                                       )
                                   `
                                 : sql``;
-                            const result = yield* Effect.tryPromise(() =>
-                                db.execute(sql<SearchEntityRow>`
+                            const result = yield* db
+                                .execute(sql<SearchEntityRow>`
                                     with ranked as (
                                         select
                                             e.id,
@@ -185,8 +186,8 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
                                     order by ranked.score desc, ranked.id asc
                                     limit ${limit + 1}
                                 `)
-                            );
-                            const rows = toSearchEntityRows(result.rows);
+                                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
+                            const rows = toSearchEntityRows(result);
 
                             const hasMore = rows.length > limit;
                             const items = hasMore ? rows.slice(0, limit) : rows;
@@ -225,7 +226,7 @@ export const listEntitiesTool = (graphId: string, options: EntityToolOptions = {
             "Use when you want a broad unranked scan of entity IDs in the graph or inside specific files and do not yet know which entities matter.",
         inputSchema: listEntitiesSchema,
         execute: ({ files, limit, cursor }) =>
-            Effect.runPromise(
+            runDatabaseEffect(
                 runToolSafely(
                     {
                         title: "Entities",
@@ -238,6 +239,7 @@ export const listEntitiesTool = (graphId: string, options: EntityToolOptions = {
                     { files, limit, cursor },
                     () =>
                         Effect.gen(function* () {
+                            const db = yield* Database;
                             const fileIds = uniqueTerms(files ?? []);
                             options.onConsideredFileIds?.(fileIds);
                             const clauses = [eq(entityTable.graphId, graphId), eq(entityTable.active, true)];
@@ -266,19 +268,18 @@ export const listEntitiesTool = (graphId: string, options: EntityToolOptions = {
                                 );
                             }
 
-                            const rows = yield* Effect.tryPromise(() =>
-                                db
-                                    .select({
-                                        id: entityTable.id,
-                                        name: entityTable.name,
-                                        type: entityTable.type,
-                                        description: entityTable.description,
-                                    })
-                                    .from(entityTable)
-                                    .where(and(...clauses))
-                                    .orderBy(asc(entityTable.id))
-                                    .limit(limit + 1)
-                            );
+                            const rows = yield* db
+                                .select({
+                                    id: entityTable.id,
+                                    name: entityTable.name,
+                                    type: entityTable.type,
+                                    description: entityTable.description,
+                                })
+                                .from(entityTable)
+                                .where(and(...clauses))
+                                .orderBy(asc(entityTable.id))
+                                .limit(limit + 1)
+                                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
 
                             const hasMore = rows.length > limit;
                             const items = hasMore ? rows.slice(0, limit) : rows;

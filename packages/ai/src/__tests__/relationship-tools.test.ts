@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
+import * as Context from "effect/Context";
 
 type Row = Record<string, unknown>;
+
+class TestDatabaseError extends Error {
+    constructor({ cause }: { cause: unknown }) {
+        super("Database test error", { cause });
+        this.name = "DatabaseError";
+    }
+}
 
 const selectResults: Row[][] = [];
 
@@ -13,25 +22,39 @@ function nextSelectResult() {
     return result;
 }
 
-function queryResult() {
+function queryEffect() {
+    const effect = Effect.sync(nextSelectResult);
     return {
-        then: (resolve: (value: Row[]) => unknown, reject: (error: unknown) => unknown) =>
-            Promise.resolve().then(nextSelectResult).then(resolve, reject),
-        limit: () => nextSelectResult(),
+        pipe: effect.pipe.bind(effect),
+        limit: () => effect,
         orderBy: () => ({
-            limit: () => nextSelectResult(),
+            limit: () => effect,
         }),
     };
 }
 
-mock.module("@kiwi/db", () => ({
-    db: {
-        select: () => ({
-            from: () => ({
-                where: () => queryResult(),
-            }),
+type TestDatabase = {
+    select: () => {
+        from: () => {
+            where: () => ReturnType<typeof queryEffect>;
+        };
+    };
+};
+
+const Database = Context.Service<TestDatabase>("@kiwi/db/Database");
+const testDatabase = {
+    select: () => ({
+        from: () => ({
+            where: () => queryEffect(),
         }),
-    },
+    }),
+} satisfies TestDatabase;
+
+mock.module("@kiwi/db/effect", () => ({
+    Database,
+    DatabaseError: TestDatabaseError,
+    runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, TestDatabase>) =>
+        Effect.runPromise(Effect.provideService(effect, Database, testDatabase)),
 }));
 
 mock.module("@kiwi/logger", () => ({

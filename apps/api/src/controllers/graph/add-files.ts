@@ -1,12 +1,11 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { ulid } from "ulid";
-import { db } from "@kiwi/db";
+import { tryDb } from "@kiwi/db/effect";
 import { filesTable } from "@kiwi/db/tables/graph";
 import { putGraphFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
-import type { GraphAddFilesSuccessData } from "@kiwi/contracts/graphs";
 import { API_ERROR_CODES, internalServerError, makeApiError } from "@kiwi/contracts/errors";
 import { env } from "../../env";
 import { expandArchiveUploadFiles } from "../../lib/archive-upload";
@@ -18,37 +17,42 @@ import {
     inferSupportedUploadedFiles,
     restoreGraphFileChangeFailure,
     uniqueFilesByChecksum,
-    type GraphFileUploadCommit,
     type UploadedFile,
 } from "../../lib/graph/route";
 import type { AuthUser } from "../../middleware/auth";
 import { ow } from "../../openworkflow";
-import { tryApiPromise } from "../_shared/api-effect";
+import { toApiError } from "../_shared/api-effect";
 import { archiveUploadError, getGraphOwnerModelOrganizationId, unsupportedUploadError } from "./upload-helpers";
 
 export function addGraphFiles(input: { user: AuthUser; graphId: string; files: File[] }) {
-    return tryApiPromise(async (): Promise<GraphAddFilesSuccessData> => {
-        const existingGraph = await Effect.runPromise(assertCanManageGraphFiles(input.user, input.graphId));
+    return Effect.mapError(Effect.catchDefect(Effect.gen(function* () {
+        const existingGraph = yield* assertCanManageGraphFiles(input.user, input.graphId);
         if (input.files.length === 0) {
-            throw makeApiError(400, API_ERROR_CODES.NO_CHANGES, "No changes requested");
+            return yield* Effect.fail(makeApiError(400, API_ERROR_CODES.NO_CHANGES, "No changes requested"));
         }
 
-        const expanded = await Effect.runPromise(expandArchiveUploadFiles(input.files));
+        const expanded = yield* expandArchiveUploadFiles(input.files);
         if (!expanded.ok) {
-            throw archiveUploadError(expanded);
+            return yield* Effect.fail(archiveUploadError(expanded));
         }
 
-        const uniqueUploadedFiles = await Effect.runPromise(uniqueFilesByChecksum(expanded.files));
+        const uniqueUploadedFiles = yield* uniqueFilesByChecksum(expanded.files);
         if (uniqueUploadedFiles.length === 0) {
             return { graph: existingGraph, addedFiles: [], workflowRunId: null };
         }
 
-        const existingFiles = await db
-            .select({ checksum: filesTable.checksum })
-            .from(filesTable)
-            .where(
-                and(eq(filesTable.graphId, existingGraph.id), eq(filesTable.deleted, false), isNotNull(filesTable.checksum))
-            );
+        const existingFiles = yield* tryDb((db) =>
+            db
+                .select({ checksum: filesTable.checksum })
+                .from(filesTable)
+                .where(
+                    and(
+                        eq(filesTable.graphId, existingGraph.id),
+                        eq(filesTable.deleted, false),
+                        isNotNull(filesTable.checksum)
+                    )
+                )
+        );
         const existingChecksums = new Set(
             existingFiles.map((file) => file.checksum).filter((checksum) => checksum !== null)
         );
@@ -59,90 +63,109 @@ export function addGraphFiles(input: { user: AuthUser; graphId: string; files: F
 
         const supportedUpload = inferSupportedUploadedFiles(filesWithChecksums);
         if (!supportedUpload.ok) {
-            throw unsupportedUploadError(supportedUpload);
+            return yield* Effect.fail(unsupportedUploadError(supportedUpload));
         }
 
-        await Effect.runPromise(assertConfiguredUploadModels({
-            organizationId: await Effect.runPromise(
-                getGraphOwnerModelOrganizationId({ ownerMode: "graph", graphId: existingGraph.id })
-            ),
+        const organizationId = yield* getGraphOwnerModelOrganizationId({
+            ownerMode: "graph",
+            graphId: existingGraph.id,
+        });
+        yield* assertConfiguredUploadModels({
+            organizationId,
             files: supportedUpload.files,
             secret: env.AUTH_SECRET,
-        }));
+        });
 
         const uploadedFiles: UploadedFile[] = [];
-        try {
-            for (const { file, checksum, type } of supportedUpload.files) {
-                const fileId = ulid();
-                const upload = await Effect.runPromise(putGraphFile(existingGraph.id, fileId, file.name, file, env.S3_BUCKET));
-                uploadedFiles.push({
-                    id: fileId,
-                    name: file.name,
-                    size: file.size,
-                    type,
-                    mimeType: file.type || upload.type,
-                    key: upload.key,
-                    checksum,
-                });
+        yield* Effect.matchEffect(
+            Effect.catchDefect(Effect.gen(function* () {
+                for (const { file, checksum, type } of supportedUpload.files) {
+                    const fileId = ulid();
+                    const upload = yield* putGraphFile(existingGraph.id, fileId, file.name, file, env.S3_BUCKET);
+                    uploadedFiles.push({
+                        id: fileId,
+                        name: file.name,
+                        size: file.size,
+                        type,
+                        mimeType: file.type || upload.type,
+                        key: upload.key,
+                        checksum,
+                    });
+                }
+            }), (defect) => Effect.fail(defect)),
+            {
+                onFailure: (uploadError) =>
+                    Effect.gen(function* () {
+                        const failedDeletes = yield* cleanupUploadedKeys(uploadedFiles.map((file) => file.key));
+                        logError("graph file add failed during file upload", {
+                            graphId: existingGraph.id,
+                            uploadedKeyCount: uploadedFiles.length,
+                            failedS3CleanupCount: failedDeletes,
+                            error: uploadError,
+                        });
+                        return yield* Effect.fail(internalServerError());
+                    }),
+                onSuccess: Effect.succeed,
             }
-        } catch (uploadError) {
-            const failedDeletes = await Effect.runPromise(cleanupUploadedKeys(uploadedFiles.map((file) => file.key)));
-            logError("graph file add failed during file upload", {
-                graphId: existingGraph.id,
-                uploadedKeyCount: uploadedFiles.length,
-                failedS3CleanupCount: failedDeletes,
-                error: uploadError,
-            });
-            throw internalServerError();
-        }
+        );
 
-        let result: GraphFileUploadCommit;
-        try {
-            result = await Effect.runPromise(commitGraphFileUploads({ graph: existingGraph, uploadedFiles }));
-        } catch (dbPatchError) {
-            const failedDeletes = await Effect.runPromise(cleanupUploadedKeys(uploadedFiles.map((file) => file.key)));
-            logError("graph file add failed during database update", {
-                graphId: existingGraph.id,
-                uploadedKeyCount: uploadedFiles.length,
-                failedS3CleanupCount: failedDeletes,
-                error: dbPatchError,
-            });
-            throw internalServerError();
-        }
+        const result = yield* Effect.matchEffect(commitGraphFileUploads({ graph: existingGraph, uploadedFiles }), {
+            onFailure: (dbPatchError) =>
+                Effect.gen(function* () {
+                    const failedDeletes = yield* cleanupUploadedKeys(uploadedFiles.map((file) => file.key));
+                    logError("graph file add failed during database update", {
+                        graphId: existingGraph.id,
+                        uploadedKeyCount: uploadedFiles.length,
+                        failedS3CleanupCount: failedDeletes,
+                        error: dbPatchError,
+                    });
+                    return yield* Effect.fail(internalServerError());
+                }),
+            onSuccess: Effect.succeed,
+        });
 
         if (result.addedFiles.length === 0) {
             return { graph: result.graph, addedFiles: result.addedFiles, workflowRunId: null };
         }
 
-        try {
-            if (!result.processRunId) {
-                throw new Error("Missing process run id");
+        return yield* Effect.matchEffect(
+            Effect.catchDefect(Effect.gen(function* () {
+                if (!result.processRunId) {
+                    return yield* Effect.fail(new Error("Missing process run id"));
+                }
+
+                const handle = yield* Effect.tryPromise({
+                    try: () =>
+                        ow.runWorkflow(processFilesSpec, {
+                            graphId: existingGraph.id,
+                            fileIds: result.addedFiles.map((file) => file.id),
+                            processRunId: result.processRunId!,
+                        }),
+                    catch: (error) => error,
+                });
+
+                return { graph: result.graph, addedFiles: result.addedFiles, workflowRunId: handle.workflowRun.id };
+            }), (defect) => Effect.fail(defect)),
+            {
+                onFailure: (enqueueError) =>
+                    Effect.gen(function* () {
+                        yield* restoreGraphFileChangeFailure(
+                            existingGraph.id,
+                            existingGraph,
+                            result.addedFiles.map((file) => file.id),
+                            uploadedFiles.map((file) => file.key),
+                            result.processRunId
+                        );
+                        logError("graph file add failed during workflow enqueue", {
+                            graphId: existingGraph.id,
+                            uploadedKeyCount: uploadedFiles.length,
+                            addedFileCount: result.addedFiles.length,
+                            error: enqueueError,
+                        });
+                        return yield* Effect.fail(internalServerError());
+                    }),
+                onSuccess: Effect.succeed,
             }
-
-            const handle = await ow.runWorkflow(processFilesSpec, {
-                graphId: existingGraph.id,
-                fileIds: result.addedFiles.map((file) => file.id),
-                processRunId: result.processRunId,
-            });
-
-            return { graph: result.graph, addedFiles: result.addedFiles, workflowRunId: handle.workflowRun.id };
-        } catch (enqueueError) {
-            await Effect.runPromise(
-                restoreGraphFileChangeFailure(
-                    existingGraph.id,
-                    existingGraph,
-                    result.addedFiles.map((file) => file.id),
-                    uploadedFiles.map((file) => file.key),
-                    result.processRunId
-                )
-            );
-            logError("graph file add failed during workflow enqueue", {
-                graphId: existingGraph.id,
-                uploadedKeyCount: uploadedFiles.length,
-                addedFileCount: result.addedFiles.length,
-                error: enqueueError,
-            });
-            throw internalServerError();
-        }
-    });
+        );
+    }), (defect) => Effect.fail(defect)), toApiError);
 }

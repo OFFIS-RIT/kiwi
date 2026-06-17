@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import * as Effect from "effect/Effect";
-import { db } from "@kiwi/db";
+import { tryDb, type Database } from "@kiwi/db/effect";
 import { connectorInstallationsTable, connectorsTable, connectorResourceBindingsTable } from "@kiwi/db/tables/connectors";
 import { filesTable } from "@kiwi/db/tables/graph";
 import { getFileMetadata, getFileStream } from "@kiwi/files";
@@ -8,9 +8,6 @@ import { parseCodeFileMetadata } from "@kiwi/graph/code/metadata";
 import { createProviderClient } from "../connectors";
 import { contentDispositionForFile, contentDispositionHeader, parseByteRange } from "../file-proxy";
 
-function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
-    return Effect.tryPromise({ try: thunk, catch: (error) => error });
-}
 
 export type GraphFileProxyRecord = {
     key: string;
@@ -39,9 +36,9 @@ export type GraphFileProxyResult =
 export function loadGraphFileByKey(
     graphId: string,
     fileKey: string
-): Effect.Effect<{ id: string; name: string } | null, unknown> {
+): Effect.Effect<{ id: string; name: string } | null, unknown, Database> {
     return Effect.map(
-        tryUnknownPromise(async () =>
+        tryDb((db) =>
             db
                 .select({ id: filesTable.id, name: filesTable.name })
                 .from(filesTable)
@@ -55,9 +52,9 @@ export function loadGraphFileByKey(
 export function loadGraphFileForProxy(
     graphId: string,
     fileId: string
-): Effect.Effect<GraphFileProxyRecord | null, unknown> {
+): Effect.Effect<GraphFileProxyRecord | null, unknown, Database> {
     return Effect.map(
-        tryUnknownPromise(async () =>
+        tryDb((db) =>
             db
                 .select({
                     key: filesTable.key,
@@ -83,7 +80,7 @@ export function getGraphFileProxyResponse(options: {
     request: Request;
     bucket: string;
     head?: boolean;
-}): Effect.Effect<GraphFileProxyResult, unknown> {
+}): Effect.Effect<GraphFileProxyResult, unknown, Database> {
     return Effect.catchDefect(Effect.gen(function* () {
         const file = yield* loadGraphFileForProxy(options.graphId, options.fileId);
         if (!file) {
@@ -197,14 +194,14 @@ export function getGraphFileProxyResponse(options: {
     }), (defect) => Effect.fail(defect));
 }
 
-function readConnectorFile(bindingId: string, metadataValue: string | null): Effect.Effect<string | null, unknown> {
+function readConnectorFile(bindingId: string, metadataValue: string | null): Effect.Effect<string | null, unknown, Database> {
     return Effect.catchDefect(Effect.gen(function* () {
         const metadata = parseCodeFileMetadata(metadataValue);
         if (!metadata) {
             return null;
         }
 
-        const [row] = yield* tryUnknownPromise(async () =>
+        const [row] = yield* tryDb((db) =>
             db
                 .select({
                     binding: connectorResourceBindingsTable,

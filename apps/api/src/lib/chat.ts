@@ -22,7 +22,7 @@ import {
     uiMessageToMessageParts,
 } from "@kiwi/ai";
 import { getDefaultModelOrganizationId } from "@kiwi/ai/models";
-import { db } from "@kiwi/db";
+import { runDatabaseEffect, tryDb, tryDbVoid, type Database, type DatabaseError } from "@kiwi/db/effect";
 import type { MessagePart } from "@kiwi/contracts/chat";
 import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
 import { getDefaultOrganizationId } from "@kiwi/auth/server";
@@ -127,12 +127,6 @@ const CONTEXT_OVERFLOW_PATTERNS = [
     "too many input tokens",
 ];
 
-function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, unknown> {
-    return Effect.tryPromise({
-        try: thunk,
-        catch: (error) => error,
-    });
-}
 
 export function shouldIncludeGraphCorrectionTool(rootOwner: RootOwner, deep?: boolean) {
     return deep !== true && rootOwner.mode !== "user";
@@ -247,9 +241,9 @@ export function shouldRefreshGraphDataAfterCompletedWorkflow(options: {
     return latestReplyTriggerAt !== null && latestReplyTriggerAt > latestGraphRetrievalAt;
 }
 
-function getLatestCompletedWorkflowAt(graphId: string) {
+function getLatestCompletedWorkflowAt(graphId: string): Effect.Effect<Date | null, DatabaseError, Database> {
     return Effect.map(
-        chatEffect(() =>
+        tryDb((db) =>
             db
                 .select({ completedAt: processRunsTable.completedAt })
                 .from(processRunsTable)
@@ -280,9 +274,9 @@ function createGraphDataRefreshNotice(options: {
     };
 }
 
-function listGraphPromptTexts(graphId: string) {
+function listGraphPromptTexts(graphId: string): Effect.Effect<string[], DatabaseError, Database> {
     return Effect.map(
-        chatEffect(() =>
+        tryDb((db) =>
             db
                 .select({ prompt: graphPromptsTable.prompt })
                 .from(graphPromptsTable)
@@ -311,7 +305,7 @@ export function listOrganizationPromptTexts() {
         }
 
         return yield* Effect.map(
-            chatEffect(() =>
+            tryDb((db) =>
                 db
                     .select({ prompt: organizationPromptsTable.prompt })
                     .from(organizationPromptsTable)
@@ -324,9 +318,9 @@ export function listOrganizationPromptTexts() {
     });
 }
 
-export function listUserPromptTexts(userId: string) {
+export function listUserPromptTexts(userId: string): Effect.Effect<string[], DatabaseError, Database> {
     return Effect.map(
-        chatEffect(() =>
+        tryDb((db) =>
             db
                 .select({ prompt: userPromptsTable.prompt })
                 .from(userPromptsTable)
@@ -338,9 +332,9 @@ export function listUserPromptTexts(userId: string) {
     );
 }
 
-export function listTeamPromptTexts(teamId: string) {
+export function listTeamPromptTexts(teamId: string): Effect.Effect<string[], DatabaseError, Database> {
     return Effect.map(
-        chatEffect(() =>
+        tryDb((db) =>
             db
                 .select({ prompt: teamPromptsTable.prompt })
                 .from(teamPromptsTable)
@@ -429,36 +423,36 @@ export function toolPart<
     };
 }
 
-export function touchChat(chatId: string) {
-    return Effect.asVoid(chatEffect(() => db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId))));
+export function touchChat(chatId: string): Effect.Effect<void, DatabaseError, Database> {
+    return tryDbVoid((db) => db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId)));
 }
 
-export function setChatPinned(chatId: string, userId: string, pinned: boolean) {
-    return Effect.asVoid(
-        chatEffect(() =>
-            db
-                .update(chatTable)
-                .set({
-                    pinnedAt: pinned ? new Date() : null,
-                    updatedAt: sql`${chatTable.updatedAt}`,
-                })
-                .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)))
-        )
+export function setChatPinned(chatId: string, userId: string, pinned: boolean): Effect.Effect<void, DatabaseError, Database> {
+    return tryDbVoid((db) =>
+        db
+            .update(chatTable)
+            .set({
+                pinnedAt: pinned ? new Date() : null,
+                updatedAt: sql`${chatTable.updatedAt}`,
+            })
+            .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)))
     );
 }
 
-export function setChatArchived(chatId: string, userId: string, archived: boolean) {
-    return Effect.asVoid(
-        chatEffect(() =>
-            db
-                .update(chatTable)
-                .set({
-                    archivedAt: archived ? new Date() : null,
-                    // Preserve updatedAt so archive state changes do not reorder chats.
-                    updatedAt: sql`${chatTable.updatedAt}`,
-                })
-                .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)))
-        )
+export function setChatArchived(
+    chatId: string,
+    userId: string,
+    archived: boolean
+): Effect.Effect<void, DatabaseError, Database> {
+    return tryDbVoid((db) =>
+        db
+            .update(chatTable)
+            .set({
+                archivedAt: archived ? new Date() : null,
+                // Preserve updatedAt so archive state changes do not reorder chats.
+                updatedAt: sql`${chatTable.updatedAt}`,
+            })
+            .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)))
     );
 }
 
@@ -744,9 +738,12 @@ export function startReply(user: AuthUser, graphId: string, request: ChatRequest
     });
 }
 
-export function enrichCitation(graphId: string, sourceId: string): Effect.Effect<ResolvedCitationFence | null, unknown> {
+export function enrichCitation(
+    graphId: string,
+    sourceId: string
+): Effect.Effect<ResolvedCitationFence | null, DatabaseError, Database> {
     return Effect.map(
-        chatEffect(() =>
+        tryDb((db) =>
             db
                 .select({
                     sourceId: sourcesTable.id,
@@ -790,7 +787,7 @@ function createCachedCitationResolver(graphId: string): CitationResolver {
     return createCachingCitationResolver({
         negativeCache: unresolvedCitationCache,
         negativeCacheKey: (citation) => `${graphId}:${citation.sourceId}`,
-        resolveCitation: (sourceId) => Effect.runPromise(enrichCitation(graphId, sourceId)),
+        resolveCitation: (sourceId) => runDatabaseEffect(enrichCitation(graphId, sourceId)),
     });
 }
 
@@ -804,21 +801,19 @@ export function updateMessagePartsBatch(chatId: string, updates: Array<{ id: str
         sql.raw(" ")
     );
 
-    return Effect.asVoid(
-        chatEffect(() =>
-            db
-                .update(messageTable)
-                .set({ parts: sql<MessagePart[]>`case ${cases} else ${messageTable.parts} end` })
-                .where(
-                    and(
-                        eq(messageTable.chatId, chatId),
-                        inArray(
-                            messageTable.id,
-                            updates.map((update) => update.id)
-                        )
+    return tryDbVoid((db) =>
+        db
+            .update(messageTable)
+            .set({ parts: sql<MessagePart[]>`case ${cases} else ${messageTable.parts} end` })
+            .where(
+                and(
+                    eq(messageTable.chatId, chatId),
+                    inArray(
+                        messageTable.id,
+                        updates.map((update) => update.id)
                     )
                 )
-        )
+            )
     );
 }
 
@@ -866,7 +861,7 @@ export function resolveCitationDocumentLink(
 
 export function loadChatSummaryForTarget(userId: string, target: ChatTarget, chatId: string) {
     return Effect.gen(function* () {
-        const [chat] = yield* chatEffect(() =>
+        const [chat] = yield* tryDb((db) =>
             db
                 .select({
                     id: chatTable.id,
@@ -999,35 +994,35 @@ export function listChatsForTarget(
     options: { offset?: number; limit?: number } = {}
 ) {
     return Effect.gen(function* () {
-        const baseQuery = db
-            .select({
-                id: chatTable.id,
-                title: chatTable.title,
-                isPinned: sql<boolean>`false`,
-                updatedAt: chatTable.updatedAt,
-            })
-            .from(chatTable)
-            .where(
-                and(
-                    eq(chatTable.userId, userId),
-                    chatTargetWhere(target),
-                    isNull(chatTable.archivedAt),
-                    isNull(chatTable.pinnedAt)
-                )
-            )
-            .orderBy(desc(chatTable.updatedAt), desc(chatTable.id));
-
         const effectiveLimit = typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
 
-        const rows = yield* chatEffect(() =>
-            typeof effectiveLimit === "number"
+        const rows = yield* tryDb((db) => {
+            const baseQuery = db
+                .select({
+                    id: chatTable.id,
+                    title: chatTable.title,
+                    isPinned: sql<boolean>`false`,
+                    updatedAt: chatTable.updatedAt,
+                })
+                .from(chatTable)
+                .where(
+                    and(
+                        eq(chatTable.userId, userId),
+                        chatTargetWhere(target),
+                        isNull(chatTable.archivedAt),
+                        isNull(chatTable.pinnedAt)
+                    )
+                )
+                .orderBy(desc(chatTable.updatedAt), desc(chatTable.id));
+
+            return typeof effectiveLimit === "number"
                 ? typeof options.offset === "number" && options.offset > 0
                     ? baseQuery.limit(effectiveLimit).offset(options.offset)
                     : baseQuery.limit(effectiveLimit)
                 : typeof options.offset === "number" && options.offset > 0
                   ? baseQuery.offset(options.offset)
-                  : baseQuery
-        );
+                  : baseQuery;
+        });
 
         const hasMore = typeof options.limit === "number" && options.limit > 0 ? rows.length > options.limit : false;
         const items = (hasMore ? rows.slice(0, options.limit) : rows).map((row) => ({
@@ -1082,17 +1077,15 @@ export function updateAssistantMessage(
 ) {
     const metrics = getMetrics(metadata);
 
-    return Effect.asVoid(
-        chatEffect(() =>
-            db
-                .update(messageTable)
-                .set({
-                    parts,
-                    status,
-                    ...metrics,
-                })
-                .where(eq(messageTable.id, assistantMessageId))
-        )
+    return tryDbVoid((db) =>
+        db
+            .update(messageTable)
+            .set({
+                parts,
+                status,
+                ...metrics,
+            })
+            .where(eq(messageTable.id, assistantMessageId))
     );
 }
 

@@ -2,19 +2,25 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import { API_ERROR_CODES } from "@kiwi/contracts/responses";
 
+const runWorkerTestEffect = <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+    Effect.runPromise(effect as Effect.Effect<T, E, never>);
+
 let queuedSelectRows: unknown[][] = [];
 const selectMock = mock(() => ({
     from: () => ({
         where: () => ({
-            limit: async () => queuedSelectRows.shift() ?? [],
+            limit: () => Effect.succeed(queuedSelectRows.shift() ?? []),
         }),
     }),
 }));
 
-mock.module("@kiwi/db", () => ({
-    db: {
+mock.module("@kiwi/db/effect", () => ({
+    Database: Effect.succeed({
         select: selectMock,
-    },
+    }),
+    DatabaseError: class DatabaseError extends Error {},
+    runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+        Effect.runPromise(effect as Effect.Effect<T, E, never>),
 }));
 
 mock.module("../../env", () => ({
@@ -64,7 +70,7 @@ describe("createWorkerClient", () => {
     test("resolves the graph organization and builds a required worker client", async () => {
         queueWorkerModelRows({ includeTextModel: true });
 
-        const client = await Effect.runPromise(createWorkerClient("graph-1"));
+        const client = await runWorkerTestEffect(createWorkerClient("graph-1"));
 
         expect(client.text.provider.startsWith("openai.")).toBe(true);
         expect(client.embedding.provider).toBe("openai.embedding");
@@ -74,6 +80,6 @@ describe("createWorkerClient", () => {
     test("fails when required worker models are missing", async () => {
         queueWorkerModelRows({ includeTextModel: false });
 
-        await expect(Effect.runPromise(createWorkerClient("graph-1"))).rejects.toThrow(API_ERROR_CODES.MODEL_NOT_CONFIGURED);
+        await expect(runWorkerTestEffect(createWorkerClient("graph-1"))).rejects.toThrow(API_ERROR_CODES.MODEL_NOT_CONFIGURED);
     });
 });
