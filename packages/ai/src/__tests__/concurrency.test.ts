@@ -131,4 +131,28 @@ describe("withAiSlot", () => {
 
         expect(secondAudioStarted).toBe(true);
     });
+    test("times out long AI requests and releases their slot", async () => {
+        configureAIConcurrency({ text: 1 }, { requestTimeout: "5 millis" });
+
+        let aborted = false;
+        const timedOut = withAiSlot(
+            "text",
+            (signal) =>
+                new Promise<never>((resolve, reject) => {
+                    signal.addEventListener(
+                        "abort",
+                        () => {
+                            aborted = true;
+                            reject(new Error("aborted"));
+                        },
+                        { once: true }
+                    );
+                })
+        );
+
+        await expect(timedOut).rejects.toBeDefined();
+        expect(aborted).toBe(true);
+
+        await expect(withAiSlot("text", async () => "next")).resolves.toBe("next");
+    });
 });

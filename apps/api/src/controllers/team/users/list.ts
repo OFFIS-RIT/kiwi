@@ -7,7 +7,7 @@ import { selectTeamUsers } from "./helpers";
 
 export function listTeamUsers(input: { user: AuthUser; teamId: string }) {
     return tryApiPromise(async (): Promise<TeamUserListItem[]> => {
-        await requireTeamAccess(input.user, input.teamId);
+        await Effect.runPromise(requireTeamAccess(input.user, input.teamId));
         return Effect.runPromise(selectTeamUsers(input.teamId));
     });
 }

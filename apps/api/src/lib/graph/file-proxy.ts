@@ -8,6 +8,10 @@ import { parseCodeFileMetadata } from "@kiwi/graph/code/metadata";
 import { createProviderClient } from "../connectors";
 import { contentDispositionForFile, contentDispositionHeader, parseByteRange } from "../file-proxy";
 
+function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
+    return Effect.tryPromise({ try: thunk, catch: (error) => error });
+}
+
 export type GraphFileProxyRecord = {
     key: string;
     name: string;
@@ -32,189 +36,204 @@ export type GraphFileProxyResult =
           size: number;
       };
 
-export async function loadGraphFileByKey(
+export function loadGraphFileByKey(
     graphId: string,
     fileKey: string
-): Promise<{ id: string; name: string } | null> {
-    const [file] = await db
-        .select({ id: filesTable.id, name: filesTable.name })
-        .from(filesTable)
-        .where(and(eq(filesTable.graphId, graphId), eq(filesTable.key, fileKey), eq(filesTable.deleted, false)))
-        .limit(1);
-
-    return file ?? null;
+): Effect.Effect<{ id: string; name: string } | null, unknown> {
+    return Effect.map(
+        tryUnknownPromise(async () =>
+            db
+                .select({ id: filesTable.id, name: filesTable.name })
+                .from(filesTable)
+                .where(and(eq(filesTable.graphId, graphId), eq(filesTable.key, fileKey), eq(filesTable.deleted, false)))
+                .limit(1)
+        ),
+        ([file]) => file ?? null
+    );
 }
 
-export async function loadGraphFileForProxy(graphId: string, fileId: string): Promise<GraphFileProxyRecord | null> {
-    const [file] = await db
-        .select({
-            key: filesTable.key,
-            name: filesTable.name,
-            mimeType: filesTable.mimeType,
-            storageKind: filesTable.storageKind,
-            externalProvider: filesTable.externalProvider,
-            externalUrl: filesTable.externalUrl,
-            connectorBindingId: filesTable.connectorBindingId,
-            metadata: filesTable.metadata,
-        })
-        .from(filesTable)
-        .where(and(eq(filesTable.graphId, graphId), eq(filesTable.id, fileId), eq(filesTable.deleted, false)))
-        .limit(1);
-
-    return file ?? null;
+export function loadGraphFileForProxy(
+    graphId: string,
+    fileId: string
+): Effect.Effect<GraphFileProxyRecord | null, unknown> {
+    return Effect.map(
+        tryUnknownPromise(async () =>
+            db
+                .select({
+                    key: filesTable.key,
+                    name: filesTable.name,
+                    mimeType: filesTable.mimeType,
+                    storageKind: filesTable.storageKind,
+                    externalProvider: filesTable.externalProvider,
+                    externalUrl: filesTable.externalUrl,
+                    connectorBindingId: filesTable.connectorBindingId,
+                    metadata: filesTable.metadata,
+                })
+                .from(filesTable)
+                .where(and(eq(filesTable.graphId, graphId), eq(filesTable.id, fileId), eq(filesTable.deleted, false)))
+                .limit(1)
+        ),
+        ([file]) => file ?? null
+    );
 }
 
-export async function getGraphFileProxyResponse(options: {
+export function getGraphFileProxyResponse(options: {
     graphId: string;
     fileId: string;
     request: Request;
     bucket: string;
     head?: boolean;
-}): Promise<GraphFileProxyResult> {
-    const file = await loadGraphFileForProxy(options.graphId, options.fileId);
-    if (!file) {
-        return { status: "not_found" };
-    }
+}): Effect.Effect<GraphFileProxyResult, unknown> {
+    return Effect.catchDefect(Effect.gen(function* () {
+        const file = yield* loadGraphFileForProxy(options.graphId, options.fileId);
+        if (!file) {
+            return { status: "not_found" };
+        }
 
-    if (file.storageKind === "external") {
-        if (file.connectorBindingId) {
-            const content = await readConnectorFile(file.connectorBindingId, file.metadata);
-            if (content === null) {
+        if (file.storageKind === "external") {
+            if (file.connectorBindingId) {
+                const content = yield* readConnectorFile(file.connectorBindingId, file.metadata);
+                if (content === null) {
+                    return { status: "not_found" };
+                }
+                const bytes = new TextEncoder().encode(content);
+                const range = parseByteRange(options.request.headers.get("range"), bytes.byteLength);
+                if (range === "invalid") {
+                    return { status: "invalid_range", size: bytes.byteLength };
+                }
+                const body = range ? bytes.slice(range.start, range.end + 1) : bytes;
+                const headers = new Headers({
+                    "Accept-Ranges": "bytes",
+                    "Cache-Control": "private, no-cache",
+                    "Content-Length": String(body.byteLength),
+                    "Content-Type": file.mimeType || "text/plain; charset=utf-8",
+                    "X-Content-Type-Options": "nosniff",
+                });
+                if (range) {
+                    headers.set("Content-Range", `bytes ${range.start}-${range.end}/${bytes.byteLength}`);
+                }
+                return {
+                    status: "ok",
+                    response: new Response(options.head ? null : body, { status: range ? 206 : 200, headers }),
+                };
+            }
+
+            if (file.externalProvider !== "github") {
                 return { status: "not_found" };
             }
-            const bytes = new TextEncoder().encode(content);
-            const range = parseByteRange(options.request.headers.get("range"), bytes.byteLength);
-            if (range === "invalid") {
-                return { status: "invalid_range", size: bytes.byteLength };
+
+            const metadata = parseCodeFileMetadata(file.metadata);
+            if (metadata?.provider !== "github" || !metadata.rawUrl) {
+                return { status: "not_found" };
             }
-            const body = range ? bytes.slice(range.start, range.end + 1) : bytes;
-            const headers = new Headers({
-                "Accept-Ranges": "bytes",
-                "Cache-Control": "private, no-cache",
-                "Content-Length": String(body.byteLength),
-                "Content-Type": file.mimeType || "text/plain; charset=utf-8",
-                "X-Content-Type-Options": "nosniff",
-            });
-            if (range) {
-                headers.set("Content-Range", `bytes ${range.start}-${range.end}/${bytes.byteLength}`);
-            }
+
             return {
                 status: "ok",
-                response: new Response(options.head ? null : body, { status: range ? 206 : 200, headers }),
+                response: new Response(null, {
+                    status: 307,
+                    headers: {
+                        "Cache-Control": "private, no-cache",
+                        Location: metadata.rawUrl,
+                        "X-Content-Type-Options": "nosniff",
+                    },
+                }),
             };
         }
 
-        if (file.externalProvider !== "github") {
+        const metadata = yield* getFileMetadata(file.key, options.bucket);
+        if (!metadata) {
             return { status: "not_found" };
         }
 
-        const metadata = parseCodeFileMetadata(file.metadata);
-        if (metadata?.provider !== "github" || !metadata.rawUrl) {
+        const range = parseByteRange(options.request.headers.get("range"), metadata.size);
+        if (range === "invalid") {
+            return { status: "invalid_range", size: metadata.size };
+        }
+
+        const contentType = file.mimeType || metadata.type || "application/octet-stream";
+        const disposition = contentDispositionForFile(file.name, contentType);
+        const headers = new Headers({
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "private, no-cache",
+            "Content-Length": String(range ? range.end - range.start + 1 : metadata.size),
+            "Content-Type": contentType,
+            "X-Content-Type-Options": "nosniff",
+        });
+
+        if (disposition === "attachment") {
+            headers.set("Content-Disposition", contentDispositionHeader(file.name, disposition));
+        }
+
+        if (metadata.lastModified) {
+            headers.set("Last-Modified", metadata.lastModified.toUTCString());
+        }
+
+        if (range) {
+            headers.set("Content-Range", `bytes ${range.start}-${range.end}/${metadata.size}`);
+        }
+
+        if (options.head) {
+            return {
+                status: "ok",
+                response: new Response(null, {
+                    status: range ? 206 : 200,
+                    headers,
+                }),
+            };
+        }
+
+        const stream = yield* getFileStream(file.key, options.bucket, range ?? undefined, metadata);
+        if (!stream) {
             return { status: "not_found" };
         }
 
         return {
             status: "ok",
-            response: new Response(null, {
-                status: 307,
-                headers: {
-                    "Cache-Control": "private, no-cache",
-                    Location: metadata.rawUrl,
-                    "X-Content-Type-Options": "nosniff",
-                },
-            }),
-        };
-    }
-
-    const metadata = await Effect.runPromise(getFileMetadata(file.key, options.bucket));
-    if (!metadata) {
-        return { status: "not_found" };
-    }
-
-    const range = parseByteRange(options.request.headers.get("range"), metadata.size);
-    if (range === "invalid") {
-        return { status: "invalid_range", size: metadata.size };
-    }
-
-    const contentType = file.mimeType || metadata.type || "application/octet-stream";
-    const disposition = contentDispositionForFile(file.name, contentType);
-    const headers = new Headers({
-        "Accept-Ranges": "bytes",
-        "Cache-Control": "private, no-cache",
-        "Content-Length": String(range ? range.end - range.start + 1 : metadata.size),
-        "Content-Type": contentType,
-        "X-Content-Type-Options": "nosniff",
-    });
-
-    if (disposition === "attachment") {
-        headers.set("Content-Disposition", contentDispositionHeader(file.name, disposition));
-    }
-
-    if (metadata.lastModified) {
-        headers.set("Last-Modified", metadata.lastModified.toUTCString());
-    }
-
-    if (range) {
-        headers.set("Content-Range", `bytes ${range.start}-${range.end}/${metadata.size}`);
-    }
-
-    if (options.head) {
-        return {
-            status: "ok",
-            response: new Response(null, {
+            response: new Response(stream.content, {
                 status: range ? 206 : 200,
                 headers,
             }),
         };
-    }
-
-    const stream = await Effect.runPromise(getFileStream(file.key, options.bucket, range ?? undefined, metadata));
-    if (!stream) {
-        return { status: "not_found" };
-    }
-
-    return {
-        status: "ok",
-        response: new Response(stream.content, {
-            status: range ? 206 : 200,
-            headers,
-        }),
-    };
+    }), (defect) => Effect.fail(defect));
 }
 
-async function readConnectorFile(bindingId: string, metadataValue: string | null): Promise<string | null> {
-    const metadata = parseCodeFileMetadata(metadataValue);
-    if (!metadata) {
-        return null;
-    }
+function readConnectorFile(bindingId: string, metadataValue: string | null): Effect.Effect<string | null, unknown> {
+    return Effect.catchDefect(Effect.gen(function* () {
+        const metadata = parseCodeFileMetadata(metadataValue);
+        if (!metadata) {
+            return null;
+        }
 
-    const [row] = await db
-        .select({
-            binding: connectorResourceBindingsTable,
-            installation: connectorInstallationsTable,
-            connector: connectorsTable,
-        })
-        .from(connectorResourceBindingsTable)
-        .innerJoin(
-            connectorInstallationsTable,
-            eq(connectorInstallationsTable.id, connectorResourceBindingsTable.connectorInstallationId)
-        )
-        .innerJoin(connectorsTable, eq(connectorsTable.id, connectorInstallationsTable.connectorId))
-        .where(eq(connectorResourceBindingsTable.id, bindingId))
-        .limit(1);
+        const [row] = yield* tryUnknownPromise(async () =>
+            db
+                .select({
+                    binding: connectorResourceBindingsTable,
+                    installation: connectorInstallationsTable,
+                    connector: connectorsTable,
+                })
+                .from(connectorResourceBindingsTable)
+                .innerJoin(
+                    connectorInstallationsTable,
+                    eq(connectorInstallationsTable.id, connectorResourceBindingsTable.connectorInstallationId)
+                )
+                .innerJoin(connectorsTable, eq(connectorsTable.id, connectorInstallationsTable.connectorId))
+                .where(eq(connectorResourceBindingsTable.id, bindingId))
+                .limit(1)
+        );
 
-    if (!row || row.connector.status !== "active" || row.installation.status !== "active") {
-        return null;
-    }
-    if (metadata.bindingId && metadata.bindingId !== bindingId) {
-        return null;
-    }
+        if (!row || row.connector.status !== "active" || row.installation.status !== "active") {
+            return null;
+        }
+        if (metadata.bindingId && metadata.bindingId !== bindingId) {
+            return null;
+        }
 
-    const client = await createProviderClient(row.connector, row.installation);
-    return client.readFile({
-        resourceId: metadata.providerResourceId || row.binding.providerResourceId,
-        path: metadata.path,
-        versionId: metadata.versionId ?? metadata.git?.commitSha,
-        etag: metadata.etag,
-    });
+        const client = yield* createProviderClient(row.connector, row.installation);
+        return yield* client.readFile({
+            resourceId: metadata.providerResourceId || row.binding.providerResourceId,
+            path: metadata.path,
+            versionId: metadata.versionId ?? metadata.git?.commitSha,
+            etag: metadata.etag,
+        });
+    }), (defect) => Effect.fail(defect));
 }

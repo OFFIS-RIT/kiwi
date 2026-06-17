@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { PDF, degrees, measureText, rgb } from "@libpdf/core";
 import { transcribePrompt } from "@kiwi/ai/prompts/transcribe.prompt";
 import { EventEmitter } from "node:events";
@@ -19,10 +20,12 @@ const generateTextMock = mock(async ({ system }: { system?: string }) => {
     };
 });
 
-const putNamedFileMock = mock(async (name: string, _file: Uint8Array, path: string) => ({
-    key: `${path}/${name}`,
-    type: "image/png",
-}));
+const putNamedFileMock = mock((name: string, _file: Uint8Array, path: string) =>
+    Effect.succeed({
+        key: `${path}/${name}`,
+        type: "image/png",
+    })
+);
 
 function createProcessStream() {
     const stream = new EventEmitter() as EventEmitter & { setEncoding: (encoding: string) => void };

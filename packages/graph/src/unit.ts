@@ -13,53 +13,58 @@ import z from "zod";
 
 export const MAX_SOURCE_CHUNKS_PER_SOURCE = 8;
 
-export async function createUnits(file: GraphFile): Promise<Unit[]> {
-    const document = await loadGraphDocument(file.loader);
-    return createUnitsFromText({
-        fileId: file.id,
-        fileType: file.filetype,
-        text: document.text,
-        chunker: file.chunker,
-        loaderSourceChunks: document.sourceChunks,
+export function createUnits(file: GraphFile): Effect.Effect<Unit[], unknown> {
+    return Effect.gen(function* () {
+        const document = yield* Effect.tryPromise(() => loadGraphDocument(file.loader));
+
+        return yield* createUnitsFromText({
+            fileId: file.id,
+            fileType: file.filetype,
+            text: document.text,
+            chunker: file.chunker,
+            loaderSourceChunks: document.sourceChunks,
+        });
     });
 }
 
-export async function createUnitsFromText(options: {
+export function createUnitsFromText(options: {
     fileId: string;
     fileType: string;
     text: string;
     chunker: GraphChunker;
     loaderSourceChunks?: LoaderSourceChunk[];
-}): Promise<Unit[]> {
-    const textChunks = await options.chunker.getChunkSpans(options.text);
-    const chunks = toPageAwareChunksWithSource(textChunks, (chunk) => chunk.content);
-    const loaderSourceChunks = prepareLoaderSourceChunks(options.loaderSourceChunks ?? []);
-    let fallbackTextChunker: GraphChunker | undefined;
-    const units: Unit[] = [];
+}): Effect.Effect<Unit[], unknown> {
+    return Effect.tryPromise(async () => {
+        const textChunks = await options.chunker.getChunkSpans(options.text);
+        const chunks = toPageAwareChunksWithSource(textChunks, (chunk) => chunk.content);
+        const loaderSourceChunks = prepareLoaderSourceChunks(options.loaderSourceChunks ?? []);
+        let fallbackTextChunker: GraphChunker | undefined;
+        const units: Unit[] = [];
 
-    for (const chunk of chunks) {
-        const unit: Unit = {
-            id: ulid(),
-            fileId: options.fileId,
-            content: chunk.content,
-            startPage: chunk.startPage,
-            endPage: chunk.endPage,
-            chunks: sourceChunksForUnit(loaderSourceChunks, chunk.source),
-        };
-
-        if (unit.chunks.length === 0) {
-            unit.chunks = await createSourceChunks(chunk.content, {
-                fileType: options.fileType,
+        for (const chunk of chunks) {
+            const unit: Unit = {
+                id: ulid(),
+                fileId: options.fileId,
+                content: chunk.content,
                 startPage: chunk.startPage,
                 endPage: chunk.endPage,
-                textChunker: (fallbackTextChunker ??= new SemanticChunker(DEFAULT_SOURCE_CHUNK_TOKENS)),
-            });
+                chunks: sourceChunksForUnit(loaderSourceChunks, chunk.source),
+            };
+
+            if (unit.chunks.length === 0) {
+                unit.chunks = await createSourceChunks(chunk.content, {
+                    fileType: options.fileType,
+                    startPage: chunk.startPage,
+                    endPage: chunk.endPage,
+                    textChunker: (fallbackTextChunker ??= new SemanticChunker(DEFAULT_SOURCE_CHUNK_TOKENS)),
+                });
+            }
+
+            units.push(unit);
         }
 
-        units.push(unit);
-    }
-
-    return units;
+        return units;
+    });
 }
 
 function prepareLoaderSourceChunks(loaderSourceChunks: LoaderSourceChunk[]): LoaderSourceChunk[] {
@@ -204,12 +209,13 @@ function extractGraphData(
 ): Effect.Effect<z.infer<typeof extractOutputSchema>, ProcessUnitAiError> {
     return Effect.tryPromise({
         try: async () => {
-            const { output } = await withAiSlot("text", () =>
+            const { output } = await withAiSlot("text", (signal) =>
                 generateText({
                     model,
                     system: prompt,
                     prompt: buildExtractionInput(unit),
                     temperature: 0.1,
+                    abortSignal: signal,
                     output: Output.object({
                         description: "The extracted entities and relationships from the text.",
                         schema: extractOutputSchema,
@@ -300,12 +306,12 @@ function mapGraphRelationships(
     });
 }
 
-export async function processUnit(
+export function processUnit(
     unit: Unit,
     model: LanguageModelV3,
     documentName = unit.fileId,
     metadata?: string
-): Promise<Graph> {
+): Effect.Effect<Graph, unknown> {
     const entities = ["ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"];
     const prompt = extractPrompt(entities, documentName, metadata);
 
@@ -322,5 +328,5 @@ export async function processUnit(
         };
     });
 
-    return Effect.runPromise(Effect.mapError(program, (error) => error.cause));
+    return Effect.mapError(program, (error) => error.cause);
 }

@@ -1,4 +1,5 @@
 import { Result } from "better-result";
+import * as Effect from "effect/Effect";
 import { Elysia, t } from "elysia";
 import { assertCanManageGraphSuggestions } from "../lib/graph/access";
 import {
@@ -38,8 +39,8 @@ export const graphSuggestionsRoute = new Elysia({ prefix: "/graphs" })
             }
 
             const suggestionsResult = await Result.tryPromise(async () => {
-                await assertCanManageGraphSuggestions(user, params.id);
-                return listPendingGraphSuggestions(params.id);
+                await Effect.runPromise(assertCanManageGraphSuggestions(user, params.id));
+                return Effect.runPromise(listPendingGraphSuggestions(params.id));
             });
 
             if (suggestionsResult.isErr()) {
@@ -62,8 +63,8 @@ export const graphSuggestionsRoute = new Elysia({ prefix: "/graphs" })
             }
 
             const deleteResult = await Result.tryPromise(async () => {
-                await assertCanManageGraphSuggestions(user, params.id);
-                await deletePendingGraphSuggestion(params.id, params.suggestionId);
+                await Effect.runPromise(assertCanManageGraphSuggestions(user, params.id));
+                await Effect.runPromise(deletePendingGraphSuggestion(params.id, params.suggestionId));
             });
 
             if (deleteResult.isErr()) {
@@ -87,8 +88,8 @@ export const graphSuggestionsRoute = new Elysia({ prefix: "/graphs" })
             }
 
             const applyResult = await Result.tryPromise(async () => {
-                await assertCanManageGraphSuggestions(user, params.id);
-                return applyGraphSuggestion(params.id, params.suggestionId, user);
+                await Effect.runPromise(assertCanManageGraphSuggestions(user, params.id));
+                return Effect.runPromise(applyGraphSuggestion(params.id, params.suggestionId, user));
             });
 
             if (applyResult.isErr()) {

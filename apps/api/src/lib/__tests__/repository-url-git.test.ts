@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 const MAX_GIT_OUTPUT_BYTES = 1 * 1024 * 1024;
 let scenario: "broken-symlink" | "limit" | "symlink" = "limit";
@@ -69,7 +70,7 @@ describe("repository URL git loading", () => {
     });
 
     test("rejects truncated git stdout as a repository limit", async () => {
-        await expect(loadRepositoryFromUrl("https://github.com/acme/app")).rejects.toMatchObject({
+        await expect(Effect.runPromise(loadRepositoryFromUrl("https://github.com/acme/app"))).rejects.toMatchObject({
             name: "RepositoryUrlError",
             kind: "limit",
         });
@@ -78,7 +79,7 @@ describe("repository URL git loading", () => {
     test("skips repository files whose real path escapes the clone root", async () => {
         scenario = "symlink";
 
-        await expect(loadRepositoryFromUrl("https://github.com/acme/app")).resolves.toMatchObject({
+        await expect(Effect.runPromise(loadRepositoryFromUrl("https://github.com/acme/app"))).resolves.toMatchObject({
             files: [
                 {
                     path: "src/index.ts",
@@ -91,7 +92,7 @@ describe("repository URL git loading", () => {
     test("skips repository files whose real path cannot be resolved", async () => {
         scenario = "broken-symlink";
 
-        await expect(loadRepositoryFromUrl("https://github.com/acme/app")).resolves.toMatchObject({
+        await expect(Effect.runPromise(loadRepositoryFromUrl("https://github.com/acme/app"))).resolves.toMatchObject({
             files: [
                 {
                     path: "src/index.ts",

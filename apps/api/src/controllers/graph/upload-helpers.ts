@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { getDefaultModelOrganizationId } from "@kiwi/ai/models";
 import { API_ERROR_CODES, makeApiError } from "@kiwi/contracts/errors";
 import { resolveGraphOwnerRoot } from "../../lib/graph/access";
@@ -42,9 +43,9 @@ export function getGraphOwnerModelOrganizationId(owner: NewGraphOwner) {
             return owner.organizationId;
         }
     
-        const rootOwner = await resolveGraphOwnerRoot(owner.graphId);
+        const rootOwner = await Effect.runPromise(resolveGraphOwnerRoot(owner.graphId));
         if (rootOwner.mode === "user") {
-            return getDefaultModelOrganizationId();
+            return Effect.runPromise(getDefaultModelOrganizationId());
         }
     
         return rootOwner.organizationId;

@@ -17,7 +17,8 @@
         "@opentelemetry/exporter-logs-otlp-proto": "^0.218.0",
         "@opentelemetry/resources": "^2.7.1",
         "@opentelemetry/sdk-logs": "^0.218.0",
-        "@opentelemetry/semantic-conventions": "^1.41.1"
+        "@opentelemetry/semantic-conventions": "^1.41.1",
+        "effect": "catalog:"
     },
     "devDependencies": {
         "@types/bun": "catalog:"

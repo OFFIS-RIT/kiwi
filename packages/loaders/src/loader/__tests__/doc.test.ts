@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import JSZip from "jszip";
 
 const generateTextMock = mock(async () => ({
     text: 'Embedded <diagram> & "caption"',
 }));
 
-const putNamedFileMock = mock(async (name: string, _file: Uint8Array, path: string) => ({
-    key: `${path}/${name}`,
-    type: "image/png",
-}));
+const putNamedFileMock = mock((name: string, _file: Uint8Array, path: string) =>
+    Effect.succeed({
+        key: `${path}/${name}`,
+        type: "image/png",
+    })
+);
 
 mock.module("ai", () => ({
     generateText: generateTextMock,

@@ -1,4 +1,5 @@
 import { db } from "@kiwi/db";
+import * as Effect from "effect/Effect";
 import { graphTable } from "@kiwi/db/tables/graph";
 import { eq } from "drizzle-orm";
 import type { AuthUser } from "../../middleware/auth";
@@ -12,6 +13,10 @@ import {
     requireTeamGraphFileManageAccess,
 } from "../team/access";
 import type { GraphRecord } from "../../types/routes";
+
+function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
+    return Effect.tryPromise({ try: thunk, catch: (error) => error });
+}
 
 export type { GraphRecord } from "../../types/routes";
 
@@ -42,185 +47,198 @@ export const selectGraphFields = {
     state: graphTable.state,
 };
 
-export const getGraphById = async (graphId: string): Promise<GraphRecord | null> => {
-    const [graph] = await db.select(selectGraphFields).from(graphTable).where(eq(graphTable.id, graphId)).limit(1);
-    return graph ?? null;
-};
+export const getGraphById = (graphId: string): Effect.Effect<GraphRecord | null, unknown> =>
+    Effect.map(
+        tryUnknownPromise(() => db.select(selectGraphFields).from(graphTable).where(eq(graphTable.id, graphId)).limit(1)),
+        ([graph]) => graph ?? null
+    );
 
-export const resolveGraphOwnerRoot = async (parentGraphId: string): Promise<RootOwner> => {
-    const visited = new Set<string>();
-    let currentGraphId = parentGraphId;
-    let isRootLookup = true;
+export const resolveGraphOwnerRoot = (parentGraphId: string): Effect.Effect<RootOwner, unknown> =>
+    Effect.catchDefect(Effect.gen(function* () {
+        const visited = new Set<string>();
+        let currentGraphId = parentGraphId;
+        let isRootLookup = true;
 
-    while (true) {
-        if (visited.has(currentGraphId)) {
-            throw new Error(API_ERROR_CODES.INVALID_GRAPH_OWNER);
-        }
+        while (true) {
+            if (visited.has(currentGraphId)) {
+                return yield* Effect.fail(new Error(API_ERROR_CODES.INVALID_GRAPH_OWNER));
+            }
 
-        visited.add(currentGraphId);
+            visited.add(currentGraphId);
 
-        const graph = await getGraphById(currentGraphId);
-        if (!graph) {
-            throw new Error(isRootLookup ? API_ERROR_CODES.GRAPH_NOT_FOUND : API_ERROR_CODES.INVALID_GRAPH_OWNER);
-        }
+            const graph = yield* getGraphById(currentGraphId);
+            if (!graph) {
+                return yield* Effect.fail(
+                    new Error(isRootLookup ? API_ERROR_CODES.GRAPH_NOT_FOUND : API_ERROR_CODES.INVALID_GRAPH_OWNER)
+                );
+            }
 
-        if (graph.userId) {
-            return {
-                mode: "user",
-                userId: graph.userId,
-            };
-        }
-
-        if (graph.organizationId) {
-            if (graph.teamId) {
+            if (graph.userId) {
                 return {
-                    mode: "team",
-                    organizationId: graph.organizationId,
-                    teamId: graph.teamId,
+                    mode: "user",
+                    userId: graph.userId,
                 };
             }
 
-            return {
-                mode: "organization",
-                organizationId: graph.organizationId,
-            };
+            if (graph.organizationId) {
+                if (graph.teamId) {
+                    return {
+                        mode: "team",
+                        organizationId: graph.organizationId,
+                        teamId: graph.teamId,
+                    };
+                }
+
+                return {
+                    mode: "organization",
+                    organizationId: graph.organizationId,
+                };
+            }
+
+            if (!graph.graphId) {
+                return yield* Effect.fail(new Error(API_ERROR_CODES.INVALID_GRAPH_OWNER));
+            }
+
+            currentGraphId = graph.graphId;
+            isRootLookup = false;
         }
+    }), (defect) => Effect.fail(defect));
 
-        if (!graph.graphId) {
-            throw new Error(API_ERROR_CODES.INVALID_GRAPH_OWNER);
+export const assertCanCreateTeamGraph = (user: AuthUser, teamId: string) => requireTeamGraphCreateAccess(user, teamId);
+
+export const assertCanCreateTopLevelGraph = (user: AuthUser) => requireOrganizationAdmin(user);
+
+function assertActiveOrganization(user: AuthUser, organizationId: string): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        const activeOrganizationId = yield* getActiveOrganizationId(user);
+        if (activeOrganizationId !== organizationId) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
         }
-
-        currentGraphId = graph.graphId;
-        isRootLookup = false;
-    }
-};
-
-export const assertCanCreateTeamGraph = async (user: AuthUser, teamId: string) => {
-    return requireTeamGraphCreateAccess(user, teamId);
-};
-
-export const assertCanCreateTopLevelGraph = async (user: AuthUser) => {
-    return requireOrganizationAdmin(user);
-};
-
-async function assertActiveOrganization(user: AuthUser, organizationId: string) {
-    if ((await getActiveOrganizationId(user)) !== organizationId) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
+    });
 }
 
-export const assertCanCreateUnderParentGraph = async (user: AuthUser, parentGraphId: string) => {
-    const rootOwner = await resolveGraphOwnerRoot(parentGraphId);
+export const assertCanCreateUnderParentGraph = (
+    user: AuthUser,
+    parentGraphId: string
+): Effect.Effect<void, unknown> =>
+    Effect.catchDefect(Effect.gen(function* () {
+        const rootOwner = yield* resolveGraphOwnerRoot(parentGraphId);
 
-    if (rootOwner.mode === "user") {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
+        if (rootOwner.mode === "user") {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
 
-    if (rootOwner.mode === "team") {
-        await requireTeamGraphCreateAccess(user, rootOwner.teamId);
-        return;
-    }
+        if (rootOwner.mode === "team") {
+            yield* requireTeamGraphCreateAccess(user, rootOwner.teamId);
+            return;
+        }
 
-    await assertActiveOrganization(user, rootOwner.organizationId);
-    await requireOrganizationAdmin(user, rootOwner.organizationId);
-};
+        yield* assertActiveOrganization(user, rootOwner.organizationId);
+        yield* requireOrganizationAdmin(user, rootOwner.organizationId);
+    }), (defect) => Effect.fail(defect));
 
-const assertGraphAccessWithRootOwner = async (
+const assertGraphAccessWithRootOwner = (
     user: AuthUser,
     graphId: string,
     options?: {
         needsUpdate?: boolean;
         needsFileManage?: boolean;
     }
-): Promise<{ graph: GraphRecord; rootOwner: RootOwner }> => {
-    const graph = await getGraphById(graphId);
-    if (!graph) {
-        throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
-    }
-
-    const rootOwner = await resolveGraphOwnerRoot(graph.id);
-    if (rootOwner.mode === "user") {
-        if (rootOwner.userId !== user.id) {
-            throw new Error(API_ERROR_CODES.FORBIDDEN);
+): Effect.Effect<{ graph: GraphRecord; rootOwner: RootOwner }, unknown> =>
+    Effect.catchDefect(Effect.gen(function* () {
+        const graph = yield* getGraphById(graphId);
+        if (!graph) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.GRAPH_NOT_FOUND));
         }
 
-        if (options?.needsUpdate || options?.needsFileManage) {
-            throw new Error(API_ERROR_CODES.FORBIDDEN);
-        }
-
-        return { graph, rootOwner };
-    }
-
-    await assertActiveOrganization(user, rootOwner.organizationId);
-
-    if (options?.needsUpdate || options?.needsFileManage) {
-        if (rootOwner.mode === "team") {
-            if (options.needsFileManage) {
-                await requireTeamGraphFileManageAccess(user, rootOwner.teamId);
-            } else {
-                await requireTeamGraphCreateAccess(user, rootOwner.teamId);
+        const rootOwner = yield* resolveGraphOwnerRoot(graph.id);
+        if (rootOwner.mode === "user") {
+            if (rootOwner.userId !== user.id) {
+                return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
             }
+
+            if (options?.needsUpdate || options?.needsFileManage) {
+                return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            }
+
             return { graph, rootOwner };
         }
 
-        await requireOrganizationAdmin(user, rootOwner.organizationId);
+        yield* assertActiveOrganization(user, rootOwner.organizationId);
+
+        if (options?.needsUpdate || options?.needsFileManage) {
+            if (rootOwner.mode === "team") {
+                if (options.needsFileManage) {
+                    yield* requireTeamGraphFileManageAccess(user, rootOwner.teamId);
+                } else {
+                    yield* requireTeamGraphCreateAccess(user, rootOwner.teamId);
+                }
+                return { graph, rootOwner };
+            }
+
+            yield* requireOrganizationAdmin(user, rootOwner.organizationId);
+            return { graph, rootOwner };
+        }
+
+        if (rootOwner.mode === "team") {
+            yield* requireTeamAccess(user, rootOwner.teamId);
+            return { graph, rootOwner };
+        }
+
+        yield* requireOrganizationMembership(user, rootOwner.organizationId);
         return { graph, rootOwner };
-    }
+    }), (defect) => Effect.fail(defect));
 
-    if (rootOwner.mode === "team") {
-        await requireTeamAccess(user, rootOwner.teamId);
-        return { graph, rootOwner };
-    }
-
-    await requireOrganizationMembership(user, rootOwner.organizationId);
-    return { graph, rootOwner };
-};
-
-const assertGraphAccess = async (
+const assertGraphAccess = (
     user: AuthUser,
     graphId: string,
     options?: {
         needsUpdate?: boolean;
         needsFileManage?: boolean;
     }
-): Promise<GraphRecord> => (await assertGraphAccessWithRootOwner(user, graphId, options)).graph;
+): Effect.Effect<GraphRecord, unknown> =>
+    Effect.map(assertGraphAccessWithRootOwner(user, graphId, options), ({ graph }) => graph);
 
 export const assertCanViewGraphWithRootOwner = (
     user: AuthUser,
     graphId: string
-): Promise<{ graph: GraphRecord; rootOwner: RootOwner }> => assertGraphAccessWithRootOwner(user, graphId);
+): Effect.Effect<{ graph: GraphRecord; rootOwner: RootOwner }, unknown> => assertGraphAccessWithRootOwner(user, graphId);
 
-export const assertCanPatchGraph = async (user: AuthUser, graphId: string): Promise<GraphRecord> =>
+export const assertCanPatchGraph = (user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown> =>
     assertGraphAccess(user, graphId, { needsUpdate: true });
 
-export const assertCanManageGraphFiles = async (user: AuthUser, graphId: string): Promise<GraphRecord> =>
+export const assertCanManageGraphFiles = (user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown> =>
     assertGraphAccess(user, graphId, { needsFileManage: true });
 
-export const assertCanManageGraphSuggestions = async (user: AuthUser, graphId: string): Promise<GraphRecord> => {
-    const graph = await getGraphById(graphId);
-    if (!graph) {
-        throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
-    }
-
-    const rootOwner = await resolveGraphOwnerRoot(graph.id);
-    if (rootOwner.mode === "user") {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-
-    await assertActiveOrganization(user, rootOwner.organizationId);
-
-    if (rootOwner.mode === "team") {
-        const access = await requireTeamAccess(user, rootOwner.teamId);
-        if (access.organizationAdmin || access.role === "admin") {
-            return graph;
+export const assertCanManageGraphSuggestions = (
+    user: AuthUser,
+    graphId: string
+): Effect.Effect<GraphRecord, unknown> =>
+    Effect.catchDefect(Effect.gen(function* () {
+        const graph = yield* getGraphById(graphId);
+        if (!graph) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.GRAPH_NOT_FOUND));
         }
 
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
+        const rootOwner = yield* resolveGraphOwnerRoot(graph.id);
+        if (rootOwner.mode === "user") {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
 
-    await requireOrganizationAdmin(user, rootOwner.organizationId);
-    return graph;
-};
+        yield* assertActiveOrganization(user, rootOwner.organizationId);
 
-export const assertCanViewGraph = async (user: AuthUser, graphId: string): Promise<GraphRecord> =>
+        if (rootOwner.mode === "team") {
+            const access = yield* requireTeamAccess(user, rootOwner.teamId);
+            if (access.organizationAdmin || access.role === "admin") {
+                return graph;
+            }
+
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+
+        yield* requireOrganizationAdmin(user, rootOwner.organizationId);
+        return graph;
+    }), (defect) => Effect.fail(defect));
+
+export const assertCanViewGraph = (user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown> =>
     assertGraphAccess(user, graphId);

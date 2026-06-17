@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 import { buildMetadata, buildMetadataExcerpt } from "../metadata";
 
@@ -37,9 +38,11 @@ describe("buildMetadata", () => {
         }));
 
         await expect(
-            buildMetadata({} as never, "Document", "<text>excerpt</text>", {
-                generate: generateTextMock as typeof generateTextMock,
-            })
+            Effect.runPromise(
+                buildMetadata({} as never, "Document", "<text>excerpt</text>", {
+                    generate: generateTextMock as typeof generateTextMock,
+                })
+            )
         ).resolves.toBe("First line Second line third");
 
         expect(generateTextMock).toHaveBeenCalledTimes(1);

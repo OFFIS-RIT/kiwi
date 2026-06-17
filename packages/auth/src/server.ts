@@ -3,7 +3,7 @@ import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { credentials } from "better-auth-credentials-plugin";
 import { admin as adminPlugin, organization } from "better-auth/plugins";
-import { Result } from "better-result";
+import * as Effect from "effect/Effect";
 import { authenticate } from "ldap-authentication";
 import { z } from "zod";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -65,6 +65,8 @@ const ldapCredentialsSchema = z.object({
     credential: z.string().min(1),
     password: z.string().min(1),
 });
+type LdapCredentials = z.infer<typeof ldapCredentialsSchema>;
+
 
 type LdapResult = {
     mail?: string | string[];
@@ -80,49 +82,57 @@ type AdminMembershipInput = {
     userId: string;
 };
 
-async function loadDefaultOrganizationId() {
-    const [organization] = await db
-        .select({ id: authTables.organizationTable.id })
-        .from(authTables.organizationTable)
-        .orderBy(
-            sql`CASE WHEN ${authTables.organizationTable.slug} = ${DEFAULT_ORGANIZATION_SLUG} THEN 0 ELSE 1 END`,
-            authTables.organizationTable.createdAt
-        )
-        .limit(1);
+function loadDefaultOrganizationId(): Effect.Effect<string, unknown> {
+    return Effect.tryPromise(async () => {
+        const [organization] = await db
+            .select({ id: authTables.organizationTable.id })
+            .from(authTables.organizationTable)
+            .orderBy(
+                sql`CASE WHEN ${authTables.organizationTable.slug} = ${DEFAULT_ORGANIZATION_SLUG} THEN 0 ELSE 1 END`,
+                authTables.organizationTable.createdAt
+            )
+            .limit(1);
 
-    if (!organization) {
-        throw new Error("Expected a default organization");
-    }
+        if (!organization) {
+            throw new Error("Expected a default organization");
+        }
 
-    return organization.id;
-}
-
-export async function getDefaultOrganizationId() {
-    defaultOrganizationIdPromise ??= loadDefaultOrganizationId().catch((error) => {
-        defaultOrganizationIdPromise = null;
-        throw error;
+        return organization.id;
     });
-
-    return defaultOrganizationIdPromise;
 }
 
-async function getInitialOrganizationId(userId: string) {
-    const [membership] = await db
-        .select({ organizationId: authTables.memberTable.organizationId })
-        .from(authTables.memberTable)
-        .innerJoin(
-            authTables.organizationTable,
-            eq(authTables.organizationTable.id, authTables.memberTable.organizationId)
-        )
-        .where(eq(authTables.memberTable.userId, userId))
-        .orderBy(
-            asc(authTables.memberTable.createdAt),
-            asc(authTables.organizationTable.createdAt),
-            asc(authTables.organizationTable.id)
-        )
-        .limit(1);
+export function getDefaultOrganizationId(): Effect.Effect<string, unknown> {
+    return Effect.tryPromise(() => {
+        defaultOrganizationIdPromise ??= Effect.runPromise(loadDefaultOrganizationId()).catch((error) => {
+            defaultOrganizationIdPromise = null;
+            throw error;
+        });
 
-    return membership?.organizationId ?? (await getDefaultOrganizationId());
+        return defaultOrganizationIdPromise;
+    });
+}
+
+function getInitialOrganizationId(userId: string): Effect.Effect<string, unknown> {
+    return Effect.gen(function* () {
+        const [membership] = yield* Effect.tryPromise(() =>
+            db
+                .select({ organizationId: authTables.memberTable.organizationId })
+                .from(authTables.memberTable)
+                .innerJoin(
+                    authTables.organizationTable,
+                    eq(authTables.organizationTable.id, authTables.memberTable.organizationId)
+                )
+                .where(eq(authTables.memberTable.userId, userId))
+                .orderBy(
+                    asc(authTables.memberTable.createdAt),
+                    asc(authTables.organizationTable.createdAt),
+                    asc(authTables.organizationTable.id)
+                )
+                .limit(1)
+        );
+
+        return membership?.organizationId ?? (yield* getDefaultOrganizationId());
+    });
 }
 
 export function isSystemAdminRole(role: unknown) {
@@ -137,95 +147,163 @@ function requireSystemAdminRole(user: unknown) {
     }
 }
 
-async function ensureAdminMemberships(members: AdminMembershipInput[]) {
+function ensureAdminMemberships(members: AdminMembershipInput[]): Effect.Effect<void, unknown> {
     if (members.length === 0) {
-        return;
+        return Effect.void;
     }
 
-    await db
-        .insert(authTables.memberTable)
-        .values(
-            members.map((member) => ({
-                ...member,
-                role: "admin",
-                systemRoleProvisioned: true,
-            }))
+    return Effect.asVoid(
+        Effect.tryPromise(() =>
+            db
+                .insert(authTables.memberTable)
+                .values(
+                    members.map((member) => ({
+                        ...member,
+                        role: "admin",
+                        systemRoleProvisioned: true,
+                    }))
+                )
+                .onConflictDoUpdate({
+                    target: [authTables.memberTable.organizationId, authTables.memberTable.userId],
+                    set: {
+                        role: "admin",
+                        systemRoleProvisioned: true,
+                    },
+                    setWhere: eq(authTables.memberTable.systemRoleProvisioned, true),
+                })
         )
-        .onConflictDoUpdate({
-            target: [authTables.memberTable.organizationId, authTables.memberTable.userId],
-            set: {
-                role: "admin",
-                systemRoleProvisioned: true,
-            },
-            setWhere: eq(authTables.memberTable.systemRoleProvisioned, true),
-        });
+    );
 }
 
-export async function ensureSystemAdminOrganizationMemberships(userId: string) {
-    const organizations = await db.select({ id: authTables.organizationTable.id }).from(authTables.organizationTable);
+export function ensureSystemAdminOrganizationMemberships(userId: string): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        const organizations = yield* Effect.tryPromise(() =>
+            db.select({ id: authTables.organizationTable.id }).from(authTables.organizationTable)
+        );
 
-    await ensureAdminMemberships(organizations.map((organization) => ({ organizationId: organization.id, userId })));
-}
-
-async function removeSystemAdminOrganizationMemberships(userId: string) {
-    const defaultOrganizationId = await getDefaultOrganizationId();
-
-    await db.transaction(async (tx) => {
-        await tx
-            .update(authTables.memberTable)
-            .set({
-                role: "member",
-                systemRoleProvisioned: false,
-            })
-            .where(
-                and(
-                    eq(authTables.memberTable.userId, userId),
-                    eq(authTables.memberTable.organizationId, defaultOrganizationId),
-                    eq(authTables.memberTable.systemRoleProvisioned, true)
-                )
-            );
-
-        await tx
-            .delete(authTables.memberTable)
-            .where(
-                and(
-                    eq(authTables.memberTable.userId, userId),
-                    ne(authTables.memberTable.organizationId, defaultOrganizationId),
-                    eq(authTables.memberTable.systemRoleProvisioned, true)
-                )
-            );
+        yield* ensureAdminMemberships(organizations.map((organization) => ({ organizationId: organization.id, userId })));
     });
 }
 
-async function ensureOrganizationSystemAdminMembers(organizationId: string) {
-    const systemAdmins = await db
-        .select({ id: authTables.userTable.id })
-        .from(authTables.userTable)
-        .where(
-            sql`${SYSTEM_ADMIN_ROLE} = ANY(regexp_split_to_array(btrim(COALESCE(${authTables.userTable.role}, '')), '[[:space:]]*,[[:space:]]*'))`
-        );
+function removeSystemAdminOrganizationMemberships(userId: string): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        const defaultOrganizationId = yield* getDefaultOrganizationId();
 
-    await ensureAdminMemberships(systemAdmins.map((user) => ({ organizationId, userId: user.id })));
+        yield* Effect.tryPromise(() =>
+            db.transaction(async (tx) => {
+                await tx
+                    .update(authTables.memberTable)
+                    .set({
+                        role: "member",
+                        systemRoleProvisioned: false,
+                    })
+                    .where(
+                        and(
+                            eq(authTables.memberTable.userId, userId),
+                            eq(authTables.memberTable.organizationId, defaultOrganizationId),
+                            eq(authTables.memberTable.systemRoleProvisioned, true)
+                        )
+                    );
+
+                await tx
+                    .delete(authTables.memberTable)
+                    .where(
+                        and(
+                            eq(authTables.memberTable.userId, userId),
+                            ne(authTables.memberTable.organizationId, defaultOrganizationId),
+                            eq(authTables.memberTable.systemRoleProvisioned, true)
+                        )
+                    );
+            })
+        );
+    });
 }
 
-export async function ensureDefaultOrganizationMember(userId: string, role: "admin" | "member" = "member") {
-    const organizationId = await getDefaultOrganizationId();
+function ensureOrganizationSystemAdminMembers(organizationId: string): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        const systemAdmins = yield* Effect.tryPromise(() =>
+            db
+                .select({ id: authTables.userTable.id })
+                .from(authTables.userTable)
+                .where(
+                    sql`${SYSTEM_ADMIN_ROLE} = ANY(regexp_split_to_array(btrim(COALESCE(${authTables.userTable.role}, '')), '[[:space:]]*,[[:space:]]*'))`
+                )
+        );
 
-    await db
-        .insert(authTables.memberTable)
-        .values({
-            organizationId,
-            userId,
-            role,
-        })
-        .onConflictDoUpdate({
-            target: [authTables.memberTable.organizationId, authTables.memberTable.userId],
-            set: {
-                role: sql`CASE WHEN ${authTables.memberTable.role} = 'admin' THEN ${authTables.memberTable.role} ELSE ${role} END`,
+        yield* ensureAdminMemberships(systemAdmins.map((user) => ({ organizationId, userId: user.id })));
+    });
+}
+
+export function ensureDefaultOrganizationMember(
+    userId: string,
+    role: "admin" | "member" = "member"
+): Effect.Effect<string, unknown> {
+    return Effect.gen(function* () {
+        const organizationId = yield* getDefaultOrganizationId();
+
+        yield* Effect.tryPromise(() =>
+            db
+                .insert(authTables.memberTable)
+                .values({
+                    organizationId,
+                    userId,
+                    role,
+                })
+                .onConflictDoUpdate({
+                    target: [authTables.memberTable.organizationId, authTables.memberTable.userId],
+                    set: {
+                        role: sql`CASE WHEN ${authTables.memberTable.role} = 'admin' THEN ${authTables.memberTable.role} ELSE ${role} END`,
+                    },
+                })
+        );
+
+        return organizationId;
+    });
+}
+
+function authenticateLdapCredentials(parsed: LdapCredentials) {
+    return Effect.tryPromise(async () => {
+        const ldapUrl = process.env.LDAP_URL as string;
+        const bindDn = process.env.LDAP_BIND_DN as string;
+        const bindPassword = process.env.LDAP_PASSW as string;
+        const searchBase = process.env.LDAP_BASE_DN as string;
+        const searchAttr = process.env.LDAP_SEARCH_ATTR as string;
+        const secure = ldapUrl.startsWith("ldaps://");
+        const ldapResult = (await authenticate({
+            ldapOpts: {
+                url: ldapUrl,
+                connectTimeout: 5000,
+                strictDN: true,
+                ...(secure ? { tlsOptions: { minVersion: "TLSv1.2" } } : {}),
             },
-        });
+            adminDn: bindDn,
+            adminPassword: bindPassword,
+            userSearchBase: searchBase,
+            usernameAttribute: searchAttr,
+            explicitBufferAttributes: ["jpegPhoto"],
+            username: parsed.credential,
+            userPassword: parsed.password,
+        })) as LdapResult;
+        const uidValue = ldapResult[searchAttr];
+        const uid = Array.isArray(uidValue) ? uidValue[0] : uidValue;
+        const uidString = uid ? String(uid) : parsed.credential;
+        const mailValue = Array.isArray(ldapResult.mail) ? ldapResult.mail[0] : ldapResult.mail;
+        const email = mailValue ? String(mailValue) : `${uidString}@local`;
+        const displayName = Array.isArray(ldapResult.displayName) ? ldapResult.displayName[0] : ldapResult.displayName;
+        const groups = Array.isArray(ldapResult.objectClass)
+            ? ldapResult.objectClass
+            : ldapResult.objectClass
+              ? [ldapResult.objectClass]
+              : [];
 
-    return organizationId;
+        return {
+            email,
+            ldap_dn: ldapResult.dn ? String(ldapResult.dn) : "",
+            name: displayName ? String(displayName) : uidString,
+            description: ldapResult.description ? String(ldapResult.description) : "",
+            groups,
+        };
+    });
 }
 
 export const auth = betterAuth({
@@ -250,27 +328,31 @@ export const auth = betterAuth({
         user: {
             create: {
                 after: async (user) => {
-                    await ensureDefaultOrganizationMember(user.id, "member");
+                    await Effect.runPromise(
+                        Effect.gen(function* () {
+                            yield* ensureDefaultOrganizationMember(user.id, "member");
 
-                    if (isSystemAdminRole(user.role)) {
-                        await ensureSystemAdminOrganizationMemberships(user.id);
-                    }
+                            if (isSystemAdminRole(user.role)) {
+                                yield* ensureSystemAdminOrganizationMemberships(user.id);
+                            }
+                        })
+                    );
                 },
             },
             update: {
                 after: async (user) => {
-                    if (isSystemAdminRole(user.role)) {
-                        await ensureSystemAdminOrganizationMemberships(user.id);
-                    } else {
-                        await removeSystemAdminOrganizationMemberships(user.id);
-                    }
+                    await Effect.runPromise(
+                        isSystemAdminRole(user.role)
+                            ? ensureSystemAdminOrganizationMemberships(user.id)
+                            : removeSystemAdminOrganizationMemberships(user.id)
+                    );
                 },
             },
         },
         session: {
             create: {
                 before: async (session) => {
-                    const organizationId = await getInitialOrganizationId(session.userId);
+                    const organizationId = await Effect.runPromise(getInitialOrganizationId(session.userId));
 
                     return {
                         data: {
@@ -363,12 +445,12 @@ export const auth = betterAuth({
                 beforeDeleteOrganization: async ({ organization, user }) => {
                     requireSystemAdminRole(user);
 
-                    if (organization.id === (await getDefaultOrganizationId())) {
+                    if (organization.id === (await Effect.runPromise(getDefaultOrganizationId()))) {
                         throw new APIError("FORBIDDEN", { message: "The default organization cannot be deleted" });
                     }
                 },
                 afterCreateOrganization: async ({ organization }) => {
-                    await ensureOrganizationSystemAdminMembers(organization.id);
+                    await Effect.runPromise(ensureOrganizationSystemAdminMembers(organization.id));
                 },
             },
             roles: {
@@ -384,57 +466,14 @@ export const auth = betterAuth({
                       providerId: "ldap",
                       inputSchema: ldapCredentialsSchema,
                       async callback(_ctx, parsed) {
-                          const ldapAuthResult = await Result.tryPromise(async () => {
-                              const ldapUrl = process.env.LDAP_URL as string;
-                              const bindDn = process.env.LDAP_BIND_DN as string;
-                              const bindPassword = process.env.LDAP_PASSW as string;
-                              const searchBase = process.env.LDAP_BASE_DN as string;
-                              const searchAttr = process.env.LDAP_SEARCH_ATTR as string;
-                              const secure = ldapUrl.startsWith("ldaps://");
-                              const ldapResult = (await authenticate({
-                                  ldapOpts: {
-                                      url: ldapUrl,
-                                      connectTimeout: 5000,
-                                      strictDN: true,
-                                      ...(secure ? { tlsOptions: { minVersion: "TLSv1.2" } } : {}),
-                                  },
-                                  adminDn: bindDn,
-                                  adminPassword: bindPassword,
-                                  userSearchBase: searchBase,
-                                  usernameAttribute: searchAttr,
-                                  explicitBufferAttributes: ["jpegPhoto"],
-                                  username: parsed.credential,
-                                  userPassword: parsed.password,
-                              })) as LdapResult;
-                              const uidValue = ldapResult[searchAttr];
-                              const uid = Array.isArray(uidValue) ? uidValue[0] : uidValue;
-                              const uidString = uid ? String(uid) : parsed.credential;
-                              const mailValue = Array.isArray(ldapResult.mail) ? ldapResult.mail[0] : ldapResult.mail;
-                              const email = mailValue ? String(mailValue) : `${uidString}@local`;
-                              const displayName = Array.isArray(ldapResult.displayName)
-                                  ? ldapResult.displayName[0]
-                                  : ldapResult.displayName;
-                              const groups = Array.isArray(ldapResult.objectClass)
-                                  ? ldapResult.objectClass
-                                  : ldapResult.objectClass
-                                    ? [ldapResult.objectClass]
-                                    : [];
-
-                              return {
-                                  email,
-                                  ldap_dn: ldapResult.dn ? String(ldapResult.dn) : "",
-                                  name: displayName ? String(displayName) : uidString,
-                                  description: ldapResult.description ? String(ldapResult.description) : "",
-                                  groups,
-                              };
-                          });
-
-                          if (ldapAuthResult.isErr()) {
-                              logError("LDAP authentication failed", { error: ldapAuthResult.error });
-                              throw new Error("Invalid credentials");
-                          }
-
-                          return ldapAuthResult.value;
+                          return Effect.runPromise(
+                              Effect.catch(authenticateLdapCredentials(parsed), (error) =>
+                                  Effect.gen(function* () {
+                                      yield* Effect.sync(() => logError("LDAP authentication failed", { error }));
+                                      return yield* Effect.fail(new Error("Invalid credentials"));
+                                  })
+                              )
+                          );
                       },
                   }),
               ]

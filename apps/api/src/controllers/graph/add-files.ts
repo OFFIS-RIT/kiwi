@@ -28,17 +28,17 @@ import { archiveUploadError, getGraphOwnerModelOrganizationId, unsupportedUpload
 
 export function addGraphFiles(input: { user: AuthUser; graphId: string; files: File[] }) {
     return tryApiPromise(async (): Promise<GraphAddFilesSuccessData> => {
-        const existingGraph = await assertCanManageGraphFiles(input.user, input.graphId);
+        const existingGraph = await Effect.runPromise(assertCanManageGraphFiles(input.user, input.graphId));
         if (input.files.length === 0) {
             throw makeApiError(400, API_ERROR_CODES.NO_CHANGES, "No changes requested");
         }
 
-        const expanded = await expandArchiveUploadFiles(input.files);
+        const expanded = await Effect.runPromise(expandArchiveUploadFiles(input.files));
         if (!expanded.ok) {
             throw archiveUploadError(expanded);
         }
 
-        const uniqueUploadedFiles = await uniqueFilesByChecksum(expanded.files);
+        const uniqueUploadedFiles = await Effect.runPromise(uniqueFilesByChecksum(expanded.files));
         if (uniqueUploadedFiles.length === 0) {
             return { graph: existingGraph, addedFiles: [], workflowRunId: null };
         }
@@ -62,13 +62,13 @@ export function addGraphFiles(input: { user: AuthUser; graphId: string; files: F
             throw unsupportedUploadError(supportedUpload);
         }
 
-        await assertConfiguredUploadModels({
+        await Effect.runPromise(assertConfiguredUploadModels({
             organizationId: await Effect.runPromise(
                 getGraphOwnerModelOrganizationId({ ownerMode: "graph", graphId: existingGraph.id })
             ),
             files: supportedUpload.files,
             secret: env.AUTH_SECRET,
-        });
+        }));
 
         const uploadedFiles: UploadedFile[] = [];
         try {
@@ -86,7 +86,7 @@ export function addGraphFiles(input: { user: AuthUser; graphId: string; files: F
                 });
             }
         } catch (uploadError) {
-            const failedDeletes = await cleanupUploadedKeys(uploadedFiles.map((file) => file.key));
+            const failedDeletes = await Effect.runPromise(cleanupUploadedKeys(uploadedFiles.map((file) => file.key)));
             logError("graph file add failed during file upload", {
                 graphId: existingGraph.id,
                 uploadedKeyCount: uploadedFiles.length,
@@ -98,9 +98,9 @@ export function addGraphFiles(input: { user: AuthUser; graphId: string; files: F
 
         let result: GraphFileUploadCommit;
         try {
-            result = await commitGraphFileUploads({ graph: existingGraph, uploadedFiles });
+            result = await Effect.runPromise(commitGraphFileUploads({ graph: existingGraph, uploadedFiles }));
         } catch (dbPatchError) {
-            const failedDeletes = await cleanupUploadedKeys(uploadedFiles.map((file) => file.key));
+            const failedDeletes = await Effect.runPromise(cleanupUploadedKeys(uploadedFiles.map((file) => file.key)));
             logError("graph file add failed during database update", {
                 graphId: existingGraph.id,
                 uploadedKeyCount: uploadedFiles.length,
@@ -127,12 +127,14 @@ export function addGraphFiles(input: { user: AuthUser; graphId: string; files: F
 
             return { graph: result.graph, addedFiles: result.addedFiles, workflowRunId: handle.workflowRun.id };
         } catch (enqueueError) {
-            await restoreGraphFileChangeFailure(
-                existingGraph.id,
-                existingGraph,
-                result.addedFiles.map((file) => file.id),
-                uploadedFiles.map((file) => file.key),
-                result.processRunId
+            await Effect.runPromise(
+                restoreGraphFileChangeFailure(
+                    existingGraph.id,
+                    existingGraph,
+                    result.addedFiles.map((file) => file.id),
+                    uploadedFiles.map((file) => file.key),
+                    result.processRunId
+                )
             );
             logError("graph file add failed during workflow enqueue", {
                 graphId: existingGraph.id,

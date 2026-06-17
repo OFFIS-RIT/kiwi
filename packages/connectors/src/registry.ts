@@ -1,3 +1,5 @@
+import * as Effect from "effect/Effect";
+
 import {
     createGitHubClient,
     createGitHubInstallationToken,
@@ -30,20 +32,28 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
     github: {
         provider: "github",
         resourceKind: "git-repository",
-        async create(options) {
-            const credentials = requireGitHubConnectorCredentials(options.provider, options.credentials);
-            const installation = requireGitHubInstallationCredentials(options.provider, options.installation);
-            const token = await createGitHubInstallationToken({
-                credentials,
-                installationId: installation.installationId,
-                apiBaseUrl: options.apiBaseUrl,
-                fetch: options.fetch,
-            });
+        create(options) {
+            return Effect.gen(function* () {
+                const credentials = yield* Effect.try({
+                    try: () => requireGitHubConnectorCredentials(options.provider, options.credentials),
+                    catch: (error) => error,
+                });
+                const installation = yield* Effect.try({
+                    try: () => requireGitHubInstallationCredentials(options.provider, options.installation),
+                    catch: (error) => error,
+                });
+                const token = yield* createGitHubInstallationToken({
+                    credentials,
+                    installationId: installation.installationId,
+                    apiBaseUrl: options.apiBaseUrl,
+                    fetch: options.fetch,
+                });
 
-            return createGitHubClient({
-                installationToken: token.token,
-                apiBaseUrl: options.apiBaseUrl,
-                fetch: options.fetch,
+                return createGitHubClient({
+                    installationToken: token.token,
+                    apiBaseUrl: options.apiBaseUrl,
+                    fetch: options.fetch,
+                });
             });
         },
         verifyWebhook(options) {
@@ -60,14 +70,22 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
     gitlab: {
         provider: "gitlab",
         resourceKind: "git-repository",
-        async create(options) {
-            const credentials = requireGitLabConnectorCredentials(options.provider, options.credentials);
-            const installation = requireGitLabInstallationCredentials(options.provider, options.installation);
+        create(options) {
+            return Effect.gen(function* () {
+                const credentials = yield* Effect.try({
+                    try: () => requireGitLabConnectorCredentials(options.provider, options.credentials),
+                    catch: (error) => error,
+                });
+                const installation = yield* Effect.try({
+                    try: () => requireGitLabInstallationCredentials(options.provider, options.installation),
+                    catch: (error) => error,
+                });
 
-            return createGitLabClient({
-                baseUrl: normalizeGitLabBaseUrl(credentials.baseUrl),
-                accessToken: installation.accessToken,
-                fetch: options.fetch,
+                return createGitLabClient({
+                    baseUrl: normalizeGitLabBaseUrl(credentials.baseUrl),
+                    accessToken: installation.accessToken,
+                    fetch: options.fetch,
+                });
             });
         },
         verifyWebhook(options) {
@@ -86,7 +104,7 @@ export function getConnectorAdapterRegistryEntry(provider: ConnectorProvider): C
     return connectorAdapterRegistry[provider];
 }
 
-export async function createConnectorAdapter(options: ConnectorAdapterFactoryOptions): Promise<ConnectorAdapter> {
+export function createConnectorAdapter(options: ConnectorAdapterFactoryOptions): Effect.Effect<ConnectorAdapter, unknown> {
     return connectorAdapterRegistry[options.provider].create(options);
 }
 

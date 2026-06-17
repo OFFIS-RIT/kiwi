@@ -188,11 +188,12 @@ function getImageBatchSize(): number {
 async function defaultDescribeImage(image: OCRImageAsset, model: LanguageModelV3): Promise<string> {
     const mimeType = image.type || "application/octet-stream";
     const base64 = Buffer.from(image.content).toString("base64");
-    const { text } = await withAiSlot("image", () =>
+    const { text } = await withAiSlot("image", (signal) =>
         generateText({
             model,
             system: embeddedImagePrompt,
             temperature: 0.1,
+            abortSignal: signal,
             messages: [
                 {
                     role: "user",

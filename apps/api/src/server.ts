@@ -25,11 +25,11 @@ import { teamChatRoute } from "./routes/team-chat";
 import { teamRoute } from "./routes/team";
 
 initLogger();
-const archiveToolCheck = await checkArchiveUploadTools();
+const archiveToolCheck = await Effect.runPromise(checkArchiveUploadTools());
 if (!archiveToolCheck.ok) {
     logWarn("archive upload extraction tools are missing", { missingTools: archiveToolCheck.missing });
 }
-const legacyModelBootstrap = await bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET });
+const legacyModelBootstrap = await Effect.runPromise(bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET }));
 await Effect.runPromise(ensureMasterUser());
 
 const trustedOrigins =
@@ -83,7 +83,7 @@ info("api server started", {
 
 async function handleShutdown(signal: string) {
     info("api server shutting down", { signal });
-    await shutdownLogger();
+    await Effect.runPromise(shutdownLogger());
     process.exit(0);
 }
 

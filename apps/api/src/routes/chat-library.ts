@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
 import { parseListNumber } from "../lib/parse-query-params";
@@ -20,7 +21,7 @@ export const chatLibraryRoute = new Elysia({ prefix: "/chats" })
             return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
         }
 
-        const result = await Result.tryPromise(async () => listPinnedChats(user));
+        const result = await Result.tryPromise(() => Effect.runPromise(listPinnedChats(user)));
         if (result.isErr()) {
             return mapLibraryError(status, result.error);
         }
@@ -34,11 +35,13 @@ export const chatLibraryRoute = new Elysia({ prefix: "/chats" })
                 return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
             }
 
-            const result = await Result.tryPromise(async () =>
-                listArchivedChats(user, {
-                    offset: parseListNumber(query.offset, { minimum: 0, maximum: 10_000 }),
-                    limit: parseListNumber(query.limit, { minimum: 1, maximum: 100 }),
-                })
+            const result = await Result.tryPromise(() =>
+                Effect.runPromise(
+                    listArchivedChats(user, {
+                        offset: parseListNumber(query.offset, { minimum: 0, maximum: 10_000 }),
+                        limit: parseListNumber(query.limit, { minimum: 1, maximum: 100 }),
+                    })
+                )
             );
             if (result.isErr()) {
                 return mapLibraryError(status, result.error);

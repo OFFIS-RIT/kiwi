@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 const generateTextMock = mock(async () => ({
     content: [{ type: "text" as const, text: "Answer" }],
@@ -35,13 +36,15 @@ describe("runMcpResearch", () => {
     test("prepends scoped prompt guidance to the research question", async () => {
         generateTextMock.mockClear();
 
-        const result = await runMcpResearch({
-            model: {} as never,
-            question: "What changed?",
-            promptGuidance: {
-                graphPrompts: ["ACME means Acme Corp."],
-            },
-        });
+        const result = await Effect.runPromise(
+            runMcpResearch({
+                model: {} as never,
+                question: "What changed?",
+                promptGuidance: {
+                    graphPrompts: ["ACME means Acme Corp."],
+                },
+            })
+        );
 
         const call = generateTextMock.mock.calls[0]?.[0] as {
             messages: Array<{ role: string; content: string }>;

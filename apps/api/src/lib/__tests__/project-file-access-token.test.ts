@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 mock.module("../../env", () => ({
     env: {
@@ -44,11 +45,13 @@ async function createLegacyRawSecretToken(payload: { graphId: string; fileId: st
 describe("project file access tokens", () => {
     test("surfaces HMAC key import failures instead of changing key derivation", async () => {
         await expect(
-            importProjectFileAccessTokenSigningKey("secret", {
-                importKey: async () => {
-                    throw new Error("import failed");
-                },
-            })
+            Effect.runPromise(
+                importProjectFileAccessTokenSigningKey("secret", {
+                    importKey: async () => {
+                        throw new Error("import failed");
+                    },
+                })
+            )
         ).rejects.toThrow("Failed to import AUTH_SECRET as an HMAC signing key");
     });
 
@@ -60,27 +63,31 @@ describe("project file access tokens", () => {
             exp: Math.floor(now.getTime() / 1000) + 60,
         });
 
-        await expect(verifyProjectFileAccessToken(token, "graph-1", "file-1", { now })).resolves.toBe(true);
+        await expect(Effect.runPromise(verifyProjectFileAccessToken(token, "graph-1", "file-1", { now }))).resolves.toBe(true);
     });
 
     test("creates tokens bound to a graph and file", async () => {
         const now = new Date("2026-01-01T00:00:00Z");
-        const token = await createProjectFileAccessToken("graph-1", "file-1", { now, expiresInSeconds: 60 });
+        const token = await Effect.runPromise(createProjectFileAccessToken("graph-1", "file-1", { now, expiresInSeconds: 60 }));
 
-        await expect(verifyProjectFileAccessToken(token, "graph-1", "file-1", { now })).resolves.toBe(true);
-        await expect(verifyProjectFileAccessToken(token, "graph-2", "file-1", { now })).resolves.toBe(false);
-        await expect(verifyProjectFileAccessToken(token, "graph-1", "file-2", { now })).resolves.toBe(false);
+        await expect(Effect.runPromise(verifyProjectFileAccessToken(token, "graph-1", "file-1", { now }))).resolves.toBe(true);
+        await expect(Effect.runPromise(verifyProjectFileAccessToken(token, "graph-2", "file-1", { now }))).resolves.toBe(false);
+        await expect(Effect.runPromise(verifyProjectFileAccessToken(token, "graph-1", "file-2", { now }))).resolves.toBe(false);
     });
 
     test("rejects expired and tampered tokens", async () => {
-        const token = await createProjectFileAccessToken("graph-1", "file-1", {
-            now: new Date("2026-01-01T00:00:00Z"),
-            expiresInSeconds: 60,
-        });
+        const token = await Effect.runPromise(
+            createProjectFileAccessToken("graph-1", "file-1", {
+                now: new Date("2026-01-01T00:00:00Z"),
+                expiresInSeconds: 60,
+            })
+        );
 
         await expect(
-            verifyProjectFileAccessToken(token, "graph-1", "file-1", { now: new Date("2026-01-01T00:02:00Z") })
+            Effect.runPromise(
+                verifyProjectFileAccessToken(token, "graph-1", "file-1", { now: new Date("2026-01-01T00:02:00Z") })
+            )
         ).resolves.toBe(false);
-        await expect(verifyProjectFileAccessToken(`${token}x`, "graph-1", "file-1")).resolves.toBe(false);
+        await expect(Effect.runPromise(verifyProjectFileAccessToken(`${token}x`, "graph-1", "file-1"))).resolves.toBe(false);
     });
 });

@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { memberTable, userTable } from "@kiwi/db/tables/auth";
 import type { OrganizationMemberListItem } from "@kiwi/contracts/teams";
@@ -8,7 +9,7 @@ import { tryApiPromise } from "../../_shared/api-effect";
 
 export function listAvailableUsers(input: { user: AuthUser; teamId: string }) {
     return tryApiPromise(async (): Promise<OrganizationMemberListItem[]> => {
-        const access = await requireTeamMemberManageAccess(input.user, input.teamId);
+        const access = await Effect.runPromise(requireTeamMemberManageAccess(input.user, input.teamId));
 
         return db
             .select({

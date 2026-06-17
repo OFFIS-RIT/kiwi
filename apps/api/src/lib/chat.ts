@@ -30,7 +30,7 @@ import { organizationPromptsTable, teamPromptsTable, userPromptsTable } from "@k
 import { filesTable, graphPromptsTable, processRunsTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
-import { Result } from "better-result";
+import * as Effect from "effect/Effect";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
@@ -126,6 +126,13 @@ const CONTEXT_OVERFLOW_PATTERNS = [
     "input length exceeds",
     "too many input tokens",
 ];
+
+function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, unknown> {
+    return Effect.tryPromise({
+        try: thunk,
+        catch: (error) => error,
+    });
+}
 
 export function shouldIncludeGraphCorrectionTool(rootOwner: RootOwner, deep?: boolean) {
     return deep !== true && rootOwner.mode !== "user";
@@ -240,21 +247,24 @@ export function shouldRefreshGraphDataAfterCompletedWorkflow(options: {
     return latestReplyTriggerAt !== null && latestReplyTriggerAt > latestGraphRetrievalAt;
 }
 
-async function getLatestCompletedWorkflowAt(graphId: string) {
-    const [run] = await db
-        .select({ completedAt: processRunsTable.completedAt })
-        .from(processRunsTable)
-        .where(
-            and(
-                eq(processRunsTable.graphId, graphId),
-                eq(processRunsTable.status, "completed"),
-                isNotNull(processRunsTable.completedAt)
-            )
-        )
-        .orderBy(desc(processRunsTable.completedAt), desc(processRunsTable.id))
-        .limit(1);
-
-    return run?.completedAt ?? null;
+function getLatestCompletedWorkflowAt(graphId: string) {
+    return Effect.map(
+        chatEffect(() =>
+            db
+                .select({ completedAt: processRunsTable.completedAt })
+                .from(processRunsTable)
+                .where(
+                    and(
+                        eq(processRunsTable.graphId, graphId),
+                        eq(processRunsTable.status, "completed"),
+                        isNotNull(processRunsTable.completedAt)
+                    )
+                )
+                .orderBy(desc(processRunsTable.completedAt), desc(processRunsTable.id))
+                .limit(1)
+        ),
+        ([run]) => run?.completedAt ?? null
+    );
 }
 
 function createGraphDataRefreshNotice(options: {
@@ -270,68 +280,87 @@ function createGraphDataRefreshNotice(options: {
     };
 }
 
-async function listGraphPromptTexts(graphId: string) {
-    return normalizePromptTexts(
-        await db
-            .select({ prompt: graphPromptsTable.prompt })
-            .from(graphPromptsTable)
-            .where(eq(graphPromptsTable.graphId, graphId))
-            .orderBy(asc(graphPromptsTable.createdAt), asc(graphPromptsTable.id))
-            .limit(MAX_PROMPTS_PER_SCOPE)
+function listGraphPromptTexts(graphId: string) {
+    return Effect.map(
+        chatEffect(() =>
+            db
+                .select({ prompt: graphPromptsTable.prompt })
+                .from(graphPromptsTable)
+                .where(eq(graphPromptsTable.graphId, graphId))
+                .orderBy(asc(graphPromptsTable.createdAt), asc(graphPromptsTable.id))
+                .limit(MAX_PROMPTS_PER_SCOPE)
+        ),
+        normalizePromptTexts
     );
 }
 
 // Organization Prompts apply to every chat in the deployment, so they are
 // always loaded for the deployment's default organization rather than resolved
 // through the graph's owner chain (personal graphs have no organization).
-export async function listOrganizationPromptTexts() {
-    const organizationIdResult = await Result.tryPromise(getDefaultOrganizationId);
-    if (organizationIdResult.isErr()) {
-        logWarn("Failed to resolve the default organization for organization prompts", {
-            error: organizationIdResult.error,
+export function listOrganizationPromptTexts() {
+    return Effect.gen(function* () {
+        const organizationIdResult = yield* Effect.match(getDefaultOrganizationId(), {
+            onFailure: (error) => ({ status: "failure" as const, error }),
+            onSuccess: (organizationId) => ({ status: "success" as const, organizationId }),
         });
-        return [];
-    }
+        if (organizationIdResult.status === "failure") {
+            logWarn("Failed to resolve the default organization for organization prompts", {
+                error: organizationIdResult.error,
+            });
+            return [];
+        }
 
-    return normalizePromptTexts(
-        await db
-            .select({ prompt: organizationPromptsTable.prompt })
-            .from(organizationPromptsTable)
-            .where(eq(organizationPromptsTable.organizationId, organizationIdResult.value))
-            .orderBy(asc(organizationPromptsTable.createdAt), asc(organizationPromptsTable.id))
-            .limit(MAX_PROMPTS_PER_SCOPE)
+        return yield* Effect.map(
+            chatEffect(() =>
+                db
+                    .select({ prompt: organizationPromptsTable.prompt })
+                    .from(organizationPromptsTable)
+                    .where(eq(organizationPromptsTable.organizationId, organizationIdResult.organizationId))
+                    .orderBy(asc(organizationPromptsTable.createdAt), asc(organizationPromptsTable.id))
+                    .limit(MAX_PROMPTS_PER_SCOPE)
+            ),
+            normalizePromptTexts
+        );
+    });
+}
+
+export function listUserPromptTexts(userId: string) {
+    return Effect.map(
+        chatEffect(() =>
+            db
+                .select({ prompt: userPromptsTable.prompt })
+                .from(userPromptsTable)
+                .where(eq(userPromptsTable.userId, userId))
+                .orderBy(asc(userPromptsTable.createdAt), asc(userPromptsTable.id))
+                .limit(MAX_PROMPTS_PER_SCOPE)
+        ),
+        normalizePromptTexts
     );
 }
 
-export async function listUserPromptTexts(userId: string) {
-    return normalizePromptTexts(
-        await db
-            .select({ prompt: userPromptsTable.prompt })
-            .from(userPromptsTable)
-            .where(eq(userPromptsTable.userId, userId))
-            .orderBy(asc(userPromptsTable.createdAt), asc(userPromptsTable.id))
-            .limit(MAX_PROMPTS_PER_SCOPE)
+export function listTeamPromptTexts(teamId: string) {
+    return Effect.map(
+        chatEffect(() =>
+            db
+                .select({ prompt: teamPromptsTable.prompt })
+                .from(teamPromptsTable)
+                .where(eq(teamPromptsTable.teamId, teamId))
+                .orderBy(asc(teamPromptsTable.createdAt), asc(teamPromptsTable.id))
+                .limit(MAX_PROMPTS_PER_SCOPE)
+        ),
+        normalizePromptTexts
     );
 }
 
-export async function listTeamPromptTexts(teamId: string) {
-    return normalizePromptTexts(
-        await db
-            .select({ prompt: teamPromptsTable.prompt })
-            .from(teamPromptsTable)
-            .where(eq(teamPromptsTable.teamId, teamId))
-            .orderBy(asc(teamPromptsTable.createdAt), asc(teamPromptsTable.id))
-            .limit(MAX_PROMPTS_PER_SCOPE)
-    );
-}
+function listTeamPromptTextsForGraph(graphId: string, knownRootOwner?: RootOwner) {
+    return Effect.gen(function* () {
+        const rootOwner = knownRootOwner ?? (yield* resolveGraphOwnerRoot(graphId));
+        if (rootOwner.mode !== "team") {
+            return [];
+        }
 
-async function listTeamPromptTextsForGraph(graphId: string, knownRootOwner?: RootOwner) {
-    const rootOwner = knownRootOwner ?? (await resolveGraphOwnerRoot(graphId));
-    if (rootOwner.mode !== "team") {
-        return [];
-    }
-
-    return listTeamPromptTexts(rootOwner.teamId);
+        return yield* listTeamPromptTexts(rootOwner.teamId);
+    });
 }
 
 export function toAssistantReply(assistantId: string, parts: MessagePart[], metadata: ChatMessageMetadata) {
@@ -400,47 +429,57 @@ export function toolPart<
     };
 }
 
-export async function touchChat(chatId: string) {
-    await db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId));
+export function touchChat(chatId: string) {
+    return Effect.asVoid(chatEffect(() => db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId))));
 }
 
-export async function setChatPinned(chatId: string, userId: string, pinned: boolean) {
-    await db
-        .update(chatTable)
-        .set({
-            pinnedAt: pinned ? new Date() : null,
-            updatedAt: sql`${chatTable.updatedAt}`,
-        })
-        .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)));
+export function setChatPinned(chatId: string, userId: string, pinned: boolean) {
+    return Effect.asVoid(
+        chatEffect(() =>
+            db
+                .update(chatTable)
+                .set({
+                    pinnedAt: pinned ? new Date() : null,
+                    updatedAt: sql`${chatTable.updatedAt}`,
+                })
+                .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)))
+        )
+    );
 }
 
-export async function setChatArchived(chatId: string, userId: string, archived: boolean) {
-    await db
-        .update(chatTable)
-        .set({
-            archivedAt: archived ? new Date() : null,
-            // Preserve updatedAt so archive state changes do not reorder chats.
-            updatedAt: sql`${chatTable.updatedAt}`,
-        })
-        .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)));
+export function setChatArchived(chatId: string, userId: string, archived: boolean) {
+    return Effect.asVoid(
+        chatEffect(() =>
+            db
+                .update(chatTable)
+                .set({
+                    archivedAt: archived ? new Date() : null,
+                    // Preserve updatedAt so archive state changes do not reorder chats.
+                    updatedAt: sql`${chatTable.updatedAt}`,
+                })
+                .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)))
+        )
+    );
 }
 
 export { getRequiredResearchClient };
 export type { RequiredResearchClient };
 
-async function getResearchModelOrganizationId(user: AuthUser | undefined, rootOwner: RootOwner) {
-    const organizationId =
-        rootOwner.mode === "user"
-            ? user
-                ? await getActiveOrganizationId(user)
-                : await getDefaultModelOrganizationId()
-            : rootOwner.organizationId;
+function getResearchModelOrganizationId(user: AuthUser | undefined, rootOwner: RootOwner) {
+    return Effect.gen(function* () {
+        const organizationId =
+            rootOwner.mode === "user"
+                ? user
+                    ? yield* getActiveOrganizationId(user)
+                    : yield* getDefaultModelOrganizationId()
+                : rootOwner.organizationId;
 
-    if (user) {
-        await requireOrganizationMembership(user, organizationId);
-    }
+        if (user) {
+            yield* requireOrganizationMembership(user, organizationId);
+        }
 
-    return organizationId;
+        return organizationId;
+    });
 }
 
 function createGraphResearchRuntime(options: {
@@ -485,7 +524,7 @@ function createGraphResearchRuntime(options: {
     };
 }
 
-export async function getGraphResearchRuntime(
+export function getGraphResearchRuntime(
     graphId: string,
     options: {
         toolset: RuntimeToolset;
@@ -497,36 +536,39 @@ export async function getGraphResearchRuntime(
         correction?: CorrectionToolContext;
     } = { toolset: "server" }
 ) {
-    const rootOwner = options.rootOwner ?? (await resolveGraphOwnerRoot(graphId));
-    const organizationId = await getResearchModelOrganizationId(options.user, rootOwner);
-    const [organizationPrompts, graphPrompts, userPrompts, teamPrompts] = await Promise.all([
-        listOrganizationPromptTexts(),
-        listGraphPromptTexts(graphId),
-        options.user ? listUserPromptTexts(options.user.id) : [],
-        options.user ? listTeamPromptTextsForGraph(graphId, rootOwner) : [],
-    ]);
-    const promptGuidance = {
-        organizationPrompts,
-        userPrompts,
-        teamPrompts,
-        graphPrompts,
-    };
-
-    return createGraphResearchRuntime({
-        graphId,
-        client: await getRequiredResearchClient({
+    return Effect.gen(function* () {
+        const rootOwner = options.rootOwner ?? (yield* resolveGraphOwnerRoot(graphId));
+        const organizationId = yield* getResearchModelOrganizationId(options.user, rootOwner);
+        const [organizationPrompts, graphPrompts, userPrompts, teamPrompts] = yield* Effect.all([
+            listOrganizationPromptTexts(),
+            listGraphPromptTexts(graphId),
+            options.user ? listUserPromptTexts(options.user.id) : Effect.succeed([]),
+            options.user ? listTeamPromptTextsForGraph(graphId, rootOwner) : Effect.succeed([]),
+        ]);
+        const promptGuidance = {
+            organizationPrompts,
+            userPrompts,
+            teamPrompts,
+            graphPrompts,
+        };
+        const client = yield* getRequiredResearchClient({
             organizationId,
             requestedModelId: options.requestedModelId,
-        }),
-        toolset: options.toolset,
-        deep: options.deep,
-        promptGuidance,
-        requestInformation: options.requestInformation,
-        correction: options.correction,
+        });
+
+        return createGraphResearchRuntime({
+            graphId,
+            client,
+            toolset: options.toolset,
+            deep: options.deep,
+            promptGuidance,
+            requestInformation: options.requestInformation,
+            correction: options.correction,
+        });
     });
 }
 
-export async function getGraphResearchRuntimeWithSharedGuidance(
+export function getGraphResearchRuntimeWithSharedGuidance(
     graphId: string,
     options: {
         client: RequiredResearchClient;
@@ -537,17 +579,21 @@ export async function getGraphResearchRuntimeWithSharedGuidance(
         correction?: CorrectionToolContext;
     }
 ) {
-    return createGraphResearchRuntime({
-        graphId,
-        client: options.client,
-        toolset: options.toolset,
-        deep: options.deep,
-        promptGuidance: {
-            ...options.promptGuidance,
-            graphPrompts: await listGraphPromptTexts(graphId),
-        },
-        requestInformation: options.requestInformation,
-        correction: options.correction,
+    return Effect.gen(function* () {
+        const graphPrompts = yield* listGraphPromptTexts(graphId);
+
+        return createGraphResearchRuntime({
+            graphId,
+            client: options.client,
+            toolset: options.toolset,
+            deep: options.deep,
+            promptGuidance: {
+                ...options.promptGuidance,
+                graphPrompts,
+            },
+            requestInformation: options.requestInformation,
+            correction: options.correction,
+        });
     });
 }
 
@@ -583,7 +629,7 @@ export function startsAssistantOutput(partType: string) {
     );
 }
 
-export async function refreshReplyContext(options: {
+export function refreshReplyContext(options: {
     chatId: string;
     graphId: string;
     runtime: ChatRuntime;
@@ -591,334 +637,353 @@ export async function refreshReplyContext(options: {
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
 }) {
-    const rows = await loadChatRows(options.chatId);
-    const latestGraphRetrievalAt = getLatestGraphRetrievalAt(rows);
-    const completedWorkflowAt =
-        latestGraphRetrievalAt === null ? null : await getLatestCompletedWorkflowAt(options.graphId);
-    const graphDataRefresh = createGraphDataRefreshNotice({ rows, completedWorkflowAt });
-    const systemPrompt = createChatSystemPrompt({
-        ...(options.promptOptions ?? {}),
-        ...(graphDataRefresh ? { graphDataRefresh } : {}),
-    });
-    const validateMessages = createChatMessageValidator(
-        buildChatValidationToolset({
-            graphId: options.graphId,
-            embeddingModel: options.runtime.client.embedding,
-            model: options.runtime.client.subagent ?? options.runtime.client.text,
-        })
-    );
-    const buildContext = (rows: ChatMessage[]) =>
-        buildActiveChatContext({
-            rows,
-            runtime: options.runtime,
-            systemPrompt,
-            validateMessages,
+    return Effect.gen(function* () {
+        const rows = yield* loadChatRows(options.chatId);
+        const latestGraphRetrievalAt = getLatestGraphRetrievalAt(rows);
+        const completedWorkflowAt =
+            latestGraphRetrievalAt === null ? null : yield* getLatestCompletedWorkflowAt(options.graphId);
+        const graphDataRefresh = createGraphDataRefreshNotice({ rows, completedWorkflowAt });
+        const systemPrompt = createChatSystemPrompt({
+            ...(options.promptOptions ?? {}),
+            ...(graphDataRefresh ? { graphDataRefresh } : {}),
         });
-    const { context } = await maybeCompactConversation({
-        chatId: options.chatId,
-        runtime: options.runtime,
-        rows,
-        systemPrompt,
-        buildContext,
-        forceCompaction: options.forceCompaction,
-        abortSignal: options.abortSignal,
-    });
+        const validateMessages = createChatMessageValidator(
+            buildChatValidationToolset({
+                graphId: options.graphId,
+                embeddingModel: options.runtime.client.embedding,
+                model: options.runtime.client.subagent ?? options.runtime.client.text,
+            })
+        );
+        const buildContext = (rows: ChatMessage[]) =>
+            buildActiveChatContext({
+                rows,
+                runtime: options.runtime,
+                systemPrompt,
+                validateMessages,
+            });
+        const { context } = yield* maybeCompactConversation({
+            chatId: options.chatId,
+            runtime: options.runtime,
+            rows,
+            systemPrompt,
+            buildContext,
+            forceCompaction: options.forceCompaction,
+            abortSignal: options.abortSignal,
+        });
 
-    return {
-        systemPrompt,
-        contextMessages: context.contextMessages,
-        validatedMessages: context.validatedMessages,
-        estimatedPromptTokens: context.estimatedPromptTokens,
-    };
+        return {
+            systemPrompt,
+            contextMessages: context.contextMessages,
+            validatedMessages: context.validatedMessages,
+            estimatedPromptTokens: context.estimatedPromptTokens,
+        };
+    });
 }
 
-export async function startReply(user: AuthUser, graphId: string, request: ChatRequest, options: StartReplyOptions) {
-    const requestedPromptOptions = options.promptOptions ?? {};
-    const normalizedRequest = normalizeChatRequest(request);
-    const rootOwner = options.rootOwner ?? (await resolveGraphOwnerRoot(graphId));
-    const includeCorrectionTool =
-        requestedPromptOptions.includeCorrectionTool === true &&
-        shouldIncludeGraphCorrectionTool(rootOwner, options.deep);
-    const promptOptions = {
-        ...requestedPromptOptions,
-        includeCorrectionTool,
-    };
-    const { isNewChat } = await ensureChatRecord({
-        chatId: normalizedRequest.id,
-        userId: user.id,
-        target: graphChatTarget(graphId),
-        defaultTitle: DEFAULT_CHAT_TITLE,
-    });
-    await syncChatMessage({
-        chatId: normalizedRequest.id,
-        message: normalizedRequest.latestMessage,
-        toParts: uiMessageToMessageParts,
-        getMetrics,
-        parseCreatedAt,
-    });
-    const runtime = await getGraphResearchRuntime(graphId, {
-        ...options,
-        user,
-        rootOwner,
-        requestedModelId: normalizedRequest.modelId,
-        requestInformation: promptOptions.requestInformation,
-        correction: includeCorrectionTool
-            ? {
-                  graphId,
-                  userId: user.id,
-                  chatId: normalizedRequest.id,
-                  messageId: normalizedRequest.latestMessage.id,
-              }
-            : undefined,
-    });
-    const { contextMessages, validatedMessages, estimatedPromptTokens, systemPrompt } = await refreshReplyContext({
-        chatId: normalizedRequest.id,
-        graphId,
-        runtime,
-        promptOptions,
-        abortSignal: options.abortSignal,
-    });
-    const assistantId = await createPendingAssistantMessage(normalizedRequest.id);
-    await touchChat(normalizedRequest.id);
+export function startReply(user: AuthUser, graphId: string, request: ChatRequest, options: StartReplyOptions) {
+    return Effect.gen(function* () {
+        const requestedPromptOptions = options.promptOptions ?? {};
+        const normalizedRequest = normalizeChatRequest(request);
+        const rootOwner = options.rootOwner ?? (yield* resolveGraphOwnerRoot(graphId));
+        const includeCorrectionTool =
+            requestedPromptOptions.includeCorrectionTool === true &&
+            shouldIncludeGraphCorrectionTool(rootOwner, options.deep);
+        const promptOptions = {
+            ...requestedPromptOptions,
+            includeCorrectionTool,
+        };
+        const { isNewChat } = yield* ensureChatRecord({
+            chatId: normalizedRequest.id,
+            userId: user.id,
+            target: graphChatTarget(graphId),
+            defaultTitle: DEFAULT_CHAT_TITLE,
+        });
+        yield* syncChatMessage({
+            chatId: normalizedRequest.id,
+            message: normalizedRequest.latestMessage,
+            toParts: uiMessageToMessageParts,
+            getMetrics,
+            parseCreatedAt,
+        });
+        const runtime = yield* getGraphResearchRuntime(graphId, {
+            ...options,
+            user,
+            rootOwner,
+            requestedModelId: normalizedRequest.modelId,
+            requestInformation: promptOptions.requestInformation,
+            correction: includeCorrectionTool
+                ? {
+                      graphId,
+                      userId: user.id,
+                      chatId: normalizedRequest.id,
+                      messageId: normalizedRequest.latestMessage.id,
+                  }
+                : undefined,
+        });
+        const { contextMessages, validatedMessages, estimatedPromptTokens, systemPrompt } = yield* refreshReplyContext({
+            chatId: normalizedRequest.id,
+            graphId,
+            runtime,
+            promptOptions,
+            abortSignal: options.abortSignal,
+        });
+        const assistantId = yield* createPendingAssistantMessage(normalizedRequest.id);
+        yield* touchChat(normalizedRequest.id);
 
-    return {
-        chatId: normalizedRequest.id,
-        assistantId,
-        isNewChat,
-        titleMessages: normalizedRequest.titleMessages,
-        systemPrompt,
-        contextMessages,
-        validatedMessages,
-        estimatedPromptTokens,
-        ...runtime,
-    };
+        return {
+            chatId: normalizedRequest.id,
+            assistantId,
+            isNewChat,
+            titleMessages: normalizedRequest.titleMessages,
+            systemPrompt,
+            contextMessages,
+            validatedMessages,
+            estimatedPromptTokens,
+            ...runtime,
+        };
+    });
 }
 
-export async function enrichCitation(graphId: string, sourceId: string): Promise<ResolvedCitationFence | null> {
-    const [row] = await db
-        .select({
-            sourceId: sourcesTable.id,
-            unitId: textUnitTable.id,
-            fileId: filesTable.id,
-            fileName: filesTable.name,
-            fileType: filesTable.type,
-            startPage: textUnitTable.startPage,
-            endPage: textUnitTable.endPage,
-        })
-        .from(sourcesTable)
-        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(
-            and(
-                eq(sourcesTable.id, sourceId),
-                eq(filesTable.graphId, graphId),
-                currentSourcePredicate(sourcesTable),
-                visibleFilePredicate(filesTable)
-            )
-        )
-        .limit(1);
-
-    if (!row) {
-        return null;
-    }
-
-    return {
-        type: "cite",
-        sourceId: row.sourceId,
-        unitId: row.unitId,
-        fileId: row.fileId,
-        fileName: row.fileName,
-        fileType: row.fileType,
-        startPage: row.startPage ?? undefined,
-        endPage: row.endPage ?? undefined,
-    };
+export function enrichCitation(graphId: string, sourceId: string): Effect.Effect<ResolvedCitationFence | null, unknown> {
+    return Effect.map(
+        chatEffect(() =>
+            db
+                .select({
+                    sourceId: sourcesTable.id,
+                    unitId: textUnitTable.id,
+                    fileId: filesTable.id,
+                    fileName: filesTable.name,
+                    fileType: filesTable.type,
+                    startPage: textUnitTable.startPage,
+                    endPage: textUnitTable.endPage,
+                })
+                .from(sourcesTable)
+                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                .where(
+                    and(
+                        eq(sourcesTable.id, sourceId),
+                        eq(filesTable.graphId, graphId),
+                        currentSourcePredicate(sourcesTable),
+                        visibleFilePredicate(filesTable)
+                    )
+                )
+                .limit(1)
+        ),
+        ([row]) =>
+            row
+                ? {
+                      type: "cite" as const,
+                      sourceId: row.sourceId,
+                      unitId: row.unitId,
+                      fileId: row.fileId,
+                      fileName: row.fileName,
+                      fileType: row.fileType,
+                      startPage: row.startPage ?? undefined,
+                      endPage: row.endPage ?? undefined,
+                  }
+                : null
+    );
 }
 
 function createCachedCitationResolver(graphId: string): CitationResolver {
     return createCachingCitationResolver({
         negativeCache: unresolvedCitationCache,
         negativeCacheKey: (citation) => `${graphId}:${citation.sourceId}`,
-        resolveCitation: (sourceId) => enrichCitation(graphId, sourceId),
+        resolveCitation: (sourceId) => Effect.runPromise(enrichCitation(graphId, sourceId)),
     });
 }
 
-export async function updateMessagePartsBatch(chatId: string, updates: Array<{ id: string; parts: MessagePart[] }>) {
+export function updateMessagePartsBatch(chatId: string, updates: Array<{ id: string; parts: MessagePart[] }>) {
     if (updates.length === 0) {
-        return;
+        return Effect.void;
     }
 
     const cases = sql.join(
-        updates.map(
-            (update) => sql`when ${messageTable.id} = ${update.id} then ${JSON.stringify(update.parts)}::jsonb`
-        ),
+        updates.map((update) => sql`when ${messageTable.id} = ${update.id} then ${JSON.stringify(update.parts)}::jsonb`),
         sql.raw(" ")
     );
 
-    await db
-        .update(messageTable)
-        .set({ parts: sql<MessagePart[]>`case ${cases} else ${messageTable.parts} end` })
-        .where(
-            and(
-                eq(messageTable.chatId, chatId),
-                inArray(
-                    messageTable.id,
-                    updates.map((update) => update.id)
+    return Effect.asVoid(
+        chatEffect(() =>
+            db
+                .update(messageTable)
+                .set({ parts: sql<MessagePart[]>`case ${cases} else ${messageTable.parts} end` })
+                .where(
+                    and(
+                        eq(messageTable.chatId, chatId),
+                        inArray(
+                            messageTable.id,
+                            updates.map((update) => update.id)
+                        )
+                    )
                 )
-            )
-        );
+        )
+    );
 }
 
-export async function resolveCitationDocumentLink(
+export function resolveCitationDocumentLink(
     graphId: string,
     citation: CitationFence,
     options: { baseUrl?: string; signed?: boolean } = {}
 ) {
-    try {
-        const resolvedCitation =
-            isResolvedCitationFence(citation) && citation.fileId
-                ? citation
-                : await enrichCitation(graphId, citation.sourceId);
+    return Effect.catch(
+        Effect.gen(function* () {
+            const resolvedCitation =
+                isResolvedCitationFence(citation) && citation.fileId
+                    ? citation
+                    : yield* enrichCitation(graphId, citation.sourceId);
 
-        if (!resolvedCitation?.fileId) {
-            return "[source unavailable]";
+            if (!resolvedCitation?.fileId) {
+                return "[source unavailable]";
+            }
+
+            const page = isPDFCitation(resolvedCitation) ? resolvedCitation.startPage : null;
+            const token = options.signed
+                ? yield* createProjectFileAccessToken(graphId, resolvedCitation.fileId)
+                : undefined;
+            const url = getProjectFileProxyUrl(options.baseUrl, graphId, resolvedCitation.fileId, {
+                fileName: resolvedCitation.fileName,
+                page,
+                token,
+            });
+            const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
+
+            return `[${label}](${url})`;
+        }),
+        (error) =>
+            Effect.sync(() => {
+                logError("failed to resolve citation document link", {
+                    graphId,
+                    sourceId: citation.sourceId,
+                    error,
+                });
+
+                return "[source unavailable]";
+            })
+    );
+}
+
+export function loadChatSummaryForTarget(userId: string, target: ChatTarget, chatId: string) {
+    return Effect.gen(function* () {
+        const [chat] = yield* chatEffect(() =>
+            db
+                .select({
+                    id: chatTable.id,
+                    title: chatTable.title,
+                    userId: chatTable.userId,
+                    scope: chatTable.scope,
+                    graphId: chatTable.graphId,
+                    teamId: chatTable.teamId,
+                })
+                .from(chatTable)
+                .where(eq(chatTable.id, chatId))
+                .limit(1)
+        );
+
+        if (!chat || chat.userId !== userId || !chatTargetMatchesRow(chat, target)) {
+            throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
         }
 
-        const page = isPDFCitation(resolvedCitation) ? resolvedCitation.startPage : null;
-        const token = options.signed ? await createProjectFileAccessToken(graphId, resolvedCitation.fileId) : undefined;
-        const url = getProjectFileProxyUrl(options.baseUrl, graphId, resolvedCitation.fileId, {
-            fileName: resolvedCitation.fileName,
-            page,
-            token,
-        });
-        const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
-
-        return `[${label}](${url})`;
-    } catch (error) {
-        logError("failed to resolve citation document link", {
-            graphId,
-            sourceId: citation.sourceId,
-            error,
-        });
-
-        return "[source unavailable]";
-    }
+        return {
+            id: chat.id,
+            title: chat.title,
+        };
+    });
 }
 
-export async function loadChatSummaryForTarget(userId: string, target: ChatTarget, chatId: string) {
-    const [chat] = await db
-        .select({
-            id: chatTable.id,
-            title: chatTable.title,
-            userId: chatTable.userId,
-            scope: chatTable.scope,
-            graphId: chatTable.graphId,
-            teamId: chatTable.teamId,
-        })
-        .from(chatTable)
-        .where(eq(chatTable.id, chatId))
-        .limit(1);
-
-    if (!chat || chat.userId !== userId || !chatTargetMatchesRow(chat, target)) {
-        throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
-    }
-
-    return {
-        id: chat.id,
-        title: chat.title,
-    };
-}
-
-export async function loadChatSummary(userId: string, graphId: string, chatId: string) {
+export function loadChatSummary(userId: string, graphId: string, chatId: string) {
     return loadChatSummaryForTarget(userId, graphChatTarget(graphId), chatId);
 }
 
-export async function loadChatHistoryForTarget(options: {
+export function loadChatHistoryForTarget(options: {
     userId: string;
     target: ChatTarget;
     chatId: string;
     resolveCitation: CitationResolver;
     logLabel: string;
 }) {
-    const chat = await loadChatSummaryForTarget(options.userId, options.target, options.chatId);
-    const logContext = chatTargetLogContext(options.target);
+    return Effect.gen(function* () {
+        const chat = yield* loadChatSummaryForTarget(options.userId, options.target, options.chatId);
+        const logContext = chatTargetLogContext(options.target);
 
-    const rows = (await loadChatRows(options.chatId, { includeFailed: true })).filter(
-        (message) => !isCompactionMessage(message)
-    );
+        const rows = (yield* loadChatRows(options.chatId, { includeFailed: true })).filter(
+            (message) => !isCompactionMessage(message)
+        );
 
-    const normalizedRows = await Promise.all(
-        rows.map(async (message) => {
-            const normalizedResult = await Result.tryPromise(async () =>
-                normalizeMessageCitationFences(message.parts, options.resolveCitation)
-            );
-            if (normalizedResult.isErr()) {
-                logError(`failed to normalize ${options.logLabel} citations`, {
+        const normalizedRows = yield* Effect.all(
+            rows.map((message) =>
+                Effect.map(
+                    Effect.catch(
+                        normalizeMessageCitationFences(message.parts, options.resolveCitation),
+                        (error) =>
+                            Effect.sync(() => {
+                                logError(`failed to normalize ${options.logLabel} citations`, {
+                                    ...logContext,
+                                    chatId: options.chatId,
+                                    messageId: message.id,
+                                    error,
+                                });
+
+                                return {
+                                    parts: message.parts,
+                                    changed: false,
+                                    unresolvedCitations: [],
+                                };
+                            })
+                    ),
+                    (normalized) => {
+                        if (normalized.unresolvedCitations.length > 0) {
+                            logWarn(`${options.logLabel} citation normalization hid unresolved citations without persisting`, {
+                                ...logContext,
+                                chatId: options.chatId,
+                                messageId: message.id,
+                                unresolvedCitationCount: normalized.unresolvedCitations.length,
+                                sourceIds: normalized.unresolvedCitations.map((citation) => citation.sourceId).join(","),
+                            });
+                        }
+
+                        return {
+                            message,
+                            normalized,
+                        };
+                    }
+                )
+            )
+        );
+
+        const messagePartUpdates = normalizedRows.flatMap(({ message, normalized }) =>
+            normalized.changed && normalized.unresolvedCitations.length === 0
+                ? [{ id: message.id, parts: normalized.parts }]
+                : []
+        );
+
+        yield* Effect.catch(updateMessagePartsBatch(options.chatId, messagePartUpdates), (error) =>
+            Effect.sync(() => {
+                logError(`failed to persist normalized ${options.logLabel} citations`, {
                     ...logContext,
                     chatId: options.chatId,
-                    messageId: message.id,
-                    error: normalizedResult.error,
+                    error,
                 });
+            })
+        );
 
-                return {
-                    message,
-                    normalized: {
-                        parts: message.parts,
-                        changed: false,
-                        unresolvedCitations: [],
-                    },
-                };
-            }
+        const messages = normalizedRows.map(({ message, normalized }) =>
+            toUIMessage({
+                ...message,
+                parts: normalized.parts,
+            })
+        );
 
-            const normalized = normalizedResult.value;
-            if (normalized.unresolvedCitations.length > 0) {
-                logWarn(`${options.logLabel} citation normalization hid unresolved citations without persisting`, {
-                    ...logContext,
-                    chatId: options.chatId,
-                    messageId: message.id,
-                    unresolvedCitationCount: normalized.unresolvedCitations.length,
-                    sourceIds: normalized.unresolvedCitations.map((citation) => citation.sourceId).join(","),
-                });
-            }
-
-            return {
-                message,
-                normalized,
-            };
-        })
-    );
-
-    const messagePartUpdates = normalizedRows.flatMap(({ message, normalized }) =>
-        normalized.changed && normalized.unresolvedCitations.length === 0
-            ? [{ id: message.id, parts: normalized.parts }]
-            : []
-    );
-
-    const writeResult = await Result.tryPromise(async () =>
-        updateMessagePartsBatch(options.chatId, messagePartUpdates)
-    );
-    if (writeResult.isErr()) {
-        logError(`failed to persist normalized ${options.logLabel} citations`, {
-            ...logContext,
-            chatId: options.chatId,
-            error: writeResult.error,
-        });
-    }
-
-    const messages = normalizedRows.map(({ message, normalized }) =>
-        toUIMessage({
-            ...message,
-            parts: normalized.parts,
-        })
-    );
-
-    return {
-        id: chat.id,
-        title: chat.title,
-        messages,
-    };
+        return {
+            id: chat.id,
+            title: chat.title,
+            messages,
+        };
+    });
 }
 
-export async function loadChatHistory(userId: string, graphId: string, chatId: string) {
+export function loadChatHistory(userId: string, graphId: string, chatId: string) {
     return loadChatHistoryForTarget({
         userId,
         target: graphChatTarget(graphId),
@@ -928,54 +993,58 @@ export async function loadChatHistory(userId: string, graphId: string, chatId: s
     });
 }
 
-export async function listChatsForTarget(
+export function listChatsForTarget(
     userId: string,
     target: ChatTarget,
     options: { offset?: number; limit?: number } = {}
 ) {
-    const baseQuery = db
-        .select({
-            id: chatTable.id,
-            title: chatTable.title,
-            isPinned: sql<boolean>`false`,
-            updatedAt: chatTable.updatedAt,
-        })
-        .from(chatTable)
-        .where(
-            and(
-                eq(chatTable.userId, userId),
-                chatTargetWhere(target),
-                isNull(chatTable.archivedAt),
-                isNull(chatTable.pinnedAt)
+    return Effect.gen(function* () {
+        const baseQuery = db
+            .select({
+                id: chatTable.id,
+                title: chatTable.title,
+                isPinned: sql<boolean>`false`,
+                updatedAt: chatTable.updatedAt,
+            })
+            .from(chatTable)
+            .where(
+                and(
+                    eq(chatTable.userId, userId),
+                    chatTargetWhere(target),
+                    isNull(chatTable.archivedAt),
+                    isNull(chatTable.pinnedAt)
+                )
             )
-        )
-        .orderBy(desc(chatTable.updatedAt), desc(chatTable.id));
+            .orderBy(desc(chatTable.updatedAt), desc(chatTable.id));
 
-    const effectiveLimit = typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
+        const effectiveLimit = typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
 
-    const rows = await (typeof effectiveLimit === "number"
-        ? typeof options.offset === "number" && options.offset > 0
-            ? baseQuery.limit(effectiveLimit).offset(options.offset)
-            : baseQuery.limit(effectiveLimit)
-        : typeof options.offset === "number" && options.offset > 0
-          ? baseQuery.offset(options.offset)
-          : baseQuery);
+        const rows = yield* chatEffect(() =>
+            typeof effectiveLimit === "number"
+                ? typeof options.offset === "number" && options.offset > 0
+                    ? baseQuery.limit(effectiveLimit).offset(options.offset)
+                    : baseQuery.limit(effectiveLimit)
+                : typeof options.offset === "number" && options.offset > 0
+                  ? baseQuery.offset(options.offset)
+                  : baseQuery
+        );
 
-    const hasMore = typeof options.limit === "number" && options.limit > 0 ? rows.length > options.limit : false;
-    const items = (hasMore ? rows.slice(0, options.limit) : rows).map((row) => ({
-        id: row.id,
-        title: row.title,
-        isPinned: row.isPinned,
-        updatedAt: row.updatedAt?.toISOString() ?? null,
-    }));
+        const hasMore = typeof options.limit === "number" && options.limit > 0 ? rows.length > options.limit : false;
+        const items = (hasMore ? rows.slice(0, options.limit) : rows).map((row) => ({
+            id: row.id,
+            title: row.title,
+            isPinned: row.isPinned,
+            updatedAt: row.updatedAt?.toISOString() ?? null,
+        }));
 
-    return {
-        items,
-        hasMore,
-    };
+        return {
+            items,
+            hasMore,
+        };
+    });
 }
 
-export async function listChats(userId: string, graphId: string, options: { offset?: number; limit?: number } = {}) {
+export function listChats(userId: string, graphId: string, options: { offset?: number; limit?: number } = {}) {
     return listChatsForTarget(userId, graphChatTarget(graphId), options);
 }
 
@@ -1005,7 +1074,7 @@ export function getFinishMetadata(options: {
     };
 }
 
-export async function updateAssistantMessage(
+export function updateAssistantMessage(
     assistantMessageId: string,
     parts: MessagePart[],
     status: "pending" | "completed" | "failed",
@@ -1013,14 +1082,18 @@ export async function updateAssistantMessage(
 ) {
     const metrics = getMetrics(metadata);
 
-    await db
-        .update(messageTable)
-        .set({
-            parts,
-            status,
-            ...metrics,
-        })
-        .where(eq(messageTable.id, assistantMessageId));
+    return Effect.asVoid(
+        chatEffect(() =>
+            db
+                .update(messageTable)
+                .set({
+                    parts,
+                    status,
+                    ...metrics,
+                })
+                .where(eq(messageTable.id, assistantMessageId))
+        )
+    );
 }
 
 export function mapChatError(status: RouteStatus, error: unknown) {

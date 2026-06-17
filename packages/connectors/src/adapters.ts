@@ -1,3 +1,5 @@
+import * as Effect from "effect/Effect";
+
 import type {
     GitResourceAdapter,
     ConnectorFileLocator,
@@ -27,40 +29,53 @@ export function createGitRepositoryAdapter(options: {
     return {
         ...client,
         resourceKind: "git-repository",
-        async getResource(resourceId) {
-            return mapProviderRepositoryToResource(await client.getRepository(resourceId));
+        getResource(resourceId) {
+            return Effect.map(client.getRepository(resourceId), mapProviderRepositoryToResource);
         },
-        async listResources() {
-            return (await client.listRepositories()).map(mapProviderRepositoryToResource);
+        listResources() {
+            return Effect.map(client.listRepositories(), (repositories) => repositories.map(mapProviderRepositoryToResource));
         },
-        async listResourceVersions(resourceId) {
-            const repository = await client.getRepository(resourceId);
-            return (await client.listBranches(repository)).map((branch) => mapProviderBranchToResourceVersion(resourceId, branch));
+        listResourceVersions(resourceId) {
+            return Effect.gen(function* () {
+                const repository = yield* client.getRepository(resourceId);
+                const branches = yield* client.listBranches(repository);
+                return branches.map((branch) => mapProviderBranchToResourceVersion(resourceId, branch));
+            });
         },
-        async loadSnapshot(resourceId, versionName, versionId) {
-            const repository = await client.getRepository(resourceId);
-            return mapProviderRepositorySnapshot(
-                await client.loadRepositorySnapshot(repository, versionName, versionId)
-            );
+        loadSnapshot(resourceId, versionName, versionId) {
+            return Effect.gen(function* () {
+                const repository = yield* client.getRepository(resourceId);
+                const snapshot = yield* client.loadRepositorySnapshot(repository, versionName, versionId);
+                return mapProviderRepositorySnapshot(snapshot);
+            });
         },
-        async compareVersions(resourceId, fromVersionId, toVersionId) {
-            const repository = await client.getRepository(resourceId);
-            return mapProviderRepositoryDelta(await client.compareRepository(repository, fromVersionId, toVersionId));
+        compareVersions(resourceId, fromVersionId, toVersionId) {
+            return Effect.gen(function* () {
+                const repository = yield* client.getRepository(resourceId);
+                const delta = yield* client.compareRepository(repository, fromVersionId, toVersionId);
+                return mapProviderRepositoryDelta(delta);
+            });
         },
-        async readFile(resourceOrLocator: ConnectorFileLocator | ProviderRepository, path?: string, versionId?: string) {
-            if (isProviderRepository(resourceOrLocator)) {
-                if (typeof path !== "string" || typeof versionId !== "string") {
-                    throw new ConnectorProviderError("validation", "Repository file reads require a path and version ID");
+        readFile(resourceOrLocator: ConnectorFileLocator | ProviderRepository, path?: string, versionId?: string) {
+            return Effect.gen(function* () {
+                if (isProviderRepository(resourceOrLocator)) {
+                    if (typeof path !== "string" || typeof versionId !== "string") {
+                        return yield* Effect.fail(
+                            new ConnectorProviderError("validation", "Repository file reads require a path and version ID")
+                        );
+                    }
+                    return yield* client.readFile(resourceOrLocator, path, versionId);
                 }
-                return client.readFile(resourceOrLocator, path, versionId);
-            }
 
-            if (typeof resourceOrLocator.versionId !== "string" || resourceOrLocator.versionId.length === 0) {
-                throw new ConnectorProviderError("validation", "Connector file reads require a version ID");
-            }
+                if (typeof resourceOrLocator.versionId !== "string" || resourceOrLocator.versionId.length === 0) {
+                    return yield* Effect.fail(
+                        new ConnectorProviderError("validation", "Connector file reads require a version ID")
+                    );
+                }
 
-            const repository = await client.getRepository(resourceOrLocator.resourceId);
-            return client.readFile(repository, resourceOrLocator.path, resourceOrLocator.versionId);
+                const repository = yield* client.getRepository(resourceOrLocator.resourceId);
+                return yield* client.readFile(repository, resourceOrLocator.path, resourceOrLocator.versionId);
+            });
         },
         verifyWebhook: options.verifyWebhook,
         normalizeWebhook: options.normalizeWebhook,

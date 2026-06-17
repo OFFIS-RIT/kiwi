@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { API_ERROR_CODES } from "../../types";
 
-const resolveRequiredModelAdapterMock = mock(async () => ({ adapter: {} }));
+const resolveRequiredModelAdapterMock = mock(() => Effect.succeed({ adapter: {} }));
 
 const { assertConfiguredUploadModels, inferSupportedUploadedFiles, unsupportedUploadResponse } =
     await import("../graph/upload-file-type");
@@ -39,12 +40,12 @@ describe("inferSupportedUploadedFiles", () => {
             throw new Error("expected supported upload");
         }
 
-        await assertConfiguredUploadModels({
+        await Effect.runPromise(assertConfiguredUploadModels({
             organizationId: "org-1",
             files: result.files,
             secret: "test-secret",
             resolveModelAdapter: resolveRequiredModelAdapterMock,
-        });
+        }));
 
         expect(resolveRequiredModelAdapterMock).toHaveBeenCalledTimes(2);
         expect(resolveRequiredModelAdapterMock).toHaveBeenCalledWith("org-1", "audio", "test-secret");

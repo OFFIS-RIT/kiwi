@@ -11,7 +11,7 @@ import { ensureOrganizationMembers, ensureTeamHasAdmin, normalizeUsers, selectTe
 
 export function patchTeam(input: { user: AuthUser; teamId: string; body: TeamPatchInput }) {
     return tryApiPromise(async (): Promise<TeamPatchSuccessData> => {
-        const membership = await requireOrganizationAdmin(input.user);
+        const membership = await Effect.runPromise(requireOrganizationAdmin(input.user));
         const organizationId = membership.organizationId;
 
         const normalizedUsers = input.body.users ? normalizeUsers({ users: input.body.users }) : undefined;

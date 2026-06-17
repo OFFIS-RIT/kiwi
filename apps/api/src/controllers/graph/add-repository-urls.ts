@@ -20,12 +20,11 @@ import {
     cleanupUploadedKeys,
     commitGraphFileUploads,
     restoreGraphFileChangeFailure,
-    type GraphFileUploadCommit,
     type UploadedFile,
 } from "../../lib/graph/route";
 import type { AuthUser } from "../../middleware/auth";
 import { ow } from "../../openworkflow";
-import { tryApiPromise } from "../_shared/api-effect";
+import { toApiError } from "../_shared/api-effect";
 import { getGraphOwnerModelOrganizationId } from "./upload-helpers";
 
 type RepositoryUploadSource = {
@@ -34,9 +33,14 @@ type RepositoryUploadSource = {
     checksum: string;
 };
 
-async function contentChecksum(content: string): Promise<string> {
-    const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
-    return [...new Uint8Array(hashBuffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+function contentChecksum(content: string): Effect.Effect<string, unknown> {
+    return Effect.map(
+        Effect.tryPromise({
+            try: () => crypto.subtle.digest("SHA-256", new TextEncoder().encode(content)),
+            catch: (error) => error,
+        }),
+        (hashBuffer) => [...new Uint8Array(hashBuffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+    );
 }
 
 function repositoryUrlError(error: unknown) {
@@ -63,35 +67,32 @@ function repositoryUrlError(error: unknown) {
 }
 
 export function addGraphRepositoryUrls(input: { user: AuthUser; graphId: string; body: GraphAddUrlFields }) {
-    return tryApiPromise(async (): Promise<GraphAddFilesSuccessData> => {
-        const existingGraph = await assertCanManageGraphFiles(input.user, input.graphId);
+    return Effect.mapError(Effect.catchDefect(Effect.gen(function* () {
+        const existingGraph = yield* assertCanManageGraphFiles(input.user, input.graphId);
         const urls = [...new Set(input.body.urls.map((url) => url.trim()).filter(Boolean))];
         if (urls.length === 0) {
-            throw noChangesError();
+            return yield* Effect.fail(noChangesError());
         }
         if (urls.length > MAX_REPOSITORY_URLS) {
-            throw makeApiError(
-                413,
-                API_ERROR_CODES.UPLOAD_LIMIT_EXCEEDED,
-                `At most ${MAX_REPOSITORY_URLS} repository URLs can be processed at once`
+            return yield* Effect.fail(
+                makeApiError(
+                    413,
+                    API_ERROR_CODES.UPLOAD_LIMIT_EXCEEDED,
+                    `At most ${MAX_REPOSITORY_URLS} repository URLs can be processed at once`
+                )
             );
         }
 
-        let repositories: LoadedRepository[];
-        try {
-            repositories = [];
-            for (const url of urls) {
-                repositories.push(await loadRepositoryFromUrl(url));
-            }
-        } catch (error) {
-            throw repositoryUrlError(error);
+        const repositories: LoadedRepository[] = [];
+        for (const url of urls) {
+            repositories.push(yield* Effect.mapError(loadRepositoryFromUrl(url), repositoryUrlError));
         }
 
         const seenSnapshotFiles = new Set<string>();
         const repositorySources: RepositoryUploadSource[] = [];
         for (const repository of repositories) {
             for (const file of repository.files) {
-                const checksum = await contentChecksum(file.content);
+                const checksum = yield* contentChecksum(file.content);
                 const snapshotFileKey = `${repository.url}:${checksum}`;
                 if (seenSnapshotFiles.has(snapshotFileKey)) {
                     continue;
@@ -106,138 +107,157 @@ export function addGraphRepositoryUrls(input: { user: AuthUser; graphId: string;
             return { graph: existingGraph, addedFiles: [], workflowRunId: null };
         }
 
-        await assertConfiguredUploadModels({
-            organizationId: await Effect.runPromise(
-                getGraphOwnerModelOrganizationId({ ownerMode: "graph", graphId: existingGraph.id })
-            ),
+        const organizationId = yield* getGraphOwnerModelOrganizationId({ ownerMode: "graph", graphId: existingGraph.id });
+        yield* assertConfiguredUploadModels({
+            organizationId,
             files: repositorySources.map(() => ({ type: "code" as const })),
             secret: env.AUTH_SECRET,
         });
 
         const uploadedFiles: UploadedFile[] = [];
-        try {
-            for (const source of repositorySources) {
-                const fileId = ulid();
-                const name = `${source.repository.name}/${source.file.path}`;
-                const external = buildGitHubExternalCodeFile({
-                    repositoryUrl: source.repository.url,
-                    commitSha: source.repository.commitSha,
-                    path: source.file.path,
-                });
+        yield* Effect.matchEffect(
+            Effect.catchDefect(Effect.gen(function* () {
+                for (const source of repositorySources) {
+                    const fileId = ulid();
+                    const name = `${source.repository.name}/${source.file.path}`;
+                    const external = buildGitHubExternalCodeFile({
+                        repositoryUrl: source.repository.url,
+                        commitSha: source.repository.commitSha,
+                        path: source.file.path,
+                    });
 
-                if (external) {
+                    if (external) {
+                        uploadedFiles.push({
+                            id: fileId,
+                            name,
+                            size: source.file.size,
+                            type: "code",
+                            mimeType: "text/plain",
+                            key: external.key,
+                            storageKind: "external",
+                            externalProvider: external.provider,
+                            externalUrl: external.rawUrl,
+                            checksum: source.checksum,
+                            metadata: serializeCodeFileMetadata({
+                                repositoryUrl: source.repository.url,
+                                repositoryName: source.repository.name,
+                                commitSha: source.repository.commitSha,
+                                path: source.file.path,
+                                external: {
+                                    provider: external.provider,
+                                    rawUrl: external.rawUrl,
+                                    htmlUrl: external.htmlUrl,
+                                },
+                            }),
+                        });
+                        continue;
+                    }
+
+                    const upload = yield* putGraphFile(existingGraph.id, fileId, name, source.file.content, env.S3_BUCKET);
                     uploadedFiles.push({
                         id: fileId,
                         name,
                         size: source.file.size,
                         type: "code",
                         mimeType: "text/plain",
-                        key: external.key,
-                        storageKind: "external",
-                        externalProvider: external.provider,
-                        externalUrl: external.rawUrl,
+                        key: upload.key,
+                        storageKind: "internal",
                         checksum: source.checksum,
                         metadata: serializeCodeFileMetadata({
                             repositoryUrl: source.repository.url,
                             repositoryName: source.repository.name,
                             commitSha: source.repository.commitSha,
                             path: source.file.path,
-                            external: {
-                                provider: external.provider,
-                                rawUrl: external.rawUrl,
-                                htmlUrl: external.htmlUrl,
-                            },
                         }),
                     });
-                    continue;
                 }
-
-                const upload = await Effect.runPromise(
-                    putGraphFile(existingGraph.id, fileId, name, source.file.content, env.S3_BUCKET)
-                );
-                uploadedFiles.push({
-                    id: fileId,
-                    name,
-                    size: source.file.size,
-                    type: "code",
-                    mimeType: "text/plain",
-                    key: upload.key,
-                    storageKind: "internal",
-                    checksum: source.checksum,
-                    metadata: serializeCodeFileMetadata({
-                        repositoryUrl: source.repository.url,
-                        repositoryName: source.repository.name,
-                        commitSha: source.repository.commitSha,
-                        path: source.file.path,
+            }), (defect) => Effect.fail(defect)),
+            {
+                onFailure: (uploadError) =>
+                    Effect.gen(function* () {
+                        const failedDeletes = yield* cleanupUploadedKeys(
+                            uploadedFiles.filter((file) => file.storageKind !== "external").map((file) => file.key)
+                        );
+                        logError("graph repository URL add failed during file upload", {
+                            graphId: existingGraph.id,
+                            uploadedKeyCount: uploadedFiles.length,
+                            failedS3CleanupCount: failedDeletes,
+                            error: uploadError,
+                        });
+                        return yield* Effect.fail(internalServerError());
                     }),
-                });
+                onSuccess: Effect.succeed,
             }
-        } catch (uploadError) {
-            const failedDeletes = await cleanupUploadedKeys(
-                uploadedFiles.filter((file) => file.storageKind !== "external").map((file) => file.key)
-            );
-            logError("graph repository URL add failed during file upload", {
-                graphId: existingGraph.id,
-                uploadedKeyCount: uploadedFiles.length,
-                failedS3CleanupCount: failedDeletes,
-                error: uploadError,
-            });
-            throw internalServerError();
-        }
+        );
 
-        let result: GraphFileUploadCommit;
-        try {
-            result = await commitGraphFileUploads({
+        const result = yield* Effect.matchEffect(
+            commitGraphFileUploads({
                 graph: existingGraph,
                 uploadedFiles,
                 supersedeRepositoryUrls: repositories.map((repository) => repository.url),
-            });
-        } catch (dbPatchError) {
-            const failedDeletes = await cleanupUploadedKeys(
-                uploadedFiles.filter((file) => file.storageKind !== "external").map((file) => file.key)
-            );
-            logError("graph repository URL add failed during database update", {
-                graphId: existingGraph.id,
-                uploadedKeyCount: uploadedFiles.length,
-                failedS3CleanupCount: failedDeletes,
-                error: dbPatchError,
-            });
-            throw internalServerError();
-        }
+            }),
+            {
+                onFailure: (dbPatchError) =>
+                    Effect.gen(function* () {
+                        const failedDeletes = yield* cleanupUploadedKeys(
+                            uploadedFiles.filter((file) => file.storageKind !== "external").map((file) => file.key)
+                        );
+                        logError("graph repository URL add failed during database update", {
+                            graphId: existingGraph.id,
+                            uploadedKeyCount: uploadedFiles.length,
+                            failedS3CleanupCount: failedDeletes,
+                            error: dbPatchError,
+                        });
+                        return yield* Effect.fail(internalServerError());
+                    }),
+                onSuccess: Effect.succeed,
+            }
+        );
 
         if (result.addedFiles.length === 0) {
             return { graph: result.graph, addedFiles: result.addedFiles, workflowRunId: null };
         }
 
-        try {
-            if (!result.processRunId) {
-                throw new Error("Missing process run id");
+        return yield* Effect.matchEffect(
+            Effect.catchDefect(Effect.gen(function* () {
+                if (!result.processRunId) {
+                    return yield* Effect.fail(new Error("Missing process run id"));
+                }
+
+                const handle = yield* Effect.tryPromise({
+                    try: () =>
+                        ow.runWorkflow(processFilesSpec, {
+                            graphId: existingGraph.id,
+                            fileIds: result.addedFiles.map((file) => file.id),
+                            processRunId: result.processRunId!,
+                            code: { kind: "repository", retiredFileIds: result.supersededFileIds },
+                        }),
+                    catch: (error) => error,
+                });
+
+                return { graph: result.graph, addedFiles: result.addedFiles, workflowRunId: handle.workflowRun.id };
+            }), (defect) => Effect.fail(defect)),
+            {
+                onFailure: (enqueueError) =>
+                    Effect.gen(function* () {
+                        yield* restoreGraphFileChangeFailure(
+                            existingGraph.id,
+                            existingGraph,
+                            result.addedFiles.map((file) => file.id),
+                            uploadedFiles.filter((file) => file.storageKind !== "external").map((file) => file.key),
+                            result.processRunId,
+                            result.supersededFileIds
+                        );
+                        logError("graph repository URL add failed during workflow enqueue", {
+                            graphId: existingGraph.id,
+                            uploadedKeyCount: uploadedFiles.length,
+                            addedFileCount: result.addedFiles.length,
+                            error: enqueueError,
+                        });
+                        return yield* Effect.fail(internalServerError());
+                    }),
+                onSuccess: Effect.succeed,
             }
-
-            const handle = await ow.runWorkflow(processFilesSpec, {
-                graphId: existingGraph.id,
-                fileIds: result.addedFiles.map((file) => file.id),
-                processRunId: result.processRunId,
-                code: { kind: "repository", retiredFileIds: result.supersededFileIds },
-            });
-
-            return { graph: result.graph, addedFiles: result.addedFiles, workflowRunId: handle.workflowRun.id };
-        } catch (enqueueError) {
-            await restoreGraphFileChangeFailure(
-                existingGraph.id,
-                existingGraph,
-                result.addedFiles.map((file) => file.id),
-                uploadedFiles.filter((file) => file.storageKind !== "external").map((file) => file.key),
-                result.processRunId,
-                result.supersededFileIds
-            );
-            logError("graph repository URL add failed during workflow enqueue", {
-                graphId: existingGraph.id,
-                uploadedKeyCount: uploadedFiles.length,
-                addedFileCount: result.addedFiles.length,
-                error: enqueueError,
-            });
-            throw internalServerError();
-        }
-    });
+        );
+    }), (defect) => Effect.fail(defect)), toApiError);
 }

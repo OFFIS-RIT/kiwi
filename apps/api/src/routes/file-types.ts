@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { fileTypeConfigsTable } from "@kiwi/db/tables/file-types";
 import { GRAPH_FILE_TYPES, isGraphFileType, type GraphFileType } from "@kiwi/graph/file-type";
@@ -9,7 +10,6 @@ import {
     resolveFileTypeProcessingConfig,
     type FileTypeProcessingConfig,
 } from "@kiwi/graph/lib/processing-config";
-import { Result } from "better-result";
 import { asc, eq, sql } from "drizzle-orm";
 import Elysia from "elysia";
 import z from "zod";
@@ -73,22 +73,22 @@ function mapFileTypeError(status: RouteStatus, error: unknown) {
     }
 }
 
-async function runFileTypeAction<T>(options: {
+function runFileTypeAction<T>(options: {
     status: RouteStatus;
     user: AuthUser | null | undefined;
-    action: (user: AuthUser) => Promise<T>;
+    action: (user: AuthUser) => Effect.Effect<T, unknown>;
     success: (value: T) => unknown;
 }) {
     if (!options.user) {
-        return options.status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+        return Promise.resolve(options.status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED)));
     }
 
-    const result = await Result.tryPromise(async () => options.action(options.user!));
-    if (result.isErr()) {
-        return mapFileTypeError(options.status, result.error);
-    }
-
-    return options.success(result.value);
+    return Effect.runPromise(
+        Effect.match(options.action(options.user), {
+            onFailure: (error) => mapFileTypeError(options.status, error),
+            onSuccess: options.success,
+        })
+    );
 }
 
 export const fileTypesRoute = new Elysia({ prefix: "/file-types" })
@@ -97,28 +97,29 @@ export const fileTypesRoute = new Elysia({ prefix: "/file-types" })
         runFileTypeAction({
             user,
             status,
-            action: async (currentUser) => {
-                const membership = await requireOrganizationAdmin(currentUser);
+            action: (currentUser) =>
+                Effect.tryPromise(async () => {
+                    const membership = await Effect.runPromise(requireOrganizationAdmin(currentUser));
 
-                const rows = await db
-                    .select({
-                        fileType: fileTypeConfigsTable.fileType,
-                        chunker: fileTypeConfigsTable.chunker,
-                        chunkSize: fileTypeConfigsTable.chunkSize,
-                        documentMode: fileTypeConfigsTable.documentMode,
-                    })
-                    .from(fileTypeConfigsTable)
-                    .where(eq(fileTypeConfigsTable.organizationId, membership.organizationId))
-                    .orderBy(asc(fileTypeConfigsTable.fileType));
-                const rowsByFileType = new Map(rows.map((row) => [row.fileType, row]));
+                    const rows = await db
+                        .select({
+                            fileType: fileTypeConfigsTable.fileType,
+                            chunker: fileTypeConfigsTable.chunker,
+                            chunkSize: fileTypeConfigsTable.chunkSize,
+                            documentMode: fileTypeConfigsTable.documentMode,
+                        })
+                        .from(fileTypeConfigsTable)
+                        .where(eq(fileTypeConfigsTable.organizationId, membership.organizationId))
+                        .orderBy(asc(fileTypeConfigsTable.fileType));
+                    const rowsByFileType = new Map(rows.map((row) => [row.fileType, row]));
 
-                return GRAPH_FILE_TYPES.map((fileType) =>
-                    toFileTypeConfigRecord(
-                        fileType,
-                        resolveFileTypeProcessingConfig(fileType, rowsByFileType.get(fileType) ?? null)
-                    )
-                );
-            },
+                    return GRAPH_FILE_TYPES.map((fileType) =>
+                        toFileTypeConfigRecord(
+                            fileType,
+                            resolveFileTypeProcessingConfig(fileType, rowsByFileType.get(fileType) ?? null)
+                        )
+                    );
+                }),
             success: (value) => status(200, successResponse(value)),
         })
     )
@@ -128,53 +129,54 @@ export const fileTypesRoute = new Elysia({ prefix: "/file-types" })
             runFileTypeAction({
                 user,
                 status,
-                action: async (currentUser) => {
-                    const membership = await requireOrganizationAdmin(currentUser);
+                action: (currentUser) =>
+                    Effect.tryPromise(async () => {
+                        const membership = await Effect.runPromise(requireOrganizationAdmin(currentUser));
 
-                    if (!isGraphFileType(params.fileType)) {
-                        throw new Error(API_ERROR_CODES.FILE_TYPE_NOT_FOUND);
-                    }
-                    const fileType = params.fileType;
+                        if (!isGraphFileType(params.fileType)) {
+                            throw new Error(API_ERROR_CODES.FILE_TYPE_NOT_FOUND);
+                        }
+                        const fileType = params.fileType;
 
-                    if (body.chunk_size === undefined && body.document_mode === undefined) {
-                        throw new Error(API_ERROR_CODES.NO_CHANGES);
-                    }
+                        if (body.chunk_size === undefined && body.document_mode === undefined) {
+                            throw new Error(API_ERROR_CODES.NO_CHANGES);
+                        }
 
-                    if (body.chunk_size !== undefined && !fileTypeSupportsChunkSize(fileType)) {
-                        throw new Error(API_ERROR_CODES.INVALID_FILE_TYPE_CONFIG);
-                    }
+                        if (body.chunk_size !== undefined && !fileTypeSupportsChunkSize(fileType)) {
+                            throw new Error(API_ERROR_CODES.INVALID_FILE_TYPE_CONFIG);
+                        }
 
-                    if (body.document_mode !== undefined && !fileTypeSupportsDocumentMode(fileType)) {
-                        throw new Error(API_ERROR_CODES.INVALID_FILE_TYPE_CONFIG);
-                    }
+                        if (body.document_mode !== undefined && !fileTypeSupportsDocumentMode(fileType)) {
+                            throw new Error(API_ERROR_CODES.INVALID_FILE_TYPE_CONFIG);
+                        }
 
-                    const defaults = defaultFileTypeProcessingConfig(fileType);
-                    const [row] = await db
-                        .insert(fileTypeConfigsTable)
-                        .values({
-                            organizationId: membership.organizationId,
-                            fileType,
-                            loader: defaults.loader,
-                            chunker: defaults.chunker,
-                            chunkSize: body.chunk_size ?? defaults.chunkSize,
-                            documentMode: body.document_mode ?? defaults.documentMode,
-                        })
-                        .onConflictDoUpdate({
-                            target: [fileTypeConfigsTable.organizationId, fileTypeConfigsTable.fileType],
-                            set: {
-                                ...(body.chunk_size !== undefined ? { chunkSize: body.chunk_size } : {}),
-                                ...(body.document_mode !== undefined ? { documentMode: body.document_mode } : {}),
-                                updatedAt: sql`NOW()`,
-                            },
-                        })
-                        .returning();
+                        const defaults = defaultFileTypeProcessingConfig(fileType);
+                        const [row] = await db
+                            .insert(fileTypeConfigsTable)
+                            .values({
+                                organizationId: membership.organizationId,
+                                fileType,
+                                loader: defaults.loader,
+                                chunker: defaults.chunker,
+                                chunkSize: body.chunk_size ?? defaults.chunkSize,
+                                documentMode: body.document_mode ?? defaults.documentMode,
+                            })
+                            .onConflictDoUpdate({
+                                target: [fileTypeConfigsTable.organizationId, fileTypeConfigsTable.fileType],
+                                set: {
+                                    ...(body.chunk_size !== undefined ? { chunkSize: body.chunk_size } : {}),
+                                    ...(body.document_mode !== undefined ? { documentMode: body.document_mode } : {}),
+                                    updatedAt: sql`NOW()`,
+                                },
+                            })
+                            .returning();
 
-                    if (!row) {
-                        throw new Error(API_ERROR_CODES.INTERNAL_SERVER_ERROR);
-                    }
+                        if (!row) {
+                            throw new Error(API_ERROR_CODES.INTERNAL_SERVER_ERROR);
+                        }
 
-                    return toFileTypeConfigRecord(fileType, resolveFileTypeProcessingConfig(fileType, row));
-                },
+                        return toFileTypeConfigRecord(fileType, resolveFileTypeProcessingConfig(fileType, row));
+                    }),
                 success: (value) => status(200, successResponse(value)),
             }),
         {

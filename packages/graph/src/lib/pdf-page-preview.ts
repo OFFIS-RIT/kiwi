@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { PDF } from "@libpdf/core";
 import { PDF_PREVIEW_SCALE } from "@kiwi/files";
 import type { PDFDocumentLike, PDFPageLike } from "@kiwi/loaders/loader/pdf/types";
@@ -15,38 +16,44 @@ type PDFPagePreviewDeps = {
 
 const DEFAULT_MAX_DIMENSION_PIXELS = 2400;
 
-export async function renderPDFPagePreviews(
+export function renderPDFPagePreviews(
     content: Uint8Array,
     pageNumbers: number[],
     options: PDFPagePreviewOptions = {},
     deps: PDFPagePreviewDeps = {}
-): Promise<Map<number, Uint8Array>> {
+): Effect.Effect<Map<number, Uint8Array>, unknown> {
     if (pageNumbers.length === 0) {
-        return new Map();
+        return Effect.succeed(new Map());
     }
 
     const loadPDF =
         deps.loadPDF ?? (async (input: Uint8Array) => (await PDF.load(input)) as unknown as PDFDocumentLike);
     const rasterizePages = deps.rasterizeSelectedPages ?? rasterizeSelectedPDFPages;
-    const document = await loadPDF(content);
-    const pages = document.getPages();
-    const selectedPages = selectPreviewPages(pages, pageNumbers);
-    if (selectedPages.length === 0) {
-        return new Map();
-    }
 
-    const scale = getPreviewScale(selectedPages, options);
-    const renderedByIndex = await rasterizePages(content, selectedPages, scale);
-    const renderedByPageNumber = new Map<number, Uint8Array>();
+    return Effect.tryPromise({
+        try: async () => {
+            const document = await loadPDF(content);
+            const pages = document.getPages();
+            const selectedPages = selectPreviewPages(pages, pageNumbers);
+            if (selectedPages.length === 0) {
+                return new Map();
+            }
 
-    for (const page of selectedPages) {
-        const image = renderedByIndex.get(page.index);
-        if (image) {
-            renderedByPageNumber.set(page.index + 1, image);
-        }
-    }
+            const scale = getPreviewScale(selectedPages, options);
+            const renderedByIndex = await rasterizePages(content, selectedPages, scale);
+            const renderedByPageNumber = new Map<number, Uint8Array>();
 
-    return renderedByPageNumber;
+            for (const page of selectedPages) {
+                const image = renderedByIndex.get(page.index);
+                if (image) {
+                    renderedByPageNumber.set(page.index + 1, image);
+                }
+            }
+
+            return renderedByPageNumber;
+        },
+        catch: (error) => error,
+    });
 }
 
 function selectPreviewPages(pages: PDFPageLike[], pageNumbers: number[]): PDFPageLike[] {

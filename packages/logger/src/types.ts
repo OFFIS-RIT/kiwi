@@ -1,3 +1,5 @@
+import type * as Effect from "effect/Effect";
+
 export type LogLevel = "log" | "debug" | "info" | "warn" | "error" | "fatal";
 
 export type LogValue = string | number | boolean | null;
@@ -16,6 +18,6 @@ export interface LoggerInstance {
     warn(message: string, fields?: LogFields): void;
     error(message: string, fields?: LogFields): void;
     fatal(message: string, fields?: LogFields): void;
-    flush?(): Promise<void>;
-    shutdown?(): Promise<void>;
+    flush?(): Effect.Effect<void, unknown>;
+    shutdown?(): Effect.Effect<void, unknown>;
 }

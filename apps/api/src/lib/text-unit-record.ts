@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { and, eq } from "drizzle-orm";
 import { db } from "@kiwi/db";
 import { filesTable, textUnitTable } from "@kiwi/db/tables/graph";
@@ -19,27 +20,32 @@ export type TextUnitWithFile = {
     updated_at: Date | null;
 };
 
-export async function loadTextUnitWithFile(graphId: string, unitId: string): Promise<TextUnitWithFile | null> {
-    const [unit] = await db
-        .select({
-            id: textUnitTable.id,
-            project_file_id: textUnitTable.fileId,
-            text: textUnitTable.text,
-            start_page: textUnitTable.startPage,
-            end_page: textUnitTable.endPage,
-            file_name: filesTable.name,
-            file_type: filesTable.type,
-            mime_type: filesTable.mimeType,
-            file_key: filesTable.key,
-            created_at: textUnitTable.createdAt,
-            updated_at: textUnitTable.updatedAt,
-        })
-        .from(textUnitTable)
-        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(and(eq(textUnitTable.id, unitId), eq(filesTable.graphId, graphId), eq(filesTable.deleted, false)))
-        .limit(1);
+export function loadTextUnitWithFile(
+    graphId: string,
+    unitId: string
+): Effect.Effect<TextUnitWithFile | null, unknown> {
+    return Effect.tryPromise(async () => {
+        const [unit] = await db
+            .select({
+                id: textUnitTable.id,
+                project_file_id: textUnitTable.fileId,
+                text: textUnitTable.text,
+                start_page: textUnitTable.startPage,
+                end_page: textUnitTable.endPage,
+                file_name: filesTable.name,
+                file_type: filesTable.type,
+                mime_type: filesTable.mimeType,
+                file_key: filesTable.key,
+                created_at: textUnitTable.createdAt,
+                updated_at: textUnitTable.updatedAt,
+            })
+            .from(textUnitTable)
+            .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+            .where(and(eq(textUnitTable.id, unitId), eq(filesTable.graphId, graphId), eq(filesTable.deleted, false)))
+            .limit(1);
 
-    return unit ?? null;
+        return unit ?? null;
+    });
 }
 
 export function toTextUnitRecord(graphId: string, unit: TextUnitWithFile): TextUnitRecord {

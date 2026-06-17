@@ -1,3 +1,5 @@
+import type * as Effect from "effect/Effect";
+
 export type ConnectorProvider = "github" | "gitlab";
 
 export type ConnectorResourceKind = "git-repository" | "folder";
@@ -185,24 +187,40 @@ export type ConnectorWebhookNormalizationOptions = {
 
 export type GitResourceClient = {
     readonly provider: ConnectorProvider;
-    getRepository(repositoryId: string): Promise<GitResource>;
-    listRepositories(): Promise<GitResource[]>;
-    listBranches(repository: GitResource): Promise<GitResourceVersion[]>;
-    loadRepositorySnapshot(repository: GitResource, branch: string, commitSha?: string): Promise<GitResourceSnapshot>;
-    compareRepository(repository: GitResource, fromCommitSha: string, toCommitSha: string): Promise<GitResourceDelta>;
-    readFile(repository: GitResource, path: string, commitSha: string): Promise<string>;
+    getRepository(repositoryId: string): Effect.Effect<GitResource, unknown>;
+    listRepositories(): Effect.Effect<GitResource[], unknown>;
+    listBranches(repository: GitResource): Effect.Effect<GitResourceVersion[], unknown>;
+    loadRepositorySnapshot(
+        repository: GitResource,
+        branch: string,
+        commitSha?: string
+    ): Effect.Effect<GitResourceSnapshot, unknown>;
+    compareRepository(
+        repository: GitResource,
+        fromCommitSha: string,
+        toCommitSha: string
+    ): Effect.Effect<GitResourceDelta, unknown>;
+    readFile(repository: GitResource, path: string, commitSha: string): Effect.Effect<string, unknown>;
 };
 export type ProviderRepositoryClient = GitResourceClient;
 
 export type ConnectorAdapter = {
     readonly provider: ConnectorProvider;
     readonly resourceKind: ConnectorResourceKind;
-    getResource(resourceId: string): Promise<ConnectorResource>;
-    listResources(): Promise<ConnectorResource[]>;
-    listResourceVersions(resourceId: string): Promise<ConnectorResourceVersion[]>;
-    loadSnapshot(resourceId: string, versionName: string, versionId?: string): Promise<ConnectorResourceSnapshot>;
-    compareVersions(resourceId: string, fromVersionId: string, toVersionId: string): Promise<ConnectorResourceDelta>;
-    readFile(locator: ConnectorFileLocator): Promise<string>;
+    getResource(resourceId: string): Effect.Effect<ConnectorResource, unknown>;
+    listResources(): Effect.Effect<ConnectorResource[], unknown>;
+    listResourceVersions(resourceId: string): Effect.Effect<ConnectorResourceVersion[], unknown>;
+    loadSnapshot(
+        resourceId: string,
+        versionName: string,
+        versionId?: string
+    ): Effect.Effect<ConnectorResourceSnapshot, unknown>;
+    compareVersions(
+        resourceId: string,
+        fromVersionId: string,
+        toVersionId: string
+    ): Effect.Effect<ConnectorResourceDelta, unknown>;
+    readFile(locator: ConnectorFileLocator): Effect.Effect<string, unknown>;
     verifyWebhook?(options: ConnectorWebhookVerificationOptions): boolean;
     normalizeWebhook?(options: ConnectorWebhookNormalizationOptions): NormalizedWebhookEvent;
 };
@@ -223,7 +241,7 @@ export type ConnectorAdapterFactoryOptions = {
 export type ConnectorAdapterRegistryEntry = {
     provider: ConnectorProvider;
     resourceKind: ConnectorResourceKind;
-    create(options: ConnectorAdapterFactoryOptions): Promise<ConnectorAdapter>;
+    create(options: ConnectorAdapterFactoryOptions): Effect.Effect<ConnectorAdapter, unknown>;
     verifyWebhook?(options: ConnectorWebhookVerificationOptions): boolean;
     normalizeWebhook?(options: ConnectorWebhookNormalizationOptions): NormalizedWebhookEvent;
 };

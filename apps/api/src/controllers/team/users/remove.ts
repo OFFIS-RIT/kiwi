@@ -11,7 +11,7 @@ import { ensureTeamHasAdmin, selectTeamUsers } from "./helpers";
 
 export function removeTeamUser(input: { user: AuthUser; teamId: string; userId: string }) {
     return tryApiPromise(async (): Promise<TeamUserListItem[]> => {
-        const access = await requireTeamMemberManageAccess(input.user, input.teamId);
+        const access = await Effect.runPromise(requireTeamMemberManageAccess(input.user, input.teamId));
 
         await db.transaction(async (tx) => {
             const currentMembers = await tx

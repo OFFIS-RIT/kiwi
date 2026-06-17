@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -19,6 +20,8 @@ export const ARCHIVE_UPLOAD_TOOLS = ["bsdtar", "gzip", "bzip2", "xz", "zstd", "b
 type ExpansionResult =
     | { ok: true; files: File[] }
     | { ok: false; kind: "unsupported" | "limit"; fileName: string; message: string };
+
+type ExtractArchiveUploadFile = (file: File, limits: ArchiveUploadLimits) => Effect.Effect<File[], unknown>;
 
 type Compression = {
     extensions: readonly string[];
@@ -125,134 +128,160 @@ function getCompression(file: Pick<File, "name" | "type">): Compression | null {
     );
 }
 
-export async function expandArchiveUploadFiles(
+export function expandArchiveUploadFiles(
     files: File[],
-    extract = extractArchiveUploadFile,
+    extract: ExtractArchiveUploadFile = extractArchiveUploadFile,
     limits = DEFAULT_ARCHIVE_UPLOAD_LIMITS
-): Promise<ExpansionResult> {
-    const expanded: File[] = [];
-    let totalFiles = 0;
-    let totalBytes = 0;
+): Effect.Effect<ExpansionResult, unknown> {
+    return Effect.gen(function* () {
+        const expanded: File[] = [];
+        let totalFiles = 0;
+        let totalBytes = 0;
 
-    const countFile = (file: File, fileName: string): ExpansionResult | null => {
-        if (totalFiles + 1 > limits.maxFiles) {
-            return {
-                ok: false,
-                kind: "limit",
-                fileName,
-                message: "Upload expands to too many files",
-            };
-        }
-
-        if (totalBytes + file.size > limits.maxBytes) {
-            return {
-                ok: false,
-                kind: "limit",
-                fileName,
-                message: "Upload expands to too much data",
-            };
-        }
-
-        totalFiles += 1;
-        totalBytes += file.size;
-        return null;
-    };
-
-    for (const file of files) {
-        if (!isArchiveUploadFile(file)) {
-            const limitFailure = countFile(file, file.name);
-            if (limitFailure) {
-                return limitFailure;
+        const countFile = (file: File, fileName: string): ExpansionResult | null => {
+            if (totalFiles + 1 > limits.maxFiles) {
+                return {
+                    ok: false,
+                    kind: "limit",
+                    fileName,
+                    message: "Upload expands to too many files",
+                };
             }
-            expanded.push(file);
-            continue;
-        }
 
-        try {
-            const extractedFiles = await extract(file, {
-                maxFiles: limits.maxFiles - totalFiles,
-                maxBytes: limits.maxBytes - totalBytes,
-            });
-            for (const extractedFile of extractedFiles) {
+            if (totalBytes + file.size > limits.maxBytes) {
+                return {
+                    ok: false,
+                    kind: "limit",
+                    fileName,
+                    message: "Upload expands to too much data",
+                };
+            }
+
+            totalFiles += 1;
+            totalBytes += file.size;
+            return null;
+        };
+
+        for (const file of files) {
+            if (!isArchiveUploadFile(file)) {
+                const limitFailure = countFile(file, file.name);
+                if (limitFailure) {
+                    return limitFailure;
+                }
+                expanded.push(file);
+                continue;
+            }
+
+            const result = yield* Effect.match(
+                extract(file, {
+                    maxFiles: limits.maxFiles - totalFiles,
+                    maxBytes: limits.maxBytes - totalBytes,
+                }),
+                {
+                    onFailure: (error) => ({ ok: false as const, error }),
+                    onSuccess: (extractedFiles) => ({ ok: true as const, extractedFiles }),
+                }
+            );
+
+            if (!result.ok) {
+                const error = result.error;
+                const limit = isArchiveUploadLimitError(error);
+                return {
+                    ok: false,
+                    kind: limit ? "limit" : "unsupported",
+                    fileName: file.name,
+                    message: limit ? error.message : archiveErrorMessage(error),
+                };
+            }
+
+            for (const extractedFile of result.extractedFiles) {
                 const limitFailure = countFile(extractedFile, file.name);
                 if (limitFailure) {
                     return limitFailure;
                 }
                 expanded.push(extractedFile);
             }
-        } catch (error) {
-            const limit = isArchiveUploadLimitError(error);
-            return {
-                ok: false,
-                kind: limit ? "limit" : "unsupported",
-                fileName: file.name,
-                message: limit ? error.message : archiveErrorMessage(error),
-            };
         }
-    }
 
-    return { ok: true, files: expanded };
+        return { ok: true, files: expanded };
+    });
 }
 
-export async function extractArchiveUploadFile(file: File, limits = DEFAULT_ARCHIVE_UPLOAD_LIMITS): Promise<File[]> {
-    const tempDir = await mkdtemp(join(tmpdir(), "kiwi-archive-upload-"));
-
-    try {
-        const safeName = basename(file.name).replace(/\0/gu, "").trim();
-        const inputPath = join(tempDir, safeName.length > 0 ? safeName : "archive");
-        await writeBlobToPath(file, inputPath);
-
-        const compression = getCompression(file);
-        if (compression) {
-            const content = await runTool(compression.command, compression.args(inputPath), {
-                stdout: true,
-                failure: "Compression extraction failed",
-                maxBytes: limits.maxBytes,
-            });
-            if (limits.maxFiles < 1) {
-                throw new ArchiveUploadLimitError("Upload expands to too many files");
-            }
-            return [new File([content], decompressedName(file.name, compression))];
-        }
-
-        const listing = await runTool("bsdtar", ["-tf", inputPath], {
-            stdout: true,
-            failure: "Archive listing failed",
+export function extractArchiveUploadFile(
+    file: File,
+    limits = DEFAULT_ARCHIVE_UPLOAD_LIMITS
+): Effect.Effect<File[], unknown> {
+    return Effect.gen(function* () {
+        const tempDir = yield* Effect.tryPromise({
+            try: () => mkdtemp(join(tmpdir(), "kiwi-archive-upload-")),
+            catch: (error) => error,
         });
-        const entries = listing
-            .toString("utf8")
-            .split("\n")
-            .map((entry) => entry.trimEnd())
-            .filter((entry) => entry.length > 0 && !entry.endsWith("/"))
-            .sort((left, right) => left.localeCompare(right));
 
-        const extracted: File[] = [];
-        let totalBytes = 0;
-        const entryNames = archiveEntryNames(entries);
+        try {
+            const safeName = basename(file.name).replace(/\0/gu, "").trim();
+            const inputPath = join(tempDir, safeName.length > 0 ? safeName : "archive");
+            yield* writeBlobToPath(file, inputPath);
 
-        for (const [index, entry] of entries.entries()) {
-            if (extracted.length + 1 > limits.maxFiles) {
-                throw new ArchiveUploadLimitError("Upload expands to too many files");
+            const compression = getCompression(file);
+            if (compression) {
+                const content = yield* runTool(compression.command, compression.args(inputPath), {
+                    stdout: true,
+                    failure: "Compression extraction failed",
+                    maxBytes: limits.maxBytes,
+                });
+                if (limits.maxFiles < 1) {
+                    return yield* Effect.fail(new ArchiveUploadLimitError("Upload expands to too many files"));
+                }
+                return [new File([content], decompressedName(file.name, compression))];
             }
 
-            const content = await runTool("bsdtar", ["-xOf", inputPath, "--", entry], {
+            const listing = yield* runTool("bsdtar", ["-tf", inputPath], {
                 stdout: true,
-                failure: "Archive extraction failed",
-                maxBytes: limits.maxBytes - totalBytes,
+                failure: "Archive listing failed",
             });
-            totalBytes += content.byteLength;
-            extracted.push(new File([content], entryNames[index] ?? basename(entry)));
-        }
+            const entries = listing
+                .toString("utf8")
+                .split("\n")
+                .map((entry) => entry.trimEnd())
+                .filter((entry) => entry.length > 0 && !entry.endsWith("/"))
+                .sort((left, right) => left.localeCompare(right));
 
-        return extracted;
-    } finally {
-        await rm(tempDir, { recursive: true, force: true });
-    }
+            const extracted: File[] = [];
+            let totalBytes = 0;
+            const entryNames = archiveEntryNames(entries);
+
+            for (const [index, entry] of entries.entries()) {
+                if (extracted.length + 1 > limits.maxFiles) {
+                    return yield* Effect.fail(new ArchiveUploadLimitError("Upload expands to too many files"));
+                }
+
+                const content = yield* runTool("bsdtar", ["-xOf", inputPath, "--", entry], {
+                    stdout: true,
+                    failure: "Archive extraction failed",
+                    maxBytes: limits.maxBytes - totalBytes,
+                });
+                totalBytes += content.byteLength;
+                extracted.push(new File([content], entryNames[index] ?? basename(entry)));
+            }
+
+            return extracted;
+        } finally {
+            yield* Effect.tryPromise({
+                try: () => rm(tempDir, { recursive: true, force: true }),
+                catch: (error) => error,
+            });
+        }
+    });
 }
 
-async function writeBlobToPath(file: Blob, path: string): Promise<void> {
-    const stream = file.stream() as unknown as NodeReadableStream<Uint8Array>;
-    await pipeline(Readable.fromWeb(stream), createWriteStream(path));
+function writeBlobToPath(file: Blob, path: string): Effect.Effect<void, unknown> {
+    return Effect.tryPromise({
+        try: () => {
+            const stream = file.stream() as unknown as NodeReadableStream<Uint8Array>;
+            return pipeline(Readable.fromWeb(stream), createWriteStream(path));
+        },
+        catch: (error) => error,
+    });
 }
 
 function archiveEntryNames(entries: readonly string[]): string[] {
@@ -295,38 +324,47 @@ function flattenedArchiveEntryName(entry: string): string {
     return segments.length > 0 ? segments.join("__") : basename(entry);
 }
 
-export async function checkArchiveUploadTools(): Promise<{ ok: true } | { ok: false; missing: string[] }> {
-    const missing: string[] = [];
+export function checkArchiveUploadTools(): Effect.Effect<{ ok: true } | { ok: false; missing: string[] }, unknown> {
+    return Effect.gen(function* () {
+        const availability = yield* Effect.all(
+            ARCHIVE_UPLOAD_TOOLS.map((tool) =>
+                Effect.map(hasArchiveUploadTool(tool), (available) => ({
+                    tool,
+                    available,
+                }))
+            ),
+            { concurrency: "unbounded" }
+        );
+        const missing = availability
+            .filter((tool) => !tool.available)
+            .map((tool) => tool.tool)
+            .sort((left, right) => left.localeCompare(right));
 
-    await Promise.all(
-        ARCHIVE_UPLOAD_TOOLS.map(async (tool) => {
-            if (!(await hasArchiveUploadTool(tool))) {
-                missing.push(tool);
-            }
-        })
-    );
-
-    missing.sort((left, right) => left.localeCompare(right));
-    return missing.length === 0 ? { ok: true } : { ok: false, missing };
+        return missing.length === 0 ? { ok: true } : { ok: false, missing };
+    });
 }
 
-function hasArchiveUploadTool(tool: string): Promise<boolean> {
-    return new Promise((resolve) => {
-        const child = spawn(tool, ["--version"], {
-            stdio: "ignore",
-        });
-        let settled = false;
+function hasArchiveUploadTool(tool: string): Effect.Effect<boolean, unknown> {
+    return Effect.tryPromise({
+        try: () =>
+            new Promise<boolean>((resolve) => {
+                const child = spawn(tool, ["--version"], {
+                    stdio: "ignore",
+                });
+                let settled = false;
 
-        const finish = (available: boolean) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            resolve(available);
-        };
+                const finish = (available: boolean) => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    resolve(available);
+                };
 
-        child.on("error", () => finish(false));
-        child.on("close", (code) => finish(code === 0));
+                child.on("error", () => finish(false));
+                child.on("close", (code) => finish(code === 0));
+            }),
+        catch: (error) => error,
     });
 }
 
@@ -336,66 +374,70 @@ function runTool(
     command: string,
     args: string[],
     options: { stdout: true; failure: string; maxBytes?: number }
-): Promise<Buffer<ArrayBuffer>>;
-function runTool(command: string, args: string[], options: { stdout?: false; failure: string }): Promise<void>;
-function runTool(command: string, args: string[], options: ToolOptions): Promise<Buffer<ArrayBuffer> | void> {
-    return new Promise<Buffer<ArrayBuffer> | void>((resolve, reject) => {
-        const child = spawn(command, args, {
-            stdio: ["ignore", options.stdout ? "pipe" : "ignore", "pipe"],
-        });
-        const chunks: Buffer<ArrayBuffer>[] | null = options.stdout ? [] : null;
-        let output = "";
-        let bytes = 0;
-        let settled = false;
-
-        const finish = (callback: () => void) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            callback();
-        };
-
-        child.stdout?.on("data", (chunk: Buffer<ArrayBuffer>) => {
-            if (!chunks) {
-                return;
-            }
-
-            bytes += chunk.byteLength;
-            if (options.stdout && options.maxBytes !== undefined && bytes > options.maxBytes) {
-                finish(() => {
-                    child.kill();
-                    reject(new ArchiveUploadLimitError("Upload expands to too much data"));
+): Effect.Effect<Buffer<ArrayBuffer>, unknown>;
+function runTool(command: string, args: string[], options: { stdout?: false; failure: string }): Effect.Effect<void, unknown>;
+function runTool(command: string, args: string[], options: ToolOptions): Effect.Effect<Buffer<ArrayBuffer> | void, unknown> {
+    return Effect.tryPromise({
+        try: () =>
+            new Promise<Buffer<ArrayBuffer> | void>((resolve, reject) => {
+                const child = spawn(command, args, {
+                    stdio: ["ignore", options.stdout ? "pipe" : "ignore", "pipe"],
                 });
-                return;
-            }
+                const chunks: Buffer<ArrayBuffer>[] | null = options.stdout ? [] : null;
+                let output = "";
+                let bytes = 0;
+                let settled = false;
 
-            chunks.push(chunk);
-        });
-        child.stderr?.setEncoding("utf8");
-        child.stderr?.on("data", (chunk) => {
-            output += chunk;
-        });
-        child.on("error", (error) => {
-            finish(() => {
-                if (isMissingCommand(error)) {
-                    reject(new MissingArchiveToolError("Archive extraction is not available"));
-                    return;
-                }
+                const finish = (callback: () => void) => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    callback();
+                };
 
-                reject(error);
-            });
-        });
-        child.on("close", (code) => {
-            finish(() => {
-                if (code === 0) {
-                    resolve(chunks ? Buffer.concat(chunks) : undefined);
-                    return;
-                }
+                child.stdout?.on("data", (chunk: Buffer<ArrayBuffer>) => {
+                    if (!chunks) {
+                        return;
+                    }
 
-                reject(new Error(output.trim() || `${options.failure} with exit code ${code}`));
-            });
-        });
+                    bytes += chunk.byteLength;
+                    if (options.stdout && options.maxBytes !== undefined && bytes > options.maxBytes) {
+                        finish(() => {
+                            child.kill();
+                            reject(new ArchiveUploadLimitError("Upload expands to too much data"));
+                        });
+                        return;
+                    }
+
+                    chunks.push(chunk);
+                });
+                child.stderr?.setEncoding("utf8");
+                child.stderr?.on("data", (chunk) => {
+                    output += chunk;
+                });
+                child.on("error", (error) => {
+                    finish(() => {
+                        if (isMissingCommand(error)) {
+                            reject(new MissingArchiveToolError("Archive extraction is not available"));
+                            return;
+                        }
+
+                        reject(error);
+                    });
+                });
+                child.on("close", (code) => {
+                    finish(() => {
+                        if (code === 0) {
+                            resolve(chunks ? Buffer.concat(chunks) : undefined);
+                            return;
+                        }
+
+                        reject(new Error(output.trim() || `${options.failure} with exit code ${code}`));
+                    });
+                });
+            }),
+        catch: (error) => error,
     });
 }
 

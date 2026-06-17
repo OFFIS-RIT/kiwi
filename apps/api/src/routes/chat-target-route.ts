@@ -1,8 +1,8 @@
 import { db } from "@kiwi/db";
 import { chatTable } from "@kiwi/db/tables/chats";
 import type { KiwiPermissions } from "@kiwi/auth/permissions";
-import { Result } from "better-result";
 import { eq } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { Elysia, t } from "elysia";
 import { mapChatError, setChatArchived, setChatPinned, type ChatRequest } from "../lib/chat";
 import { createChatStreamResponse, runChatCompletion, type StartedChatReply } from "../lib/chat-response";
@@ -27,17 +27,21 @@ type ChatRouteSpec<TTarget> = {
         archive?: boolean;
     };
     mapError?: (status: RouteStatus, error: unknown) => unknown;
-    resolveTarget: (user: AuthUser, targetId: string) => Promise<TTarget>;
-    listChats: (userId: string, target: TTarget, options: { offset?: number; limit?: number }) => Promise<unknown>;
-    loadHistory: (userId: string, target: TTarget, chatId: string) => Promise<unknown>;
-    loadSummary: (userId: string, target: TTarget, chatId: string) => Promise<{ id: string }>;
+    resolveTarget: (user: AuthUser, targetId: string) => Effect.Effect<TTarget, unknown>;
+    listChats: (
+        userId: string,
+        target: TTarget,
+        options: { offset?: number; limit?: number }
+    ) => Effect.Effect<unknown, unknown>;
+    loadHistory: (userId: string, target: TTarget, chatId: string) => Effect.Effect<unknown, unknown>;
+    loadSummary: (userId: string, target: TTarget, chatId: string) => Effect.Effect<{ id: string }, unknown>;
     startReply: (options: {
         user: AuthUser;
         target: TTarget;
         request: ChatRequest;
         mode: "completion" | "stream";
         abortSignal: AbortSignal;
-    }) => Promise<StartedChatReply>;
+    }) => Effect.Effect<StartedChatReply, unknown>;
 };
 
 const requestBodySchema = t.Union([
@@ -72,24 +76,22 @@ function getParam(params: RouteParams, name: string) {
     return value;
 }
 
-async function runChatAction<T>(options: {
+function runChatAction<T>(options: {
     user: AuthUser | null;
     status: RouteStatus;
     mapError: (status: RouteStatus, error: unknown) => unknown;
-    action: (user: AuthUser) => Promise<T>;
+    action: (user: AuthUser) => Effect.Effect<T, unknown>;
     success: (value: T) => unknown;
 }) {
     const user = options.user;
     if (!user) {
-        return options.status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
+        return Effect.succeed(options.status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED)));
     }
 
-    const result = await Result.tryPromise(async () => options.action(user));
-    if (result.isErr()) {
-        return options.mapError(options.status, result.error);
-    }
-
-    return options.success(result.value);
+    return Effect.match(options.action(user), {
+        onFailure: (error) => options.mapError(options.status, error),
+        onSuccess: options.success,
+    });
 }
 
 export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
@@ -100,43 +102,68 @@ export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
     const pinningEnabled = spec.libraryActions?.pin ?? true;
     const archivingEnabled = spec.libraryActions?.archive ?? true;
 
-    const resolveTarget = async (user: AuthUser, params: RouteParams) => {
-        const targetId = getParam(params, spec.targetParam);
-        return spec.resolveTarget(user, targetId);
-    };
+    const resolveTarget = (user: AuthUser, params: RouteParams): Effect.Effect<TTarget, unknown> =>
+        Effect.gen(function* () {
+            const targetId = yield* Effect.try({
+                try: () => getParam(params, spec.targetParam),
+                catch: (error) => error,
+            });
+            return yield* spec.resolveTarget(user, targetId);
+        });
 
-    const loadChat = async (user: AuthUser, params: RouteParams) => {
-        const target = await resolveTarget(user, params);
-        return spec.loadSummary(user.id, target, getParam(params, "chatId"));
-    };
+    const loadChat = (
+        user: AuthUser,
+        params: RouteParams
+    ): Effect.Effect<{ id: string }, unknown> =>
+        Effect.gen(function* () {
+            const target = yield* resolveTarget(user, params);
+            const chatId = yield* Effect.try({
+                try: () => getParam(params, "chatId"),
+                catch: (error) => error,
+            });
+            return yield* spec.loadSummary(user.id, target, chatId);
+        });
 
-    const mutateChat = async (
+    const mutateChat = (
         user: AuthUser,
         params: RouteParams,
-        update: (chatId: string, userId: string) => Promise<void>
-    ) => {
-        const chat = await loadChat(user, params);
-        await update(chat.id, user.id);
-    };
+        update: (chatId: string, userId: string) => Effect.Effect<void, unknown>
+    ): Effect.Effect<void, unknown> =>
+        Effect.gen(function* () {
+            const chat = yield* loadChat(user, params);
+            yield* update(chat.id, user.id);
+        });
 
     const route = new Elysia({ prefix: spec.prefix })
         .use(authMiddleware)
         .get(
             spec.listPath,
             async ({ params, query, user, status }) =>
-                runChatAction({
-                    user,
-                    status,
-                    mapError,
-                    action: async (currentUser) => {
-                        const target = await resolveTarget(currentUser, params);
-                        return spec.listChats(currentUser.id, target, {
-                            offset: parseListNumber(query.offset, { minimum: 0, maximum: 10_000 }),
-                            limit: parseListNumber(query.limit, { minimum: 1, maximum: 100 }),
-                        });
-                    },
-                    success: (value) => status(200, successResponse(value)),
-                }),
+                Effect.runPromise(
+                    runChatAction({
+                        user,
+                        status,
+                        mapError,
+                        action: (currentUser) =>
+                            Effect.gen(function* () {
+                                const target = yield* resolveTarget(currentUser, params);
+                                const offset = yield* Effect.try({
+                                    try: () => parseListNumber(query.offset, { minimum: 0, maximum: 10_000 }),
+                                    catch: (error) => error,
+                                });
+                                const limit = yield* Effect.try({
+                                    try: () => parseListNumber(query.limit, { minimum: 1, maximum: 100 }),
+                                    catch: (error) => error,
+                                });
+
+                                return yield* spec.listChats(currentUser.id, target, {
+                                    offset,
+                                    limit,
+                                });
+                            }),
+                        success: (value) => status(200, successResponse(value)),
+                    })
+                ),
             {
                 ...targetRoute,
                 query: t.Object({
@@ -148,31 +175,44 @@ export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
         .get(
             spec.itemPath,
             async ({ params, user, status }) =>
-                runChatAction({
-                    user,
-                    status,
-                    mapError,
-                    action: async (currentUser) => {
-                        const target = await resolveTarget(currentUser, params);
-                        return spec.loadHistory(currentUser.id, target, getParam(params, "chatId"));
-                    },
-                    success: (value) => status(200, successResponse(value)),
-                }),
+                Effect.runPromise(
+                    runChatAction({
+                        user,
+                        status,
+                        mapError,
+                        action: (currentUser) =>
+                            Effect.gen(function* () {
+                                const target = yield* resolveTarget(currentUser, params);
+                                const chatId = yield* Effect.try({
+                                    try: () => getParam(params, "chatId"),
+                                    catch: (error) => error,
+                                });
+                                return yield* spec.loadHistory(currentUser.id, target, chatId);
+                            }),
+                        success: (value) => status(200, successResponse(value)),
+                    })
+                ),
             itemRoute
         )
         .delete(
             spec.itemPath,
             async ({ params, user, status }) =>
-                runChatAction({
-                    user,
-                    status,
-                    mapError,
-                    action: async (currentUser) => {
-                        const chat = await loadChat(currentUser, params);
-                        await db.delete(chatTable).where(eq(chatTable.id, chat.id));
-                    },
-                    success: () => status(204, null),
-                }),
+                Effect.runPromise(
+                    runChatAction({
+                        user,
+                        status,
+                        mapError,
+                        action: (currentUser) =>
+                            Effect.gen(function* () {
+                                const chat = yield* loadChat(currentUser, params);
+                                yield* Effect.tryPromise({
+                                    try: () => db.delete(chatTable).where(eq(chatTable.id, chat.id)),
+                                    catch: (error) => error,
+                                });
+                            }),
+                        success: () => status(204, null),
+                    })
+                ),
             itemRoute
         );
 
@@ -181,27 +221,31 @@ export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
             .post(
                 `${spec.itemPath}/pin`,
                 async ({ params, user, status }) =>
-                    runChatAction({
-                        user,
-                        status,
-                        mapError,
-                        action: (currentUser) =>
-                            mutateChat(currentUser, params, (chatId, userId) => setChatPinned(chatId, userId, true)),
-                        success: () => status(204, null),
-                    }),
+                    Effect.runPromise(
+                        runChatAction({
+                            user,
+                            status,
+                            mapError,
+                            action: (currentUser) =>
+                                mutateChat(currentUser, params, (chatId, userId) => setChatPinned(chatId, userId, true)),
+                            success: () => status(204, null),
+                        })
+                    ),
                 itemRoute
             )
             .post(
                 `${spec.itemPath}/unpin`,
                 async ({ params, user, status }) =>
-                    runChatAction({
-                        user,
-                        status,
-                        mapError,
-                        action: (currentUser) =>
-                            mutateChat(currentUser, params, (chatId, userId) => setChatPinned(chatId, userId, false)),
-                        success: () => status(204, null),
-                    }),
+                    Effect.runPromise(
+                        runChatAction({
+                            user,
+                            status,
+                            mapError,
+                            action: (currentUser) =>
+                                mutateChat(currentUser, params, (chatId, userId) => setChatPinned(chatId, userId, false)),
+                            success: () => status(204, null),
+                        })
+                    ),
                 itemRoute
             );
     }
@@ -211,27 +255,31 @@ export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
             .post(
                 `${spec.itemPath}/archive`,
                 async ({ params, user, status }) =>
-                    runChatAction({
-                        user,
-                        status,
-                        mapError,
-                        action: (currentUser) =>
-                            mutateChat(currentUser, params, (chatId, userId) => setChatArchived(chatId, userId, true)),
-                        success: () => status(204, null),
-                    }),
+                    Effect.runPromise(
+                        runChatAction({
+                            user,
+                            status,
+                            mapError,
+                            action: (currentUser) =>
+                                mutateChat(currentUser, params, (chatId, userId) => setChatArchived(chatId, userId, true)),
+                            success: () => status(204, null),
+                        })
+                    ),
                 itemRoute
             )
             .post(
                 `${spec.itemPath}/unarchive`,
                 async ({ params, user, status }) =>
-                    runChatAction({
-                        user,
-                        status,
-                        mapError,
-                        action: (currentUser) =>
-                            mutateChat(currentUser, params, (chatId, userId) => setChatArchived(chatId, userId, false)),
-                        success: () => status(204, null),
-                    }),
+                    Effect.runPromise(
+                        runChatAction({
+                            user,
+                            status,
+                            mapError,
+                            action: (currentUser) =>
+                                mutateChat(currentUser, params, (chatId, userId) => setChatArchived(chatId, userId, false)),
+                            success: () => status(204, null),
+                        })
+                    ),
                 itemRoute
             );
     }
@@ -240,49 +288,58 @@ export function createChatTargetRoute<TTarget>(spec: ChatRouteSpec<TTarget>) {
         .post(
             spec.replyPath,
             async ({ params, body, user, status, request: httpRequest }) =>
-                runChatAction({
-                    user,
-                    status,
-                    mapError,
-                    action: async (currentUser) => {
-                        const request = body as ChatRequest;
-                        const target = await resolveTarget(currentUser, params);
-                        const reply = await spec.startReply({
-                            user: currentUser,
-                            target,
-                            request,
-                            mode: "completion",
-                            abortSignal: httpRequest.signal,
-                        });
+                Effect.runPromise(
+                    runChatAction({
+                        user,
+                        status,
+                        mapError,
+                        action: (currentUser) =>
+                            Effect.gen(function* () {
+                                const request = body as ChatRequest;
+                                const target = yield* resolveTarget(currentUser, params);
+                                const reply = yield* spec.startReply({
+                                    user: currentUser,
+                                    target,
+                                    request,
+                                    mode: "completion",
+                                    abortSignal: httpRequest.signal,
+                                });
 
-                        return runChatCompletion(reply);
-                    },
-                    success: (value) => status(200, successResponse(value)),
-                }),
+                                return yield* runChatCompletion(reply);
+                            }),
+                        success: (value) => status(200, successResponse(value)),
+                    })
+                ),
             { ...targetRoute, body: requestBodySchema }
         )
         .post(
             spec.streamPath,
             async ({ params, body, user, status, request: httpRequest }) =>
-                runChatAction({
-                    user,
-                    status,
-                    mapError,
-                    action: async (currentUser) => {
-                        const request = body as ChatRequest;
-                        const target = await resolveTarget(currentUser, params);
-                        const reply = await spec.startReply({
-                            user: currentUser,
-                            target,
-                            request,
-                            mode: "stream",
-                            abortSignal: httpRequest.signal,
-                        });
+                Effect.runPromise(
+                    runChatAction({
+                        user,
+                        status,
+                        mapError,
+                        action: (currentUser) =>
+                            Effect.gen(function* () {
+                                const request = body as ChatRequest;
+                                const target = yield* resolveTarget(currentUser, params);
+                                const reply = yield* spec.startReply({
+                                    user: currentUser,
+                                    target,
+                                    request,
+                                    mode: "stream",
+                                    abortSignal: httpRequest.signal,
+                                });
 
-                        return createChatStreamResponse(reply);
-                    },
-                    success: (value) => value,
-                }),
+                                return yield* Effect.try({
+                                    try: () => createChatStreamResponse(reply),
+                                    catch: (error) => error,
+                                });
+                            }),
+                        success: (value) => value,
+                    })
+                ),
             { ...targetRoute, body: requestBodySchema }
         );
 }

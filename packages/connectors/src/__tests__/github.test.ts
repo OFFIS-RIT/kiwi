@@ -1,4 +1,5 @@
 import { createHmac, generateKeyPairSync } from "node:crypto";
+import * as Effect from "effect/Effect";
 import { describe, expect, test } from "bun:test";
 import {
     createGitHubAppJwt,
@@ -43,13 +44,15 @@ describe("GitHub connector", () => {
         };
 
         await expect(
-            createGitHubInstallationToken({
-                credentials: { provider: "github", appId: "42", privateKeyPem },
-                installationId: "99",
-                apiBaseUrl: "https://github.test",
-                fetch: fetchImpl,
-                now: new Date("2026-01-01T00:00:00Z"),
-            })
+            Effect.runPromise(
+                createGitHubInstallationToken({
+                    credentials: { provider: "github", appId: "42", privateKeyPem },
+                    installationId: "99",
+                    apiBaseUrl: "https://github.test",
+                    fetch: fetchImpl,
+                    now: new Date("2026-01-01T00:00:00Z"),
+                })
+            )
         ).resolves.toEqual({ token: "installation-token", expiresAt: "2026-01-01T01:00:00Z" });
         expect(calls[0]?.method).toBe("POST");
         expect(String((calls[0]?.headers as Record<string, string>).authorization)).toMatch(/^Bearer /);
@@ -69,13 +72,15 @@ describe("GitHub connector", () => {
         };
 
         await expect(
-            getGitHubInstallationAccount({
-                credentials: { provider: "github", appId: "42", privateKeyPem },
-                installationId: "99",
-                apiBaseUrl: "https://github.test",
-                fetch: fetchImpl,
-                now: new Date("2026-01-01T00:00:00Z"),
-            })
+            Effect.runPromise(
+                getGitHubInstallationAccount({
+                    credentials: { provider: "github", appId: "42", privateKeyPem },
+                    installationId: "99",
+                    apiBaseUrl: "https://github.test",
+                    fetch: fetchImpl,
+                    now: new Date("2026-01-01T00:00:00Z"),
+                })
+            )
         ).resolves.toEqual({
             login: "acme",
             type: "organization",
@@ -121,9 +126,9 @@ describe("GitHub connector", () => {
             fetch: fetchImpl,
         });
 
-        await expect(client.listRepositories()).resolves.toEqual([GITHUB_REPOSITORY]);
-        await expect(client.listResources()).resolves.toEqual([GITHUB_RESOURCE]);
-        await expect(client.listResourceVersions("1")).resolves.toEqual([
+        await expect(Effect.runPromise(client.listRepositories())).resolves.toEqual([GITHUB_REPOSITORY]);
+        await expect(Effect.runPromise(client.listResources())).resolves.toEqual([GITHUB_RESOURCE]);
+        await expect(Effect.runPromise(client.listResourceVersions("1"))).resolves.toEqual([
             { resourceId: "1", name: "main", versionId: "commit-sha" },
         ]);
         expect(urls).toContain("https://github.test/installation/repositories?per_page=100&page=1");
@@ -158,13 +163,15 @@ describe("GitHub connector", () => {
         };
 
         await expect(
-            loadGitHubRepositorySnapshot({
-                installationToken: "token",
-                apiBaseUrl: "https://github.test",
-                fetch: fetchImpl,
-                repository: GITHUB_REPOSITORY,
-                branch: "main",
-            })
+            Effect.runPromise(
+                loadGitHubRepositorySnapshot({
+                    installationToken: "token",
+                    apiBaseUrl: "https://github.test",
+                    fetch: fetchImpl,
+                    repository: GITHUB_REPOSITORY,
+                    branch: "main",
+                })
+            )
         ).resolves.toEqual({
             repository: GITHUB_REPOSITORY,
             branch: { name: "main", commitSha: "commit-sha" },
@@ -197,13 +204,15 @@ describe("GitHub connector", () => {
         };
 
         await expect(
-            loadGitHubRepositorySnapshot({
-                installationToken: "token",
-                apiBaseUrl: "https://github.test",
-                fetch: fetchImpl,
-                repository: GITHUB_REPOSITORY,
-                branch: "main",
-            })
+            Effect.runPromise(
+                loadGitHubRepositorySnapshot({
+                    installationToken: "token",
+                    apiBaseUrl: "https://github.test",
+                    fetch: fetchImpl,
+                    repository: GITHUB_REPOSITORY,
+                    branch: "main",
+                })
+            )
         ).rejects.toMatchObject({
             name: "ConnectorProviderError",
             kind: "limit",
@@ -242,7 +251,7 @@ describe("GitHub connector", () => {
             },
         });
 
-        await expect(client.compareVersions("1", "commit-old", "commit-new")).resolves.toEqual({
+        await expect(Effect.runPromise(client.compareVersions("1", "commit-old", "commit-new"))).resolves.toEqual({
             fromVersionId: "commit-old",
             toVersionId: "commit-new",
             isIncremental: true,
@@ -263,7 +272,7 @@ describe("GitHub connector", () => {
             fetch: async () => jsonResponse({ status: "diverged" }),
         });
 
-        await expect(client.compareRepository(GITHUB_REPOSITORY, "commit-old", "commit-new")).resolves.toEqual({
+        await expect(Effect.runPromise(client.compareRepository(GITHUB_REPOSITORY, "commit-old", "commit-new"))).resolves.toEqual({
             fromCommitSha: "commit-old",
             toCommitSha: "commit-new",
             isIncremental: false,

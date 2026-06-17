@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { teamTable } from "@kiwi/db/tables/auth";
 import { filesTable } from "@kiwi/db/tables/graph";
@@ -11,8 +12,8 @@ import { tryApiPromise } from "../_shared/api-effect";
 
 export function getGraph(input: { user: AuthUser; graphId: string }) {
     return tryApiPromise(async (): Promise<GraphDetailSuccessData> => {
-        const graph = await assertCanViewGraph(input.user, input.graphId);
-        const rootOwner = await resolveGraphOwnerRoot(graph.id);
+        const graph = await Effect.runPromise(assertCanViewGraph(input.user, input.graphId));
+        const rootOwner = await Effect.runPromise(resolveGraphOwnerRoot(graph.id));
         let teamId: string | null = null;
         let teamName: string | null = null;
 

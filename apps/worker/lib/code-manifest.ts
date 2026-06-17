@@ -20,92 +20,96 @@ type ManifestFileRow = {
     connectorBindingId: string | null;
 };
 
-export async function prepareCodeManifest(options: {
+export function prepareCodeManifest(options: {
     graphId: string;
     fileIds: string[];
     processRunId?: string;
-}): Promise<string | undefined> {
-    if (options.fileIds.length === 0) {
-        return undefined;
-    }
+}): Effect.Effect<string | undefined, unknown> {
+    return Effect.gen(function* () {
+        if (options.fileIds.length === 0) {
+            return undefined;
+        }
 
-    const selectedRows = await db
-        .select({
-            id: filesTable.id,
-            name: filesTable.name,
-            key: filesTable.key,
-            metadata: filesTable.metadata,
-            storageKind: filesTable.storageKind,
-            externalUrl: filesTable.externalUrl,
-            externalProvider: filesTable.externalProvider,
-            connectorBindingId: filesTable.connectorBindingId,
-        })
-        .from(filesTable)
-        .where(
-            and(
-                eq(filesTable.graphId, options.graphId),
-                eq(filesTable.type, "code"),
-                eq(filesTable.deleted, false),
-                inArray(filesTable.id, options.fileIds)
-            )
+        const selectedRows = yield* Effect.tryPromise(() =>
+            db
+                .select({
+                    id: filesTable.id,
+                    name: filesTable.name,
+                    key: filesTable.key,
+                    metadata: filesTable.metadata,
+                    storageKind: filesTable.storageKind,
+                    externalUrl: filesTable.externalUrl,
+                    externalProvider: filesTable.externalProvider,
+                    connectorBindingId: filesTable.connectorBindingId,
+                })
+                .from(filesTable)
+                .where(
+                    and(
+                        eq(filesTable.graphId, options.graphId),
+                        eq(filesTable.type, "code"),
+                        eq(filesTable.deleted, false),
+                        inArray(filesTable.id, options.fileIds)
+                    )
+                )
         );
 
-    if (selectedRows.length === 0) {
-        return undefined;
-    }
-
-    const selectedScopes = new Set(selectedRows.map(repositoryManifestScopeKey).filter((scope): scope is string => scope !== null));
-    const rows = selectedScopes.size
-        ? await db
-              .select({
-                  id: filesTable.id,
-                  name: filesTable.name,
-                  key: filesTable.key,
-                  metadata: filesTable.metadata,
-                  storageKind: filesTable.storageKind,
-                  externalUrl: filesTable.externalUrl,
-                  externalProvider: filesTable.externalProvider,
-                  connectorBindingId: filesTable.connectorBindingId,
-              })
-              .from(filesTable)
-              .where(and(eq(filesTable.graphId, options.graphId), eq(filesTable.type, "code"), eq(filesTable.deleted, false)))
-        : selectedRows;
-
-    const files: CodeRepositoryFile[] = [];
-    for (const row of rows) {
-        const metadata = parseCodeFileMetadata(row.metadata);
-        const scope = repositoryManifestScopeKey(row);
-        if (metadata && selectedScopes.size > 0 && (!scope || !selectedScopes.has(scope))) {
-            continue;
+        if (selectedRows.length === 0) {
+            return undefined;
         }
 
-        const content = await readFileContentSource(fileContentSourceFromRow(row));
-        if (!metadata || content === null) {
-            continue;
+        const selectedScopes = new Set(selectedRows.map(repositoryManifestScopeKey).filter((scope): scope is string => scope !== null));
+        const rows = selectedScopes.size
+            ? yield* Effect.tryPromise(() =>
+                  db
+                      .select({
+                          id: filesTable.id,
+                          name: filesTable.name,
+                          key: filesTable.key,
+                          metadata: filesTable.metadata,
+                          storageKind: filesTable.storageKind,
+                          externalUrl: filesTable.externalUrl,
+                          externalProvider: filesTable.externalProvider,
+                          connectorBindingId: filesTable.connectorBindingId,
+                      })
+                      .from(filesTable)
+                      .where(and(eq(filesTable.graphId, options.graphId), eq(filesTable.type, "code"), eq(filesTable.deleted, false)))
+              )
+            : selectedRows;
+
+        const files: CodeRepositoryFile[] = [];
+        for (const row of rows) {
+            const metadata = parseCodeFileMetadata(row.metadata);
+            const scope = repositoryManifestScopeKey(row);
+            if (metadata && selectedScopes.size > 0 && (!scope || !selectedScopes.has(scope))) {
+                continue;
+            }
+
+            const content = yield* readFileContentSource(fileContentSourceFromRow(row));
+            if (!metadata || content === null) {
+                continue;
+            }
+
+            files.push({
+                fileId: row.id,
+                content,
+                ...codeRepositoryFileFieldsFromMetadata(metadata, { graphId: options.graphId, name: row.name }),
+            });
         }
 
-        files.push({
-            fileId: row.id,
-            content,
-            ...codeRepositoryFileFieldsFromMetadata(metadata, { graphId: options.graphId, name: row.name }),
-        });
-    }
+        if (files.length === 0) {
+            return undefined;
+        }
 
-    if (files.length === 0) {
-        return undefined;
-    }
-
-    const manifest = buildCodeRepositoryManifest(files);
-    const uploaded = await Effect.runPromise(
-        putNamedFile(
+        const manifest = buildCodeRepositoryManifest(files);
+        const uploaded = yield* putNamedFile(
             "code-manifest.json",
             JSON.stringify(manifest),
             `graphs/${options.graphId}/process-runs/${options.processRunId ?? "adhoc"}`,
             env.S3_BUCKET
-        )
-    );
+        );
 
-    return uploaded.key;
+        return uploaded.key;
+    });
 }
 
 function repositoryManifestScopeKey(row: Pick<ManifestFileRow, "connectorBindingId" | "metadata">): string | null {
@@ -122,11 +126,13 @@ function repositoryManifestScopeKey(row: Pick<ManifestFileRow, "connectorBinding
     return `repository:${fields.repositoryUrl}\0${fields.commitSha}`;
 }
 
-export async function loadCodeManifest(key: string): Promise<CodeRepositoryManifest> {
-    const manifest = await Effect.runPromise(getFile<CodeRepositoryManifest>(key, env.S3_BUCKET, "json"));
-    if (!manifest) {
-        throw new Error(`Failed to load code manifest from ${key}`);
-    }
+export function loadCodeManifest(key: string): Effect.Effect<CodeRepositoryManifest, unknown> {
+    return Effect.gen(function* () {
+        const manifest = yield* getFile<CodeRepositoryManifest>(key, env.S3_BUCKET, "json");
+        if (!manifest) {
+            return yield* Effect.fail(new Error(`Failed to load code manifest from ${key}`));
+        }
 
-    return manifest.content;
+        return manifest.content;
+    });
 }

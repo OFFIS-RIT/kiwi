@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { API_ERROR_CODES, makeApiError } from "@kiwi/contracts/errors";
 import type { GraphFileDownloadSuccessData } from "@kiwi/contracts/graphs";
 import { assertCanViewGraph } from "../../../lib/graph/access";
@@ -8,9 +9,9 @@ import { tryApiPromise } from "../../_shared/api-effect";
 
 export function getGraphFileUrl(input: { user: AuthUser; graphId: string; fileKey: string }) {
     return tryApiPromise(async (): Promise<GraphFileDownloadSuccessData> => {
-        await assertCanViewGraph(input.user, input.graphId);
+        await Effect.runPromise(assertCanViewGraph(input.user, input.graphId));
 
-        const file = await loadGraphFileByKey(input.graphId, input.fileKey);
+        const file = await Effect.runPromise(loadGraphFileByKey(input.graphId, input.fileKey));
         if (!file) {
             throw makeApiError(400, API_ERROR_CODES.INVALID_FILE_IDS, "Invalid file IDs");
         }

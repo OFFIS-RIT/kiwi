@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { gzipSync } from "node:zlib";
 import {
     checkArchiveUploadTools,
@@ -16,7 +17,7 @@ const crcTable = new Uint32Array(256).map((_, index) => {
     return value >>> 0;
 });
 
-const archiveToolCheck = await checkArchiveUploadTools();
+const archiveToolCheck = await Effect.runPromise(checkArchiveUploadTools());
 const missingTools = archiveToolCheck.ok ? [] : archiveToolCheck.missing;
 if (process.env.CI === "true" && missingTools.length > 0) {
     throw new Error(`Missing archive upload tools in CI: ${missingTools.join(", ")}`);
@@ -40,10 +41,11 @@ describe("expandArchiveUploadFiles", () => {
     test("replaces archive uploads with extracted files", async () => {
         const archive = new File(["archive"], "documents.zip", { type: "application/zip" });
         const plain = new File(["plain"], "plain.txt", { type: "text/plain" });
-        const result = await expandArchiveUploadFiles([archive, plain], async (file) => [
-            new File([await file.text()], "first.txt"),
-            new File(["second"], "second.txt"),
-        ]);
+        const result = await Effect.runPromise(
+            expandArchiveUploadFiles([archive, plain], (file) =>
+                Effect.promise(async () => [new File([await file.text()], "first.txt"), new File(["second"], "second.txt")])
+            )
+        );
 
         expect(result.ok).toBe(true);
         if (!result.ok) {
@@ -55,9 +57,9 @@ describe("expandArchiveUploadFiles", () => {
     });
 
     test("returns unsupported upload details when extraction fails", async () => {
-        const result = await expandArchiveUploadFiles([new File(["broken"], "broken.zip")], async () => {
-            throw new Error("invalid archive");
-        });
+        const result = await Effect.runPromise(
+            expandArchiveUploadFiles([new File(["broken"], "broken.zip")], () => Effect.fail(new Error("invalid archive")))
+        );
 
         expect(result).toEqual({
             ok: false,
@@ -68,10 +70,11 @@ describe("expandArchiveUploadFiles", () => {
     });
 
     test("counts non-archive files toward maxFiles", async () => {
-        const result = await expandArchiveUploadFiles(
-            [new File(["one"], "one.txt"), new File(["two"], "two.txt")],
-            extractArchiveUploadFile,
-            { maxFiles: 1, maxBytes: 1024 }
+        const result = await Effect.runPromise(
+            expandArchiveUploadFiles([new File(["one"], "one.txt"), new File(["two"], "two.txt")], extractArchiveUploadFile, {
+                maxFiles: 1,
+                maxBytes: 1024,
+            })
         );
 
         expect(result).toEqual({
@@ -96,7 +99,7 @@ describe("extractArchiveUploadFile", () => {
             { type: "application/zip" }
         );
 
-        const files = await extractArchiveUploadFile(archive);
+        const files = await Effect.runPromise(extractArchiveUploadFile(archive));
 
         expect(files.map((file) => file.name)).toEqual(["beta.txt", "alpha.txt"]);
         await expect(files.find((file) => file.name === "alpha.txt")!.text()).resolves.toBe("alpha");
@@ -108,7 +111,7 @@ describe("extractArchiveUploadFile", () => {
             type: "application/zip",
         });
 
-        const files = await extractArchiveUploadFile(archive);
+        const files = await Effect.runPromise(extractArchiveUploadFile(archive));
 
         expect(files.map((file) => file.name)).toEqual(["-v"]);
         await expect(files[0]!.text()).resolves.toBe("not verbose output");
@@ -126,7 +129,7 @@ describe("extractArchiveUploadFile", () => {
             { type: "application/zip" }
         );
 
-        const files = await extractArchiveUploadFile(archive);
+        const files = await Effect.runPromise(extractArchiveUploadFile(archive));
 
         expect(files.map((file) => file.name)).toEqual(["lib__utils.ts", "src__utils.ts"]);
         await expect(files.find((file) => file.name === "src__utils.ts")!.text()).resolves.toBe("src");
@@ -136,7 +139,7 @@ describe("extractArchiveUploadFile", () => {
     gzipTest("decompresses single-file gzip uploads", async () => {
         const archive = new File([gzipSync(encoder.encode("hello"))], "notes.txt.gz", { type: "application/gzip" });
 
-        const files = await extractArchiveUploadFile(archive);
+        const files = await Effect.runPromise(extractArchiveUploadFile(archive));
 
         expect(files.map((file) => file.name)).toEqual(["notes.txt"]);
         await expect(files[0]!.text()).resolves.toBe("hello");
@@ -150,7 +153,7 @@ describe("extractArchiveUploadFile", () => {
             },
         });
 
-        const files = await extractArchiveUploadFile(archive);
+        const files = await Effect.runPromise(extractArchiveUploadFile(archive));
 
         expect(files.map((file) => file.name)).toEqual(["notes.txt"]);
         await expect(files[0]!.text()).resolves.toBe("hello");
@@ -168,10 +171,12 @@ describe("extractArchiveUploadFile", () => {
             { type: "application/zip" }
         );
 
-        const result = await expandArchiveUploadFiles([archive], extractArchiveUploadFile, {
-            maxFiles: 1,
-            maxBytes: 1024,
-        });
+        const result = await Effect.runPromise(
+            expandArchiveUploadFiles([archive], extractArchiveUploadFile, {
+                maxFiles: 1,
+                maxBytes: 1024,
+            })
+        );
 
         expect(result).toEqual({
             ok: false,
@@ -184,10 +189,12 @@ describe("extractArchiveUploadFile", () => {
     gzipTest("counts single-file gzip output toward maxBytes", async () => {
         const archive = new File([gzipSync(encoder.encode("hello"))], "notes.txt.gz", { type: "application/gzip" });
 
-        const result = await expandArchiveUploadFiles([archive], extractArchiveUploadFile, {
-            maxFiles: 1,
-            maxBytes: 4,
-        });
+        const result = await Effect.runPromise(
+            expandArchiveUploadFiles([archive], extractArchiveUploadFile, {
+                maxFiles: 1,
+                maxBytes: 4,
+            })
+        );
 
         expect(result).toEqual({
             ok: false,

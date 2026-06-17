@@ -14,6 +14,7 @@ import {
     ATTR_SERVICE_VERSION,
     SEMRESATTRS_DEPLOYMENT_ENVIRONMENT,
 } from "@opentelemetry/semantic-conventions";
+import * as Effect from "effect/Effect";
 import { shapeFields } from "./normalize";
 import type { LogFields, LogLevel, LoggerInstance } from "./types";
 
@@ -148,12 +149,12 @@ class OpenTelemetryLogger implements LoggerInstance {
         this.emit("fatal", message, fields);
     }
 
-    async flush() {
-        await this.provider.forceFlush();
+    flush(): Effect.Effect<void, unknown> {
+        return Effect.tryPromise(() => this.provider.forceFlush());
     }
 
-    async shutdown() {
-        await this.provider.shutdown();
+    shutdown(): Effect.Effect<void, unknown> {
+        return Effect.tryPromise(() => this.provider.shutdown());
     }
 }
 

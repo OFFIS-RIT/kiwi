@@ -13,7 +13,7 @@ import { collectGraphClosure } from "../../lib/graph";
 import { requireOrganizationAdmin } from "../../lib/team/access";
 import { cancelActiveFileProcessingWorkflowRuns, cancelActiveGraphWorkflowRuns } from "../../lib/workflow-cancellation";
 import type { AuthUser } from "../../middleware/auth";
-import { tryApiPromise } from "../_shared/api-effect";
+import { toApiError } from "../_shared/api-effect";
 
 type TeamDeleteScope = {
     graphIds: string[];
@@ -21,46 +21,59 @@ type TeamDeleteScope = {
     organizationId: string;
 };
 
-async function getTeamDeleteScope(user: AuthUser, teamId: string): Promise<TeamDeleteScope> {
-    const membership = await requireOrganizationAdmin(user);
-    const organizationId = membership.organizationId;
+function getTeamDeleteScope(user: AuthUser, teamId: string): Effect.Effect<TeamDeleteScope, unknown> {
+    return Effect.gen(function* () {
+        const membership = yield* requireOrganizationAdmin(user);
+        const organizationId = membership.organizationId;
 
-    const [team] = await db
-        .select({ id: teamTable.id })
-        .from(teamTable)
-        .where(and(eq(teamTable.id, teamId), eq(teamTable.organizationId, organizationId)))
-        .limit(1);
+        const [team] = yield* Effect.tryPromise({
+            try: () =>
+                db
+                    .select({ id: teamTable.id })
+                    .from(teamTable)
+                    .where(and(eq(teamTable.id, teamId), eq(teamTable.organizationId, organizationId)))
+                    .limit(1),
+            catch: (error) => error,
+        });
 
-    if (!team) {
-        throw new Error(API_ERROR_CODES.TEAM_NOT_FOUND);
-    }
+        if (!team) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.TEAM_NOT_FOUND));
+        }
 
-    const directGraphRows = await db.select({ id: graphTable.id }).from(graphTable).where(eq(graphTable.teamId, teamId));
+        const directGraphRows = yield* Effect.tryPromise({
+            try: () => db.select({ id: graphTable.id }).from(graphTable).where(eq(graphTable.teamId, teamId)),
+            catch: (error) => error,
+        });
 
-    const graphIds = await collectGraphClosure(
-        db,
-        directGraphRows.map((graph) => graph.id)
-    );
-    const fileRows =
-        graphIds.length > 0
-            ? await db
-                  .select({
-                      id: filesTable.id,
-                      graphId: filesTable.graphId,
-                      key: filesTable.key,
+        const graphIds = yield* collectGraphClosure(
+            db,
+            directGraphRows.map((graph) => graph.id)
+        );
+        const fileRows =
+            graphIds.length > 0
+                ? yield* Effect.tryPromise({
+                      try: () =>
+                          db
+                              .select({
+                                  id: filesTable.id,
+                                  graphId: filesTable.graphId,
+                                  key: filesTable.key,
+                              })
+                              .from(filesTable)
+                              .where(inArray(filesTable.graphId, graphIds)),
+                      catch: (error) => error,
                   })
-                  .from(filesTable)
-                  .where(inArray(filesTable.graphId, graphIds))
-            : [];
+                : [];
 
-    return {
-        graphIds,
-        fileRows,
-        organizationId,
-    };
+        return {
+            graphIds,
+            fileRows,
+            organizationId,
+        };
+    });
 }
 
-async function cancelTeamGraphWorkflows(teamId: string, scope: TeamDeleteScope) {
+function cancelTeamGraphWorkflows(teamId: string, scope: TeamDeleteScope): Effect.Effect<void, unknown> {
     const fileIdsByGraphId = new Map<string, string[]>();
     for (const file of scope.fileRows) {
         const fileIds = fileIdsByGraphId.get(file.graphId) ?? [];
@@ -68,117 +81,151 @@ async function cancelTeamGraphWorkflows(teamId: string, scope: TeamDeleteScope) 
         fileIdsByGraphId.set(file.graphId, fileIds);
     }
 
-    try {
-        await Promise.all([
-            cancelActiveGraphWorkflowRuns(scope.graphIds),
-            ...[...fileIdsByGraphId].map(([graphId, fileIds]) => cancelActiveFileProcessingWorkflowRuns(graphId, fileIds)),
-        ]);
-    } catch (error) {
-        logError("team workflow cancellation failed before team delete", {
-            teamId,
-            graphCount: scope.graphIds.length,
-            fileCount: scope.fileRows.length,
-            error,
-        });
+    return Effect.matchEffect(
+        Effect.asVoid(
+            Effect.all(
+                [
+                    cancelActiveGraphWorkflowRuns(scope.graphIds),
+                    ...[...fileIdsByGraphId].map(([graphId, fileIds]) =>
+                        cancelActiveFileProcessingWorkflowRuns(graphId, fileIds)
+                    ),
+                ],
+                { concurrency: "unbounded" }
+            )
+        ),
+        {
+            onFailure: (error) => {
+                logError("team workflow cancellation failed before team delete", {
+                    teamId,
+                    graphCount: scope.graphIds.length,
+                    fileCount: scope.fileRows.length,
+                    error,
+                });
 
-        throw new Error(API_ERROR_CODES.INTERNAL_SERVER_ERROR);
-    }
+                return Effect.fail(new Error(API_ERROR_CODES.INTERNAL_SERVER_ERROR));
+            },
+            onSuccess: () => Effect.void,
+        }
+    );
 }
 
-async function deleteTeamRow(teamId: string, scope: TeamDeleteScope) {
-    return db.transaction(async (tx) => {
-        const [team] = await tx
-            .select({ id: teamTable.id })
-            .from(teamTable)
-            .where(and(eq(teamTable.id, teamId), eq(teamTable.organizationId, scope.organizationId)))
-            .limit(1);
+function deleteTeamRow(teamId: string, scope: TeamDeleteScope) {
+    return Effect.tryPromise({
+        try: () =>
+            db.transaction(async (tx) => {
+                const [team] = await tx
+                    .select({ id: teamTable.id })
+                    .from(teamTable)
+                    .where(and(eq(teamTable.id, teamId), eq(teamTable.organizationId, scope.organizationId)))
+                    .limit(1);
 
-        if (!team) {
-            throw new Error(API_ERROR_CODES.TEAM_NOT_FOUND);
-        }
+                if (!team) {
+                    throw new Error(API_ERROR_CODES.TEAM_NOT_FOUND);
+                }
 
-        await tx.delete(teamTable).where(eq(teamTable.id, teamId));
+                await tx.delete(teamTable).where(eq(teamTable.id, teamId));
 
-        return {
-            teamId,
-            graphIds: scope.graphIds,
-            fileRows: scope.fileRows,
-        };
+                return {
+                    teamId,
+                    graphIds: scope.graphIds,
+                    fileRows: scope.fileRows,
+                };
+            }),
+        catch: (error) => error,
     });
 }
 
-async function cleanupTeamS3Objects(input: {
+function cleanupTeamS3Objects(input: {
     teamId: string;
     graphIds: string[];
     fileRows: Array<{ key: string }>;
-}) {
-    const trackedKeys = input.fileRows.map((file) => file.key);
-    const listedKeyResults = await Promise.allSettled(
-        input.graphIds.map((graphId) => Effect.runPromise(listFiles(`graphs/${graphId}/`, env.S3_BUCKET)))
-    );
+}): Effect.Effect<{ attemptedKeyCount: number; failedKeyCount: number }, unknown> {
+    return Effect.gen(function* () {
+        const trackedKeys = input.fileRows.map((file) => file.key);
+        const listedKeyResults = yield* Effect.all(
+            input.graphIds.map((graphId) =>
+                Effect.match(listFiles(`graphs/${graphId}/`, env.S3_BUCKET), {
+                    onFailure: (reason) => ({ status: "rejected" as const, reason }),
+                    onSuccess: (value) => ({ status: "fulfilled" as const, value }),
+                })
+            ),
+            { concurrency: "unbounded" }
+        );
 
-    const s3Keys = new Set(trackedKeys);
-    let listFailureCount = 0;
+        const s3Keys = new Set(trackedKeys);
+        let listFailureCount = 0;
 
-    for (const result of listedKeyResults) {
-        if (result.status === "fulfilled") {
-            for (const key of result.value) {
-                s3Keys.add(key);
+        for (const result of listedKeyResults) {
+            if (result.status === "fulfilled") {
+                for (const key of result.value) {
+                    s3Keys.add(key);
+                }
+                continue;
             }
-            continue;
+
+            listFailureCount += 1;
         }
 
-        listFailureCount += 1;
-    }
+        let deleteFailureCount = 0;
+        for (const keys of chunk([...s3Keys], 25)) {
+            const results = yield* Effect.all(
+                keys.map((key) =>
+                    Effect.match(deleteFile(key, env.S3_BUCKET), {
+                        onFailure: (reason) => ({ status: "rejected" as const, reason }),
+                        onSuccess: () => ({ status: "fulfilled" as const }),
+                    })
+                ),
+                { concurrency: "unbounded" }
+            );
 
-    let deleteFailureCount = 0;
-    for (const keys of chunk([...s3Keys], 25)) {
-        const results = await Promise.allSettled(keys.map((key) => Effect.runPromise(deleteFile(key, env.S3_BUCKET))));
-
-        for (const result of results) {
-            if (result.status === "rejected") {
-                deleteFailureCount += 1;
+            for (const result of results) {
+                if (result.status === "rejected") {
+                    deleteFailureCount += 1;
+                }
             }
         }
-    }
 
-    const failedKeyCount = listFailureCount + deleteFailureCount;
-    if (failedKeyCount > 0) {
-        logError("Team deleted with incomplete S3 cleanup", {
-            teamId: input.teamId,
-            graphCount: input.graphIds.length,
+        const failedKeyCount = listFailureCount + deleteFailureCount;
+        if (failedKeyCount > 0) {
+            logError("Team deleted with incomplete S3 cleanup", {
+                teamId: input.teamId,
+                graphCount: input.graphIds.length,
+                attemptedKeyCount: s3Keys.size,
+                failedKeyCount,
+            });
+        }
+
+        return {
             attemptedKeyCount: s3Keys.size,
             failedKeyCount,
-        });
-    }
-
-    return {
-        attemptedKeyCount: s3Keys.size,
-        failedKeyCount,
-    };
+        };
+    });
 }
 
 export function deleteTeam(input: { user: AuthUser; teamId: string }) {
-    return tryApiPromise(async (): Promise<TeamDeleteSuccessData> => {
-        const scope = await getTeamDeleteScope(input.user, input.teamId);
-        await cancelTeamGraphWorkflows(input.teamId, scope);
-        const deletedTeam = await deleteTeamRow(input.teamId, scope);
-        const s3Cleanup = await cleanupTeamS3Objects({
-            teamId: deletedTeam.teamId,
-            graphIds: deletedTeam.graphIds,
-            fileRows: deletedTeam.fileRows,
-        });
+    return Effect.mapError(
+        Effect.gen(function* () {
+            const scope = yield* getTeamDeleteScope(input.user, input.teamId);
+            yield* cancelTeamGraphWorkflows(input.teamId, scope);
+            const deletedTeam = yield* deleteTeamRow(input.teamId, scope);
+            const s3Cleanup = yield* cleanupTeamS3Objects({
+                teamId: deletedTeam.teamId,
+                graphIds: deletedTeam.graphIds,
+                fileRows: deletedTeam.fileRows,
+            });
 
-        return {
-            teamId: deletedTeam.teamId,
-            deletedGraphCount: deletedTeam.graphIds.length,
-            deletedFileCount: deletedTeam.fileRows.length,
-            s3Cleanup,
-            ...(s3Cleanup.failedKeyCount > 0
-                ? {
-                      warnings: ["Some S3 objects could not be deleted after the team was removed"],
-                  }
-                : {}),
-        };
-    });
+            return {
+                teamId: deletedTeam.teamId,
+                deletedGraphCount: deletedTeam.graphIds.length,
+                deletedFileCount: deletedTeam.fileRows.length,
+                s3Cleanup,
+                ...(s3Cleanup.failedKeyCount > 0
+                    ? {
+                          warnings: ["Some S3 objects could not be deleted after the team was removed"],
+                      }
+                    : {}),
+            };
+        }),
+        toApiError
+    );
 }

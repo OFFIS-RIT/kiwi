@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { Elysia } from "elysia";
 
 const insertedPrompts: string[] = [];
@@ -42,33 +43,25 @@ mock.module("@kiwi/db", () => ({
 }));
 
 mock.module("../../lib/prompt-access", () => ({
-    assertCanManageUserPrompts: async () => undefined,
-    assertCanManageTeamPrompts: async () => {
-        if (teamPromptError) {
-            throw teamPromptError;
-        }
-    },
-    assertCanManageOrganizationPrompts: async () => {
-        if (organizationPromptError) {
-            throw organizationPromptError;
-        }
-    },
-    assertCanManageGraphPrompts: async () => {
-        if (graphPromptError) {
-            throw graphPromptError;
-        }
-        return {
-            id: "graph-1",
-            organizationId: "org-1",
-            teamId: null,
-            userId: "user-1",
-            graphId: null,
-            name: "Graph",
-            description: null,
-            hidden: false,
-            state: "ready",
-        };
-    },
+    assertCanManageUserPrompts: () => Effect.succeed(undefined),
+    assertCanManageTeamPrompts: () =>
+        teamPromptError ? Effect.fail(teamPromptError) : Effect.succeed(undefined),
+    assertCanManageOrganizationPrompts: () =>
+        organizationPromptError ? Effect.fail(organizationPromptError) : Effect.succeed(undefined),
+    assertCanManageGraphPrompts: () =>
+        graphPromptError
+            ? Effect.fail(graphPromptError)
+            : Effect.succeed({
+                  id: "graph-1",
+                  organizationId: "org-1",
+                  teamId: null,
+                  userId: "user-1",
+                  graphId: null,
+                  name: "Graph",
+                  description: null,
+                  hidden: false,
+                  state: "ready",
+              }),
 }));
 
 mock.module("../../lib/prompt-limits", () => ({

@@ -1,4 +1,5 @@
 import type { Context } from "elysia";
+import * as Effect from "effect/Effect";
 import type { KiwiPermissions } from "@kiwi/auth/permissions";
 import { auth, getDefaultOrganizationId, isSystemAdminRole } from "@kiwi/auth/server";
 import { API_ERROR_CODES, errorResponse } from "../types";
@@ -9,39 +10,39 @@ type PermissionContext = Context & {
     user: AuthUser | null;
 };
 
-export async function assertPermissions(
+export function assertPermissions(
     headers: Headers,
     permissions: KiwiPermissions,
     options?: { apiKeyOnly?: boolean; organizationId?: string | null }
-) {
-    const headersToUse = options?.apiKeyOnly ? getApiKeyHeaders(headers) : getAuthHeaders(headers);
-    let organizationId = options?.organizationId ?? null;
+): Effect.Effect<void, unknown> {
+    return Effect.tryPromise({
+        try: async () => {
+            const headersToUse = options?.apiKeyOnly ? getApiKeyHeaders(headers) : getAuthHeaders(headers);
+            let organizationId = options?.organizationId ?? null;
 
-    if (!organizationId) {
-        const session = await auth.api.getSession({ headers: headersToUse });
-        if (isSystemAdminRole(session?.user.role)) {
-            return;
-        }
+            const session = await auth.api.getSession({ headers: headersToUse });
+            if (isSystemAdminRole(session?.user.role)) {
+                return;
+            }
 
-        organizationId = session?.session.activeOrganizationId ?? (await getDefaultOrganizationId());
-    } else {
-        const session = await auth.api.getSession({ headers: headersToUse });
-        if (isSystemAdminRole(session?.user.role)) {
-            return;
-        }
-    }
+            if (!organizationId) {
+                organizationId = session?.session.activeOrganizationId ?? (await Effect.runPromise(getDefaultOrganizationId()));
+            }
 
-    const result = await auth.api.hasPermission({
-        headers: headersToUse,
-        body: {
-            organizationId,
-            permissions,
+            const result = await auth.api.hasPermission({
+                headers: headersToUse,
+                body: {
+                    organizationId,
+                    permissions,
+                },
+            });
+
+            if (!result.success) {
+                throw new Error(API_ERROR_CODES.FORBIDDEN);
+            }
         },
+        catch: (error) => error,
     });
-
-    if (!result.success) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
 }
 
 export function requirePermissions(permissions: KiwiPermissions) {
@@ -51,9 +52,11 @@ export function requirePermissions(permissions: KiwiPermissions) {
         }
 
         try {
-            await assertPermissions(request.headers, permissions, {
-                organizationId: session.session.activeOrganizationId,
-            });
+            await Effect.runPromise(
+                assertPermissions(request.headers, permissions, {
+                    organizationId: session.session.activeOrganizationId,
+                })
+            );
         } catch (error) {
             if (error instanceof Error && error.message === API_ERROR_CODES.FORBIDDEN) {
                 return status(403, errorResponse("Forbidden", API_ERROR_CODES.FORBIDDEN));

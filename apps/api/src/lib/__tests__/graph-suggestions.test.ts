@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 const dbMock: Record<string, unknown> = {};
-let cleanupUploadedKeysImpl: (keys: string[]) => Promise<unknown> = async () => [];
+let cleanupUploadedKeysImpl: (keys: string[]) => Effect.Effect<unknown, unknown> = () => Effect.succeed([]);
 const cleanupUploadedKeysMock = mock((keys: string[]) => cleanupUploadedKeysImpl(keys));
 
 mock.module("@kiwi/db", () => ({
@@ -9,9 +10,9 @@ mock.module("@kiwi/db", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
-    deleteFile: async () => undefined,
-    listFiles: async () => [],
-    putGraphFile: async () => ({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),
+    deleteFile: () => Effect.succeed(true),
+    listFiles: () => Effect.succeed([]),
+    putGraphFile: () => Effect.succeed({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),
 }));
 
 mock.module("@kiwi/logger", () => ({
@@ -43,7 +44,7 @@ mock.module("../chat-client", () => ({
 }));
 
 mock.module("../embed-text", () => ({
-    embedText: async () => [0.1, 0.2, 0.3],
+    embedText: () => Effect.succeed([0.1, 0.2, 0.3]),
 }));
 
 mock.module("../graph/route", () => ({
@@ -51,21 +52,22 @@ mock.module("../graph/route", () => ({
 }));
 
 mock.module("../graph/access", () => ({
-    resolveGraphOwnerRoot: async () => ({ mode: "organization", organizationId: "org-1" }),
+    resolveGraphOwnerRoot: () => Effect.succeed({ mode: "organization", organizationId: "org-1" }),
 }));
 
 mock.module("../team/access", () => ({
-    getActiveOrganizationId: async () => "org-1",
-    getOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
-    getTeamInActiveOrganization: async () => ({ id: "team-1", name: "Team", organizationId: "org-1" }),
-    getTeamRole: async () => "admin",
-    requireOrganizationAdmin: async () => ({ organizationId: "org-1" }),
-    requireOrganizationMembership: async () => undefined,
-    requireTeamAccess: async () => ({ organizationAdmin: true, role: "admin" }),
-    requireTeamGraphCreateAccess: async () => undefined,
-    requireTeamGraphFileManageAccess: async () => undefined,
-    requireTeamGraphManageAccess: async () => undefined,
-    requireTeamMemberManageAccess: async () => undefined,
+    getActiveOrganizationId: () => Effect.succeed("org-1"),
+    getOrganizationMembership: () => Effect.succeed({ organizationId: "org-1", role: "admin" }),
+    getTeamInActiveOrganization: (_user: unknown, teamId: string) =>
+        Effect.succeed({ id: teamId, name: "Team", organizationId: "org-1" }),
+    getTeamRole: () => Effect.succeed("admin"),
+    requireOrganizationAdmin: () => Effect.succeed({ organizationId: "org-1" }),
+    requireOrganizationMembership: () => Effect.succeed(undefined),
+    requireTeamAccess: () => Effect.succeed({ organizationAdmin: true, role: "admin" }),
+    requireTeamGraphCreateAccess: () => Effect.succeed(undefined),
+    requireTeamGraphFileManageAccess: () => Effect.succeed(undefined),
+    requireTeamGraphManageAccess: () => Effect.succeed(undefined),
+    requireTeamMemberManageAccess: () => Effect.succeed(undefined),
 }));
 
 const {
@@ -100,7 +102,7 @@ describe("graph suggestion apply helpers", () => {
             delete dbMock[key];
         }
 
-        cleanupUploadedKeysImpl = async () => [];
+        cleanupUploadedKeysImpl = () => Effect.succeed([]);
         cleanupUploadedKeysMock.mockClear();
     });
 
@@ -209,13 +211,11 @@ describe("graph suggestion apply helpers", () => {
         dbMock.transaction = mock(async () => {
             throw originalError;
         });
-        cleanupUploadedKeysImpl = async () => {
-            throw new Error("cleanup failed");
-        };
+        cleanupUploadedKeysImpl = () => Effect.fail(new Error("cleanup failed"));
 
         const user = { id: "admin-1" } as Parameters<typeof applyGraphSuggestion>[2];
 
-        await expect(applyGraphSuggestion("graph-1", "suggestion-1", user)).rejects.toBe(originalError);
+        await expect(Effect.runPromise(applyGraphSuggestion("graph-1", "suggestion-1", user))).rejects.toBe(originalError);
         expect(cleanupUploadedKeysMock).toHaveBeenCalledWith(["graphs/graph-1/file-1.txt"]);
     });
 });

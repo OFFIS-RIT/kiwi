@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import type { RepositoryGraphCreateInput } from "@kiwi/contracts/connectors";
 import { API_ERROR_CODES } from "@kiwi/contracts/errors";
 import type { AuthUser } from "../../../middleware/auth";
@@ -11,7 +12,7 @@ import {
     toBindingResponse,
     type ConnectorBindingCreateInput,
 } from "../../../lib/connector/api";
-import { tryApiPromise } from "../../_shared/api-effect";
+import { connectorApiErrorOptions, toApiError, tryApiSync } from "../../_shared/api-effect"
 
 function toConnectorBindingCreateInput(body: RepositoryGraphCreateInput): ConnectorBindingCreateInput {
     const resourceKind = body.resourceKind ?? "git-repository";
@@ -36,24 +37,24 @@ export function createConnectorGraphBinding(input: {
     connectorId: string;
     body: RepositoryGraphCreateInput;
 }) {
-    return tryApiPromise(async () => {
-        const body = toConnectorBindingCreateInput(input.body);
-        const { connector, installation } = await requireConnectorInstallationContext({
+    return Effect.mapError(Effect.gen(function* () {
+        const body = yield* tryApiSync(() => toConnectorBindingCreateInput(input.body));
+        const { connector, installation } = yield* requireConnectorInstallationContext({
             user: input.user,
             connectorId: input.connectorId,
             installationId: body.connectorInstallationId,
         });
     
-        await assertCanBindResourceGraph({ user: input.user, installation, owner: body.owner });
-        const resource = await requireGitRepositoryResource({ connector, installation, resourceId: body.resourceId });
-        const version = await requireGitResourceVersion({
+        yield* assertCanBindResourceGraph({ user: input.user, installation, owner: body.owner });
+        const resource = yield* requireGitRepositoryResource({ connector, installation, resourceId: body.resourceId });
+        const version = yield* requireGitResourceVersion({
             connector,
             installation,
             resourceId: resource.id,
             versionName: body.versionName,
         });
-        const created = await createGraphBinding({ connector, installation, body, resource, version });
-        const workflowRunId = await enqueueInitialBindingSync({
+        const created = yield* createGraphBinding({ connector, installation, body, resource, version });
+        const workflowRunId = yield* enqueueInitialBindingSync({
             graphId: created.graph.id,
             bindingId: created.binding.id,
             versionId: version.versionId,
@@ -64,5 +65,5 @@ export function createConnectorGraphBinding(input: {
             binding: toBindingResponse(created.binding),
             workflowRunId,
         };
-    });
+    }), (error) => toApiError(error, connectorApiErrorOptions));
 }

@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { roleIncludes } from "@kiwi/auth/permissions";
 import { db } from "@kiwi/db";
 import { teamMemberRolesTable, teamMemberTable, teamTable, type TeamMemberRole } from "@kiwi/db/tables/auth";
@@ -9,7 +10,7 @@ import { tryApiPromise } from "../_shared/api-effect";
 
 export function listTeams(input: { user: AuthUser }) {
     return tryApiPromise(async (): Promise<TeamListItem[]> => {
-        const membership = await requireOrganizationMembership(input.user);
+        const membership = await Effect.runPromise(requireOrganizationMembership(input.user));
         const organizationId = membership.organizationId;
 
         if (roleIncludes(membership.role, "admin")) {

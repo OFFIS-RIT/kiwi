@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import type * as Duration from "effect/Duration";
 import * as Semaphore from "effect/Semaphore";
 
 const capabilities = ["text", "image", "embedding", "audio", "video"] as const;
@@ -8,7 +9,7 @@ export type AICapability = (typeof capabilities)[number];
 export type AIConcurrencyLimits = Record<AICapability, number>;
 
 const DEFAULT_AI_CONCURRENCY_LIMIT = 64;
-
+const DEFAULT_AI_REQUEST_TIMEOUT: Duration.Input = "10 minutes";
 const createSemaphore = (limit: number) => Semaphore.makeUnsafe(limit);
 type AISemaphore = ReturnType<typeof createSemaphore>;
 
@@ -23,22 +24,29 @@ function createSemaphores(limits: Partial<AIConcurrencyLimits>): Record<AICapabi
 }
 
 let semaphores: Record<AICapability, AISemaphore> | null = null;
+let requestTimeout: Duration.Input = DEFAULT_AI_REQUEST_TIMEOUT;
 
-export function configureAIConcurrency(limits: Partial<AIConcurrencyLimits>) {
+export function configureAIConcurrency(limits: Partial<AIConcurrencyLimits>, options: { requestTimeout?: Duration.Input } = {}) {
     semaphores = createSemaphores(limits);
+    requestTimeout = options.requestTimeout ?? DEFAULT_AI_REQUEST_TIMEOUT;
 }
 
-export async function withAiSlot<T>(capability: AICapability, task: () => Promise<T>): Promise<T> {
+export function withAiSlot<T>(
+    capability: AICapability,
+    task: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+    const runTask = Effect.tryPromise(task).pipe(Effect.timeout(requestTimeout));
+
     if (!semaphores) {
-        return task();
+        return Effect.runPromise(runTask);
     }
 
     const semaphore = semaphores[capability];
-    await Effect.runPromise(semaphore.take(1));
-
-    try {
-        return await task();
-    } finally {
-        Effect.runSync(semaphore.release(1));
-    }
+    return Effect.runPromise(
+        Effect.acquireUseRelease(
+            semaphore.take(1),
+            () => runTask,
+            () => semaphore.release(1)
+        )
+    );
 }

@@ -112,7 +112,7 @@ function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket:
     });
 }
 
-export function putFile(name: string, file: File | Blob | Uint8Array | string, path: string, bucket: string) {
+export function putFile(name: string, file: File | Blob | Uint8Array | string, path: string, bucket: string): Effect.Effect<StoredFile, unknown> {
     const extension = name.split(".").pop() || "";
     const key = uuid();
     const filename = extension === "" ? key : `${key}.${extension}`;
@@ -126,11 +126,11 @@ export function putGraphFile(
     name: string,
     file: File | Blob | Uint8Array | string,
     bucket: string
-) {
+): Effect.Effect<StoredFile, unknown> {
     return writeFile(getGraphFileKey(graphId, fileId, name), file, bucket);
 }
 
-export function putNamedFile(name: string, file: File | Blob | Uint8Array | string, path: string, bucket: string) {
+export function putNamedFile(name: string, file: File | Blob | Uint8Array | string, path: string, bucket: string): Effect.Effect<StoredFile, unknown> {
     return writeFile(joinPath(path, name), file, bucket);
 }
 

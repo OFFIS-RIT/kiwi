@@ -1,4 +1,5 @@
 import type { JSONObject, JSONValue, TranscriptionModelV3, TranscriptionModelV3CallOptions } from "@ai-sdk/provider";
+import * as Effect from "effect/Effect";
 
 type OpenAICompatibleTranscriptionStyle = "openai" | "openrouter";
 
@@ -55,143 +56,153 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
         this.style = options.style ?? inferTranscriptionStyle(options.baseURL);
     }
 
-    async doGenerate(options: TranscriptionModelV3CallOptions): Promise<TranscriptionGenerateResult> {
-        return this.style === "openrouter"
-            ? this.generateOpenRouterTranscription(options)
-            : this.generateOpenAITranscription(options);
+    doGenerate(options: TranscriptionModelV3CallOptions): Promise<TranscriptionGenerateResult> {
+        return Effect.runPromise(
+            this.style === "openrouter"
+                ? this.generateOpenRouterTranscription(options)
+                : this.generateOpenAITranscription(options)
+        );
     }
 
-    private async generateOpenAITranscription(
+    private generateOpenAITranscription(
         options: TranscriptionModelV3CallOptions
-    ): Promise<TranscriptionGenerateResult> {
-        const currentDate = new Date();
-        const providerOptions = readTranscriptionProviderOptions(options.providerOptions);
-        const responseFormat = getOpenAIResponseFormat(this.modelId, providerOptions.responseFormat);
-        const formData = new FormData();
-        const audioBytes = toUint8Array(options.audio);
-        const mediaType = normalizeAudioMediaType(options.mediaType);
-        const extension = audioFormatFromMediaType(mediaType);
+    ): Effect.Effect<TranscriptionGenerateResult, unknown> {
+        return Effect.gen({ self: this }, function* () {
+            const currentDate = new Date();
+            const providerOptions = readTranscriptionProviderOptions(options.providerOptions);
+            const responseFormat = getOpenAIResponseFormat(this.modelId, providerOptions.responseFormat);
+            const formData = new FormData();
+            const audioBytes = toUint8Array(options.audio);
+            const mediaType = normalizeAudioMediaType(options.mediaType);
+            const extension = audioFormatFromMediaType(mediaType);
 
-        formData.append("model", this.modelId);
-        formData.append("file", new File([toArrayBuffer(audioBytes)], `audio.${extension}`, { type: mediaType }));
-        formData.append("response_format", responseFormat);
+            formData.append("model", this.modelId);
+            formData.append("file", new File([toArrayBuffer(audioBytes)], `audio.${extension}`, { type: mediaType }));
+            formData.append("response_format", responseFormat);
 
-        if (responseFormat === "diarized_json") {
-            formData.append("chunking_strategy", providerOptions.chunkingStrategy ?? "auto");
-        } else {
-            if (providerOptions.prompt) {
-                formData.append("prompt", providerOptions.prompt);
-            }
-            if (responseFormat === "verbose_json" && providerOptions.timestampGranularities?.length) {
-                for (const granularity of providerOptions.timestampGranularities) {
-                    formData.append("timestamp_granularities[]", granularity);
+            if (responseFormat === "diarized_json") {
+                formData.append("chunking_strategy", providerOptions.chunkingStrategy ?? "auto");
+            } else {
+                if (providerOptions.prompt) {
+                    formData.append("prompt", providerOptions.prompt);
+                }
+                if (responseFormat === "verbose_json" && providerOptions.timestampGranularities?.length) {
+                    for (const granularity of providerOptions.timestampGranularities) {
+                        formData.append("timestamp_granularities[]", granularity);
+                    }
                 }
             }
-        }
 
-        if (providerOptions.language) {
-            formData.append("language", providerOptions.language);
-        }
-        if (providerOptions.temperature !== undefined) {
-            formData.append("temperature", String(providerOptions.temperature));
-        }
+            if (providerOptions.language) {
+                formData.append("language", providerOptions.language);
+            }
+            if (providerOptions.temperature !== undefined) {
+                formData.append("temperature", String(providerOptions.temperature));
+            }
 
-        const response = await this.fetch(transcriptionURL(this.baseURL), {
-            method: "POST",
-            headers: buildHeaders(this.apiKey, options.headers),
-            body: formData,
-            signal: options.abortSignal,
+            const response = yield* Effect.tryPromise(() =>
+                this.fetch(transcriptionURL(this.baseURL), {
+                    method: "POST",
+                    headers: buildHeaders(this.apiKey, options.headers),
+                    body: formData,
+                    signal: options.abortSignal,
+                })
+            );
+
+            const rawResponse = yield* parseTranscriptionResponse(response, responseFormat);
+            const { segments, speakers } = parseSegments(rawResponse);
+            const text =
+                readString(rawResponse.text) ??
+                segments
+                    .map((segment) => segment.text)
+                    .join(" ")
+                    .trim();
+            const durationInSeconds = readNumber(rawResponse.duration) ?? readUsageDuration(rawResponse.usage);
+
+            return {
+                text,
+                segments,
+                language: normalizeLanguage(readString(rawResponse.language)),
+                durationInSeconds,
+                warnings: [],
+                response: {
+                    timestamp: currentDate,
+                    modelId: this.modelId,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    body: rawResponse,
+                },
+                providerMetadata: buildProviderMetadata(speakers, rawResponse.usage),
+            };
         });
-
-        const rawResponse = await parseTranscriptionResponse(response, responseFormat);
-        const { segments, speakers } = parseSegments(rawResponse);
-        const text =
-            readString(rawResponse.text) ??
-            segments
-                .map((segment) => segment.text)
-                .join(" ")
-                .trim();
-        const durationInSeconds = readNumber(rawResponse.duration) ?? readUsageDuration(rawResponse.usage);
-
-        return {
-            text,
-            segments,
-            language: normalizeLanguage(readString(rawResponse.language)),
-            durationInSeconds,
-            warnings: [],
-            response: {
-                timestamp: currentDate,
-                modelId: this.modelId,
-                headers: Object.fromEntries(response.headers.entries()),
-                body: rawResponse,
-            },
-            providerMetadata: buildProviderMetadata(speakers, rawResponse.usage),
-        };
     }
 
-    private async generateOpenRouterTranscription(
+    private generateOpenRouterTranscription(
         options: TranscriptionModelV3CallOptions
-    ): Promise<TranscriptionGenerateResult> {
-        const currentDate = new Date();
-        const providerOptions = readTranscriptionProviderOptions(options.providerOptions);
-        const mediaType = normalizeAudioMediaType(options.mediaType);
-        const audioBytes = toUint8Array(options.audio);
-        const body: JSONObject = {
-            model: this.modelId,
-            input_audio: {
-                data: Buffer.from(audioBytes).toString("base64"),
-                format: audioFormatFromMediaType(mediaType),
-            },
-        };
+    ): Effect.Effect<TranscriptionGenerateResult, unknown> {
+        return Effect.gen({ self: this }, function* () {
+            const currentDate = new Date();
+            const providerOptions = readTranscriptionProviderOptions(options.providerOptions);
+            const mediaType = normalizeAudioMediaType(options.mediaType);
+            const audioBytes = toUint8Array(options.audio);
+            const body: JSONObject = {
+                model: this.modelId,
+                input_audio: {
+                    data: Buffer.from(audioBytes).toString("base64"),
+                    format: audioFormatFromMediaType(mediaType),
+                },
+            };
 
-        if (providerOptions.language) {
-            body.language = providerOptions.language;
-        }
-        if (providerOptions.temperature !== undefined) {
-            body.temperature = providerOptions.temperature;
-        }
-        if (providerOptions.provider) {
-            body.provider = providerOptions.provider;
-        }
+            if (providerOptions.language) {
+                body.language = providerOptions.language;
+            }
+            if (providerOptions.temperature !== undefined) {
+                body.temperature = providerOptions.temperature;
+            }
+            if (providerOptions.provider) {
+                body.provider = providerOptions.provider;
+            }
 
-        const response = await this.fetch(transcriptionURL(this.baseURL), {
-            method: "POST",
-            headers: {
-                ...buildHeaders(this.apiKey, options.headers),
-                "content-type": "application/json",
-            },
-            body: JSON.stringify(body),
-            signal: options.abortSignal,
+            const response = yield* Effect.tryPromise(() =>
+                this.fetch(transcriptionURL(this.baseURL), {
+                    method: "POST",
+                    headers: {
+                        ...buildHeaders(this.apiKey, options.headers),
+                        "content-type": "application/json",
+                    },
+                    body: JSON.stringify(body),
+                    signal: options.abortSignal,
+                })
+            );
+
+            const rawResponse = yield* parseTranscriptionResponse(response);
+            const { segments, speakers } = parseSegments(rawResponse);
+            const text =
+                readString(rawResponse.text) ??
+                segments
+                    .map((segment) => segment.text)
+                    .join(" ")
+                    .trim();
+            const durationInSeconds = readUsageDuration(rawResponse.usage) ?? readNumber(rawResponse.duration);
+            const fallbackSegments =
+                segments.length === 0 && text && durationInSeconds !== undefined
+                    ? [{ text, startSecond: 0, endSecond: durationInSeconds }]
+                    : segments;
+
+            return {
+                text,
+                segments: fallbackSegments,
+                language: normalizeLanguage(readString(rawResponse.language)),
+                durationInSeconds,
+                warnings: [],
+                response: {
+                    timestamp: currentDate,
+                    modelId: this.modelId,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    body: rawResponse,
+                },
+                providerMetadata: buildProviderMetadata(speakers, rawResponse.usage),
+            };
         });
-
-        const rawResponse = await parseTranscriptionResponse(response);
-        const { segments, speakers } = parseSegments(rawResponse);
-        const text =
-            readString(rawResponse.text) ??
-            segments
-                .map((segment) => segment.text)
-                .join(" ")
-                .trim();
-        const durationInSeconds = readUsageDuration(rawResponse.usage) ?? readNumber(rawResponse.duration);
-        const fallbackSegments =
-            segments.length === 0 && text && durationInSeconds !== undefined
-                ? [{ text, startSecond: 0, endSecond: durationInSeconds }]
-                : segments;
-
-        return {
-            text,
-            segments: fallbackSegments,
-            language: normalizeLanguage(readString(rawResponse.language)),
-            durationInSeconds,
-            warnings: [],
-            response: {
-                timestamp: currentDate,
-                modelId: this.modelId,
-                headers: Object.fromEntries(response.headers.entries()),
-                body: rawResponse,
-            },
-            providerMetadata: buildProviderMetadata(speakers, rawResponse.usage),
-        };
     }
 }
 
@@ -208,8 +219,8 @@ export class UnsupportedTranscriptionModel implements TranscriptionModelV3 {
 
     private readonly reason: string;
 
-    async doGenerate(): Promise<TranscriptionGenerateResult> {
-        throw new Error(this.reason);
+    doGenerate(): Promise<TranscriptionGenerateResult> {
+        return Promise.reject(new Error(this.reason));
     }
 }
 
@@ -239,30 +250,33 @@ function buildHeaders(apiKey: string, headers: Record<string, string | undefined
     return result;
 }
 
-async function parseTranscriptionResponse(
+function parseTranscriptionResponse(
     response: Response,
     responseFormat = "json"
-): Promise<RawTranscriptionResponse> {
-    const text = await response.text();
+): Effect.Effect<RawTranscriptionResponse, unknown> {
+    return Effect.gen(function* () {
+        const text = yield* Effect.tryPromise(() => response.text());
 
-    if (!response.ok) {
-        throw new Error(
-            `OpenAI-compatible transcription request failed (${response.status} ${response.statusText}): ${text.slice(
-                0,
-                500
-            )}`
-        );
-    }
+        if (!response.ok) {
+            return yield* Effect.fail(
+                new Error(
+                    `OpenAI-compatible transcription request failed (${response.status} ${response.statusText}): ${text.slice(
+                        0,
+                        500
+                    )}`
+                )
+            );
+        }
 
-    if (!expectsJSONTranscriptionResponse(responseFormat)) {
-        return { text };
-    }
+        if (!expectsJSONTranscriptionResponse(responseFormat)) {
+            return { text };
+        }
 
-    try {
-        return JSON.parse(text) as RawTranscriptionResponse;
-    } catch (error) {
-        throw new Error("OpenAI-compatible transcription response was not valid JSON", { cause: error });
-    }
+        return yield* Effect.try({
+            try: () => JSON.parse(text) as RawTranscriptionResponse,
+            catch: (error) => new Error("OpenAI-compatible transcription response was not valid JSON", { cause: error }),
+        });
+    });
 }
 
 function expectsJSONTranscriptionResponse(responseFormat: string): boolean {

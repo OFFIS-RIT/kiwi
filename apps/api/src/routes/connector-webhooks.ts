@@ -1,4 +1,5 @@
 import Elysia from "elysia";
+import * as Effect from "effect/Effect";
 import { handleConnectorWebhook } from "../controllers/connector/webhooks/handle";
 import {
     listActiveConnectorWebhookCandidates,
@@ -35,7 +36,7 @@ export const connectorWebhookRoute = new Elysia().post(
         }
 
         const rawBody = await request.text();
-        const connector = (await listActiveConnectorWebhookCandidates(provider)).find((candidate) =>
+        const connector = (await Effect.runPromise(listActiveConnectorWebhookCandidates(provider))).find((candidate) =>
             verifyConnectorWebhookCandidate({
                 provider,
                 connector: candidate,
@@ -55,6 +56,6 @@ export const connectorWebhookRoute = new Elysia().post(
         const eventName = readConnectorWebhookEventName(provider, request.headers, payload);
         const deliveryId = readConnectorWebhookDeliveryId(provider, request.headers, payload);
         const event = normalizeConnectorWebhookPayload({ provider, eventName, deliveryId, payload });
-        return jsonSuccess(await handleConnectorWebhook({ connector, event }), 202);
+        return jsonSuccess(await Effect.runPromise(handleConnectorWebhook({ connector, event })), 202);
     }
 );

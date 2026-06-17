@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { Result } from "better-result";
 import { Elysia, t } from "elysia";
 import { searchWorkspace } from "../lib/search";
@@ -11,7 +12,7 @@ export const searchRoute = new Elysia({ prefix: "/search" }).use(authMiddleware)
             return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
         }
 
-        const searchResult = await Result.tryPromise(async () => searchWorkspace(user, query.q ?? ""));
+        const searchResult = await Result.tryPromise(() => Effect.runPromise(searchWorkspace(user, query.q ?? "")));
 
         if (searchResult.isErr()) {
             if (searchResult.error instanceof Error && searchResult.error.message === API_ERROR_CODES.FORBIDDEN) {

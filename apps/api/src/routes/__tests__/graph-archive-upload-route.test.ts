@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { Elysia } from "elysia";
 
 const uploadedFiles: Array<{ graphId: string; fileId: string; name: string }> = [];
@@ -181,11 +182,11 @@ mock.module("@kiwi/logger", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
-    deleteFile: async () => undefined,
-    listFiles: async () => [],
-    putGraphFile: async (graphId: string, fileId: string, name: string) => {
+    deleteFile: () => Effect.succeed(true),
+    listFiles: () => Effect.succeed([]),
+    putGraphFile: (graphId: string, fileId: string, name: string) => {
         uploadedFiles.push({ graphId, fileId, name });
-        return { key: `graphs/${graphId}/${fileId}.txt`, type: "text/plain" };
+        return Effect.succeed({ key: `graphs/${graphId}/${fileId}.txt`, type: "text/plain" });
     },
 }));
 
@@ -207,33 +208,34 @@ mock.module("@kiwi/worker/delete-graph-files-spec", () => ({
 }));
 
 mock.module("@kiwi/ai/models", () => ({
-    getDefaultModelOrganizationId: () => "org-1",
-    resolveRequiredModelAdapter: async () => ({}),
+    getDefaultModelOrganizationId: () => Effect.succeed("org-1"),
+    resolveRequiredModelAdapter: () => Effect.succeed({}),
 }));
 
 mock.module("../../lib/archive-upload", () => ({
-    expandArchiveUploadFiles: async (files: File[]) => {
-        if (archiveExpansionMode === "limit") {
-            return {
-                ok: false,
-                kind: "limit",
-                fileName: "bundle.zip",
-                message: "Upload expands to too many files",
-            };
-        }
+    expandArchiveUploadFiles: (files: File[]) =>
+        Effect.sync(() => {
+            if (archiveExpansionMode === "limit") {
+                return {
+                    ok: false,
+                    kind: "limit",
+                    fileName: "bundle.zip",
+                    message: "Upload expands to too many files",
+                };
+            }
 
-        return {
-            ok: true,
-            files: files.flatMap((file) =>
-                file.name === "bundle.zip"
-                    ? [
-                          new File(["alpha"], "alpha.txt", { type: "text/plain" }),
-                          new File(["beta"], "beta.txt", { type: "text/plain" }),
-                      ]
-                    : [file]
-            ),
-        };
-    },
+            return {
+                ok: true,
+                files: files.flatMap((file) =>
+                    file.name === "bundle.zip"
+                        ? [
+                              new File(["alpha"], "alpha.txt", { type: "text/plain" }),
+                              new File(["beta"], "beta.txt", { type: "text/plain" }),
+                          ]
+                        : [file]
+                ),
+            };
+        }),
 }));
 
 mock.module("../../lib/graph/upload-file-type", () => ({
@@ -251,11 +253,8 @@ mock.module("../../lib/graph/upload-file-type", () => ({
     }),
     unsupportedUploadResponse: (statusFn: (code: number, body: unknown) => unknown) =>
         statusFn(415, { status: "error", code: "UNSUPPORTED_FILE_TYPE" }),
-    assertConfiguredUploadModels: async () => {
-        if (uploadModelMode === "missing") {
-            throw new Error("MODEL_NOT_CONFIGURED");
-        }
-    },
+    assertConfiguredUploadModels: () =>
+        uploadModelMode === "missing" ? Effect.fail(new Error("MODEL_NOT_CONFIGURED")) : Effect.succeed(undefined),
 }));
 
 mock.module("../../lib/repository-url", () => ({
@@ -283,68 +282,69 @@ mock.module("../../lib/repository-url", () => ({
             key: `external:github:acme/${repositoryName}@${commitSha}:${path}`,
         };
     },
-    loadRepositoryFromUrl: async (url: string) => {
-        loadedUrls.push(url);
-        if (repositoryLoadMode === "limit-error") {
-            throw new RepositoryUrlError("limit", "Repository contains too many supported code files");
-        }
-        if (repositoryLoadMode === "git-error") {
-            throw new RepositoryUrlError("load", "Repository could not be loaded", {
-                cause: new Error("fatal: could not read Username for 'https://github.com': terminal prompts disabled"),
-            });
-        }
+    loadRepositoryFromUrl: (url: string) =>
+        Effect.sync(() => {
+            loadedUrls.push(url);
+            if (repositoryLoadMode === "limit-error") {
+                throw new RepositoryUrlError("limit", "Repository contains too many supported code files");
+            }
+            if (repositoryLoadMode === "git-error") {
+                throw new RepositoryUrlError("load", "Repository could not be loaded", {
+                    cause: new Error("fatal: could not read Username for 'https://github.com': terminal prompts disabled"),
+                });
+            }
 
-        const repositoryName = url.includes("tools") ? "tools" : "widgets";
-        return {
-            url: `https://github.com/acme/${repositoryName}.git`,
-            name: repositoryName,
-            commitSha: "commit-1",
-            files:
-                repositoryName === "tools"
-                    ? [
-                          {
-                              path: "src/index.ts",
-                              content: "import { helper } from './helper';\nexport function main() { return helper(); }\n",
-                              size: 75,
-                          },
-                      ]
-                    : [
-                          {
-                              path: "src/index.ts",
-                              content: "import { helper } from './helper';\nexport function main() { return helper(); }\n",
-                              size: 75,
-                          },
-                          {
-                              path: "src/helper.ts",
-                              content: "export function helper() { return 1; }\n",
-                              size: 38,
-                          },
-                      ],
-        };
-    },
+            const repositoryName = url.includes("tools") ? "tools" : "widgets";
+            return {
+                url: `https://github.com/acme/${repositoryName}.git`,
+                name: repositoryName,
+                commitSha: "commit-1",
+                files:
+                    repositoryName === "tools"
+                        ? [
+                              {
+                                  path: "src/index.ts",
+                                  content: "import { helper } from './helper';\nexport function main() { return helper(); }\n",
+                                  size: 75,
+                              },
+                          ]
+                        : [
+                              {
+                                  path: "src/index.ts",
+                                  content: "import { helper } from './helper';\nexport function main() { return helper(); }\n",
+                                  size: 75,
+                              },
+                              {
+                                  path: "src/helper.ts",
+                                  content: "export function helper() { return 1; }\n",
+                                  size: 38,
+                              },
+                          ],
+            };
+        }),
 }));
 
 mock.module("../../lib/graph", () => ({
-    collectGraphClosure: async () => [],
+    collectGraphClosure: () => Effect.succeed([]),
 }));
 
 mock.module("../../lib/graph/list", () => ({
-    listAccessibleGraphs: async () => [],
+    listAccessibleGraphs: () => Effect.succeed([]),
 }));
 
 mock.module("../../lib/workflow-cancellation", () => ({
-    cancelActiveFileProcessingWorkflowRuns: async () => undefined,
-    cancelActiveGraphWorkflowRuns: async () => undefined,
+    cancelActiveFileProcessingWorkflowRuns: () => Effect.succeed(undefined),
+    cancelActiveGraphWorkflowRuns: () => Effect.succeed(undefined),
 }));
 
 mock.module("../../lib/graph/access", () => ({
-    assertCanCreateTopLevelGraph: async () => ({ organizationId: "org-1" }),
-    assertCanCreateUnderParentGraph: async () => undefined,
-    assertCanCreateTeamGraph: async () => ({ team: { id: "team-1", organizationId: "org-1" } }),
-    assertCanManageGraphFiles: async () => existingGraph,
-    assertCanPatchGraph: async () => existingGraph,
-    assertCanViewGraph: async () => existingGraph,
-    resolveGraphOwnerRoot: async () => ({ mode: "organization", organizationId: "org-1" }),
+    assertCanCreateTopLevelGraph: () => Effect.succeed({ organizationId: "org-1" }),
+    assertCanCreateUnderParentGraph: () => Effect.succeed(undefined),
+    assertCanCreateTeamGraph: () => Effect.succeed({ team: { id: "team-1", organizationId: "org-1" } }),
+    assertCanManageGraphFiles: () => Effect.succeed(existingGraph),
+    assertCanPatchGraph: () => Effect.succeed(existingGraph),
+    assertCanViewGraph: () => Effect.succeed(existingGraph),
+    resolveGraphOwnerRoot: () => Effect.succeed({ mode: "organization", organizationId: "org-1" }),
     selectGraphFields: {},
 }));
 

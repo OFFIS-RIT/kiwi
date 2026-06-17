@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { splitTextWithCitationFences, stringifyCitationFence, type CitationFence } from "@kiwi/ai/citation";
 import {
     createCachingCitationResolver,
@@ -17,27 +18,29 @@ function firstCitation(text: string): CitationFence {
 
 describe("chat citation normalization", () => {
     test("normalizes legacy file-key citations to canonical file-id citations", async () => {
-        const normalized = await normalizeCitationFencesInText(
-            `Alpha ${stringifyCitationFence({
-                type: "cite",
-                sourceId: "source-1",
-                unitId: "unit-legacy",
-                fileName: "document.pdf",
-                fileKey: "graphs/graph-1/document.pdf",
-                fileType: "pdf",
-                startPage: 3,
-                endPage: 4,
-            })} Omega`,
-            async () => ({
-                type: "cite",
-                sourceId: "source-1",
-                unitId: "unit-1",
-                fileId: "file-1",
-                fileName: "document.pdf",
-                fileType: "pdf",
-                startPage: 3,
-                endPage: 4,
-            })
+        const normalized = await Effect.runPromise(
+            normalizeCitationFencesInText(
+                `Alpha ${stringifyCitationFence({
+                    type: "cite",
+                    sourceId: "source-1",
+                    unitId: "unit-legacy",
+                    fileName: "document.pdf",
+                    fileKey: "graphs/graph-1/document.pdf",
+                    fileType: "pdf",
+                    startPage: 3,
+                    endPage: 4,
+                })} Omega`,
+                async () => ({
+                    type: "cite",
+                    sourceId: "source-1",
+                    unitId: "unit-1",
+                    fileId: "file-1",
+                    fileName: "document.pdf",
+                    fileType: "pdf",
+                    startPage: 3,
+                    endPage: 4,
+                })
+            )
         );
 
         const citation = firstCitation(normalized);
@@ -62,10 +65,12 @@ describe("chat citation normalization", () => {
             endPage: 4,
         })} Omega`;
 
-        const normalized = await normalizeCitationFencesInText(text, async () => {
-            resolverCalls += 1;
-            return null;
-        });
+        const normalized = await Effect.runPromise(
+            normalizeCitationFencesInText(text, async () => {
+                resolverCalls += 1;
+                return null;
+            })
+        );
 
         expect(normalized).toBe(text);
         expect(resolverCalls).toBe(0);
@@ -80,18 +85,20 @@ describe("chat citation normalization", () => {
             fileKey: "graphs/graph-1/document.pdf",
         });
 
-        const result = await normalizeMessageCitationFences(
-            [
-                { type: "text", text: `Alpha ${legacyCitation}` },
-                { type: "reasoning", text: "thinking" },
-            ],
-            async () => ({
-                type: "cite",
-                sourceId: "source-1",
-                unitId: "unit-1",
-                fileId: "file-1",
-                fileName: "document.pdf",
-            })
+        const result = await Effect.runPromise(
+            normalizeMessageCitationFences(
+                [
+                    { type: "text", text: `Alpha ${legacyCitation}` },
+                    { type: "reasoning", text: "thinking" },
+                ],
+                async () => ({
+                    type: "cite",
+                    sourceId: "source-1",
+                    unitId: "unit-1",
+                    fileId: "file-1",
+                    fileName: "document.pdf",
+                })
+            )
         );
 
         expect(result.changed).toBe(true);
@@ -109,7 +116,7 @@ describe("chat citation normalization", () => {
             fileName: "document.pdf",
         });
         const parts = [{ type: "text" as const, text: `Alpha ${canonicalCitation}` }];
-        const result = await normalizeMessageCitationFences(parts, async () => null);
+        const result = await Effect.runPromise(normalizeMessageCitationFences(parts, async () => null));
 
         expect(result.changed).toBe(false);
         expect(result.unresolvedCitations).toEqual([]);
@@ -125,9 +132,8 @@ describe("chat citation normalization", () => {
             fileKey: "graphs/graph-1/missing.pdf",
         });
 
-        const result = await normalizeMessageCitationFences(
-            [{ type: "text", text: `Alpha ${legacyCitation} Omega` }],
-            async () => null
+        const result = await Effect.runPromise(
+            normalizeMessageCitationFences([{ type: "text", text: `Alpha ${legacyCitation} Omega` }], async () => null)
         );
 
         expect(result.changed).toBe(true);

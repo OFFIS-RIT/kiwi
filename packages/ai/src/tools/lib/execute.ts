@@ -1,5 +1,5 @@
 import { debug as logDebug, error as logError } from "@kiwi/logger";
-import { Result } from "better-result";
+import * as Effect from "effect/Effect";
 
 type ToolRunOptions = {
     title: string;
@@ -63,29 +63,30 @@ function describeFailure(error: unknown) {
     };
 }
 
-export async function runToolSafely(
+export function runToolSafely(
     options: ToolRunOptions,
     args: Record<string, unknown>,
-    run: () => Promise<string>
-): Promise<string> {
+    run: () => Effect.Effect<string, unknown>
+): Effect.Effect<string, never> {
     logDebug("ai tool execution started", { toolName: options.name, toolArgs: sanitizeLogValue(args) });
 
-    const result = await Result.tryPromise(run);
+    return run().pipe(
+        Effect.match({
+            onFailure: (error) => {
+                logError("ai tool execution failed", { toolName: options.name, error: sanitizeLogValue(error) });
 
-    if (result.isErr()) {
-        logError("ai tool execution failed", { toolName: options.name, error: sanitizeLogValue(result.error) });
+                const failure = describeFailure(error);
+                const hints = [...failure.hints, ...options.hints].filter(
+                    (hint, index, array) => array.indexOf(hint) === index
+                );
 
-        const failure = describeFailure(result.error);
-        const hints = [...failure.hints, ...options.hints].filter(
-            (hint, index, array) => array.indexOf(hint) === index
-        );
-
-        return [
-            `## ${options.title}`,
-            `- unavailable: ${failure.summary}`,
-            ...hints.map((hint) => `- hint: ${hint}`),
-        ].join("\n");
-    }
-
-    return result.value;
+                return [
+                    `## ${options.title}`,
+                    `- unavailable: ${failure.summary}`,
+                    ...hints.map((hint) => `- hint: ${hint}`),
+                ].join("\n");
+            },
+            onSuccess: (value) => value,
+        })
+    );
 }

@@ -15,7 +15,7 @@ type DerivedCleanupDeps = {
     deleteFile?: (key: string, bucket: string) => Effect.Effect<boolean, unknown>;
 };
 
-export async function deleteGraphFileArtifacts(
+export function deleteGraphFileArtifacts(
     options: {
         graphId: string;
         fileId: string;
@@ -23,21 +23,24 @@ export async function deleteGraphFileArtifacts(
         bucket: string;
     },
     deps: DerivedCleanupDeps = {}
-): Promise<string[]> {
-    const loadKeys = deps.listFiles ?? listFiles;
-    const removeKey = deps.deleteFile ?? deleteFile;
-    const paths = getGraphFileArtifactPaths(options);
-    const listedKeys = await Promise.all(
-        paths.cleanupPrefixes.map((prefix) => Effect.runPromise(loadKeys(prefix, options.bucket)))
-    );
-    const artifactKeys = [...new Set(listedKeys.flat())];
+): Effect.Effect<string[], unknown> {
+    return Effect.gen(function* () {
+        const loadKeys = deps.listFiles ?? listFiles;
+        const removeKey = deps.deleteFile ?? deleteFile;
+        const paths = getGraphFileArtifactPaths(options);
+        const listedKeys = yield* Effect.all(
+            paths.cleanupPrefixes.map((prefix) => loadKeys(prefix, options.bucket)),
+            { concurrency: "unbounded" }
+        );
+        const artifactKeys = [...new Set(listedKeys.flat())];
 
-    await Promise.all(artifactKeys.map((key) => Effect.runPromise(removeKey(key, options.bucket))));
+        yield* Effect.all(artifactKeys.map((key) => removeKey(key, options.bucket)), { concurrency: "unbounded" });
 
-    return artifactKeys;
+        return artifactKeys;
+    });
 }
 
-export async function deleteGraphFileProcessingArtifacts(
+export function deleteGraphFileProcessingArtifacts(
     options: {
         graphId: string;
         fileId: string;
@@ -45,13 +48,15 @@ export async function deleteGraphFileProcessingArtifacts(
         bucket: string;
     },
     deps: DerivedCleanupDeps = {}
-): Promise<{ deletedKeyCount: number }> {
-    const loadKeys = deps.listFiles ?? listFiles;
-    const removeKey = deps.deleteFile ?? deleteFile;
-    const paths = getGraphFileArtifactPaths(options);
-    const artifactKeys = [...new Set(await Effect.runPromise(loadKeys(paths.processingPrefix, options.bucket)))];
+): Effect.Effect<{ deletedKeyCount: number }, unknown> {
+    return Effect.gen(function* () {
+        const loadKeys = deps.listFiles ?? listFiles;
+        const removeKey = deps.deleteFile ?? deleteFile;
+        const paths = getGraphFileArtifactPaths(options);
+        const artifactKeys = [...new Set(yield* loadKeys(paths.processingPrefix, options.bucket))];
 
-    await Promise.all(artifactKeys.map((key) => Effect.runPromise(removeKey(key, options.bucket))));
+        yield* Effect.all(artifactKeys.map((key) => removeKey(key, options.bucket)), { concurrency: "unbounded" });
 
-    return { deletedKeyCount: artifactKeys.length };
+        return { deletedKeyCount: artifactKeys.length };
+    });
 }

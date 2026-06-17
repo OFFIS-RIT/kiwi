@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { Elysia } from "elysia";
 
 let scenario: "list-public" | "create-admin" | "patch-no-changes" | "delete-promote" | "delete-missing" =
@@ -123,7 +124,7 @@ const transactionDb = {
 };
 
 mock.module("@kiwi/ai/models", () => ({
-    allocateModelId: async (_tx: unknown, _organizationId: string, modelId: string) => `allocated-${modelId.trim()}`,
+    allocateModelId: (_tx: unknown, _organizationId: string, modelId: string) => Effect.succeed(`allocated-${modelId.trim()}`),
     assertValidModelConfiguration: () => undefined,
     decryptModelCredentials: () => ({
         apiKey: "stored-secret",
@@ -134,7 +135,7 @@ mock.module("@kiwi/ai/models", () => ({
         encryptedCredentialsInputs.push(credentials);
         return `encrypted:${credentials.apiKey}:${credentials.url ?? ""}:${credentials.resourceName ?? ""}`;
     },
-    lockModelOrganization: async () => undefined,
+    lockModelOrganization: () => Effect.succeed(undefined),
     normalizeModelId: (modelId: string) => modelId.trim().toLowerCase(),
     toAdminModelRecord: (row: typeof currentModel) => ({
         model_id: row.modelId,
@@ -187,14 +188,16 @@ mock.module("../../env", () => ({
 }));
 
 mock.module("../../lib/team/access", () => ({
-    requireOrganizationAdmin: async () => ({
-        organizationId: "org-1",
-        role: "admin",
-    }),
-    requireOrganizationMembership: async () => ({
-        organizationId: "org-1",
-        role: "member",
-    }),
+    requireOrganizationAdmin: () =>
+        Effect.succeed({
+            organizationId: "org-1",
+            role: "admin",
+        }),
+    requireOrganizationMembership: () =>
+        Effect.succeed({
+            organizationId: "org-1",
+            role: "member",
+        }),
 }));
 
 mock.module("../../middleware/auth", () => ({

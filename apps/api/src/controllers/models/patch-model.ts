@@ -19,11 +19,11 @@ import { assertCreateModelInput, getModelForUpdate, mergeCredentials } from "./m
 
 export function patchModel(input: { user: AuthUser; modelId: string; body: ModelPatchInput }) {
     return tryApiPromise(async () => {
-        const membership = await requireOrganizationAdmin(input.user);
+        const membership = await Effect.runPromise(requireOrganizationAdmin(input.user));
         const organizationId = membership.organizationId;
 
         return db.transaction(async (tx) => {
-            await lockModelOrganization(tx, organizationId);
+            await Effect.runPromise(lockModelOrganization(tx, organizationId));
             const currentModel = await Effect.runPromise(getModelForUpdate(tx, organizationId, input.modelId));
             const nextAdapter = input.body.adapter ?? currentModel.adapter;
             const nextProviderModel = input.body.provider_model?.trim() ?? currentModel.providerModel;

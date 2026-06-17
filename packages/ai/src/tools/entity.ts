@@ -3,6 +3,7 @@ import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { entityTable, filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, currentSourceSql, visibleFilePredicate, visibleFileSql } from "@kiwi/db/source-validity";
 import { and, asc, cosineDistance, eq, exists, gt, inArray, sql } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { embed, tool } from "ai";
 import { withAiSlot } from "../concurrency";
 import {
@@ -111,93 +112,101 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
             "Use when you need entity IDs before calling relationship or source tools. Semantic search is primary, with keyword terms used to boost exact or near-exact name matches.",
         inputSchema: searchEntitiesSchema,
         execute: ({ query, keywords, files, limit, cursor }) =>
-            runToolSafely(
-                {
-                    title: "Entities",
-                    name: "search_entities",
-                    hints: [
-                        "retry with a shorter query or fewer keywords",
-                        "if you only need a broad scan, use list_entities instead",
-                    ],
-                },
-                { query, keywords, files, limit, cursor },
-                async () => {
-                    const text = query.trim();
-                    const terms = uniqueTerms([...(keywords ?? []), text]);
-                    const fileIds = uniqueTerms(files ?? []);
-                    options.onConsideredFileIds?.(fileIds);
-                    const next = decodeCursor(cursor, "entity search");
-                    const { embedding } = await withAiSlot("embedding", () =>
-                        embed({
-                            model: embeddingModel,
-                            value: text,
+            Effect.runPromise(
+                runToolSafely(
+                    {
+                        title: "Entities",
+                        name: "search_entities",
+                        hints: [
+                            "retry with a shorter query or fewer keywords",
+                            "if you only need a broad scan, use list_entities instead",
+                        ],
+                    },
+                    { query, keywords, files, limit, cursor },
+                    () =>
+                        Effect.gen(function* () {
+                            const text = query.trim();
+                            const terms = uniqueTerms([...(keywords ?? []), text]);
+                            const fileIds = uniqueTerms(files ?? []);
+                            options.onConsideredFileIds?.(fileIds);
+                            const next = decodeCursor(cursor, "entity search");
+                            const { embedding } = yield* Effect.tryPromise(() =>
+                                withAiSlot("embedding", (signal) =>
+                                    embed({
+                                        model: embeddingModel,
+                                        value: text,
+                                        abortSignal: signal,
+                                    })
+                                )
+                            );
+                            const fileScope = buildFileScopeExpression(fileIds);
+                            const keywordBoost = buildKeywordBoostExpression(terms);
+                            const exactBoost = buildExactBoostExpression(terms);
+                            const semanticScore = sql<number>`greatest(0::double precision, 1 - (${cosineDistance(sql`e.embedding`, embedding)}))`;
+                            const score = sql`${semanticScore} + (${keywordBoost} * ${doubleLiteral(KEYWORD_WEIGHT)}) + ${exactBoost}`;
+                            const cursorFilter = next
+                                ? sql`
+                                      and (
+                                          ranked.score < ${next.score}
+                                          or (ranked.score = ${next.score} and ranked.id > ${next.id})
+                                      )
+                                  `
+                                : sql``;
+                            const result = yield* Effect.tryPromise(() =>
+                                db.execute(sql<SearchEntityRow>`
+                                    with ranked as (
+                                        select
+                                            e.id,
+                                            e.name,
+                                            e.type,
+                                            e.description,
+                                            ${semanticScore} as semantic_score,
+                                            ${keywordBoost} as keyword_boost,
+                                            ${exactBoost} as exact_boost,
+                                            ${score} as score
+                                        from entities e
+                                        where e.graph_id = ${graphId}
+                                          and e.active = true
+                                          ${fileScope}
+                                    )
+                                    select
+                                        ranked.id,
+                                        ranked.name,
+                                        ranked.type,
+                                        ranked.description,
+                                        ranked.score
+                                    from ranked
+                                    where (
+                                        ranked.semantic_score >= ${doubleLiteral(MIN_SEMANTIC_SCORE)}
+                                        or ranked.keyword_boost >= ${doubleLiteral(MIN_KEYWORD_BOOST)}
+                                        or ranked.exact_boost > 0
+                                    )
+                                    ${cursorFilter}
+                                    order by ranked.score desc, ranked.id asc
+                                    limit ${limit + 1}
+                                `)
+                            );
+                            const rows = toSearchEntityRows(result.rows);
+
+                            const hasMore = rows.length > limit;
+                            const items = hasMore ? rows.slice(0, limit) : rows;
+                            const lines = formatEntityList(items);
+
+                            return [
+                                "## Entities",
+                                ...(lines.length > 0 ? lines : ["- none"]),
+                                ...(hasMore && items.length > 0
+                                    ? [
+                                          ``,
+                                          `Next cursor: ${encodeCursor({
+                                              id: items[items.length - 1]!.id,
+                                              score: items[items.length - 1]!.score,
+                                          } satisfies RankCursor)}`,
+                                      ]
+                                    : []),
+                            ].join("\n");
                         })
-                    );
-                    const fileScope = buildFileScopeExpression(fileIds);
-                    const keywordBoost = buildKeywordBoostExpression(terms);
-                    const exactBoost = buildExactBoostExpression(terms);
-                    const semanticScore = sql<number>`greatest(0::double precision, 1 - (${cosineDistance(sql`e.embedding`, embedding)}))`;
-                    const score = sql`${semanticScore} + (${keywordBoost} * ${doubleLiteral(KEYWORD_WEIGHT)}) + ${exactBoost}`;
-                    const cursorFilter = next
-                        ? sql`
-                              and (
-                                  ranked.score < ${next.score}
-                                  or (ranked.score = ${next.score} and ranked.id > ${next.id})
-                              )
-                          `
-                        : sql``;
-                    const result = await db.execute(sql<SearchEntityRow>`
-                        with ranked as (
-                            select
-                                e.id,
-                                e.name,
-                                e.type,
-                                e.description,
-                                ${semanticScore} as semantic_score,
-                                ${keywordBoost} as keyword_boost,
-                                ${exactBoost} as exact_boost,
-                                ${score} as score
-                            from entities e
-                            where e.graph_id = ${graphId}
-                              and e.active = true
-                              ${fileScope}
-                        )
-                        select
-                            ranked.id,
-                            ranked.name,
-                            ranked.type,
-                            ranked.description,
-                            ranked.score
-                        from ranked
-                        where (
-                            ranked.semantic_score >= ${doubleLiteral(MIN_SEMANTIC_SCORE)}
-                            or ranked.keyword_boost >= ${doubleLiteral(MIN_KEYWORD_BOOST)}
-                            or ranked.exact_boost > 0
-                        )
-                        ${cursorFilter}
-                        order by ranked.score desc, ranked.id asc
-                        limit ${limit + 1}
-                    `);
-                    const rows = toSearchEntityRows(result.rows);
-
-                    const hasMore = rows.length > limit;
-                    const items = hasMore ? rows.slice(0, limit) : rows;
-                    const lines = formatEntityList(items);
-
-                    return [
-                        "## Entities",
-                        ...(lines.length > 0 ? lines : ["- none"]),
-                        ...(hasMore && items.length > 0
-                            ? [
-                                  ``,
-                                  `Next cursor: ${encodeCursor({
-                                      id: items[items.length - 1]!.id,
-                                      score: items[items.length - 1]!.score,
-                                  } satisfies RankCursor)}`,
-                              ]
-                            : []),
-                    ].join("\n");
-                }
+                )
             ),
     });
 
@@ -216,67 +225,72 @@ export const listEntitiesTool = (graphId: string, options: EntityToolOptions = {
             "Use when you want a broad unranked scan of entity IDs in the graph or inside specific files and do not yet know which entities matter.",
         inputSchema: listEntitiesSchema,
         execute: ({ files, limit, cursor }) =>
-            runToolSafely(
-                {
-                    title: "Entities",
-                    name: "list_entities",
-                    hints: [
-                        "retry without a cursor to restart the listing",
-                        "reduce file filters if you only need a broad entity scan",
-                    ],
-                },
-                { files, limit, cursor },
-                async () => {
-                    const fileIds = uniqueTerms(files ?? []);
-                    options.onConsideredFileIds?.(fileIds);
-                    const clauses = [eq(entityTable.graphId, graphId), eq(entityTable.active, true)];
+            Effect.runPromise(
+                runToolSafely(
+                    {
+                        title: "Entities",
+                        name: "list_entities",
+                        hints: [
+                            "retry without a cursor to restart the listing",
+                            "reduce file filters if you only need a broad entity scan",
+                        ],
+                    },
+                    { files, limit, cursor },
+                    () =>
+                        Effect.gen(function* () {
+                            const fileIds = uniqueTerms(files ?? []);
+                            options.onConsideredFileIds?.(fileIds);
+                            const clauses = [eq(entityTable.graphId, graphId), eq(entityTable.active, true)];
 
-                    if (cursor) {
-                        clauses.push(gt(entityTable.id, cursor));
-                    }
+                            if (cursor) {
+                                clauses.push(gt(entityTable.id, cursor));
+                            }
 
-                    if (fileIds.length > 0) {
-                        clauses.push(
-                            exists(
-                                db
-                                    .select({ id: sourcesTable.id })
-                                    .from(sourcesTable)
-                                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                                    .where(
-                                        and(
-                                            eq(sourcesTable.entityId, entityTable.id),
-                                            currentSourcePredicate(sourcesTable),
-                                            inArray(textUnitTable.fileId, fileIds),
-                                            visibleFilePredicate(filesTable)
-                                        )
+                            if (fileIds.length > 0) {
+                                clauses.push(
+                                    exists(
+                                        db
+                                            .select({ id: sourcesTable.id })
+                                            .from(sourcesTable)
+                                            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                                            .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                                            .where(
+                                                and(
+                                                    eq(sourcesTable.entityId, entityTable.id),
+                                                    currentSourcePredicate(sourcesTable),
+                                                    inArray(textUnitTable.fileId, fileIds),
+                                                    visibleFilePredicate(filesTable)
+                                                )
+                                            )
                                     )
-                            )
-                        );
-                    }
+                                );
+                            }
 
-                    const rows = await db
-                        .select({
-                            id: entityTable.id,
-                            name: entityTable.name,
-                            type: entityTable.type,
-                            description: entityTable.description,
+                            const rows = yield* Effect.tryPromise(() =>
+                                db
+                                    .select({
+                                        id: entityTable.id,
+                                        name: entityTable.name,
+                                        type: entityTable.type,
+                                        description: entityTable.description,
+                                    })
+                                    .from(entityTable)
+                                    .where(and(...clauses))
+                                    .orderBy(asc(entityTable.id))
+                                    .limit(limit + 1)
+                            );
+
+                            const hasMore = rows.length > limit;
+                            const items = hasMore ? rows.slice(0, limit) : rows;
+                            const lines = formatEntityList(items);
+
+                            return [
+                                "## Entities",
+                                ...(lines.length > 0 ? lines : ["- none"]),
+                                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
+                            ].join("\n");
                         })
-                        .from(entityTable)
-                        .where(and(...clauses))
-                        .orderBy(asc(entityTable.id))
-                        .limit(limit + 1);
-
-                    const hasMore = rows.length > limit;
-                    const items = hasMore ? rows.slice(0, limit) : rows;
-                    const lines = formatEntityList(items);
-
-                    return [
-                        "## Entities",
-                        ...(lines.length > 0 ? lines : ["- none"]),
-                        ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
-                    ].join("\n");
-                }
+                )
             ),
     });
 

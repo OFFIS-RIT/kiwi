@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { env } from "../env";
 
 const textEncoder = new TextEncoder();
@@ -13,35 +14,35 @@ type ProjectFileAccessTokenPayload = {
 let signingKeyPromise: Promise<CryptoKey> | null = null;
 let signingKeySecret: string | null = null;
 
-export async function importProjectFileAccessTokenSigningKey(
+export function importProjectFileAccessTokenSigningKey(
     secret: string,
     keyImporter: Pick<SubtleCrypto, "importKey"> = crypto.subtle
-): Promise<CryptoKey> {
-    try {
-        return await keyImporter.importKey(
-            "raw",
-            textEncoder.encode(secret),
-            { name: "HMAC", hash: "SHA-256" },
-            false,
-            ["sign", "verify"]
-        );
-    } catch (error) {
-        throw new Error("Failed to import AUTH_SECRET as an HMAC signing key", { cause: error });
-    }
+): Effect.Effect<CryptoKey, unknown> {
+    return Effect.tryPromise({
+        try: () =>
+            keyImporter.importKey(
+                "raw",
+                textEncoder.encode(secret),
+                { name: "HMAC", hash: "SHA-256" },
+                false,
+                ["sign", "verify"]
+            ),
+        catch: (error) => new Error("Failed to import AUTH_SECRET as an HMAC signing key", { cause: error }),
+    });
 }
 
-function getSigningKey(): Promise<CryptoKey> {
+function getSigningKey(): Effect.Effect<CryptoKey, unknown> {
     const secret = env.AUTH_SECRET;
     if (!signingKeyPromise || signingKeySecret !== secret) {
         signingKeySecret = secret;
-        signingKeyPromise = importProjectFileAccessTokenSigningKey(secret).catch((error) => {
+        signingKeyPromise = Effect.runPromise(importProjectFileAccessTokenSigningKey(secret)).catch((error) => {
             signingKeyPromise = null;
             signingKeySecret = null;
             throw error;
         });
     }
 
-    return signingKeyPromise;
+    return Effect.tryPromise(() => signingKeyPromise!);
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {
@@ -72,69 +73,74 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
     return buffer;
 }
 
-export async function createProjectFileAccessToken(
+export function createProjectFileAccessToken(
     graphId: string,
     fileId: string,
     options: { expiresInSeconds?: number; now?: Date } = {}
-): Promise<string> {
-    const nowSeconds = Math.floor((options.now?.getTime() ?? Date.now()) / 1000);
-    const payload: ProjectFileAccessTokenPayload = {
-        graphId,
-        fileId,
-        exp: nowSeconds + (options.expiresInSeconds ?? TOKEN_TTL_SECONDS),
-    };
-    const encodedPayload = base64UrlEncode(textEncoder.encode(JSON.stringify(payload)));
-    const signature = await crypto.subtle.sign("HMAC", await getSigningKey(), textEncoder.encode(encodedPayload));
+): Effect.Effect<string, unknown> {
+    return Effect.gen(function* () {
+        const nowSeconds = Math.floor((options.now?.getTime() ?? Date.now()) / 1000);
+        const payload: ProjectFileAccessTokenPayload = {
+            graphId,
+            fileId,
+            exp: nowSeconds + (options.expiresInSeconds ?? TOKEN_TTL_SECONDS),
+        };
+        const encodedPayload = base64UrlEncode(textEncoder.encode(JSON.stringify(payload)));
+        const signingKey = yield* getSigningKey();
+        const signature = yield* Effect.tryPromise(() =>
+            crypto.subtle.sign("HMAC", signingKey, textEncoder.encode(encodedPayload))
+        );
 
-    return `${encodedPayload}.${base64UrlEncode(new Uint8Array(signature))}`;
+        return `${encodedPayload}.${base64UrlEncode(new Uint8Array(signature))}`;
+    });
 }
 
-export async function verifyProjectFileAccessToken(
+export function verifyProjectFileAccessToken(
     token: string | null | undefined,
     graphId: string,
     fileId: string,
     options: { now?: Date } = {}
-): Promise<boolean> {
-    if (!token) {
-        return false;
-    }
+): Effect.Effect<boolean, unknown> {
+    return Effect.gen(function* () {
+        if (!token) {
+            return false;
+        }
 
-    const [encodedPayload, encodedSignature, extra] = token.split(".");
-    if (!encodedPayload || !encodedSignature || extra !== undefined) {
-        return false;
-    }
+        const [encodedPayload, encodedSignature, extra] = token.split(".");
+        if (!encodedPayload || !encodedSignature || extra !== undefined) {
+            return false;
+        }
 
-    const signature = base64UrlDecode(encodedSignature);
-    if (!signature) {
-        return false;
-    }
+        const signature = base64UrlDecode(encodedSignature);
+        if (!signature) {
+            return false;
+        }
 
-    const verified = await crypto.subtle.verify(
-        "HMAC",
-        await getSigningKey(),
-        toArrayBuffer(signature),
-        textEncoder.encode(encodedPayload)
-    );
-    if (!verified) {
-        return false;
-    }
-
-    const payloadBytes = base64UrlDecode(encodedPayload);
-    if (!payloadBytes) {
-        return false;
-    }
-
-    try {
-        const payload = JSON.parse(textDecoder.decode(payloadBytes)) as Partial<ProjectFileAccessTokenPayload>;
-        const nowSeconds = Math.floor((options.now?.getTime() ?? Date.now()) / 1000);
-
-        return (
-            payload.graphId === graphId &&
-            payload.fileId === fileId &&
-            typeof payload.exp === "number" &&
-            payload.exp >= nowSeconds
+        const signingKey = yield* getSigningKey();
+        const verified = yield* Effect.tryPromise(() =>
+            crypto.subtle.verify("HMAC", signingKey, toArrayBuffer(signature), textEncoder.encode(encodedPayload))
         );
-    } catch {
-        return false;
-    }
+        if (!verified) {
+            return false;
+        }
+
+        const payloadBytes = base64UrlDecode(encodedPayload);
+        if (!payloadBytes) {
+            return false;
+        }
+
+        try {
+            const payload = JSON.parse(textDecoder.decode(payloadBytes)) as Partial<ProjectFileAccessTokenPayload>;
+            const nowSeconds = Math.floor((options.now?.getTime() ?? Date.now()) / 1000);
+
+            return (
+                payload.graphId === graphId &&
+                payload.fileId === fileId &&
+                typeof payload.exp === "number" &&
+                payload.exp >= nowSeconds
+            );
+        } catch {
+            return false;
+        }
+    });
 }

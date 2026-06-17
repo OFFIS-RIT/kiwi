@@ -38,7 +38,7 @@ type PDFPreviewCacheDeps = {
 
 const inFlightPreviewRenders = new Map<string, Promise<PDFPreviewRenderResult>>();
 
-export async function getOrRenderPDFPreviewPage(
+export function getOrRenderPDFPreviewPage(
     options: {
         graphId: string;
         fileId: string;
@@ -48,52 +48,56 @@ export async function getOrRenderPDFPreviewPage(
         bucket: string;
     },
     deps: PDFPreviewCacheDeps = {}
-): Promise<PDFPreviewPageResult> {
-    const loadFile = deps.getFile ?? getFile;
-    const saveNamedFile = deps.putNamedFile ?? putNamedFile;
-    const renderPreview = deps.renderPDFPagePreviews ?? renderPDFPagePreviews;
-    const cacheKey = getPdfPreviewPageKey({
-        graphId: options.graphId,
-        fileId: options.fileId,
-        fileKey: options.fileKey,
-        page: options.page,
-    });
-    const cachedImage = await Effect.runPromise(loadFile(cacheKey, options.bucket, "bytes"));
+): Effect.Effect<PDFPreviewPageResult, unknown> {
+    return Effect.gen(function* () {
+        const loadFile = deps.getFile ?? getFile;
+        const saveNamedFile = deps.putNamedFile ?? putNamedFile;
+        const renderPreview = deps.renderPDFPagePreviews ?? renderPDFPagePreviews;
+        const cacheKey = getPdfPreviewPageKey({
+            graphId: options.graphId,
+            fileId: options.fileId,
+            fileKey: options.fileKey,
+            page: options.page,
+        });
+        const cachedImage = yield* loadFile(cacheKey, options.bucket, "bytes");
 
-    if (cachedImage) {
-        return {
-            status: "ok",
-            content: new Uint8Array(cachedImage.content),
-            cache: "hit",
-        };
-    }
-
-    const pagesToRender = uniquePositiveIntegers([options.page, ...(options.pagesToRender ?? [])]);
-    const renderKey = getPdfPreviewRenderKey({ ...options, pagesToRender });
-    const inFlightRender = inFlightPreviewRenders.get(renderKey);
-    if (inFlightRender) {
-        return toPDFPreviewPageResult(await inFlightRender, options.page);
-    }
-
-    const renderPromise = loadAndRenderPDFPreviewPages(
-        {
-            ...options,
-            pagesToRender,
-        },
-        { getFile: loadFile, putNamedFile: saveNamedFile, renderPDFPagePreviews: renderPreview }
-    );
-    inFlightPreviewRenders.set(renderKey, renderPromise);
-
-    try {
-        return toPDFPreviewPageResult(await renderPromise, options.page);
-    } finally {
-        if (inFlightPreviewRenders.get(renderKey) === renderPromise) {
-            inFlightPreviewRenders.delete(renderKey);
+        if (cachedImage) {
+            return {
+                status: "ok",
+                content: new Uint8Array(cachedImage.content),
+                cache: "hit",
+            };
         }
-    }
+
+        const pagesToRender = uniquePositiveIntegers([options.page, ...(options.pagesToRender ?? [])]);
+        const renderKey = getPdfPreviewRenderKey({ ...options, pagesToRender });
+        const inFlightRender = inFlightPreviewRenders.get(renderKey);
+        if (inFlightRender) {
+            return toPDFPreviewPageResult(yield* Effect.tryPromise(() => inFlightRender), options.page);
+        }
+
+        const renderPromise = Effect.runPromise(
+            loadAndRenderPDFPreviewPages(
+                {
+                    ...options,
+                    pagesToRender,
+                },
+                { getFile: loadFile, putNamedFile: saveNamedFile, renderPDFPagePreviews: renderPreview }
+            )
+        );
+        inFlightPreviewRenders.set(renderKey, renderPromise);
+
+        try {
+            return toPDFPreviewPageResult(yield* Effect.tryPromise(() => renderPromise), options.page);
+        } finally {
+            if (inFlightPreviewRenders.get(renderKey) === renderPromise) {
+                inFlightPreviewRenders.delete(renderKey);
+            }
+        }
+    });
 }
 
-async function loadAndRenderPDFPreviewPages(
+function loadAndRenderPDFPreviewPages(
     options: {
         graphId: string;
         fileId: string;
@@ -102,26 +106,28 @@ async function loadAndRenderPDFPreviewPages(
         bucket: string;
     },
     deps: Required<PDFPreviewCacheDeps>
-): Promise<PDFPreviewRenderResult> {
-    const sourceFile = await Effect.runPromise(deps.getFile(options.fileKey, options.bucket, "bytes"));
-    if (!sourceFile) {
-        return { status: "source_missing" };
-    }
+): Effect.Effect<PDFPreviewRenderResult, unknown> {
+    return Effect.gen(function* () {
+        const sourceFile = yield* deps.getFile(options.fileKey, options.bucket, "bytes");
+        if (!sourceFile) {
+            return { status: "source_missing" };
+        }
 
-    return renderAndCachePDFPreviewPages(
-        {
-            graphId: options.graphId,
-            fileId: options.fileId,
-            fileKey: options.fileKey,
-            pagesToRender: options.pagesToRender,
-            bucket: options.bucket,
-            source: new Uint8Array(sourceFile.content),
-        },
-        deps
-    );
+        return yield* renderAndCachePDFPreviewPages(
+            {
+                graphId: options.graphId,
+                fileId: options.fileId,
+                fileKey: options.fileKey,
+                pagesToRender: options.pagesToRender,
+                bucket: options.bucket,
+                source: new Uint8Array(sourceFile.content),
+            },
+            deps
+        );
+    });
 }
 
-async function renderAndCachePDFPreviewPages(
+function renderAndCachePDFPreviewPages(
     options: {
         graphId: string;
         fileId: string;
@@ -131,20 +137,26 @@ async function renderAndCachePDFPreviewPages(
         source: Uint8Array;
     },
     deps: Required<Pick<PDFPreviewCacheDeps, "putNamedFile" | "renderPDFPagePreviews">>
-): Promise<PDFPreviewRenderResult> {
-    const renderedPages = await deps.renderPDFPagePreviews(options.source, options.pagesToRender);
-    const paths = getGraphFileArtifactPaths(options);
+): Effect.Effect<PDFPreviewRenderResult, unknown> {
+    return Effect.gen(function* () {
+        const renderedPages = yield* deps.renderPDFPagePreviews(options.source, options.pagesToRender);
+        const paths = getGraphFileArtifactPaths(options);
 
-    await Promise.allSettled(
-        [...renderedPages.entries()].map(([page, renderedImage]) =>
-            Effect.runPromise(deps.putNamedFile(`page-${page}.png`, renderedImage, paths.derivedPdfPreviewPrefix, options.bucket))
-        )
-    );
+        yield* Effect.tryPromise(() =>
+            Promise.allSettled(
+                [...renderedPages.entries()].map(([page, renderedImage]) =>
+                    Effect.runPromise(
+                        deps.putNamedFile(`page-${page}.png`, renderedImage, paths.derivedPdfPreviewPrefix, options.bucket)
+                    )
+                )
+            )
+        );
 
-    return {
-        status: "rendered",
-        pages: renderedPages,
-    };
+        return {
+            status: "rendered",
+            pages: renderedPages,
+        };
+    });
 }
 
 function toPDFPreviewPageResult(result: PDFPreviewRenderResult, page: number): PDFPreviewPageResult {

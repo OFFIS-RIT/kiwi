@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { describe, expect, test } from "bun:test";
 import { createGitLabClient, loadGitLabRepositorySnapshot, normalizeGitLabBaseUrl } from "../gitlab";
 import type { ConnectorResource, FetchLike, ProviderRepository } from "../types";
@@ -62,9 +63,9 @@ describe("GitLab connector", () => {
         };
         const client = createGitLabClient({ baseUrl: "https://gitlab.test", accessToken: "token", fetch: fetchImpl });
 
-        await expect(client.listRepositories()).resolves.toEqual([GITLAB_REPOSITORY]);
-        await expect(client.listResources()).resolves.toEqual([GITLAB_RESOURCE]);
-        await expect(client.listResourceVersions("7")).resolves.toEqual([
+        await expect(Effect.runPromise(client.listRepositories())).resolves.toEqual([GITLAB_REPOSITORY]);
+        await expect(Effect.runPromise(client.listResources())).resolves.toEqual([GITLAB_RESOURCE]);
+        await expect(Effect.runPromise(client.listResourceVersions("7"))).resolves.toEqual([
             { resourceId: "7", name: "main", versionId: "commit-sha" },
         ]);
         expect(urls).toContain("https://gitlab.test/api/v4/projects?membership=true&per_page=100&page=1");
@@ -79,7 +80,7 @@ describe("GitLab connector", () => {
             fetch: async () => new Response("upstream unavailable", { status: 500 }),
         });
 
-        await expect(client.listBranches(GITLAB_REPOSITORY)).rejects.toMatchObject({
+        await expect(Effect.runPromise(client.listBranches(GITLAB_REPOSITORY))).rejects.toMatchObject({
             name: "ConnectorProviderError",
             kind: "provider",
         });
@@ -107,13 +108,15 @@ describe("GitLab connector", () => {
         };
 
         await expect(
-            loadGitLabRepositorySnapshot({
-                baseUrl: "https://gitlab.test",
-                accessToken: "token",
-                fetch: fetchImpl,
-                repository: GITLAB_REPOSITORY,
-                branch: "main",
-            })
+            Effect.runPromise(
+                loadGitLabRepositorySnapshot({
+                    baseUrl: "https://gitlab.test",
+                    accessToken: "token",
+                    fetch: fetchImpl,
+                    repository: GITLAB_REPOSITORY,
+                    branch: "main",
+                })
+            )
         ).resolves.toEqual({
             repository: GITLAB_REPOSITORY,
             branch: { name: "main", commitSha: "commit-sha" },
@@ -203,7 +206,7 @@ describe("GitLab connector", () => {
             },
         });
 
-        await expect(client.compareVersions("7", "commit-old", "commit-new")).resolves.toEqual({
+        await expect(Effect.runPromise(client.compareVersions("7", "commit-old", "commit-new"))).resolves.toEqual({
             fromVersionId: "commit-old",
             toVersionId: "commit-new",
             isIncremental: true,
@@ -224,7 +227,7 @@ describe("GitLab connector", () => {
             fetch: async () => jsonResponse({ compare_timeout: true, diffs: [] }),
         });
 
-        await expect(client.compareRepository(GITLAB_REPOSITORY, "commit-old", "commit-new")).resolves.toEqual({
+        await expect(Effect.runPromise(client.compareRepository(GITLAB_REPOSITORY, "commit-old", "commit-new"))).resolves.toEqual({
             fromCommitSha: "commit-old",
             toCommitSha: "commit-new",
             isIncremental: false,
@@ -243,9 +246,9 @@ describe("GitLab connector", () => {
                 }),
         });
 
-        await expect(client.compareRepository(GITLAB_REPOSITORY, "commit-old", "commit-new")).rejects.toThrow(
-            "GitLab compare response is invalid"
-        );
+        await expect(
+            Effect.runPromise(client.compareRepository(GITLAB_REPOSITORY, "commit-old", "commit-new"))
+        ).rejects.toThrow("GitLab compare response is invalid");
     });
 
     test("verifies webhook tokens and normalizes push events through the adapter", () => {

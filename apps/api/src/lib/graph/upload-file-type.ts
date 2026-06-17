@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { API_ERROR_CODES, errorResponse } from "../../types";
 import { inferGraphFileType, type GraphFileType } from "../graph-file-type";
 
@@ -16,11 +17,17 @@ export type UploadFileTypeCheck =
     | { ok: false; fileName: string; message: string };
 
 type StatusFn = (code: number, body: unknown) => unknown;
-type UploadModelResolver = (organizationId: string, type: "audio" | "video", secret: string) => Promise<unknown>;
+type UploadModelResolver = (
+    organizationId: string,
+    type: "audio" | "video",
+    secret: string
+) => Effect.Effect<unknown, unknown>;
 
-async function getDefaultUploadModelResolver(): Promise<UploadModelResolver> {
-    const { resolveRequiredModelAdapter } = await import("@kiwi/ai/models");
-    return resolveRequiredModelAdapter;
+function getDefaultUploadModelResolver(): Effect.Effect<UploadModelResolver, unknown> {
+    return Effect.tryPromise({
+        try: () => import("@kiwi/ai/models").then(({ resolveRequiredModelAdapter }) => resolveRequiredModelAdapter),
+        catch: (error) => error,
+    });
 }
 
 export function inferSupportedUploadedFiles(files: FileWithChecksum[]): UploadFileTypeCheck {
@@ -38,22 +45,25 @@ export function unsupportedUploadResponse(statusFn: StatusFn, check: Extract<Upl
     return statusFn(415, errorResponse(`${check.fileName}: ${check.message}`, API_ERROR_CODES.UNSUPPORTED_FILE_TYPE));
 }
 
-export async function assertConfiguredUploadModels(options: {
+export function assertConfiguredUploadModels(options: {
     organizationId: string;
     files: readonly UploadModelFile[];
     secret: string;
     resolveModelAdapter?: UploadModelResolver;
-}) {
-    const requiredModelTypes = new Set<"audio" | "video">();
-    const resolveModelAdapter = options.resolveModelAdapter ?? (await getDefaultUploadModelResolver());
+}): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        const requiredModelTypes = new Set<"audio" | "video">();
+        const resolveModelAdapter = options.resolveModelAdapter ?? (yield* getDefaultUploadModelResolver());
 
-    for (const file of options.files) {
-        if (file.type === "audio" || file.type === "video") {
-            requiredModelTypes.add(file.type);
+        for (const file of options.files) {
+            if (file.type === "audio" || file.type === "video") {
+                requiredModelTypes.add(file.type);
+            }
         }
-    }
 
-    await Promise.all(
-        [...requiredModelTypes].map((type) => resolveModelAdapter(options.organizationId, type, options.secret))
-    );
+        yield* Effect.all(
+            [...requiredModelTypes].map((type) => resolveModelAdapter(options.organizationId, type, options.secret)),
+            { concurrency: "unbounded", discard: true }
+        );
+    });
 }

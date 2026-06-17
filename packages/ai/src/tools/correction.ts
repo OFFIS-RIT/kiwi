@@ -3,6 +3,7 @@ import { graphSuggestionsTable } from "@kiwi/db/tables/suggestions";
 import { entityTable, filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { and, eq } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { tool } from "ai";
 import { z } from "zod";
 import { runToolSafely } from "./lib/execute";
@@ -39,37 +40,45 @@ export const correctionInputSchema = z.discriminatedUnion("kind", [
 
 const correctionOutputSchema = z.string().catch("");
 
-async function assertSourceInGraph(graphId: string, sourceId: string) {
-    const [source] = await db
-        .select({ id: sourcesTable.id })
-        .from(sourcesTable)
-        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(
-            and(
-                eq(sourcesTable.id, sourceId),
-                eq(filesTable.graphId, graphId),
-                currentSourcePredicate(sourcesTable),
-                visibleFilePredicate(filesTable)
-            )
-        )
-        .limit(1);
+function assertSourceInGraph(graphId: string, sourceId: string): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        const [source] = yield* Effect.tryPromise(() =>
+            db
+                .select({ id: sourcesTable.id })
+                .from(sourcesTable)
+                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                .where(
+                    and(
+                        eq(sourcesTable.id, sourceId),
+                        eq(filesTable.graphId, graphId),
+                        currentSourcePredicate(sourcesTable),
+                        visibleFilePredicate(filesTable)
+                    )
+                )
+                .limit(1)
+        );
 
-    if (!source) {
-        throw new Error("Source not found in this graph");
-    }
+        if (!source) {
+            return yield* Effect.fail(new Error("Source not found in this graph"));
+        }
+    });
 }
 
-async function assertActiveEntityInGraph(graphId: string, entityId: string) {
-    const [entity] = await db
-        .select({ id: entityTable.id })
-        .from(entityTable)
-        .where(and(eq(entityTable.id, entityId), eq(entityTable.graphId, graphId), eq(entityTable.active, true)))
-        .limit(1);
+function assertActiveEntityInGraph(graphId: string, entityId: string): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        const [entity] = yield* Effect.tryPromise(() =>
+            db
+                .select({ id: entityTable.id })
+                .from(entityTable)
+                .where(and(eq(entityTable.id, entityId), eq(entityTable.graphId, graphId), eq(entityTable.active, true)))
+                .limit(1)
+        );
 
-    if (!entity) {
-        throw new Error("Entity not found in this graph");
-    }
+        if (!entity) {
+            return yield* Effect.fail(new Error("Entity not found in this graph"));
+        }
+    });
 }
 
 export const correctionTool = (context: CorrectionToolContext) =>
@@ -78,45 +87,50 @@ export const correctionTool = (context: CorrectionToolContext) =>
             "Store a pending graph correction suggestion when the user corrects an answer or adds factual information. Use source_correction for an existing cited/source-backed statement, and entity_addition for new information that belongs to an existing entity. This tool stores the suggestion only; it does not apply the change.",
         inputSchema: correctionInputSchema,
         execute: (input) =>
-            runToolSafely(
-                {
-                    title: "Correction suggestion",
-                    name: "correction",
-                    hints: [
-                        "use source_correction only with a valid source ID from this graph",
-                        "use entity_addition only with a valid active entity ID from this graph",
-                    ],
-                },
-                input,
-                async () => {
-                    if (input.kind === "source_correction") {
-                        await assertSourceInGraph(context.graphId, input.sourceId);
-                    } else {
-                        await assertActiveEntityInGraph(context.graphId, input.entityId);
-                    }
+            Effect.runPromise(
+                runToolSafely(
+                    {
+                        title: "Correction suggestion",
+                        name: "correction",
+                        hints: [
+                            "use source_correction only with a valid source ID from this graph",
+                            "use entity_addition only with a valid active entity ID from this graph",
+                        ],
+                    },
+                    input,
+                    () =>
+                        Effect.gen(function* () {
+                            if (input.kind === "source_correction") {
+                                yield* assertSourceInGraph(context.graphId, input.sourceId);
+                            } else {
+                                yield* assertActiveEntityInGraph(context.graphId, input.entityId);
+                            }
 
-                    const [suggestion] = await db
-                        .insert(graphSuggestionsTable)
-                        .values({
-                            graphId: context.graphId,
-                            kind: input.kind,
-                            sourceId: input.kind === "source_correction" ? input.sourceId : null,
-                            entityId: input.kind === "entity_addition" ? input.entityId : null,
-                            reference: input.reference,
-                            suggestion: input.suggestion,
-                            suggestedByUserId: context.userId,
-                            chatId: context.chatId,
-                            messageId: context.messageId,
+                            const [suggestion] = yield* Effect.tryPromise(() =>
+                                db
+                                    .insert(graphSuggestionsTable)
+                                    .values({
+                                        graphId: context.graphId,
+                                        kind: input.kind,
+                                        sourceId: input.kind === "source_correction" ? input.sourceId : null,
+                                        entityId: input.kind === "entity_addition" ? input.entityId : null,
+                                        reference: input.reference,
+                                        suggestion: input.suggestion,
+                                        suggestedByUserId: context.userId,
+                                        chatId: context.chatId,
+                                        messageId: context.messageId,
+                                    })
+                                    .returning({ id: graphSuggestionsTable.id })
+                            );
+
+                            return [
+                                "## Correction suggestion",
+                                `- stored: ${suggestion?.id ?? "unknown"}`,
+                                "- status: pending",
+                                "- nothing was applied yet",
+                            ].join("\n");
                         })
-                        .returning({ id: graphSuggestionsTable.id });
-
-                    return [
-                        "## Correction suggestion",
-                        `- stored: ${suggestion?.id ?? "unknown"}`,
-                        "- status: pending",
-                        "- nothing was applied yet",
-                    ].join("\n");
-                }
+                )
             ),
     });
 

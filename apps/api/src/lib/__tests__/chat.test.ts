@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import type { ChatUIMessage } from "@kiwi/ai";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import type { ChatRuntime } from "../chat-compaction";
@@ -18,8 +19,8 @@ mock.module("../../env", () => ({
 }));
 
 const actualAi = await import("@kiwi/ai");
-const compactConversationHistoryMock = mock(
-    async (_options: Parameters<typeof actualAi.compactConversationHistory>[0]) => "summary"
+const compactConversationHistoryMock = mock((_options: Parameters<typeof actualAi.compactConversationHistory>[0]) =>
+    Effect.succeed("summary")
 );
 
 mock.module("@kiwi/ai", () => ({
@@ -481,13 +482,15 @@ describe("chat context helpers", () => {
             const systemPrompt = "system prompt";
 
             await expect(
-                maybeCompactConversation({
-                    chatId: "chat-1",
-                    rows,
-                    runtime,
-                    systemPrompt,
-                    buildContext: buildTestContext(runtime, systemPrompt),
-                })
+                Effect.runPromise(
+                    maybeCompactConversation({
+                        chatId: "chat-1",
+                        rows,
+                        runtime,
+                        systemPrompt,
+                        buildContext: buildTestContext(runtime, systemPrompt),
+                    })
+                )
             ).resolves.toHaveProperty("context");
 
             expect(dbMock.insert).not.toHaveBeenCalled();
@@ -513,14 +516,16 @@ describe("chat context helpers", () => {
         const systemPrompt = "system prompt";
 
         await expect(
-            maybeCompactConversation({
-                chatId: "chat-1",
-                rows,
-                runtime,
-                systemPrompt,
-                buildContext: buildTestContext(runtime, systemPrompt),
-                forceCompaction: true,
-            })
+            Effect.runPromise(
+                maybeCompactConversation({
+                    chatId: "chat-1",
+                    rows,
+                    runtime,
+                    systemPrompt,
+                    buildContext: buildTestContext(runtime, systemPrompt),
+                    forceCompaction: true,
+                })
+            )
         ).rejects.toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
     });
 
@@ -575,13 +580,15 @@ describe("chat context helpers", () => {
             expect(hugeMessageChunks.length).toBeGreaterThan(1);
             expect(hugeMessageChunks.every((chunk) => estimateToken(chunk) <= chunkBudget)).toBe(true);
 
-            await maybeCompactConversation({
-                chatId: "chat-1",
-                rows,
-                runtime,
-                systemPrompt: "system prompt",
-                buildContext: buildTestContext(runtime, "system prompt"),
-            });
+            await Effect.runPromise(
+                maybeCompactConversation({
+                    chatId: "chat-1",
+                    rows,
+                    runtime,
+                    systemPrompt: "system prompt",
+                    buildContext: buildTestContext(runtime, "system prompt"),
+                })
+            );
 
             const compactionCalls = compactConversationHistoryMock.mock.calls.map(
                 ([options]) => options as { transcript: string; previousSummary?: string }
@@ -625,12 +632,14 @@ describe("chat context helpers", () => {
             },
         };
 
-        const context = await buildActiveChatContext({
-            rows: [textMessage("msg-tool-estimate", "user", "hello")],
-            runtime,
-            systemPrompt: "system prompt",
-            validateMessages: createChatMessageValidator({}),
-        });
+        const context = await Effect.runPromise(
+            buildActiveChatContext({
+                rows: [textMessage("msg-tool-estimate", "user", "hello")],
+                runtime,
+                systemPrompt: "system prompt",
+                validateMessages: createChatMessageValidator({}),
+            })
+        );
 
         expect(context.estimatedPromptTokens).toBe(
             estimateToken(
@@ -658,16 +667,18 @@ describe("chat context helpers", () => {
             },
         };
 
-        const context = await buildActiveChatContext({
-            rows: [
-                textMessage("msg-guidance-1", "user", "first question"),
-                textMessage("msg-guidance-2", "assistant", "first answer"),
-                textMessage("msg-guidance-3", "user", "latest question"),
-            ],
-            runtime,
-            systemPrompt: "system prompt",
-            validateMessages: createChatMessageValidator({}),
-        });
+        const context = await Effect.runPromise(
+            buildActiveChatContext({
+                rows: [
+                    textMessage("msg-guidance-1", "user", "first question"),
+                    textMessage("msg-guidance-2", "assistant", "first answer"),
+                    textMessage("msg-guidance-3", "user", "latest question"),
+                ],
+                runtime,
+                systemPrompt: "system prompt",
+                validateMessages: createChatMessageValidator({}),
+            })
+        );
 
         const guidanceIndex = context.contextMessages.findIndex((message) =>
             JSON.stringify(message.content).includes("Prefer terse answers.")
@@ -700,19 +711,21 @@ describe("chat context helpers", () => {
         };
         const systemPrompt = "team chat system prompt";
 
-        const { context } = await maybeCompactConversation({
-            chatId: "team-chat-1",
-            rows: [textMessage("team-msg-1", "user", "hello team")],
-            runtime,
-            systemPrompt,
-            buildContext: (rows) =>
-                buildActiveChatContext({
-                    rows,
-                    runtime,
-                    systemPrompt,
-                    validateMessages: async (rawTailRows) => rawTailRows.map((message) => toUIMessage(message)),
-                }),
-        });
+        const { context } = await Effect.runPromise(
+            maybeCompactConversation({
+                chatId: "team-chat-1",
+                rows: [textMessage("team-msg-1", "user", "hello team")],
+                runtime,
+                systemPrompt,
+                buildContext: (rows) =>
+                    buildActiveChatContext({
+                        rows,
+                        runtime,
+                        systemPrompt,
+                        validateMessages: async (rawTailRows) => rawTailRows.map((message) => toUIMessage(message)),
+                    }),
+            })
+        );
 
         expect(context.contextMessages).toHaveLength(1);
         expect(JSON.stringify(context.contextMessages[0])).toContain("hello team");
@@ -726,23 +739,25 @@ describe("chat context helpers", () => {
         dbMock.insert = insert;
 
         await expect(
-            syncChatMessage({
-                chatId: "chat-1",
-                message: {
-                    id: "msg-cross-chat",
-                    role: "user",
-                    parts: [{ type: "text", text: "hello" }],
-                },
-                toParts: () => [{ type: "text", text: "hello" }],
-                getMetrics: () => ({
-                    tokensPerSecond: null,
-                    timeToFirstToken: null,
-                    inputTokens: null,
-                    outputTokens: null,
-                    totalTokens: null,
-                }),
-                parseCreatedAt: () => undefined,
-            })
+            Effect.runPromise(
+                syncChatMessage({
+                    chatId: "chat-1",
+                    message: {
+                        id: "msg-cross-chat",
+                        role: "user",
+                        parts: [{ type: "text", text: "hello" }],
+                    },
+                    toParts: () => [{ type: "text", text: "hello" }],
+                    getMetrics: () => ({
+                        tokensPerSecond: null,
+                        timeToFirstToken: null,
+                        inputTokens: null,
+                        outputTokens: null,
+                        totalTokens: null,
+                    }),
+                    parseCreatedAt: () => undefined,
+                })
+            )
         ).rejects.toThrow(API_ERROR_CODES.INVALID_CHAT_REQUEST);
 
         expect(onConflictDoUpdate).toHaveBeenCalled();

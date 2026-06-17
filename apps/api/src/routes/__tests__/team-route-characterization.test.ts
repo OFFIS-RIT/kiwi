@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { Elysia } from "elysia";
 
 type Scenario =
@@ -181,21 +182,24 @@ mock.module("@kiwi/db", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
-    deleteFile: async (key: string) => {
-        deletedS3Keys.push(key);
-        if (scenario === "delete-team-warning" && key.endsWith("extra.txt")) {
-            throw new Error("delete failed");
-        }
-    },
-    listFiles: async (prefix: string) => {
-        listedPrefixes.push(prefix);
-        if (scenario === "delete-team-warning" && prefix === "graphs/graph-2/") {
-            throw new Error("list failed");
-        }
+    deleteFile: (key: string) =>
+        Effect.sync(() => {
+            deletedS3Keys.push(key);
+            if (scenario === "delete-team-warning" && key.endsWith("extra.txt")) {
+                throw new Error("delete failed");
+            }
+            return true;
+        }),
+    listFiles: (prefix: string) =>
+        Effect.sync(() => {
+            listedPrefixes.push(prefix);
+            if (scenario === "delete-team-warning" && prefix === "graphs/graph-2/") {
+                throw new Error("list failed");
+            }
 
-        return prefix === "graphs/graph-1/" ? ["graphs/graph-1/extra.txt"] : [];
-    },
-    putGraphFile: async () => ({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),
+            return prefix === "graphs/graph-1/" ? ["graphs/graph-1/extra.txt"] : [];
+        }),
+    putGraphFile: () => Effect.succeed({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),
 }));
 
 mock.module("@kiwi/logger", () => ({
@@ -212,40 +216,44 @@ mock.module("../../env", () => ({
 }));
 
 mock.module("../../lib/graph", () => ({
-    collectGraphClosure: async () => ["graph-1", "graph-2"],
+    collectGraphClosure: () => Effect.succeed(["graph-1", "graph-2"]),
 }));
 
 mock.module("../../lib/team/access", () => ({
-    requireOrganizationAdmin: async () => ({ organizationId: "org-1", role: "admin" }),
-    requireOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
-    requireTeamAccess: async (_user: unknown, teamId: string) => ({
-        organizationAdmin: true,
-        role: "admin",
-        team: { id: teamId, name: "Team", organizationId: "org-1" },
-    }),
-    requireTeamMemberManageAccess: async (_user: unknown, teamId: string) => ({
-        organizationAdmin: !(
-            scenario === "post-admin-forbidden" ||
-            scenario === "patch-users-admin-forbidden" ||
-            scenario === "delete-admin-forbidden"
-        ),
-        role:
-            scenario === "post-admin-forbidden" ||
-            scenario === "patch-users-admin-forbidden" ||
-            scenario === "delete-admin-forbidden"
-                ? "member"
-                : "admin",
-        team: { id: teamId, name: "Team", organizationId: "org-1" },
-    }),
+    requireOrganizationAdmin: () => Effect.succeed({ organizationId: "org-1", role: "admin" }),
+    requireOrganizationMembership: () => Effect.succeed({ organizationId: "org-1", role: "admin" }),
+    requireTeamAccess: (_user: unknown, teamId: string) =>
+        Effect.succeed({
+            organizationAdmin: true,
+            role: "admin",
+            team: { id: teamId, name: "Team", organizationId: "org-1" },
+        }),
+    requireTeamMemberManageAccess: (_user: unknown, teamId: string) =>
+        Effect.succeed({
+            organizationAdmin: !(
+                scenario === "post-admin-forbidden" ||
+                scenario === "patch-users-admin-forbidden" ||
+                scenario === "delete-admin-forbidden"
+            ),
+            role:
+                scenario === "post-admin-forbidden" ||
+                scenario === "patch-users-admin-forbidden" ||
+                scenario === "delete-admin-forbidden"
+                    ? "member"
+                    : "admin",
+            team: { id: teamId, name: "Team", organizationId: "org-1" },
+        }),
 }));
 
 mock.module("../../lib/workflow-cancellation", () => ({
-    cancelActiveFileProcessingWorkflowRuns: async (graphId: string) => {
-        operationLog.push(`file-workflows-cancelled:${graphId}`);
-    },
-    cancelActiveGraphWorkflowRuns: async () => {
-        operationLog.push("graph-workflows-cancelled");
-    },
+    cancelActiveFileProcessingWorkflowRuns: (graphId: string) =>
+        Effect.sync(() => {
+            operationLog.push(`file-workflows-cancelled:${graphId}`);
+        }),
+    cancelActiveGraphWorkflowRuns: () =>
+        Effect.sync(() => {
+            operationLog.push("graph-workflows-cancelled");
+        }),
 }));
 
 mock.module("../../middleware/auth", () => ({

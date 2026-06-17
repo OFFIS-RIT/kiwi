@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import * as Effect from "effect/Effect";
 import {
     createConnectorAdapter,
     getGitHubInstallationAccount,
@@ -166,90 +167,101 @@ export function createManifestUrl(state: string, name: string): string {
     return url.href;
 }
 
-export async function exchangeGitHubManifestCode(code: string) {
-    const response = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(code)}/conversions`, {
-        method: "POST",
-        headers: {
-            Accept: "application/vnd.github+json",
-            "User-Agent": "kiwi-connectors",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+export function exchangeGitHubManifestCode(code: string) {
+    return Effect.tryPromise(async () => {
+        const response = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(code)}/conversions`, {
+            method: "POST",
+            headers: {
+                Accept: "application/vnd.github+json",
+                "User-Agent": "kiwi-connectors",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error("Invalid connector manifest code");
+        }
+
+        return (await response.json()) as {
+            id: number | string;
+            slug?: string;
+            name: string;
+            client_id?: string;
+            client_secret?: string;
+            pem: string;
+            webhook_secret?: string;
+        };
     });
-
-    if (!response.ok) {
-        throw new Error("Invalid connector manifest code");
-    }
-
-    return (await response.json()) as {
-        id: number | string;
-        slug?: string;
-        name: string;
-        client_id?: string;
-        client_secret?: string;
-        pem: string;
-        webhook_secret?: string;
-    };
 }
 
-export async function createProviderClient(
+export function createProviderClient(
     connector: ConnectorRow,
     installation: InstallationRow
-): Promise<GitResourceAdapter> {
-    const credentials = decryptConnectorCredentials(connector.encryptedCredentials, env.AUTH_SECRET);
-    let installationCredentials: ConnectorInstallationCredentials;
-    if (connector.provider === "github") {
-        if (!isGitHubConnectorCredentials(credentials)) {
-            throw new Error("Invalid connector credentials");
+): Effect.Effect<GitResourceAdapter, unknown> {
+    return Effect.gen(function* () {
+        const credentials = decryptConnectorCredentials(connector.encryptedCredentials, env.AUTH_SECRET);
+        let installationCredentials: ConnectorInstallationCredentials;
+        if (connector.provider === "github") {
+            if (!isGitHubConnectorCredentials(credentials)) {
+                return yield* Effect.fail(new Error("Invalid connector credentials"));
+            }
+            installationCredentials = { provider: "github", installationId: installation.providerInstallationId };
+        } else {
+            if (!isGitLabConnectorCredentials(credentials)) {
+                return yield* Effect.fail(new Error("Invalid connector credentials"));
+            }
+            const decryptedInstallation = installation.encryptedCredentials
+                ? decryptConnectorCredentials(installation.encryptedCredentials, env.AUTH_SECRET)
+                : null;
+            if (!decryptedInstallation || !isGitLabInstallationCredentials(decryptedInstallation)) {
+                return yield* Effect.fail(new Error("Invalid connector installation credentials"));
+            }
+            installationCredentials = decryptedInstallation;
         }
-        installationCredentials = { provider: "github", installationId: installation.providerInstallationId };
-    } else {
-        if (!isGitLabConnectorCredentials(credentials)) {
-            throw new Error("Invalid connector credentials");
-        }
-        const decryptedInstallation = installation.encryptedCredentials
-            ? decryptConnectorCredentials(installation.encryptedCredentials, env.AUTH_SECRET)
-            : null;
-        if (!decryptedInstallation || !isGitLabInstallationCredentials(decryptedInstallation)) {
-            throw new Error("Invalid connector installation credentials");
-        }
-        installationCredentials = decryptedInstallation;
-    }
 
-    return (await createConnectorAdapter({
-        provider: connector.provider,
-        credentials,
-        installation: installationCredentials,
-    })) as GitResourceAdapter;
+        return (yield* createConnectorAdapter({
+            provider: connector.provider,
+            credentials,
+            installation: installationCredentials,
+        })) as GitResourceAdapter;
+    });
 }
 
-export async function getGitHubConnectorInstallationAccount(
+export function getGitHubConnectorInstallationAccount(
     connector: ConnectorRow,
     installationId: string
-): Promise<ProviderInstallationAccount> {
-    const credentials = decryptConnectorCredentials(connector.encryptedCredentials, env.AUTH_SECRET);
-    if (connector.provider !== "github" || !isGitHubConnectorCredentials(credentials)) {
-        throw new Error("Invalid connector credentials");
-    }
+): Effect.Effect<ProviderInstallationAccount, unknown> {
+    return Effect.gen(function* () {
+        const credentials = decryptConnectorCredentials(connector.encryptedCredentials, env.AUTH_SECRET);
+        if (connector.provider !== "github" || !isGitHubConnectorCredentials(credentials)) {
+            return yield* Effect.fail(new Error("Invalid connector credentials"));
+        }
 
-    return getGitHubInstallationAccount({
-        credentials,
-        installationId,
+        return yield* getGitHubInstallationAccount({
+            credentials,
+            installationId,
+        });
     });
 }
 
-export async function listProviderRepositories(
+export function listProviderRepositories(
     connector: ConnectorRow,
     installation: InstallationRow
-): Promise<ProviderRepository[]> {
-    return (await createProviderClient(connector, installation)).listRepositories();
+): Effect.Effect<ProviderRepository[], unknown> {
+    return Effect.gen(function* () {
+        const client = yield* createProviderClient(connector, installation);
+        return yield* client.listRepositories();
+    });
 }
 
-export async function listProviderBranches(
+export function listProviderBranches(
     connector: ConnectorRow,
     installation: InstallationRow,
     repositoryId: string
-): Promise<ProviderBranch[]> {
-    const client = await createProviderClient(connector, installation);
-    const repository = await client.getRepository(repositoryId);
-    return client.listBranches(repository);
+): Effect.Effect<ProviderBranch[], unknown> {
+    return Effect.gen(function* () {
+        const client = yield* createProviderClient(connector, installation);
+        const repository = yield* client.getRepository(repositoryId);
+        return yield* client.listBranches(repository);
+    });
 }

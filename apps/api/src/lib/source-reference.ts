@@ -34,106 +34,116 @@ const sourceReferenceSelect = {
     updated_at: textUnitTable.updatedAt,
 };
 
-export async function loadSourceReference(graphId: string, sourceId: string) {
-    const row = await loadSourceReferenceRow(graphId, sourceId);
-    if (!row) {
-        throw new Error(API_ERROR_CODES.SOURCE_NOT_FOUND);
-    }
-
-    return toSourceReferenceRecord(graphId, row);
-}
-
-export async function loadSourceReferences(
-    graphId: string,
-    sourceIds: string[]
-): Promise<SourceReferenceBatchSuccessData> {
-    const uniqueSourceIds = normalizeSourceIds(sourceIds);
-    if (uniqueSourceIds.length === 0) {
-        return { items: [], missing_source_ids: [] };
-    }
-
-    const rows = await loadSourceReferenceRows(graphId, uniqueSourceIds);
-    const rowsBySourceId = new Map(rows.map((row) => [row.source_id, row]));
-    const items: SourceReferenceBatchSuccessData["items"] = [];
-    const missingSourceIds: string[] = [];
-
-    for (const sourceId of uniqueSourceIds) {
-        const row = rowsBySourceId.get(sourceId);
+export function loadSourceReference(graphId: string, sourceId: string) {
+    return Effect.gen(function* () {
+        const row = yield* loadSourceReferenceRow(graphId, sourceId);
         if (!row) {
-            missingSourceIds.push(sourceId);
-            continue;
+            return yield* Effect.fail(new Error(API_ERROR_CODES.SOURCE_NOT_FOUND));
         }
 
-        items.push(toSourceReferenceRecord(graphId, row));
-    }
-
-    return {
-        items,
-        missing_source_ids: missingSourceIds,
-    };
+        return toSourceReferenceRecord(graphId, row);
+    });
 }
 
-export async function loadSourceReferenceImage(
+export function loadSourceReferences(
+    graphId: string,
+    sourceIds: string[]
+): Effect.Effect<SourceReferenceBatchSuccessData, unknown> {
+    return Effect.gen(function* () {
+        const uniqueSourceIds = normalizeSourceIds(sourceIds);
+        if (uniqueSourceIds.length === 0) {
+            return { items: [], missing_source_ids: [] };
+        }
+
+        const rows = yield* loadSourceReferenceRows(graphId, uniqueSourceIds);
+        const rowsBySourceId = new Map(rows.map((row) => [row.source_id, row]));
+        const items: SourceReferenceBatchSuccessData["items"] = [];
+        const missingSourceIds: string[] = [];
+
+        for (const sourceId of uniqueSourceIds) {
+            const row = rowsBySourceId.get(sourceId);
+            if (!row) {
+                missingSourceIds.push(sourceId);
+                continue;
+            }
+
+            items.push(toSourceReferenceRecord(graphId, row));
+        }
+
+        return {
+            items,
+            missing_source_ids: missingSourceIds,
+        };
+    });
+}
+
+export function loadSourceReferenceImage(
     graphId: string,
     sourceId: string,
     chunkId: number
-): Promise<SourceReferenceImage> {
-    const row = await loadSourceReferenceRow(graphId, sourceId);
-    if (!row) {
-        throw new Error(API_ERROR_CODES.SOURCE_NOT_FOUND);
-    }
+): Effect.Effect<SourceReferenceImage, unknown> {
+    return Effect.gen(function* () {
+        const row = yield* loadSourceReferenceRow(graphId, sourceId);
+        if (!row) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.SOURCE_NOT_FOUND));
+        }
 
-    const chunk = selectSourceChunks(row.chunks, row.source_chunk_ids).find((candidate) => candidate.id === chunkId);
-    if (!chunk || chunk.type !== "image" || !chunk.imageKey) {
-        throw new Error(API_ERROR_CODES.SOURCE_NOT_FOUND);
-    }
+        const chunk = selectSourceChunks(row.chunks, row.source_chunk_ids).find((candidate) => candidate.id === chunkId);
+        if (!chunk || chunk.type !== "image" || !chunk.imageKey) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.SOURCE_NOT_FOUND));
+        }
 
-    const file = await Effect.runPromise(getFile(chunk.imageKey, env.S3_BUCKET, "bytes"));
-    if (!file) {
-        throw new Error(API_ERROR_CODES.SOURCE_NOT_FOUND);
-    }
+        const file = yield* getFile(chunk.imageKey, env.S3_BUCKET, "bytes");
+        if (!file) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.SOURCE_NOT_FOUND));
+        }
 
-    return {
-        content: new Uint8Array(file.content),
-        contentType: getImageContentType(chunk.imageKey),
-    };
+        return {
+            content: new Uint8Array(file.content),
+            contentType: getImageContentType(chunk.imageKey),
+        };
+    });
 }
 
-async function loadSourceReferenceRow(graphId: string, sourceId: string): Promise<SourceReferenceRow | null> {
-    const [row] = await db
-        .select(sourceReferenceSelect)
-        .from(sourcesTable)
-        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(
-            and(
-                eq(sourcesTable.id, sourceId),
-                eq(filesTable.graphId, graphId),
-                currentSourcePredicate(sourcesTable),
-                visibleFilePredicate(filesTable)
+function loadSourceReferenceRow(graphId: string, sourceId: string): Effect.Effect<SourceReferenceRow | null, unknown> {
+    return Effect.tryPromise(async () => {
+        const [row] = await db
+            .select(sourceReferenceSelect)
+            .from(sourcesTable)
+            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+            .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+            .where(
+                and(
+                    eq(sourcesTable.id, sourceId),
+                    eq(filesTable.graphId, graphId),
+                    currentSourcePredicate(sourcesTable),
+                    visibleFilePredicate(filesTable)
+                )
             )
-        )
-        .limit(1);
+            .limit(1);
 
-    return row ? normalizeSourceReferenceRow(row) : null;
+        return row ? normalizeSourceReferenceRow(row) : null;
+    });
 }
 
-async function loadSourceReferenceRows(graphId: string, sourceIds: string[]): Promise<SourceReferenceRow[]> {
-    const rows = await db
-        .select(sourceReferenceSelect)
-        .from(sourcesTable)
-        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(
-            and(
-                inArray(sourcesTable.id, sourceIds),
-                eq(filesTable.graphId, graphId),
-                currentSourcePredicate(sourcesTable),
-                visibleFilePredicate(filesTable)
-            )
-        );
+function loadSourceReferenceRows(graphId: string, sourceIds: string[]): Effect.Effect<SourceReferenceRow[], unknown> {
+    return Effect.tryPromise(async () => {
+        const rows = await db
+            .select(sourceReferenceSelect)
+            .from(sourcesTable)
+            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+            .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+            .where(
+                and(
+                    inArray(sourcesTable.id, sourceIds),
+                    eq(filesTable.graphId, graphId),
+                    currentSourcePredicate(sourcesTable),
+                    visibleFilePredicate(filesTable)
+                )
+            );
 
-    return rows.map(normalizeSourceReferenceRow);
+        return rows.map(normalizeSourceReferenceRow);
+    });
 }
 
 function normalizeSourceIds(sourceIds: string[]): string[] {

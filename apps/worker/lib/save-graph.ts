@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourceSql, unexpiredSourcePredicate, visibleFilePredicate, visibleFileSql } from "@kiwi/db/source-validity";
@@ -28,7 +29,8 @@ export type GraphSaveResult = {
     };
 };
 
-export async function collectPendingDescriptionTargets(graphId: string) {
+export function collectPendingDescriptionTargets(graphId: string): Effect.Effect<{ entityIds: string[]; relationshipIds: string[] }, unknown> {
+    return Effect.tryPromise(async () => {
     const newEntities = await db
         .select({ id: entityTable.id, name: entityTable.name })
         .from(entityTable)
@@ -84,48 +86,54 @@ export async function collectPendingDescriptionTargets(graphId: string) {
         new Map(updatedRelationshipRows.map((relationship) => [relationship.id, relationship])).values()
     );
 
-    return {
-        entityIds: [...newEntities.map((entity) => entity.id), ...updatedEntities.map((entity) => entity.id)],
-        relationshipIds: [
-            ...newRelationships.map((relationship) => relationship.id),
-            ...updatedRelationships.map((relationship) => relationship.id),
-        ],
-    };
+        return {
+            entityIds: [...newEntities.map((entity) => entity.id), ...updatedEntities.map((entity) => entity.id)],
+            relationshipIds: [
+                ...newRelationships.map((relationship) => relationship.id),
+                ...updatedRelationships.map((relationship) => relationship.id),
+            ],
+        };
+    });
 }
 
-export async function saveGraphToDatabase(graphId: string, graph: Graph): Promise<GraphSaveResult> {
-    const start = performance.now();
-    const rows = buildGraphRows(graphId, graph);
+export function saveGraphToDatabase(graphId: string, graph: Graph): Effect.Effect<GraphSaveResult, unknown> {
+    return Effect.tryPromise(async () => {
+        const start = performance.now();
+        const rows = buildGraphRows(graphId, graph);
+        const metrics = await db.transaction(async (tx) =>
+            Effect.runPromise(
+                Effect.gen(function* () {
+                    const insertMetrics = yield* insertGraphRows(tx, rows);
+                    const dedupeEntitiesDuration = yield* measureDuration(
+                        dedupeEntityRows(tx, graphId, rows.insertedEntityIds)
+                    );
+                    const dedupeRelationshipsDuration = yield* measureDuration(
+                        dedupeRelationshipRows(tx, graphId, rows.insertedRelationshipIds)
+                    );
+                    const invalidateStaleSourcesDuration = yield* measureDuration(
+                        invalidateStaleCurrentCodeSources(tx, graphId, rows.insertedSourceIds)
+                    );
 
-    const metrics = await db.transaction(async (tx) => {
-        const insertMetrics = await insertGraphRows(tx, rows);
-        const dedupeEntitiesDuration = await measureDuration(() =>
-            dedupeEntityRows(tx, graphId, rows.insertedEntityIds)
-        );
-        const dedupeRelationshipsDuration = await measureDuration(() =>
-            dedupeRelationshipRows(tx, graphId, rows.insertedRelationshipIds)
-        );
-        const invalidateStaleSourcesDuration = await measureDuration(() =>
-            invalidateStaleCurrentCodeSources(tx, graphId, rows.insertedSourceIds)
+                    return {
+                        ...insertMetrics,
+                        dedupeEntitiesDuration,
+                        dedupeRelationshipsDuration,
+                        invalidateStaleSourcesDuration,
+                    };
+                })
+            )
         );
 
         return {
-            ...insertMetrics,
-            dedupeEntitiesDuration,
-            dedupeRelationshipsDuration,
-            invalidateStaleSourcesDuration,
+            summary: {
+                units: graph.units.length,
+                entities: graph.entities.length,
+                relationships: graph.relationships.length,
+            },
+            duration: performance.now() - start,
+            metrics,
         };
     });
-
-    return {
-        summary: {
-            units: graph.units.length,
-            entities: graph.entities.length,
-            relationships: graph.relationships.length,
-        },
-        duration: performance.now() - start,
-        metrics,
-    };
 }
 
 function buildGraphRows(graphId: string, graph: Graph) {
@@ -185,54 +193,80 @@ function buildGraphRows(graphId: string, graph: Graph) {
     return { unitRows, entityRows, relationshipRows, sourceRows, insertedEntityIds, insertedRelationshipIds, insertedSourceIds };
 }
 
-async function measureDuration(work: () => Promise<void>): Promise<number> {
-    const start = performance.now();
-    await work();
-    return performance.now() - start;
+function measureDuration(work: Effect.Effect<void, unknown>): Effect.Effect<number, unknown> {
+    return Effect.gen(function* () {
+        const start = performance.now();
+        yield* work;
+        return performance.now() - start;
+    });
 }
 
-async function insertGraphRows(tx: GraphSaveTransaction, rows: ReturnType<typeof buildGraphRows>) {
-    const insertUnitsDuration = await measureDuration(async () => {
-        for (const chunk of chunkItems(rows.unitRows)) {
-            await tx
-                .insert(textUnitTable)
-                .values(chunk)
-                .onConflictDoUpdate({
-                    target: textUnitTable.id,
-                    set: {
-                        fileId: sql`excluded.file_id`,
-                        text: sql`excluded.text`,
-                        startPage: sql`excluded.start_page`,
-                        endPage: sql`excluded.end_page`,
-                        chunks: sql`excluded.chunks`,
-                        updatedAt: sql`NOW()`,
-                    },
-                });
-        }
-    });
+function insertGraphRows(
+    tx: GraphSaveTransaction,
+    rows: ReturnType<typeof buildGraphRows>
+): Effect.Effect<
+    {
+        insertUnitsDuration: number;
+        insertEntitiesDuration: number;
+        insertRelationshipsDuration: number;
+    },
+    unknown
+> {
+    return Effect.gen(function* () {
+        const insertUnitsDuration = yield* measureDuration(
+            Effect.tryPromise(async () => {
+                for (const chunk of chunkItems(rows.unitRows)) {
+                    await tx
+                        .insert(textUnitTable)
+                        .values(chunk)
+                        .onConflictDoUpdate({
+                            target: textUnitTable.id,
+                            set: {
+                                fileId: sql`excluded.file_id`,
+                                text: sql`excluded.text`,
+                                startPage: sql`excluded.start_page`,
+                                endPage: sql`excluded.end_page`,
+                                chunks: sql`excluded.chunks`,
+                                updatedAt: sql`NOW()`,
+                            },
+                        });
+                }
+            })
+        );
 
-    const insertEntitiesDuration = await measureDuration(async () => {
-        for (const chunk of chunkItems(rows.entityRows)) {
-            await tx.insert(entityTable).values(chunk).onConflictDoNothing();
-        }
-    });
+        const insertEntitiesDuration = yield* measureDuration(
+            Effect.tryPromise(async () => {
+                for (const chunk of chunkItems(rows.entityRows)) {
+                    await tx.insert(entityTable).values(chunk).onConflictDoNothing();
+                }
+            })
+        );
 
-    const insertRelationshipsDuration = await measureDuration(async () => {
-        for (const chunk of chunkItems(rows.relationshipRows)) {
-            await tx.insert(relationshipTable).values(chunk).onConflictDoNothing();
-        }
-        for (const chunk of chunkItems(rows.sourceRows)) {
-            await tx.insert(sourcesTable).values(chunk).onConflictDoNothing();
-        }
-    });
+        const insertRelationshipsDuration = yield* measureDuration(
+            Effect.tryPromise(async () => {
+                for (const chunk of chunkItems(rows.relationshipRows)) {
+                    await tx.insert(relationshipTable).values(chunk).onConflictDoNothing();
+                }
+                for (const chunk of chunkItems(rows.sourceRows)) {
+                    await tx.insert(sourcesTable).values(chunk).onConflictDoNothing();
+                }
+            })
+        );
 
-    return { insertUnitsDuration, insertEntitiesDuration, insertRelationshipsDuration };
+        return { insertUnitsDuration, insertEntitiesDuration, insertRelationshipsDuration };
+    });
 }
 
-async function dedupeEntityRows(tx: GraphSaveTransaction, graphId: string, insertedEntityIds: string[]) {
+function dedupeEntityRows(
+    tx: GraphSaveTransaction,
+    graphId: string,
+    insertedEntityIds: string[]
+): Effect.Effect<void, unknown> {
     if (insertedEntityIds.length === 0) {
-        return;
+        return Effect.succeed(undefined);
     }
+
+    return Effect.tryPromise(async () => {
 
     const entityIds = textArray(insertedEntityIds);
     const candidateNameKeySql = sql.raw(entityCompactNameKey("candidate.name"));
@@ -342,9 +376,15 @@ async function dedupeEntityRows(tx: GraphSaveTransaction, graphId: string, inser
                 WHERE entity.id = duplicates.id
                   AND duplicates.id <> duplicates.canonical_id
             `);
+    });
 }
 
-async function dedupeRelationshipRows(tx: GraphSaveTransaction, graphId: string, insertedRelationshipIds: string[]) {
+function dedupeRelationshipRows(
+    tx: GraphSaveTransaction,
+    graphId: string,
+    insertedRelationshipIds: string[]
+): Effect.Effect<void, unknown> {
+    return Effect.tryPromise(async () => {
     await tx.execute(sql`
             DELETE FROM relationships
             WHERE graph_id = ${graphId}
@@ -486,12 +526,19 @@ async function dedupeRelationshipRows(tx: GraphSaveTransaction, graphId: string,
                 WHERE relationship.id = duplicates.id
                   AND duplicates.id <> duplicates.canonical_id
             `);
+    });
 }
 
-async function invalidateStaleCurrentCodeSources(tx: GraphSaveTransaction, graphId: string, insertedSourceIds: string[]) {
+function invalidateStaleCurrentCodeSources(
+    tx: GraphSaveTransaction,
+    graphId: string,
+    insertedSourceIds: string[]
+): Effect.Effect<void, unknown> {
     if (insertedSourceIds.length === 0) {
-        return;
+        return Effect.succeed(undefined);
     }
+
+    return Effect.tryPromise(async () => {
 
     const sourceIds = textArray(insertedSourceIds);
 
@@ -532,4 +579,5 @@ async function invalidateStaleCurrentCodeSources(tx: GraphSaveTransaction, graph
         FROM stale_sources
         WHERE source.id = stale_sources.id
     `);
+    });
 }

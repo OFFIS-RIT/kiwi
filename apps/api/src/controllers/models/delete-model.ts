@@ -3,17 +3,18 @@ import { db } from "@kiwi/db";
 import { modelsTable } from "@kiwi/db/tables/models";
 import { modelNotFoundError } from "@kiwi/contracts/errors";
 import { and, asc, eq } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { requireOrganizationAdmin } from "../../lib/team/access";
 import type { AuthUser } from "../../middleware/auth";
 import { tryApiPromise } from "../_shared/api-effect";
 
 export function deleteModel(input: { user: AuthUser; modelId: string }) {
     return tryApiPromise(async () => {
-        const membership = await requireOrganizationAdmin(input.user);
+        const membership = await Effect.runPromise(requireOrganizationAdmin(input.user));
         const organizationId = membership.organizationId;
 
         await db.transaction(async (tx) => {
-            await lockModelOrganization(tx, organizationId);
+            await Effect.runPromise(lockModelOrganization(tx, organizationId));
             const [currentModel] = await tx
                 .select()
                 .from(modelsTable)

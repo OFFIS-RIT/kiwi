@@ -28,17 +28,17 @@ type DeletedGraphData = {
 
 export function deleteGraph(input: { user: AuthUser; graphId: string }) {
     return tryApiPromise(async (): Promise<GraphDeleteSuccessData> => {
-        await assertCanPatchGraph(input.user, input.graphId);
+        await Effect.runPromise(assertCanPatchGraph(input.user, input.graphId));
 
         let graphIds: string[];
         try {
-            graphIds = await collectGraphClosure(db, [input.graphId]);
+            graphIds = await Effect.runPromise(collectGraphClosure(db, [input.graphId]));
         } catch {
             throw internalServerError();
         }
 
         try {
-            await cancelActiveGraphWorkflowRuns(graphIds);
+            await Effect.runPromise(cancelActiveGraphWorkflowRuns(graphIds));
         } catch (cancellationError) {
             logError("graph workflow cancellation failed before graph delete", {
                 graphId: input.graphId,
@@ -59,7 +59,7 @@ export function deleteGraph(input: { user: AuthUser; graphId: string }) {
                 throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
             }
 
-            const graphIdsInTransaction = await collectGraphClosure(tx, [input.graphId]);
+            const graphIdsInTransaction = await Effect.runPromise(collectGraphClosure(tx, [input.graphId]));
             const fileRows = await tx
                 .select({ id: filesTable.id, graphId: filesTable.graphId, key: filesTable.key })
                 .from(filesTable)

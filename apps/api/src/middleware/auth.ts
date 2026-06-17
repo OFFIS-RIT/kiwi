@@ -1,4 +1,5 @@
 import Elysia from "elysia";
+import * as Effect from "effect/Effect";
 import { auth, isSystemAdminRole } from "@kiwi/auth/server";
 
 export type AuthSessionUser = {
@@ -25,10 +26,14 @@ export type AuthUser = AuthSessionUser & {
     isSystemAdmin: boolean;
 };
 
-export async function getAuthSession(headers: Headers): Promise<AuthSession> {
-    return (await auth.api.getSession({
-        headers: getAuthHeaders(headers),
-    })) as AuthSession;
+export function getAuthSession(headers: Headers): Effect.Effect<AuthSession, unknown> {
+    return Effect.tryPromise({
+        try: async () =>
+            (await auth.api.getSession({
+                headers: getAuthHeaders(headers),
+            })) as AuthSession,
+        catch: (error) => error,
+    });
 }
 
 function toAuthUser(session: AuthSession): AuthUser | null {
@@ -89,9 +94,15 @@ export function getApiKeyHeaders(headers: Headers) {
 
 function createAuthMiddleware(name: string, getHeaders: (headers: Headers) => Headers) {
     return new Elysia({ name }).derive({ as: "scoped" }, async ({ request }) => {
-        const session = (await auth.api.getSession({
-            headers: getHeaders(request.headers),
-        })) as AuthSession;
+        const session = await Effect.runPromise(
+            Effect.tryPromise({
+                try: async () =>
+                    (await auth.api.getSession({
+                        headers: getHeaders(request.headers),
+                    })) as AuthSession,
+                catch: (error) => error,
+            })
+        );
 
         return {
             session,

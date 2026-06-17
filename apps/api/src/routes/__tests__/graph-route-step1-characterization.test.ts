@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { Elysia } from "elysia";
 
 type Scenario =
@@ -162,26 +163,29 @@ mock.module("../../env", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
-    deleteFile: async (key: string) => {
-        deletedS3Keys.push(key);
-        if (scenario === "delete-graph-warning" && key.endsWith("extra.txt")) {
-            throw new Error("delete failed");
-        }
-    },
-    listFiles: async (prefix: string) => {
-        listedPrefixes.push(prefix);
-        if (scenario === "delete-graph-warning" && prefix === "graphs/graph-2/") {
-            throw new Error("list failed");
-        }
+    deleteFile: (key: string) =>
+        Effect.sync(() => {
+            deletedS3Keys.push(key);
+            if (scenario === "delete-graph-warning" && key.endsWith("extra.txt")) {
+                throw new Error("delete failed");
+            }
+            return true;
+        }),
+    listFiles: (prefix: string) =>
+        Effect.sync(() => {
+            listedPrefixes.push(prefix);
+            if (scenario === "delete-graph-warning" && prefix === "graphs/graph-2/") {
+                throw new Error("list failed");
+            }
 
-        return prefix === "graphs/graph-1/" ? ["graphs/graph-1/extra.txt"] : [];
-    },
-    putGraphFile: async (graphId: string, _fileId: string, name: string, file: File) => {
+            return prefix === "graphs/graph-1/" ? ["graphs/graph-1/extra.txt"] : [];
+        }),
+    putGraphFile: (graphId: string, _fileId: string, name: string, file: File) => {
         uploadedFileNames.push(name);
-        return {
+        return Effect.succeed({
             key: `graphs/${graphId}/${name}`,
             type: file.type || "text/plain",
-        };
+        });
     },
 }));
 
@@ -202,53 +206,53 @@ mock.module("@kiwi/worker/process-files-spec", () => ({
 }));
 
 mock.module("../../lib/archive-upload", () => ({
-    expandArchiveUploadFiles: async (files: File[]) => ({ ok: true as const, files }),
+    expandArchiveUploadFiles: (files: File[]) => Effect.succeed({ ok: true as const, files }),
 }));
 
 mock.module("../../lib/graph", () => ({
-    collectGraphClosure: async () => ["graph-1", "graph-2"],
+    collectGraphClosure: () => Effect.succeed(["graph-1", "graph-2"]),
 }));
 
 mock.module("../../lib/graph/list", () => ({
-    listAccessibleGraphs: async () => [],
+    listAccessibleGraphs: () => Effect.succeed([]),
 }));
 
 mock.module("../../lib/repository-url", () => ({
     buildGitHubExternalCodeFile: () => {
         throw new Error("not expected");
     },
-    loadRepositoryFromUrl: async () => {
-        throw new Error("not expected");
-    },
+    loadRepositoryFromUrl: () => Effect.fail(new Error("not expected")),
     MAX_REPOSITORY_URLS: 10,
     RepositoryUrlError: class RepositoryUrlError extends Error {},
 }));
 
 mock.module("../../lib/workflow-cancellation", () => ({
-    cancelActiveFileProcessingWorkflowRuns: async () => {
-        operationLog.push("file-workflows-cancelled");
-    },
-    cancelActiveGraphWorkflowRuns: async () => {
-        operationLog.push("graph-workflows-cancelled");
-    },
+    cancelActiveFileProcessingWorkflowRuns: () =>
+        Effect.sync(() => {
+            operationLog.push("file-workflows-cancelled");
+        }),
+    cancelActiveGraphWorkflowRuns: () =>
+        Effect.sync(() => {
+            operationLog.push("graph-workflows-cancelled");
+        }),
 }));
 
 mock.module("../../lib/graph/access", () => ({
-    assertCanCreateTeamGraph: async () => ({ team: { organizationId: "org-1" } }),
-    assertCanCreateTopLevelGraph: async () => ({ organizationId: "org-1" }),
-    assertCanCreateUnderParentGraph: async () => undefined,
-    assertCanManageGraphFiles: async () => existingGraph,
-    assertCanPatchGraph: async () => existingGraph,
-    assertCanViewGraph: async () => existingGraph,
-    resolveGraphOwnerRoot: async () => ({ mode: "organization", organizationId: "org-1" }),
+    assertCanCreateTeamGraph: () => Effect.succeed({ team: { organizationId: "org-1" } }),
+    assertCanCreateTopLevelGraph: () => Effect.succeed({ organizationId: "org-1" }),
+    assertCanCreateUnderParentGraph: () => Effect.succeed(undefined),
+    assertCanManageGraphFiles: () => Effect.succeed(existingGraph),
+    assertCanPatchGraph: () => Effect.succeed(existingGraph),
+    assertCanViewGraph: () => Effect.succeed(existingGraph),
+    resolveGraphOwnerRoot: () => Effect.succeed({ mode: "organization", organizationId: "org-1" }),
     selectGraphFields: {},
 }));
 
 mock.module("../../lib/graph/route", () => ({
-    assertConfiguredUploadModels: async () => undefined,
-    cleanupFailedGraphCreation: async () => undefined,
-    cleanupUploadedKeys: async () => 0,
-    commitGraphFileUploads: async () => ({ graph: existingGraph, addedFiles: [], processRunId: null }),
+    assertConfiguredUploadModels: () => Effect.succeed(undefined),
+    cleanupFailedGraphCreation: () => Effect.succeed(undefined),
+    cleanupUploadedKeys: () => Effect.succeed(0),
+    commitGraphFileUploads: () => Effect.succeed({ graph: existingGraph, addedFiles: [], processRunId: null }),
     inferSupportedUploadedFiles: (files: Array<{ file: File; checksum: string }>) => ({
         ok: true as const,
         files: files.map(({ file, checksum }) => ({ file, checksum, type: "text" as const })),
@@ -268,18 +272,18 @@ mock.module("../../lib/graph/route", () => ({
             code: "INTERNAL_SERVER_ERROR",
         });
     },
-    restoreGraphFileChangeFailure: async () => undefined,
+    restoreGraphFileChangeFailure: () => Effect.succeed(undefined),
     selectFileFields: {},
     selectGraphDetailFileFields: {},
     toGraphFileRecord: (file: unknown) => file,
-    uniqueFilesByChecksum: async (files: File[]) => {
-        if (scenario === "add-duplicate-files") {
-            const [file] = files;
-            return file ? [{ file, checksum: "duplicate-checksum" }] : [];
-        }
-
-        return files.map((file) => ({ file, checksum: `checksum:${file.name}` }));
-    },
+    uniqueFilesByChecksum: (files: File[]) =>
+        Effect.succeed(
+            scenario === "add-duplicate-files"
+                ? files[0]
+                    ? [{ file: files[0], checksum: "duplicate-checksum" }]
+                    : []
+                : files.map((file) => ({ file, checksum: `checksum:${file.name}` }))
+        ),
     unsupportedUploadResponse: (status: (code: number, body: unknown) => unknown) =>
         status(400, {
             status: "error",

@@ -1,13 +1,14 @@
+import * as Effect from "effect/Effect";
 import { splitTextWithCitationFences, type CitationFence } from "../citation";
 
-export async function linkifyResearchCitations(
+export function linkifyResearchCitations(
     text: string,
-    resolveCitation: (citation: CitationFence) => Promise<string>
-) {
+    resolveCitation: (citation: CitationFence) => Effect.Effect<string, unknown>
+): Effect.Effect<string, unknown> {
     const segments = splitTextWithCitationFences(text);
-    const resolvedCitations = await Promise.all(
-        segments.map((segment) => (segment.type === "citation" ? resolveCitation(segment.citation) : segment.text))
-    );
 
-    return resolvedCitations.join("");
+    return Effect.all(
+        segments.map((segment) => (segment.type === "citation" ? resolveCitation(segment.citation) : Effect.succeed(segment.text))),
+        { concurrency: "unbounded" }
+    ).pipe(Effect.map((resolvedCitations) => resolvedCitations.join("")));
 }

@@ -1,4 +1,5 @@
 import { db } from "@kiwi/db";
+import * as Effect from "effect/Effect";
 import {
     connectorInstallationsTable,
     connectorResourceBindingsTable,
@@ -16,23 +17,36 @@ export type ConnectorRow = typeof connectorsTable.$inferSelect;
 export type ConnectorInstallationRow = typeof connectorInstallationsTable.$inferSelect;
 export type ConnectorResourceBindingRow = typeof connectorResourceBindingsTable.$inferSelect;
 
-export async function requireConnector(id: string): Promise<ConnectorRow> {
-    const [connector] = await db.select().from(connectorsTable).where(eq(connectorsTable.id, id)).limit(1);
-    if (!connector) {
-        throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
-    }
-    return connector;
+function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
+    return Effect.tryPromise({ try: thunk, catch: (error) => error });
 }
 
-export async function requireActiveConnector(id: string, provider?: ConnectorProvider): Promise<ConnectorRow> {
-    const connector = await requireConnector(id);
-    if (connector.status !== "active" || (provider && connector.provider !== provider)) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-    return connector;
+export function requireConnector(id: string): Effect.Effect<ConnectorRow, unknown> {
+    return Effect.gen(function* () {
+        const [connector] = yield* tryUnknownPromise(() =>
+            db.select().from(connectorsTable).where(eq(connectorsTable.id, id)).limit(1)
+        );
+        if (!connector) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.GRAPH_NOT_FOUND));
+        }
+        return connector;
+    });
 }
 
-export async function assertCanManageConnectorOwner(user: AuthUser, input: { organizationId?: string; teamId?: string }) {
+export function requireActiveConnector(id: string, provider?: ConnectorProvider): Effect.Effect<ConnectorRow, unknown> {
+    return Effect.gen(function* () {
+        const connector = yield* requireConnector(id);
+        if (connector.status !== "active" || (provider && connector.provider !== provider)) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+        return connector;
+    });
+}
+
+export function assertCanManageConnectorOwner(
+    user: AuthUser,
+    input: { organizationId?: string; teamId?: string }
+): Effect.Effect<unknown, unknown> {
     if (input.teamId) {
         return requireTeamGraphCreateAccess(user, input.teamId);
     }
@@ -44,71 +58,88 @@ export async function assertCanManageConnectorOwner(user: AuthUser, input: { org
     return assertCanCreateTopLevelGraph(user);
 }
 
-export async function assertCanUseInstallation(user: AuthUser, installationId: string): Promise<ConnectorInstallationRow> {
-    const [installation] = await db
-        .select()
-        .from(connectorInstallationsTable)
-        .where(eq(connectorInstallationsTable.id, installationId))
-        .limit(1);
+export function assertCanUseInstallation(
+    user: AuthUser,
+    installationId: string
+): Effect.Effect<ConnectorInstallationRow, unknown> {
+    return Effect.gen(function* () {
+        const [installation] = yield* tryUnknownPromise(() =>
+            db
+                .select()
+                .from(connectorInstallationsTable)
+                .where(eq(connectorInstallationsTable.id, installationId))
+                .limit(1)
+        );
 
-    if (!installation || installation.status !== "active") {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
+        if (!installation || installation.status !== "active") {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
 
-    await assertCanManageConnectorOwner(user, {
-        organizationId: installation.organizationId ?? undefined,
-        teamId: installation.teamId ?? undefined,
+        yield* assertCanManageConnectorOwner(user, {
+            organizationId: installation.organizationId ?? undefined,
+            teamId: installation.teamId ?? undefined,
+        });
+        return installation;
     });
-    return installation;
 }
 
-export async function assertCanViewBinding(user: AuthUser, bindingId: string) {
-    const [row] = await db
-        .select({ binding: connectorResourceBindingsTable, graph: graphTable })
-        .from(connectorResourceBindingsTable)
-        .innerJoin(graphTable, eq(graphTable.id, connectorResourceBindingsTable.graphId))
-        .where(eq(connectorResourceBindingsTable.id, bindingId))
-        .limit(1);
+export function assertCanViewBinding(user: AuthUser, bindingId: string) {
+    return Effect.gen(function* () {
+        const [row] = yield* tryUnknownPromise(() =>
+            db
+                .select({ binding: connectorResourceBindingsTable, graph: graphTable })
+                .from(connectorResourceBindingsTable)
+                .innerJoin(graphTable, eq(graphTable.id, connectorResourceBindingsTable.graphId))
+                .where(eq(connectorResourceBindingsTable.id, bindingId))
+                .limit(1)
+        );
 
-    if (!row) {
-        throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
-    }
+        if (!row) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.GRAPH_NOT_FOUND));
+        }
 
-    await assertCanViewGraphWithRootOwner(user, row.binding.graphId);
-    return row;
-}
-
-export async function assertCanSyncBinding(user: AuthUser, bindingId: string) {
-    const row = await assertCanViewBinding(user, bindingId);
-    await assertCanManageConnectorOwner(user, {
-        organizationId: row.graph.organizationId ?? undefined,
-        teamId: row.graph.teamId ?? undefined,
+        yield* assertCanViewGraphWithRootOwner(user, row.binding.graphId);
+        return row;
     });
-    if (!row.binding.webhookEnabled) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-    return row;
 }
 
-export async function loadConnectorBindingGraph(bindingId: string) {
-    const [row] = await db
-        .select({
-            binding: connectorResourceBindingsTable,
-            installation: connectorInstallationsTable,
-            connector: connectorsTable,
-            graph: graphTable,
-        })
-        .from(connectorResourceBindingsTable)
-        .innerJoin(
-            connectorInstallationsTable,
-            eq(connectorInstallationsTable.id, connectorResourceBindingsTable.connectorInstallationId)
-        )
-        .innerJoin(connectorsTable, eq(connectorsTable.id, connectorInstallationsTable.connectorId))
-        .innerJoin(graphTable, eq(graphTable.id, connectorResourceBindingsTable.graphId))
-        .where(eq(connectorResourceBindingsTable.id, bindingId))
-        .limit(1);
+export function assertCanSyncBinding(user: AuthUser, bindingId: string) {
+    return Effect.gen(function* () {
+        const row = yield* assertCanViewBinding(user, bindingId);
+        yield* assertCanManageConnectorOwner(user, {
+            organizationId: row.graph.organizationId ?? undefined,
+            teamId: row.graph.teamId ?? undefined,
+        });
+        if (!row.binding.webhookEnabled) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+        return row;
+    });
+}
 
-    return row ?? null;
+export function loadConnectorBindingGraph(bindingId: string) {
+    return Effect.gen(function* () {
+        const [row] = yield* tryUnknownPromise(() =>
+            db
+                .select({
+                    binding: connectorResourceBindingsTable,
+                    installation: connectorInstallationsTable,
+                    connector: connectorsTable,
+                    graph: graphTable,
+                })
+                .from(connectorResourceBindingsTable)
+                .innerJoin(
+                    connectorInstallationsTable,
+                    eq(connectorInstallationsTable.id, connectorResourceBindingsTable.connectorInstallationId)
+                )
+                .innerJoin(connectorsTable, eq(connectorsTable.id, connectorInstallationsTable.connectorId))
+                .innerJoin(graphTable, eq(graphTable.id, connectorResourceBindingsTable.graphId))
+                .where(eq(connectorResourceBindingsTable.id, bindingId))
+                .limit(1)
+        );
+
+        return row ?? null;
+    });
 }
 
 export function visibleInstallationWhere(user: AuthUser, connectorId: string) {

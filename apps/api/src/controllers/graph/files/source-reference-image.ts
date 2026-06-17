@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { API_ERROR_CODES, makeApiError } from "@kiwi/contracts/errors";
 import { assertCanViewGraph } from "../../../lib/graph/access";
 import { loadSourceReferenceImage, type SourceReferenceImage } from "../../../lib/source-reference";
@@ -11,7 +12,7 @@ export function getSourceReferenceImage(input: { user: AuthUser; graphId: string
             throw makeApiError(404, API_ERROR_CODES.SOURCE_NOT_FOUND, "Source not found");
         }
 
-        await assertCanViewGraph(input.user, input.graphId);
-        return loadSourceReferenceImage(input.graphId, input.sourceId, chunkId);
+        await Effect.runPromise(assertCanViewGraph(input.user, input.graphId));
+        return Effect.runPromise(loadSourceReferenceImage(input.graphId, input.sourceId, chunkId));
     });
 }

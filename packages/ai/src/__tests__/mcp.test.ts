@@ -1,30 +1,34 @@
 import { describe, expect, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 import { linkifyResearchCitations } from "../mcp";
 
 describe("linkifyResearchCitations", () => {
     test("replaces citation fences with markdown links", async () => {
-        const output = await linkifyResearchCitations(
-            'Alpha :::{"type":"cite","id":"src_1"}::: Omega',
-            async (citation) => `[${citation.sourceId}](https://example.com/${citation.sourceId})`
+        const output = await Effect.runPromise(
+            linkifyResearchCitations(
+                'Alpha :::{"type":"cite","id":"src_1"}::: Omega',
+                (citation) => Effect.succeed(`[${citation.sourceId}](https://example.com/${citation.sourceId})`)
+            )
         );
 
         expect(output).toBe("Alpha [src_1](https://example.com/src_1) Omega");
     });
 
     test("preserves non-citation text exactly", async () => {
-        const output = await linkifyResearchCitations(
-            "Line one\nLine two",
-            async () => "[unused](https://example.com)"
+        const output = await Effect.runPromise(
+            linkifyResearchCitations("Line one\nLine two", () => Effect.succeed("[unused](https://example.com)"))
         );
 
         expect(output).toBe("Line one\nLine two");
     });
 
     test("preserves repeated citation order", async () => {
-        const output = await linkifyResearchCitations(
-            'A :::{"type":"cite","id":"src_1"}::: B :::{"type":"cite","id":"src_2"}::: C :::{"type":"cite","id":"src_1"}:::',
-            async (citation) => `[${citation.sourceId}](/${citation.sourceId})`
+        const output = await Effect.runPromise(
+            linkifyResearchCitations(
+                'A :::{"type":"cite","id":"src_1"}::: B :::{"type":"cite","id":"src_2"}::: C :::{"type":"cite","id":"src_1"}:::',
+                (citation) => Effect.succeed(`[${citation.sourceId}](/${citation.sourceId})`)
+            )
         );
 
         expect(output).toBe("A [src_1](/src_1) B [src_2](/src_2) C [src_1](/src_1)");
@@ -32,12 +36,17 @@ describe("linkifyResearchCitations", () => {
 
     test("resolves citation links concurrently while preserving output order", async () => {
         const resolvers = new Map<string, (value: string) => void>();
-        const output = linkifyResearchCitations(
-            'A :::{"type":"cite","id":"src_1"}::: B :::{"type":"cite","id":"src_2"}::: C',
-            async (citation) =>
-                new Promise<string>((resolve) => {
-                    resolvers.set(citation.sourceId, resolve);
-                })
+        const output = Effect.runPromise(
+            linkifyResearchCitations(
+                'A :::{"type":"cite","id":"src_1"}::: B :::{"type":"cite","id":"src_2"}::: C',
+                (citation) =>
+                    Effect.tryPromise(
+                        () =>
+                            new Promise<string>((resolve) => {
+                                resolvers.set(citation.sourceId, resolve);
+                            })
+                    )
+            )
         );
 
         expect([...resolvers.keys()]).toEqual(["src_1", "src_2"]);
@@ -49,9 +58,10 @@ describe("linkifyResearchCitations", () => {
     });
 
     test("supports unresolved citation fallbacks", async () => {
-        const output = await linkifyResearchCitations(
-            'Alpha :::{"type":"cite","id":"src_1"}:::',
-            async () => "[source unavailable]"
+        const output = await Effect.runPromise(
+            linkifyResearchCitations('Alpha :::{"type":"cite","id":"src_1"}:::', () =>
+                Effect.succeed("[source unavailable]")
+            )
         );
 
         expect(output).toBe("Alpha [source unavailable]");

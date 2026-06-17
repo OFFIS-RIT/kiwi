@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { filesTable, graphTable } from "@kiwi/db/tables/graph";
 import { error as logError } from "@kiwi/logger";
@@ -17,7 +18,7 @@ function normalizeFileKeys(fileKeys: GraphDeleteFilesFields["fileKeys"]) {
 
 export function deleteGraphFiles(input: { user: AuthUser; graphId: string; body: GraphDeleteFilesFields }) {
     return tryApiPromise(async (): Promise<GraphDeleteFilesSuccessData> => {
-        const existingGraph = await assertCanManageGraphFiles(input.user, input.graphId);
+        const existingGraph = await Effect.runPromise(assertCanManageGraphFiles(input.user, input.graphId));
         const fileKeys = normalizeFileKeys(input.body.fileKeys);
         if (fileKeys.length === 0) {
             throw noChangesError();
@@ -62,7 +63,7 @@ export function deleteGraphFiles(input: { user: AuthUser; graphId: string; body:
         try {
             const handle = await ow.runWorkflow(deleteGraphFilesSpec, { graphId: existingGraph.id, fileIds });
             try {
-                await cancelActiveFileProcessingWorkflowRuns(existingGraph.id, fileIds);
+                await Effect.runPromise(cancelActiveFileProcessingWorkflowRuns(existingGraph.id, fileIds));
             } catch (cancellationError) {
                 logError("graph file processing workflow cancellation failed after delete enqueue", {
                     graphId: existingGraph.id,

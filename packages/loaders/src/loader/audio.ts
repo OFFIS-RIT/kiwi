@@ -55,11 +55,12 @@ export class AudioLoader implements GraphLoader {
 
 export async function loadMediaTranscript(options: MediaTranscriptLoaderOptions): Promise<string> {
     const content = await options.loader.getBinary();
-    const result = await withAiSlot(options.capability, async () =>
+    const result = await withAiSlot(options.capability, async (signal) =>
         options.model.doGenerate({
             audio: new Uint8Array(content),
             mediaType: normalizeTranscriptMediaType(options.mimeType, options.capability),
             providerOptions: TRANSCRIPTION_PROVIDER_OPTIONS,
+            abortSignal: signal,
         })
     );
 

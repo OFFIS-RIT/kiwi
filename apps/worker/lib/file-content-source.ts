@@ -63,17 +63,19 @@ export function fileContentSourceFromRow(row: {
     return { kind: "internal", key: row.key };
 }
 
-export async function readFileContentSource(source: FileContentSource): Promise<string | null> {
-    if (source.kind === "internal") {
-        const file = await Effect.runPromise(getFile(source.key, env.S3_BUCKET, "text"));
-        return file?.content ?? null;
-    }
+export function readFileContentSource(source: FileContentSource): Effect.Effect<string | null, unknown> {
+    return Effect.gen(function* () {
+        if (source.kind === "internal") {
+            const file = yield* getFile(source.key, env.S3_BUCKET, "text");
+            return file?.content ?? null;
+        }
 
-    if (source.kind === "connector") {
-        return readConnectorFile(source.bindingId, source.metadata);
-    }
+        if (source.kind === "connector") {
+            return yield* readConnectorFile(source.bindingId, source.metadata);
+        }
 
-    return readExternalGitHubFile(source.url);
+        return yield* readExternalGitHubFile(source.url);
+    });
 }
 
 function isConnectorProvider(value: string): value is ConnectorProvider {
@@ -95,50 +97,58 @@ function isInstallationCredentials(
     );
 }
 
-async function readConnectorFile(bindingId: string, metadataValue?: string | null): Promise<string | null> {
-    const metadata = parseCodeFileMetadata(metadataValue) as CompatibleCodeFileMetadata | null;
-    if (!metadata) {
-        return null;
-    }
+function readConnectorFile(bindingId: string, metadataValue?: string | null): Effect.Effect<string | null, unknown> {
+    return Effect.gen(function* () {
+        const metadata = parseCodeFileMetadata(metadataValue) as CompatibleCodeFileMetadata | null;
+        if (!metadata) {
+            return null;
+        }
 
-    const [row] = await db
-        .select({
-            binding: connectorResourceBindingsTable,
-            installation: connectorInstallationsTable,
-            connector: connectorsTable,
-        })
-        .from(connectorResourceBindingsTable)
-        .innerJoin(
-            connectorInstallationsTable,
-            eq(connectorInstallationsTable.id, connectorResourceBindingsTable.connectorInstallationId)
-        )
-        .innerJoin(connectorsTable, eq(connectorsTable.id, connectorInstallationsTable.connectorId))
-        .where(eq(connectorResourceBindingsTable.id, bindingId))
-        .limit(1);
+        const [row] = yield* Effect.tryPromise({
+            try: () =>
+                Promise.resolve(
+                    db
+                        .select({
+                            binding: connectorResourceBindingsTable,
+                            installation: connectorInstallationsTable,
+                            connector: connectorsTable,
+                        })
+                        .from(connectorResourceBindingsTable)
+                        .innerJoin(
+                            connectorInstallationsTable,
+                            eq(connectorInstallationsTable.id, connectorResourceBindingsTable.connectorInstallationId)
+                        )
+                        .innerJoin(connectorsTable, eq(connectorsTable.id, connectorInstallationsTable.connectorId))
+                        .where(eq(connectorResourceBindingsTable.id, bindingId))
+                        .limit(1)
+                ),
+            catch: (error) => error,
+        });
 
-    if (!row || row.connector.status !== "active" || row.installation.status !== "active") {
-        return null;
-    }
-    if (!isConnectorProvider(row.connector.provider)) {
-        return null;
-    }
+        if (!row || row.connector.status !== "active" || row.installation.status !== "active") {
+            return null;
+        }
+        if (!isConnectorProvider(row.connector.provider)) {
+            return null;
+        }
 
-    const connectorCredentials = decryptConnectorCredentials(row.connector.encryptedCredentials, env.AUTH_SECRET);
-    if (!isConnectorCredentials(connectorCredentials, row.connector.provider)) {
-        return null;
-    }
+        const connectorCredentials = decryptConnectorCredentials(row.connector.encryptedCredentials, env.AUTH_SECRET);
+        if (!isConnectorCredentials(connectorCredentials, row.connector.provider)) {
+            return null;
+        }
 
-    const installationCredentials = readInstallationCredentials(row, row.connector.provider);
-    if (!installationCredentials) {
-        return null;
-    }
+        const installationCredentials = readInstallationCredentials(row, row.connector.provider);
+        if (!installationCredentials) {
+            return null;
+        }
 
-    const adapter = await createConnectorAdapter({
-        provider: row.connector.provider,
-        credentials: connectorCredentials,
-        installation: installationCredentials,
+        const adapter = yield* createConnectorAdapter({
+            provider: row.connector.provider,
+            credentials: connectorCredentials,
+            installation: installationCredentials,
+        });
+        return yield* adapter.readFile(connectorFileLocator(row.binding.providerResourceId, metadata));
     });
-    return adapter.readFile(connectorFileLocator(row.binding.providerResourceId, metadata));
 }
 
 function readInstallationCredentials(
@@ -166,55 +176,60 @@ function connectorFileLocator(resourceId: string, metadata: CompatibleCodeFileMe
     };
 }
 
-async function readExternalGitHubFile(url: string): Promise<string> {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || parsed.hostname !== "raw.githubusercontent.com") {
-        throw new Error("Unsupported external file source");
-    }
+function readExternalGitHubFile(url: string): Effect.Effect<string, unknown> {
+    return Effect.tryPromise({
+        try: async () => {
+            const parsed = new URL(url);
+            if (parsed.protocol !== "https:" || parsed.hostname !== "raw.githubusercontent.com") {
+                throw new Error("Unsupported external file source");
+            }
 
-    const response = await fetch(parsed, { redirect: "manual" });
-    const responseUrl = new URL(response.url || parsed.href);
-    if (responseUrl.protocol !== "https:" || responseUrl.hostname !== "raw.githubusercontent.com") {
-        throw new Error("Unsupported external file source");
-    }
+            const response = await fetch(parsed, { redirect: "manual" });
+            const responseUrl = new URL(response.url || parsed.href);
+            if (responseUrl.protocol !== "https:" || responseUrl.hostname !== "raw.githubusercontent.com") {
+                throw new Error("Unsupported external file source");
+            }
 
-    if (!response.ok) {
-        throw new Error("External file content not found");
-    }
+            if (!response.ok) {
+                throw new Error("External file content not found");
+            }
 
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.toLowerCase().startsWith("text/")) {
-        throw new Error("External file content is not text");
-    }
+            const contentType = response.headers.get("content-type") ?? "";
+            if (!contentType.toLowerCase().startsWith("text/")) {
+                throw new Error("External file content is not text");
+            }
 
-    const contentLength = response.headers.get("content-length");
-    if (contentLength && Number(contentLength) > MAX_CODE_FILE_BYTES) {
-        throw new Error("External file content is too large");
-    }
+            const contentLength = response.headers.get("content-length");
+            if (contentLength && Number(contentLength) > MAX_CODE_FILE_BYTES) {
+                throw new Error("External file content is too large");
+            }
 
-    if (!response.body) {
-        throw new Error("External file content is empty");
-    }
+            if (!response.body) {
+                throw new Error("External file content is empty");
+            }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let totalBytes = 0;
-    let content = "";
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let totalBytes = 0;
+            let content = "";
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-            break;
-        }
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    break;
+                }
 
-        totalBytes += value.byteLength;
-        if (totalBytes > MAX_CODE_FILE_BYTES) {
-            throw new Error("External file content is too large");
-        }
+                totalBytes += value.byteLength;
+                if (totalBytes > MAX_CODE_FILE_BYTES) {
+                    throw new Error("External file content is too large");
+                }
 
-        content += decoder.decode(value, { stream: true });
-    }
+                content += decoder.decode(value, { stream: true });
+            }
 
-    content += decoder.decode();
-    return content;
+            content += decoder.decode();
+            return content;
+        },
+        catch: (error) => error,
+    });
 }

@@ -11,7 +11,7 @@ import { ensureOrganizationMembers, ensureTeamHasAdmin, normalizeUsers, selectTe
 
 export function addTeamUser(input: { user: AuthUser; teamId: string; body: TeamAddUserInput }) {
     return tryApiPromise(async (): Promise<TeamUserListItem[]> => {
-        const access = await requireTeamMemberManageAccess(input.user, input.teamId);
+        const access = await Effect.runPromise(requireTeamMemberManageAccess(input.user, input.teamId));
         const role = input.body.role ?? "member";
         await Effect.runPromise(ensureOrganizationMembers(access.team.organizationId, [input.body.user_id]));
 

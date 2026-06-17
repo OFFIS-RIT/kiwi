@@ -102,11 +102,12 @@ export function getPageRasterScale(page: Pick<PDFPageLike, "width" | "height">):
 
 export async function defaultTranscribePage(image: Uint8Array, model: LanguageModelV3): Promise<string> {
     const base64 = Buffer.from(image).toString("base64");
-    const { text } = await withAiSlot("image", () =>
+    const { text } = await withAiSlot("image", (signal) =>
         generateText({
             model,
             system: transcribePrompt,
             temperature: 0.1,
+            abortSignal: signal,
             messages: [
                 {
                     role: "user",

@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { type PromptRecord, NormalizedPromptBodySchema } from "@kiwi/contracts/prompts";
 import { invalidPromptError, promptLimitExceededError, retryableInternalError } from "@kiwi/contracts/errors";
 import { decodeApiSchemaSync } from "@kiwi/contracts/schema";
@@ -56,17 +57,17 @@ export function authorizePromptScope(user: AuthUser, scope: PromptScopeInput): A
         switch (scope.kind) {
             case "user": {
                 const userId = scope.userId === "me" ? user.id : scope.userId;
-                await assertCanManageUserPrompts(user, userId);
+                await Effect.runPromise(assertCanManageUserPrompts(user, userId));
                 return { kind: "user", userId };
             }
             case "team":
-                await assertCanManageTeamPrompts(user, scope.teamId);
+                await Effect.runPromise(assertCanManageTeamPrompts(user, scope.teamId));
                 return scope;
             case "organization":
-                await assertCanManageOrganizationPrompts(user, scope.organizationId);
+                await Effect.runPromise(assertCanManageOrganizationPrompts(user, scope.organizationId));
                 return scope;
             case "graph":
-                await assertCanManageGraphPrompts(user, scope.graphId);
+                await Effect.runPromise(assertCanManageGraphPrompts(user, scope.graphId));
                 return scope;
         }
     });

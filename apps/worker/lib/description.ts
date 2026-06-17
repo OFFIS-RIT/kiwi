@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import type { LanguageModel } from "ai";
 import { generateText } from "ai";
 import { withAiSlot } from "@kiwi/ai/lock";
@@ -10,6 +11,7 @@ type DescriptionGenerator = (args: {
     model: LanguageModel;
     prompt: string;
     temperature: number;
+    abortSignal?: AbortSignal;
 }) => Promise<{ text: string }>;
 
 export function chunkDescriptionSources(sourceDescriptions: string[]): string[][] {
@@ -34,7 +36,7 @@ export function chunkDescriptionSources(sourceDescriptions: string[]): string[][
     return chunks;
 }
 
-export async function buildDescription(
+export function buildDescription(
     model: LanguageModel,
     name: string,
     sourceDescriptions: string[],
@@ -42,23 +44,27 @@ export async function buildDescription(
     deps: {
         generate?: DescriptionGenerator;
     } = {}
-): Promise<string> {
-    if (sourceDescriptions.length === 0) return currentDescription || "";
+): Effect.Effect<string, unknown> {
+    return Effect.gen(function* () {
+        if (sourceDescriptions.length === 0) return currentDescription || "";
 
-    let nextDescription = currentDescription;
-    const generate = deps.generate ?? generateText;
+        let nextDescription = currentDescription;
+        const generate = deps.generate ?? generateText;
 
-    for (const sourceChunk of chunkDescriptionSources(sourceDescriptions)) {
-        const prompt = nextDescription
-            ? updateDescriptionPromp(name, sourceChunk, nextDescription)
-            : descriptionPromp(name, sourceChunk);
+        for (const sourceChunk of chunkDescriptionSources(sourceDescriptions)) {
+            const prompt = nextDescription
+                ? updateDescriptionPromp(name, sourceChunk, nextDescription)
+                : descriptionPromp(name, sourceChunk);
 
-        const { text } = await withAiSlot("text", () => generate({ model, prompt, temperature: 0.1 }));
-        nextDescription = text
-            .replace(/[\r\n]+/g, " ")
-            .trim()
-            .replace(/\s+/g, " ");
-    }
+            const { text } = yield* Effect.tryPromise(() =>
+                withAiSlot("text", (signal) => generate({ model, prompt, temperature: 0.1, abortSignal: signal }))
+            );
+            nextDescription = text
+                .replace(/[\r\n]+/g, " ")
+                .trim()
+                .replace(/\s+/g, " ");
+        }
 
-    return nextDescription || "";
+        return nextDescription || "";
+    });
 }

@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
 import { error as logError } from "@kiwi/logger";
@@ -17,7 +18,7 @@ type RetryPreparation = {
 
 export function retryGraphFile(input: { user: AuthUser; graphId: string; fileId: string }) {
     return tryApiPromise(async (): Promise<GraphFileRetrySuccessData> => {
-        const existingGraph = await assertCanManageGraphFiles(input.user, input.graphId);
+        const existingGraph = await Effect.runPromise(assertCanManageGraphFiles(input.user, input.graphId));
         const [file] = await db
             .select({
                 id: filesTable.id,

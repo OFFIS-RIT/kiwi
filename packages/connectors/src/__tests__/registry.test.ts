@@ -1,4 +1,5 @@
 import { createHmac, generateKeyPairSync } from "node:crypto";
+import * as Effect from "effect/Effect";
 import { describe, expect, test } from "bun:test";
 import {
     createConnectorAdapter,
@@ -53,15 +54,17 @@ describe("connector adapter registry", () => {
             });
         };
 
-        const adapter = await createConnectorAdapter({
-            provider: "github",
-            credentials: { provider: "github", appId: "42", privateKeyPem, webhookSecret: "secret" },
-            installation: { provider: "github", installationId: "99" },
-            apiBaseUrl: "https://github.test",
-            fetch: fetchImpl,
-        });
+        const adapter = await Effect.runPromise(
+            createConnectorAdapter({
+                provider: "github",
+                credentials: { provider: "github", appId: "42", privateKeyPem, webhookSecret: "secret" },
+                installation: { provider: "github", installationId: "99" },
+                apiBaseUrl: "https://github.test",
+                fetch: fetchImpl,
+            })
+        );
 
-        await expect(adapter.listResources()).resolves.toEqual([GITHUB_RESOURCE]);
+        await expect(Effect.runPromise(adapter.listResources())).resolves.toEqual([GITHUB_RESOURCE]);
         expect(getConnectorAdapterRegistryEntry("github").resourceKind).toBe("git-repository");
         expect(urls).toContain("https://github.test/app/installations/99/access_tokens");
         expect(urls).toContain("https://github.test/installation/repositories?per_page=100&page=1");
@@ -83,20 +86,22 @@ describe("connector adapter registry", () => {
             ]);
         };
 
-        const adapter = await createConnectorAdapter({
-            provider: "gitlab",
-            credentials: {
+        const adapter = await Effect.runPromise(
+            createConnectorAdapter({
                 provider: "gitlab",
-                baseUrl: "https://gitlab.test///",
-                clientId: "client-id",
-                clientSecret: "client-secret",
-                webhookSecret: "secret",
-            },
-            installation: { provider: "gitlab", accessToken: "token" },
-            fetch: fetchImpl,
-        });
+                credentials: {
+                    provider: "gitlab",
+                    baseUrl: "https://gitlab.test///",
+                    clientId: "client-id",
+                    clientSecret: "client-secret",
+                    webhookSecret: "secret",
+                },
+                installation: { provider: "gitlab", accessToken: "token" },
+                fetch: fetchImpl,
+            })
+        );
 
-        await expect(adapter.listResources()).resolves.toEqual([GITLAB_RESOURCE]);
+        await expect(Effect.runPromise(adapter.listResources())).resolves.toEqual([GITLAB_RESOURCE]);
         expect(getConnectorAdapterRegistryEntry("gitlab").resourceKind).toBe("git-repository");
         expect(urls).toEqual(["https://gitlab.test/api/v4/projects?membership=true&per_page=100&page=1"]);
     });
@@ -170,16 +175,18 @@ describe("connector adapter registry", () => {
 
     test("rejects provider mismatches", async () => {
         await expect(
-            createConnectorAdapter({
-                provider: "github",
-                credentials: {
-                    provider: "gitlab",
-                    baseUrl: "https://gitlab.test",
-                    clientId: "client-id",
-                    clientSecret: "client-secret",
-                },
-                installation: { provider: "gitlab", accessToken: "token" },
-            })
+            Effect.runPromise(
+                createConnectorAdapter({
+                    provider: "github",
+                    credentials: {
+                        provider: "gitlab",
+                        baseUrl: "https://gitlab.test",
+                        clientId: "client-id",
+                        clientSecret: "client-secret",
+                    },
+                    installation: { provider: "gitlab", accessToken: "token" },
+                })
+            )
         ).rejects.toMatchObject({
             name: "ConnectorProviderError",
             kind: "validation",

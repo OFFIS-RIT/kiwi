@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import type { LanguageModel } from "ai";
 import { generateText } from "ai";
 import { withAiSlot } from "@kiwi/ai/lock";
@@ -9,6 +10,7 @@ type MetadataGenerator = (args: {
     model: LanguageModel;
     prompt: string;
     temperature: number;
+    abortSignal?: AbortSignal;
 }) => Promise<{ text: string }>;
 
 function getWords(text: string): string[] {
@@ -42,29 +44,34 @@ export function buildMetadataExcerpt(text: string): string | undefined {
     ].join("\n");
 }
 
-export async function buildMetadata(
+export function buildMetadata(
     model: LanguageModel,
     documentName: string,
     excerpt: string | undefined,
     deps: {
         generate?: MetadataGenerator;
     } = {}
-): Promise<string> {
-    if (!excerpt) {
-        return "";
-    }
+): Effect.Effect<string, unknown> {
+    return Effect.gen(function* () {
+        if (!excerpt) {
+            return "";
+        }
 
-    const generate = deps.generate ?? generateText;
-    const { text } = await withAiSlot("text", () =>
-        generate({
-            model,
-            prompt: metadataPrompt(documentName, excerpt),
-            temperature: 0.1,
-        })
-    );
+        const generate = deps.generate ?? generateText;
+        const { text } = yield* Effect.tryPromise(() =>
+            withAiSlot("text", (signal) =>
+                generate({
+                    model,
+                    prompt: metadataPrompt(documentName, excerpt),
+                    temperature: 0.1,
+                    abortSignal: signal,
+                })
+            )
+        );
 
-    return text
-        .replace(/[\r\n]+/g, " ")
-        .trim()
-        .replace(/\s+/g, " ");
+        return text
+            .replace(/[\r\n]+/g, " ")
+            .trim()
+            .replace(/\s+/g, " ");
+    });
 }

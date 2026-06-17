@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { connectorResourceBindingsTable } from "@kiwi/db/tables/connectors";
 import { graphTable } from "@kiwi/db/tables/graph";
@@ -8,8 +9,7 @@ import { syncConnectorResourceGraphSpec } from "@kiwi/worker/sync-connector-reso
 import { eq } from "drizzle-orm";
 import { assertCanUseInstallation, requireActiveConnector, type ConnectorInstallationRow, type ConnectorRow } from "../connector-access";
 import { listProviderBranches, listProviderRepositories } from "../connectors";
-import { assertCanCreateTeamGraph } from "../graph/access";
-import { requireOrganizationAdmin } from "../team/access";
+import { requireOrganizationAdmin, requireTeamGraphCreateAccess } from "../team/access";
 import type { AuthUser } from "../../middleware/auth";
 import { ow } from "../../openworkflow";
 
@@ -65,6 +65,10 @@ export function assertInstallationBelongsToConnector(
 
 type ConnectorResourceBinding = typeof connectorResourceBindingsTable.$inferSelect;
 
+function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
+    return Effect.tryPromise({ try: thunk, catch: (error) => error });
+}
+
 export function toBindingResponse(binding: ConnectorResourceBinding) {
     return {
         id: binding.id,
@@ -85,15 +89,19 @@ export function toBindingResponse(binding: ConnectorResourceBinding) {
     };
 }
 
-export async function requireConnectorInstallationContext(input: {
+export function requireConnectorInstallationContext(input: {
     user: AuthUser;
     connectorId: string;
     installationId: string;
-}) {
-    const installation = await assertCanUseInstallation(input.user, input.installationId);
-    assertInstallationBelongsToConnector(installation, input.connectorId);
-    const connector = await requireActiveConnector(input.connectorId, installation.provider as ConnectorProvider);
-    return { connector, installation };
+}): Effect.Effect<{ connector: ConnectorRow; installation: ConnectorInstallationRow }, unknown> {
+    return Effect.gen(function* () {
+        const installation = yield* assertCanUseInstallation(input.user, input.installationId);
+        if (installation.connectorId !== input.connectorId) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+        const connector = yield* requireActiveConnector(input.connectorId, installation.provider as ConnectorProvider);
+        return { connector, installation };
+    });
 }
 
 export function toConnectorResource(repository: ProviderRepository): ResolvedConnectorResource {
@@ -125,156 +133,171 @@ export function toConnectorResourceVersion(branch: ProviderBranch): ResolvedConn
     return { name: branch.name, versionId: branch.commitSha, git: branch };
 }
 
-export async function listConnectorResourceRecords(
+export function listConnectorResourceRecords(
     connector: ConnectorRow,
     installation: ConnectorInstallationRow
-): Promise<ResolvedConnectorResource[]> {
-    return (await listProviderRepositories(connector, installation)).map(toConnectorResource);
+): Effect.Effect<ResolvedConnectorResource[], unknown> {
+    return Effect.map(listProviderRepositories(connector, installation), (repositories) =>
+        repositories.map(toConnectorResource)
+    );
 }
 
-export async function listConnectorResourceVersionRecords(input: {
+export function listConnectorResourceVersionRecords(input: {
     connector: ConnectorRow;
     installation: ConnectorInstallationRow;
     resourceId: string;
-}): Promise<ResolvedConnectorResourceVersion[]> {
-    const branches = await listProviderBranches(input.connector, input.installation, input.resourceId);
-    return branches.map(toConnectorResourceVersion);
+}): Effect.Effect<ResolvedConnectorResourceVersion[], unknown> {
+    return Effect.map(listProviderBranches(input.connector, input.installation, input.resourceId), (branches) =>
+        branches.map(toConnectorResourceVersion)
+    );
 }
 
-export async function assertCanBindResourceGraph(input: {
+export function assertCanBindResourceGraph(input: {
     user: AuthUser;
     installation: ConnectorInstallationRow;
     owner: ConnectorBindingCreateInput["owner"];
-}) {
-    if (input.owner.kind === "team") {
-        if (input.installation.teamId !== input.owner.teamId) {
-            throw new Error(API_ERROR_CODES.FORBIDDEN);
+}): Effect.Effect<{ organizationId: string | null; teamId: string | null }, unknown> {
+    return Effect.gen(function* () {
+        if (input.owner.kind === "team") {
+            if (input.installation.teamId !== input.owner.teamId) {
+                return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            }
+            const access = yield* requireTeamGraphCreateAccess(input.user, input.owner.teamId);
+            if (input.installation.organizationId !== access.team.organizationId) {
+                return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            }
+            return { organizationId: input.installation.organizationId, teamId: input.owner.teamId };
         }
-        const access = await assertCanCreateTeamGraph(input.user, input.owner.teamId);
-        if (input.installation.organizationId !== access.team.organizationId) {
-            throw new Error(API_ERROR_CODES.FORBIDDEN);
-        }
-        return { organizationId: input.installation.organizationId, teamId: input.owner.teamId };
-    }
 
-    if (input.installation.teamId !== null || !input.installation.organizationId) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-    await requireOrganizationAdmin(input.user, input.installation.organizationId);
-    return { organizationId: input.installation.organizationId, teamId: null };
+        if (input.installation.teamId !== null || !input.installation.organizationId) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+        yield* requireOrganizationAdmin(input.user, input.installation.organizationId);
+        return { organizationId: input.installation.organizationId, teamId: null };
+    });
 }
 
-export async function createGraphBinding(input: {
+export function createGraphBinding(input: {
     connector: ConnectorRow;
     installation: ConnectorInstallationRow;
     body: ConnectorBindingCreateInput;
     resource: ResolvedConnectorResource;
     version: ResolvedConnectorResourceVersion;
 }) {
-    return db.transaction(async (tx) => {
-        const [graph] = await tx
-            .insert(graphTable)
-            .values({
-                organizationId: input.installation.organizationId,
-                teamId: input.body.owner.kind === "team" ? input.body.owner.teamId : null,
-                name: input.body.name,
-                description: null,
-                state: "updating",
-                type: "code",
-            })
-            .returning();
+    return tryUnknownPromise(() =>
+        db.transaction(async (tx) => {
+            const [graph] = await tx
+                .insert(graphTable)
+                .values({
+                    organizationId: input.installation.organizationId,
+                    teamId: input.body.owner.kind === "team" ? input.body.owner.teamId : null,
+                    name: input.body.name,
+                    description: null,
+                    state: "updating",
+                    type: "code",
+                })
+                .returning();
 
-        const [binding] = await tx
-            .insert(connectorResourceBindingsTable)
-            .values({
-                graphId: graph.id,
-                connectorInstallationId: input.installation.id,
-                provider: input.connector.provider,
-                resourceKind: input.body.resourceKind,
-                providerResourceId: input.resource.id,
-                resourceDisplayName: input.resource.displayName,
-                resourceWebUrl: input.resource.webUrl,
-                versionName: input.version.name,
-                lastSeenVersionId: input.version.versionId,
-                syncStatus: "pending",
-            })
-            .returning();
+            const [binding] = await tx
+                .insert(connectorResourceBindingsTable)
+                .values({
+                    graphId: graph.id,
+                    connectorInstallationId: input.installation.id,
+                    provider: input.connector.provider,
+                    resourceKind: input.body.resourceKind,
+                    providerResourceId: input.resource.id,
+                    resourceDisplayName: input.resource.displayName,
+                    resourceWebUrl: input.resource.webUrl,
+                    versionName: input.version.name,
+                    lastSeenVersionId: input.version.versionId,
+                    syncStatus: "pending",
+                })
+                .returning();
 
-        return { graph, binding };
-    });
+            return { graph, binding };
+        })
+    );
 }
 
-export async function enqueueInitialBindingSync(input: {
+export function enqueueInitialBindingSync(input: {
     graphId: string;
     bindingId: string;
     versionId: string;
-}): Promise<string> {
-    try {
-        const handle = await ow.runWorkflow(syncConnectorResourceGraphSpec, {
-            bindingId: input.bindingId,
-            reason: "initial",
-            versionId: input.versionId,
-        });
-        return handle.workflowRun.id;
-    } catch (error) {
-        await Promise.all([
-            db
-                .update(connectorResourceBindingsTable)
-                .set({ syncStatus: "failed", syncErrorCode: "enqueue_failed" })
-                .where(eq(connectorResourceBindingsTable.id, input.bindingId)),
-            db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId)),
-        ]);
-        throw error;
-    }
+}): Effect.Effect<string, unknown> {
+    return tryUnknownPromise(async () => {
+        try {
+            const handle = await ow.runWorkflow(syncConnectorResourceGraphSpec, {
+                bindingId: input.bindingId,
+                reason: "initial",
+                versionId: input.versionId,
+            });
+            return handle.workflowRun.id;
+        } catch (error) {
+            await Promise.all([
+                db
+                    .update(connectorResourceBindingsTable)
+                    .set({ syncStatus: "failed", syncErrorCode: "enqueue_failed" })
+                    .where(eq(connectorResourceBindingsTable.id, input.bindingId)),
+                db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId)),
+            ]);
+            throw error;
+        }
+    });
 }
 
-export async function enqueueManualBindingSync(binding: ConnectorResourceBinding): Promise<{
+export function enqueueManualBindingSync(binding: ConnectorResourceBinding): Effect.Effect<{
     binding: ConnectorResourceBinding;
     workflowRunId: string;
-}> {
-    const [updatedBinding] = await db
-        .update(connectorResourceBindingsTable)
-        .set({ syncStatus: "pending", syncErrorCode: null })
-        .where(eq(connectorResourceBindingsTable.id, binding.id))
-        .returning();
-    try {
-        const handle = await ow.runWorkflow(syncConnectorResourceGraphSpec, {
-            bindingId: binding.id,
-            reason: "manual",
-        });
-        return { binding: updatedBinding ?? binding, workflowRunId: handle.workflowRun.id };
-    } catch (error) {
-        await db
+}, unknown> {
+    return tryUnknownPromise(async () => {
+        const [updatedBinding] = await db
             .update(connectorResourceBindingsTable)
-            .set({ syncStatus: "failed", syncErrorCode: "enqueue_failed" })
-            .where(eq(connectorResourceBindingsTable.id, binding.id));
-        throw error;
-    }
+            .set({ syncStatus: "pending", syncErrorCode: null })
+            .where(eq(connectorResourceBindingsTable.id, binding.id))
+            .returning();
+        try {
+            const handle = await ow.runWorkflow(syncConnectorResourceGraphSpec, {
+                bindingId: binding.id,
+                reason: "manual",
+            });
+            return { binding: updatedBinding ?? binding, workflowRunId: handle.workflowRun.id };
+        } catch (error) {
+            await db
+                .update(connectorResourceBindingsTable)
+                .set({ syncStatus: "failed", syncErrorCode: "enqueue_failed" })
+                .where(eq(connectorResourceBindingsTable.id, binding.id));
+            throw error;
+        }
+    });
 }
 
-export async function requireGitRepositoryResource(input: {
+export function requireGitRepositoryResource(input: {
     connector: ConnectorRow;
     installation: ConnectorInstallationRow;
     resourceId: string;
-}) {
-    const resources = await listConnectorResourceRecords(input.connector, input.installation);
-    const resource = resources.find((candidate) => resourceMatches(candidate, input.resourceId));
-    if (!resource) {
-        throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
-    }
-    return resource;
+}): Effect.Effect<ResolvedConnectorResource, unknown> {
+    return Effect.gen(function* () {
+        const resources = yield* listConnectorResourceRecords(input.connector, input.installation);
+        const resource = resources.find((candidate) => resourceMatches(candidate, input.resourceId));
+        if (!resource) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.GRAPH_NOT_FOUND));
+        }
+        return resource;
+    });
 }
 
-export async function requireGitResourceVersion(input: {
+export function requireGitResourceVersion(input: {
     connector: ConnectorRow;
     installation: ConnectorInstallationRow;
     resourceId: string;
     versionName: string;
-}) {
-    const versions = await listConnectorResourceVersionRecords(input);
-    const version = versions.find((candidate) => candidate.name === input.versionName);
-    if (!version) {
-        throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
-    }
-    return version;
+}): Effect.Effect<ResolvedConnectorResourceVersion, unknown> {
+    return Effect.gen(function* () {
+        const versions = yield* listConnectorResourceVersionRecords(input);
+        const version = versions.find((candidate) => candidate.name === input.versionName);
+        if (!version) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.GRAPH_NOT_FOUND));
+        }
+        return version;
+    });
 }

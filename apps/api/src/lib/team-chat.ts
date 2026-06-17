@@ -16,6 +16,7 @@ import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { filesTable, graphTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from "ai";
+import * as Effect from "effect/Effect";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { AuthUser } from "../middleware/auth";
@@ -109,6 +110,10 @@ const TEAM_CHAT_LIST_MAX_LIMIT = 50;
 const TEAM_QUERY_GRAPHS_MAX = 10;
 const TEAM_CHAT_CONTEXT_MESSAGE_LIMIT = 10;
 const unresolvedTeamCitationCache = new Map<string, number>();
+
+function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
+    return Effect.tryPromise({ try: thunk, catch: (error) => error });
+}
 
 function createTeamCitationContext(): TeamCitationContext {
     return { sourceGraphIds: new Map() };
@@ -222,112 +227,122 @@ function collectCitationSourceIds(text: string) {
     return sourceIds;
 }
 
-export async function listTeamGraphs(
+export function listTeamGraphs(
     teamId: string,
     options: { offset?: number; limit?: number } = {}
-): Promise<{ items: TeamGraphRow[]; hasMore: boolean; nextOffset: number | null }> {
-    const offset = Math.max(0, options.offset ?? 0);
-    const limit = Math.min(Math.max(1, options.limit ?? TEAM_CHAT_LIST_DEFAULT_LIMIT), TEAM_CHAT_LIST_MAX_LIMIT);
+): Effect.Effect<{ items: TeamGraphRow[]; hasMore: boolean; nextOffset: number | null }, unknown> {
+    return Effect.gen(function* () {
+        const offset = Math.max(0, options.offset ?? 0);
+        const limit = Math.min(Math.max(1, options.limit ?? TEAM_CHAT_LIST_DEFAULT_LIMIT), TEAM_CHAT_LIST_MAX_LIMIT);
 
-    const rows = await db
-        .select({
-            graph_id: graphTable.id,
-            graph_name: graphTable.name,
-            graph_state: graphTable.state,
-            description: graphTable.description,
-        })
-        .from(graphTable)
-        .where(
-            and(
-                eq(graphTable.teamId, teamId),
-                isNull(graphTable.graphId),
-                eq(graphTable.hidden, false),
-                eq(graphTable.state, "ready")
-            )
-        )
-        .orderBy(asc(graphTable.name), asc(graphTable.id))
-        .limit(limit + 1)
-        .offset(offset);
+        const rows = yield* tryUnknownPromise(() =>
+            db
+                .select({
+                    graph_id: graphTable.id,
+                    graph_name: graphTable.name,
+                    graph_state: graphTable.state,
+                    description: graphTable.description,
+                })
+                .from(graphTable)
+                .where(
+                    and(
+                        eq(graphTable.teamId, teamId),
+                        isNull(graphTable.graphId),
+                        eq(graphTable.hidden, false),
+                        eq(graphTable.state, "ready")
+                    )
+                )
+                .orderBy(asc(graphTable.name), asc(graphTable.id))
+                .limit(limit + 1)
+                .offset(offset)
+        );
 
-    const hasMore = rows.length > limit;
-    return {
-        items: hasMore ? rows.slice(0, limit) : rows,
-        hasMore,
-        nextOffset: hasMore ? offset + limit : null,
-    };
+        const hasMore = rows.length > limit;
+        return {
+            items: hasMore ? rows.slice(0, limit) : rows,
+            hasMore,
+            nextOffset: hasMore ? offset + limit : null,
+        };
+    });
 }
 
-async function loadTeamGraphsById(teamId: string, graphIds: string[]) {
+function loadTeamGraphsById(teamId: string, graphIds: string[]) {
     if (graphIds.length === 0) {
-        return [];
+        return Effect.succeed([]);
     }
 
-    return db
-        .select({
-            graph_id: graphTable.id,
-            graph_name: graphTable.name,
-            graph_state: graphTable.state,
-            description: graphTable.description,
-        })
-        .from(graphTable)
-        .where(
-            and(
-                eq(graphTable.teamId, teamId),
-                isNull(graphTable.graphId),
-                eq(graphTable.hidden, false),
-                eq(graphTable.state, "ready"),
-                inArray(graphTable.id, graphIds)
+    return tryUnknownPromise(() =>
+        db
+            .select({
+                graph_id: graphTable.id,
+                graph_name: graphTable.name,
+                graph_state: graphTable.state,
+                description: graphTable.description,
+            })
+            .from(graphTable)
+            .where(
+                and(
+                    eq(graphTable.teamId, teamId),
+                    isNull(graphTable.graphId),
+                    eq(graphTable.hidden, false),
+                    eq(graphTable.state, "ready"),
+                    inArray(graphTable.id, graphIds)
+                )
             )
-        );
+    );
 }
 
-async function querySingleGraph(options: {
+function querySingleGraph(options: {
     graph: TeamGraphRow;
     runtime: TeamGraphAgentRuntime;
     questionContext: string;
     abortSignal?: AbortSignal;
 }) {
-    const runtime = await getGraphResearchRuntimeWithSharedGuidance(options.graph.graph_id, {
-        client: options.runtime.client,
-        toolset: "server",
-        promptGuidance: options.runtime.promptGuidance,
-        requestInformation: options.runtime.requestInformation,
-    });
-
-    const result = await generateText({
-        model: runtime.client.subagent ?? runtime.client.text,
-        system: createChatSystemPrompt({
-            includeGraphTools: true,
-            includeClientTools: false,
-            includeSubagentTools: false,
+    return Effect.gen(function* () {
+        const runtime = yield* getGraphResearchRuntimeWithSharedGuidance(options.graph.graph_id, {
+            client: options.runtime.client,
+            toolset: "server",
+            promptGuidance: options.runtime.promptGuidance,
             requestInformation: options.runtime.requestInformation,
-        }),
-        prompt: prependPromptGuidance(
-            createGraphAgentTaskPrompt({
-                graphName: options.graph.graph_name,
-                questionContext: options.questionContext,
-            }),
-            runtime.promptGuidance
-        ),
-        tools: runtime.tools,
-        temperature: 0.2,
-        stopWhen: stepCountIs(50),
-        providerOptions: getProviderOptions({ thinking: "medium" }),
-        abortSignal: options.abortSignal,
-    });
+        });
 
-    return {
-        graph_id: options.graph.graph_id,
-        graph_name: options.graph.graph_name,
-        answer: result.text,
-        source_ids: [...new Set(collectCitationSourceIds(result.text))],
-        considered_file_ids: [...(runtime.getAdditionalUsage?.().consideredFileIds ?? [])],
-        usage: {
-            totalTokens: result.totalUsage.totalTokens,
-            inputTokens: result.totalUsage.inputTokens,
-            outputTokens: result.totalUsage.outputTokens,
-        },
-    };
+        const result = yield* tryUnknownPromise(() =>
+            generateText({
+                model: runtime.client.subagent ?? runtime.client.text,
+                system: createChatSystemPrompt({
+                    includeGraphTools: true,
+                    includeClientTools: false,
+                    includeSubagentTools: false,
+                    requestInformation: options.runtime.requestInformation,
+                }),
+                prompt: prependPromptGuidance(
+                    createGraphAgentTaskPrompt({
+                        graphName: options.graph.graph_name,
+                        questionContext: options.questionContext,
+                    }),
+                    runtime.promptGuidance
+                ),
+                tools: runtime.tools,
+                temperature: 0.2,
+                stopWhen: stepCountIs(50),
+                providerOptions: getProviderOptions({ thinking: "medium" }),
+                abortSignal: options.abortSignal,
+            })
+        );
+
+        return {
+            graph_id: options.graph.graph_id,
+            graph_name: options.graph.graph_name,
+            answer: result.text,
+            source_ids: [...new Set(collectCitationSourceIds(result.text))],
+            considered_file_ids: [...(runtime.getAdditionalUsage?.().consideredFileIds ?? [])],
+            usage: {
+                totalTokens: result.totalUsage.totalTokens,
+                inputTokens: result.totalUsage.inputTokens,
+                outputTokens: result.totalUsage.outputTokens,
+            },
+        };
+    });
 }
 
 function buildTeamChatToolset(options: {
@@ -351,7 +366,7 @@ function buildTeamChatToolset(options: {
                 offset: z.number().int().min(0).default(0).describe("Zero-based graph offset for pagination."),
             }),
             execute: async ({ limit, offset }) => {
-                const result = await listTeamGraphs(options.team.id, { limit, offset });
+                const result = await Effect.runPromise(listTeamGraphs(options.team.id, { limit, offset }));
                 return {
                     items: result.items,
                     pagination: {
@@ -377,7 +392,7 @@ function buildTeamChatToolset(options: {
                 assertTeamQuestionContextReady(options.questionContext);
 
                 const uniqueGraphIds = [...new Set(graph_ids)];
-                const graphs = await loadTeamGraphsById(options.team.id, uniqueGraphIds);
+                const graphs = await Effect.runPromise(loadTeamGraphsById(options.team.id, uniqueGraphIds));
                 const graphById = new Map(graphs.map((graph) => [graph.graph_id, graph]));
                 const orderedGraphs = uniqueGraphIds.flatMap((graphId) => {
                     const graph = graphById.get(graphId);
@@ -386,12 +401,14 @@ function buildTeamChatToolset(options: {
                 const missingGraphIds = uniqueGraphIds.filter((graphId) => !graphById.has(graphId));
                 const settled = await Promise.allSettled(
                     orderedGraphs.map((graph) =>
-                        querySingleGraph({
-                            graph,
-                            runtime: options.graphRuntime,
-                            questionContext: options.questionContext.text,
-                            abortSignal,
-                        })
+                        Effect.runPromise(
+                            querySingleGraph({
+                                graph,
+                                runtime: options.graphRuntime,
+                                questionContext: options.questionContext.text,
+                                abortSignal,
+                            })
+                        )
                     )
                 );
                 abortSignal?.throwIfAborted();
@@ -423,14 +440,17 @@ function buildTeamChatToolset(options: {
                         options.citationContext.sourceGraphIds.set(sourceId, result.graph_id);
                     }
 
-                    await Promise.all(
-                        result.source_ids.map(async (sourceId) => {
-                            const citation = await enrichCitation(result.graph_id, sourceId);
-                            if (citation) {
-                                addCitationFileId(options.usageContext.usedFileIds, citation);
-                            }
-                        })
+                    const citations = await Effect.runPromise(
+                        Effect.all(
+                            result.source_ids.map((sourceId) => enrichCitation(result.graph_id, sourceId)),
+                            { concurrency: "unbounded" }
+                        )
                     );
+                    for (const citation of citations) {
+                        if (citation) {
+                            addCitationFileId(options.usageContext.usedFileIds, citation);
+                        }
+                    }
                 }
 
                 return {
@@ -448,84 +468,90 @@ function buildTeamChatToolset(options: {
  * `query_graphs` asserts that `refreshTeamReplyContext` has populated the
  * context before subagents execute.
  */
-export async function getTeamChatRuntime(options: {
+export function getTeamChatRuntime(options: {
     user: AuthUser;
     team: TeamAccessTeam;
     questionContext: TeamQuestionContext;
     requestedModelId?: string;
-}): Promise<TeamChatRuntime> {
-    const [organizationPrompts, userPrompts, teamPrompts] = await Promise.all([
-        listOrganizationPromptTexts(),
-        listUserPromptTexts(options.user.id),
-        listTeamPromptTexts(options.team.id),
-    ]);
-    const client = await getRequiredResearchClient({
-        organizationId: options.team.organizationId,
-        requestedModelId: options.requestedModelId,
-    });
-    const citationContext = createTeamCitationContext();
-    const usageContext = createTeamUsageContext();
-    const requestInformation = createUserRequestInformation(options.user);
-    const promptGuidance = {
-        organizationPrompts,
-        userPrompts,
-        teamPrompts,
-    };
+}): Effect.Effect<TeamChatRuntime, unknown> {
+    return Effect.gen(function* () {
+        const [organizationPrompts, userPrompts, teamPrompts] = yield* Effect.all([
+            listOrganizationPromptTexts(),
+            listUserPromptTexts(options.user.id),
+            listTeamPromptTexts(options.team.id),
+        ]);
+        const client = yield* getRequiredResearchClient({
+            organizationId: options.team.organizationId,
+            requestedModelId: options.requestedModelId,
+        });
+        const citationContext = createTeamCitationContext();
+        const usageContext = createTeamUsageContext();
+        const requestInformation = createUserRequestInformation(options.user);
+        const promptGuidance = {
+            organizationPrompts,
+            userPrompts,
+            teamPrompts,
+        };
 
-    return {
-        client,
-        citationContext,
-        questionContext: options.questionContext,
-        requestInformation,
-        promptGuidance,
-        getAdditionalUsage: () => ({
-            totalTokens: usageContext.totalTokens,
-            inputTokens: usageContext.inputTokens,
-            outputTokens: usageContext.outputTokens,
-            consideredFileIds: usageContext.consideredFileIds,
-            usedFileIds: usageContext.usedFileIds,
-        }),
-        tools: buildTeamChatToolset({
-            team: options.team,
-            graphRuntime: { client, promptGuidance, requestInformation },
-            questionContext: options.questionContext,
+        return {
+            client,
             citationContext,
-            usageContext,
-        }),
-    };
+            questionContext: options.questionContext,
+            requestInformation,
+            promptGuidance,
+            getAdditionalUsage: () => ({
+                totalTokens: usageContext.totalTokens,
+                inputTokens: usageContext.inputTokens,
+                outputTokens: usageContext.outputTokens,
+                consideredFileIds: usageContext.consideredFileIds,
+                usedFileIds: usageContext.usedFileIds,
+            }),
+            tools: buildTeamChatToolset({
+                team: options.team,
+                graphRuntime: { client, promptGuidance, requestInformation },
+                questionContext: options.questionContext,
+                citationContext,
+                usageContext,
+            }),
+        };
+    });
 }
 
-export async function enrichTeamCitation(
+export function enrichTeamCitation(
     teamId: string,
     sourceId: string,
     citationContext?: TeamCitationContext
-): Promise<ResolvedCitationFence | null> {
-    const knownGraphId = citationContext?.sourceGraphIds.get(sourceId);
-    if (knownGraphId) {
-        return enrichCitation(knownGraphId, sourceId);
-    }
+): Effect.Effect<ResolvedCitationFence | null, unknown> {
+    return Effect.gen(function* () {
+        const knownGraphId = citationContext?.sourceGraphIds.get(sourceId);
+        if (knownGraphId) {
+            return yield* enrichCitation(knownGraphId, sourceId);
+        }
 
-    const [row] = await db
-        .select({
-            graphId: filesTable.graphId,
-        })
-        .from(sourcesTable)
-        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(and(eq(sourcesTable.id, sourceId), currentSourcePredicate(sourcesTable), visibleFilePredicate(filesTable)))
-        .limit(1);
+        const [row] = yield* tryUnknownPromise(() =>
+            db
+                .select({
+                    graphId: filesTable.graphId,
+                })
+                .from(sourcesTable)
+                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                .where(and(eq(sourcesTable.id, sourceId), currentSourcePredicate(sourcesTable), visibleFilePredicate(filesTable)))
+                .limit(1)
+        );
 
-    if (!row) {
-        return null;
-    }
+        if (!row) {
+            return null;
+        }
 
-    const rootOwner = await resolveGraphOwnerRoot(row.graphId);
-    if (rootOwner.mode !== "team" || rootOwner.teamId !== teamId) {
-        return null;
-    }
+        const rootOwner = yield* resolveGraphOwnerRoot(row.graphId);
+        if (rootOwner.mode !== "team" || rootOwner.teamId !== teamId) {
+            return null;
+        }
 
-    citationContext?.sourceGraphIds.set(sourceId, row.graphId);
-    return enrichCitation(row.graphId, sourceId);
+        citationContext?.sourceGraphIds.set(sourceId, row.graphId);
+        return yield* enrichCitation(row.graphId, sourceId);
+    });
 }
 
 function createTeamCitationResolver(teamId: string, citationContext?: TeamCitationContext) {
@@ -533,56 +559,58 @@ function createTeamCitationResolver(teamId: string, citationContext?: TeamCitati
         negativeCache: unresolvedTeamCitationCache,
         negativeCacheMaxEntries: DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES,
         negativeCacheKey: (citation) => `${teamId}:${citation.sourceId}`,
-        resolveCitation: (sourceId) => enrichTeamCitation(teamId, sourceId, citationContext),
+        resolveCitation: (sourceId) => Effect.runPromise(enrichTeamCitation(teamId, sourceId, citationContext)),
     });
 }
 
-export async function refreshTeamReplyContext(options: {
+export function refreshTeamReplyContext(options: {
     chatId: string;
     runtime: TeamChatRuntime;
     teamName: string;
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
-}): Promise<{ systemPrompt: string; contextMessages: ModelMessage[]; estimatedPromptTokens: number }> {
-    const systemPrompt = prependPromptGuidance(
-        createTeamChatSystemPrompt(options.teamName, options.runtime.requestInformation),
-        options.runtime.promptGuidance
-    );
-    const validateMessages = createChatMessageValidator(options.runtime.tools);
-    const rows = await loadChatRows(options.chatId);
-    const { context } = await maybeCompactConversation({
-        chatId: options.chatId,
-        runtime: options.runtime,
-        rows,
-        systemPrompt,
-        buildContext: (rows) =>
-            buildActiveChatContext({
-                rows,
-                runtime: options.runtime,
-                systemPrompt,
-                validateMessages,
-            }),
-        forceCompaction: options.forceCompaction,
-        abortSignal: options.abortSignal,
-    });
-    refreshTeamQuestionContext(options.runtime.questionContext, {
-        rows: context.activeRawTailRows,
-        summary: context.activeSummary,
-    });
+}): Effect.Effect<{ systemPrompt: string; contextMessages: ModelMessage[]; estimatedPromptTokens: number }, unknown> {
+    return Effect.gen(function* () {
+        const systemPrompt = prependPromptGuidance(
+            createTeamChatSystemPrompt(options.teamName, options.runtime.requestInformation),
+            options.runtime.promptGuidance
+        );
+        const validateMessages = createChatMessageValidator(options.runtime.tools);
+        const rows = yield* loadChatRows(options.chatId);
+        const { context } = yield* maybeCompactConversation({
+            chatId: options.chatId,
+            runtime: options.runtime,
+            rows,
+            systemPrompt,
+            buildContext: (rows) =>
+                buildActiveChatContext({
+                    rows,
+                    runtime: options.runtime,
+                    systemPrompt,
+                    validateMessages,
+                }),
+            forceCompaction: options.forceCompaction,
+            abortSignal: options.abortSignal,
+        });
+        refreshTeamQuestionContext(options.runtime.questionContext, {
+            rows: context.activeRawTailRows,
+            summary: context.activeSummary,
+        });
 
-    return {
-        systemPrompt,
-        contextMessages: context.contextMessages,
-        estimatedPromptTokens: context.estimatedPromptTokens,
-    };
+        return {
+            systemPrompt,
+            contextMessages: context.contextMessages,
+            estimatedPromptTokens: context.estimatedPromptTokens,
+        };
+    });
 }
 
-export async function startTeamReply(
+export function startTeamReply(
     user: AuthUser,
     team: TeamAccessTeam,
     request: ChatRequest,
     options: { abortSignal?: AbortSignal } = {}
-): Promise<
+): Effect.Effect<
     TeamChatRuntime & {
         chatId: string;
         assistantId: string;
@@ -590,59 +618,62 @@ export async function startTeamReply(
         titleMessages: ChatUIMessage[];
         systemPrompt: string;
         contextMessages: ModelMessage[];
-    }
+    },
+    unknown
 > {
-    const normalizedRequest = normalizeChatRequest(request);
-    const { isNewChat } = await ensureChatRecord({
-        chatId: normalizedRequest.id,
-        userId: user.id,
-        target: teamChatTarget(team.id),
-        defaultTitle: DEFAULT_CHAT_TITLE,
-    });
-    await syncChatMessage({
-        chatId: normalizedRequest.id,
-        message: normalizedRequest.latestMessage,
-        toParts: uiMessageToMessageParts,
-        getMetrics,
-        parseCreatedAt,
-    });
+    return Effect.gen(function* () {
+        const normalizedRequest = normalizeChatRequest(request);
+        const { isNewChat } = yield* ensureChatRecord({
+            chatId: normalizedRequest.id,
+            userId: user.id,
+            target: teamChatTarget(team.id),
+            defaultTitle: DEFAULT_CHAT_TITLE,
+        });
+        yield* syncChatMessage({
+            chatId: normalizedRequest.id,
+            message: normalizedRequest.latestMessage,
+            toParts: uiMessageToMessageParts,
+            getMetrics,
+            parseCreatedAt,
+        });
 
-    const questionContext = createTeamQuestionContext([]);
-    const runtime = await getTeamChatRuntime({
-        user,
-        team,
-        questionContext,
-        requestedModelId: normalizedRequest.modelId,
-    });
-    const { contextMessages, systemPrompt } = await refreshTeamReplyContext({
-        chatId: normalizedRequest.id,
-        runtime,
-        teamName: team.name,
-        abortSignal: options.abortSignal,
-    });
-    const assistantId = await createPendingAssistantMessage(normalizedRequest.id);
-    await touchChat(normalizedRequest.id);
+        const questionContext = createTeamQuestionContext([]);
+        const runtime = yield* getTeamChatRuntime({
+            user,
+            team,
+            questionContext,
+            requestedModelId: normalizedRequest.modelId,
+        });
+        const { contextMessages, systemPrompt } = yield* refreshTeamReplyContext({
+            chatId: normalizedRequest.id,
+            runtime,
+            teamName: team.name,
+            abortSignal: options.abortSignal,
+        });
+        const assistantId = yield* createPendingAssistantMessage(normalizedRequest.id);
+        yield* touchChat(normalizedRequest.id);
 
-    return {
-        chatId: normalizedRequest.id,
-        assistantId,
-        isNewChat,
-        titleMessages: normalizedRequest.titleMessages,
-        systemPrompt,
-        contextMessages,
-        ...runtime,
-    };
+        return {
+            chatId: normalizedRequest.id,
+            assistantId,
+            isNewChat,
+            titleMessages: normalizedRequest.titleMessages,
+            systemPrompt,
+            contextMessages,
+            ...runtime,
+        };
+    });
 }
 
-export async function listTeamChats(userId: string, teamId: string, options: { offset?: number; limit?: number } = {}) {
+export function listTeamChats(userId: string, teamId: string, options: { offset?: number; limit?: number } = {}) {
     return listChatsForTarget(userId, teamChatTarget(teamId), options);
 }
 
-export async function loadTeamChatSummary(userId: string, teamId: string, chatId: string) {
+export function loadTeamChatSummary(userId: string, teamId: string, chatId: string) {
     return loadChatSummaryForTarget(userId, teamChatTarget(teamId), chatId);
 }
 
-export async function loadTeamChatHistory(userId: string, teamId: string, chatId: string) {
+export function loadTeamChatHistory(userId: string, teamId: string, chatId: string) {
     const citationContext = createTeamCitationContext();
 
     return loadChatHistoryForTarget({

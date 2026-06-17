@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { roleIncludes } from "@kiwi/auth/permissions";
 import { toAdminModelRecord, toPublicModelRecord } from "@kiwi/ai/models";
 import { db } from "@kiwi/db";
@@ -11,7 +12,7 @@ import { tryApiPromise } from "../_shared/api-effect";
 
 export function listModels(input: { user: AuthUser; query: ModelQuery }) {
     return tryApiPromise(async () => {
-        const membership = await requireOrganizationMembership(input.user);
+        const membership = await Effect.runPromise(requireOrganizationMembership(input.user));
         const organizationId = membership.organizationId;
         const isAdmin = roleIncludes(membership.role, "admin");
 

@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { unauthorizedError } from "@kiwi/contracts/errors";
 import { assertCanViewGraph } from "../../../lib/graph/access";
 import { verifyProjectFileAccessToken } from "../../../lib/project-file-access-token";
@@ -17,7 +18,9 @@ export function assertCanReadGraphFile(input: {
 }) {
     return tryApiPromise(async () => {
         const accessToken = new URL(input.request.url).searchParams.get("token");
-        const hasTokenAccess = await verifyProjectFileAccessToken(accessToken, input.params.graphId, input.params.fileId);
+        const hasTokenAccess = await Effect.runPromise(
+            verifyProjectFileAccessToken(accessToken, input.params.graphId, input.params.fileId)
+        );
     
         if (hasTokenAccess) {
             return;
@@ -27,7 +30,7 @@ export function assertCanReadGraphFile(input: {
             throw unauthorizedError();
         }
     
-        await assertPermissions(input.request.headers, { graph: ["view"] });
-        await assertCanViewGraph(input.user, input.params.graphId);
+        await Effect.runPromise(assertPermissions(input.request.headers, { graph: ["view"] }));
+        await Effect.runPromise(assertCanViewGraph(input.user, input.params.graphId));
     });
 }

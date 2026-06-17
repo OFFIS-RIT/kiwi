@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 let selectedFile: unknown;
 let bindingRow: unknown = null;
@@ -30,26 +31,28 @@ mock.module("@kiwi/db", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
-    deleteFile: async () => undefined,
-    getFileMetadata: async () => {
+    deleteFile: () => Effect.succeed(true),
+    getFileMetadata: () => {
         metadataCalls += 1;
-        return { size: 12, type: "text/plain", lastModified: null };
+        return Effect.succeed({ size: 12, type: "text/plain", lastModified: null });
     },
-    getFileStream: async () => {
+    getFileStream: () => {
         streamCalls += 1;
-        return { content: new Blob(["hello world\n"]).stream(), size: 12, type: "text/plain" };
+        return Effect.succeed({ content: new Blob(["hello world\n"]).stream(), size: 12, type: "text/plain", lastModified: null });
     },
-    listFiles: async () => [],
-    putGraphFile: async () => ({ key: "key", type: "text/plain" }),
+    listFiles: () => Effect.succeed([]),
+    putGraphFile: () => Effect.succeed({ key: "key", type: "text/plain" }),
 }));
 
 mock.module("../connectors", () => ({
-    createProviderClient: async () => ({
-        readFile: async (locator: { resourceId: string; path: string; versionId?: string; etag?: string }) => {
-            providerReadCalls.push(locator);
-            return "export const older = true;\n";
-        },
-    }),
+    createProviderClient: () =>
+        Effect.succeed({
+            readFile: (locator: { resourceId: string; path: string; versionId?: string; etag?: string }) =>
+                Effect.sync(() => {
+                    providerReadCalls.push(locator);
+                    return "export const older = true;\n";
+                }),
+        }),
 }));
 
 // Dynamic import is required so module mocks are installed before the graph file proxy module is evaluated.
@@ -75,12 +78,12 @@ describe("graph file proxy", () => {
     });
 
     test("streams internal files from S3", async () => {
-        const result = await getGraphFileProxyResponse({
+        const result = await Effect.runPromise(getGraphFileProxyResponse({
             graphId: "graph-1",
             fileId: "file-1",
             request: new Request("http://localhost/file"),
             bucket: "bucket",
-        });
+        }));
 
         expect(result.status).toBe("ok");
         expect(metadataCalls).toBe(1);
@@ -114,12 +117,12 @@ describe("graph file proxy", () => {
             }),
         };
 
-        const result = await getGraphFileProxyResponse({
+        const result = await Effect.runPromise(getGraphFileProxyResponse({
             graphId: "graph-1",
             fileId: "file-1",
             request: new Request("http://localhost/file"),
             bucket: "bucket",
-        });
+        }));
 
         expect(result.status).toBe("ok");
         expect(metadataCalls).toBe(0);
@@ -167,12 +170,12 @@ describe("graph file proxy", () => {
             connector: { provider: "github", status: "active" },
         };
 
-        const result = await getGraphFileProxyResponse({
+        const result = await Effect.runPromise(getGraphFileProxyResponse({
             graphId: "graph-1",
             fileId: "file-1",
             request: new Request("http://localhost/file"),
             bucket: "bucket",
-        });
+        }));
 
         expect(result.status).toBe("ok");
         expect(metadataCalls).toBe(0);

@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { API_ERROR_CODES, internalServerError, makeApiError } from "@kiwi/contracts/errors";
 import { error as logError } from "@kiwi/logger";
 import { env } from "../../../env";
@@ -15,9 +16,9 @@ export function renderTextUnitPage(input: { user: AuthUser; graphId: string; uni
             throw makeApiError(404, API_ERROR_CODES.TEXT_UNIT_NOT_FOUND, "Text unit not found");
         }
 
-        await assertCanViewGraph(input.user, input.graphId);
+        await Effect.runPromise(assertCanViewGraph(input.user, input.graphId));
 
-        const unit = await loadTextUnitWithFile(input.graphId, input.unitId);
+        const unit = await Effect.runPromise(loadTextUnitWithFile(input.graphId, input.unitId));
         if (!unit) {
             throw makeApiError(404, API_ERROR_CODES.TEXT_UNIT_NOT_FOUND, "Text unit not found");
         }
@@ -33,14 +34,16 @@ export function renderTextUnitPage(input: { user: AuthUser; graphId: string; uni
 
         let previewResult: PDFPreviewPageResult;
         try {
-            previewResult = await getOrRenderPDFPreviewPage({
-                graphId: input.graphId,
-                fileId: unit.project_file_id,
-                fileKey: unit.file_key,
-                page,
-                pagesToRender: getPdfPreviewPageNumbers(startPage, endPage),
-                bucket: env.S3_BUCKET,
-            });
+            previewResult = await Effect.runPromise(
+                getOrRenderPDFPreviewPage({
+                    graphId: input.graphId,
+                    fileId: unit.project_file_id,
+                    fileKey: unit.file_key,
+                    page,
+                    pagesToRender: getPdfPreviewPageNumbers(startPage, endPage),
+                    bucket: env.S3_BUCKET,
+                })
+            );
         } catch (error) {
             logError("failed to render PDF text unit preview", {
                 graphId: input.graphId,

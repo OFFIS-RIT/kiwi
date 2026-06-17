@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { createConsoleLogger, init, shutdown, type LogLevel, type LoggerInstance } from "@kiwi/logger";
 import { ATTR_DEPLOYMENT_ENVIRONMENT, createOpenTelemetryLogger } from "@kiwi/logger/opentelemetry";
 
@@ -80,11 +81,13 @@ export function initLogger() {
     initialized = true;
 }
 
-export async function shutdownLogger() {
-    if (!initialized) {
-        return;
-    }
+export function shutdownLogger(): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        if (!initialized) {
+            return;
+        }
 
-    await shutdown();
-    initialized = false;
+        yield* shutdown();
+        initialized = false;
+    });
 }

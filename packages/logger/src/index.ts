@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import type { LogFields, LoggerInstance } from "./types";
 
 export { createConsoleLogger } from "./console";
@@ -73,16 +74,28 @@ export class Logger {
         }
     }
 
-    async flush() {
-        for (const instance of this.instances) {
-            await instance.flush?.();
-        }
+    flush(): Effect.Effect<void, unknown> {
+        const instances = this.instances;
+        return Effect.gen(function* () {
+            for (const instance of instances) {
+                const flush = instance.flush;
+                if (flush) {
+                    yield* flush.call(instance);
+                }
+            }
+        });
     }
 
-    async shutdown() {
-        for (const instance of this.instances) {
-            await instance.shutdown?.();
-        }
+    shutdown(): Effect.Effect<void, unknown> {
+        const instances = this.instances;
+        return Effect.gen(function* () {
+            for (const instance of instances) {
+                const shutdown = instance.shutdown;
+                if (shutdown) {
+                    yield* shutdown.call(instance);
+                }
+            }
+        });
     }
 }
 
@@ -120,10 +133,10 @@ export function fatal(message: string, fields?: LogFields) {
     singleton?.fatal(message, fields);
 }
 
-export async function flush() {
-    await singleton?.flush();
+export function flush(): Effect.Effect<void, unknown> {
+    return singleton?.flush() ?? Effect.succeed(undefined);
 }
 
-export async function shutdown() {
-    await singleton?.shutdown();
+export function shutdown(): Effect.Effect<void, unknown> {
+    return singleton?.shutdown() ?? Effect.succeed(undefined);
 }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { Logger, debug, error, fatal, flush, getLogger, info, init, log, shutdown, warn } from "../index";
 import type { LoggerInstance } from "../types";
 
@@ -10,8 +11,8 @@ function createMockInstance() {
         warn: mock(),
         error: mock(),
         fatal: mock(),
-        flush: mock(async () => undefined),
-        shutdown: mock(async () => undefined),
+        flush: mock(() => Effect.succeed(undefined)),
+        shutdown: mock(() => Effect.succeed(undefined)),
     } satisfies LoggerInstance;
 }
 
@@ -27,8 +28,8 @@ describe("logger singleton", () => {
         warn("message");
         error("message");
         fatal("message");
-        await flush();
-        await shutdown();
+        await Effect.runPromise(flush());
+        await Effect.runPromise(shutdown());
     });
 
     test("dispatches to all instances", () => {
@@ -58,8 +59,8 @@ describe("logger singleton", () => {
         const instance = createMockInstance();
 
         init(instance);
-        await flush();
-        await shutdown();
+        await Effect.runPromise(flush());
+        await Effect.runPromise(shutdown());
 
         expect(instance.flush).toHaveBeenCalledTimes(1);
         expect(instance.shutdown).toHaveBeenCalledTimes(1);

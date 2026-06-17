@@ -16,11 +16,12 @@ export class ImageLoader implements GraphLoader {
         const mimeType = getImageMimeType(content);
         const base64 = Buffer.from(content).toString("base64");
 
-        const { text } = await withAiSlot("image", () =>
+        const { text } = await withAiSlot("image", (signal) =>
             generateText({
                 model: this.options.model,
                 system: "",
                 temperature: 0.1,
+                abortSignal: signal,
                 messages: [
                     {
                         role: "user",

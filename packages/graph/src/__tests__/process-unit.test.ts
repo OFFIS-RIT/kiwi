@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 const extractionOutput = {
     entities: [
@@ -46,7 +47,7 @@ describe("processUnit", () => {
 
     test("extracts from clean text and attaches attributed source chunk ids", async () => {
         const { processUnit } = await import("../unit.ts");
-        const graph = await processUnit(
+        const graph = await Effect.runPromise(processUnit(
             {
                 id: "unit-1",
                 fileId: "file-1",
@@ -80,7 +81,7 @@ describe("processUnit", () => {
             },
             {} as never,
             "document.txt"
-        );
+        ));
 
         expect(generateTextMock).toHaveBeenCalledTimes(1);
         const { extractPrompt } = await import("@kiwi/ai/prompts/extract.prompt");
@@ -112,7 +113,7 @@ describe("processUnit", () => {
 
     test("uses the single available chunk when no attribution pass is needed", async () => {
         const { processUnit } = await import("../unit.ts");
-        const graph = await processUnit(
+        const graph = await Effect.runPromise(processUnit(
             {
                 id: "unit-1",
                 fileId: "file-1",
@@ -123,14 +124,14 @@ describe("processUnit", () => {
             },
             {} as never,
             "document.txt"
-        );
+        ));
 
         expect(generateTextMock).toHaveBeenCalledTimes(1);
         expect(generateTextMock.mock.calls[0]?.[0].prompt).toBe("Acme hired Alice.");
         expect(graph.entities[0]?.sources[0]?.sourceChunkIds).toEqual([1]);
         expect(graph.relationships[0]?.sources[0]?.sourceChunkIds).toEqual([1]);
     });
-    test("keeps the Promise boundary while dropping relationships for unknown entities", async () => {
+    test("keeps the Effect boundary while dropping relationships for unknown entities", async () => {
         generateTextMock.mockImplementationOnce(async () => ({
             output: {
                 ...extractionOutput,
@@ -148,7 +149,7 @@ describe("processUnit", () => {
         }));
 
         const { processUnit } = await import("../unit.ts");
-        const graphPromise = processUnit(
+        const graphEffect = processUnit(
             {
                 id: "unit-1",
                 fileId: "file-1",
@@ -161,9 +162,7 @@ describe("processUnit", () => {
             "document.txt"
         );
 
-        expect(graphPromise).toBeInstanceOf(Promise);
-
-        const graph = await graphPromise;
+        const graph = await Effect.runPromise(graphEffect);
 
         expect(graph.entities).toHaveLength(2);
         expect(graph.relationships).toHaveLength(1);

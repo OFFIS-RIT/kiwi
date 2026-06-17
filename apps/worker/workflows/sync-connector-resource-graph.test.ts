@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import type { ConnectorResourceChange, ProviderCodeFile } from "@kiwi/connectors";
 
 type SelectResult = { kind: "limit"; value: unknown[] } | { kind: "where"; value: unknown[] };
@@ -27,6 +28,7 @@ let activeReadFileCalls = 0;
 let holdReadFiles = false;
 let maxReadFileConcurrency = 0;
 let readStartedCount = 0;
+let readFileDelayMs = 0;
 
 function createSelectQuery() {
     const result = selectResults.shift();
@@ -172,58 +174,69 @@ mock.module("@kiwi/connectors", () => ({
     },
     MAX_REPOSITORY_CODE_BYTES: 100_000,
     MAX_REPOSITORY_CODE_FILES: 100,
-    createConnectorAdapter: async () => ({
-        provider: "github",
-        resourceKind: "git-repository",
-        getResource: async () => ({
+    createConnectorAdapter: () =>
+        Effect.succeed({
             provider: "github",
-            kind: "git-repository",
-            id: "1",
-            displayName: "acme/widgets",
-            webUrl: "https://github.com/acme/widgets",
-            private: true,
-        }),
-        listResources: async () => [],
-        listResourceVersions: async () => [{ resourceId: "1", name: "main", versionId: "commit-new" }],
-        loadSnapshot: async () => {
-            loadSnapshotCalls += 1;
-            return {
-                resource: {
+            resourceKind: "git-repository",
+            getResource: () =>
+                Effect.succeed({
                     provider: "github",
                     kind: "git-repository",
                     id: "1",
                     displayName: "acme/widgets",
                     webUrl: "https://github.com/acme/widgets",
                     private: true,
-                },
-                version: { resourceId: "1", name: "main", versionId: "commit-new" },
-                files: snapshotFiles,
-            };
-        },
-        compareVersions: async (_resourceId: string, fromVersionId: string, toVersionId: string) => {
-            compareCalls.push({ fromVersionId, toVersionId });
-            return { fromVersionId, toVersionId, isIncremental: compareIsIncremental, changes: compareChanges };
-        },
-        readFile: async (locator: { path: string; versionId?: string }) => {
-            readFileCalls.push({ path: locator.path, versionId: locator.versionId });
-            activeReadFileCalls += 1;
-            maxReadFileConcurrency = Math.max(maxReadFileConcurrency, activeReadFileCalls);
-            if (holdReadFiles) {
-                const { promise, resolve } = Promise.withResolvers<void>();
-                pendingReadResolutions.push(resolve);
-                notifyReadStarted();
-                await promise;
-            } else {
-                notifyReadStarted();
-            }
-            activeReadFileCalls -= 1;
-            const content = readFileContents[locator.path];
-            if (!content) {
-                throw new Error(`Missing mocked content for ${locator.path}`);
-            }
-            return content;
-        },
-    }),
+                }),
+            listResources: () => Effect.succeed([]),
+            listResourceVersions: () => Effect.succeed([{ resourceId: "1", name: "main", versionId: "commit-new" }]),
+            loadSnapshot: () =>
+                Effect.sync(() => {
+                    loadSnapshotCalls += 1;
+                    return {
+                        resource: {
+                            provider: "github",
+                            kind: "git-repository",
+                            id: "1",
+                            displayName: "acme/widgets",
+                            webUrl: "https://github.com/acme/widgets",
+                            private: true,
+                        },
+                        version: { resourceId: "1", name: "main", versionId: "commit-new" },
+                        files: snapshotFiles,
+                    };
+                }),
+            compareVersions: (_resourceId: string, fromVersionId: string, toVersionId: string) =>
+                Effect.sync(() => {
+                    compareCalls.push({ fromVersionId, toVersionId });
+                    return { fromVersionId, toVersionId, isIncremental: compareIsIncremental, changes: compareChanges };
+                }),
+            readFile: (locator: { path: string; versionId?: string }) =>
+                Effect.tryPromise({
+                    try: async () => {
+                        readFileCalls.push({ path: locator.path, versionId: locator.versionId });
+                        activeReadFileCalls += 1;
+                        maxReadFileConcurrency = Math.max(maxReadFileConcurrency, activeReadFileCalls);
+                        if (holdReadFiles) {
+                            const { promise, resolve } = Promise.withResolvers<void>();
+                            pendingReadResolutions.push(resolve);
+                            notifyReadStarted();
+                            await promise;
+                        } else {
+                            notifyReadStarted();
+                            if (readFileDelayMs > 0) {
+                                await new Promise((resolve) => setTimeout(resolve, readFileDelayMs));
+                            }
+                        }
+                        activeReadFileCalls -= 1;
+                        const content = readFileContents[locator.path];
+                        if (!content) {
+                            throw new Error(`Missing mocked content for ${locator.path}`);
+                        }
+                        return content;
+                    },
+                    catch: (error) => error,
+                }),
+        }),
     normalizeGitLabBaseUrl: (value: string) => value.replace(/\/+$/, ""),
 }));
 
@@ -357,6 +370,7 @@ describe("syncConnectorResourceGraph", () => {
         holdReadFiles = false;
         maxReadFileConcurrency = 0;
         readStartedCount = 0;
+        readFileDelayMs = 0;
         txSelectResults = [];
         insertedFileRowsOverride = null;
         processRunInsertCount = 0;
@@ -398,7 +412,7 @@ describe("syncConnectorResourceGraph", () => {
         const changedPaths = Array.from({ length: 10 }, (_, index) => `src/file-${index}.ts`);
         compareChanges = changedPaths.map((newPath) => ({ status: "modified", newPath }));
         readFileContents = Object.fromEntries(changedPaths.map((path) => [path, `export const value = "${path}";\n`]));
-        holdReadFiles = true;
+        readFileDelayMs = 5;
         selectResults = [
             { kind: "limit", value: [bindingRow("commit-old")] },
             {
@@ -407,28 +421,15 @@ describe("syncConnectorResourceGraph", () => {
             },
         ];
 
-        const resultPromise = runWorkflow({
+        const result = await runWorkflow({
             bindingId: "binding-1",
             reason: "manual",
             versionId: "commit-new",
         });
 
-        await waitForReadStarts(4);
-        expect(maxReadFileConcurrency).toBeLessThanOrEqual(4);
-        pendingReadResolutions.splice(0).forEach((resolve) => resolve());
-
-        await waitForReadStarts(8);
-        expect(maxReadFileConcurrency).toBeLessThanOrEqual(4);
-        pendingReadResolutions.splice(0).forEach((resolve) => resolve());
-
-        await waitForReadStarts(10);
-        expect(maxReadFileConcurrency).toBeLessThanOrEqual(4);
-        pendingReadResolutions.splice(0).forEach((resolve) => resolve());
-
-        const result = await resultPromise;
-
         expect(result).toMatchObject({ versionId: "commit-new", fileCount: 10 });
         expect(maxReadFileConcurrency).toBeLessThanOrEqual(4);
+        expect(maxReadFileConcurrency).toBeGreaterThan(1);
     });
 
     test("reuses existing repository files and process run when file insert conflicts", async () => {

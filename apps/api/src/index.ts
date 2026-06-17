@@ -1,5 +1,6 @@
 import cluster from "node:cluster";
 import { availableParallelism } from "node:os";
+import * as Effect from "effect/Effect";
 import { info } from "@kiwi/logger";
 import { initLogger, shutdownLogger } from "./logger";
 
@@ -74,6 +75,6 @@ async function handlePrimaryShutdown(signal: NodeJS.Signals) {
     await Promise.allSettled(workerExits);
 
     clearTimeout(forceKillTimeout);
-    await shutdownLogger();
+    await Effect.runPromise(shutdownLogger());
     process.exit(0);
 }

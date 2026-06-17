@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { createOpenTelemetryLogger, type LogRecordExporter } from "../opentelemetry";
 
 type ExportedRecord = {
@@ -39,7 +40,7 @@ describe("createOpenTelemetryLogger", () => {
         });
 
         logger.error("request failed", { statusCode: 500, retryable: false });
-        await logger.flush?.();
+        await Effect.runPromise(logger.flush?.() ?? Effect.succeed(undefined));
 
         expect(exporter.exportedRecords).toHaveLength(1);
         expect(exporter.exportedRecords[0]?.body).toBe("request failed");
@@ -62,7 +63,7 @@ describe("createOpenTelemetryLogger", () => {
 
         logger.info("skip me");
         logger.warn("keep me");
-        await logger.flush?.();
+        await Effect.runPromise(logger.flush?.() ?? Effect.succeed(undefined));
 
         expect(exporter.exportedRecords).toHaveLength(1);
         expect(exporter.exportedRecords[0]?.body).toBe("keep me");
@@ -76,7 +77,7 @@ describe("createOpenTelemetryLogger", () => {
             exporter,
         });
 
-        await logger.shutdown?.();
+        await Effect.runPromise(logger.shutdown?.() ?? Effect.succeed(undefined));
 
         expect(exporter.shutdownCalls).toBe(1);
     });

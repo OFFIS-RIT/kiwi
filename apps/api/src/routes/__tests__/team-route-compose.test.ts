@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { Elysia } from "elysia";
 
 mock.module("@kiwi/db", () => ({
@@ -8,9 +9,9 @@ mock.module("@kiwi/db", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
-    deleteFile: async () => undefined,
-    listFiles: async () => [],
-    putGraphFile: async () => ({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),
+    deleteFile: () => Effect.succeed(true),
+    listFiles: () => Effect.succeed([]),
+    putGraphFile: () => Effect.succeed({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),
 }));
 
 mock.module("@kiwi/logger", () => ({
@@ -29,49 +30,55 @@ mock.module("../../env", () => ({
 
 mock.module("../../lib/chat-response", () => ({
     createChatStreamResponse: () => new Response(),
-    runChatCompletion: async () => undefined,
+    runChatCompletion: () => Effect.succeed(undefined),
 }));
 
 mock.module("../../lib/graph", () => ({
-    collectGraphClosure: async () => [],
+    collectGraphClosure: () => Effect.succeed([]),
 }));
 
 mock.module("../../lib/team/access", () => ({
-    getActiveOrganizationId: async () => "org-1",
-    getOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
-    getTeamInActiveOrganization: async (_user: unknown, teamId: string) => ({
-        id: teamId,
-        name: "Team",
-        organizationId: "org-1",
-    }),
-    getTeamRole: async () => "admin",
-    requireOrganizationAdmin: async () => ({ organizationId: "org-1" }),
-    requireOrganizationMembership: async () => ({ organizationId: "org-1", role: "admin" }),
-    requireTeamAccess: async (_user: unknown, teamId: string) => ({
-        organizationAdmin: true,
-        role: "admin",
-        team: { id: teamId, name: "Team", organizationId: "org-1" },
-    }),
-    requireTeamGraphCreateAccess: async (_user: unknown, teamId: string) => ({
-        organizationAdmin: true,
-        role: "admin",
-        team: { id: teamId, name: "Team", organizationId: "org-1" },
-    }),
-    requireTeamGraphFileManageAccess: async (_user: unknown, teamId: string) => ({
-        organizationAdmin: true,
-        role: "admin",
-        team: { id: teamId, name: "Team", organizationId: "org-1" },
-    }),
-    requireTeamGraphManageAccess: async (_user: unknown, teamId: string) => ({
-        organizationAdmin: true,
-        role: "admin",
-        team: { id: teamId, name: "Team", organizationId: "org-1" },
-    }),
-    requireTeamMemberManageAccess: async (_user: unknown, teamId: string) => ({
-        organizationAdmin: true,
-        role: "admin",
-        team: { id: teamId, name: "Team", organizationId: "org-1" },
-    }),
+    getActiveOrganizationId: () => Effect.succeed("org-1"),
+    getOrganizationMembership: () => Effect.succeed({ organizationId: "org-1", role: "admin" }),
+    getTeamInActiveOrganization: (_user: unknown, teamId: string) =>
+        Effect.succeed({
+            id: teamId,
+            name: "Team",
+            organizationId: "org-1",
+        }),
+    getTeamRole: () => Effect.succeed("admin"),
+    requireOrganizationAdmin: () => Effect.succeed({ organizationId: "org-1" }),
+    requireOrganizationMembership: () => Effect.succeed({ organizationId: "org-1", role: "admin" }),
+    requireTeamAccess: (_user: unknown, teamId: string) =>
+        Effect.succeed({
+            organizationAdmin: true,
+            role: "admin",
+            team: { id: teamId, name: "Team", organizationId: "org-1" },
+        }),
+    requireTeamGraphCreateAccess: (_user: unknown, teamId: string) =>
+        Effect.succeed({
+            organizationAdmin: true,
+            role: "admin",
+            team: { id: teamId, name: "Team", organizationId: "org-1" },
+        }),
+    requireTeamGraphFileManageAccess: (_user: unknown, teamId: string) =>
+        Effect.succeed({
+            organizationAdmin: true,
+            role: "admin",
+            team: { id: teamId, name: "Team", organizationId: "org-1" },
+        }),
+    requireTeamGraphManageAccess: (_user: unknown, teamId: string) =>
+        Effect.succeed({
+            organizationAdmin: true,
+            role: "admin",
+            team: { id: teamId, name: "Team", organizationId: "org-1" },
+        }),
+    requireTeamMemberManageAccess: (_user: unknown, teamId: string) =>
+        Effect.succeed({
+            organizationAdmin: true,
+            role: "admin",
+            team: { id: teamId, name: "Team", organizationId: "org-1" },
+        }),
 }));
 
 mock.module("../../lib/team-chat", () => ({
@@ -94,8 +101,8 @@ mock.module("../../lib/team-chat", () => ({
 }));
 
 mock.module("../../lib/workflow-cancellation", () => ({
-    cancelActiveFileProcessingWorkflowRuns: async () => undefined,
-    cancelActiveGraphWorkflowRuns: async () => undefined,
+    cancelActiveFileProcessingWorkflowRuns: () => Effect.succeed(undefined),
+    cancelActiveGraphWorkflowRuns: () => Effect.succeed(undefined),
 }));
 
 mock.module("../../middleware/auth", () => ({

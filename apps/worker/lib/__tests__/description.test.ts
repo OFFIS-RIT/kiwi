@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 import { buildDescription, chunkDescriptionSources } from "../description";
 
@@ -33,12 +34,14 @@ describe("buildDescription", () => {
             return { text: ` description-${calls.length} ` };
         });
 
-        const description = await buildDescription(
-            {} as never,
-            "Entity",
-            Array.from({ length: 625 }, (_, index) => `source-${index}`),
-            undefined,
-            { generate: generateTextMock as typeof generateTextMock }
+        const description = await Effect.runPromise(
+            buildDescription(
+                {} as never,
+                "Entity",
+                Array.from({ length: 625 }, (_, index) => `source-${index}`),
+                undefined,
+                { generate: generateTextMock as typeof generateTextMock }
+            )
         );
 
         expect(description).toBe("description-2");
@@ -55,12 +58,14 @@ describe("buildDescription", () => {
             return { text: ` updated-${calls.length} ` };
         });
 
-        const description = await buildDescription(
-            {} as never,
-            "Entity",
-            Array.from({ length: 305 }, (_, index) => `source-${index}`),
-            "existing description",
-            { generate: generateTextMock as typeof generateTextMock }
+        const description = await Effect.runPromise(
+            buildDescription(
+                {} as never,
+                "Entity",
+                Array.from({ length: 305 }, (_, index) => `source-${index}`),
+                "existing description",
+                { generate: generateTextMock as typeof generateTextMock }
+            )
         );
 
         expect(description).toBe("updated-1");

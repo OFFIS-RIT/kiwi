@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { graphTable } from "@kiwi/db/tables/graph";
 import type { GraphPatchFields, GraphPatchSuccessData } from "@kiwi/contracts/graphs";
@@ -10,7 +11,7 @@ import { tryApiPromise } from "../_shared/api-effect";
 
 export function patchGraph(input: { user: AuthUser; graphId: string; body: GraphPatchFields }) {
     return tryApiPromise(async (): Promise<GraphPatchSuccessData> => {
-        const existingGraph = await assertCanPatchGraph(input.user, input.graphId);
+        const existingGraph = await Effect.runPromise(assertCanPatchGraph(input.user, input.graphId));
         const name = input.body.name?.trim();
         const description = input.body.description === undefined ? undefined : input.body.description || null;
         const hidden = input.body.hidden === undefined ? undefined : input.body.hidden === true || input.body.hidden === "true";

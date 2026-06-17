@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 const generateMock = mock(async ({ prompt }: { prompt: string }) => ({
     text: `generated:${prompt}`,
@@ -121,16 +122,18 @@ describe("subagent tools", () => {
         generateTextMock.mockClear();
         const model = {} as never;
 
-        const result = await compactConversationHistory({
-            model,
-            promptGuidance: {
-                userPrompts: ["Prefer terse summaries."],
-                teamPrompts: ["Use team phrasing."],
-                graphPrompts: ["ACME means Acme Corp."],
-            },
-            previousSummary: "Earlier summary",
-            transcript: "User: hi",
-        });
+        const result = await Effect.runPromise(
+            compactConversationHistory({
+                model,
+                promptGuidance: {
+                    userPrompts: ["Prefer terse summaries."],
+                    teamPrompts: ["Use team phrasing."],
+                    graphPrompts: ["ACME means Acme Corp."],
+                },
+                previousSummary: "Earlier summary",
+                transcript: "User: hi",
+            })
+        );
 
         const call = generateTextMock.mock.calls[0]?.[0] as {
             model: unknown;

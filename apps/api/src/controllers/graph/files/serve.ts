@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { API_ERROR_CODES, makeApiError } from "@kiwi/contracts/errors";
 import { env } from "../../../env";
 import { getGraphFileProxyResponse, type GraphFileProxyResult } from "../../../lib/graph/file-proxy";
@@ -21,13 +22,13 @@ export function serveGraphFile(input: {
             params: { graphId: input.graphId, fileId: input.fileId },
         });
 
-        const result = await getGraphFileProxyResponse({
+        const result = await Effect.runPromise(getGraphFileProxyResponse({
             graphId: input.graphId,
             fileId: input.fileId,
             request: input.request,
             bucket: env.S3_BUCKET,
             head: input.head,
-        });
+        }));
 
         if (result.status === "not_found") {
             throw makeApiError(404, API_ERROR_CODES.INVALID_FILE_IDS, "File not found");

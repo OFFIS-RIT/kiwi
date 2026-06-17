@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { createUnits, createUnitsFromText } from "../unit.ts";
 import type { GraphChunker, GraphFile, LoaderSourceChunk } from "../index.ts";
 import { resolveTextChunkSpans } from "@kiwi/loaders/chunker/span";
@@ -23,7 +24,7 @@ describe("createUnits", () => {
             chunker: fixedChunker([":::PAGE-1:::\n\nAlpha", "Beta\n\n:::PAGE-2:::\n\nGamma", ":::PAGE-3:::", "Delta"]),
         };
 
-        const units = await createUnits(file);
+        const units = await Effect.runPromise(createUnits(file));
 
         expect(
             units.map(({ fileId, content, startPage, endPage, chunks }) => ({
@@ -108,7 +109,7 @@ describe("createUnits", () => {
             },
         ];
 
-        const units = await createUnitsFromText({
+        const units = await Effect.runPromise(createUnitsFromText({
             fileId: "file-1",
             fileType: "pdf",
             text,
@@ -117,7 +118,7 @@ describe("createUnits", () => {
                 ":::PAGE-2:::\n\nGamma sentence three.",
             ]),
             loaderSourceChunks,
-        });
+        }));
 
         expect(units.map((unit) => unit.chunks.map((chunk) => ({ id: chunk.id, text: chunk.text })))).toEqual([
             [
@@ -139,7 +140,7 @@ describe("createUnits", () => {
 
     test("falls back to text chunks when raw chunk offsets cannot be proven", async () => {
         const text = "Alpha sentence one.";
-        const units = await createUnitsFromText({
+        const units = await Effect.runPromise(createUnitsFromText({
             fileId: "file-1",
             fileType: "pdf",
             text,
@@ -163,7 +164,7 @@ describe("createUnits", () => {
                     ],
                 },
             ],
-        });
+        }));
 
         expect(units).toHaveLength(1);
         expect(units[0]?.chunks).toEqual([
@@ -179,7 +180,7 @@ describe("createUnits", () => {
 
     test("does not attach loader chunks to zero-length unmatched spans after matched content", async () => {
         const text = "Alpha sentence one. Beta sentence two.";
-        const units = await createUnitsFromText({
+        const units = await Effect.runPromise(createUnitsFromText({
             fileId: "file-1",
             fileType: "pdf",
             text,
@@ -203,7 +204,7 @@ describe("createUnits", () => {
                     ],
                 },
             ],
-        });
+        }));
 
         expect(units).toHaveLength(2);
         expect(units[0]?.chunks).toEqual([
@@ -240,7 +241,7 @@ describe("createUnits", () => {
         const alphaStart = text.indexOf("Alpha text.");
         const betaStart = text.indexOf("Beta text.");
 
-        const units = await createUnitsFromText({
+        const units = await Effect.runPromise(createUnitsFromText({
             fileId: "file-1",
             fileType: "pdf",
             text,
@@ -281,7 +282,7 @@ describe("createUnits", () => {
                     ],
                 },
             ],
-        });
+        }));
 
         expect(
             units.map((unit) => ({

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 import { Elysia } from "elysia";
 
 const authUser = {
@@ -40,21 +41,21 @@ type MockDb = {
     insert: () => {
         values: (values: Record<string, unknown>) => {
             onConflictDoUpdate: (config: Record<string, unknown>) => {
-                returning: () => Array<Record<string, unknown>>;
+                returning: () => Promise<Array<Record<string, unknown>>>;
             };
-            returning: () => Array<Record<string, unknown>>;
+            returning: () => Promise<Array<Record<string, unknown>>>;
         };
     };
     update: () => {
         set: (values: Record<string, unknown>) => {
             where: () => {
-                returning: () => never[];
+                returning: () => Promise<never[]>;
             };
         };
     };
     select: () => {
         from: () => {
-            orderBy: () => never[];
+            orderBy: () => Promise<never[]>;
         };
     };
     transaction: (callback: (tx: MockDb) => unknown) => Promise<unknown>;
@@ -67,62 +68,67 @@ mock.module("../../middleware/auth", () => ({
 }));
 
 mock.module("../../lib/graph/access", () => ({
-    assertCanCreateTeamGraph: async () => ({ team: { id: "team-1", organizationId: teamAccessOrganizationId } }),
+    assertCanCreateTeamGraph: () => Effect.succeed({ team: { id: "team-1", organizationId: teamAccessOrganizationId } }),
 }));
 
 mock.module("../../lib/team/access", () => ({
-    requireOrganizationAdmin: async (_user: unknown, organizationId?: string) => {
-        organizationAdminChecks.push(organizationId);
-        return { organizationId: organizationId ?? "org-1" };
-    },
+    requireOrganizationAdmin: (_user: unknown, organizationId?: string) =>
+        Effect.sync(() => {
+            organizationAdminChecks.push(organizationId);
+            return { organizationId: organizationId ?? "org-1" };
+        }),
+    requireTeamGraphCreateAccess: () =>
+        Effect.succeed({ organizationAdmin: true, role: "admin", team: { id: "team-1", organizationId: teamAccessOrganizationId } }),
 }));
 
 mock.module("../../lib/connector-access", () => ({
-    assertCanSyncBinding: async () => ({ binding: { id: "binding-1" } }),
-    assertCanUseInstallation: async () => ({
-        id: "installation-1",
-        connectorId: installationConnectorId,
-        provider: "github",
-        organizationId: "org-1",
-        teamId: null,
-    }),
-    assertCanViewBinding: async () => ({ binding: { id: "binding-1" } }),
-    requireActiveConnector: async (id: string) => ({ ...connector, id }),
+    assertCanSyncBinding: () => Effect.succeed({ binding: { id: "binding-1" } }),
+    assertCanUseInstallation: () =>
+        Effect.succeed({
+            id: "installation-1",
+            connectorId: installationConnectorId,
+            provider: "github",
+            organizationId: "org-1",
+            teamId: null,
+        }),
+    assertCanViewBinding: () => Effect.succeed({ binding: { id: "binding-1" } }),
+    requireActiveConnector: (id: string) => Effect.succeed({ ...connector, id }),
 }));
 
 mock.module("../../lib/connectors", () => ({
     createManifestUrl: () => "https://github.com/settings/apps/new",
     encryptCredentials: () => "encrypted",
     encryptSecret: () => "encrypted-secret",
-    exchangeGitHubManifestCode: async () => {
-        throw new Error("manifest exchange not expected");
-    },
-    getGitHubConnectorInstallationAccount: async (_connector: unknown, installationId: string) => {
-        installationAccountCalls.push(installationId);
-        return {
-            login: "acme",
-            type: "organization",
-            repositorySelection: "selected",
-        };
-    },
-    listProviderBranches: async (_connector: unknown, _installation: unknown, repositoryId: string) => {
-        listBranchesCalls.push({ repositoryId });
-        return [{ name: "main", commitSha: "commit-sha" }];
-    },
-    listProviderRepositories: async (connector: { id: string }, installation: { id: string }) => {
-        listRepositoriesCalls.push({ connectorId: connector.id, installationId: installation.id });
-        return [
-            {
-                id: "repo-1",
-                provider: "github",
-                fullName: "acme/app",
-                name: "app",
-                htmlUrl: "https://github.com/acme/app",
-                defaultBranch: "main",
-                private: true,
-            },
-        ];
-    },
+    exchangeGitHubManifestCode: () => Effect.fail(new Error("manifest exchange not expected")),
+    getGitHubConnectorInstallationAccount: (_connector: unknown, installationId: string) =>
+        Effect.sync(() => {
+            installationAccountCalls.push(installationId);
+            return {
+                login: "acme",
+                type: "organization",
+                repositorySelection: "selected",
+            };
+        }),
+    listProviderBranches: (_connector: unknown, _installation: unknown, repositoryId: string) =>
+        Effect.sync(() => {
+            listBranchesCalls.push({ repositoryId });
+            return [{ name: "main", commitSha: "commit-sha" }];
+        }),
+    listProviderRepositories: (connector: { id: string }, installation: { id: string }) =>
+        Effect.sync(() => {
+            listRepositoriesCalls.push({ connectorId: connector.id, installationId: installation.id });
+            return [
+                {
+                    id: "repo-1",
+                    provider: "github",
+                    fullName: "acme/app",
+                    name: "app",
+                    htmlUrl: "https://github.com/acme/app",
+                    defaultBranch: "main",
+                    private: true,
+                },
+            ];
+        }),
     signConnectorState: (state: Record<string, unknown>) => {
         signedStates.push(state);
         return "state";
@@ -152,10 +158,10 @@ const mockDb: MockDb = {
                 onConflictDoUpdate: (config: Record<string, unknown>) => {
                     conflictConfigs.push(config);
                     return {
-                        returning: () => [{ id: "installation-1", ...values, status: "active" }],
+                        returning: async () => [{ id: "installation-1", ...values, status: "active" }],
                     };
                 },
-                returning: () => [{ id: "row-1", ...values }],
+                returning: async () => [{ id: "row-1", ...values }],
             };
         },
     }),
@@ -164,14 +170,14 @@ const mockDb: MockDb = {
             updateValues.push(values);
             return {
                 where: () => ({
-                    returning: () => [],
+                    returning: async () => [],
                 }),
             };
         },
     }),
     select: () => ({
         from: () => ({
-            orderBy: () => [],
+            orderBy: async () => [],
         }),
     }),
     transaction: async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb),

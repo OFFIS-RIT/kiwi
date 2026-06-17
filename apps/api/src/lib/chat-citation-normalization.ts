@@ -6,11 +6,19 @@ import {
     type ResolvedCitationFence,
 } from "@kiwi/ai/citation";
 import type { MessagePart } from "@kiwi/contracts/chat";
+import * as Effect from "effect/Effect";
 
 export type CitationResolver = (citation: CitationFence) => Promise<ResolvedCitationFence | null>;
 
 export const DEFAULT_CITATION_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
 export const DEFAULT_CITATION_NEGATIVE_CACHE_MAX_ENTRIES = 2048;
+
+function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, unknown> {
+    return Effect.tryPromise({
+        try: thunk,
+        catch: (error) => error,
+    });
+}
 
 export type CachingCitationResolverOptions = {
     resolveCitation: (sourceId: string) => Promise<ResolvedCitationFence | null>;
@@ -117,82 +125,96 @@ function toUnresolvedCitation(partIndex: number, citation: CitationFence): Unres
     };
 }
 
-async function normalizeCitationFencesInTextDetailed(
+function normalizeCitationFencesInTextDetailed(
     text: string,
     resolveCitation: CitationResolver,
     partIndex: number
-): Promise<NormalizedCitationText> {
+): Effect.Effect<NormalizedCitationText, unknown> {
     const segments = splitTextWithCitationFences(text);
     const hasLegacyCitation = segments.some(
         (segment) => segment.type === "citation" && needsCanonicalCitation(segment.citation)
     );
 
     if (!hasLegacyCitation) {
-        return { text, unresolvedCitations: [] };
+        return Effect.succeed({ text, unresolvedCitations: [] });
     }
 
-    const normalizedSegments = await Promise.all(
-        segments.map(async (segment) => {
-            if (segment.type === "text") {
-                return { text: segment.text };
-            }
+    return Effect.gen(function* () {
+        const normalizedSegments: Array<{ text: string; unresolvedCitation?: UnresolvedCitation }> = yield* Effect.all(
+            segments.map((segment) => {
+                if (segment.type === "text") {
+                    return Effect.succeed({ text: segment.text });
+                }
 
-            if (!needsCanonicalCitation(segment.citation)) {
-                return { text: stringifyCitationFence(segment.citation) };
-            }
+                if (!needsCanonicalCitation(segment.citation)) {
+                    return Effect.succeed({ text: stringifyCitationFence(segment.citation) });
+                }
 
-            const resolvedCitation = await resolveCitation(segment.citation);
-            if (resolvedCitation) {
-                return { text: stringifyCitationFence(resolvedCitation) };
-            }
+                return Effect.gen(function* () {
+                    const resolvedCitation = yield* chatEffect(() => resolveCitation(segment.citation));
+                    if (resolvedCitation) {
+                        return { text: stringifyCitationFence(resolvedCitation) };
+                    }
 
-            return {
-                text: "",
-                unresolvedCitation: toUnresolvedCitation(partIndex, segment.citation),
-            };
-        })
-    );
+                    return {
+                        text: "",
+                        unresolvedCitation: toUnresolvedCitation(partIndex, segment.citation),
+                    };
+                });
+            })
+        );
 
-    return {
-        text: normalizedSegments.map((segment) => segment.text).join(""),
-        unresolvedCitations: normalizedSegments.flatMap((segment) =>
-            segment.unresolvedCitation ? [segment.unresolvedCitation] : []
-        ),
-    };
+        return {
+            text: normalizedSegments.map((segment) => segment.text).join(""),
+            unresolvedCitations: normalizedSegments.flatMap((segment) =>
+                segment.unresolvedCitation ? [segment.unresolvedCitation] : []
+            ),
+        };
+    });
 }
 
-export async function normalizeCitationFencesInText(text: string, resolveCitation: CitationResolver): Promise<string> {
-    return (await normalizeCitationFencesInTextDetailed(text, resolveCitation, 0)).text;
+export function normalizeCitationFencesInText(
+    text: string,
+    resolveCitation: CitationResolver
+): Effect.Effect<string, unknown> {
+    return Effect.gen(function* () {
+        const normalized = yield* normalizeCitationFencesInTextDetailed(text, resolveCitation, 0);
+        return normalized.text;
+    });
 }
 
-export async function normalizeMessageCitationFences(
+export function normalizeMessageCitationFences(
     parts: MessagePart[],
     resolveCitation: CitationResolver
-): Promise<{ parts: MessagePart[]; changed: boolean; unresolvedCitations: UnresolvedCitation[] }> {
-    let changed = false;
-    const normalized = await Promise.all(
-        parts.map(async (part, partIndex) => {
-            if (part.type !== "text") {
-                return { part, unresolvedCitations: [] };
-            }
+): Effect.Effect<{ parts: MessagePart[]; changed: boolean; unresolvedCitations: UnresolvedCitation[] }, unknown> {
+    return Effect.gen(function* () {
+        let changed = false;
+        const normalized = yield* Effect.all(
+            parts.map((part, partIndex) => {
+                if (part.type !== "text") {
+                    return Effect.succeed({ part, unresolvedCitations: [] });
+                }
 
-            const { text, unresolvedCitations } = await normalizeCitationFencesInTextDetailed(
-                part.text,
-                resolveCitation,
-                partIndex
-            );
-            if (text === part.text) {
-                return { part, unresolvedCitations };
-            }
+                return Effect.gen(function* () {
+                    const { text, unresolvedCitations } = yield* normalizeCitationFencesInTextDetailed(
+                        part.text,
+                        resolveCitation,
+                        partIndex
+                    );
+                    if (text === part.text) {
+                        return { part, unresolvedCitations };
+                    }
 
-            changed = true;
-            return { part: { ...part, text }, unresolvedCitations };
-        })
-    );
+                    changed = true;
+                    return { part: { ...part, text }, unresolvedCitations };
+                });
+            })
+        );
 
-    return {
-        parts: normalized.map((item) => item.part),
-        changed,
-        unresolvedCitations: normalized.flatMap((item) => item.unresolvedCitations),
-    };
+        return {
+            parts: normalized.map((item) => item.part),
+            changed,
+            unresolvedCitations: normalized.flatMap((item) => item.unresolvedCitations),
+        };
+    });
 }

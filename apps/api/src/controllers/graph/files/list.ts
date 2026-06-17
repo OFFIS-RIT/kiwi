@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { filesTable } from "@kiwi/db/tables/graph";
 import type { GraphDetailFileRecord } from "@kiwi/contracts/graphs";
@@ -9,7 +10,7 @@ import { tryApiPromise } from "../../_shared/api-effect";
 
 export function listGraphFiles(input: { user: AuthUser; graphId: string }) {
     return tryApiPromise(async (): Promise<GraphDetailFileRecord[]> => {
-        await assertCanViewGraph(input.user, input.graphId);
+        await Effect.runPromise(assertCanViewGraph(input.user, input.graphId));
 
         const fileRows: GraphFileRow[] = await db
             .select(selectGraphDetailFileFields)

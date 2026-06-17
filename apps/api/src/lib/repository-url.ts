@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -158,66 +159,71 @@ export function buildGitHubExternalCodeFile(options: {
     };
 }
 
-export async function loadRepositoryFromUrl(input: string): Promise<LoadedRepository> {
-    const repository = normalizeRepositoryUrl(input);
-    const tempDir = await mkdtemp(path.join(tmpdir(), "kiwi-repository-"));
-    const repoPath = path.join(tempDir, "repo");
+export function loadRepositoryFromUrl(input: string): Effect.Effect<LoadedRepository, unknown> {
+    return Effect.tryPromise({
+        try: async () => {
+            const repository = normalizeRepositoryUrl(input);
+            const tempDir = await mkdtemp(path.join(tmpdir(), "kiwi-repository-"));
+            const repoPath = path.join(tempDir, "repo");
 
-    try {
-        await runGit(["clone", "--depth", "1", "--", repository.url, repoPath], tempDir);
-        const commitSha = (await runGit(["rev-parse", "HEAD"], repoPath)).trim();
-        const listedFiles = (await runGit(["ls-files", "-z"], repoPath)).split("\0").filter(Boolean);
-        const files: RepositorySourceFile[] = [];
-        const repoRoot = await realpath(repoPath);
-        let totalBytes = 0;
-
-        for (const filePath of listedFiles) {
-            if (!shouldLoadCodePath(filePath)) {
-                continue;
-            }
-
-            const absolutePath = path.resolve(repoPath, filePath);
-            if (!isPathInsideRoot(repoRoot, absolutePath)) {
-                continue;
-            }
-
-            let realFilePath: string;
             try {
-                realFilePath = await realpath(absolutePath);
-            } catch {
-                continue;
-            }
-            if (!isPathInsideRoot(repoRoot, realFilePath)) {
-                continue;
-            }
+                await runGit(["clone", "--depth", "1", "--", repository.url, repoPath], tempDir);
+                const commitSha = (await runGit(["rev-parse", "HEAD"], repoPath)).trim();
+                const listedFiles = (await runGit(["ls-files", "-z"], repoPath)).split("\0").filter(Boolean);
+                const files: RepositorySourceFile[] = [];
+                const repoRoot = await realpath(repoPath);
+                let totalBytes = 0;
 
-            const info = await stat(realFilePath);
-            if (!info.isFile() || info.size > MAX_REPOSITORY_CODE_FILE_BYTES) {
-                continue;
+                for (const filePath of listedFiles) {
+                    if (!shouldLoadCodePath(filePath)) {
+                        continue;
+                    }
+
+                    const absolutePath = path.resolve(repoPath, filePath);
+                    if (!isPathInsideRoot(repoRoot, absolutePath)) {
+                        continue;
+                    }
+
+                    let realFilePath: string;
+                    try {
+                        realFilePath = await realpath(absolutePath);
+                    } catch {
+                        continue;
+                    }
+                    if (!isPathInsideRoot(repoRoot, realFilePath)) {
+                        continue;
+                    }
+
+                    const info = await stat(realFilePath);
+                    if (!info.isFile() || info.size > MAX_REPOSITORY_CODE_FILE_BYTES) {
+                        continue;
+                    }
+
+                    if (files.length + 1 > MAX_REPOSITORY_CODE_FILES) {
+                        throw new RepositoryUrlError("limit", "Repository contains too many supported code files");
+                    }
+
+                    if (totalBytes + info.size > MAX_REPOSITORY_CODE_BYTES) {
+                        throw new RepositoryUrlError("limit", "Repository contains too much supported code");
+                    }
+
+                    const content = await readFile(realFilePath, "utf8");
+                    files.push({ path: filePath, content, size: info.size });
+                    totalBytes += info.size;
+                }
+
+                return {
+                    url: repository.url,
+                    name: repository.name,
+                    commitSha,
+                    files,
+                };
+            } finally {
+                await rm(tempDir, { recursive: true, force: true });
             }
-
-            if (files.length + 1 > MAX_REPOSITORY_CODE_FILES) {
-                throw new RepositoryUrlError("limit", "Repository contains too many supported code files");
-            }
-
-            if (totalBytes + info.size > MAX_REPOSITORY_CODE_BYTES) {
-                throw new RepositoryUrlError("limit", "Repository contains too much supported code");
-            }
-
-            const content = await readFile(realFilePath, "utf8");
-            files.push({ path: filePath, content, size: info.size });
-            totalBytes += info.size;
-        }
-
-        return {
-            url: repository.url,
-            name: repository.name,
-            commitSha,
-            files,
-        };
-    } finally {
-        await rm(tempDir, { recursive: true, force: true });
-    }
+        },
+        catch: (error) => error,
+    });
 }
 
 function isPathInsideRoot(root: string, target: string): boolean {

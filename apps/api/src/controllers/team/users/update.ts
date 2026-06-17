@@ -11,7 +11,7 @@ import { ensureOrganizationMembers, ensureTeamHasAdmin, normalizeUsers, selectTe
 
 export function updateTeamUsers(input: { user: AuthUser; teamId: string; body: TeamUpdateUsersInput }) {
     return tryApiPromise(async (): Promise<TeamUserListItem[]> => {
-        const access = await requireTeamMemberManageAccess(input.user, input.teamId);
+        const access = await Effect.runPromise(requireTeamMemberManageAccess(input.user, input.teamId));
         const normalizedUsers = normalizeUsers({ users: input.body.users });
         await Effect.runPromise(
             ensureOrganizationMembers(

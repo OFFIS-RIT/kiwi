@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { normalizeModelId, toAdminModelRecord } from "@kiwi/ai/models";
 import { db } from "@kiwi/db";
 import { modelsTable } from "@kiwi/db/tables/models";
@@ -10,7 +11,7 @@ import { tryApiPromise } from "../_shared/api-effect";
 
 export function setDefaultModel(input: { user: AuthUser; modelId: string }) {
     return tryApiPromise(async () => {
-        const membership = await requireOrganizationAdmin(input.user);
+        const membership = await Effect.runPromise(requireOrganizationAdmin(input.user));
         const organizationId = membership.organizationId;
 
         return db.transaction(async (tx) => {

@@ -3,6 +3,7 @@ import { linkifyResearchCitations, runMcpResearch } from "@kiwi/ai/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Elysia } from "elysia";
+import * as Effect from "effect/Effect";
 import { z } from "zod/v4";
 import { assertCanViewGraphWithRootOwner } from "../lib/graph/access";
 import { listAccessibleGraphs } from "../lib/graph/list";
@@ -46,31 +47,35 @@ function jsonRpcErrorResponse(status: number, code: number, message: string) {
     );
 }
 
-async function assertMcpGraphViewPermission(headers: Headers) {
-    try {
-        await assertPermissions(headers, { graph: ["view"] }, { apiKeyOnly: true });
-    } catch (error) {
-        if (error instanceof Error && error.message === API_ERROR_CODES.FORBIDDEN) {
-            throw new Error("This API key does not have permission to view graphs.");
-        }
+function assertMcpGraphViewPermission(headers: Headers): Effect.Effect<void, Error> {
+    return Effect.matchEffect(assertPermissions(headers, { graph: ["view"] }, { apiKeyOnly: true }), {
+        onFailure: (error) => {
+            if (error instanceof Error && error.message === API_ERROR_CODES.FORBIDDEN) {
+                return Effect.fail(new Error("This API key does not have permission to view graphs."));
+            }
 
-        throw new Error("Unable to verify permissions for this MCP tool.");
-    }
+            return Effect.fail(new Error("Unable to verify permissions for this MCP tool."));
+        },
+        onSuccess: () => Effect.succeed(undefined),
+    });
 }
 
-async function assertMcpCanViewGraph(...args: Parameters<typeof assertCanViewGraphWithRootOwner>) {
-    try {
-        return await assertCanViewGraphWithRootOwner(...args);
-    } catch (error) {
-        if (
-            error instanceof Error &&
-            (error.message === API_ERROR_CODES.FORBIDDEN || error.message === API_ERROR_CODES.GRAPH_NOT_FOUND)
-        ) {
-            throw new Error("Graph not found or this API key does not have permission to view it.");
-        }
+function assertMcpCanViewGraph(
+    ...args: Parameters<typeof assertCanViewGraphWithRootOwner>
+): ReturnType<typeof assertCanViewGraphWithRootOwner> {
+    return Effect.matchEffect(assertCanViewGraphWithRootOwner(...args), {
+        onFailure: (error) => {
+            if (
+                error instanceof Error &&
+                (error.message === API_ERROR_CODES.FORBIDDEN || error.message === API_ERROR_CODES.GRAPH_NOT_FOUND)
+            ) {
+                return Effect.fail(new Error("Graph not found or this API key does not have permission to view it."));
+            }
 
-        throw new Error("Unable to verify access to this graph.");
-    }
+            return Effect.fail(new Error("Unable to verify access to this graph."));
+        },
+        onSuccess: (value) => Effect.succeed(value),
+    });
 }
 
 export const mcpRoute = new Elysia({ prefix: "/mcp" })
@@ -85,9 +90,9 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
             version: "0.2.0",
         });
         server.tool("get_graphs", "List the graphs/projects that the current API key can access.", async () => {
-            await assertMcpGraphViewPermission(request.headers);
+            await Effect.runPromise(assertMcpGraphViewPermission(request.headers));
 
-            const graphs = await listAccessibleGraphs(user);
+            const graphs = await Effect.runPromise(listAccessibleGraphs(user));
 
             return {
                 content: [
@@ -111,30 +116,34 @@ export const mcpRoute = new Elysia({ prefix: "/mcp" })
             "Research a question against one graph/project and return a Markdown answer with document links.",
             researchInput,
             async ({ graphId, question }) => {
-                await assertMcpGraphViewPermission(request.headers);
-                const { rootOwner } = await assertMcpCanViewGraph(user, graphId);
+                await Effect.runPromise(assertMcpGraphViewPermission(request.headers));
+                const { rootOwner } = await Effect.runPromise(assertMcpCanViewGraph(user, graphId));
 
-                const { client, promptGuidance, tools } = await getGraphResearchRuntime(graphId, {
-                    toolset: "mcp",
-                    user,
-                    rootOwner,
-                });
+                const { client, promptGuidance, tools } = await Effect.runPromise(
+                    getGraphResearchRuntime(graphId, {
+                        toolset: "mcp",
+                        user,
+                        rootOwner,
+                    })
+                );
 
-                const result = await runMcpResearch({
-                    model: client.text!,
-                    question,
-                    system: createChatSystemPrompt({ includeClientTools: false }),
-                    tools,
-                    promptGuidance,
-                    providerOptions: getProviderOptions({ thinking: "medium" }),
-                    transformAnswer: (text) =>
-                        linkifyResearchCitations(text, (citation) =>
-                            resolveCitationDocumentLink(graphId, citation, {
-                                baseUrl: getPublicApiBaseUrl(request, env.API_URL),
-                                signed: true,
-                            })
-                        ),
-                });
+                const result = await Effect.runPromise(
+                    runMcpResearch({
+                        model: client.text!,
+                        question,
+                        system: createChatSystemPrompt({ includeClientTools: false }),
+                        tools,
+                        promptGuidance,
+                        providerOptions: getProviderOptions({ thinking: "medium" }),
+                        transformAnswer: (text) =>
+                            linkifyResearchCitations(text, (citation) =>
+                                resolveCitationDocumentLink(graphId, citation, {
+                                    baseUrl: getPublicApiBaseUrl(request, env.API_URL),
+                                    signed: true,
+                                })
+                            ),
+                    })
+                );
 
                 return {
                     content: [{ type: "text", text: result.answer }],

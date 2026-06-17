@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 type MockFileRow = {
     id: string;
@@ -87,14 +88,15 @@ mock.module("@kiwi/db", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
-    getFile: async (key: string) => {
+    getFile: (key: string) => {
         const content = fileContents[key];
-        return content ? { content } : null;
+        return Effect.succeed(content ? { type: "text", content } : null);
     },
-    putNamedFile: async (_name: string, content: string) => {
-        uploadedManifest = JSON.parse(content);
-        return { key: "manifest-key" };
-    },
+    putNamedFile: (_name: string, content: string) =>
+        Effect.sync(() => {
+            uploadedManifest = JSON.parse(content);
+            return { key: "manifest-key", type: "application/json" };
+        }),
 }));
 
 mock.module("../../env", () => ({
@@ -114,7 +116,7 @@ describe("prepareCodeManifest", () => {
     });
 
     test("includes active files from the same repository commit as selected files", async () => {
-        const key = await prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" });
+        const key = await Effect.runPromise(prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" }));
 
         expect(key).toBe("manifest-key");
         expect((uploadedManifest as { files: Array<{ path: string }> }).files.map((file) => file.path).sort()).toEqual([
@@ -173,7 +175,7 @@ describe("prepareCodeManifest", () => {
         ];
         selectedFileIds = ["file-connector-new"];
 
-        const key = await prepareCodeManifest({ graphId: "graph-1", fileIds: selectedFileIds, processRunId: "run-1" });
+        const key = await Effect.runPromise(prepareCodeManifest({ graphId: "graph-1", fileIds: selectedFileIds, processRunId: "run-1" }));
 
         expect(key).toBe("manifest-key");
         expect((uploadedManifest as { files: Array<{ path: string }> }).files.map((file) => file.path).sort()).toEqual([
@@ -210,7 +212,7 @@ describe("prepareCodeManifest", () => {
                 headers: { "content-type": "text/plain" },
             })) as unknown as typeof fetch;
 
-        const key = await prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" });
+        const key = await Effect.runPromise(prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" }));
 
         expect(key).toBe("manifest-key");
         expect((uploadedManifest as { files: Array<{ path: string }> }).files.map((file) => file.path).sort()).toEqual([
@@ -223,7 +225,7 @@ describe("prepareCodeManifest", () => {
 
 describe("readFileContentSource", () => {
     test("reads internal S3 content", async () => {
-        await expect(readFileContentSource({ kind: "internal", key: "key-new" })).resolves.toBe(
+        await expect(Effect.runPromise(readFileContentSource({ kind: "internal", key: "key-new" }))).resolves.toBe(
             "import { helper } from './helper';\nexport function main() { return helper(); }\n"
         );
     });
@@ -235,11 +237,13 @@ describe("readFileContentSource", () => {
             })) as unknown as typeof fetch;
 
         await expect(
-            readFileContentSource({
-                kind: "external",
-                provider: "github",
-                url: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
-            })
+            Effect.runPromise(
+                readFileContentSource({
+                    kind: "external",
+                    provider: "github",
+                    url: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
+                })
+            )
         ).resolves.toBe("export const value = 1;\n");
     });
 
@@ -251,11 +255,13 @@ describe("readFileContentSource", () => {
         }) as unknown as typeof fetch;
 
         await expect(
-            readFileContentSource({
-                kind: "external",
-                provider: "github",
-                url: "https://example.com/acme/widgets/commit-1/src/index.ts",
-            })
+            Effect.runPromise(
+                readFileContentSource({
+                    kind: "external",
+                    provider: "github",
+                    url: "https://example.com/acme/widgets/commit-1/src/index.ts",
+                })
+            )
         ).rejects.toThrow("Unsupported external file source");
         expect(fetched).toBe(false);
     });
@@ -270,11 +276,13 @@ describe("readFileContentSource", () => {
             })) as unknown as typeof fetch;
 
         await expect(
-            readFileContentSource({
-                kind: "external",
-                provider: "github",
-                url: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
-            })
+            Effect.runPromise(
+                readFileContentSource({
+                    kind: "external",
+                    provider: "github",
+                    url: "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
+                })
+            )
         ).rejects.toThrow("too large");
     });
 });

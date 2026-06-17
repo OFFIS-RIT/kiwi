@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { db } from "@kiwi/db";
 import { teamMemberRolesTable, teamMemberTable, teamTable } from "@kiwi/db/tables/auth";
 import type { TeamCreateInput, TeamCreateSuccessData } from "@kiwi/contracts/teams";
@@ -9,7 +10,7 @@ import { ensureOrganizationMembers, ensureTeamHasAdmin, normalizeUsers } from ".
 
 export function createTeam(input: { user: AuthUser; body: TeamCreateInput }) {
     return tryApiPromise(async (): Promise<TeamCreateSuccessData> => {
-        const membership = await requireOrganizationAdmin(input.user);
+        const membership = await Effect.runPromise(requireOrganizationAdmin(input.user));
         const organizationId = membership.organizationId;
         const normalizedUsers = normalizeUsers({
             users: input.body.users,

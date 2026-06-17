@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { roleIncludes } from "@kiwi/auth/permissions";
 import { db } from "@kiwi/db";
 import { memberTable, organizationTable, teamTable } from "@kiwi/db/tables/auth";
@@ -16,134 +17,150 @@ type TeamRecord = {
     organizationId: string;
 };
 
-async function getTeamById(teamId: string): Promise<TeamRecord | null> {
-    const [team] = await db
-        .select({
-            id: teamTable.id,
-            organizationId: teamTable.organizationId,
-        })
-        .from(teamTable)
-        .where(eq(teamTable.id, teamId))
-        .limit(1);
+function getTeamById(teamId: string): Effect.Effect<TeamRecord | null, unknown> {
+    return Effect.tryPromise(async () => {
+        const [team] = await db
+            .select({
+                id: teamTable.id,
+                organizationId: teamTable.organizationId,
+            })
+            .from(teamTable)
+            .where(eq(teamTable.id, teamId))
+            .limit(1);
 
-    return team ?? null;
+        return team ?? null;
+    });
 }
 
-async function getOrganizationAccess(user: AuthUser, organizationId: string) {
-    const membership = await getOrganizationMembership(user, organizationId);
-    return {
-        membership,
-        admin: roleIncludes(membership?.role, "admin"),
-    };
+function getOrganizationAccess(user: AuthUser, organizationId: string) {
+    return Effect.gen(function* () {
+        const membership = yield* getOrganizationMembership(user, organizationId);
+        return {
+            membership,
+            admin: roleIncludes(membership?.role, "admin"),
+        };
+    });
 }
 
-export async function assertCanManageUserPrompts(user: AuthUser, targetUserId: string) {
+export function assertCanManageUserPrompts(user: AuthUser, targetUserId: string) {
     if (targetUserId === user.id || user.isSystemAdmin) {
-        return;
+        return Effect.void;
     }
 
-    const [adminMembership] = await db
-        .select({ userId: memberTable.userId })
-        .from(memberTable)
-        .innerJoin(
-            targetMemberTable,
-            and(
-                eq(targetMemberTable.organizationId, memberTable.organizationId),
-                eq(targetMemberTable.userId, targetUserId)
-            )
-        )
-        .where(and(eq(memberTable.userId, user.id), sql<boolean>`${memberTable.role} ~ ${ADMIN_ROLE_PATTERN}`))
-        .limit(1);
+    return Effect.gen(function* () {
+        const [adminMembership] = yield* Effect.tryPromise(() =>
+            db
+                .select({ userId: memberTable.userId })
+                .from(memberTable)
+                .innerJoin(
+                    targetMemberTable,
+                    and(
+                        eq(targetMemberTable.organizationId, memberTable.organizationId),
+                        eq(targetMemberTable.userId, targetUserId)
+                    )
+                )
+                .where(and(eq(memberTable.userId, user.id), sql<boolean>`${memberTable.role} ~ ${ADMIN_ROLE_PATTERN}`))
+                .limit(1)
+        );
 
-    if (!adminMembership) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
+        if (!adminMembership) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+    });
 }
 
-export async function assertCanManageOrganizationPrompts(user: AuthUser, organizationId: string) {
-    // Permission gate first: only system admins may ever reach this resource,
-    // so non-admins must not be able to probe organization ID validity via
-    // the 403/404 distinction.
-    if (!user.isSystemAdmin) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
+export function assertCanManageOrganizationPrompts(user: AuthUser, organizationId: string) {
+    return Effect.gen(function* () {
+        // Permission gate first: only system admins may ever reach this resource,
+        // so non-admins must not be able to probe organization ID validity via
+        // the 403/404 distinction.
+        if (!user.isSystemAdmin) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
 
-    const [organization] = await db
-        .select({ id: organizationTable.id })
-        .from(organizationTable)
-        .where(eq(organizationTable.id, organizationId))
-        .limit(1);
+        const [organization] = yield* Effect.tryPromise(() =>
+            db
+                .select({ id: organizationTable.id })
+                .from(organizationTable)
+                .where(eq(organizationTable.id, organizationId))
+                .limit(1)
+        );
 
-    if (!organization) {
-        throw new Error(API_ERROR_CODES.ORGANIZATION_NOT_FOUND);
-    }
+        if (!organization) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.ORGANIZATION_NOT_FOUND));
+        }
 
-    return organization;
+        return organization;
+    });
 }
 
-export async function assertCanManageTeamPrompts(user: AuthUser, teamId: string) {
-    const team = await getTeamById(teamId);
-    if (!team) {
-        throw new Error(API_ERROR_CODES.TEAM_NOT_FOUND);
-    }
+export function assertCanManageTeamPrompts(user: AuthUser, teamId: string) {
+    return Effect.gen(function* () {
+        const team = yield* getTeamById(teamId);
+        if (!team) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.TEAM_NOT_FOUND));
+        }
 
-    if (user.isSystemAdmin) {
+        if (user.isSystemAdmin) {
+            return team;
+        }
+
+        const access = yield* getOrganizationAccess(user, team.organizationId);
+        if (access.admin) {
+            return team;
+        }
+
+        if (!access.membership) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+
+        const teamRole = yield* getTeamRole(user.id, team.id);
+        if (teamRole !== "admin") {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+
         return team;
-    }
-
-    const access = await getOrganizationAccess(user, team.organizationId);
-    if (access.admin) {
-        return team;
-    }
-
-    if (!access.membership) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-
-    const teamRole = await getTeamRole(user.id, team.id);
-    if (teamRole !== "admin") {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-
-    return team;
+    });
 }
 
-export async function assertCanManageGraphPrompts(user: AuthUser, graphId: string): Promise<GraphRecord> {
-    const graph = await getGraphById(graphId);
-    if (!graph) {
-        throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
-    }
+export function assertCanManageGraphPrompts(user: AuthUser, graphId: string): Effect.Effect<GraphRecord, unknown> {
+    return Effect.gen(function* () {
+        const graph = yield* getGraphById(graphId);
+        if (!graph) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.GRAPH_NOT_FOUND));
+        }
 
-    if (user.isSystemAdmin) {
-        return graph;
-    }
-
-    const rootOwner = await resolveGraphOwnerRoot(graph.id);
-    if (rootOwner.mode === "user") {
-        if (rootOwner.userId === user.id) {
+        if (user.isSystemAdmin) {
             return graph;
         }
 
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
+        const rootOwner = yield* resolveGraphOwnerRoot(graph.id);
+        if (rootOwner.mode === "user") {
+            if (rootOwner.userId === user.id) {
+                return graph;
+            }
 
-    const access = await getOrganizationAccess(user, rootOwner.organizationId);
-    if (access.admin) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+
+        const access = yield* getOrganizationAccess(user, rootOwner.organizationId);
+        if (access.admin) {
+            return graph;
+        }
+
+        if (rootOwner.mode !== "team") {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+
+        if (!access.membership) {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+
+        const teamRole = yield* getTeamRole(user.id, rootOwner.teamId);
+        if (teamRole !== "admin") {
+            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+        }
+
         return graph;
-    }
-
-    if (rootOwner.mode !== "team") {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-
-    if (!access.membership) {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-
-    const teamRole = await getTeamRole(user.id, rootOwner.teamId);
-    if (teamRole !== "admin") {
-        throw new Error(API_ERROR_CODES.FORBIDDEN);
-    }
-
-    return graph;
+    });
 }

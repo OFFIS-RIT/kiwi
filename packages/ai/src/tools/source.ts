@@ -3,6 +3,7 @@ import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, currentSourceSql, visibleFilePredicate, visibleFileSql } from "@kiwi/db/source-validity";
 import { and, asc, cosineDistance, eq, gt, inArray, or, sql, type SQL } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { embed, tool } from "ai";
 import { withAiSlot } from "../concurrency";
 import {
@@ -182,7 +183,7 @@ type GetScopedSourcesArgs = {
     onConsideredFileIds?: SourceToolOptions["onConsideredFileIds"];
 };
 
-async function getScopedSources(
+function getScopedSources(
     graphId: string,
     embeddingModel: EmbeddingModelV3,
     {
@@ -195,61 +196,155 @@ async function getScopedSources(
         cursor,
         onConsideredFileIds,
     }: GetScopedSourcesArgs
-) {
-    const fileIds = uniqueTerms(files ?? []);
-    const entityIds = uniqueTerms(entities ?? []);
-    const relationshipIds = uniqueTerms(relationships ?? []);
-    const text = query?.trim() ?? "";
-    const terms = uniqueTerms([text, ...(keywords ?? [])]);
-    onConsideredFileIds?.(fileIds);
+): Effect.Effect<string, unknown> {
+    return Effect.gen(function* () {
+        const fileIds = uniqueTerms(files ?? []);
+        const entityIds = uniqueTerms(entities ?? []);
+        const relationshipIds = uniqueTerms(relationships ?? []);
+        const text = query?.trim() ?? "";
+        const terms = uniqueTerms([text, ...(keywords ?? [])]);
+        onConsideredFileIds?.(fileIds);
 
-    if (terms.length === 0) {
-        const clauses = [currentSourcePredicate(sourcesTable), eq(filesTable.graphId, graphId), visibleFilePredicate(filesTable)];
-        if (cursor) {
-            clauses.push(gt(sourcesTable.id, cursor));
-        }
-
-        if (fileIds.length > 0) {
-            clauses.push(inArray(textUnitTable.fileId, fileIds));
-        }
-
-        const idClauses = [];
-
-        if (entityIds.length > 0) {
-            idClauses.push(inArray(sourcesTable.entityId, entityIds));
-        }
-
-        if (relationshipIds.length > 0) {
-            idClauses.push(inArray(sourcesTable.relationshipId, relationshipIds));
-        }
-
-        if (idClauses.length === 1) {
-            clauses.push(idClauses[0]!);
-        } else {
-            const combinedIdClause = or(...idClauses);
-
-            if (combinedIdClause) {
-                clauses.push(combinedIdClause);
+        if (terms.length === 0) {
+            const clauses = [
+                currentSourcePredicate(sourcesTable),
+                eq(filesTable.graphId, graphId),
+                visibleFilePredicate(filesTable),
+            ];
+            if (cursor) {
+                clauses.push(gt(sourcesTable.id, cursor));
             }
+
+            if (fileIds.length > 0) {
+                clauses.push(inArray(textUnitTable.fileId, fileIds));
+            }
+
+            const idClauses = [];
+
+            if (entityIds.length > 0) {
+                idClauses.push(inArray(sourcesTable.entityId, entityIds));
+            }
+
+            if (relationshipIds.length > 0) {
+                idClauses.push(inArray(sourcesTable.relationshipId, relationshipIds));
+            }
+
+            if (idClauses.length === 1) {
+                clauses.push(idClauses[0]!);
+            } else {
+                const combinedIdClause = or(...idClauses);
+
+                if (combinedIdClause) {
+                    clauses.push(combinedIdClause);
+                }
+            }
+
+            const rows = yield* Effect.tryPromise(() =>
+                db
+                    .select({
+                        id: sourcesTable.id,
+                        entityId: sourcesTable.entityId,
+                        relationshipId: sourcesTable.relationshipId,
+                        description: sourcesTable.description,
+                        text: textUnitTable.text,
+                        fileId: filesTable.id,
+                        fileName: filesTable.name,
+                    })
+                    .from(sourcesTable)
+                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                    .where(and(...clauses))
+                    .orderBy(asc(sourcesTable.id))
+                    .limit(limit + 1)
+            );
+
+            const hasMore = rows.length > limit;
+            const items = hasMore ? rows.slice(0, limit) : rows;
+            onConsideredFileIds?.(items.map((row) => row.fileId));
+
+            return [
+                "## Sources",
+                "Use source IDs below as citations in the final answer.",
+                ...(items.length > 0 ? formatSourceList(items) : ["- none"]),
+                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
+            ].join("\n");
         }
 
-        const rows = await db
-            .select({
-                id: sourcesTable.id,
-                entityId: sourcesTable.entityId,
-                relationshipId: sourcesTable.relationshipId,
-                description: sourcesTable.description,
-                text: textUnitTable.text,
-                fileId: filesTable.id,
-                fileName: filesTable.name,
-            })
-            .from(sourcesTable)
-            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-            .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-            .where(and(...clauses))
-            .orderBy(asc(sourcesTable.id))
-            .limit(limit + 1);
-
+        const next = decodeCursor(cursor, "source search");
+        const fileScope = buildFileScopeExpression(fileIds);
+        const subjectScope = buildSubjectScopeExpression(entityIds, relationshipIds);
+        const keywordBoost = buildSourceKeywordBoostExpression(terms);
+        const exactBoost = buildSourceExactBoostExpression(terms);
+        const queryEmbedding = text
+            ? (
+                  yield* Effect.tryPromise(() =>
+                      withAiSlot("embedding", (signal) =>
+                          embed({
+                              model: embeddingModel,
+                              value: text,
+                              abortSignal: signal,
+                          })
+                      )
+                  )
+              ).embedding
+            : undefined;
+        const semanticScoreExpression = queryEmbedding
+            ? sql<number>`greatest(0::double precision, 1 - (${cosineDistance(sql`source.embedding`, queryEmbedding)}))`
+            : sql`0::double precision`;
+        const score = sql`${semanticScoreExpression} + (${keywordBoost} * ${doubleLiteral(KEYWORD_WEIGHT)}) + ${exactBoost}`;
+        const cursorFilter = next
+            ? sql`
+                  and (
+                      ranked.score < ${next.score}
+                      or (ranked.score = ${next.score} and ranked.id > ${next.id})
+                  )
+              `
+            : sql``;
+        const result = yield* Effect.tryPromise(() =>
+            db.execute(sql<SearchSourceRow>`
+                with ranked as (
+                    select
+                        source.id,
+                        coalesce(source.entity_id, '') as "entityId",
+                        coalesce(source.relationship_id, '') as "relationshipId",
+                        source.description,
+                        text_unit.text,
+                        file.id as "fileId",
+                        file.name as "fileName",
+                        ${semanticScoreExpression} as semantic_score,
+                        ${keywordBoost} as keyword_boost,
+                        ${exactBoost} as exact_boost,
+                        ${score} as score
+                    from sources source
+                    inner join text_units text_unit on text_unit.id = source.text_unit_id
+                    inner join files file on file.id = text_unit.file_id
+                    where ${currentSourceSql("source")}
+                      and ${visibleFileSql("file")}
+                      and file.graph_id = ${graphId}
+                      ${fileScope}
+                      ${subjectScope}
+                )
+                select
+                    ranked.id,
+                    ranked."entityId",
+                    ranked."relationshipId",
+                    ranked.description,
+                    ranked.text,
+                    ranked."fileId",
+                    ranked."fileName",
+                    ranked.score
+                from ranked
+                where (
+                    ranked.semantic_score >= ${doubleLiteral(MIN_SEMANTIC_SCORE)}
+                    or ranked.keyword_boost >= ${doubleLiteral(MIN_KEYWORD_BOOST)}
+                    or ranked.exact_boost > 0
+                )
+                ${cursorFilter}
+                order by ranked.score desc, ranked.id asc
+                limit ${limit + 1}
+            `)
+        );
+        const rows = toSearchSourceRows(result.rows);
         const hasMore = rows.length > limit;
         const items = hasMore ? rows.slice(0, limit) : rows;
         onConsideredFileIds?.(items.map((row) => row.fileId));
@@ -258,98 +353,17 @@ async function getScopedSources(
             "## Sources",
             "Use source IDs below as citations in the final answer.",
             ...(items.length > 0 ? formatSourceList(items) : ["- none"]),
-            ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
+            ...(hasMore && items.length > 0
+                ? [
+                      ``,
+                      `Next cursor: ${encodeCursor({
+                          id: items[items.length - 1]!.id,
+                          score: items[items.length - 1]!.score,
+                      } satisfies RankCursor)}`,
+                  ]
+                : []),
         ].join("\n");
-    }
-
-    const next = decodeCursor(cursor, "source search");
-    const fileScope = buildFileScopeExpression(fileIds);
-    const subjectScope = buildSubjectScopeExpression(entityIds, relationshipIds);
-    const keywordBoost = buildSourceKeywordBoostExpression(terms);
-    const exactBoost = buildSourceExactBoostExpression(terms);
-    const queryEmbedding = text
-        ? (
-              await withAiSlot("embedding", () =>
-                  embed({
-                      model: embeddingModel,
-                      value: text,
-                  })
-              )
-          ).embedding
-        : undefined;
-    const semanticScoreExpression = queryEmbedding
-        ? sql<number>`greatest(0::double precision, 1 - (${cosineDistance(sql`source.embedding`, queryEmbedding)}))`
-        : sql`0::double precision`;
-    const score = sql`${semanticScoreExpression} + (${keywordBoost} * ${doubleLiteral(KEYWORD_WEIGHT)}) + ${exactBoost}`;
-    const cursorFilter = next
-        ? sql`
-              and (
-                  ranked.score < ${next.score}
-                  or (ranked.score = ${next.score} and ranked.id > ${next.id})
-              )
-          `
-        : sql``;
-    const result = await db.execute(sql<SearchSourceRow>`
-        with ranked as (
-            select
-                source.id,
-                coalesce(source.entity_id, '') as "entityId",
-                coalesce(source.relationship_id, '') as "relationshipId",
-                source.description,
-                text_unit.text,
-                file.id as "fileId",
-                file.name as "fileName",
-                ${semanticScoreExpression} as semantic_score,
-                ${keywordBoost} as keyword_boost,
-                ${exactBoost} as exact_boost,
-                ${score} as score
-            from sources source
-            inner join text_units text_unit on text_unit.id = source.text_unit_id
-            inner join files file on file.id = text_unit.file_id
-            where ${currentSourceSql("source")}
-              and ${visibleFileSql("file")}
-              and file.graph_id = ${graphId}
-              ${fileScope}
-              ${subjectScope}
-        )
-        select
-            ranked.id,
-            ranked."entityId",
-            ranked."relationshipId",
-            ranked.description,
-            ranked.text,
-            ranked."fileId",
-            ranked."fileName",
-            ranked.score
-        from ranked
-        where (
-            ranked.semantic_score >= ${doubleLiteral(MIN_SEMANTIC_SCORE)}
-            or ranked.keyword_boost >= ${doubleLiteral(MIN_KEYWORD_BOOST)}
-            or ranked.exact_boost > 0
-        )
-        ${cursorFilter}
-        order by ranked.score desc, ranked.id asc
-        limit ${limit + 1}
-    `);
-    const rows = toSearchSourceRows(result.rows);
-    const hasMore = rows.length > limit;
-    const items = hasMore ? rows.slice(0, limit) : rows;
-    onConsideredFileIds?.(items.map((row) => row.fileId));
-
-    return [
-        "## Sources",
-        "Use source IDs below as citations in the final answer.",
-        ...(items.length > 0 ? formatSourceList(items) : ["- none"]),
-        ...(hasMore && items.length > 0
-            ? [
-                  ``,
-                  `Next cursor: ${encodeCursor({
-                      id: items[items.length - 1]!.id,
-                      score: items[items.length - 1]!.score,
-                  } satisfies RankCursor)}`,
-              ]
-            : []),
-    ].join("\n");
+    });
 }
 
 export const getEntitySourcesTool = (
@@ -362,26 +376,28 @@ export const getEntitySourcesTool = (
             "Final grounding tool for entities. Use only after identifying entity IDs. When you provide a refinement query, semantic search is primary and keywords boost exact file or source text matches. The returned source IDs are the citation IDs that the final answer must cite.",
         inputSchema: getEntitySourcesSchema,
         execute: ({ query, keywords, files, entityIds, limit, cursor }) =>
-            runToolSafely(
-                {
-                    title: "Sources",
-                    name: "get_entity_sources",
-                    hints: [
-                        "call this only after you already have entityIds",
-                        "retry with fewer file filters or without a refinement query",
-                    ],
-                },
-                { query, keywords, files, entityIds, limit, cursor },
-                () =>
-                    getScopedSources(graphId, embeddingModel, {
-                        query,
-                        keywords,
-                        files,
-                        entityIds,
-                        limit,
-                        cursor,
-                        onConsideredFileIds: options.onConsideredFileIds,
-                    })
+            Effect.runPromise(
+                runToolSafely(
+                    {
+                        title: "Sources",
+                        name: "get_entity_sources",
+                        hints: [
+                            "call this only after you already have entityIds",
+                            "retry with fewer file filters or without a refinement query",
+                        ],
+                    },
+                    { query, keywords, files, entityIds, limit, cursor },
+                    () =>
+                        getScopedSources(graphId, embeddingModel, {
+                            query,
+                            keywords,
+                            files,
+                            entityIds,
+                            limit,
+                            cursor,
+                            onConsideredFileIds: options.onConsideredFileIds,
+                        })
+                )
             ),
     });
 
@@ -395,26 +411,28 @@ export const getRelationshipSourcesTool = (
             "Final grounding tool for relationships. Use only after identifying relationship IDs. When you provide a refinement query, semantic search is primary and keywords boost exact file or source text matches. The returned source IDs are the citation IDs that the final answer must cite.",
         inputSchema: getRelationshipSourcesSchema,
         execute: ({ query, keywords, files, relationshipIds, limit, cursor }) =>
-            runToolSafely(
-                {
-                    title: "Sources",
-                    name: "get_relationship_sources",
-                    hints: [
-                        "call this only after you already have relationshipIds",
-                        "retry with fewer file filters or without a refinement query",
-                    ],
-                },
-                { query, keywords, files, relationshipIds, limit, cursor },
-                () =>
-                    getScopedSources(graphId, embeddingModel, {
-                        query,
-                        keywords,
-                        files,
-                        relationshipIds,
-                        limit,
-                        cursor,
-                        onConsideredFileIds: options.onConsideredFileIds,
-                    })
+            Effect.runPromise(
+                runToolSafely(
+                    {
+                        title: "Sources",
+                        name: "get_relationship_sources",
+                        hints: [
+                            "call this only after you already have relationshipIds",
+                            "retry with fewer file filters or without a refinement query",
+                        ],
+                    },
+                    { query, keywords, files, relationshipIds, limit, cursor },
+                    () =>
+                        getScopedSources(graphId, embeddingModel, {
+                            query,
+                            keywords,
+                            files,
+                            relationshipIds,
+                            limit,
+                            cursor,
+                            onConsideredFileIds: options.onConsideredFileIds,
+                        })
+                )
             ),
     });
 
@@ -424,66 +442,71 @@ export const getSourceFileMetadataTool = (graphId: string, options: SourceToolOp
             "Inspect the file metadata behind source IDs. Use this to judge source relevance, authority, document type, dates, binding status, or other document-level context.",
         inputSchema: getSourceFileMetadataSchema,
         execute: ({ sourceIds }) =>
-            runToolSafely(
-                {
-                    title: "Source file metadata",
-                    name: "get_source_file_metadata",
-                    hints: [
-                        "call this after selecting candidate source IDs",
-                        "retry with fewer source IDs if the result is too broad",
-                    ],
-                },
-                { sourceIds },
-                async () => {
-                    const ids = uniqueTerms(sourceIds);
-                    if (ids.length === 0) {
-                        return "## Source File Metadata\n- none";
-                    }
+            Effect.runPromise(
+                runToolSafely(
+                    {
+                        title: "Source file metadata",
+                        name: "get_source_file_metadata",
+                        hints: [
+                            "call this after selecting candidate source IDs",
+                            "retry with fewer source IDs if the result is too broad",
+                        ],
+                    },
+                    { sourceIds },
+                    () =>
+                        Effect.gen(function* () {
+                            const ids = uniqueTerms(sourceIds);
+                            if (ids.length === 0) {
+                                return "## Source File Metadata\n- none";
+                            }
 
-                    const rows = await db
-                        .select({
-                            sourceId: sourcesTable.id,
-                            entityId: sourcesTable.entityId,
-                            relationshipId: sourcesTable.relationshipId,
-                            sourceDescription: sourcesTable.description,
-                            unitId: textUnitTable.id,
-                            fileId: filesTable.id,
-                            fileName: filesTable.name,
-                            fileType: filesTable.type,
-                            mimeType: filesTable.mimeType,
-                            size: filesTable.size,
-                            tokenCount: filesTable.tokenCount,
-                            metadata: filesTable.metadata,
+                            const rows = yield* Effect.tryPromise(() =>
+                                db
+                                    .select({
+                                        sourceId: sourcesTable.id,
+                                        entityId: sourcesTable.entityId,
+                                        relationshipId: sourcesTable.relationshipId,
+                                        sourceDescription: sourcesTable.description,
+                                        unitId: textUnitTable.id,
+                                        fileId: filesTable.id,
+                                        fileName: filesTable.name,
+                                        fileType: filesTable.type,
+                                        mimeType: filesTable.mimeType,
+                                        size: filesTable.size,
+                                        tokenCount: filesTable.tokenCount,
+                                        metadata: filesTable.metadata,
+                                    })
+                                    .from(sourcesTable)
+                                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                                    .where(
+                                        and(
+                                            currentSourcePredicate(sourcesTable),
+                                            eq(filesTable.graphId, graphId),
+                                            visibleFilePredicate(filesTable),
+                                            inArray(sourcesTable.id, ids)
+                                        )
+                                    )
+                            );
+                            options.onConsideredFileIds?.(rows.map((row) => row.fileId));
+
+                            return [
+                                "## Source File Metadata",
+                                ...(rows.length > 0
+                                    ? rows.map((row) => {
+                                          const subject = row.entityId
+                                              ? `entity ${row.entityId}`
+                                              : row.relationshipId
+                                                ? `relationship ${row.relationshipId}`
+                                                : "unlinked";
+                                          const metadata = row.metadata?.trim() || "No file metadata";
+
+                                          return `- source ${row.sourceId}, ${subject}, unit ${row.unitId}, file ${row.fileId} ${row.fileName}, ${row.fileType}, ${row.mimeType}, ${row.size} bytes, ${row.tokenCount} tokens, source: ${truncateWords(row.sourceDescription)}, metadata: ${truncateWords(metadata, 80)}`;
+                                      })
+                                    : ["- none"]),
+                            ].join("\n");
                         })
-                        .from(sourcesTable)
-                        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                        .where(
-                            and(
-                                currentSourcePredicate(sourcesTable),
-                                eq(filesTable.graphId, graphId),
-                                visibleFilePredicate(filesTable),
-                                inArray(sourcesTable.id, ids)
-                            )
-                        );
-                    options.onConsideredFileIds?.(rows.map((row) => row.fileId));
-
-                    return [
-                        "## Source File Metadata",
-                        ...(rows.length > 0
-                            ? rows.map((row) => {
-                                  const subject = row.entityId
-                                      ? `entity ${row.entityId}`
-                                      : row.relationshipId
-                                        ? `relationship ${row.relationshipId}`
-                                        : "unlinked";
-                                  const metadata = row.metadata?.trim() || "No file metadata";
-
-                                  return `- source ${row.sourceId}, ${subject}, unit ${row.unitId}, file ${row.fileId} ${row.fileName}, ${row.fileType}, ${row.mimeType}, ${row.size} bytes, ${row.tokenCount} tokens, source: ${truncateWords(row.sourceDescription)}, metadata: ${truncateWords(metadata, 80)}`;
-                              })
-                            : ["- none"]),
-                    ].join("\n");
-                }
+                )
             ),
     });
 

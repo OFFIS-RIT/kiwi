@@ -12,6 +12,7 @@ import {
     type ChatUIMessage,
     type Client,
 } from "@kiwi/ai";
+import * as Effect from "effect/Effect";
 import type { MessageCompactionPart, MessagePart } from "@kiwi/contracts/chat";
 import { db } from "@kiwi/db";
 import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
@@ -36,6 +37,14 @@ const MAX_COMPACTION_MODEL_CALLS = 24;
 // call, so a verbose accumulated summary can shrink later transcript chunks or
 // exhaust the budget before all transcript text is processed.
 const COMPACTION_CHUNK_CONTEXT_RATIO = 0.9;
+
+function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, unknown> {
+    return Effect.tryPromise({
+        try: thunk,
+        catch: (error) => error,
+    });
+}
+
 
 export type ChatRequest = ChatRequestBody;
 
@@ -137,20 +146,22 @@ export function normalizeChatRequest(request: ChatRequest): NormalizedChatReques
     throw new Error(API_ERROR_CODES.INVALID_CHAT_REQUEST);
 }
 
-export async function loadChatRows(chatId: string, options?: { includeFailed?: boolean }) {
-    return db
-        .select()
-        .from(messageTable)
-        .where(
-            options?.includeFailed
-                ? and(eq(messageTable.chatId, chatId), ne(messageTable.status, "pending"))
-                : and(
-                      eq(messageTable.chatId, chatId),
-                      ne(messageTable.status, "pending"),
-                      ne(messageTable.status, "failed")
-                  )
-        )
-        .orderBy(asc(messageTable.createdAt), asc(messageTable.id));
+export function loadChatRows(chatId: string, options?: { includeFailed?: boolean }) {
+    return chatEffect(() =>
+        db
+            .select()
+            .from(messageTable)
+            .where(
+                options?.includeFailed
+                    ? and(eq(messageTable.chatId, chatId), ne(messageTable.status, "pending"))
+                    : and(
+                          eq(messageTable.chatId, chatId),
+                          ne(messageTable.status, "pending"),
+                          ne(messageTable.status, "failed")
+                      )
+            )
+            .orderBy(asc(messageTable.createdAt), asc(messageTable.id))
+    );
 }
 
 export function deriveActiveCompaction(rows: ChatMessage[]) {
@@ -190,31 +201,33 @@ export function createChatMessageValidator(tools: ChatValidationToolset): ChatMe
         });
 }
 
-export async function buildActiveChatContext(options: {
+export function buildActiveChatContext(options: {
     rows: ChatMessage[];
     runtime: ChatRuntime;
     systemPrompt: string;
     validateMessages: ChatMessageValidator;
 }) {
-    const compactionState = deriveActiveCompaction(options.rows);
-    const validatedMessages = await options.validateMessages(compactionState.activeRawTailRows);
-    const activeSummary = compactionState.activeCompaction?.part.summary;
-    const contextMessages = insertPromptGuidanceMessage(
-        [
-            ...(activeSummary ? [createCompactionSystemMessage(activeSummary)] : []),
-            ...uiMessagesToModelMessages(validatedMessages),
-        ],
-        options.runtime.promptGuidance
-    );
+    return Effect.gen(function* () {
+        const compactionState = deriveActiveCompaction(options.rows);
+        const validatedMessages = yield* chatEffect(() => options.validateMessages(compactionState.activeRawTailRows));
+        const activeSummary = compactionState.activeCompaction?.part.summary;
+        const contextMessages = insertPromptGuidanceMessage(
+            [
+                ...(activeSummary ? [createCompactionSystemMessage(activeSummary)] : []),
+                ...uiMessagesToModelMessages(validatedMessages),
+            ],
+            options.runtime.promptGuidance
+        );
 
-    return {
-        activeCompaction: compactionState.activeCompaction,
-        activeRawTailRows: compactionState.activeRawTailRows,
-        validatedMessages,
-        contextMessages,
-        activeSummary,
-        estimatedPromptTokens: estimateContextTokens(options.systemPrompt, contextMessages, options.runtime.tools),
-    } satisfies ActiveChatContext;
+        return {
+            activeCompaction: compactionState.activeCompaction,
+            activeRawTailRows: compactionState.activeRawTailRows,
+            validatedMessages,
+            contextMessages,
+            activeSummary,
+            estimatedPromptTokens: estimateContextTokens(options.systemPrompt, contextMessages, options.runtime.tools),
+        } satisfies ActiveChatContext;
+    });
 }
 
 function estimateStoredMessageTokens(message: ChatMessage) {
@@ -436,7 +449,7 @@ export function normalizeCompactionSummary(summary: string) {
     return prepareCitationFencesForModel(trimmedSummary);
 }
 
-async function insertCompactionCheckpoint(options: {
+function insertCompactionCheckpoint(options: {
     chatId: string;
     runtime: ChatRuntime;
     previousSummary?: string;
@@ -446,183 +459,200 @@ async function insertCompactionCheckpoint(options: {
     summarizedThroughMessageId: string;
     abortSignal?: AbortSignal;
 }) {
-    let summary = options.previousSummary;
-    let modelCalls = 0;
-    let remainingTranscript = options.transcript.trim();
+    return Effect.gen(function* () {
+        let summary = options.previousSummary;
+        let modelCalls = 0;
+        let remainingTranscript = options.transcript.trim();
 
-    while (remainingTranscript.length > 0) {
-        const chunkTokenBudget = getCompactionChunkTokenBudget(options.runtime.client.compactionContextWindow, summary);
-        const nextChunk = takeTranscriptChunk(remainingTranscript, chunkTokenBudget);
-        if (nextChunk.chunk.length === 0) {
+        while (remainingTranscript.length > 0) {
+            const chunkTokenBudget = getCompactionChunkTokenBudget(options.runtime.client.compactionContextWindow, summary);
+            const nextChunk = takeTranscriptChunk(remainingTranscript, chunkTokenBudget);
+            if (nextChunk.chunk.length === 0) {
+                throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+            }
+            assertCompactionModelCallsRemaining(options.completedModelCalls + modelCalls, 1);
+
+            summary = normalizeCompactionSummary(
+                yield* compactConversationHistory({
+                    model: options.runtime.client.subagent ?? options.runtime.client.text,
+                    promptGuidance: options.runtime.promptGuidance,
+                    previousSummary: summary,
+                    transcript: nextChunk.chunk,
+                    abortSignal: options.abortSignal,
+                })
+            );
+            modelCalls += 1;
+            remainingTranscript = nextChunk.rest;
+        }
+
+        options.abortSignal?.throwIfAborted();
+        // summary is always non-empty here: normalizeCompactionSummary throws on empty output,
+        // and maybeCompactConversation guards empty transcripts before calling this.
+        if (!summary) {
             throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
         }
-        assertCompactionModelCallsRemaining(options.completedModelCalls + modelCalls, 1);
 
-        summary = normalizeCompactionSummary(
-            await compactConversationHistory({
-                model: options.runtime.client.subagent ?? options.runtime.client.text,
-                promptGuidance: options.runtime.promptGuidance,
-                previousSummary: summary,
-                transcript: nextChunk.chunk,
-                abortSignal: options.abortSignal,
+        const compactionPart: MessageCompactionPart = {
+            type: "compaction",
+            version: 1,
+            summary,
+            summarizedThroughMessageId: options.summarizedThroughMessageId,
+            basedOnCompactionMessageId: options.basedOnCompactionMessageId,
+        };
+
+        yield* chatEffect(() =>
+            db.insert(messageTable).values({
+                chatId: options.chatId,
+                role: "system",
+                status: "completed",
+                parts: [compactionPart],
             })
         );
-        modelCalls += 1;
-        remainingTranscript = nextChunk.rest;
-    }
 
-    options.abortSignal?.throwIfAborted();
-    // summary is always non-empty here: normalizeCompactionSummary throws on empty output,
-    // and maybeCompactConversation guards empty transcripts before calling this.
-    if (!summary) {
-        throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
-    }
-
-    const compactionPart: MessageCompactionPart = {
-        type: "compaction",
-        version: 1,
-        summary,
-        summarizedThroughMessageId: options.summarizedThroughMessageId,
-        basedOnCompactionMessageId: options.basedOnCompactionMessageId,
-    };
-
-    await db.insert(messageTable).values({
-        chatId: options.chatId,
-        role: "system",
-        status: "completed",
-        parts: [compactionPart],
+        return modelCalls;
     });
-
-    return modelCalls;
 }
 
-export async function maybeCompactConversation(options: {
+export function maybeCompactConversation(options: {
     chatId: string;
     runtime: ChatRuntime;
     rows: ChatMessage[];
     systemPrompt: string;
-    buildContext: (rows: ChatMessage[]) => Promise<ActiveChatContext>;
+    buildContext: (rows: ChatMessage[]) => Effect.Effect<ActiveChatContext, unknown>;
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
 }) {
-    let context = await options.buildContext(options.rows);
-    let forceCompaction = options.forceCompaction === true;
-    let compactionAttempts = 0;
-    let compactionModelCalls = 0;
-    const contextWindow = options.runtime.client.contextWindow;
+    return Effect.gen(function* () {
+        let context = yield* options.buildContext(options.rows);
+        let forceCompaction = options.forceCompaction === true;
+        let compactionAttempts = 0;
+        let compactionModelCalls = 0;
+        const contextWindow = options.runtime.client.contextWindow;
 
-    if (!forceCompaction && !shouldCompact(context.estimatedPromptTokens, contextWindow)) {
+        if (!forceCompaction && !shouldCompact(context.estimatedPromptTokens, contextWindow)) {
+            return { context, systemPrompt: options.systemPrompt };
+        }
+
+        while (forceCompaction || shouldCompact(context.estimatedPromptTokens, contextWindow)) {
+            const isForcedCompaction = forceCompaction;
+            assertCompactionAttemptsRemaining(compactionAttempts);
+            compactionAttempts += 1;
+            forceCompaction = false;
+            const protectedTailStartIndex = getProtectedTailStartIndex(context.activeRawTailRows, contextWindow);
+            if (protectedTailStartIndex <= 0) {
+                if (!isForcedCompaction) {
+                    break;
+                }
+                throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+            }
+
+            const summarizedRows = context.activeRawTailRows.slice(0, protectedTailStartIndex);
+            const summarizedThroughMessage = summarizedRows[summarizedRows.length - 1];
+            if (!summarizedThroughMessage) {
+                if (!isForcedCompaction) {
+                    break;
+                }
+                throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+            }
+
+            const transcript = serializeCompactionTranscript(summarizedRows.map((message) => toUIMessage(message))).trim();
+            if (transcript.length === 0) {
+                if (!isForcedCompaction) {
+                    break;
+                }
+                throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
+            }
+
+            const modelCalls = yield* insertCompactionCheckpoint({
+                chatId: options.chatId,
+                runtime: options.runtime,
+                previousSummary: context.activeSummary,
+                basedOnCompactionMessageId: context.activeCompaction?.messageId,
+                transcript,
+                completedModelCalls: compactionModelCalls,
+                summarizedThroughMessageId: summarizedThroughMessage.id,
+                abortSignal: options.abortSignal,
+            });
+            compactionModelCalls += modelCalls;
+
+            const rows = yield* loadChatRows(options.chatId);
+            context = yield* options.buildContext(rows);
+            options.abortSignal?.throwIfAborted();
+        }
+
         return { context, systemPrompt: options.systemPrompt };
-    }
-
-    while (forceCompaction || shouldCompact(context.estimatedPromptTokens, contextWindow)) {
-        const isForcedCompaction = forceCompaction;
-        assertCompactionAttemptsRemaining(compactionAttempts);
-        compactionAttempts += 1;
-        forceCompaction = false;
-        const protectedTailStartIndex = getProtectedTailStartIndex(context.activeRawTailRows, contextWindow);
-        if (protectedTailStartIndex <= 0) {
-            if (!isForcedCompaction) {
-                break;
-            }
-            throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
-        }
-
-        const summarizedRows = context.activeRawTailRows.slice(0, protectedTailStartIndex);
-        const summarizedThroughMessage = summarizedRows[summarizedRows.length - 1];
-        if (!summarizedThroughMessage) {
-            if (!isForcedCompaction) {
-                break;
-            }
-            throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
-        }
-
-        const transcript = serializeCompactionTranscript(summarizedRows.map((message) => toUIMessage(message))).trim();
-        if (transcript.length === 0) {
-            if (!isForcedCompaction) {
-                break;
-            }
-            throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
-        }
-
-        const modelCalls = await insertCompactionCheckpoint({
-            chatId: options.chatId,
-            runtime: options.runtime,
-            previousSummary: context.activeSummary,
-            basedOnCompactionMessageId: context.activeCompaction?.messageId,
-            transcript,
-            completedModelCalls: compactionModelCalls,
-            summarizedThroughMessageId: summarizedThroughMessage.id,
-            abortSignal: options.abortSignal,
-        });
-        compactionModelCalls += modelCalls;
-
-        context = await options.buildContext(await loadChatRows(options.chatId));
-        options.abortSignal?.throwIfAborted();
-    }
-
-    return { context, systemPrompt: options.systemPrompt };
+    });
 }
 
-export async function ensureChatRecord(options: {
+export function ensureChatRecord(options: {
     chatId: string;
     userId: string;
     target: ChatTarget;
     defaultTitle: string;
 }) {
-    const [insertedChat] = await db
-        .insert(chatTable)
-        .values({
-            id: options.chatId,
-            userId: options.userId,
-            ...chatTargetInsertValues(options.target),
-            title: options.defaultTitle,
-        })
-        .onConflictDoNothing()
-        .returning({ id: chatTable.id });
+    return Effect.gen(function* () {
+        const [insertedChat] = yield* chatEffect(() =>
+            db
+                .insert(chatTable)
+                .values({
+                    id: options.chatId,
+                    userId: options.userId,
+                    ...chatTargetInsertValues(options.target),
+                    title: options.defaultTitle,
+                })
+                .onConflictDoNothing()
+                .returning({ id: chatTable.id })
+        );
 
-    if (insertedChat) {
-        return { isNewChat: true };
-    }
+        if (insertedChat) {
+            return { isNewChat: true };
+        }
 
-    const [existingChat] = await db
-        .select({
-            id: chatTable.id,
-            userId: chatTable.userId,
-            scope: chatTable.scope,
-            graphId: chatTable.graphId,
-            teamId: chatTable.teamId,
-        })
-        .from(chatTable)
-        .where(eq(chatTable.id, options.chatId))
-        .limit(1);
+        const [existingChat] = yield* chatEffect(() =>
+            db
+                .select({
+                    id: chatTable.id,
+                    userId: chatTable.userId,
+                    scope: chatTable.scope,
+                    graphId: chatTable.graphId,
+                    teamId: chatTable.teamId,
+                })
+                .from(chatTable)
+                .where(eq(chatTable.id, options.chatId))
+                .limit(1)
+        );
 
-    if (
-        !existingChat ||
-        existingChat.userId !== options.userId ||
-        !chatTargetMatchesRow(existingChat, options.target)
-    ) {
-        throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
-    }
+        if (
+            !existingChat ||
+            existingChat.userId !== options.userId ||
+            !chatTargetMatchesRow(existingChat, options.target)
+        ) {
+            throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
+        }
 
-    return { isNewChat: false };
+        return { isNewChat: false };
+    });
 }
 
-export async function createPendingAssistantMessage(chatId: string) {
-    const [assistantMessage] = await db
-        .insert(messageTable)
-        .values({
-            chatId,
-            role: "assistant",
-            status: "pending",
-            parts: [],
-        })
-        .returning({ id: messageTable.id });
+export function createPendingAssistantMessage(chatId: string) {
+    return Effect.gen(function* () {
+        const [assistantMessage] = yield* chatEffect(() =>
+            db
+                .insert(messageTable)
+                .values({
+                    chatId,
+                    role: "assistant",
+                    status: "pending",
+                    parts: [],
+                })
+                .returning({ id: messageTable.id })
+        );
 
-    return assistantMessage!.id;
+        return assistantMessage!.id;
+    });
 }
 
-export async function syncChatMessage(options: {
+export function syncChatMessage(options: {
     chatId: string;
     message: ChatUIMessage;
     toParts: (message: ChatUIMessage) => MessagePart[];
@@ -635,32 +665,36 @@ export async function syncChatMessage(options: {
     };
     parseCreatedAt: (value?: string) => Date | undefined;
 }) {
-    const parts = options.toParts(options.message);
-    const createdAt = options.parseCreatedAt(options.message.metadata?.createdAt);
-    const metrics = options.getMetrics(options.message.metadata);
-    const persistedMessage = {
-        role: options.message.role,
-        status: "completed" as const,
-        parts,
-        ...metrics,
-    };
+    return Effect.gen(function* () {
+        const parts = options.toParts(options.message);
+        const createdAt = options.parseCreatedAt(options.message.metadata?.createdAt);
+        const metrics = options.getMetrics(options.message.metadata);
+        const persistedMessage = {
+            role: options.message.role,
+            status: "completed" as const,
+            parts,
+            ...metrics,
+        };
 
-    const [syncedMessage] = await db
-        .insert(messageTable)
-        .values({
-            id: options.message.id,
-            chatId: options.chatId,
-            ...persistedMessage,
-            createdAt,
-        })
-        .onConflictDoUpdate({
-            target: messageTable.id,
-            set: persistedMessage,
-            setWhere: eq(messageTable.chatId, options.chatId),
-        })
-        .returning({ id: messageTable.id });
+        const [syncedMessage] = yield* chatEffect(() =>
+            db
+                .insert(messageTable)
+                .values({
+                    id: options.message.id,
+                    chatId: options.chatId,
+                    ...persistedMessage,
+                    createdAt,
+                })
+                .onConflictDoUpdate({
+                    target: messageTable.id,
+                    set: persistedMessage,
+                    setWhere: eq(messageTable.chatId, options.chatId),
+                })
+                .returning({ id: messageTable.id })
+        );
 
-    if (!syncedMessage) {
-        throw new Error(API_ERROR_CODES.INVALID_CHAT_REQUEST);
-    }
+        if (!syncedMessage) {
+            throw new Error(API_ERROR_CODES.INVALID_CHAT_REQUEST);
+        }
+    });
 }

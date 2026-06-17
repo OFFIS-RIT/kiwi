@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 type TestRepository = {
     provider: "github";
@@ -14,56 +15,64 @@ const branchRepositoryCalls: TestRepository[] = [];
 let listRepositoriesCalls = 0;
 
 mock.module("@kiwi/connectors", () => ({
-    createConnectorAdapter: () => ({
-        provider: "github",
-        resourceKind: "git-repository",
-        getRepository: async (repositoryId: string) => ({
+    createConnectorAdapter: () =>
+        Effect.succeed({
             provider: "github",
-            id: "1",
-            fullName: repositoryId,
-            name: "app",
-            htmlUrl: `https://github.com/${repositoryId}`,
-            defaultBranch: "main",
-            private: true,
+            resourceKind: "git-repository",
+            getRepository: (repositoryId: string) =>
+                Effect.succeed({
+                    provider: "github",
+                    id: "1",
+                    fullName: repositoryId,
+                    name: "app",
+                    htmlUrl: `https://github.com/${repositoryId}`,
+                    defaultBranch: "main",
+                    private: true,
+                }),
+            listRepositories: () =>
+                Effect.sync(() => {
+                    listRepositoriesCalls += 1;
+                    return [];
+                }),
+            listBranches: (repository: TestRepository) =>
+                Effect.sync(() => {
+                    branchRepositoryCalls.push(repository);
+                    return [{ name: "main", commitSha: "commit-sha" }];
+                }),
         }),
-        listRepositories: async () => {
-            listRepositoriesCalls += 1;
-            return [];
-        },
-        listBranches: async (repository: TestRepository) => {
-            branchRepositoryCalls.push(repository);
-            return [{ name: "main", commitSha: "commit-sha" }];
-        },
-    }),
     createGitHubClient: () => ({
         provider: "github",
-        getRepository: async (repositoryId: string) => ({
-            provider: "github",
-            id: "1",
-            fullName: repositoryId,
-            name: "app",
-            htmlUrl: `https://github.com/${repositoryId}`,
-            defaultBranch: "main",
-            private: true,
-        }),
-        listRepositories: async () => {
-            listRepositoriesCalls += 1;
-            return [];
-        },
-        listBranches: async (repository: TestRepository) => {
-            branchRepositoryCalls.push(repository);
-            return [{ name: "main", commitSha: "commit-sha" }];
-        },
+        getRepository: (repositoryId: string) =>
+            Effect.succeed({
+                provider: "github",
+                id: "1",
+                fullName: repositoryId,
+                name: "app",
+                htmlUrl: `https://github.com/${repositoryId}`,
+                defaultBranch: "main",
+                private: true,
+            }),
+        listRepositories: () =>
+            Effect.sync(() => {
+                listRepositoriesCalls += 1;
+                return [];
+            }),
+        listBranches: (repository: TestRepository) =>
+            Effect.sync(() => {
+                branchRepositoryCalls.push(repository);
+                return [{ name: "main", commitSha: "commit-sha" }];
+            }),
     }),
-    createGitHubInstallationToken: async () => ({ token: "installation-token", expiresAt: "2026-01-01T01:00:00Z" }),
+    createGitHubInstallationToken: () => Effect.succeed({ token: "installation-token", expiresAt: "2026-01-01T01:00:00Z" }),
     createGitLabClient: () => {
         throw new Error("GitLab client was not expected");
     },
-    getGitHubInstallationAccount: async () => ({
-        login: "acme",
-        type: "organization",
-        repositorySelection: "selected",
-    }),
+    getGitHubInstallationAccount: () =>
+        Effect.succeed({
+            login: "acme",
+            type: "organization",
+            repositorySelection: "selected",
+        }),
 }));
 
 mock.module("@kiwi/connectors/credentials", () => ({
@@ -91,17 +100,19 @@ describe("connector library helpers", () => {
 
     test("loads branches through direct repository lookup", async () => {
         await expect(
-            listProviderBranches(
-                {
-                    id: "connector-1",
-                    provider: "github",
-                    encryptedCredentials: "encrypted",
-                } as never,
-                {
-                    id: "installation-1",
-                    providerInstallationId: "99",
-                } as never,
-                "acme/app"
+            Effect.runPromise(
+                listProviderBranches(
+                    {
+                        id: "connector-1",
+                        provider: "github",
+                        encryptedCredentials: "encrypted",
+                    } as never,
+                    {
+                        id: "installation-1",
+                        providerInstallationId: "99",
+                    } as never,
+                    "acme/app"
+                )
             )
         ).resolves.toEqual([{ name: "main", commitSha: "commit-sha" }]);
 

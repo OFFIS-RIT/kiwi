@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { API_ERROR_CODES, makeApiError } from "@kiwi/contracts/errors";
 import { loadGraphFileForProxy } from "../../../lib/graph/file-proxy";
 import { getProjectFileProxyPath } from "../../../lib/project-file-url";
@@ -18,7 +19,7 @@ export function redirectToNamedGraphFile(input: {
             params: { graphId: input.graphId, fileId: input.fileId },
         });
 
-        const file = await loadGraphFileForProxy(input.graphId, input.fileId);
+        const file = await Effect.runPromise(loadGraphFileForProxy(input.graphId, input.fileId));
         if (!file) {
             throw makeApiError(404, API_ERROR_CODES.INVALID_FILE_IDS, "File not found");
         }

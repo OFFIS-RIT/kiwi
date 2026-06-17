@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { API_ERROR_CODES } from "@kiwi/contracts/responses";
 import type { AiModel, AiModelAdapter, AiModelType } from "@kiwi/db/tables/models";
+import * as Effect from "effect/Effect";
 
 let queuedModelRows: unknown[][] = [];
 const selectMock = mock(() => ({
@@ -68,9 +69,11 @@ describe("AI model registry helpers", () => {
     test("allocates duplicate model IDs with numeric suffixes", async () => {
         const existing = new Set(["gpt-5.5", "gpt-5.5-1"]);
 
-        await expect(allocateUniqueModelId("gpt-5.5", async (candidate) => existing.has(candidate))).resolves.toBe(
-            "gpt-5.5-2"
-        );
+        await expect(
+            Effect.runPromise(
+                allocateUniqueModelId("gpt-5.5", (candidate) => Effect.succeed(existing.has(candidate)))
+            )
+        ).resolves.toBe("gpt-5.5-2");
     });
 
     test("encrypts credentials without storing plaintext and decrypts with the same secret", () => {
@@ -154,11 +157,13 @@ describe("AI model registry helpers", () => {
         queueModelQueries([], [embeddingModel], []);
 
         await expect(
-            resolveResearchModelConfig({
-                organizationId: "org-1",
-                requestedTextModelId: "missing-model",
-                secret: TEST_SECRET,
-            })
+            Effect.runPromise(
+                resolveResearchModelConfig({
+                    organizationId: "org-1",
+                    requestedTextModelId: "missing-model",
+                    secret: TEST_SECRET,
+                })
+            )
         ).rejects.toThrow(API_ERROR_CODES.INVALID_MODEL);
         expect(selectMock).toHaveBeenCalledTimes(3);
     });
@@ -184,10 +189,12 @@ describe("AI model registry helpers", () => {
 
         queueModelQueries([textModel], [embeddingModel], [subagentModel]);
 
-        const resolved = await resolveResearchModelConfig({
-            organizationId: "org-1",
-            secret: TEST_SECRET,
-        });
+        const resolved = await Effect.runPromise(
+            resolveResearchModelConfig({
+                organizationId: "org-1",
+                secret: TEST_SECRET,
+            })
+        );
 
         expect(resolved.textModelId).toBe("text-default");
         expect(resolved.contextWindow).toBe(128_000);
@@ -209,10 +216,12 @@ describe("AI model registry helpers", () => {
 
         queueModelQueries([extractModel], [], [embeddingModel], [], [], []);
 
-        const resolved = await resolveWorkerModelConfig({
-            organizationId: "org-1",
-            secret: TEST_SECRET,
-        });
+        const resolved = await Effect.runPromise(
+            resolveWorkerModelConfig({
+                organizationId: "org-1",
+                secret: TEST_SECRET,
+            })
+        );
 
         expect(resolved.config.text).toMatchObject({ type: "openai", model: "gpt-extract" });
         expect(resolved.config.embedding).toMatchObject({ type: "openai", model: "text-embedding-test" });

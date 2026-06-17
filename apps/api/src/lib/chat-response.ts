@@ -17,6 +17,7 @@ import {
     type ModelMessage,
     type ToolSet,
 } from "ai";
+import * as Effect from "effect/Effect";
 import {
     getFinishMetadata,
     isContextOverflowError,
@@ -51,10 +52,25 @@ export type StartedChatReply = ChatReplyContext & {
     tools: ToolSet;
     isNewChat: boolean;
     titleMessages: ChatUIMessage[];
-    refreshAfterCompaction: () => Promise<ChatReplyContext>;
-    resolveCitation: (sourceId: string) => Promise<ResolvedCitationFence | null>;
+    refreshAfterCompaction: () => Effect.Effect<ChatReplyContext, unknown>;
+    resolveCitation: (sourceId: string) => Effect.Effect<ResolvedCitationFence | null, unknown>;
     getAdditionalUsage?: () => AdditionalChatUsage;
 };
+
+function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, unknown> {
+    return Effect.tryPromise({
+        try: thunk,
+        catch: (error) => error,
+    });
+}
+
+function runUpdateAssistantMessage(...args: Parameters<typeof updateAssistantMessage>) {
+    return Effect.runPromise(updateAssistantMessage(...args));
+}
+
+function runTouchChat(chatId: string) {
+    return Effect.runPromise(touchChat(chatId));
+}
 
 function upsertToolPart(parts: MessagePart[], next: MessagePart) {
     if (next.type !== "tool") {
@@ -78,75 +94,79 @@ function addCitationFileId(fileIds: Set<string>, citation: ResolvedCitationFence
     }
 }
 
-async function appendResolvedCitations(options: {
+function appendResolvedCitations(options: {
     text: string;
     citationFileIds: Set<string>;
     resolveCitation: StartedChatReply["resolveCitation"];
 }) {
-    const parser = createCitationFenceStreamParser();
-    const segments = [...parser.push(options.text), ...parser.flush()];
-    let text = "";
+    return Effect.gen(function* () {
+        const parser = createCitationFenceStreamParser();
+        const segments = [...parser.push(options.text), ...parser.flush()];
+        let text = "";
 
-    for (const segment of segments) {
-        if (segment.type === "text") {
-            text += segment.text;
-            continue;
+        for (const segment of segments) {
+            if (segment.type === "text") {
+                text += segment.text;
+                continue;
+            }
+
+            const citation = yield* options.resolveCitation(segment.citation.sourceId);
+            if (citation) {
+                addCitationFileId(options.citationFileIds, citation);
+                text += stringifyCitationFence(citation);
+            }
         }
 
-        const citation = await options.resolveCitation(segment.citation.sourceId);
-        if (citation) {
-            addCitationFileId(options.citationFileIds, citation);
-            text += stringifyCitationFence(citation);
-        }
-    }
-
-    return text;
+        return text;
+    });
 }
 
-async function buildAssistantPartsFromContent(options: {
+function buildAssistantPartsFromContent(options: {
     content: Awaited<ReturnType<typeof generateText>>["content"];
     citationFileIds: Set<string>;
     resolveCitation: StartedChatReply["resolveCitation"];
 }) {
-    const parts: MessagePart[] = [];
+    return Effect.gen(function* () {
+        const parts: MessagePart[] = [];
 
-    for (const contentPart of options.content) {
-        switch (contentPart.type) {
-            case "text": {
-                const text = await appendResolvedCitations({
-                    text: contentPart.text,
-                    citationFileIds: options.citationFileIds,
-                    resolveCitation: options.resolveCitation,
-                });
-                if (text.length > 0) {
-                    parts.push({ type: "text", text });
+        for (const contentPart of options.content) {
+            switch (contentPart.type) {
+                case "text": {
+                    const text = yield* appendResolvedCitations({
+                        text: contentPart.text,
+                        citationFileIds: options.citationFileIds,
+                        resolveCitation: options.resolveCitation,
+                    });
+                    if (text.length > 0) {
+                        parts.push({ type: "text", text });
+                    }
+                    break;
                 }
-                break;
+                case "reasoning":
+                    parts.push({ type: "reasoning", text: contentPart.text });
+                    break;
+                case "tool-call":
+                    upsertToolPart(parts, toolPart(contentPart, "pending"));
+                    break;
+                case "tool-result":
+                    upsertToolPart(parts, toolPart(contentPart, "completed", { value: contentPart.output }));
+                    break;
+                case "tool-error":
+                    upsertToolPart(
+                        parts,
+                        toolPart(contentPart, "failed", {
+                            value:
+                                typeof contentPart.error === "string"
+                                    ? contentPart.error
+                                    : JSON.stringify(contentPart.error),
+                        })
+                    );
+                    break;
             }
-            case "reasoning":
-                parts.push({ type: "reasoning", text: contentPart.text });
-                break;
-            case "tool-call":
-                upsertToolPart(parts, toolPart(contentPart, "pending"));
-                break;
-            case "tool-result":
-                upsertToolPart(parts, toolPart(contentPart, "completed", { value: contentPart.output }));
-                break;
-            case "tool-error":
-                upsertToolPart(
-                    parts,
-                    toolPart(contentPart, "failed", {
-                        value:
-                            typeof contentPart.error === "string"
-                                ? contentPart.error
-                                : JSON.stringify(contentPart.error),
-                    })
-                );
-                break;
         }
-    }
 
-    return parts;
+        return parts;
+    });
 }
 
 function startGeneratedTitle(reply: StartedChatReply) {
@@ -194,81 +214,90 @@ export function buildFinishMetadata(options: {
     });
 }
 
-export async function runChatCompletion(reply: StartedChatReply) {
-    startGeneratedTitle(reply);
+export function runChatCompletion(reply: StartedChatReply) {
+    return Effect.gen(function* () {
+        startGeneratedTitle(reply);
 
-    const startedAt = Date.now();
-    const citationFileIds = new Set<string>();
-    let activeContextMessages = reply.contextMessages;
-    let activeSystemPrompt = reply.systemPrompt;
-    let retriedAfterCompaction = false;
-    let firstOutputAt: number | null = null;
+        const startedAt = Date.now();
+        const citationFileIds = new Set<string>();
+        let activeContextMessages = reply.contextMessages;
+        let activeSystemPrompt = reply.systemPrompt;
+        let retriedAfterCompaction = false;
+        let firstOutputAt: number | null = null;
 
-    const runGeneration = () => {
-        firstOutputAt = Date.now();
+        const runGeneration = () => {
+            firstOutputAt = Date.now();
 
-        return generateText({
-            model: reply.client.text,
-            messages: activeContextMessages,
-            system: activeSystemPrompt,
-            tools: reply.tools,
-            temperature: 0.3,
-            stopWhen: stepCountIs(50),
-            providerOptions: getProviderOptions({ thinking: "medium" }),
+            return generateText({
+                model: reply.client.text,
+                messages: activeContextMessages,
+                system: activeSystemPrompt,
+                tools: reply.tools,
+                temperature: 0.3,
+                stopWhen: stepCountIs(50),
+                providerOptions: getProviderOptions({ thinking: "medium" }),
+            });
+        };
+
+        const firstAttempt = yield* Effect.match(chatEffect(runGeneration), {
+            onFailure: (error) => ({ status: "failure" as const, error }),
+            onSuccess: (result) => ({ status: "success" as const, result }),
         });
-    };
-
-    let result;
-    try {
-        result = await runGeneration();
-    } catch (error) {
-        if (!retriedAfterCompaction && isContextOverflowError(error)) {
+        let result;
+        if (firstAttempt.status === "success") {
+            result = firstAttempt.result;
+        } else if (!retriedAfterCompaction && isContextOverflowError(firstAttempt.error)) {
             retriedAfterCompaction = true;
-            let refreshed;
-            try {
-                refreshed = await reply.refreshAfterCompaction();
-            } catch (compactionError) {
-                await updateAssistantMessage(reply.assistantId, [], "failed");
-                throw compactionError;
+            const refreshAttempt = yield* Effect.match(reply.refreshAfterCompaction(), {
+                onFailure: (error) => ({ status: "failure" as const, error }),
+                onSuccess: (refreshed) => ({ status: "success" as const, refreshed }),
+            });
+            if (refreshAttempt.status === "failure") {
+                yield* updateAssistantMessage(reply.assistantId, [], "failed");
+                return yield* Effect.fail(refreshAttempt.error);
             }
-            activeContextMessages = refreshed.contextMessages;
-            activeSystemPrompt = refreshed.systemPrompt;
-            try {
-                result = await runGeneration();
-            } catch (retryError) {
-                await updateAssistantMessage(reply.assistantId, [], "failed");
-                throw retryError;
+            activeContextMessages = refreshAttempt.refreshed.contextMessages;
+            activeSystemPrompt = refreshAttempt.refreshed.systemPrompt;
+
+            const retryAttempt = yield* Effect.match(chatEffect(runGeneration), {
+                onFailure: (error) => ({ status: "failure" as const, error }),
+                onSuccess: (retryResult) => ({ status: "success" as const, retryResult }),
+            });
+            if (retryAttempt.status === "failure") {
+                yield* updateAssistantMessage(reply.assistantId, [], "failed");
+                return yield* Effect.fail(retryAttempt.error);
             }
+            result = retryAttempt.retryResult;
         } else {
-            await updateAssistantMessage(reply.assistantId, [], "failed");
-            throw error;
+            yield* updateAssistantMessage(reply.assistantId, [], "failed");
+            return yield* Effect.fail(firstAttempt.error);
         }
-    }
 
-    const parts = await buildAssistantPartsFromContent({
-        content: result.content,
-        citationFileIds,
-        resolveCitation: reply.resolveCitation,
+        const parts = yield* buildAssistantPartsFromContent({
+            content: result.content,
+            citationFileIds,
+            resolveCitation: reply.resolveCitation,
+        });
+        const finishMetadata = buildFinishMetadata({
+            reply,
+            startedAt,
+            firstOutputAt,
+            totalTokens: result.totalUsage.totalTokens,
+            inputTokens: result.totalUsage.inputTokens,
+            outputTokens: result.totalUsage.outputTokens,
+            modelId: reply.client.textModelId,
+            citationFileIds,
+        });
+        parts.push({ type: "metadata", metadata: finishMetadata });
+
+        yield* updateAssistantMessage(reply.assistantId, parts, "completed", finishMetadata);
+        yield* touchChat(reply.chatId);
+
+        return {
+            id: reply.chatId,
+            message: toAssistantReply(reply.assistantId, parts, finishMetadata),
+        };
     });
-    const finishMetadata = buildFinishMetadata({
-        reply,
-        startedAt,
-        firstOutputAt,
-        totalTokens: result.totalUsage.totalTokens,
-        inputTokens: result.totalUsage.inputTokens,
-        outputTokens: result.totalUsage.outputTokens,
-        modelId: reply.client.textModelId,
-        citationFileIds,
-    });
-    parts.push({ type: "metadata", metadata: finishMetadata });
-
-    await updateAssistantMessage(reply.assistantId, parts, "completed", finishMetadata);
-    await touchChat(reply.chatId);
-
-    return {
-        id: reply.chatId,
-        message: toAssistantReply(reply.assistantId, parts, finishMetadata),
-    };
 }
 
 export function createChatStreamResponse(reply: StartedChatReply) {
@@ -322,16 +351,17 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                 return active;
             };
 
-            const closeUIText = async (modelPartId: string) => {
-                const active = activeUITexts.get(modelPartId);
-                if (!active) return;
-                if (active.buffer.length > 0) {
-                    assistantParts.push({ type: "text", text: active.buffer });
-                    await updateAssistantMessage(reply.assistantId, assistantParts, "pending");
-                }
-                writer.write({ type: "text-end", id: active.uiId });
-                activeUITexts.delete(modelPartId);
-            };
+            const closeUIText = (modelPartId: string) =>
+                Effect.gen(function* () {
+                    const active = activeUITexts.get(modelPartId);
+                    if (!active) return;
+                    if (active.buffer.length > 0) {
+                        assistantParts.push({ type: "text", text: active.buffer });
+                        yield* updateAssistantMessage(reply.assistantId, assistantParts, "pending");
+                    }
+                    writer.write({ type: "text-end", id: active.uiId });
+                    activeUITexts.delete(modelPartId);
+                });
 
             const appendText = (modelPartId: string, text: string) => {
                 if (text.length === 0) return;
@@ -344,15 +374,16 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                 });
             };
 
-            const emitCitationFence = async (modelPartId: string, citationId: string) => {
-                const citation = await reply.resolveCitation(citationId);
-                if (!citation) {
-                    return;
-                }
+            const emitCitationFence = (modelPartId: string, citationId: string) =>
+                Effect.gen(function* () {
+                    const citation = yield* reply.resolveCitation(citationId);
+                    if (!citation) {
+                        return;
+                    }
 
-                addCitationFileId(citationFileIds, citation);
-                appendText(modelPartId, stringifyCitationFence(citation));
-            };
+                    addCitationFileId(citationFileIds, citation);
+                    appendText(modelPartId, stringifyCitationFence(citation));
+                });
 
             const createResult = () =>
                 streamText({
@@ -369,213 +400,212 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                     providerOptions: getProviderOptions({ thinking: "medium" }),
                 });
 
-            const processResult = async (result: ReturnType<typeof streamText>) => {
-                let retryRequested = false;
+            const processResult = (result: ReturnType<typeof streamText>): Effect.Effect<boolean, unknown> =>
+                Effect.gen(function* () {
+                    const iterator = result.fullStream[Symbol.asyncIterator]();
 
-                generationStream: for await (const part of result.fullStream) {
-                    const assistantOutputStarted = startsAssistantOutput(part.type);
-                    if (assistantOutputStarted && firstOutputAt === null) {
-                        firstOutputAt = Date.now();
-                    }
-                    if (assistantOutputStarted) {
-                        hasStreamedAssistantOutput = true;
-                    }
-
-                    switch (part.type) {
-                        case "text-start":
-                            textParsers.set(part.id, createCitationFenceStreamParser());
-                            break;
-                        case "text-delta": {
-                            const parser = textParsers.get(part.id);
-                            if (!parser) break;
-
-                            for (const segment of parser.push(part.text)) {
-                                if (segment.type === "text") {
-                                    appendText(part.id, segment.text);
-                                    continue;
-                                }
-
-                                await emitCitationFence(part.id, segment.citation.sourceId);
-                            }
-                            break;
+                    while (true) {
+                        const next = yield* chatEffect(() => iterator.next());
+                        if (next.done) {
+                            return false;
                         }
-                        case "text-end": {
-                            const parser = textParsers.get(part.id);
-                            if (parser) {
-                                for (const segment of parser.flush()) {
+
+                        const part = next.value;
+                        const assistantOutputStarted = startsAssistantOutput(part.type);
+                        if (assistantOutputStarted && firstOutputAt === null) {
+                            firstOutputAt = Date.now();
+                        }
+                        if (assistantOutputStarted) {
+                            hasStreamedAssistantOutput = true;
+                        }
+
+                        switch (part.type) {
+                            case "text-start":
+                                textParsers.set(part.id, createCitationFenceStreamParser());
+                                break;
+                            case "text-delta": {
+                                const parser = textParsers.get(part.id);
+                                if (!parser) break;
+
+                                for (const segment of parser.push(part.text)) {
                                     if (segment.type === "text") {
                                         appendText(part.id, segment.text);
                                         continue;
                                     }
 
-                                    await emitCitationFence(part.id, segment.citation.sourceId);
+                                    yield* emitCitationFence(part.id, segment.citation.sourceId);
                                 }
+                                break;
                             }
+                            case "text-end": {
+                                const parser = textParsers.get(part.id);
+                                if (parser) {
+                                    for (const segment of parser.flush()) {
+                                        if (segment.type === "text") {
+                                            appendText(part.id, segment.text);
+                                            continue;
+                                        }
 
-                            await closeUIText(part.id);
-                            textParsers.delete(part.id);
-                            break;
-                        }
-                        case "reasoning-start":
-                            reasoningBuffers.set(part.id, "");
-                            writer.write({ type: "reasoning-start", id: part.id });
-                            break;
-                        case "reasoning-delta":
-                            reasoningBuffers.set(part.id, `${reasoningBuffers.get(part.id) ?? ""}${part.text}`);
-                            writer.write({
-                                type: "reasoning-delta",
-                                id: part.id,
-                                delta: part.text,
-                            });
-                            break;
-                        case "reasoning-end": {
-                            const reasoning = reasoningBuffers.get(part.id) ?? "";
-                            if (reasoning.length > 0) {
-                                assistantParts.push({
-                                    type: "reasoning",
-                                    text: reasoning,
+                                        yield* emitCitationFence(part.id, segment.citation.sourceId);
+                                    }
+                                }
+
+                                yield* closeUIText(part.id);
+                                textParsers.delete(part.id);
+                                break;
+                            }
+                            case "reasoning-start":
+                                reasoningBuffers.set(part.id, "");
+                                writer.write({ type: "reasoning-start", id: part.id });
+                                break;
+                            case "reasoning-delta":
+                                reasoningBuffers.set(part.id, `${reasoningBuffers.get(part.id) ?? ""}${part.text}`);
+                                writer.write({
+                                    type: "reasoning-delta",
+                                    id: part.id,
+                                    delta: part.text,
                                 });
-                                await updateAssistantMessage(reply.assistantId, assistantParts, "pending");
+                                break;
+                            case "reasoning-end": {
+                                const reasoning = reasoningBuffers.get(part.id) ?? "";
+                                if (reasoning.length > 0) {
+                                    assistantParts.push({
+                                        type: "reasoning",
+                                        text: reasoning,
+                                    });
+                                    yield* updateAssistantMessage(reply.assistantId, assistantParts, "pending");
+                                }
+                                writer.write({ type: "reasoning-end", id: part.id });
+                                reasoningBuffers.delete(part.id);
+                                break;
                             }
-                            writer.write({ type: "reasoning-end", id: part.id });
-                            reasoningBuffers.delete(part.id);
-                            break;
-                        }
-                        case "tool-input-start":
-                            writer.write({
-                                type: "tool-input-start",
-                                toolCallId: part.id,
-                                toolName: part.toolName,
-                                providerExecuted: part.providerExecuted,
-                                dynamic: pinToolDynamic(part.id, part.dynamic),
-                                title: part.title,
-                            });
-                            break;
-                        case "tool-input-delta":
-                            writer.write({
-                                type: "tool-input-delta",
-                                toolCallId: part.id,
-                                inputTextDelta: part.delta,
-                            });
-                            break;
-                        case "tool-call":
-                            upsertToolPart(assistantParts, toolPart(part, "pending"));
-                            await updateAssistantMessage(reply.assistantId, assistantParts, "pending");
-                            writer.write({
-                                type: "tool-input-available",
-                                toolCallId: part.toolCallId,
-                                toolName: part.toolName,
-                                input: part.input,
-                                providerExecuted: part.providerExecuted,
-                                dynamic: pinToolDynamic(part.toolCallId, part.dynamic),
-                                title: part.title,
-                            });
-                            break;
-                        case "tool-result":
-                            upsertToolPart(assistantParts, toolPart(part, "completed", { value: part.output }));
-                            await updateAssistantMessage(reply.assistantId, assistantParts, "pending");
-                            writer.write({
-                                type: "tool-output-available",
-                                toolCallId: part.toolCallId,
-                                output: part.output,
-                                providerExecuted: part.providerExecuted,
-                                dynamic: pinToolDynamic(part.toolCallId, part.dynamic),
-                                preliminary: part.preliminary,
-                            });
-                            break;
-                        case "tool-error": {
-                            const errorText =
-                                typeof part.error === "string" ? part.error : JSON.stringify(part.error ?? null);
-                            upsertToolPart(assistantParts, toolPart(part, "failed", { value: errorText }));
-                            await updateAssistantMessage(reply.assistantId, assistantParts, "pending");
-                            writer.write({
-                                type: "tool-output-error",
-                                toolCallId: part.toolCallId,
-                                errorText,
-                                providerExecuted: part.providerExecuted,
-                                dynamic: pinToolDynamic(part.toolCallId, part.dynamic),
-                            });
-                            break;
-                        }
-                        case "tool-output-denied":
-                            writer.write({
-                                type: "tool-output-denied",
-                                toolCallId: part.toolCallId,
-                            });
-                            break;
-                        case "tool-approval-request":
-                            writer.write({
-                                type: "tool-approval-request",
-                                approvalId: part.approvalId,
-                                toolCallId: part.toolCall.toolCallId,
-                            });
-                            break;
-                        case "start-step":
-                            writer.write({
-                                type: "data-step",
-                                data: { name: "thinking" },
-                                transient: true,
-                            });
-                            break;
-                        case "finish-step":
-                            writer.write({ type: "finish-step" });
-                            break;
-                        case "finish": {
-                            const finishMetadata = buildFinishMetadata({
-                                reply,
-                                startedAt,
-                                firstOutputAt,
-                                totalTokens: part.totalUsage.totalTokens,
-                                inputTokens: part.totalUsage.inputTokens,
-                                outputTokens: part.totalUsage.outputTokens,
-                                modelId: reply.client.textModelId,
-                                citationFileIds,
-                            });
-                            assistantParts.push({
-                                type: "metadata",
-                                metadata: finishMetadata,
-                            });
-                            await updateAssistantMessage(
-                                reply.assistantId,
-                                assistantParts,
-                                "completed",
-                                finishMetadata
-                            );
-                            await touchChat(reply.chatId);
-                            writer.write({
-                                type: "finish",
-                                finishReason: part.finishReason,
-                                messageMetadata: finishMetadata,
-                            });
-                            break;
-                        }
-                        case "error": {
-                            if (
-                                !retriedAfterCompaction &&
-                                !hasStreamedAssistantOutput &&
-                                isContextOverflowError(part.error)
-                            ) {
-                                retryRequested = true;
-                                break generationStream;
+                            case "tool-input-start":
+                                writer.write({
+                                    type: "tool-input-start",
+                                    toolCallId: part.id,
+                                    toolName: part.toolName,
+                                    providerExecuted: part.providerExecuted,
+                                    dynamic: pinToolDynamic(part.id, part.dynamic),
+                                    title: part.title,
+                                });
+                                break;
+                            case "tool-input-delta":
+                                writer.write({
+                                    type: "tool-input-delta",
+                                    toolCallId: part.id,
+                                    inputTextDelta: part.delta,
+                                });
+                                break;
+                            case "tool-call":
+                                upsertToolPart(assistantParts, toolPart(part, "pending"));
+                                yield* updateAssistantMessage(reply.assistantId, assistantParts, "pending");
+                                writer.write({
+                                    type: "tool-input-available",
+                                    toolCallId: part.toolCallId,
+                                    toolName: part.toolName,
+                                    input: part.input,
+                                    providerExecuted: part.providerExecuted,
+                                    dynamic: pinToolDynamic(part.toolCallId, part.dynamic),
+                                    title: part.title,
+                                });
+                                break;
+                            case "tool-result":
+                                upsertToolPart(assistantParts, toolPart(part, "completed", { value: part.output }));
+                                yield* updateAssistantMessage(reply.assistantId, assistantParts, "pending");
+                                writer.write({
+                                    type: "tool-output-available",
+                                    toolCallId: part.toolCallId,
+                                    output: part.output,
+                                    providerExecuted: part.providerExecuted,
+                                    dynamic: pinToolDynamic(part.toolCallId, part.dynamic),
+                                    preliminary: part.preliminary,
+                                });
+                                break;
+                            case "tool-error": {
+                                const errorText =
+                                    typeof part.error === "string" ? part.error : JSON.stringify(part.error ?? null);
+                                upsertToolPart(assistantParts, toolPart(part, "failed", { value: errorText }));
+                                yield* updateAssistantMessage(reply.assistantId, assistantParts, "pending");
+                                writer.write({
+                                    type: "tool-output-error",
+                                    toolCallId: part.toolCallId,
+                                    errorText,
+                                    providerExecuted: part.providerExecuted,
+                                    dynamic: pinToolDynamic(part.toolCallId, part.dynamic),
+                                });
+                                break;
                             }
+                            case "tool-output-denied":
+                                writer.write({
+                                    type: "tool-output-denied",
+                                    toolCallId: part.toolCallId,
+                                });
+                                break;
+                            case "tool-approval-request":
+                                writer.write({
+                                    type: "tool-approval-request",
+                                    approvalId: part.approvalId,
+                                    toolCallId: part.toolCall.toolCallId,
+                                });
+                                break;
+                            case "start-step":
+                                writer.write({
+                                    type: "data-step",
+                                    data: { name: "thinking" },
+                                    transient: true,
+                                });
+                                break;
+                            case "finish-step":
+                                writer.write({ type: "finish-step" });
+                                break;
+                            case "finish": {
+                                const finishMetadata = buildFinishMetadata({
+                                    reply,
+                                    startedAt,
+                                    firstOutputAt,
+                                    totalTokens: part.totalUsage.totalTokens,
+                                    inputTokens: part.totalUsage.inputTokens,
+                                    outputTokens: part.totalUsage.outputTokens,
+                                    modelId: reply.client.textModelId,
+                                    citationFileIds,
+                                });
+                                assistantParts.push({
+                                    type: "metadata",
+                                    metadata: finishMetadata,
+                                });
+                                yield* updateAssistantMessage(reply.assistantId, assistantParts, "completed", finishMetadata);
+                                yield* touchChat(reply.chatId);
+                                writer.write({
+                                    type: "finish",
+                                    finishReason: part.finishReason,
+                                    messageMetadata: finishMetadata,
+                                });
+                                break;
+                            }
+                            case "error": {
+                                if (
+                                    !retriedAfterCompaction &&
+                                    !hasStreamedAssistantOutput &&
+                                    isContextOverflowError(part.error)
+                                ) {
+                                    return true;
+                                }
 
-                            const errorText = part.error instanceof Error ? part.error.message : String(part.error);
-                            await updateAssistantMessage(reply.assistantId, assistantParts, "failed");
-                            writer.write({ type: "error", errorText });
-                            break;
+                                const errorText = part.error instanceof Error ? part.error.message : String(part.error);
+                                yield* updateAssistantMessage(reply.assistantId, assistantParts, "failed");
+                                writer.write({ type: "error", errorText });
+                                break;
+                            }
                         }
                     }
-                }
-
-                return retryRequested;
-            };
+                });
 
             try {
                 generationAttempt: while (true) {
                     let retryRequested = false;
 
                     try {
-                        retryRequested = await processResult(createResult());
+                        retryRequested = await Effect.runPromise(processResult(createResult()));
                     } catch (error) {
                         if (!retriedAfterCompaction && !hasStreamedAssistantOutput && isContextOverflowError(error)) {
                             retryRequested = true;
@@ -591,7 +621,7 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                     retriedAfterCompaction = true;
                     let refreshed;
                     try {
-                        refreshed = await reply.refreshAfterCompaction();
+                        refreshed = await Effect.runPromise(reply.refreshAfterCompaction());
                     } catch (compactionError) {
                         discardAssistantPartsOnFailure = true;
                         throw compactionError;
@@ -602,11 +632,11 @@ export function createChatStreamResponse(reply: StartedChatReply) {
             } catch (error) {
                 if (!discardAssistantPartsOnFailure) {
                     for (const modelPartId of [...activeUITexts.keys()]) {
-                        await closeUIText(modelPartId);
+                        await Effect.runPromise(closeUIText(modelPartId));
                     }
                 }
                 const errorText = error instanceof Error ? error.message : "Unknown stream error";
-                await updateAssistantMessage(
+                await runUpdateAssistantMessage(
                     reply.assistantId,
                     discardAssistantPartsOnFailure ? [] : assistantParts,
                     "failed"
