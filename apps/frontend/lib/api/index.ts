@@ -105,6 +105,9 @@ export {
     updateModel,
 } from "./models";
 
+// Re-export file type processing configuration API
+export { fetchFileTypeConfigs, updateFileTypeConfig } from "./file-types";
+
 // Re-export prompts API
 export { createPrompt, deletePrompt, fetchPrompts, savePromptText, updatePrompt } from "./prompts";
 export type { PromptRecord, PromptScope } from "./prompts";

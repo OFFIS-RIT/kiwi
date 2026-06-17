@@ -19,7 +19,7 @@ import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useAuth } from "@/providers/AuthProvider";
 import { useRuntimeConfig } from "@/providers/RuntimeConfigProvider";
 import { useSettings } from "@/providers/SettingsProvider";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type { ComponentProps } from "react";
@@ -31,18 +31,21 @@ import { getVisibleSettingsCategories } from "./sections";
 export function SettingsSidebar(props: ComponentProps<typeof Sidebar>) {
     const t = useAppTranslations();
     const router = useRouter();
-    const { isSystemAdmin } = useAuth();
+    const { isAdmin, isSystemAdmin, isPending: isAuthPending } = useAuth();
     const { authMode } = useRuntimeConfig();
     const { activeSection, setActiveSection } = useSettings();
     const { canManageSuggestions } = useCanManageSuggestions();
     const { canManagePrompts } = useCanManagePrompts();
 
-    const categories = getVisibleSettingsCategories({
-        isSystemAdmin,
-        canManageSuggestions,
-        canManagePrompts,
-        authMode,
-    });
+    const categories = isAuthPending
+        ? []
+        : getVisibleSettingsCategories({
+              isAdmin,
+              isSystemAdmin,
+              canManageSuggestions,
+              canManagePrompts,
+              authMode,
+          });
 
     const handleBackToApp = () => {
         router.push(getLastAppPath() ?? "/");
@@ -84,6 +87,11 @@ export function SettingsSidebar(props: ComponentProps<typeof Sidebar>) {
                 <SidebarSeparator />
             </SidebarHeader>
             <SidebarContent>
+                {isAuthPending ? (
+                    <div role="status" aria-label={t("loading")} className="flex items-center justify-center py-6">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </div>
+                ) : null}
                 {categories.map((category) => (
                     <SidebarGroup key={category.id}>
                         <SidebarGroupLabel>{t(category.labelKey)}</SidebarGroupLabel>
