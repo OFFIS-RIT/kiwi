@@ -26,13 +26,18 @@ const patchFileTypeConfigSchema = z.object({
 });
 
 function toFileTypeConfigRecord(fileType: GraphFileType, config: FileTypeProcessingConfig): FileTypeConfigRecord {
+    const chunkSizeEditable = fileTypeSupportsChunkSize(fileType);
+    if (chunkSizeEditable && config.chunkSize === null) {
+        throw new Error(`Editable file type "${fileType}" resolved without a chunk size`);
+    }
+
     return {
         file_type: fileType,
         loader: config.loader,
         chunker: config.chunker,
         chunk_size: config.chunkSize,
         document_mode: config.documentMode,
-        chunk_size_editable: fileTypeSupportsChunkSize(fileType),
+        chunk_size_editable: chunkSizeEditable,
         document_mode_editable: fileTypeSupportsDocumentMode(fileType),
     };
 }
