@@ -1,26 +1,7 @@
-export const GRAPH_FILE_TYPES = [
-    "pdf",
-    "doc",
-    "sheet",
-    "ppt",
-    "image",
-    "audio",
-    "video",
-    "html",
-    "email",
-    "calendar",
-    "vcard",
-    "json",
-    "jsonl",
-    "jsonc",
-    "csv",
-    "xml",
-    "yaml",
-    "toml",
-    "text",
-] as const;
+import { FILE_TYPE_VALUES, type FileTypeValue } from "@kiwi/contracts/file-types";
 
-export type GraphFileType = (typeof GRAPH_FILE_TYPES)[number];
+export const GRAPH_FILE_TYPES = FILE_TYPE_VALUES;
+export type GraphFileType = FileTypeValue;
 
 const graphFileTypeSet = new Set<string>(GRAPH_FILE_TYPES);
 

@@ -2,19 +2,27 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { isSystemAdmin, canManageSuggestions, setActiveSection, push } = vi.hoisted(() => ({
-    isSystemAdmin: { value: false },
-    canManageSuggestions: { value: false },
-    setActiveSection: vi.fn(),
-    push: vi.fn(),
-}));
+const { isAdmin, isSystemAdmin, isAuthPending, canManageSuggestions, canManagePrompts, setActiveSection, push } =
+    vi.hoisted(() => ({
+        isAdmin: { value: false },
+        isSystemAdmin: { value: false },
+        isAuthPending: { value: false },
+        canManageSuggestions: { value: false },
+        canManagePrompts: { value: false },
+        setActiveSection: vi.fn(),
+        push: vi.fn(),
+    }));
 
 vi.mock("@/providers/AuthProvider", () => ({
-    useAuth: () => ({ isSystemAdmin: isSystemAdmin.value }),
+    useAuth: () => ({ isAdmin: isAdmin.value, isSystemAdmin: isSystemAdmin.value, isPending: isAuthPending.value }),
 }));
 
 vi.mock("@/hooks/use-suggestion-access", () => ({
     useCanManageSuggestions: () => ({ canManageSuggestions: canManageSuggestions.value, isLoading: false }),
+}));
+
+vi.mock("@/hooks/use-prompt-access", () => ({
+    useCanManagePrompts: () => ({ canManagePrompts: canManagePrompts.value, isLoading: false }),
 }));
 
 vi.mock("@/providers/SettingsProvider", () => ({
@@ -47,8 +55,11 @@ const renderSidebar = (options?: Parameters<typeof renderWithProviders>[1]) =>
 describe("SettingsSidebar", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        isAdmin.value = false;
         isSystemAdmin.value = false;
+        isAuthPending.value = false;
         canManageSuggestions.value = false;
+        canManagePrompts.value = false;
     });
 
     test("shows General Sections and the Back to app action for a regular credentials user", () => {
@@ -70,12 +81,34 @@ describe("SettingsSidebar", () => {
     });
 
     test("shows the System Admin Category with User Management for system admins", () => {
+        isAdmin.value = true;
         isSystemAdmin.value = true;
 
         renderSidebar();
 
         expect(screen.getByText("System-Admin")).toBeInTheDocument();
         expect(screen.getByText("Benutzerverwaltung")).toBeInTheDocument();
+    });
+
+    test("shows System Configuration for organization admins in Administration", () => {
+        isAdmin.value = true;
+
+        renderSidebar();
+
+        expect(screen.getByText("Administration")).toBeInTheDocument();
+        expect(screen.queryByText("System-Admin")).not.toBeInTheDocument();
+        expect(screen.getByText("Systemkonfiguration")).toBeInTheDocument();
+    });
+
+    test("waits for auth roles before rendering admin-dependent sections", () => {
+        isAdmin.value = false;
+        isAuthPending.value = true;
+
+        renderSidebar();
+
+        expect(screen.getByRole("status", { name: "Wird geladen..." })).toBeInTheDocument();
+        expect(screen.queryByText("Administration")).not.toBeInTheDocument();
+        expect(screen.queryByText("Systemkonfiguration")).not.toBeInTheDocument();
     });
 
     test("hides the Administration Category without suggestion management rights", () => {
