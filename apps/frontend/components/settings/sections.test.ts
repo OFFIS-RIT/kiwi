@@ -13,6 +13,7 @@ const sectionIds = (categories: ReturnType<typeof getVisibleSettingsCategories>)
 describe("settings section visibility", () => {
     test("regular user in credentials mode sees General Sections incl. Account, but no System Admin", () => {
         const categories = getVisibleSettingsCategories({
+            isAdmin: false,
             isSystemAdmin: false,
             canManageSuggestions: false,
             canManagePrompts: false,
@@ -31,6 +32,7 @@ describe("settings section visibility", () => {
 
     test("Account Section is hidden in LDAP mode", () => {
         const categories = getVisibleSettingsCategories({
+            isAdmin: false,
             isSystemAdmin: false,
             canManageSuggestions: false,
             canManagePrompts: false,
@@ -43,19 +45,22 @@ describe("settings section visibility", () => {
 
     test("system admin additionally sees the System Admin Category with User Management", () => {
         const categories = getVisibleSettingsCategories({
+            isAdmin: true,
             isSystemAdmin: true,
             canManageSuggestions: false,
             canManagePrompts: false,
             authMode: "credentials",
         });
 
-        expect(categories.map((category) => category.id)).toEqual(["general", "system-admin"]);
+        expect(categories.map((category) => category.id)).toEqual(["general", "administration", "system-admin"]);
         expect(sectionIds(categories)).toContain("user-management");
         expect(sectionIds(categories)).toContain("ai-models");
+        expect(sectionIds(categories)).toContain("system-configuration");
     });
 
     test("system-admin Category never appears for non-system-admins", () => {
         const categories = getVisibleSettingsCategories({
+            isAdmin: false,
             isSystemAdmin: false,
             canManageSuggestions: false,
             canManagePrompts: false,
@@ -67,6 +72,7 @@ describe("settings section visibility", () => {
 
     test("suggestion managers see the Administration Category with Suggestions", () => {
         const categories = getVisibleSettingsCategories({
+            isAdmin: false,
             isSystemAdmin: false,
             canManageSuggestions: true,
             canManagePrompts: false,
@@ -80,6 +86,7 @@ describe("settings section visibility", () => {
 
     test("prompt managers see the Administration Category with Prompts", () => {
         const categories = getVisibleSettingsCategories({
+            isAdmin: false,
             isSystemAdmin: false,
             canManageSuggestions: false,
             canManagePrompts: true,
@@ -91,15 +98,17 @@ describe("settings section visibility", () => {
         expect(sectionIds(categories)).not.toContain("suggestions");
     });
 
-    test("Administration Category is hidden without suggestion or prompt rights, even for system admins", () => {
+    test("organization admins see the Administration Category with System Configuration", () => {
         const categories = getVisibleSettingsCategories({
-            isSystemAdmin: true,
+            isAdmin: true,
+            isSystemAdmin: false,
             canManageSuggestions: false,
             canManagePrompts: false,
             authMode: "credentials",
         });
 
-        expect(categories.map((category) => category.id)).not.toContain("administration");
+        expect(categories.map((category) => category.id)).toEqual(["general", "administration"]);
+        expect(sectionIds(categories)).toContain("system-configuration");
     });
 });
 
@@ -123,10 +132,18 @@ describe("admin-only section derivation", () => {
         // server-side system-admin guard must not cover this Section.
         expect(getAdminOnlySectionIds()).not.toContain("prompts");
     });
+
+    test("does not classify System Configuration as system-admin-only", () => {
+        // The file type config API is organization-scoped and accepts
+        // organization admins, so server-side system-admin guards must not
+        // block this Section.
+        expect(getAdminOnlySectionIds()).not.toContain("system-configuration");
+    });
 });
 
 describe("active section resolution", () => {
     const credentialsContext = {
+        isAdmin: false,
         isSystemAdmin: false,
         canManageSuggestions: false,
         canManagePrompts: false,
@@ -144,6 +161,12 @@ describe("active section resolution", () => {
     test("falls back to the default when the requested section is not visible to this user", () => {
         // user-management is hidden for non-system-admins
         expect(resolveActiveSettingsSection("user-management", credentialsContext)?.id).toBe(DEFAULT_SETTINGS_SECTION);
+    });
+
+    test("resolves System Configuration for organization admins", () => {
+        const context = { ...credentialsContext, isAdmin: true };
+
+        expect(resolveActiveSettingsSection("system-configuration", context)?.id).toBe("system-configuration");
     });
 
     test("falls back to the default when Suggestions is requested without management rights", () => {

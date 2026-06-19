@@ -5,6 +5,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./chat": "./src/chat.ts",
+        "./file-types": "./src/file-types.ts",
         "./responses": "./src/responses.ts",
         "./routes": "./src/routes.ts",
         "./source": "./src/source.ts"

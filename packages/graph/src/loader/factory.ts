@@ -1,4 +1,5 @@
 import type { LanguageModelV3, TranscriptionModelV3 } from "@ai-sdk/provider";
+import { FILE_TYPE_DOCUMENT_MODE_VALUES, type FileTypeDocumentMode } from "@kiwi/contracts/file-types";
 import type { GraphBinaryLoader, GraphLoader } from "..";
 import type { GraphFileType } from "../file-type";
 import { AudioLoader } from "./audio";
@@ -41,8 +42,8 @@ export type DetectedGraphFileFormat = {
     sniffed: boolean;
 };
 
-export const GRAPH_DOCUMENT_MODES = ["plain", "hybrid", "ocr"] as const;
-export type GraphDocumentMode = (typeof GRAPH_DOCUMENT_MODES)[number];
+export const GRAPH_DOCUMENT_MODES = FILE_TYPE_DOCUMENT_MODE_VALUES;
+export type GraphDocumentMode = FileTypeDocumentMode;
 
 const graphDocumentModeSet = new Set<string>(GRAPH_DOCUMENT_MODES);
 

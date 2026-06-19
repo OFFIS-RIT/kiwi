@@ -1,4 +1,5 @@
 import type { ChatUIMessage } from "./chat";
+import type { FileTypeDocumentMode, FileTypeValue } from "./file-types";
 import type { ApiResponse } from "./responses";
 
 export type TeamUserRole = "admin" | "moderator" | "member";
@@ -298,6 +299,21 @@ export type ModelPatchInput = {
     provider_model?: string;
     context_window?: number;
     credentials?: ModelCredentialsPatchInput;
+};
+
+export type FileTypeConfigRecord = {
+    file_type: FileTypeValue;
+    loader: string;
+    chunker: string;
+    chunk_size: number | null;
+    document_mode: FileTypeDocumentMode | null;
+    chunk_size_editable: boolean;
+    document_mode_editable: boolean;
+};
+
+export type FileTypeConfigPatchInput = {
+    chunk_size?: number;
+    document_mode?: FileTypeDocumentMode;
 };
 
 export type ChatSummaryItem = {
@@ -810,6 +826,21 @@ export type SourceReferenceResponse = ApiResponse<
 export type SourceReferenceBatchResponse = ApiResponse<
     SourceReferenceBatchSuccessData,
     "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type FileTypeConfigListResponse = ApiResponse<
+    FileTypeConfigRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+
+export type FileTypeConfigPatchResponse = ApiResponse<
+    FileTypeConfigRecord,
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "FILE_TYPE_NOT_FOUND"
+    | "INVALID_FILE_TYPE_CONFIG"
+    | "NO_CHANGES"
+    | "INTERNAL_SERVER_ERROR"
 >;
 
 export type ChatListResponse = ApiResponse<

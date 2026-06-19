@@ -10,16 +10,16 @@ import { Loader2 } from "lucide-react";
 import { resolveActiveSettingsSection } from "./sections";
 
 export function SettingsContent() {
-    const { isSystemAdmin } = useAuth();
+    const { isAdmin, isSystemAdmin, isPending: isAuthPending } = useAuth();
     const { authMode } = useRuntimeConfig();
     const { activeSection } = useSettings();
     const { canManageSuggestions, isLoading: isSuggestionAccessLoading } = useCanManageSuggestions();
     const { canManagePrompts, isLoading: isPromptAccessLoading } = useCanManagePrompts();
 
-    // The Suggestions and Prompts Sections' visibility depends on the groups
-    // query; until it resolves, a deep link would briefly render the fallback
-    // Section.
+    // Some admin Sections depend on async role/group queries; until they
+    // resolve, a deep link would briefly render the fallback Section.
     if (
+        (isAuthPending && activeSection === "system-configuration") ||
         (isSuggestionAccessLoading && activeSection === "suggestions") ||
         (isPromptAccessLoading && activeSection === "prompts")
     ) {
@@ -31,6 +31,7 @@ export function SettingsContent() {
     }
 
     const section = resolveActiveSettingsSection(activeSection, {
+        isAdmin,
         isSystemAdmin,
         canManageSuggestions,
         canManagePrompts,

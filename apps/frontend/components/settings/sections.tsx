@@ -6,6 +6,7 @@ import {
     Lightbulb,
     Palette,
     ScrollText,
+    Settings2,
     SlidersHorizontal,
     Users,
     UserCircle,
@@ -21,9 +22,11 @@ import { ModelsSection } from "./sections/ModelsSection";
 import { PersonalizationSection } from "./sections/PersonalizationSection";
 import { PromptsSection } from "./sections/PromptsSection";
 import { SuggestionsSection } from "./sections/SuggestionsSection";
+import { SystemConfigurationSection } from "./sections/SystemConfigurationSection";
 import { UserManagementSection } from "./sections/UserManagementSection";
 
 export type SettingsVisibilityContext = {
+    isAdmin: boolean;
     isSystemAdmin: boolean;
     canManageSuggestions: boolean;
     canManagePrompts: boolean;
@@ -102,6 +105,13 @@ export const settingsCategories: SettingsCategoryDef[] = [
                 Component: PromptsSection,
                 isVisible: (context) => context.canManagePrompts,
             },
+            {
+                id: "system-configuration",
+                labelKey: "settings.systemConfig.title",
+                icon: Settings2,
+                Component: SystemConfigurationSection,
+                isVisible: (context) => context.isAdmin,
+            },
         ],
     },
     {
@@ -142,14 +152,19 @@ export function getVisibleSettingsCategories(context: SettingsVisibilityContext)
 const ALL_AUTH_MODES: AuthMode[] = ["credentials", "ldap"];
 
 function enumerateContexts(isSystemAdmin: boolean): SettingsVisibilityContext[] {
+    const adminValues = isSystemAdmin ? [true] : [false, true];
+
     return ALL_AUTH_MODES.flatMap((authMode) =>
-        [false, true].flatMap((canManageSuggestions) =>
-            [false, true].map((canManagePrompts) => ({
-                isSystemAdmin,
-                canManageSuggestions,
-                canManagePrompts,
-                authMode,
-            }))
+        adminValues.flatMap((isAdmin) =>
+            [false, true].flatMap((canManageSuggestions) =>
+                [false, true].map((canManagePrompts) => ({
+                    isAdmin,
+                    isSystemAdmin,
+                    canManageSuggestions,
+                    canManagePrompts,
+                    authMode,
+                }))
+            )
         )
     );
 }
