@@ -10,6 +10,7 @@ const bindingUpdates: Array<Record<string, unknown>> = [];
 const compareCalls: Array<{ fromCommitSha: string; toCommitSha: string }> = [];
 const readFileCalls: Array<{ path: string; commitSha: string }> = [];
 const txWhereConditions: unknown[] = [];
+const updateWhereConditions: unknown[] = [];
 const pendingReadResolutions: Array<() => void> = [];
 
 let selectResults: SelectResult[] = [];
@@ -128,8 +129,9 @@ mock.module("@kiwi/db", () => ({
         select: () => createSelectQuery(),
         update: () => ({
             set: (values: Record<string, unknown>) => ({
-                where: async () => {
+                where: async (condition: unknown) => {
                     bindingUpdates.push(values);
+                    updateWhereConditions.push(condition);
                     return undefined;
                 },
             }),
@@ -256,7 +258,12 @@ function activeFile(id: string, commitSha: string, path: string, size: number) {
     };
 }
 
-async function runWorkflow(input: { bindingId: string; reason: "manual" | "webhook" | "initial"; commitSha?: string }) {
+async function runWorkflow(input: {
+    bindingId: string;
+    reason: "manual" | "webhook" | "initial";
+    commitSha?: string;
+    deliveryId?: string;
+}) {
     return syncRepositoryGraph.fn({
         input,
         step: {
@@ -304,6 +311,7 @@ describe("syncRepositoryGraph", () => {
         compareCalls.length = 0;
         readFileCalls.length = 0;
         txWhereConditions.length = 0;
+        updateWhereConditions.length = 0;
         pendingReadResolutions.length = 0;
         selectResults = [];
         processFilesError = null;
@@ -543,6 +551,23 @@ describe("syncRepositoryGraph", () => {
             lastSyncedCommitSha: "commit-new",
             syncErrorCode: null,
         });
+    });
+
+    test("scopes duplicate webhook markers to the connector", async () => {
+        selectResults = [{ kind: "limit", value: [bindingRow("commit-new")] }];
+
+        const result = await runWorkflow({
+            bindingId: "binding-1",
+            reason: "webhook",
+            commitSha: "commit-new",
+            deliveryId: "delivery-1",
+        });
+
+        expect(result).toEqual({ skipped: true, commitSha: "commit-new" });
+        expect(bindingUpdates).toContainEqual({ status: "duplicate" });
+        expect(queryContainsParamValue(updateWhereConditions.at(-1), "connector-1")).toBe(true);
+        expect(queryContainsParamValue(updateWhereConditions.at(-1), "github")).toBe(true);
+        expect(queryContainsParamValue(updateWhereConditions.at(-1), "delivery-1")).toBe(true);
     });
 
     test("falls back to a full snapshot when compare is not incremental", async () => {

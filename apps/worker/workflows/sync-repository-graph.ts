@@ -495,7 +495,9 @@ async function findReusableProcessRun(
         }
     }
 
-    exactCandidates.sort((left, right) => processRunStatusPriority(left.status) - processRunStatusPriority(right.status));
+    exactCandidates.sort(
+        (left, right) => processRunStatusPriority(left.status) - processRunStatusPriority(right.status)
+    );
     return exactCandidates[0] ?? null;
 }
 
@@ -572,12 +574,17 @@ async function insertRepositoryFiles(
     });
 }
 
-async function markWebhookDuplicate(provider: typeof connectorsTable.$inferSelect.provider, deliveryId: string) {
+async function markWebhookDuplicate(
+    connectorId: string,
+    provider: typeof connectorsTable.$inferSelect.provider,
+    deliveryId: string
+) {
     await db
         .update(connectorWebhookEventsTable)
         .set({ status: "duplicate" })
         .where(
             and(
+                eq(connectorWebhookEventsTable.connectorId, connectorId),
                 eq(connectorWebhookEventsTable.provider, provider),
                 eq(connectorWebhookEventsTable.deliveryId, deliveryId)
             )
@@ -622,7 +629,7 @@ export const syncRepositoryGraph = defineWorkflow(syncRepositoryGraphSpec, async
         if (row.binding.lastSyncedCommitSha === commitSha) {
             if (input.deliveryId) {
                 await step.run({ name: "mark-webhook-duplicate" }, async () =>
-                    markWebhookDuplicate(row.connector.provider, input.deliveryId!)
+                    markWebhookDuplicate(row.connector.id, row.connector.provider, input.deliveryId!)
                 );
             }
             return { skipped: true, commitSha };
