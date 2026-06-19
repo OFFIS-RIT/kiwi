@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 
 type SelectResult = { kind: "where"; value: unknown[] } | { kind: "limit"; value: unknown[] };
 
@@ -41,28 +43,38 @@ function selectQuery() {
     return chain;
 }
 
-mock.module("@kiwi/db", () => ({
-    db: {
-        select: () => selectQuery(),
-        insert: () => ({
-            values: (values: Record<string, unknown>) => {
-                insertValues.push(values);
-                return {
-                    onConflictDoNothing: () => ({
-                        returning: () => insertResults.shift() ?? [],
-                    }),
-                };
+const db = {
+    select: () => selectQuery(),
+    insert: () => ({
+        values: (values: Record<string, unknown>) => {
+            insertValues.push(values);
+            return {
+                onConflictDoNothing: () => ({
+                    returning: () => insertResults.shift() ?? [],
+                }),
+            };
+        },
+    }),
+    update: () => ({
+        set: (values: Record<string, unknown>) => ({
+            where: async () => {
+                updates.push(values);
+                return undefined;
             },
         }),
-        update: () => ({
-            set: (values: Record<string, unknown>) => ({
-                where: async () => {
-                    updates.push(values);
-                    return undefined;
-                },
-            }),
-        }),
-    },
+    }),
+};
+
+function runMockDbEffect(thunk: (database: typeof db) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) {
+    const result = thunk(db);
+    return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
+}
+
+mock.module("@kiwi/db/effect", () => ({
+    DatabaseLayer: Layer.empty,
+    tryDb: runMockDbEffect,
+    tryDbVoid: (thunk: (database: typeof db) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) =>
+        Effect.asVoid(runMockDbEffect(thunk)),
 }));
 
 mock.module("../../lib/connectors", () => ({

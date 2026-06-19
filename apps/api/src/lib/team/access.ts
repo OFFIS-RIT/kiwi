@@ -16,6 +16,16 @@ import { forbiddenError, teamNotFoundError } from "@kiwi/contracts/errors";
 
 export type TeamRole = TeamMemberRole;
 
+export type TeamAccess = {
+    team: {
+        id: string;
+        name: string;
+        organizationId: string;
+    };
+    role: TeamRole | "admin";
+    organizationAdmin: boolean;
+};
+
 export function getActiveOrganizationId(user: AuthUser): Effect.Effect<string, DatabaseError | Error, Database> {
     if (user.activeOrganizationId) {
         return Effect.succeed(user.activeOrganizationId);

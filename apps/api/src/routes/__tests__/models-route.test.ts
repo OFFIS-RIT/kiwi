@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { Elysia } from "elysia";
 
-let scenario: "list-public" | "create-admin" | "patch-no-changes" | "delete-promote" | "delete-missing" =
-    "list-public";
+let scenario: "list-public" | "create-admin" | "patch-no-changes" | "delete-promote" | "delete-missing" = "list-public";
+let txSelectCount = 0;
 const encryptedCredentialsInputs: Array<{ apiKey: string; url?: string; resourceName?: string }> = [];
 const updateCalls: Array<Record<string, unknown>> = [];
 const deleteCalls: string[] = [];
@@ -24,13 +25,28 @@ const currentModel = {
 };
 
 function limitedRows<T>(rows: T[]) {
-    return {
-        for: async () => rows,
+    const chain = Object.assign(Effect.succeed(rows), {
+        for: () => Effect.succeed(rows),
         then: <TResult1 = T[], TResult2 = never>(
             resolve?: ((value: T[]) => TResult1 | PromiseLike<TResult1>) | null,
             _reject?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
         ) => Promise.resolve(rows).then(resolve, _reject),
-    };
+    });
+
+    return chain;
+}
+
+function runMockDbEffect(
+    thunk: (database: typeof mockDb.db) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown
+) {
+    const result = thunk(mockDb.db);
+    if (Effect.isEffect(result)) {
+        return result;
+    }
+    if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+        return Effect.promise(async () => await result);
+    }
+    return Effect.succeed(result);
 }
 
 const transactionDb = {
@@ -38,26 +54,21 @@ const transactionDb = {
         from: () => ({
             where: () => ({
                 limit: () => {
-                    if (scenario === "create-admin") {
-                        return limitedRows([]);
+                    txSelectCount += 1;
+                    if (txSelectCount === 1) {
+                        return limitedRows([{ id: "org-1" }]);
                     }
-                    if (scenario === "patch-no-changes") {
+                    if (scenario === "patch-no-changes" || scenario === "delete-promote") {
                         return limitedRows([currentModel]);
-                    }
-                    if (scenario === "delete-promote") {
-                        return limitedRows([currentModel]);
-                    }
-                    if (scenario === "delete-missing") {
-                        return limitedRows([]);
                     }
                     return limitedRows([]);
                 },
                 orderBy: () => ({
-                    limit: async () => {
+                    limit: () => {
                         if (scenario === "delete-promote") {
-                            return [{ id: "db-model-2" }];
+                            return limitedRows([{ id: "db-model-2" }]);
                         }
-                        return [];
+                        return limitedRows([]);
                     },
                 }),
             }),
@@ -65,9 +76,9 @@ const transactionDb = {
     }),
     insert: () => ({
         values: (values: Record<string, unknown>) => ({
-            returning: async () => {
+            returning: () => {
                 insertedModelValues = values;
-                return [
+                return Effect.succeed([
                     {
                         ...currentModel,
                         id: "db-model-created",
@@ -80,7 +91,7 @@ const transactionDb = {
                         encryptedCredentials: values.encryptedCredentials,
                         isDefault: values.isDefault,
                     },
-                ];
+                ]);
             },
         }),
     }),
@@ -88,43 +99,37 @@ const transactionDb = {
         set: (values: Record<string, unknown>) => {
             updateCalls.push(values);
             return {
-                where: () => ({
-                    returning: async () => [
-                        {
-                            ...currentModel,
-                            ...("displayName" in values ? { displayName: values.displayName } : {}),
-                            ...("adapter" in values ? { adapter: values.adapter } : {}),
-                            ...("providerModel" in values ? { providerModel: values.providerModel } : {}),
-                            ...("contextWindow" in values ? { contextWindow: values.contextWindow } : {}),
-                            ...("encryptedCredentials" in values
-                                ? { encryptedCredentials: values.encryptedCredentials }
-                                : {}),
-                            ...("isDefault" in values ? { isDefault: values.isDefault } : {}),
-                        },
-                    ],
-                    then: <TResult1 = void, TResult2 = never>(
-                        resolve?: ((value: void) => TResult1 | PromiseLike<TResult1>) | null,
-                        reject?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
-                    ) => Promise.resolve().then(resolve, reject),
-                }),
+                where: () =>
+                    Object.assign(Effect.succeed(undefined), {
+                        returning: () =>
+                            Effect.succeed([
+                                {
+                                    ...currentModel,
+                                    ...("displayName" in values ? { displayName: values.displayName } : {}),
+                                    ...("adapter" in values ? { adapter: values.adapter } : {}),
+                                    ...("providerModel" in values ? { providerModel: values.providerModel } : {}),
+                                    ...("contextWindow" in values ? { contextWindow: values.contextWindow } : {}),
+                                    ...("encryptedCredentials" in values
+                                        ? { encryptedCredentials: values.encryptedCredentials }
+                                        : {}),
+                                    ...("isDefault" in values ? { isDefault: values.isDefault } : {}),
+                                },
+                            ]),
+                    }),
             };
         },
     }),
     delete: () => ({
-        where: () => ({
-            then: <TResult1 = void, TResult2 = never>(
-                resolve?: ((value: void) => TResult1 | PromiseLike<TResult1>) | null,
-                reject?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
-            ) => {
+        where: () =>
+            Effect.sync(() => {
                 deleteCalls.push("delete");
-                return Promise.resolve().then(resolve, reject);
-            },
-        }),
+            }),
     }),
 };
 
 mock.module("@kiwi/ai/models", () => ({
-    allocateModelId: (_tx: unknown, _organizationId: string, modelId: string) => Effect.succeed(`allocated-${modelId.trim()}`),
+    allocateModelId: (_tx: unknown, _organizationId: string, modelId: string) =>
+        Effect.succeed(`allocated-${modelId.trim()}`),
     assertValidModelConfiguration: () => undefined,
     decryptModelCredentials: () => ({
         apiKey: "stored-secret",
@@ -157,29 +162,47 @@ mock.module("@kiwi/ai/models", () => ({
     }),
 }));
 
-mock.module("@kiwi/db", () => ({
+const mockDb = {
     db: {
         select: () => ({
             from: () => ({
                 where: () => ({
-                    orderBy: async () => [
-                        {
-                            modelId: "gpt-4o-mini",
-                            displayName: "GPT 4o Mini",
-                            isDefault: true,
-                        },
-                        {
-                            modelId: "claude-3-5-haiku",
-                            displayName: "Claude 3.5 Haiku",
-                            isDefault: false,
-                        },
-                    ],
+                    orderBy: () =>
+                        limitedRows([
+                            {
+                                modelId: "gpt-4o-mini",
+                                displayName: "GPT 4o Mini",
+                                isDefault: true,
+                            },
+                            {
+                                modelId: "claude-3-5-haiku",
+                                displayName: "Claude 3.5 Haiku",
+                                isDefault: false,
+                            },
+                        ]),
                 }),
             }),
         }),
-        transaction: async <T>(callback: (tx: typeof transactionDb) => Promise<T>) => callback(transactionDb),
+        transaction: (callback: (tx: typeof transactionDb) => unknown) => callback(transactionDb),
     },
+};
+
+class MockDatabaseError extends Error {
+    constructor(options?: { cause?: unknown }) {
+        super("database error");
+        this.cause = options?.cause;
+    }
+}
+
+mock.module("@kiwi/db/effect", () => ({
+    DatabaseError: MockDatabaseError,
+    DatabaseLayer: Layer.empty,
+    tryDb: runMockDbEffect,
+    tryDbVoid: (thunk: (database: typeof mockDb.db) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) =>
+        Effect.asVoid(runMockDbEffect(thunk)),
 }));
+
+mock.module("@kiwi/db", () => mockDb);
 
 mock.module("../../env", () => ({
     env: {
@@ -216,6 +239,7 @@ const { modelsRoute } = await import("../models");
 describe("models route characterization", () => {
     beforeEach(() => {
         scenario = "list-public";
+        txSelectCount = 0;
         encryptedCredentialsInputs.length = 0;
         updateCalls.length = 0;
         deleteCalls.length = 0;
@@ -267,7 +291,7 @@ describe("models route characterization", () => {
 
         expect(response.status).toBe(201);
         expect(body.status).toBe("success");
-        expect(body.data.model_id).toBe("allocated-GPT-4o-Mini");
+        expect(body.data.model_id).toBe("gpt-4o-mini");
         expect(body.data.is_default).toBe(true);
         expect(encryptedCredentialsInputs).toEqual([
             {
@@ -277,7 +301,7 @@ describe("models route characterization", () => {
             },
         ]);
         expect(insertedModelValues).toMatchObject({
-            modelId: "allocated-GPT-4o-Mini",
+            modelId: "gpt-4o-mini",
             displayName: "GPT 4o Mini",
             providerModel: "gpt-4o-mini",
             encryptedCredentials: "encrypted:secret-key:https://api.example.com:deployment-1",

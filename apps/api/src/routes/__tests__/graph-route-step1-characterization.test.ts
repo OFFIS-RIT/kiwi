@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { Elysia } from "elysia";
 
 type Scenario =
@@ -37,7 +38,7 @@ const deletedS3Keys: string[] = [];
 const listedPrefixes: string[] = [];
 
 function queryRows(rows: unknown[]) {
-    const chain = {
+    const chain = Object.assign(Effect.succeed(rows), {
         from: () => chain,
         innerJoin: () => chain,
         leftJoin: () => chain,
@@ -49,9 +50,36 @@ function queryRows(rows: unknown[]) {
             resolve?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
             reject?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
         ) => Promise.resolve(rows).then(resolve, reject),
-    };
+    });
 
     return chain;
+}
+
+function effectRows(rows: unknown[]) {
+    return Object.assign(Effect.succeed(rows), {
+        limit: () => Effect.succeed(rows),
+    });
+}
+
+function effectWithReturning<T>(value: T, returningValue: unknown[]) {
+    return Object.assign(Effect.succeed(value), {
+        returning: () => Effect.succeed(returningValue),
+    });
+}
+
+function runTransactionResult<T>(result: T | PromiseLike<T> | Effect.Effect<T>) {
+    return Effect.isEffect(result) ? Effect.runPromise(result) : result;
+}
+
+function runMockDbEffect(thunk: (database: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) {
+    const result = thunk(mockDb);
+    if (Effect.isEffect(result)) {
+        return result;
+    }
+    if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+        return Effect.promise(async () => await result);
+    }
+    return Effect.succeed(result);
 }
 
 function nextDbRows() {
@@ -77,6 +105,14 @@ function nextTxRows() {
         }
 
         if (txSelectCount === 2) {
+            return [{ id: "graph-2" }];
+        }
+
+        if (txSelectCount === 3) {
+            return [];
+        }
+
+        if (txSelectCount === 4) {
             return [{ id: "file-1", graphId: "graph-1", key: "graphs/graph-1/file-1.txt" }];
         }
     }
@@ -85,41 +121,42 @@ function nextTxRows() {
 }
 
 const transactionDb = {
-    select: () => ({ from: () => queryRows(nextTxRows()) }),
+    select: () => ({
+        from: () => ({
+            where: () => effectRows(nextTxRows()),
+        }),
+    }),
     update: () => ({
         set: (values: Record<string, unknown>) => ({
             where: () => {
                 if (scenario === "delete-files-success") {
                     if (values.deleted === true) {
                         operationLog.push("files-marked-deleted");
-                        return Promise.resolve();
+                        return Effect.succeed(undefined);
                     }
 
                     if (values.state === "updating") {
                         operationLog.push("graph-state-updated");
-                        return {
-                            returning: () => [
-                                {
-                                    ...existingGraph,
-                                    state: "updating",
-                                },
-                            ],
-                        };
+                        return effectWithReturning(undefined, [
+                            {
+                                ...existingGraph,
+                                state: "updating",
+                            },
+                        ]);
                     }
                 }
 
-                return {
-                    returning: () => [],
-                };
+                return effectWithReturning(undefined, []);
             },
         }),
     }),
     delete: () => ({
-        where: async () => {
-            if (scenario === "delete-graph-warning") {
-                operationLog.push("graph-deleted");
-            }
-        },
+        where: () =>
+            Effect.sync(() => {
+                if (scenario === "delete-graph-warning") {
+                    operationLog.push("graph-deleted");
+                }
+            }),
     }),
 };
 
@@ -144,11 +181,27 @@ const mockDb = {
     select: () => ({
         from: () => queryRows(nextDbRows()),
     }),
-    transaction: async (callback: (tx: typeof transactionDb) => unknown) => callback(transactionDb),
+    transaction: async (callback: (tx: typeof transactionDb) => unknown) =>
+        runTransactionResult(callback(transactionDb)),
 };
 
 mock.module("@kiwi/ai/models", () => ({
     getDefaultModelOrganizationId: () => "org-1",
+}));
+
+class MockDatabaseError extends Error {
+    constructor(options?: { cause?: unknown }) {
+        super("database error");
+        this.cause = options?.cause;
+    }
+}
+
+mock.module("@kiwi/db/effect", () => ({
+    DatabaseError: MockDatabaseError,
+    DatabaseLayer: Layer.empty,
+    tryDb: runMockDbEffect,
+    tryDbVoid: (thunk: (database: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) =>
+        Effect.asVoid(runMockDbEffect(thunk)),
 }));
 
 mock.module("@kiwi/db", () => ({
@@ -163,23 +216,18 @@ mock.module("../../env", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
-    deleteFile: (key: string) =>
-        Effect.sync(() => {
-            deletedS3Keys.push(key);
-            if (scenario === "delete-graph-warning" && key.endsWith("extra.txt")) {
-                throw new Error("delete failed");
-            }
-            return true;
-        }),
-    listFiles: (prefix: string) =>
-        Effect.sync(() => {
-            listedPrefixes.push(prefix);
-            if (scenario === "delete-graph-warning" && prefix === "graphs/graph-2/") {
-                throw new Error("list failed");
-            }
-
-            return prefix === "graphs/graph-1/" ? ["graphs/graph-1/extra.txt"] : [];
-        }),
+    deleteFile: (key: string) => {
+        deletedS3Keys.push(key);
+        return scenario === "delete-graph-warning" && key.endsWith("extra.txt")
+            ? Effect.fail(new Error("delete failed"))
+            : Effect.succeed(true);
+    },
+    listFiles: (prefix: string) => {
+        listedPrefixes.push(prefix);
+        return scenario === "delete-graph-warning" && prefix === "graphs/graph-2/"
+            ? Effect.fail(new Error("list failed"))
+            : Effect.succeed(prefix === "graphs/graph-1/" ? ["graphs/graph-1/extra.txt"] : []);
+    },
     putGraphFile: (graphId: string, _fileId: string, name: string, file: File) => {
         uploadedFileNames.push(name);
         return Effect.succeed({

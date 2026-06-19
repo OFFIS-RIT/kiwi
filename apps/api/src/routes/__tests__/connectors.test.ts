@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { Elysia } from "elysia";
 
 const authUser = {
@@ -68,7 +69,8 @@ mock.module("../../middleware/auth", () => ({
 }));
 
 mock.module("../../lib/graph/access", () => ({
-    assertCanCreateTeamGraph: () => Effect.succeed({ team: { id: "team-1", organizationId: teamAccessOrganizationId } }),
+    assertCanCreateTeamGraph: () =>
+        Effect.succeed({ team: { id: "team-1", organizationId: teamAccessOrganizationId } }),
 }));
 
 mock.module("../../lib/team/access", () => ({
@@ -78,7 +80,11 @@ mock.module("../../lib/team/access", () => ({
             return { organizationId: organizationId ?? "org-1" };
         }),
     requireTeamGraphCreateAccess: () =>
-        Effect.succeed({ organizationAdmin: true, role: "admin", team: { id: "team-1", organizationId: teamAccessOrganizationId } }),
+        Effect.succeed({
+            organizationAdmin: true,
+            role: "admin",
+            team: { id: "team-1", organizationId: teamAccessOrganizationId },
+        }),
 }));
 
 mock.module("../../lib/connector-access", () => ({
@@ -149,6 +155,20 @@ mock.module("../../openworkflow", () => ({
         },
     },
 }));
+function runTransactionResult<T>(result: T | PromiseLike<T> | Effect.Effect<T>) {
+    return Effect.isEffect(result) ? Effect.runPromise(result) : result;
+}
+
+const transactionDb = {
+    insert: () => ({
+        values: (values: Record<string, unknown>) => {
+            insertValues.push(values);
+            return {
+                returning: () => Effect.succeed([{ id: "row-1", ...values }]),
+            };
+        },
+    }),
+};
 
 const mockDb: MockDb = {
     insert: () => ({
@@ -180,8 +200,29 @@ const mockDb: MockDb = {
             orderBy: async () => [],
         }),
     }),
-    transaction: async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb),
+    transaction: async (callback: (tx: typeof mockDb) => unknown) =>
+        runTransactionResult(callback(transactionDb as unknown as MockDb)),
 };
+
+class MockDatabaseError extends Error {
+    constructor(options?: { cause?: unknown }) {
+        super("database error");
+        this.cause = options?.cause;
+    }
+}
+
+function runMockDbEffect(thunk: (database: MockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) {
+    const result = thunk(mockDb);
+    return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
+}
+
+mock.module("@kiwi/db/effect", () => ({
+    DatabaseError: MockDatabaseError,
+    DatabaseLayer: Layer.empty,
+    tryDb: runMockDbEffect,
+    tryDbVoid: (thunk: (database: MockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) =>
+        Effect.asVoid(runMockDbEffect(thunk)),
+}));
 
 mock.module("@kiwi/db", () => ({ db: mockDb }));
 

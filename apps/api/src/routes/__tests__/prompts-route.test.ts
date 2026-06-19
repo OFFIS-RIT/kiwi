@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { Elysia } from "elysia";
 
 const insertedPrompts: string[] = [];
@@ -13,39 +14,59 @@ let organizationPromptError: Error | null = null;
 let graphPromptError: Error | null = null;
 
 const transactionDb = {
+    execute: () => Effect.succeed(undefined),
     select: () => ({
         from: () => ({
             where: () => ({
-                limit: async () => Array.from({ length: promptCount }, (_, index) => ({ id: `prompt-${index + 1}` })),
+                limit: () =>
+                    Effect.succeed(Array.from({ length: promptCount }, (_, index) => ({ id: `prompt-${index + 1}` }))),
             }),
         }),
     }),
     insert: () => ({
         values: (values: { prompt: string }) => ({
-            returning: async () => {
-                insertedPrompts.push(values.prompt);
-                return [
-                    {
-                        id: "prompt-1",
-                        prompt: values.prompt,
-                        ...promptRowTimestamps,
-                    },
-                ];
-            },
+            returning: () =>
+                Effect.sync(() => {
+                    insertedPrompts.push(values.prompt);
+                    return [
+                        {
+                            id: "prompt-1",
+                            prompt: values.prompt,
+                            ...promptRowTimestamps,
+                        },
+                    ];
+                }),
         }),
     }),
 };
 
+const db = {
+    transaction: (callback: (tx: typeof transactionDb) => unknown) => callback(transactionDb),
+};
+
+function runMockDbEffect(thunk: (database: typeof db) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) {
+    const result = thunk(db);
+    if (Effect.isEffect(result)) {
+        return result;
+    }
+    if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+        return Effect.promise(async () => await result);
+    }
+    return Effect.succeed(result);
+}
+
+mock.module("@kiwi/db/effect", () => ({
+    DatabaseLayer: Layer.empty,
+    tryDb: runMockDbEffect,
+}));
+
 mock.module("@kiwi/db", () => ({
-    db: {
-        transaction: async <T>(callback: (tx: typeof transactionDb) => Promise<T>) => callback(transactionDb),
-    },
+    db,
 }));
 
 mock.module("../../lib/prompt-access", () => ({
     assertCanManageUserPrompts: () => Effect.succeed(undefined),
-    assertCanManageTeamPrompts: () =>
-        teamPromptError ? Effect.fail(teamPromptError) : Effect.succeed(undefined),
+    assertCanManageTeamPrompts: () => (teamPromptError ? Effect.fail(teamPromptError) : Effect.succeed(undefined)),
     assertCanManageOrganizationPrompts: () =>
         organizationPromptError ? Effect.fail(organizationPromptError) : Effect.succeed(undefined),
     assertCanManageGraphPrompts: () =>

@@ -1,27 +1,18 @@
-import { runDatabaseEffect } from "@kiwi/db/effect";
 import { Elysia, t } from "elysia";
-import { searchWorkspace } from "../lib/search";
+import { runApiAction } from "../controllers/_shared/api-effect";
+import { searchWorkspace } from "../controllers/search/search-workspace";
 import { authMiddleware } from "../middleware/auth";
-import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
+import { successResponse } from "../types";
 
 export const searchRoute = new Elysia({ prefix: "/search" }).use(authMiddleware).get(
     "/",
-    async ({ query, user, status }) => {
-        if (!user) {
-            return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
-        }
-
-        try {
-            const result = await runDatabaseEffect(searchWorkspace(user, query.q ?? ""));
-            return status(200, successResponse(result));
-        } catch (error) {
-            if (error instanceof Error && error.message === API_ERROR_CODES.FORBIDDEN) {
-                return status(403, errorResponse("Forbidden", API_ERROR_CODES.FORBIDDEN));
-            }
-
-            return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
-        }
-    },
+    ({ query, user, status }) =>
+        runApiAction({
+            status,
+            user,
+            action: (currentUser) => searchWorkspace({ user: currentUser, query: query.q }),
+            success: (value) => status(200, successResponse(value)),
+        }),
     {
         query: t.Object({
             q: t.Optional(t.String()),

@@ -1,0 +1,61 @@
+import * as Effect from "effect/Effect";
+import { mapChatError } from "../../lib/chat";
+import {
+    enrichTeamCitation,
+    listTeamChats,
+    loadTeamChatHistory,
+    loadTeamChatSummary,
+    refreshTeamReplyContext,
+    startTeamReply,
+} from "../../lib/team-chat";
+import { requireTeamAccess, type TeamAccess } from "../../lib/team/access";
+import { API_ERROR_CODES, errorResponse } from "../../types";
+import type { RouteStatus } from "../_shared/api-effect";
+import type { ChatRouteSpec } from "./target-route";
+
+function mapTeamChatError(status: RouteStatus, error: unknown) {
+    if (error instanceof Error && error.message === API_ERROR_CODES.TEAM_NOT_FOUND) {
+        return status(404, errorResponse("Team not found", API_ERROR_CODES.TEAM_NOT_FOUND));
+    }
+
+    return mapChatError(status, error);
+}
+
+export const teamChatTargetSpec: ChatRouteSpec<TeamAccess> = {
+    prefix: "/teams",
+    targetParam: "id",
+    listPath: "/:id/chat",
+    itemPath: "/:id/chat/:chatId",
+    replyPath: "/:id/chat",
+    streamPath: "/:id/stream",
+    mapError: mapTeamChatError,
+    resolveTarget: (user, teamId) => requireTeamAccess(user, teamId),
+    listChats: (userId, access, options) => listTeamChats(userId, access.team.id, options),
+    loadHistory: (userId, access, chatId) => loadTeamChatHistory(userId, access.team.id, chatId),
+    loadSummary: (userId, access, chatId) => loadTeamChatSummary(userId, access.team.id, chatId),
+    startReply: ({ user, target: access, request, abortSignal }) =>
+        Effect.gen(function* () {
+            const started = yield* startTeamReply(user, access.team, request, { abortSignal });
+
+            return {
+                chatId: started.chatId,
+                assistantId: started.assistantId,
+                client: started.client,
+                contextMessages: started.contextMessages,
+                systemPrompt: started.systemPrompt,
+                tools: started.tools,
+                isNewChat: started.isNewChat,
+                titleMessages: started.titleMessages,
+                getAdditionalUsage: started.getAdditionalUsage,
+                resolveCitation: (sourceId) => enrichTeamCitation(access.team.id, sourceId, started.citationContext),
+                refreshAfterCompaction: () =>
+                    refreshTeamReplyContext({
+                        chatId: started.chatId,
+                        runtime: started,
+                        teamName: access.team.name,
+                        forceCompaction: true,
+                        abortSignal,
+                    }),
+            };
+        }),
+};

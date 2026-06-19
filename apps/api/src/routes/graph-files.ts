@@ -1,21 +1,18 @@
 import { Elysia, t } from "elysia";
-import * as Effect from "effect/Effect";
 import { successResponse } from "@kiwi/contracts/errors";
 import { binaryResponse } from "../lib/binary-response";
-import { mapApiError, runApiAction, type RouteStatus } from "../controllers/_shared/api-effect";
+import { runApiAction } from "../controllers/_shared/api-effect";
 import { getGraphFileUrl } from "../controllers/graph/files/get-url";
 import { getSourceReference } from "../controllers/graph/files/source-reference";
 import { getSourceReferenceImage } from "../controllers/graph/files/source-reference-image";
 import { getTextUnit } from "../controllers/graph/files/text-unit";
 import { listGraphFiles } from "../controllers/graph/files/list";
 import { listSourceReferences } from "../controllers/graph/files/source-references";
-import { redirectToNamedGraphFile } from "../controllers/graph/files/redirect-to-named";
+import { redirectToNamedGraphFileResponse } from "../controllers/graph/files/redirect-to-named";
 import { renderTextUnitPage } from "../controllers/graph/files/render-page";
-import { serveGraphFile, type ServeGraphFileResult } from "../controllers/graph/files/serve";
-import { authMiddleware, type AuthUser } from "../middleware/auth";
+import { serveGraphFileResponse } from "../controllers/graph/files/serve";
+import { authMiddleware } from "../middleware/auth";
 import { requirePermissions } from "../middleware/permissions";
-
-type FileParams = { id: string; fileId: string };
 
 const graphParamsSchema = t.Object({ id: t.String() });
 const graphFileParamsSchema = t.Object({
@@ -27,44 +24,6 @@ const namedGraphFileParamsSchema = t.Object({
     fileId: t.String(),
     filename: t.String(),
 });
-
-function runFileProxyAction<T>(options: {
-    status: RouteStatus;
-    action: Effect.Effect<T, unknown>;
-    success: (value: T) => unknown;
-}) {
-    return Effect.runPromise(
-        Effect.match(options.action, {
-            onFailure: (error) => mapApiError(options.status, error),
-            onSuccess: options.success,
-        })
-    );
-}
-
-function proxyResponse(result: ServeGraphFileResult) {
-    if (result.status === "invalid_range") {
-        return new Response(null, {
-            status: 416,
-            headers: {
-                "Accept-Ranges": "bytes",
-                "Content-Range": `bytes */${result.size}`,
-            },
-        });
-    }
-
-    return result.response;
-}
-
-function serveFile(params: FileParams, request: Request, user: AuthUser | null | undefined, head = false) {
-    return serveGraphFile({
-        graphId: params.id,
-        fileId: params.fileId,
-        request,
-        user,
-        head,
-    });
-}
-
 export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
     .use(authMiddleware)
     .get(
@@ -86,10 +45,12 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
     .get(
         "/:id/files/:fileId/:filename",
         ({ params, request, user, status }) =>
-            runFileProxyAction({
+            serveGraphFileResponse({
+                graphId: params.id,
+                fileId: params.fileId,
+                request,
+                user,
                 status,
-                action: serveFile(params, request, user),
-                success: proxyResponse,
             }),
         {
             params: namedGraphFileParamsSchema,
@@ -98,10 +59,13 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
     .head(
         "/:id/files/:fileId/:filename",
         ({ params, request, user, status }) =>
-            runFileProxyAction({
+            serveGraphFileResponse({
+                graphId: params.id,
+                fileId: params.fileId,
+                request,
+                user,
                 status,
-                action: serveFile(params, request, user, true),
-                success: proxyResponse,
+                head: true,
             }),
         {
             params: namedGraphFileParamsSchema,
@@ -110,15 +74,12 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
     .get(
         "/:id/files/:fileId",
         ({ params, request, user, status }) =>
-            runFileProxyAction({
+            redirectToNamedGraphFileResponse({
+                graphId: params.id,
+                fileId: params.fileId,
+                request,
+                user,
                 status,
-                action: redirectToNamedGraphFile({
-                    graphId: params.id,
-                    fileId: params.fileId,
-                    request,
-                    user,
-                }),
-                success: (location) => new Response(null, { status: 307, headers: { Location: location } }),
             }),
         {
             params: graphFileParamsSchema,
@@ -127,15 +88,12 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
     .head(
         "/:id/files/:fileId",
         ({ params, request, user, status }) =>
-            runFileProxyAction({
+            redirectToNamedGraphFileResponse({
+                graphId: params.id,
+                fileId: params.fileId,
+                request,
+                user,
                 status,
-                action: redirectToNamedGraphFile({
-                    graphId: params.id,
-                    fileId: params.fileId,
-                    request,
-                    user,
-                }),
-                success: (location) => new Response(null, { status: 307, headers: { Location: location } }),
             }),
         {
             params: graphFileParamsSchema,
@@ -147,7 +105,8 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
             runApiAction({
                 status,
                 user,
-                action: (currentUser) => getGraphFileUrl({ user: currentUser, graphId: params.id, fileKey: body.file_key }),
+                action: (currentUser) =>
+                    getGraphFileUrl({ user: currentUser, graphId: params.id, fileKey: body.file_key }),
                 success: (value) => status(200, successResponse(value)),
             }),
         {
@@ -252,7 +211,12 @@ export const graphFilesRoute = new Elysia({ prefix: "/graphs" })
                 status,
                 user,
                 action: (currentUser) =>
-                    renderTextUnitPage({ user: currentUser, graphId: params.id, unitId: params.unitId, page: params.page }),
+                    renderTextUnitPage({
+                        user: currentUser,
+                        graphId: params.id,
+                        unitId: params.unitId,
+                        page: params.page,
+                    }),
                 success: (content) => binaryResponse(content, { contentType: "image/png" }),
             }),
         {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { Elysia } from "elysia";
 
 type Scenario =
@@ -26,7 +27,7 @@ const listedPrefixes: string[] = [];
 const deletedS3Keys: string[] = [];
 
 function queryRows(rows: unknown[]) {
-    const chain = {
+    const chain = Object.assign(Effect.succeed(rows), {
         from: () => chain,
         innerJoin: () => chain,
         leftJoin: () => chain,
@@ -38,9 +39,26 @@ function queryRows(rows: unknown[]) {
             resolve?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
             reject?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
         ) => Promise.resolve(rows).then(resolve, reject),
-    };
+    });
 
     return chain;
+}
+
+function effectWithReturning<T>(value: T, returningValue: unknown[]) {
+    return Object.assign(Effect.succeed(value), {
+        returning: () => Effect.succeed(returningValue),
+    });
+}
+
+function runMockDbEffect(thunk: (database: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) {
+    const result = thunk(mockDb);
+    if (Effect.isEffect(result)) {
+        return result;
+    }
+    if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+        return Effect.promise(async () => await result);
+    }
+    return Effect.succeed(result);
 }
 
 function nextDbRows() {
@@ -66,6 +84,10 @@ function nextDbRows() {
             }
 
             if (dbSelectCount === 3) {
+                return [];
+            }
+
+            if (dbSelectCount === 4) {
                 return [{ id: "file-1", graphId: "graph-1", key: "graphs/graph-1/file-1.txt" }];
             }
 
@@ -116,42 +138,38 @@ const transactionDb = {
             if (Array.isArray(values) && values[0] && "teamId" in values[0] && "userId" in values[0]) {
                 return {
                     returning: () =>
-                        values.map((value, index) => ({
-                            id: `team-member-${index + 1}`,
-                            teamId: value.teamId,
-                            userId: value.userId,
-                            createdAt: new Date(`2024-01-0${index + 1}T00:00:00.000Z`),
-                        })),
+                        Effect.succeed(
+                            values.map((value, index) => ({
+                                id: `team-member-${index + 1}`,
+                                teamId: value.teamId,
+                                userId: value.userId,
+                                createdAt: new Date(`2024-01-0${index + 1}T00:00:00.000Z`),
+                            }))
+                        ),
                 };
             }
 
             if (!Array.isArray(values) && "organizationId" in values) {
                 return {
-                    returning: () => [{ id: "team-1" }],
+                    returning: () => Effect.succeed([{ id: "team-1" }]),
                 };
             }
 
-            return {
-                then: <TResult1 = void, TResult2 = never>(
-                    resolve?: ((value: void) => TResult1 | PromiseLike<TResult1>) | null,
-                    reject?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
-                ) => Promise.resolve().then(resolve, reject),
-            };
+            return Effect.succeed(undefined);
         },
     }),
     update: () => ({
         set: () => ({
-            where: () => ({
-                returning: () => [],
-            }),
+            where: () => effectWithReturning(undefined, []),
         }),
     }),
     delete: () => ({
-        where: async () => {
-            if (scenario === "delete-team-warning") {
-                operationLog.push("team-deleted");
-            }
-        },
+        where: () =>
+            Effect.sync(() => {
+                if (scenario === "delete-team-warning") {
+                    operationLog.push("team-deleted");
+                }
+            }),
     }),
 };
 
@@ -160,45 +178,55 @@ const mockDb = {
         from: () => queryRows(nextDbRows()),
     }),
     delete: () => ({
-        where: async () => undefined,
+        where: () => Effect.succeed(undefined),
     }),
     insert: () => ({
         values: () => ({
-            returning: () => [],
+            returning: () => Effect.succeed([]),
         }),
     }),
     update: () => ({
         set: () => ({
             where: () => ({
-                returning: () => [],
+                returning: () => Effect.succeed([]),
             }),
         }),
     }),
-    transaction: async (callback: (tx: typeof transactionDb) => unknown) => callback(transactionDb),
+    transaction: (callback: (tx: typeof transactionDb) => unknown) => callback(transactionDb),
 };
+
+class MockDatabaseError extends Error {
+    constructor(options?: { cause?: unknown }) {
+        super("database error");
+        this.cause = options?.cause;
+    }
+}
+
+mock.module("@kiwi/db/effect", () => ({
+    DatabaseError: MockDatabaseError,
+    DatabaseLayer: Layer.empty,
+    tryDb: runMockDbEffect,
+    tryDbVoid: (thunk: (database: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) =>
+        Effect.asVoid(runMockDbEffect(thunk)),
+}));
 
 mock.module("@kiwi/db", () => ({
     db: mockDb,
 }));
 
 mock.module("@kiwi/files", () => ({
-    deleteFile: (key: string) =>
-        Effect.sync(() => {
-            deletedS3Keys.push(key);
-            if (scenario === "delete-team-warning" && key.endsWith("extra.txt")) {
-                throw new Error("delete failed");
-            }
-            return true;
-        }),
-    listFiles: (prefix: string) =>
-        Effect.sync(() => {
-            listedPrefixes.push(prefix);
-            if (scenario === "delete-team-warning" && prefix === "graphs/graph-2/") {
-                throw new Error("list failed");
-            }
-
-            return prefix === "graphs/graph-1/" ? ["graphs/graph-1/extra.txt"] : [];
-        }),
+    deleteFile: (key: string) => {
+        deletedS3Keys.push(key);
+        return scenario === "delete-team-warning" && key.endsWith("extra.txt")
+            ? Effect.fail(new Error("delete failed"))
+            : Effect.succeed(true);
+    },
+    listFiles: (prefix: string) => {
+        listedPrefixes.push(prefix);
+        return scenario === "delete-team-warning" && prefix === "graphs/graph-2/"
+            ? Effect.fail(new Error("list failed"))
+            : Effect.succeed(prefix === "graphs/graph-1/" ? ["graphs/graph-1/extra.txt"] : []);
+    },
     putGraphFile: () => Effect.succeed({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),
 }));
 
@@ -434,11 +462,7 @@ describe("team route characterization", () => {
             },
             warnings: ["Some S3 objects could not be deleted after the team was removed"],
         });
-        expect(operationLog).toEqual([
-            "graph-workflows-cancelled",
-            "file-workflows-cancelled:graph-1",
-            "team-deleted",
-        ]);
+        expect(operationLog).toEqual(["graph-workflows-cancelled", "file-workflows-cancelled:graph-1", "team-deleted"]);
         expect(listedPrefixes).toEqual(["graphs/graph-1/", "graphs/graph-2/"]);
         expect(deletedS3Keys).toEqual(["graphs/graph-1/file-1.txt", "graphs/graph-1/extra.txt"]);
     });

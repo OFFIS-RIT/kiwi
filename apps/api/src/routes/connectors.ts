@@ -29,7 +29,7 @@ import { authMiddleware } from "../middleware/auth";
 
 export const connectorRoute = new Elysia({ prefix: "/connectors" })
     .use(authMiddleware)
-    .get("/", async ({ status, user }) =>
+    .get("/", ({ status, user }) =>
         runApiAction({
             status,
             user,
@@ -40,7 +40,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
     )
     .post(
         "/github/manifest/start",
-        async ({ body, status, user }) =>
+        ({ body, status, user }) =>
             runApiAction({
                 status,
                 user,
@@ -52,7 +52,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
     )
     .get(
         "/github/manifest/callback",
-        async ({ query, status, user }) =>
+        ({ query, status, user }) =>
             runApiAction({
                 status,
                 user,
@@ -64,7 +64,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
     )
     .post(
         "/gitlab",
-        async ({ body, status, user }) =>
+        ({ body, status, user }) =>
             runApiAction({
                 status,
                 user,
@@ -76,7 +76,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
     )
     .patch(
         "/:id",
-        async ({ params, body, status, user }) =>
+        ({ params, body, status, user }) =>
             runApiAction({
                 status,
                 user,
@@ -88,7 +88,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
     )
     .get(
         "/:id/connect",
-        async ({ params, query, status, user }) =>
+        ({ params, query, status, user }) =>
             runApiAction({
                 status,
                 user,
@@ -100,7 +100,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
     )
     .get(
         "/github/install/callback",
-        async ({ query, status, user }) =>
+        ({ query, status, user }) =>
             runApiAction({
                 status,
                 user,
@@ -110,7 +110,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
             }),
         { query: asApiSchema(GitHubInstallCallbackQuerySchema) }
     )
-    .get("/:id/installations", async ({ params, status, user }) =>
+    .get("/:id/installations", ({ params, status, user }) =>
         runApiAction({
             status,
             user,
@@ -121,7 +121,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
     )
     .get(
         "/:id/repositories",
-        async ({ params, query, status, user }) =>
+        ({ params, query, status, user }) =>
             runApiAction({
                 status,
                 user,
@@ -138,7 +138,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
     )
     .get(
         "/:id/repositories/:repositoryId/branches",
-        async ({ params, query, status, user }) =>
+        ({ params, query, status, user }) =>
             runApiAction({
                 status,
                 user,
@@ -156,7 +156,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
     )
     .post(
         "/:id/repository-graphs",
-        async ({ params, body, status, user }) =>
+        ({ params, body, status, user }) =>
             runApiAction({
                 status,
                 user,
@@ -170,7 +170,7 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
 
 export const repositoryGraphBindingRoute = new Elysia({ prefix: "/repository-graph-bindings" })
     .use(authMiddleware)
-    .get("/:id", async ({ params, status, user }) =>
+    .get("/:id", ({ params, status, user }) =>
         runApiAction({
             status,
             user,
@@ -179,7 +179,7 @@ export const repositoryGraphBindingRoute = new Elysia({ prefix: "/repository-gra
             ...connectorApiErrorOptions,
         })
     )
-    .post("/:id/sync", async ({ params, status, user }) =>
+    .post("/:id/sync", ({ params, status, user }) =>
         runApiAction({
             status,
             user,
