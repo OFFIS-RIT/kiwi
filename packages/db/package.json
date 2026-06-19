@@ -14,8 +14,8 @@
         "test": "bun test --pass-with-no-tests"
     },
     "dependencies": {
-        "@kiwi/contracts": "workspace:*",
         "@effect/sql-pg": "catalog:",
+        "@kiwi/contracts": "workspace:*",
         "drizzle-orm": "catalog:",
         "effect": "catalog:",
         "pg": "catalog:",

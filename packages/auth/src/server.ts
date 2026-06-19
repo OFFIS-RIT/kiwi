@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect";
 import { authenticate } from "ldap-authentication";
 import { z } from "zod";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { db as betterAuthDb } from "@kiwi/db";
+import { betterAuthDb } from "@kiwi/db";
 import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import { ac, admin as organizationAdmin, member, roleIncludes } from "./permissions";
 import { deriveAuthMode, getLdapConfigState } from "./mode";
@@ -60,13 +60,11 @@ export const API_KEY_RATE_LIMIT_TIME_WINDOW = 60_000;
 export const API_KEY_RATE_LIMIT_MAX_REQUESTS = 60;
 const SYSTEM_ADMIN_ROLE = "admin";
 
-
 const ldapCredentialsSchema = z.object({
     credential: z.string().min(1),
     password: z.string().min(1),
 });
 type LdapCredentials = z.infer<typeof ldapCredentialsSchema>;
-
 
 type LdapResult = {
     mail?: string | string[];
@@ -184,11 +182,15 @@ export function ensureSystemAdminOrganizationMemberships(userId: string): Effect
             db.select({ id: authTables.organizationTable.id }).from(authTables.organizationTable)
         );
 
-        yield* ensureAdminMemberships(organizations.map((organization) => ({ organizationId: organization.id, userId })));
+        yield* ensureAdminMemberships(
+            organizations.map((organization) => ({ organizationId: organization.id, userId }))
+        );
     });
 }
 
-function removeSystemAdminOrganizationMemberships(userId: string): Effect.Effect<void, DatabaseError | Error, Database> {
+function removeSystemAdminOrganizationMemberships(
+    userId: string
+): Effect.Effect<void, DatabaseError | Error, Database> {
     return Effect.gen(function* () {
         const db = yield* Database;
         const defaultOrganizationId = yield* getDefaultOrganizationId();

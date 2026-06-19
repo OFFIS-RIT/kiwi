@@ -14,8 +14,9 @@ export const PgClientLive = PgClient.layer({
     types: {
         getTypeParser: (typeId, format) => {
             if (DRIZZLE_RAW_TYPE_IDS.includes(typeId as (typeof DRIZZLE_RAW_TYPE_IDS)[number])) {
-                return (value: string) => value;
+                return (val: string) => val;
             }
+
             return types.getTypeParser(typeId, format);
         },
     },
@@ -58,7 +59,9 @@ export function tryDb<T, E>(
 export function tryDbVoid<E>(
     thunk: (db: EffectDatabase) => DatabaseEffectResult<unknown, E>
 ): Effect.Effect<void, DatabaseError, Database>;
-export function tryDbVoid(thunk: (db: EffectDatabase) => PromiseLike<unknown>): Effect.Effect<void, DatabaseError, Database>;
+export function tryDbVoid(
+    thunk: (db: EffectDatabase) => PromiseLike<unknown>
+): Effect.Effect<void, DatabaseError, Database>;
 export function tryDbVoid<E>(
     thunk: (db: EffectDatabase) => DatabaseEffectResult<unknown, E> | PromiseLike<unknown>
 ): Effect.Effect<void, DatabaseError, Database> {
@@ -77,8 +80,6 @@ export function tryDbVoid<E>(
         );
     });
 }
-
-
 
 export const DatabaseLive = Layer.effect(Database, dbEffect);
 export const DatabaseLayer = Layer.provide(DatabaseLive, PgClientLive);

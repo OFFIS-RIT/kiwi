@@ -1,3 +1,4 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 
-export const db = drizzle(process.env.DATABASE_URL!);
+// Better Auth's Drizzle adapter expects promise-based queries until it supports Effect.
+export const betterAuthDb = drizzle(process.env.DATABASE_URL!);
