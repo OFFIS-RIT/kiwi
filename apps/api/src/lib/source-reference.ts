@@ -6,7 +6,7 @@ import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-va
 import { getFile } from "@kiwi/files";
 import type { SourceReferenceBatchSuccessData } from "@kiwi/contracts";
 import { env } from "../env";
-import { API_ERROR_CODES } from "../types";
+import { sourceNotFoundError } from "@kiwi/contracts/errors";
 import { selectSourceChunks, toSourceReferenceRecord, type SourceReferenceRow } from "./source-reference-record";
 
 export type { SourceReferenceRow } from "./source-reference-record";
@@ -34,76 +34,77 @@ const sourceReferenceSelect = {
     updated_at: textUnitTable.updatedAt,
 };
 
-export function loadSourceReference(graphId: string, sourceId: string) {
-    return Effect.gen(function* () {
-        const row = yield* loadSourceReferenceRow(graphId, sourceId);
-        if (!row) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.SOURCE_NOT_FOUND));
-        }
+export const loadSourceReference = Effect.fn("loadSourceReference")(function* (graphId: string, sourceId: string) {
+    const row = yield* loadSourceReferenceRow(graphId, sourceId);
+    if (!row) {
+        return yield* Effect.fail(sourceNotFoundError());
+    }
 
-        return toSourceReferenceRecord(graphId, row);
-    });
-}
+    return toSourceReferenceRecord(graphId, row);
+});
 
-export function loadSourceReferences(
+export const loadSourceReferences: (
     graphId: string,
     sourceIds: string[]
-): Effect.Effect<SourceReferenceBatchSuccessData, unknown, Database> {
-    return Effect.gen(function* () {
-        const uniqueSourceIds = normalizeSourceIds(sourceIds);
-        if (uniqueSourceIds.length === 0) {
-            return { items: [], missing_source_ids: [] };
+) => Effect.Effect<SourceReferenceBatchSuccessData, unknown, Database> = Effect.fn("loadSourceReferences")(function* (
+    graphId: string,
+    sourceIds: string[]
+) {
+    const uniqueSourceIds = normalizeSourceIds(sourceIds);
+    if (uniqueSourceIds.length === 0) {
+        return { items: [], missing_source_ids: [] };
+    }
+
+    const rows = yield* loadSourceReferenceRows(graphId, uniqueSourceIds);
+    const rowsBySourceId = new Map(rows.map((row) => [row.source_id, row]));
+    const items: SourceReferenceBatchSuccessData["items"] = [];
+    const missingSourceIds: string[] = [];
+
+    for (const sourceId of uniqueSourceIds) {
+        const row = rowsBySourceId.get(sourceId);
+        if (!row) {
+            missingSourceIds.push(sourceId);
+            continue;
         }
 
-        const rows = yield* loadSourceReferenceRows(graphId, uniqueSourceIds);
-        const rowsBySourceId = new Map(rows.map((row) => [row.source_id, row]));
-        const items: SourceReferenceBatchSuccessData["items"] = [];
-        const missingSourceIds: string[] = [];
+        items.push(toSourceReferenceRecord(graphId, row));
+    }
 
-        for (const sourceId of uniqueSourceIds) {
-            const row = rowsBySourceId.get(sourceId);
-            if (!row) {
-                missingSourceIds.push(sourceId);
-                continue;
-            }
+    return {
+        items,
+        missing_source_ids: missingSourceIds,
+    };
+});
 
-            items.push(toSourceReferenceRecord(graphId, row));
-        }
-
-        return {
-            items,
-            missing_source_ids: missingSourceIds,
-        };
-    });
-}
-
-export function loadSourceReferenceImage(
+export const loadSourceReferenceImage: (
     graphId: string,
     sourceId: string,
     chunkId: number
-): Effect.Effect<SourceReferenceImage, unknown, Database> {
-    return Effect.gen(function* () {
-        const row = yield* loadSourceReferenceRow(graphId, sourceId);
-        if (!row) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.SOURCE_NOT_FOUND));
-        }
+) => Effect.Effect<SourceReferenceImage, unknown, Database> = Effect.fn("loadSourceReferenceImage")(function* (
+    graphId: string,
+    sourceId: string,
+    chunkId: number
+) {
+    const row = yield* loadSourceReferenceRow(graphId, sourceId);
+    if (!row) {
+        return yield* Effect.fail(sourceNotFoundError());
+    }
 
-        const chunk = selectSourceChunks(row.chunks, row.source_chunk_ids).find((candidate) => candidate.id === chunkId);
-        if (!chunk || chunk.type !== "image" || !chunk.imageKey) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.SOURCE_NOT_FOUND));
-        }
+    const chunk = selectSourceChunks(row.chunks, row.source_chunk_ids).find((candidate) => candidate.id === chunkId);
+    if (!chunk || chunk.type !== "image" || !chunk.imageKey) {
+        return yield* Effect.fail(sourceNotFoundError());
+    }
 
-        const file = yield* getFile(chunk.imageKey, env.S3_BUCKET, "bytes");
-        if (!file) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.SOURCE_NOT_FOUND));
-        }
+    const file = yield* getFile(chunk.imageKey, env.S3_BUCKET, "bytes");
+    if (!file) {
+        return yield* Effect.fail(sourceNotFoundError());
+    }
 
-        return {
-            content: new Uint8Array(file.content),
-            contentType: getImageContentType(chunk.imageKey),
-        };
-    });
-}
+    return {
+        content: new Uint8Array(file.content),
+        contentType: getImageContentType(chunk.imageKey),
+    };
+});
 
 function loadSourceReferenceRow(
     graphId: string,

@@ -64,14 +64,20 @@ class CodeFileGraphBuilder {
     private readonly wildcardExternalImportSpecifiers = new Set<string>();
     private fileEntity!: Entity;
 
-    constructor(private readonly file: ParsedCodeFile, manifest: CodeRepositoryManifest) {
+    constructor(
+        private readonly file: ParsedCodeFile,
+        manifest: CodeRepositoryManifest
+    ) {
         this.definitions = collectDefinitions(file);
         this.definitionsBySimpleName = new Map(
             this.definitions.map((definition) => [definition.simpleName, definition])
         );
         this.manifestFilesByPath = new Map(manifest.files.map((file) => [file.path, file]));
         this.manifestDefinitionsByPathAndName = new Map(
-            manifest.definitions.map((definition) => [definitionKey(definition.path, definition.simpleName), definition])
+            manifest.definitions.map((definition) => [
+                definitionKey(definition.path, definition.simpleName),
+                definition,
+            ])
         );
         this.manifestDefinitionsByPath = new Map<string, CodeManifestDefinition[]>();
         for (const definition of manifest.definitions) {
@@ -144,7 +150,9 @@ class CodeFileGraphBuilder {
         for (const importRecord of collectImports(this.file.root, this.file.language)) {
             const targetPath = resolveImportTargetPath(importRecord, this.file.path, this.manifestFilesByPath);
             const targetFile = targetPath ? this.manifestFilesByPath.get(targetPath) : undefined;
-            const targetEntity = targetFile ? this.fileEntityForManifest(targetFile) : this.externalModuleEntity(importRecord);
+            const targetEntity = targetFile
+                ? this.fileEntityForManifest(targetFile)
+                : this.externalModuleEntity(importRecord);
 
             this.addRelationship({
                 source: this.fileEntity,
@@ -190,14 +198,20 @@ class CodeFileGraphBuilder {
 
             if (importRecord.importAllDefinitions) {
                 for (const definition of this.manifestDefinitionsByPath.get(targetPath) ?? []) {
-                    this.importTargetsByLocalName.set(definition.simpleName, this.entityForManifestDefinition(definition));
+                    this.importTargetsByLocalName.set(
+                        definition.simpleName,
+                        this.entityForManifestDefinition(definition)
+                    );
                 }
             }
 
             for (const binding of importRecord.namedImports) {
                 const targetDefinition = this.resolveImportedDefinition(targetPath, binding.imported);
                 if (targetDefinition) {
-                    this.importTargetsByLocalName.set(binding.local, this.entityForManifestDefinition(targetDefinition));
+                    this.importTargetsByLocalName.set(
+                        binding.local,
+                        this.entityForManifestDefinition(targetDefinition)
+                    );
                 }
             }
 
@@ -338,7 +352,10 @@ class CodeFileGraphBuilder {
         return null;
     }
 
-    private resolveImportedDefinition(targetPath: string, importedName: string): CodeManifestDefinition | CodeManifestExport | null {
+    private resolveImportedDefinition(
+        targetPath: string,
+        importedName: string
+    ): CodeManifestDefinition | CodeManifestExport | null {
         return (
             this.manifestExportsByPathAndName.get(definitionKey(targetPath, importedName)) ??
             this.manifestDefinitionsByPathAndName.get(definitionKey(targetPath, importedName)) ??

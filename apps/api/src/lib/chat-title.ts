@@ -1,15 +1,16 @@
 import { chatTitlePrompt } from "@kiwi/ai/prompts/title.prompt";
 import type { ChatUIMessage, Client } from "@kiwi/ai";
+import { withAiSlotEffect } from "@kiwi/ai/lock";
 import { runDatabaseEffect, tryDbVoid } from "@kiwi/db/effect";
 import { chatTable } from "@kiwi/db/tables/chats";
 import { error as logError } from "@kiwi/logger";
 import { generateText } from "ai";
 import { eq, sql } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { createChatTitle } from "./chat";
 
 const GENERATED_CHAT_TITLE_MAX_LENGTH = 80;
 const CHAT_TITLE_SOURCE_MAX_LENGTH = 2_000;
-
 
 function getFirstUserText(messages: ChatUIMessage[]) {
     const firstUserMessage = messages.find((message) => message.role === "user");
@@ -52,6 +53,27 @@ function setChatTitle(chatId: string, title: string) {
     );
 }
 
+function logFallbackTitleFailure(chatId: string, fallbackError: unknown) {
+    logError("failed to apply fallback chat title", {
+        chatId,
+        error: fallbackError,
+    });
+}
+
+function recoverGeneratedTitleFailure(chatId: string, fallbackTitle: string, error: unknown) {
+    return Effect.gen(function* () {
+        logError("failed to generate chat title", {
+            chatId,
+            error,
+        });
+        yield* Effect.catchTag(setChatTitle(chatId, fallbackTitle), "@kiwi/db/DatabaseError", (fallbackError) =>
+            Effect.sync(() => {
+                logFallbackTitleFailure(chatId, fallbackError);
+            })
+        );
+    });
+}
+
 export function startChatTitleGeneration({
     chatId,
     messages,
@@ -70,39 +92,40 @@ export function startChatTitleGeneration({
     const model = client.text;
     const messageText = getFirstUserText(messages).slice(0, CHAT_TITLE_SOURCE_MAX_LENGTH);
 
+    const fallbackTitle = createChatTitle(messages);
+
     if (messageText.length === 0) {
-        void runDatabaseEffect(setChatTitle(chatId, createChatTitle(messages))).catch((error) => {
-            logError("failed to apply fallback chat title", {
-                chatId,
-                error,
-            });
+        void runDatabaseEffect(setChatTitle(chatId, fallbackTitle)).catch((error) => {
+            logFallbackTitleFailure(chatId, error);
         });
         return;
     }
 
-    void (async () => {
-        const result = await generateText({
-            model,
-            system: chatTitlePrompt,
-            prompt: messageText,
-            temperature: 0.2,
-        });
-        const title = normalizeGeneratedChatTitle(result.text) ?? createChatTitle(messages);
+    const generateAndPersistTitle = Effect.gen(function* () {
+        const result = yield* withAiSlotEffect("text", (signal) =>
+            generateText({
+                model,
+                system: chatTitlePrompt,
+                prompt: messageText,
+                temperature: 0.2,
+                abortSignal: signal,
+            })
+        );
+        const title = normalizeGeneratedChatTitle(result.text) ?? fallbackTitle;
 
-        await runDatabaseEffect(setChatTitle(chatId, title));
-    })().catch(async (error) => {
+        yield* setChatTitle(chatId, title);
+    }).pipe(
+        Effect.catchTags({
+            AiProviderError: (error) => recoverGeneratedTitleFailure(chatId, fallbackTitle, error),
+            AiRequestTimeoutError: (error) => recoverGeneratedTitleFailure(chatId, fallbackTitle, error),
+            "@kiwi/db/DatabaseError": (error) => recoverGeneratedTitleFailure(chatId, fallbackTitle, error),
+        })
+    );
+
+    void runDatabaseEffect(generateAndPersistTitle).catch((error) => {
         logError("failed to generate chat title", {
             chatId,
             error,
         });
-        const fallbackTitle = createChatTitle(messages);
-        try {
-            await runDatabaseEffect(setChatTitle(chatId, fallbackTitle));
-        } catch (fallbackError) {
-            logError("failed to apply fallback chat title", {
-                chatId,
-                error: fallbackError,
-            });
-        }
     });
 }

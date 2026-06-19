@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { ulid } from "ulid";
 import { tryDb, tryDbVoid, type Database } from "@kiwi/db/effect";
 import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
@@ -27,9 +28,29 @@ import {
 import type { AuthUser } from "../../middleware/auth";
 import { ow } from "../../openworkflow";
 import { toApiError } from "../_shared/api-effect";
-import { archiveUploadError, getGraphOwnerModelOrganizationId, unsupportedUploadError, type NewGraphOwner } from "./upload-helpers";
+import {
+    archiveUploadError,
+    getGraphOwnerModelOrganizationId,
+    unsupportedUploadError,
+    type NewGraphOwner,
+} from "./upload-helpers";
 
-function resolveNewGraphOwner(user: AuthUser, fields: GraphCreateFields): Effect.Effect<NewGraphOwner, unknown, Database> {
+class ProcessRunCreationError extends Schema.TaggedErrorClass<ProcessRunCreationError>()("ProcessRunCreationError", {
+    message: Schema.String,
+}) {}
+
+class ProcessFilesWorkflowEnqueueError extends Schema.TaggedErrorClass<ProcessFilesWorkflowEnqueueError>()(
+    "ProcessFilesWorkflowEnqueueError",
+    {
+        message: Schema.String,
+        cause: Schema.optional(Schema.Unknown),
+    }
+) {}
+
+function resolveNewGraphOwner(
+    user: AuthUser,
+    fields: GraphCreateFields
+): Effect.Effect<NewGraphOwner, unknown, Database> {
     return Effect.gen(function* () {
         if (fields.teamId) {
             const access = yield* assertCanCreateTeamGraph(user, fields.teamId);
@@ -87,187 +108,198 @@ function cleanupFailedGraphCreation(
     });
 }
 
-export function createGraph(input: { user: AuthUser; fields: GraphCreateFields; files: File[] }) {
-    return Effect.mapError(Effect.catchDefect(Effect.gen(function* () {
-        if (input.fields.teamId && input.fields.graphId) {
-            return yield* Effect.fail(
-                makeApiError(400, API_ERROR_CODES.INVALID_GRAPH_OWNER, "Only one owner may be specified")
-            );
-        }
-
-        const owner = yield* resolveNewGraphOwner(input.user, input.fields);
-        const expanded = yield* expandArchiveUploadFiles(input.files);
-        if (!expanded.ok) {
-            return yield* Effect.fail(archiveUploadError(expanded));
-        }
-
-        const filesWithChecksums = yield* uniqueFilesByChecksum(expanded.files);
-        const supportedUpload = inferSupportedUploadedFiles(filesWithChecksums);
-        if (!supportedUpload.ok) {
-            return yield* Effect.fail(unsupportedUploadError(supportedUpload));
-        }
-
-        const organizationId = yield* getGraphOwnerModelOrganizationId(owner);
-        yield* assertConfiguredUploadModels({
-            organizationId,
-            files: supportedUpload.files,
-            secret: env.AUTH_SECRET,
-        });
-
-        const hidden = owner.ownerMode === "graph" ? true : input.fields.hidden === true || input.fields.hidden === "true";
-        const initialState = supportedUpload.files.length > 0 ? "updating" : "ready";
-        const [graph] = yield* tryDb((db) =>
-            db
-                .insert(graphTable)
-                .values({
-                    name: input.fields.name,
-                    description: input.fields.description,
-                    hidden,
-                    state: initialState,
-                    organizationId: owner.ownerMode === "graph" ? undefined : owner.organizationId,
-                    teamId: owner.ownerMode === "team" ? owner.teamId : undefined,
-                    graphId: owner.ownerMode === "graph" ? owner.graphId : undefined,
-                })
-                .returning(selectGraphFields)
-        );
-
-        if (!graph) {
-            return yield* Effect.fail(internalServerError());
-        }
-
-        if (supportedUpload.files.length === 0) {
-            return { graph, files: [], workflowRunId: null };
-        }
-
-        const uploadedFiles: UploadedFile[] = [];
-        yield* Effect.matchEffect(
-            Effect.catchDefect(Effect.gen(function* () {
-                for (const { file, checksum, type } of supportedUpload.files) {
-                    const fileId = ulid();
-                    const upload = yield* putGraphFile(graph.id, fileId, file.name, file, env.S3_BUCKET);
-                    uploadedFiles.push({
-                        id: fileId,
-                        name: file.name,
-                        size: file.size,
-                        type,
-                        mimeType: file.type || upload.type,
-                        key: upload.key,
-                        checksum,
-                    });
-                }
-            }), (defect) => Effect.fail(defect)),
-            {
-                onFailure: (uploadError) =>
-                    Effect.gen(function* () {
-                        yield* cleanupFailedGraphCreation(
-                            graph.id,
-                            uploadedFiles.map((file) => file.key),
-                            "upload",
-                            owner.ownerMode
-                        );
-                        logError("graph creation failed during file upload", {
-                            graphId: graph.id,
-                            ownerMode: owner.ownerMode,
-                            uploadedKeyCount: uploadedFiles.length,
-                            error: uploadError,
-                        });
-                        return yield* Effect.fail(internalServerError());
-                    }),
-                onSuccess: Effect.succeed,
-            }
-        );
-
-        const createdFiles = yield* Effect.matchEffect(
-            tryDb((db) =>
-                db
-                    .insert(filesTable)
-                    .values(
-                        uploadedFiles.map((file) => ({
-                            id: file.id,
-                            graphId: graph.id,
-                            name: file.name,
-                            size: file.size,
-                            type: file.type,
-                            mimeType: file.mimeType,
-                            key: file.key,
-                            checksum: file.checksum,
-                        }))
-                    )
-                    .returning(selectFileFields)
-            ),
-            {
-                onFailure: (dbInsertError) =>
-                    Effect.gen(function* () {
-                        yield* cleanupFailedGraphCreation(
-                            graph.id,
-                            uploadedFiles.map((file) => file.key),
-                            "db_insert_files",
-                            owner.ownerMode
-                        );
-                        logError("graph creation failed during file row insert", {
-                            graphId: graph.id,
-                            ownerMode: owner.ownerMode,
-                            uploadedKeyCount: uploadedFiles.length,
-                            error: dbInsertError,
-                        });
-                        return yield* Effect.fail(internalServerError());
-                    }),
-                onSuccess: Effect.succeed,
-            }
-        );
-
-        return yield* Effect.matchEffect(
-            Effect.catchDefect(Effect.gen(function* () {
-                const [processRun] = yield* tryDb((db) =>
-                    db
-                        .insert(processRunsTable)
-                        .values({ graphId: graph.id, status: "pending" })
-                        .returning({ id: processRunsTable.id })
-                );
-                if (!processRun) {
-                    return yield* Effect.fail(new Error("Failed to create process run"));
+export const createGraph = Effect.fn("createGraph")(
+    (input: { user: AuthUser; fields: GraphCreateFields; files: File[] }) =>
+        Effect.mapError(
+            Effect.gen(function* () {
+                if (input.fields.teamId && input.fields.graphId) {
+                    return yield* Effect.fail(
+                        makeApiError(400, API_ERROR_CODES.INVALID_GRAPH_OWNER, "Only one owner may be specified")
+                    );
                 }
 
-                yield* tryDbVoid((db) =>
-                    db.insert(processRunFilesTable).values(
-                        createdFiles.map((file) => ({
-                            processRunId: processRun.id,
-                            fileId: file.id,
-                        }))
-                    )
-                );
+                const owner = yield* resolveNewGraphOwner(input.user, input.fields);
+                const expanded = yield* expandArchiveUploadFiles(input.files);
+                if (!expanded.ok) {
+                    return yield* Effect.fail(archiveUploadError(expanded));
+                }
 
-                const handle = yield* Effect.tryPromise({
-                    try: () =>
-                        ow.runWorkflow(processFilesSpec, {
-                            graphId: graph.id,
-                            fileIds: createdFiles.map((file) => file.id),
-                            processRunId: processRun.id,
-                        }),
-                    catch: (error) => error,
+                const filesWithChecksums = yield* uniqueFilesByChecksum(expanded.files);
+                const supportedUpload = inferSupportedUploadedFiles(filesWithChecksums);
+                if (!supportedUpload.ok) {
+                    return yield* Effect.fail(unsupportedUploadError(supportedUpload));
+                }
+
+                const organizationId = yield* getGraphOwnerModelOrganizationId(owner);
+                yield* assertConfiguredUploadModels({
+                    organizationId,
+                    files: supportedUpload.files,
+                    secret: env.AUTH_SECRET,
                 });
 
-                return { graph, files: createdFiles, workflowRunId: handle.workflowRun.id };
-            }), (defect) => Effect.fail(defect)),
-            {
-                onFailure: (enqueueError) =>
+                const hidden =
+                    owner.ownerMode === "graph" ? true : input.fields.hidden === true || input.fields.hidden === "true";
+                const initialState = supportedUpload.files.length > 0 ? "updating" : "ready";
+                const [graph] = yield* tryDb((db) =>
+                    db
+                        .insert(graphTable)
+                        .values({
+                            name: input.fields.name,
+                            description: input.fields.description,
+                            hidden,
+                            state: initialState,
+                            organizationId: owner.ownerMode === "graph" ? undefined : owner.organizationId,
+                            teamId: owner.ownerMode === "team" ? owner.teamId : undefined,
+                            graphId: owner.ownerMode === "graph" ? owner.graphId : undefined,
+                        })
+                        .returning(selectGraphFields)
+                );
+
+                if (!graph) {
+                    return yield* Effect.fail(internalServerError());
+                }
+
+                if (supportedUpload.files.length === 0) {
+                    return { graph, files: [], workflowRunId: null };
+                }
+
+                const uploadedFiles: UploadedFile[] = [];
+                yield* Effect.matchEffect(
                     Effect.gen(function* () {
-                        yield* cleanupFailedGraphCreation(
-                            graph.id,
-                            uploadedFiles.map((file) => file.key),
-                            "enqueue",
-                            owner.ownerMode
-                        );
-                        logError("graph creation failed during workflow enqueue", {
-                            graphId: graph.id,
-                            ownerMode: owner.ownerMode,
-                            uploadedKeyCount: uploadedFiles.length,
-                            error: enqueueError,
-                        });
-                        return yield* Effect.fail(internalServerError());
+                        for (const { file, checksum, type } of supportedUpload.files) {
+                            const fileId = ulid();
+                            const upload = yield* putGraphFile(graph.id, fileId, file.name, file, env.S3_BUCKET);
+                            uploadedFiles.push({
+                                id: fileId,
+                                name: file.name,
+                                size: file.size,
+                                type,
+                                mimeType: file.type || upload.type,
+                                key: upload.key,
+                                checksum,
+                            });
+                        }
                     }),
-                onSuccess: Effect.succeed,
-            }
-        );
-    }), (defect) => Effect.fail(defect)), toApiError);
-}
+                    {
+                        onFailure: (uploadError) =>
+                            Effect.gen(function* () {
+                                yield* cleanupFailedGraphCreation(
+                                    graph.id,
+                                    uploadedFiles.map((file) => file.key),
+                                    "upload",
+                                    owner.ownerMode
+                                );
+                                logError("graph creation failed during file upload", {
+                                    graphId: graph.id,
+                                    ownerMode: owner.ownerMode,
+                                    uploadedKeyCount: uploadedFiles.length,
+                                    error: uploadError,
+                                });
+                                return yield* Effect.fail(internalServerError());
+                            }),
+                        onSuccess: Effect.succeed,
+                    }
+                );
+
+                const createdFiles = yield* Effect.matchEffect(
+                    tryDb((db) =>
+                        db
+                            .insert(filesTable)
+                            .values(
+                                uploadedFiles.map((file) => ({
+                                    id: file.id,
+                                    graphId: graph.id,
+                                    name: file.name,
+                                    size: file.size,
+                                    type: file.type,
+                                    mimeType: file.mimeType,
+                                    key: file.key,
+                                    checksum: file.checksum,
+                                }))
+                            )
+                            .returning(selectFileFields)
+                    ),
+                    {
+                        onFailure: (dbInsertError) =>
+                            Effect.gen(function* () {
+                                yield* cleanupFailedGraphCreation(
+                                    graph.id,
+                                    uploadedFiles.map((file) => file.key),
+                                    "db_insert_files",
+                                    owner.ownerMode
+                                );
+                                logError("graph creation failed during file row insert", {
+                                    graphId: graph.id,
+                                    ownerMode: owner.ownerMode,
+                                    uploadedKeyCount: uploadedFiles.length,
+                                    error: dbInsertError,
+                                });
+                                return yield* Effect.fail(internalServerError());
+                            }),
+                        onSuccess: Effect.succeed,
+                    }
+                );
+
+                return yield* Effect.matchEffect(
+                    Effect.gen(function* () {
+                        const [processRun] = yield* tryDb((db) =>
+                            db
+                                .insert(processRunsTable)
+                                .values({ graphId: graph.id, status: "pending" })
+                                .returning({ id: processRunsTable.id })
+                        );
+                        if (!processRun) {
+                            return yield* Effect.fail(
+                                new ProcessRunCreationError({ message: "Failed to create process run" })
+                            );
+                        }
+
+                        yield* tryDbVoid((db) =>
+                            db.insert(processRunFilesTable).values(
+                                createdFiles.map((file) => ({
+                                    processRunId: processRun.id,
+                                    fileId: file.id,
+                                }))
+                            )
+                        );
+
+                        const handle = yield* Effect.tryPromise({
+                            try: () =>
+                                ow.runWorkflow(processFilesSpec, {
+                                    graphId: graph.id,
+                                    fileIds: createdFiles.map((file) => file.id),
+                                    processRunId: processRun.id,
+                                }),
+                            catch: (cause) =>
+                                new ProcessFilesWorkflowEnqueueError({
+                                    message: "Failed to enqueue process files workflow",
+                                    cause,
+                                }),
+                        });
+
+                        return { graph, files: createdFiles, workflowRunId: handle.workflowRun.id };
+                    }),
+                    {
+                        onFailure: (enqueueError) =>
+                            Effect.gen(function* () {
+                                yield* cleanupFailedGraphCreation(
+                                    graph.id,
+                                    uploadedFiles.map((file) => file.key),
+                                    "enqueue",
+                                    owner.ownerMode
+                                );
+                                logError("graph creation failed during workflow enqueue", {
+                                    graphId: graph.id,
+                                    ownerMode: owner.ownerMode,
+                                    uploadedKeyCount: uploadedFiles.length,
+                                    error: enqueueError,
+                                });
+                                return yield* Effect.fail(internalServerError());
+                            }),
+                        onSuccess: Effect.succeed,
+                    }
+                );
+            }),
+            toApiError
+        )
+);

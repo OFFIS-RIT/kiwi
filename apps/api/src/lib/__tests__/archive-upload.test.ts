@@ -43,7 +43,10 @@ describe("expandArchiveUploadFiles", () => {
         const plain = new File(["plain"], "plain.txt", { type: "text/plain" });
         const result = await Effect.runPromise(
             expandArchiveUploadFiles([archive, plain], (file) =>
-                Effect.promise(async () => [new File([await file.text()], "first.txt"), new File(["second"], "second.txt")])
+                Effect.promise(async () => [
+                    new File([await file.text()], "first.txt"),
+                    new File(["second"], "second.txt"),
+                ])
             )
         );
 
@@ -58,7 +61,9 @@ describe("expandArchiveUploadFiles", () => {
 
     test("returns unsupported upload details when extraction fails", async () => {
         const result = await Effect.runPromise(
-            expandArchiveUploadFiles([new File(["broken"], "broken.zip")], () => Effect.fail(new Error("invalid archive")))
+            expandArchiveUploadFiles([new File(["broken"], "broken.zip")], () =>
+                Effect.fail(new Error("invalid archive"))
+            )
         );
 
         expect(result).toEqual({
@@ -71,10 +76,14 @@ describe("expandArchiveUploadFiles", () => {
 
     test("counts non-archive files toward maxFiles", async () => {
         const result = await Effect.runPromise(
-            expandArchiveUploadFiles([new File(["one"], "one.txt"), new File(["two"], "two.txt")], extractArchiveUploadFile, {
-                maxFiles: 1,
-                maxBytes: 1024,
-            })
+            expandArchiveUploadFiles(
+                [new File(["one"], "one.txt"), new File(["two"], "two.txt")],
+                extractArchiveUploadFile,
+                {
+                    maxFiles: 1,
+                    maxBytes: 1024,
+                }
+            )
         );
 
         expect(result).toEqual({

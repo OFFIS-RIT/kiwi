@@ -36,6 +36,7 @@ mock.module("ai", async () => {
 });
 
 mock.module("@kiwi/db", () => ({
+    betterAuthDb: {},
     db: {},
 }));
 

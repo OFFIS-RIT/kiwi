@@ -29,54 +29,60 @@ export function createGitRepositoryAdapter(options: {
     return {
         ...client,
         resourceKind: "git-repository",
-        getResource(resourceId) {
-            return Effect.map(client.getRepository(resourceId), mapProviderRepositoryToResource);
-        },
-        listResources() {
-            return Effect.map(client.listRepositories(), (repositories) => repositories.map(mapProviderRepositoryToResource));
-        },
-        listResourceVersions(resourceId) {
-            return Effect.gen(function* () {
-                const repository = yield* client.getRepository(resourceId);
-                const branches = yield* client.listBranches(repository);
-                return branches.map((branch) => mapProviderBranchToResourceVersion(resourceId, branch));
-            });
-        },
-        loadSnapshot(resourceId, versionName, versionId) {
-            return Effect.gen(function* () {
-                const repository = yield* client.getRepository(resourceId);
-                const snapshot = yield* client.loadRepositorySnapshot(repository, versionName, versionId);
-                return mapProviderRepositorySnapshot(snapshot);
-            });
-        },
-        compareVersions(resourceId, fromVersionId, toVersionId) {
-            return Effect.gen(function* () {
-                const repository = yield* client.getRepository(resourceId);
-                const delta = yield* client.compareRepository(repository, fromVersionId, toVersionId);
-                return mapProviderRepositoryDelta(delta);
-            });
-        },
-        readFile(resourceOrLocator: ConnectorFileLocator | ProviderRepository, path?: string, versionId?: string) {
-            return Effect.gen(function* () {
-                if (isProviderRepository(resourceOrLocator)) {
-                    if (typeof path !== "string" || typeof versionId !== "string") {
-                        return yield* Effect.fail(
-                            new ConnectorProviderError("validation", "Repository file reads require a path and version ID")
-                        );
-                    }
-                    return yield* client.readFile(resourceOrLocator, path, versionId);
-                }
-
-                if (typeof resourceOrLocator.versionId !== "string" || resourceOrLocator.versionId.length === 0) {
+        getResource: Effect.fn("GitResourceAdapter.getResource")(function* (resourceId: string) {
+            return yield* Effect.map(client.getRepository(resourceId), mapProviderRepositoryToResource);
+        }),
+        listResources: Effect.fn("GitResourceAdapter.listResources")(function* () {
+            return yield* Effect.map(client.listRepositories(), (repositories) =>
+                repositories.map(mapProviderRepositoryToResource)
+            );
+        }),
+        listResourceVersions: Effect.fn("GitResourceAdapter.listResourceVersions")(function* (resourceId: string) {
+            const repository = yield* client.getRepository(resourceId);
+            const branches = yield* client.listBranches(repository);
+            return branches.map((branch) => mapProviderBranchToResourceVersion(resourceId, branch));
+        }),
+        loadSnapshot: Effect.fn("GitResourceAdapter.loadSnapshot")(function* (
+            resourceId: string,
+            versionName: string,
+            versionId?: string
+        ) {
+            const repository = yield* client.getRepository(resourceId);
+            const snapshot = yield* client.loadRepositorySnapshot(repository, versionName, versionId);
+            return mapProviderRepositorySnapshot(snapshot);
+        }),
+        compareVersions: Effect.fn("GitResourceAdapter.compareVersions")(function* (
+            resourceId: string,
+            fromVersionId: string,
+            toVersionId: string
+        ) {
+            const repository = yield* client.getRepository(resourceId);
+            const delta = yield* client.compareRepository(repository, fromVersionId, toVersionId);
+            return mapProviderRepositoryDelta(delta);
+        }),
+        readFile: Effect.fn("GitResourceAdapter.readFile")(function* (
+            resourceOrLocator: ConnectorFileLocator | ProviderRepository,
+            path?: string,
+            versionId?: string
+        ) {
+            if (isProviderRepository(resourceOrLocator)) {
+                if (typeof path !== "string" || typeof versionId !== "string") {
                     return yield* Effect.fail(
-                        new ConnectorProviderError("validation", "Connector file reads require a version ID")
+                        new ConnectorProviderError("validation", "Repository file reads require a path and version ID")
                     );
                 }
+                return yield* client.readFile(resourceOrLocator, path, versionId);
+            }
 
-                const repository = yield* client.getRepository(resourceOrLocator.resourceId);
-                return yield* client.readFile(repository, resourceOrLocator.path, resourceOrLocator.versionId);
-            });
-        },
+            if (typeof resourceOrLocator.versionId !== "string" || resourceOrLocator.versionId.length === 0) {
+                return yield* Effect.fail(
+                    new ConnectorProviderError("validation", "Connector file reads require a version ID")
+                );
+            }
+
+            const repository = yield* client.getRepository(resourceOrLocator.resourceId);
+            return yield* client.readFile(repository, resourceOrLocator.path, resourceOrLocator.versionId);
+        }),
         verifyWebhook: options.verifyWebhook,
         normalizeWebhook: options.normalizeWebhook,
     };
@@ -94,7 +100,10 @@ export function mapProviderRepositoryToResource(repository: ProviderRepository):
     };
 }
 
-export function mapProviderBranchToResourceVersion(resourceId: string, branch: ProviderBranch): ConnectorResourceVersion {
+export function mapProviderBranchToResourceVersion(
+    resourceId: string,
+    branch: ProviderBranch
+): ConnectorResourceVersion {
     return {
         resourceId,
         name: branch.name,

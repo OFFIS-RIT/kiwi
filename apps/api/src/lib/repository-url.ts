@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,14 +21,13 @@ export type LoadedRepository = {
 
 export type RepositoryUrlErrorKind = "validation" | "limit" | "load";
 
-export class RepositoryUrlError extends Error {
-    constructor(
-        public readonly kind: RepositoryUrlErrorKind,
-        message: string,
-        options?: { cause?: unknown }
-    ) {
-        super(message, options);
-        this.name = "RepositoryUrlError";
+export class RepositoryUrlError extends Schema.TaggedErrorClass<RepositoryUrlError>()("RepositoryUrlError", {
+    kind: Schema.Literals(["validation", "limit", "load"] as const),
+    message: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+}) {
+    constructor(kind: RepositoryUrlErrorKind, message: string, options?: { cause?: unknown }) {
+        super(options?.cause === undefined ? { kind, message } : { kind, message, cause: options.cause });
     }
 }
 
@@ -159,8 +159,10 @@ export function buildGitHubExternalCodeFile(options: {
     };
 }
 
-export function loadRepositoryFromUrl(input: string): Effect.Effect<LoadedRepository, unknown> {
-    return Effect.tryPromise({
+export const loadRepositoryFromUrl: (input: string) => Effect.Effect<LoadedRepository, RepositoryUrlError> = Effect.fn(
+    "loadRepositoryFromUrl"
+)((input: string) =>
+    Effect.tryPromise({
         try: async () => {
             const repository = normalizeRepositoryUrl(input);
             const tempDir = await mkdtemp(path.join(tmpdir(), "kiwi-repository-"));
@@ -222,9 +224,12 @@ export function loadRepositoryFromUrl(input: string): Effect.Effect<LoadedReposi
                 await rm(tempDir, { recursive: true, force: true });
             }
         },
-        catch: (error) => error,
-    });
-}
+        catch: (error) =>
+            error instanceof RepositoryUrlError
+                ? error
+                : new RepositoryUrlError("load", "Repository could not be loaded", { cause: error }),
+    })
+);
 
 function isPathInsideRoot(root: string, target: string): boolean {
     const relative = path.relative(root, target);
@@ -272,7 +277,7 @@ function runGit(args: string[], cwd: string): Promise<string> {
             finish(() =>
                 reject(
                     new RepositoryUrlError("load", "Repository could not be loaded", {
-                        cause: new Error("Repository git command timed out"),
+                        cause: "Repository git command timed out",
                     })
                 )
             );
@@ -319,7 +324,7 @@ function runGit(args: string[], cwd: string): Promise<string> {
                 const stderrText = Buffer.concat(stderr).toString("utf8").trim();
                 reject(
                     new RepositoryUrlError("load", "Repository could not be loaded", {
-                        cause: new Error(stderrText || "Repository git command failed"),
+                        cause: stderrText || "Repository git command failed",
                     })
                 );
             });

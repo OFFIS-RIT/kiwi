@@ -32,30 +32,28 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
     github: {
         provider: "github",
         resourceKind: "git-repository",
-        create(options) {
-            return Effect.gen(function* () {
-                const credentials = yield* Effect.try({
-                    try: () => requireGitHubConnectorCredentials(options.provider, options.credentials),
-                    catch: toConnectorProviderError,
-                });
-                const installation = yield* Effect.try({
-                    try: () => requireGitHubInstallationCredentials(options.provider, options.installation),
-                    catch: toConnectorProviderError,
-                });
-                const token = yield* createGitHubInstallationToken({
-                    credentials,
-                    installationId: installation.installationId,
-                    apiBaseUrl: options.apiBaseUrl,
-                    fetch: options.fetch,
-                });
-
-                return createGitHubClient({
-                    installationToken: token.token,
-                    apiBaseUrl: options.apiBaseUrl,
-                    fetch: options.fetch,
-                });
+        create: Effect.fn("ConnectorRegistry.github.create")(function* (options: ConnectorAdapterFactoryOptions) {
+            const credentials = yield* Effect.try({
+                try: () => requireGitHubConnectorCredentials(options.provider, options.credentials),
+                catch: toConnectorProviderError,
             });
-        },
+            const installation = yield* Effect.try({
+                try: () => requireGitHubInstallationCredentials(options.provider, options.installation),
+                catch: toConnectorProviderError,
+            });
+            const token = yield* createGitHubInstallationToken({
+                credentials,
+                installationId: installation.installationId,
+                apiBaseUrl: options.apiBaseUrl,
+                fetch: options.fetch,
+            });
+
+            return createGitHubClient({
+                installationToken: token.token,
+                apiBaseUrl: options.apiBaseUrl,
+                fetch: options.fetch,
+            });
+        }),
         verifyWebhook(options) {
             return verifyGitHubWebhookSignature({
                 body: options.body,
@@ -70,24 +68,22 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
     gitlab: {
         provider: "gitlab",
         resourceKind: "git-repository",
-        create(options) {
-            return Effect.gen(function* () {
-                const credentials = yield* Effect.try({
-                    try: () => requireGitLabConnectorCredentials(options.provider, options.credentials),
-                    catch: toConnectorProviderError,
-                });
-                const installation = yield* Effect.try({
-                    try: () => requireGitLabInstallationCredentials(options.provider, options.installation),
-                    catch: toConnectorProviderError,
-                });
-
-                return createGitLabClient({
-                    baseUrl: normalizeGitLabBaseUrl(credentials.baseUrl),
-                    accessToken: installation.accessToken,
-                    fetch: options.fetch,
-                });
+        create: Effect.fn("ConnectorRegistry.gitlab.create")(function* (options: ConnectorAdapterFactoryOptions) {
+            const credentials = yield* Effect.try({
+                try: () => requireGitLabConnectorCredentials(options.provider, options.credentials),
+                catch: toConnectorProviderError,
             });
-        },
+            const installation = yield* Effect.try({
+                try: () => requireGitLabInstallationCredentials(options.provider, options.installation),
+                catch: toConnectorProviderError,
+            });
+
+            return createGitLabClient({
+                baseUrl: normalizeGitLabBaseUrl(credentials.baseUrl),
+                accessToken: installation.accessToken,
+                fetch: options.fetch,
+            });
+        }),
         verifyWebhook(options) {
             return verifyGitLabWebhookToken({
                 webhookSecret: options.webhookSecret,
@@ -104,9 +100,13 @@ export function getConnectorAdapterRegistryEntry(provider: ConnectorProvider): C
     return connectorAdapterRegistry[provider];
 }
 
-export function createConnectorAdapter(options: ConnectorAdapterFactoryOptions): Effect.Effect<ConnectorAdapter, ConnectorProviderError> {
-    return connectorAdapterRegistry[options.provider].create(options);
-}
+export const createConnectorAdapter: (
+    options: ConnectorAdapterFactoryOptions
+) => Effect.Effect<ConnectorAdapter, ConnectorProviderError> = Effect.fn("createConnectorAdapter")(function* (
+    options: ConnectorAdapterFactoryOptions
+) {
+    return yield* connectorAdapterRegistry[options.provider].create(options);
+});
 
 export function verifyConnectorWebhook(
     provider: ConnectorProvider,

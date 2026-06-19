@@ -1,8 +1,13 @@
 import * as Effect from "effect/Effect";
 import type { Database, DatabaseTransaction } from "@kiwi/db/effect";
-import { useWorkerDb } from "./effect";
+import { withWorkerDb } from "./effect";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
-import { currentSourceSql, unexpiredSourcePredicate, visibleFilePredicate, visibleFileSql } from "@kiwi/db/source-validity";
+import {
+    currentSourceSql,
+    unexpiredSourcePredicate,
+    visibleFilePredicate,
+    visibleFileSql,
+} from "@kiwi/db/source-validity";
 import type { Graph } from "@kiwi/graph";
 import { eq, sql, and } from "drizzle-orm";
 import { chunkItems } from "./chunk";
@@ -33,14 +38,14 @@ export type GraphSaveResult = {
 export function collectPendingDescriptionTargets(
     graphId: string
 ): Effect.Effect<{ entityIds: string[]; relationshipIds: string[] }, unknown, Database> {
-    return useWorkerDb((db) =>
-        Effect.tryPromise(async () => {
-            const newEntities = await (db as any)
+    return withWorkerDb((db) =>
+        Effect.gen(function* () {
+            const newEntities = yield* db
                 .select({ id: entityTable.id, name: entityTable.name })
                 .from(entityTable)
                 .where(and(eq(entityTable.graphId, graphId), eq(entityTable.active, false)));
 
-            const updatedEntityRows = await (db as any)
+            const updatedEntityRows = yield* db
                 .selectDistinct({
                     id: entityTable.id,
                     name: entityTable.name,
@@ -59,14 +64,20 @@ export function collectPendingDescriptionTargets(
                         visibleFilePredicate(filesTable)
                     )
                 );
-            const updatedEntities = Array.from(new Map((updatedEntityRows as Array<{ id: string }>).map((entity) => [entity.id, entity])).values());
+            const updatedEntities = Array.from(
+                new Map(updatedEntityRows.map((entity) => [entity.id, entity] as const)).values()
+            );
 
-            const newRelationships = await (db as any)
-                .select({ id: relationshipTable.id, sourceId: relationshipTable.sourceId, targetId: relationshipTable.targetId })
+            const newRelationships = yield* db
+                .select({
+                    id: relationshipTable.id,
+                    sourceId: relationshipTable.sourceId,
+                    targetId: relationshipTable.targetId,
+                })
                 .from(relationshipTable)
                 .where(and(eq(relationshipTable.graphId, graphId), eq(relationshipTable.active, false)));
 
-            const updatedRelationshipRows = await (db as any)
+            const updatedRelationshipRows = yield* db
                 .selectDistinct({
                     id: relationshipTable.id,
                     sourceId: relationshipTable.sourceId,
@@ -87,11 +98,16 @@ export function collectPendingDescriptionTargets(
                     )
                 );
             const updatedRelationships = Array.from(
-                new Map((updatedRelationshipRows as Array<{ id: string }>).map((relationship) => [relationship.id, relationship])).values()
+                new Map(
+                    updatedRelationshipRows.map((relationship) => [relationship.id, relationship] as const)
+                ).values()
             );
 
             return {
-                entityIds: [...newEntities.map((entity: { id: string }) => entity.id), ...updatedEntities.map((entity: { id: string }) => entity.id)],
+                entityIds: [
+                    ...newEntities.map((entity: { id: string }) => entity.id),
+                    ...updatedEntities.map((entity: { id: string }) => entity.id),
+                ],
                 relationshipIds: [
                     ...newRelationships.map((relationship: { id: string }) => relationship.id),
                     ...updatedRelationships.map((relationship: { id: string }) => relationship.id),
@@ -102,20 +118,20 @@ export function collectPendingDescriptionTargets(
 }
 
 export function saveGraphToDatabase(graphId: string, graph: Graph): Effect.Effect<GraphSaveResult, unknown, Database> {
-    return useWorkerDb((db) =>
-        Effect.tryPromise(async () => {
+    return withWorkerDb((db) =>
+        Effect.gen(function* () {
             const start = performance.now();
             const rows = buildGraphRows(graphId, graph);
-            const metrics = await (db as any).transaction((tx: GraphSaveTransaction) =>
-                Effect.tryPromise(async () => {
-                    const insertMetrics = await insertGraphRows(tx, rows);
-                    const dedupeEntitiesDuration = await measureDuration(() =>
+            const metrics = yield* db.transaction((tx: GraphSaveTransaction) =>
+                Effect.gen(function* () {
+                    const insertMetrics = yield* insertGraphRows(tx, rows);
+                    const dedupeEntitiesDuration = yield* measureDuration(
                         dedupeEntityRows(tx, graphId, rows.insertedEntityIds)
                     );
-                    const dedupeRelationshipsDuration = await measureDuration(() =>
+                    const dedupeRelationshipsDuration = yield* measureDuration(
                         dedupeRelationshipRows(tx, graphId, rows.insertedRelationshipIds)
                     );
-                    const invalidateStaleSourcesDuration = await measureDuration(() =>
+                    const invalidateStaleSourcesDuration = yield* measureDuration(
                         invalidateStaleCurrentCodeSources(tx, graphId, rows.insertedSourceIds)
                     );
 
@@ -195,70 +211,96 @@ function buildGraphRows(graphId: string, graph: Graph) {
     const insertedRelationshipIds = relationshipRows.map((relationship) => relationship.id);
     const insertedSourceIds = sourceRows.map((source) => source.id);
 
-    return { unitRows, entityRows, relationshipRows, sourceRows, insertedEntityIds, insertedRelationshipIds, insertedSourceIds };
+    return {
+        unitRows,
+        entityRows,
+        relationshipRows,
+        sourceRows,
+        insertedEntityIds,
+        insertedRelationshipIds,
+        insertedSourceIds,
+    };
 }
 
-async function measureDuration(work: () => Promise<void>): Promise<number> {
-    const start = performance.now();
-    await work();
-    return performance.now() - start;
+function measureDuration<A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<number, E, R> {
+    return Effect.gen(function* () {
+        const start = performance.now();
+        yield* work;
+        return performance.now() - start;
+    });
 }
 
-async function insertGraphRows(
+function insertGraphRows(
     tx: GraphSaveTransaction,
     rows: ReturnType<typeof buildGraphRows>
-): Promise<{
-    insertUnitsDuration: number;
-    insertEntitiesDuration: number;
-    insertRelationshipsDuration: number;
-}> {
-    const insertUnitsDuration = await measureDuration(async () => {
-        for (const chunk of chunkItems(rows.unitRows)) {
-            await (tx as any)
-                .insert(textUnitTable)
-                .values(chunk)
-                .onConflictDoUpdate({
-                    target: textUnitTable.id,
-                    set: {
-                        fileId: sql`excluded.file_id`,
-                        text: sql`excluded.text`,
-                        startPage: sql`excluded.start_page`,
-                        endPage: sql`excluded.end_page`,
-                        chunks: sql`excluded.chunks`,
-                        updatedAt: sql`NOW()`,
-                    },
-                });
-        }
-    });
+): Effect.Effect<
+    {
+        insertUnitsDuration: number;
+        insertEntitiesDuration: number;
+        insertRelationshipsDuration: number;
+    },
+    unknown
+> {
+    return Effect.gen(function* () {
+        const insertUnitsDuration = yield* measureDuration(
+            Effect.gen(function* () {
+                for (const chunk of chunkItems(rows.unitRows)) {
+                    yield* tx
+                        .insert(textUnitTable)
+                        .values(chunk)
+                        .onConflictDoUpdate({
+                            target: textUnitTable.id,
+                            set: {
+                                fileId: sql`excluded.file_id`,
+                                text: sql`excluded.text`,
+                                startPage: sql`excluded.start_page`,
+                                endPage: sql`excluded.end_page`,
+                                chunks: sql`excluded.chunks`,
+                                updatedAt: sql`NOW()`,
+                            },
+                        });
+                }
+            })
+        );
 
-    const insertEntitiesDuration = await measureDuration(async () => {
-        for (const chunk of chunkItems(rows.entityRows)) {
-            await (tx as any).insert(entityTable).values(chunk).onConflictDoNothing();
-        }
-    });
+        const insertEntitiesDuration = yield* measureDuration(
+            Effect.gen(function* () {
+                for (const chunk of chunkItems(rows.entityRows)) {
+                    yield* tx.insert(entityTable).values(chunk).onConflictDoNothing();
+                }
+            })
+        );
 
-    const insertRelationshipsDuration = await measureDuration(async () => {
-        for (const chunk of chunkItems(rows.relationshipRows)) {
-            await (tx as any).insert(relationshipTable).values(chunk).onConflictDoNothing();
-        }
-        for (const chunk of chunkItems(rows.sourceRows)) {
-            await (tx as any).insert(sourcesTable).values(chunk).onConflictDoNothing();
-        }
-    });
+        const insertRelationshipsDuration = yield* measureDuration(
+            Effect.gen(function* () {
+                for (const chunk of chunkItems(rows.relationshipRows)) {
+                    yield* tx.insert(relationshipTable).values(chunk).onConflictDoNothing();
+                }
+                for (const chunk of chunkItems(rows.sourceRows)) {
+                    yield* tx.insert(sourcesTable).values(chunk).onConflictDoNothing();
+                }
+            })
+        );
 
-    return { insertUnitsDuration, insertEntitiesDuration, insertRelationshipsDuration };
+        return { insertUnitsDuration, insertEntitiesDuration, insertRelationshipsDuration };
+    });
 }
 
-async function dedupeEntityRows(tx: GraphSaveTransaction, graphId: string, insertedEntityIds: string[]): Promise<void> {
-    if (insertedEntityIds.length === 0) {
-        return;
-    }
+function dedupeEntityRows(
+    tx: GraphSaveTransaction,
+    graphId: string,
+    insertedEntityIds: string[]
+): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        if (insertedEntityIds.length === 0) {
+            return;
+        }
 
-    const entityIds = textArray(insertedEntityIds);
-    const candidateNameKeySql = sql.raw(entityCompactNameKey("candidate.name"));
-    const seededNameKeySql = sql.raw(entityCompactNameKey("seed.name"));
+        const entityIds = textArray(insertedEntityIds);
+        const candidateNameKeySql = sql.raw(entityCompactNameKey("candidate.name"));
+        const seededNameKeySql = sql.raw(entityCompactNameKey("seed.name"));
 
-    await (tx as any).execute(sql`
+        yield* tx.execute(sql`
                 WITH seeded_keys AS (
                     SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                     FROM entities seed
@@ -284,7 +326,7 @@ async function dedupeEntityRows(tx: GraphSaveTransaction, graphId: string, inser
                   AND duplicates.id <> duplicates.canonical_id
             `);
 
-    await (tx as any).execute(sql`
+        yield* tx.execute(sql`
                 WITH seeded_keys AS (
                     SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                     FROM entities seed
@@ -311,7 +353,7 @@ async function dedupeEntityRows(tx: GraphSaveTransaction, graphId: string, inser
                   AND duplicates.id <> duplicates.canonical_id
             `);
 
-    await (tx as any).execute(sql`
+        yield* tx.execute(sql`
                 WITH seeded_keys AS (
                     SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                     FROM entities seed
@@ -338,7 +380,7 @@ async function dedupeEntityRows(tx: GraphSaveTransaction, graphId: string, inser
                   AND duplicates.id <> duplicates.canonical_id
             `);
 
-    await (tx as any).execute(sql`
+        yield* tx.execute(sql`
                 WITH seeded_keys AS (
                     SELECT DISTINCT seed.type, ${seededNameKeySql} AS normalized_name
                     FROM entities seed
@@ -362,27 +404,29 @@ async function dedupeEntityRows(tx: GraphSaveTransaction, graphId: string, inser
                 WHERE entity.id = duplicates.id
                   AND duplicates.id <> duplicates.canonical_id
             `);
+    });
 }
 
-async function dedupeRelationshipRows(
+function dedupeRelationshipRows(
     tx: GraphSaveTransaction,
     graphId: string,
     insertedRelationshipIds: string[]
-): Promise<void> {
-    await (tx as any).execute(sql`
+): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        yield* tx.execute(sql`
             DELETE FROM relationships
             WHERE graph_id = ${graphId}
               AND directed = false
               AND source_id = target_id
         `);
 
-    if (insertedRelationshipIds.length === 0) {
-        return;
-    }
+        if (insertedRelationshipIds.length === 0) {
+            return;
+        }
 
-    const relationshipIds = textArray(insertedRelationshipIds);
+        const relationshipIds = textArray(insertedRelationshipIds);
 
-    await (tx as any).execute(sql`
+        yield* tx.execute(sql`
                 WITH seeded_pairs AS (
                     SELECT DISTINCT
                         relationship.kind,
@@ -440,7 +484,7 @@ async function dedupeRelationshipRows(
                   )
             `);
 
-    await (tx as any).execute(sql`
+        yield* tx.execute(sql`
                 WITH seeded_pairs AS (
                     SELECT DISTINCT
                         relationship.kind,
@@ -476,7 +520,7 @@ async function dedupeRelationshipRows(
                   AND duplicates.id <> duplicates.canonical_id
             `);
 
-    await (tx as any).execute(sql`
+        yield* tx.execute(sql`
                 WITH seeded_pairs AS (
                     SELECT DISTINCT
                         relationship.kind,
@@ -510,20 +554,22 @@ async function dedupeRelationshipRows(
                 WHERE relationship.id = duplicates.id
                   AND duplicates.id <> duplicates.canonical_id
             `);
+    });
 }
 
-async function invalidateStaleCurrentCodeSources(
+function invalidateStaleCurrentCodeSources(
     tx: GraphSaveTransaction,
     graphId: string,
     insertedSourceIds: string[]
-): Promise<void> {
-    if (insertedSourceIds.length === 0) {
-        return;
-    }
+): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        if (insertedSourceIds.length === 0) {
+            return;
+        }
 
-    const sourceIds = textArray(insertedSourceIds);
+        const sourceIds = textArray(insertedSourceIds);
 
-    await (tx as any).execute(sql`
+        yield* tx.execute(sql`
         WITH new_code_sources AS (
             SELECT DISTINCT source.id, source.entity_id, source.relationship_id
             FROM sources source
@@ -560,4 +606,5 @@ async function invalidateStaleCurrentCodeSources(
         FROM stale_sources
         WHERE source.id = stale_sources.id
     `);
+    });
 }

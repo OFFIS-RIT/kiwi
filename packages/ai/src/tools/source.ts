@@ -1,11 +1,16 @@
 import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
-import { currentSourcePredicate, currentSourceSql, visibleFilePredicate, visibleFileSql } from "@kiwi/db/source-validity";
+import {
+    currentSourcePredicate,
+    currentSourceSql,
+    visibleFilePredicate,
+    visibleFileSql,
+} from "@kiwi/db/source-validity";
 import { and, asc, cosineDistance, eq, gt, inArray, or, sql, type SQL } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { embed, tool } from "ai";
-import { withAiSlot } from "../concurrency";
+import { withAiSlotEffect, type AiSlotError } from "../concurrency";
 import {
     decodeCursor,
     doubleLiteral,
@@ -196,7 +201,7 @@ function getScopedSources(
         cursor,
         onConsideredFileIds,
     }: GetScopedSourcesArgs
-): Effect.Effect<string, unknown, Database> {
+): Effect.Effect<string, DatabaseError | AiSlotError, Database> {
     return Effect.gen(function* () {
         const db = yield* Database;
         const fileIds = uniqueTerms(files ?? []);
@@ -276,17 +281,13 @@ function getScopedSources(
         const keywordBoost = buildSourceKeywordBoostExpression(terms);
         const exactBoost = buildSourceExactBoostExpression(terms);
         const queryEmbedding = text
-            ? (
-                  yield* Effect.tryPromise(() =>
-                      withAiSlot("embedding", (signal) =>
-                          embed({
-                              model: embeddingModel,
-                              value: text,
-                              abortSignal: signal,
-                          })
-                      )
-                  )
-              ).embedding
+            ? (yield* withAiSlotEffect("embedding", (signal) =>
+                  embed({
+                      model: embeddingModel,
+                      value: text,
+                      abortSignal: signal,
+                  })
+              )).embedding
             : undefined;
         const semanticScoreExpression = queryEmbedding
             ? sql<number>`greatest(0::double precision, 1 - (${cosineDistance(sql`source.embedding`, queryEmbedding)}))`

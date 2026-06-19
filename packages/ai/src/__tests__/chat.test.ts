@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { simulateReadableStream, validateUIMessages } from "ai";
 
 mock.module("@kiwi/db", () => ({
+    betterAuthDb: {},
     db: {},
 }));
 

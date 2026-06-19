@@ -142,7 +142,6 @@ function runTransactionResult<T>(result: T | PromiseLike<T> | Effect.Effect<T>) 
     return Effect.isEffect(result) ? Effect.runPromise(result) : result;
 }
 
-
 const db = {
     insert: () => ({
         values: (values: unknown) => ({
@@ -218,7 +217,7 @@ mock.module("@kiwi/db/effect", () => ({
         Effect.asVoid(runMockDbEffect(thunk)),
 }));
 
-mock.module("@kiwi/db", () => ({ db }));
+mock.module("@kiwi/db", () => ({ betterAuthDb: db, db }));
 
 mock.module("../../env", () => ({
     env: {
@@ -346,7 +345,9 @@ mock.module("../../lib/repository-url", () => ({
             if (repositoryLoadMode === "git-error") {
                 return yield* Effect.fail(
                     new RepositoryUrlError("load", "Repository could not be loaded", {
-                        cause: new Error("fatal: could not read Username for 'https://github.com': terminal prompts disabled"),
+                        cause: new Error(
+                            "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+                        ),
                     })
                 );
             }
@@ -361,14 +362,16 @@ mock.module("../../lib/repository-url", () => ({
                         ? [
                               {
                                   path: "src/index.ts",
-                                  content: "import { helper } from './helper';\nexport function main() { return helper(); }\n",
+                                  content:
+                                      "import { helper } from './helper';\nexport function main() { return helper(); }\n",
                                   size: 75,
                               },
                           ]
                         : [
                               {
                                   path: "src/index.ts",
-                                  content: "import { helper } from './helper';\nexport function main() { return helper(); }\n",
+                                  content:
+                                      "import { helper } from './helper';\nexport function main() { return helper(); }\n",
                                   size: 75,
                               },
                               {

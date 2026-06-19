@@ -60,7 +60,7 @@ import {
     graphChatTarget,
     type ChatTarget,
 } from "./chat-target";
-import { API_ERROR_CODES, errorResponse } from "../types";
+import { API_ERROR_CODES, errorResponse, isApiError, makeApiError } from "../types";
 import type { AuthUser } from "../middleware/auth";
 import { resolveGraphOwnerRoot, type RootOwner } from "./graph/access";
 import { MAX_PROMPTS_PER_SCOPE } from "./prompt-limits";
@@ -126,7 +126,6 @@ const CONTEXT_OVERFLOW_PATTERNS = [
     "input length exceeds",
     "too many input tokens",
 ];
-
 
 export function shouldIncludeGraphCorrectionTool(rootOwner: RootOwner, deep?: boolean) {
     return deep !== true && rootOwner.mode !== "user";
@@ -291,35 +290,35 @@ function listGraphPromptTexts(graphId: string): Effect.Effect<string[], Database
 // Organization Prompts apply to every chat in the deployment, so they are
 // always loaded for the deployment's default organization rather than resolved
 // through the graph's owner chain (personal graphs have no organization).
-export function listOrganizationPromptTexts() {
-    return Effect.gen(function* () {
-        const organizationIdResult = yield* Effect.match(getDefaultOrganizationId(), {
-            onFailure: (error) => ({ status: "failure" as const, error }),
-            onSuccess: (organizationId) => ({ status: "success" as const, organizationId }),
-        });
-        if (organizationIdResult.status === "failure") {
-            logWarn("Failed to resolve the default organization for organization prompts", {
-                error: organizationIdResult.error,
-            });
-            return [];
-        }
-
-        return yield* Effect.map(
-            tryDb((db) =>
-                db
-                    .select({ prompt: organizationPromptsTable.prompt })
-                    .from(organizationPromptsTable)
-                    .where(eq(organizationPromptsTable.organizationId, organizationIdResult.organizationId))
-                    .orderBy(asc(organizationPromptsTable.createdAt), asc(organizationPromptsTable.id))
-                    .limit(MAX_PROMPTS_PER_SCOPE)
-            ),
-            normalizePromptTexts
-        );
+export const listOrganizationPromptTexts = Effect.fn("listOrganizationPromptTexts")(function* () {
+    const organizationIdResult = yield* Effect.match(getDefaultOrganizationId(), {
+        onFailure: (error) => ({ status: "failure" as const, error }),
+        onSuccess: (organizationId) => ({ status: "success" as const, organizationId }),
     });
-}
+    if (organizationIdResult.status === "failure") {
+        logWarn("Failed to resolve the default organization for organization prompts", {
+            error: organizationIdResult.error,
+        });
+        return [];
+    }
 
-export function listUserPromptTexts(userId: string): Effect.Effect<string[], DatabaseError, Database> {
-    return Effect.map(
+    return yield* Effect.map(
+        tryDb((db) =>
+            db
+                .select({ prompt: organizationPromptsTable.prompt })
+                .from(organizationPromptsTable)
+                .where(eq(organizationPromptsTable.organizationId, organizationIdResult.organizationId))
+                .orderBy(asc(organizationPromptsTable.createdAt), asc(organizationPromptsTable.id))
+                .limit(MAX_PROMPTS_PER_SCOPE)
+        ),
+        normalizePromptTexts
+    );
+});
+
+export const listUserPromptTexts: (userId: string) => Effect.Effect<string[], DatabaseError, Database> = Effect.fn(
+    "listUserPromptTexts"
+)((userId: string) =>
+    Effect.map(
         tryDb((db) =>
             db
                 .select({ prompt: userPromptsTable.prompt })
@@ -329,11 +328,13 @@ export function listUserPromptTexts(userId: string): Effect.Effect<string[], Dat
                 .limit(MAX_PROMPTS_PER_SCOPE)
         ),
         normalizePromptTexts
-    );
-}
+    )
+);
 
-export function listTeamPromptTexts(teamId: string): Effect.Effect<string[], DatabaseError, Database> {
-    return Effect.map(
+export const listTeamPromptTexts: (teamId: string) => Effect.Effect<string[], DatabaseError, Database> = Effect.fn(
+    "listTeamPromptTexts"
+)((teamId: string) =>
+    Effect.map(
         tryDb((db) =>
             db
                 .select({ prompt: teamPromptsTable.prompt })
@@ -343,8 +344,8 @@ export function listTeamPromptTexts(teamId: string): Effect.Effect<string[], Dat
                 .limit(MAX_PROMPTS_PER_SCOPE)
         ),
         normalizePromptTexts
-    );
-}
+    )
+);
 
 function listTeamPromptTextsForGraph(graphId: string, knownRootOwner?: RootOwner) {
     return Effect.gen(function* () {
@@ -423,38 +424,45 @@ export function toolPart<
     };
 }
 
-export function touchChat(chatId: string): Effect.Effect<void, DatabaseError, Database> {
-    return tryDbVoid((db) => db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId)));
-}
+export const touchChat: (chatId: string) => Effect.Effect<void, DatabaseError, Database> = Effect.fn("touchChat")(
+    (chatId: string) =>
+        tryDbVoid((db) => db.update(chatTable).set({ updatedAt: new Date() }).where(eq(chatTable.id, chatId)))
+);
 
-export function setChatPinned(chatId: string, userId: string, pinned: boolean): Effect.Effect<void, DatabaseError, Database> {
-    return tryDbVoid((db) =>
-        db
-            .update(chatTable)
-            .set({
-                pinnedAt: pinned ? new Date() : null,
-                updatedAt: sql`${chatTable.updatedAt}`,
-            })
-            .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)))
-    );
-}
+export const setChatPinned: (
+    chatId: string,
+    userId: string,
+    pinned: boolean
+) => Effect.Effect<void, DatabaseError, Database> = Effect.fn("setChatPinned")(
+    (chatId: string, userId: string, pinned: boolean) =>
+        tryDbVoid((db) =>
+            db
+                .update(chatTable)
+                .set({
+                    pinnedAt: pinned ? new Date() : null,
+                    updatedAt: sql`${chatTable.updatedAt}`,
+                })
+                .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)))
+        )
+);
 
-export function setChatArchived(
+export const setChatArchived: (
     chatId: string,
     userId: string,
     archived: boolean
-): Effect.Effect<void, DatabaseError, Database> {
-    return tryDbVoid((db) =>
-        db
-            .update(chatTable)
-            .set({
-                archivedAt: archived ? new Date() : null,
-                // Preserve updatedAt so archive state changes do not reorder chats.
-                updatedAt: sql`${chatTable.updatedAt}`,
-            })
-            .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)))
-    );
-}
+) => Effect.Effect<void, DatabaseError, Database> = Effect.fn("setChatArchived")(
+    (chatId: string, userId: string, archived: boolean) =>
+        tryDbVoid((db) =>
+            db
+                .update(chatTable)
+                .set({
+                    archivedAt: archived ? new Date() : null,
+                    // Preserve updatedAt so archive state changes do not reorder chats.
+                    updatedAt: sql`${chatTable.updatedAt}`,
+                })
+                .where(and(eq(chatTable.id, chatId), eq(chatTable.userId, userId)))
+        )
+);
 
 export { getRequiredResearchClient };
 export type { RequiredResearchClient };
@@ -518,7 +526,7 @@ function createGraphResearchRuntime(options: {
     };
 }
 
-export function getGraphResearchRuntime(
+export const getGraphResearchRuntime = Effect.fn("getGraphResearchRuntime")(function* (
     graphId: string,
     options: {
         toolset: RuntimeToolset;
@@ -530,50 +538,48 @@ export function getGraphResearchRuntime(
         correction?: CorrectionToolContext;
     } = { toolset: "server" }
 ) {
-    return Effect.gen(function* () {
-        const rootOwner = options.rootOwner ?? (yield* resolveGraphOwnerRoot(graphId));
-        const organizationId = yield* getResearchModelOrganizationId(options.user, rootOwner);
-        const [organizationPrompts, graphPrompts, userPrompts, teamPrompts] = yield* Effect.all([
-            listOrganizationPromptTexts(),
-            listGraphPromptTexts(graphId),
-            options.user ? listUserPromptTexts(options.user.id) : Effect.succeed([]),
-            options.user ? listTeamPromptTextsForGraph(graphId, rootOwner) : Effect.succeed([]),
-        ]);
-        const promptGuidance = {
-            organizationPrompts,
-            userPrompts,
-            teamPrompts,
-            graphPrompts,
-        };
-        const client = yield* getRequiredResearchClient({
-            organizationId,
-            requestedModelId: options.requestedModelId,
-        });
-
-        return createGraphResearchRuntime({
-            graphId,
-            client,
-            toolset: options.toolset,
-            deep: options.deep,
-            promptGuidance,
-            requestInformation: options.requestInformation,
-            correction: options.correction,
-        });
+    const rootOwner = options.rootOwner ?? (yield* resolveGraphOwnerRoot(graphId));
+    const organizationId = yield* getResearchModelOrganizationId(options.user, rootOwner);
+    const [organizationPrompts, graphPrompts, userPrompts, teamPrompts] = yield* Effect.all([
+        listOrganizationPromptTexts(),
+        listGraphPromptTexts(graphId),
+        options.user ? listUserPromptTexts(options.user.id) : Effect.succeed([]),
+        options.user ? listTeamPromptTextsForGraph(graphId, rootOwner) : Effect.succeed([]),
+    ]);
+    const promptGuidance = {
+        organizationPrompts,
+        userPrompts,
+        teamPrompts,
+        graphPrompts,
+    };
+    const client = yield* getRequiredResearchClient({
+        organizationId,
+        requestedModelId: options.requestedModelId,
     });
-}
 
-export function getGraphResearchRuntimeWithSharedGuidance(
-    graphId: string,
-    options: {
-        client: RequiredResearchClient;
-        toolset: RuntimeToolset;
-        deep?: boolean;
-        promptGuidance: SharedResearchPromptGuidance;
-        requestInformation?: RequestInformation;
-        correction?: CorrectionToolContext;
-    }
-) {
-    return Effect.gen(function* () {
+    return createGraphResearchRuntime({
+        graphId,
+        client,
+        toolset: options.toolset,
+        deep: options.deep,
+        promptGuidance,
+        requestInformation: options.requestInformation,
+        correction: options.correction,
+    });
+});
+
+export const getGraphResearchRuntimeWithSharedGuidance = Effect.fn("getGraphResearchRuntimeWithSharedGuidance")(
+    function* (
+        graphId: string,
+        options: {
+            client: RequiredResearchClient;
+            toolset: RuntimeToolset;
+            deep?: boolean;
+            promptGuidance: SharedResearchPromptGuidance;
+            requestInformation?: RequestInformation;
+            correction?: CorrectionToolContext;
+        }
+    ) {
         const graphPrompts = yield* listGraphPromptTexts(graphId);
 
         return createGraphResearchRuntime({
@@ -588,8 +594,8 @@ export function getGraphResearchRuntimeWithSharedGuidance(
             requestInformation: options.requestInformation,
             correction: options.correction,
         });
-    });
-}
+    }
+);
 
 export function isContextOverflowError(error: unknown): boolean {
     const messages = [error]
@@ -623,7 +629,7 @@ export function startsAssistantOutput(partType: string) {
     );
 }
 
-export function refreshReplyContext(options: {
+export const refreshReplyContext = Effect.fn("refreshReplyContext")(function* (options: {
     chatId: string;
     graphId: string;
     runtime: ChatRuntime;
@@ -631,157 +637,159 @@ export function refreshReplyContext(options: {
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
 }) {
-    return Effect.gen(function* () {
-        const rows = yield* loadChatRows(options.chatId);
-        const latestGraphRetrievalAt = getLatestGraphRetrievalAt(rows);
-        const completedWorkflowAt =
-            latestGraphRetrievalAt === null ? null : yield* getLatestCompletedWorkflowAt(options.graphId);
-        const graphDataRefresh = createGraphDataRefreshNotice({ rows, completedWorkflowAt });
-        const systemPrompt = createChatSystemPrompt({
-            ...(options.promptOptions ?? {}),
-            ...(graphDataRefresh ? { graphDataRefresh } : {}),
-        });
-        const validateMessages = createChatMessageValidator(
-            buildChatValidationToolset({
-                graphId: options.graphId,
-                embeddingModel: options.runtime.client.embedding,
-                model: options.runtime.client.subagent ?? options.runtime.client.text,
-            })
-        );
-        const buildContext = (rows: ChatMessage[]) =>
-            buildActiveChatContext({
-                rows,
-                runtime: options.runtime,
-                systemPrompt,
-                validateMessages,
-            });
-        const { context } = yield* maybeCompactConversation({
-            chatId: options.chatId,
-            runtime: options.runtime,
+    const rows = yield* loadChatRows(options.chatId);
+    const latestGraphRetrievalAt = getLatestGraphRetrievalAt(rows);
+    const completedWorkflowAt =
+        latestGraphRetrievalAt === null ? null : yield* getLatestCompletedWorkflowAt(options.graphId);
+    const graphDataRefresh = createGraphDataRefreshNotice({ rows, completedWorkflowAt });
+    const systemPrompt = createChatSystemPrompt({
+        ...(options.promptOptions ?? {}),
+        ...(graphDataRefresh ? { graphDataRefresh } : {}),
+    });
+    const validateMessages = createChatMessageValidator(
+        buildChatValidationToolset({
+            graphId: options.graphId,
+            embeddingModel: options.runtime.client.embedding,
+            model: options.runtime.client.subagent ?? options.runtime.client.text,
+        })
+    );
+    const buildContext = (rows: ChatMessage[]) =>
+        buildActiveChatContext({
             rows,
+            runtime: options.runtime,
             systemPrompt,
-            buildContext,
-            forceCompaction: options.forceCompaction,
-            abortSignal: options.abortSignal,
+            validateMessages,
         });
-
-        return {
-            systemPrompt,
-            contextMessages: context.contextMessages,
-            validatedMessages: context.validatedMessages,
-            estimatedPromptTokens: context.estimatedPromptTokens,
-        };
+    const { context } = yield* maybeCompactConversation({
+        chatId: options.chatId,
+        runtime: options.runtime,
+        rows,
+        systemPrompt,
+        buildContext,
+        forceCompaction: options.forceCompaction,
+        abortSignal: options.abortSignal,
     });
-}
 
-export function startReply(user: AuthUser, graphId: string, request: ChatRequest, options: StartReplyOptions) {
-    return Effect.gen(function* () {
-        const requestedPromptOptions = options.promptOptions ?? {};
-        const normalizedRequest = normalizeChatRequest(request);
-        const rootOwner = options.rootOwner ?? (yield* resolveGraphOwnerRoot(graphId));
-        const includeCorrectionTool =
-            requestedPromptOptions.includeCorrectionTool === true &&
-            shouldIncludeGraphCorrectionTool(rootOwner, options.deep);
-        const promptOptions = {
-            ...requestedPromptOptions,
-            includeCorrectionTool,
-        };
-        const { isNewChat } = yield* ensureChatRecord({
-            chatId: normalizedRequest.id,
-            userId: user.id,
-            target: graphChatTarget(graphId),
-            defaultTitle: DEFAULT_CHAT_TITLE,
-        });
-        yield* syncChatMessage({
-            chatId: normalizedRequest.id,
-            message: normalizedRequest.latestMessage,
-            toParts: uiMessageToMessageParts,
-            getMetrics,
-            parseCreatedAt,
-        });
-        const runtime = yield* getGraphResearchRuntime(graphId, {
-            ...options,
-            user,
-            rootOwner,
-            requestedModelId: normalizedRequest.modelId,
-            requestInformation: promptOptions.requestInformation,
-            correction: includeCorrectionTool
-                ? {
-                      graphId,
-                      userId: user.id,
-                      chatId: normalizedRequest.id,
-                      messageId: normalizedRequest.latestMessage.id,
-                  }
-                : undefined,
-        });
-        const { contextMessages, validatedMessages, estimatedPromptTokens, systemPrompt } = yield* refreshReplyContext({
-            chatId: normalizedRequest.id,
-            graphId,
-            runtime,
-            promptOptions,
-            abortSignal: options.abortSignal,
-        });
-        const assistantId = yield* createPendingAssistantMessage(normalizedRequest.id);
-        yield* touchChat(normalizedRequest.id);
+    return {
+        systemPrompt,
+        contextMessages: context.contextMessages,
+        validatedMessages: context.validatedMessages,
+        estimatedPromptTokens: context.estimatedPromptTokens,
+    };
+});
 
-        return {
-            chatId: normalizedRequest.id,
-            assistantId,
-            isNewChat,
-            titleMessages: normalizedRequest.titleMessages,
-            systemPrompt,
-            contextMessages,
-            validatedMessages,
-            estimatedPromptTokens,
-            ...runtime,
-        };
+export const startReply = Effect.fn("startReply")(function* (
+    user: AuthUser,
+    graphId: string,
+    request: ChatRequest,
+    options: StartReplyOptions
+) {
+    const requestedPromptOptions = options.promptOptions ?? {};
+    const normalizedRequest = normalizeChatRequest(request);
+    const rootOwner = options.rootOwner ?? (yield* resolveGraphOwnerRoot(graphId));
+    const includeCorrectionTool =
+        requestedPromptOptions.includeCorrectionTool === true &&
+        shouldIncludeGraphCorrectionTool(rootOwner, options.deep);
+    const promptOptions = {
+        ...requestedPromptOptions,
+        includeCorrectionTool,
+    };
+    const { isNewChat } = yield* ensureChatRecord({
+        chatId: normalizedRequest.id,
+        userId: user.id,
+        target: graphChatTarget(graphId),
+        defaultTitle: DEFAULT_CHAT_TITLE,
     });
-}
+    yield* syncChatMessage({
+        chatId: normalizedRequest.id,
+        message: normalizedRequest.latestMessage,
+        toParts: uiMessageToMessageParts,
+        getMetrics,
+        parseCreatedAt,
+    });
+    const runtime = yield* getGraphResearchRuntime(graphId, {
+        ...options,
+        user,
+        rootOwner,
+        requestedModelId: normalizedRequest.modelId,
+        requestInformation: promptOptions.requestInformation,
+        correction: includeCorrectionTool
+            ? {
+                  graphId,
+                  userId: user.id,
+                  chatId: normalizedRequest.id,
+                  messageId: normalizedRequest.latestMessage.id,
+              }
+            : undefined,
+    });
+    const { contextMessages, validatedMessages, estimatedPromptTokens, systemPrompt } = yield* refreshReplyContext({
+        chatId: normalizedRequest.id,
+        graphId,
+        runtime,
+        promptOptions,
+        abortSignal: options.abortSignal,
+    });
+    const assistantId = yield* createPendingAssistantMessage(normalizedRequest.id);
+    yield* touchChat(normalizedRequest.id);
 
-export function enrichCitation(
+    return {
+        chatId: normalizedRequest.id,
+        assistantId,
+        isNewChat,
+        titleMessages: normalizedRequest.titleMessages,
+        systemPrompt,
+        contextMessages,
+        validatedMessages,
+        estimatedPromptTokens,
+        ...runtime,
+    };
+});
+
+export const enrichCitation: (
     graphId: string,
     sourceId: string
-): Effect.Effect<ResolvedCitationFence | null, DatabaseError, Database> {
-    return Effect.map(
-        tryDb((db) =>
-            db
-                .select({
-                    sourceId: sourcesTable.id,
-                    unitId: textUnitTable.id,
-                    fileId: filesTable.id,
-                    fileName: filesTable.name,
-                    fileType: filesTable.type,
-                    startPage: textUnitTable.startPage,
-                    endPage: textUnitTable.endPage,
-                })
-                .from(sourcesTable)
-                .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-                .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                .where(
-                    and(
-                        eq(sourcesTable.id, sourceId),
-                        eq(filesTable.graphId, graphId),
-                        currentSourcePredicate(sourcesTable),
-                        visibleFilePredicate(filesTable)
+) => Effect.Effect<ResolvedCitationFence | null, DatabaseError, Database> = Effect.fn("enrichCitation")(
+    (graphId: string, sourceId: string) =>
+        Effect.map(
+            tryDb((db) =>
+                db
+                    .select({
+                        sourceId: sourcesTable.id,
+                        unitId: textUnitTable.id,
+                        fileId: filesTable.id,
+                        fileName: filesTable.name,
+                        fileType: filesTable.type,
+                        startPage: textUnitTable.startPage,
+                        endPage: textUnitTable.endPage,
+                    })
+                    .from(sourcesTable)
+                    .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+                    .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+                    .where(
+                        and(
+                            eq(sourcesTable.id, sourceId),
+                            eq(filesTable.graphId, graphId),
+                            currentSourcePredicate(sourcesTable),
+                            visibleFilePredicate(filesTable)
+                        )
                     )
-                )
-                .limit(1)
-        ),
-        ([row]) =>
-            row
-                ? {
-                      type: "cite" as const,
-                      sourceId: row.sourceId,
-                      unitId: row.unitId,
-                      fileId: row.fileId,
-                      fileName: row.fileName,
-                      fileType: row.fileType,
-                      startPage: row.startPage ?? undefined,
-                      endPage: row.endPage ?? undefined,
-                  }
-                : null
-    );
-}
+                    .limit(1)
+            ),
+            ([row]) =>
+                row
+                    ? {
+                          type: "cite" as const,
+                          sourceId: row.sourceId,
+                          unitId: row.unitId,
+                          fileId: row.fileId,
+                          fileName: row.fileName,
+                          fileType: row.fileType,
+                          startPage: row.startPage ?? undefined,
+                          endPage: row.endPage ?? undefined,
+                      }
+                    : null
+        )
+);
 
 function createCachedCitationResolver(graphId: string): CitationResolver {
     return createCachingCitationResolver({
@@ -791,13 +799,18 @@ function createCachedCitationResolver(graphId: string): CitationResolver {
     });
 }
 
-export function updateMessagePartsBatch(chatId: string, updates: Array<{ id: string; parts: MessagePart[] }>) {
+export const updateMessagePartsBatch = Effect.fn("updateMessagePartsBatch")((
+    chatId: string,
+    updates: Array<{ id: string; parts: MessagePart[] }>
+) => {
     if (updates.length === 0) {
         return Effect.void;
     }
 
     const cases = sql.join(
-        updates.map((update) => sql`when ${messageTable.id} = ${update.id} then ${JSON.stringify(update.parts)}::jsonb`),
+        updates.map(
+            (update) => sql`when ${messageTable.id} = ${update.id} then ${JSON.stringify(update.parts)}::jsonb`
+        ),
         sql.raw(" ")
     );
 
@@ -815,145 +828,133 @@ export function updateMessagePartsBatch(chatId: string, updates: Array<{ id: str
                 )
             )
     );
-}
+});
 
-export function resolveCitationDocumentLink(
+export const resolveCitationDocumentLink = Effect.fn("resolveCitationDocumentLink")((
     graphId: string,
     citation: CitationFence,
     options: { baseUrl?: string; signed?: boolean } = {}
-) {
-    return Effect.catch(
-        Effect.gen(function* () {
-            const resolvedCitation =
-                isResolvedCitationFence(citation) && citation.fileId
-                    ? citation
-                    : yield* enrichCitation(graphId, citation.sourceId);
-
-            if (!resolvedCitation?.fileId) {
-                return "[source unavailable]";
-            }
-
-            const page = isPDFCitation(resolvedCitation) ? resolvedCitation.startPage : null;
-            const token = options.signed
-                ? yield* createProjectFileAccessToken(graphId, resolvedCitation.fileId)
-                : undefined;
-            const url = getProjectFileProxyUrl(options.baseUrl, graphId, resolvedCitation.fileId, {
-                fileName: resolvedCitation.fileName,
-                page,
-                token,
+) => {
+    const unavailable = (error: unknown) =>
+        Effect.sync(() => {
+            logError("failed to resolve citation document link", {
+                graphId,
+                sourceId: citation.sourceId,
+                error,
             });
-            const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
 
-            return `[${label}](${url})`;
-        }),
-        (error) =>
-            Effect.sync(() => {
-                logError("failed to resolve citation document link", {
-                    graphId,
-                    sourceId: citation.sourceId,
-                    error,
-                });
+            return "[source unavailable]";
+        });
 
-                return "[source unavailable]";
-            })
-    );
-}
-
-export function loadChatSummaryForTarget(userId: string, target: ChatTarget, chatId: string) {
     return Effect.gen(function* () {
-        const [chat] = yield* tryDb((db) =>
-            db
-                .select({
-                    id: chatTable.id,
-                    title: chatTable.title,
-                    userId: chatTable.userId,
-                    scope: chatTable.scope,
-                    graphId: chatTable.graphId,
-                    teamId: chatTable.teamId,
-                })
-                .from(chatTable)
-                .where(eq(chatTable.id, chatId))
-                .limit(1)
-        );
+        const resolvedCitation =
+            isResolvedCitationFence(citation) && citation.fileId
+                ? citation
+                : yield* enrichCitation(graphId, citation.sourceId);
 
-        if (!chat || chat.userId !== userId || !chatTargetMatchesRow(chat, target)) {
-            throw new Error(API_ERROR_CODES.CHAT_NOT_FOUND);
+        if (!resolvedCitation?.fileId) {
+            return "[source unavailable]";
         }
 
-        return {
-            id: chat.id,
-            title: chat.title,
-        };
-    });
-}
+        const page = isPDFCitation(resolvedCitation) ? resolvedCitation.startPage : null;
+        const token = options.signed
+            ? yield* createProjectFileAccessToken(graphId, resolvedCitation.fileId)
+            : undefined;
+        const url = getProjectFileProxyUrl(options.baseUrl, graphId, resolvedCitation.fileId, {
+            fileName: resolvedCitation.fileName,
+            page,
+            token,
+        });
+        const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
 
-export function loadChatSummary(userId: string, graphId: string, chatId: string) {
-    return loadChatSummaryForTarget(userId, graphChatTarget(graphId), chatId);
-}
+        return `[${label}](${url})`;
+    }).pipe(
+        Effect.catchTags({
+            "@kiwi/db/DatabaseError": unavailable,
+            ProjectFileAccessTokenError: unavailable,
+        })
+    );
+});
 
-export function loadChatHistoryForTarget(options: {
+export const loadChatSummaryForTarget = Effect.fn("loadChatSummaryForTarget")(function* (
+    userId: string,
+    target: ChatTarget,
+    chatId: string
+) {
+    const [chat] = yield* tryDb((db) =>
+        db
+            .select({
+                id: chatTable.id,
+                title: chatTable.title,
+                userId: chatTable.userId,
+                scope: chatTable.scope,
+                graphId: chatTable.graphId,
+                teamId: chatTable.teamId,
+            })
+            .from(chatTable)
+            .where(eq(chatTable.id, chatId))
+            .limit(1)
+    );
+
+    if (!chat || chat.userId !== userId || !chatTargetMatchesRow(chat, target)) {
+        return yield* Effect.fail(makeApiError(404, API_ERROR_CODES.CHAT_NOT_FOUND, "Chat not found"));
+    }
+
+    return {
+        id: chat.id,
+        title: chat.title,
+    };
+});
+
+export const loadChatSummary = Effect.fn("loadChatSummary")((userId: string, graphId: string, chatId: string) =>
+    loadChatSummaryForTarget(userId, graphChatTarget(graphId), chatId)
+);
+
+export const loadChatHistoryForTarget = Effect.fn("loadChatHistoryForTarget")(function* (options: {
     userId: string;
     target: ChatTarget;
     chatId: string;
     resolveCitation: CitationResolver;
     logLabel: string;
 }) {
-    return Effect.gen(function* () {
-        const chat = yield* loadChatSummaryForTarget(options.userId, options.target, options.chatId);
-        const logContext = chatTargetLogContext(options.target);
+    const chat = yield* loadChatSummaryForTarget(options.userId, options.target, options.chatId);
+    const logContext = chatTargetLogContext(options.target);
 
-        const rows = (yield* loadChatRows(options.chatId, { includeFailed: true })).filter(
-            (message) => !isCompactionMessage(message)
-        );
+    const rows = (yield* loadChatRows(options.chatId, { includeFailed: true })).filter(
+        (message) => !isCompactionMessage(message)
+    );
 
-        const normalizedRows = yield* Effect.all(
-            rows.map((message) =>
-                Effect.map(
-                    Effect.catch(
-                        normalizeMessageCitationFences(message.parts, options.resolveCitation),
-                        (error) =>
-                            Effect.sync(() => {
-                                logError(`failed to normalize ${options.logLabel} citations`, {
-                                    ...logContext,
-                                    chatId: options.chatId,
-                                    messageId: message.id,
-                                    error,
-                                });
+    const normalizedRows = yield* Effect.all(
+        rows.map((message) =>
+            Effect.map(normalizeMessageCitationFences(message.parts, options.resolveCitation), (normalized) => {
+                if (normalized.unresolvedCitations.length > 0) {
+                    logWarn(`${options.logLabel} citation normalization hid unresolved citations without persisting`, {
+                        ...logContext,
+                        chatId: options.chatId,
+                        messageId: message.id,
+                        unresolvedCitationCount: normalized.unresolvedCitations.length,
+                        sourceIds: normalized.unresolvedCitations.map((citation) => citation.sourceId).join(","),
+                    });
+                }
 
-                                return {
-                                    parts: message.parts,
-                                    changed: false,
-                                    unresolvedCitations: [],
-                                };
-                            })
-                    ),
-                    (normalized) => {
-                        if (normalized.unresolvedCitations.length > 0) {
-                            logWarn(`${options.logLabel} citation normalization hid unresolved citations without persisting`, {
-                                ...logContext,
-                                chatId: options.chatId,
-                                messageId: message.id,
-                                unresolvedCitationCount: normalized.unresolvedCitations.length,
-                                sourceIds: normalized.unresolvedCitations.map((citation) => citation.sourceId).join(","),
-                            });
-                        }
+                return {
+                    message,
+                    normalized,
+                };
+            })
+        )
+    );
 
-                        return {
-                            message,
-                            normalized,
-                        };
-                    }
-                )
-            )
-        );
+    const messagePartUpdates = normalizedRows.flatMap(({ message, normalized }) =>
+        normalized.changed && normalized.unresolvedCitations.length === 0
+            ? [{ id: message.id, parts: normalized.parts }]
+            : []
+    );
 
-        const messagePartUpdates = normalizedRows.flatMap(({ message, normalized }) =>
-            normalized.changed && normalized.unresolvedCitations.length === 0
-                ? [{ id: message.id, parts: normalized.parts }]
-                : []
-        );
-
-        yield* Effect.catch(updateMessagePartsBatch(options.chatId, messagePartUpdates), (error) =>
+    yield* Effect.catchTag(
+        updateMessagePartsBatch(options.chatId, messagePartUpdates),
+        "@kiwi/db/DatabaseError",
+        (error) =>
             Effect.sync(() => {
                 logError(`failed to persist normalized ${options.logLabel} citations`, {
                     ...logContext,
@@ -961,87 +962,85 @@ export function loadChatHistoryForTarget(options: {
                     error,
                 });
             })
-        );
+    );
 
-        const messages = normalizedRows.map(({ message, normalized }) =>
-            toUIMessage({
-                ...message,
-                parts: normalized.parts,
-            })
-        );
+    const messages = normalizedRows.map(({ message, normalized }) =>
+        toUIMessage({
+            ...message,
+            parts: normalized.parts,
+        })
+    );
 
-        return {
-            id: chat.id,
-            title: chat.title,
-            messages,
-        };
-    });
-}
+    return {
+        id: chat.id,
+        title: chat.title,
+        messages,
+    };
+});
 
-export function loadChatHistory(userId: string, graphId: string, chatId: string) {
-    return loadChatHistoryForTarget({
+export const loadChatHistory = Effect.fn("loadChatHistory")((userId: string, graphId: string, chatId: string) =>
+    loadChatHistoryForTarget({
         userId,
         target: graphChatTarget(graphId),
         chatId,
         resolveCitation: createCachedCitationResolver(graphId),
         logLabel: "chat",
-    });
-}
+    })
+);
 
-export function listChatsForTarget(
+export const listChatsForTarget = Effect.fn("listChatsForTarget")(function* (
     userId: string,
     target: ChatTarget,
     options: { offset?: number; limit?: number } = {}
 ) {
-    return Effect.gen(function* () {
-        const effectiveLimit = typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
+    const effectiveLimit = typeof options.limit === "number" && options.limit > 0 ? options.limit + 1 : undefined;
 
-        const rows = yield* tryDb((db) => {
-            const baseQuery = db
-                .select({
-                    id: chatTable.id,
-                    title: chatTable.title,
-                    isPinned: sql<boolean>`false`,
-                    updatedAt: chatTable.updatedAt,
-                })
-                .from(chatTable)
-                .where(
-                    and(
-                        eq(chatTable.userId, userId),
-                        chatTargetWhere(target),
-                        isNull(chatTable.archivedAt),
-                        isNull(chatTable.pinnedAt)
-                    )
+    const rows = yield* tryDb((db) => {
+        const baseQuery = db
+            .select({
+                id: chatTable.id,
+                title: chatTable.title,
+                isPinned: sql<boolean>`false`,
+                updatedAt: chatTable.updatedAt,
+            })
+            .from(chatTable)
+            .where(
+                and(
+                    eq(chatTable.userId, userId),
+                    chatTargetWhere(target),
+                    isNull(chatTable.archivedAt),
+                    isNull(chatTable.pinnedAt)
                 )
-                .orderBy(desc(chatTable.updatedAt), desc(chatTable.id));
+            )
+            .orderBy(desc(chatTable.updatedAt), desc(chatTable.id));
 
-            return typeof effectiveLimit === "number"
-                ? typeof options.offset === "number" && options.offset > 0
-                    ? baseQuery.limit(effectiveLimit).offset(options.offset)
-                    : baseQuery.limit(effectiveLimit)
-                : typeof options.offset === "number" && options.offset > 0
-                  ? baseQuery.offset(options.offset)
-                  : baseQuery;
-        });
-
-        const hasMore = typeof options.limit === "number" && options.limit > 0 ? rows.length > options.limit : false;
-        const items = (hasMore ? rows.slice(0, options.limit) : rows).map((row) => ({
-            id: row.id,
-            title: row.title,
-            isPinned: row.isPinned,
-            updatedAt: row.updatedAt?.toISOString() ?? null,
-        }));
-
-        return {
-            items,
-            hasMore,
-        };
+        return typeof effectiveLimit === "number"
+            ? typeof options.offset === "number" && options.offset > 0
+                ? baseQuery.limit(effectiveLimit).offset(options.offset)
+                : baseQuery.limit(effectiveLimit)
+            : typeof options.offset === "number" && options.offset > 0
+              ? baseQuery.offset(options.offset)
+              : baseQuery;
     });
-}
 
-export function listChats(userId: string, graphId: string, options: { offset?: number; limit?: number } = {}) {
-    return listChatsForTarget(userId, graphChatTarget(graphId), options);
-}
+    const hasMore = typeof options.limit === "number" && options.limit > 0 ? rows.length > options.limit : false;
+    const items = (hasMore ? rows.slice(0, options.limit) : rows).map((row) => ({
+        id: row.id,
+        title: row.title,
+        isPinned: row.isPinned,
+        updatedAt: row.updatedAt?.toISOString() ?? null,
+    }));
+
+    return {
+        items,
+        hasMore,
+    };
+});
+
+export const listChats = Effect.fn("listChats")(
+    (userId: string, graphId: string, options: { offset?: number; limit?: number } = {}) =>
+        listChatsForTarget(userId, graphChatTarget(graphId), options)
+);
 
 export function getFinishMetadata(options: {
     startedAt: number;
@@ -1069,12 +1068,12 @@ export function getFinishMetadata(options: {
     };
 }
 
-export function updateAssistantMessage(
+export const updateAssistantMessage = Effect.fn("updateAssistantMessage")((
     assistantMessageId: string,
     parts: MessagePart[],
     status: "pending" | "completed" | "failed",
     metadata?: ChatMessageMetadata
-) {
+) => {
     const metrics = getMetrics(metadata);
 
     return tryDbVoid((db) =>
@@ -1087,9 +1086,13 @@ export function updateAssistantMessage(
             })
             .where(eq(messageTable.id, assistantMessageId))
     );
-}
+});
 
 export function mapChatError(status: RouteStatus, error: unknown) {
+    if (isApiError(error)) {
+        return status(error.status, errorResponse(error.responseMessage, error.code));
+    }
+
     if (!(error instanceof Error)) {
         return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
     }

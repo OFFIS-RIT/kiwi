@@ -3,11 +3,23 @@ import { DatabaseError, tryDb, tryDbVoid, type Database } from "@kiwi/db/effect"
 import { connectorResourceBindingsTable } from "@kiwi/db/tables/connectors";
 import { graphTable } from "@kiwi/db/tables/graph";
 import type { ConnectorProvider, ConnectorRepositoryRecord } from "@kiwi/contracts/connectors";
-import { API_ERROR_CODES, forbiddenError, graphNotFoundError, isApiError, makeApiError, type ApiError } from "@kiwi/contracts/errors";
+import {
+    API_ERROR_CODES,
+    forbiddenError,
+    graphNotFoundError,
+    isApiError,
+    makeApiError,
+    type ApiError,
+} from "@kiwi/contracts/errors";
 import type { ProviderBranch, ProviderRepository } from "@kiwi/connectors";
 import { syncConnectorResourceGraphSpec } from "@kiwi/worker/sync-connector-resource-graph-spec";
 import { eq } from "drizzle-orm";
-import { assertCanUseInstallation, requireActiveConnector, type ConnectorInstallationRow, type ConnectorRow } from "../connector-access";
+import {
+    assertCanUseInstallation,
+    requireActiveConnector,
+    type ConnectorInstallationRow,
+    type ConnectorRow,
+} from "../connector-access";
 import { listProviderBranches, listProviderRepositories } from "../connectors";
 import { requireOrganizationAdmin, requireTeamGraphCreateAccess } from "../team/access";
 import type { AuthUser } from "../../middleware/auth";
@@ -23,7 +35,9 @@ function connectorEffectError(error: unknown): ApiError | DatabaseError {
     return makeApiError(
         400,
         API_ERROR_CODES.INVALID_CHAT_REQUEST,
-        error instanceof Error ? error.message.replace(/^Unhandled exception:\s*/u, "") || "Invalid connector request" : "Invalid connector request"
+        error instanceof Error
+            ? error.message.replace(/^Unhandled exception:\s*/u, "") || "Invalid connector request"
+            : "Invalid connector request"
     );
 }
 
@@ -79,7 +93,6 @@ export function assertInstallationBelongsToConnector(
 
 type ConnectorResourceBinding = typeof connectorResourceBindingsTable.$inferSelect;
 
-
 export function toBindingResponse(binding: ConnectorResourceBinding) {
     return {
         id: binding.id,
@@ -104,7 +117,11 @@ export function requireConnectorInstallationContext(input: {
     user: AuthUser;
     connectorId: string;
     installationId: string;
-}): Effect.Effect<{ connector: ConnectorRow; installation: ConnectorInstallationRow }, ApiError | DatabaseError, Database> {
+}): Effect.Effect<
+    { connector: ConnectorRow; installation: ConnectorInstallationRow },
+    ApiError | DatabaseError,
+    Database
+> {
     return Effect.gen(function* () {
         const installation = yield* assertCanUseInstallation(input.user, input.installationId);
         if (installation.connectorId !== input.connectorId) {
@@ -173,7 +190,10 @@ export function assertCanBindResourceGraph(input: {
             if (input.installation.teamId !== input.owner.teamId) {
                 return yield* Effect.fail(forbiddenError());
             }
-            const access = yield* Effect.mapError(requireTeamGraphCreateAccess(input.user, input.owner.teamId), connectorEffectError);
+            const access = yield* Effect.mapError(
+                requireTeamGraphCreateAccess(input.user, input.owner.teamId),
+                connectorEffectError
+            );
             if (input.installation.organizationId !== access.team.organizationId) {
                 return yield* Effect.fail(forbiddenError());
             }
@@ -183,7 +203,10 @@ export function assertCanBindResourceGraph(input: {
         if (input.installation.teamId !== null || !input.installation.organizationId) {
             return yield* Effect.fail(forbiddenError());
         }
-        yield* Effect.mapError(requireOrganizationAdmin(input.user, input.installation.organizationId), connectorEffectError);
+        yield* Effect.mapError(
+            requireOrganizationAdmin(input.user, input.installation.organizationId),
+            connectorEffectError
+        );
         return { organizationId: input.installation.organizationId, teamId: null };
     });
 }
@@ -194,10 +217,17 @@ export function createGraphBinding(input: {
     body: ConnectorBindingCreateInput;
     resource: ResolvedConnectorResource;
     version: ResolvedConnectorResourceVersion;
-}): Effect.Effect<{ graph: typeof graphTable.$inferSelect; binding: ConnectorResourceBinding }, DatabaseError, Database> {
+}): Effect.Effect<
+    { graph: typeof graphTable.$inferSelect; binding: ConnectorResourceBinding },
+    DatabaseError,
+    Database
+> {
     return tryDb((db) =>
         db.transaction((tx) =>
-            Effect.gen(function* (): Generator<Effect.Effect<unknown, unknown>, { graph: typeof graphTable.$inferSelect; binding: ConnectorResourceBinding }> {
+            Effect.gen(function* (): Generator<
+                Effect.Effect<unknown, unknown>,
+                { graph: typeof graphTable.$inferSelect; binding: ConnectorResourceBinding }
+            > {
                 const [graph] = yield* tx
                     .insert(graphTable)
                     .values({
@@ -270,10 +300,14 @@ export function enqueueInitialBindingSync(input: {
     });
 }
 
-export function enqueueManualBindingSync(binding: ConnectorResourceBinding): Effect.Effect<{
-    binding: ConnectorResourceBinding;
-    workflowRunId: string;
-}, ApiError | DatabaseError, Database> {
+export function enqueueManualBindingSync(binding: ConnectorResourceBinding): Effect.Effect<
+    {
+        binding: ConnectorResourceBinding;
+        workflowRunId: string;
+    },
+    ApiError | DatabaseError,
+    Database
+> {
     return Effect.gen(function* () {
         const [updatedBinding] = yield* tryDb((db) =>
             db

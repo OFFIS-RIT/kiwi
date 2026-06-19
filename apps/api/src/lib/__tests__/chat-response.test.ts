@@ -7,6 +7,7 @@ const envMock = {
 };
 
 mock.module("@kiwi/db", () => ({
+    betterAuthDb: dbMock,
     db: dbMock,
 }));
 

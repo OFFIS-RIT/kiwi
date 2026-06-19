@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { useWorkerDb, useWorkerDbVoid } from "../lib/effect";
+import { withWorkerDb, withWorkerDbVoid } from "../lib/effect";
 import { filesTable, processStatsTable } from "@kiwi/db/tables/graph";
 import { and, eq } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
@@ -63,7 +63,7 @@ export const processCodeFile = defineWorkflow(
         try {
             const [fileData] = await step.run({ name: "get-code-file-data" }, async () =>
                 runWorkerEffect(
-                    useWorkerDb((db) =>
+                    withWorkerDb((db) =>
                         db
                             .select()
                             .from(filesTable)
@@ -109,7 +109,7 @@ export const processCodeFile = defineWorkflow(
                         const repositoryFile = codeRepositoryFileFromRow(fileData, source);
                         const tokenCount = estimateToken(source);
 
-                        yield* useWorkerDbVoid((db) =>
+                        yield* withWorkerDbVoid((db) =>
                             db
                                 .update(filesTable)
                                 .set({ tokenCount, loader: "repository", chunker: "ast" })
@@ -199,7 +199,7 @@ export const processCodeFile = defineWorkflow(
                             return FILE_DELETED;
                         }
                         yield* Effect.catch(
-                            useWorkerDbVoid((db) =>
+                            withWorkerDbVoid((db) =>
                                 db.insert(processStatsTable).values({
                                     totalTime: baseFile.duration + graphResult.duration + saveGraphResult.duration,
                                     files: 1,

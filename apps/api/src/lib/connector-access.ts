@@ -9,7 +9,15 @@ import {
 import { graphTable } from "@kiwi/db/tables/graph";
 import { and, eq } from "drizzle-orm";
 import type { AuthUser } from "../middleware/auth";
-import { API_ERROR_CODES, forbiddenError, graphNotFoundError, internalServerError, isApiError, makeApiError, type ApiError } from "@kiwi/contracts/errors";
+import {
+    API_ERROR_CODES,
+    forbiddenError,
+    graphNotFoundError,
+    internalServerError,
+    isApiError,
+    makeApiError,
+    type ApiError,
+} from "@kiwi/contracts/errors";
 import { assertCanCreateTopLevelGraph, assertCanViewGraphWithRootOwner } from "./graph/access";
 import { requireOrganizationAdmin, requireTeamGraphCreateAccess } from "./team/access";
 
@@ -40,10 +48,11 @@ function toConnectorAccessError(error: unknown): ApiError | DatabaseError {
     return internalServerError();
 }
 
-function mapConnectorAccessEffect<T, E, R>(effect: Effect.Effect<T, E, R>): Effect.Effect<T, ApiError | DatabaseError, R> {
+function mapConnectorAccessEffect<T, E, R>(
+    effect: Effect.Effect<T, E, R>
+): Effect.Effect<T, ApiError | DatabaseError, R> {
     return Effect.mapError(effect, toConnectorAccessError);
 }
-
 
 export function requireConnector(id: string): Effect.Effect<ConnectorRow, ApiError | DatabaseError, Database> {
     return Effect.gen(function* () {
@@ -57,7 +66,10 @@ export function requireConnector(id: string): Effect.Effect<ConnectorRow, ApiErr
     });
 }
 
-export function requireActiveConnector(id: string, provider?: ConnectorProvider): Effect.Effect<ConnectorRow, ApiError | DatabaseError, Database> {
+export function requireActiveConnector(
+    id: string,
+    provider?: ConnectorProvider
+): Effect.Effect<ConnectorRow, ApiError | DatabaseError, Database> {
     return Effect.gen(function* () {
         const connector = yield* requireConnector(id);
         if (connector.status !== "active" || (provider && connector.provider !== provider)) {
@@ -107,7 +119,14 @@ export function assertCanUseInstallation(
     });
 }
 
-export function assertCanViewBinding(user: AuthUser, bindingId: string): Effect.Effect<{ binding: ConnectorResourceBindingRow; graph: typeof graphTable.$inferSelect }, ApiError | DatabaseError, Database> {
+export function assertCanViewBinding(
+    user: AuthUser,
+    bindingId: string
+): Effect.Effect<
+    { binding: ConnectorResourceBindingRow; graph: typeof graphTable.$inferSelect },
+    ApiError | DatabaseError,
+    Database
+> {
     return Effect.gen(function* () {
         const [row] = yield* tryDb((db) =>
             db
@@ -127,7 +146,14 @@ export function assertCanViewBinding(user: AuthUser, bindingId: string): Effect.
     });
 }
 
-export function assertCanSyncBinding(user: AuthUser, bindingId: string): Effect.Effect<{ binding: ConnectorResourceBindingRow; graph: typeof graphTable.$inferSelect }, ApiError | DatabaseError, Database> {
+export function assertCanSyncBinding(
+    user: AuthUser,
+    bindingId: string
+): Effect.Effect<
+    { binding: ConnectorResourceBindingRow; graph: typeof graphTable.$inferSelect },
+    ApiError | DatabaseError,
+    Database
+> {
     return Effect.gen(function* () {
         const row = yield* assertCanViewBinding(user, bindingId);
         yield* assertCanManageConnectorOwner(user, {
@@ -141,7 +167,18 @@ export function assertCanSyncBinding(user: AuthUser, bindingId: string): Effect.
     });
 }
 
-export function loadConnectorBindingGraph(bindingId: string): Effect.Effect<{ binding: ConnectorResourceBindingRow; installation: ConnectorInstallationRow; connector: ConnectorRow; graph: typeof graphTable.$inferSelect } | null, DatabaseError, Database> {
+export function loadConnectorBindingGraph(
+    bindingId: string
+): Effect.Effect<
+    {
+        binding: ConnectorResourceBindingRow;
+        installation: ConnectorInstallationRow;
+        connector: ConnectorRow;
+        graph: typeof graphTable.$inferSelect;
+    } | null,
+    DatabaseError,
+    Database
+> {
     return Effect.gen(function* () {
         const [row] = yield* tryDb((db) =>
             db
@@ -171,5 +208,8 @@ export function visibleInstallationWhere(user: AuthUser, connectorId: string) {
         return eq(connectorInstallationsTable.connectorId, connectorId);
     }
 
-    return and(eq(connectorInstallationsTable.connectorId, connectorId), eq(connectorInstallationsTable.status, "active"));
+    return and(
+        eq(connectorInstallationsTable.connectorId, connectorId),
+        eq(connectorInstallationsTable.status, "active")
+    );
 }

@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 import type * as Effect from "effect/Effect";
 
 export type ConnectorProvider = "github" | "gitlab";
@@ -246,13 +247,18 @@ export type ConnectorAdapterRegistryEntry = {
     normalizeWebhook?(options: ConnectorWebhookNormalizationOptions): NormalizedWebhookEvent;
 };
 
-export class ConnectorProviderError extends Error {
-    constructor(
-        public readonly kind: "auth" | "limit" | "not-found" | "provider" | "validation",
-        message: string,
-        options?: { cause?: unknown }
-    ) {
-        super(message, options);
-        this.name = "ConnectorProviderError";
+const CONNECTOR_PROVIDER_ERROR_KINDS = ["auth", "limit", "not-found", "provider", "validation"] as const;
+export type ConnectorProviderErrorKind = (typeof CONNECTOR_PROVIDER_ERROR_KINDS)[number];
+
+export class ConnectorProviderError extends Schema.TaggedErrorClass<ConnectorProviderError>()(
+    "ConnectorProviderError",
+    {
+        kind: Schema.Literals(CONNECTOR_PROVIDER_ERROR_KINDS),
+        message: Schema.String,
+        cause: Schema.optional(Schema.Unknown),
+    }
+) {
+    constructor(kind: ConnectorProviderErrorKind, message: string, options?: { cause?: unknown }) {
+        super(options?.cause === undefined ? { kind, message } : { kind, message, cause: options.cause });
     }
 }

@@ -29,7 +29,9 @@ const SKIPPED_PATH_SEGMENTS: Record<string, true> = {
     vendor: true,
 };
 
-function tryConnectorPromise<T>(thunk: (signal: AbortSignal) => PromiseLike<T>): Effect.Effect<T, ConnectorProviderError> {
+function tryConnectorPromise<T>(
+    thunk: (signal: AbortSignal) => PromiseLike<T>
+): Effect.Effect<T, ConnectorProviderError> {
     return Effect.tryPromise({
         try: thunk,
         catch: (error) =>
@@ -65,24 +67,36 @@ export function normalizeGitLabBaseUrl(value: string): string {
 export function createGitLabClient(options: GitLabClientOptions): GitResourceAdapter {
     const client: ProviderRepositoryClient = {
         provider: "gitlab",
-        getRepository(repositoryId) {
-            return getGitLabProject(options, repositoryId);
-        },
-        listRepositories() {
-            return listGitLabProjects(options);
-        },
-        listBranches(repository) {
-            return listGitLabBranches({ ...options, repository });
-        },
-        loadRepositorySnapshot(repository, branch, commitSha) {
-            return loadGitLabRepositorySnapshot({ ...options, repository, branch, commitSha });
-        },
-        compareRepository(repository, fromCommitSha, toCommitSha) {
-            return compareGitLabRepository({ ...options, repository, fromCommitSha, toCommitSha });
-        },
-        readFile(repository, path, commitSha) {
-            return readGitLabRepositoryFile({ ...options, repository, path, commitSha });
-        },
+        getRepository: Effect.fn("GitLabClient.getRepository")(function* (repositoryId: string) {
+            return yield* getGitLabProject(options, repositoryId);
+        }),
+        listRepositories: Effect.fn("GitLabClient.listRepositories")(function* () {
+            return yield* listGitLabProjects(options);
+        }),
+        listBranches: Effect.fn("GitLabClient.listBranches")(function* (repository: ProviderRepository) {
+            return yield* listGitLabBranches({ ...options, repository });
+        }),
+        loadRepositorySnapshot: Effect.fn("GitLabClient.loadRepositorySnapshot")(function* (
+            repository: ProviderRepository,
+            branch: string,
+            commitSha?: string
+        ) {
+            return yield* loadGitLabRepositorySnapshot({ ...options, repository, branch, commitSha });
+        }),
+        compareRepository: Effect.fn("GitLabClient.compareRepository")(function* (
+            repository: ProviderRepository,
+            fromCommitSha: string,
+            toCommitSha: string
+        ) {
+            return yield* compareGitLabRepository({ ...options, repository, fromCommitSha, toCommitSha });
+        }),
+        readFile: Effect.fn("GitLabClient.readFile")(function* (
+            repository: ProviderRepository,
+            path: string,
+            commitSha: string
+        ) {
+            return yield* readGitLabRepositoryFile({ ...options, repository, path, commitSha });
+        }),
     };
 
     return createGitRepositoryAdapter({
@@ -99,22 +113,30 @@ export function createGitLabClient(options: GitLabClientOptions): GitResourceAda
     });
 }
 
-export function getGitLabProject(
+export const getGitLabProject: (
     options: GitLabClientOptions,
     repositoryId: string
-): Effect.Effect<ProviderRepository, ConnectorProviderError> {
-    return tryConnectorPromise(async () =>
+) => Effect.Effect<ProviderRepository, ConnectorProviderError> = Effect.fn("getGitLabProject")(function* (
+    options: GitLabClientOptions,
+    repositoryId: string
+) {
+    return yield* tryConnectorPromise(async () =>
         mapGitLabProject(
             await getGitLabJsonPromise(
                 `${gitLabApiBase(options.baseUrl)}/projects/${encodeURIComponent(repositoryId)}`,
                 options.accessToken,
                 options.fetch
             )
-        ));
-}
+        )
+    );
+});
 
-export function listGitLabProjects(options: GitLabClientOptions): Effect.Effect<ProviderRepository[], ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
+export const listGitLabProjects: (
+    options: GitLabClientOptions
+) => Effect.Effect<ProviderRepository[], ConnectorProviderError> = Effect.fn("listGitLabProjects")(function* (
+    options: GitLabClientOptions
+) {
+    return yield* tryConnectorPromise(async () => {
         const repositories: ProviderRepository[] = [];
         for (let page = 1; ; page += 1) {
             const json = await getGitLabJsonPromise(
@@ -133,12 +155,14 @@ export function listGitLabProjects(options: GitLabClientOptions): Effect.Effect<
             }
         }
     });
-}
+});
 
-export function listGitLabBranches(
+export const listGitLabBranches: (
     options: GitLabClientOptions & { repository: ProviderRepository }
-): Effect.Effect<ProviderBranch[], ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
+) => Effect.Effect<ProviderBranch[], ConnectorProviderError> = Effect.fn("listGitLabBranches")(function* (
+    options: GitLabClientOptions & { repository: ProviderRepository }
+) {
+    return yield* tryConnectorPromise(async () => {
         const branches: ProviderBranch[] = [];
         for (let page = 1; ; page += 1) {
             const json = await getGitLabJsonPromise(
@@ -164,65 +188,76 @@ export function listGitLabBranches(
             }
         }
     });
-}
+});
 
-export function loadGitLabRepositorySnapshot(options: SnapshotOptions): Effect.Effect<ProviderRepositorySnapshot, ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
-        let commitSha = options.commitSha;
-        if (!commitSha) {
-            const branchJson = await getGitLabJsonPromise(
-                `${gitLabApiBase(options.baseUrl)}/projects/${encodeURIComponent(options.repository.id)}/repository/branches/${encodeURIComponent(options.branch)}`,
-                options.accessToken,
-                options.fetch
-            );
-            if (!isObject(branchJson) || !isObject(branchJson.commit) || typeof branchJson.commit.id !== "string") {
-                throw new ConnectorProviderError("not-found", "GitLab branch was not found");
+export const loadGitLabRepositorySnapshot: (
+    options: SnapshotOptions
+) => Effect.Effect<ProviderRepositorySnapshot, ConnectorProviderError> = Effect.fn("loadGitLabRepositorySnapshot")(
+    function* (options: SnapshotOptions) {
+        return yield* tryConnectorPromise(async () => {
+            let commitSha = options.commitSha;
+            if (!commitSha) {
+                const branchJson = await getGitLabJsonPromise(
+                    `${gitLabApiBase(options.baseUrl)}/projects/${encodeURIComponent(options.repository.id)}/repository/branches/${encodeURIComponent(options.branch)}`,
+                    options.accessToken,
+                    options.fetch
+                );
+                if (!isObject(branchJson) || !isObject(branchJson.commit) || typeof branchJson.commit.id !== "string") {
+                    throw new ConnectorProviderError("not-found", "GitLab branch was not found");
+                }
+                commitSha = branchJson.commit.id;
             }
-            commitSha = branchJson.commit.id;
-        }
-        const branch: ProviderBranch = { name: options.branch, commitSha };
-        const tree = await listGitLabTreePromise(options, commitSha);
-        const files: ProviderCodeFile[] = [];
-        let totalBytes = 0;
-    
-        for (const item of tree) {
-            if (!isGitLabBlob(item) || !shouldLoadCodePath(item.path)) {
-                continue;
+            const branch: ProviderBranch = { name: options.branch, commitSha };
+            const tree = await listGitLabTreePromise(options, commitSha);
+            const files: ProviderCodeFile[] = [];
+            let totalBytes = 0;
+
+            for (const item of tree) {
+                if (!isGitLabBlob(item) || !shouldLoadCodePath(item.path)) {
+                    continue;
+                }
+                if (files.length + 1 > MAX_REPOSITORY_CODE_FILES) {
+                    throw new ConnectorProviderError("limit", "Repository contains too many supported code files");
+                }
+                const rawUrl = `${gitLabApiBase(options.baseUrl)}/projects/${encodeURIComponent(options.repository.id)}/repository/files/${encodeURIComponent(item.path)}/raw?ref=${encodeURIComponent(branch.commitSha)}`;
+                const content = await getGitLabTextPromise(rawUrl, options.accessToken, options.fetch);
+                const size = Buffer.byteLength(content, "utf8");
+                if (size > MAX_REPOSITORY_CODE_FILE_BYTES) {
+                    continue;
+                }
+                if (totalBytes + size > MAX_REPOSITORY_CODE_BYTES) {
+                    throw new ConnectorProviderError("limit", "Repository contains too much supported code");
+                }
+                files.push({
+                    path: item.path,
+                    size,
+                    checksum: item.id,
+                    htmlUrl: `${options.repository.htmlUrl}/-/blob/${branch.commitSha}/${item.path}`,
+                    rawUrl,
+                    content,
+                });
+                totalBytes += size;
             }
-            if (files.length + 1 > MAX_REPOSITORY_CODE_FILES) {
-                throw new ConnectorProviderError("limit", "Repository contains too many supported code files");
-            }
-            const rawUrl = `${gitLabApiBase(options.baseUrl)}/projects/${encodeURIComponent(options.repository.id)}/repository/files/${encodeURIComponent(item.path)}/raw?ref=${encodeURIComponent(branch.commitSha)}`;
-            const content = await getGitLabTextPromise(rawUrl, options.accessToken, options.fetch);
-            const size = Buffer.byteLength(content, "utf8");
-            if (size > MAX_REPOSITORY_CODE_FILE_BYTES) {
-                continue;
-            }
-            if (totalBytes + size > MAX_REPOSITORY_CODE_BYTES) {
-                throw new ConnectorProviderError("limit", "Repository contains too much supported code");
-            }
-            files.push({
-                path: item.path,
-                size,
-                checksum: item.id,
-                htmlUrl: `${options.repository.htmlUrl}/-/blob/${branch.commitSha}/${item.path}`,
-                rawUrl,
-                content,
-            });
-            totalBytes += size;
-        }
-    
-        return { repository: options.repository, branch, commitSha: branch.commitSha, files };
-    });
-}
-export function compareGitLabRepository(
+
+            return { repository: options.repository, branch, commitSha: branch.commitSha, files };
+        });
+    }
+);
+
+export const compareGitLabRepository: (
     options: GitLabClientOptions & {
         repository: ProviderRepository;
         fromCommitSha: string;
         toCommitSha: string;
     }
-): Effect.Effect<ProviderRepositoryDelta, ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
+) => Effect.Effect<ProviderRepositoryDelta, ConnectorProviderError> = Effect.fn("compareGitLabRepository")(function* (
+    options: GitLabClientOptions & {
+        repository: ProviderRepository;
+        fromCommitSha: string;
+        toCommitSha: string;
+    }
+) {
+    return yield* tryConnectorPromise(async () => {
         const json = await getGitLabJsonPromise(
             `${gitLabApiBase(options.baseUrl)}/projects/${encodeURIComponent(options.repository.id)}/repository/compare?from=${encodeURIComponent(options.fromCommitSha)}&to=${encodeURIComponent(options.toCommitSha)}&straight=true`,
             options.accessToken,
@@ -231,7 +266,7 @@ export function compareGitLabRepository(
         if (!isObject(json)) {
             throw new ConnectorProviderError("provider", "GitLab compare response is invalid");
         }
-    
+
         if (json.compare_timeout === true) {
             return {
                 fromCommitSha: options.fromCommitSha,
@@ -240,17 +275,17 @@ export function compareGitLabRepository(
                 changes: [],
             };
         }
-    
+
         if (!Array.isArray(json.diffs)) {
             throw new ConnectorProviderError("provider", "GitLab compare response is invalid");
         }
-    
+
         const changes: ProviderRepositoryDelta["changes"] = [];
         for (const entry of json.diffs) {
             if (!isGitLabCompareFile(entry)) {
                 throw new ConnectorProviderError("provider", "GitLab compare response is invalid");
             }
-    
+
             if (entry.renamed_file) {
                 const oldSupported = shouldLoadCodePath(entry.old_path);
                 const newSupported = shouldLoadCodePath(entry.new_path);
@@ -263,26 +298,26 @@ export function compareGitLabRepository(
                 }
                 continue;
             }
-    
+
             if (entry.deleted_file) {
                 if (shouldLoadCodePath(entry.old_path)) {
                     changes.push({ status: "deleted", oldPath: entry.old_path });
                 }
                 continue;
             }
-    
+
             if (entry.new_file) {
                 if (shouldLoadCodePath(entry.new_path)) {
                     changes.push({ status: "added", newPath: entry.new_path });
                 }
                 continue;
             }
-    
+
             if (shouldLoadCodePath(entry.new_path)) {
                 changes.push({ status: "modified", newPath: entry.new_path });
             }
         }
-    
+
         return {
             fromCommitSha: options.fromCommitSha,
             toCommitSha: options.toCommitSha,
@@ -290,16 +325,22 @@ export function compareGitLabRepository(
             changes,
         };
     });
-}
+});
 
-export function readGitLabRepositoryFile(
+export const readGitLabRepositoryFile: (
     options: GitLabClientOptions & {
         repository: ProviderRepository;
         path: string;
         commitSha: string;
     }
-): Effect.Effect<string, ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
+) => Effect.Effect<string, ConnectorProviderError> = Effect.fn("readGitLabRepositoryFile")(function* (
+    options: GitLabClientOptions & {
+        repository: ProviderRepository;
+        path: string;
+        commitSha: string;
+    }
+) {
+    return yield* tryConnectorPromise(async () => {
         const rawUrl = `${gitLabApiBase(options.baseUrl)}/projects/${encodeURIComponent(options.repository.id)}/repository/files/${encodeURIComponent(options.path)}/raw?ref=${encodeURIComponent(options.commitSha)}`;
         const content = await getGitLabTextPromise(rawUrl, options.accessToken, options.fetch);
         if (Buffer.byteLength(content, "utf8") > MAX_REPOSITORY_CODE_FILE_BYTES) {
@@ -307,7 +348,7 @@ export function readGitLabRepositoryFile(
         }
         return content;
     });
-}
+});
 
 export function verifyGitLabWebhookToken(options: {
     webhookSecret: string;
@@ -365,15 +406,7 @@ async function listGitLabTreePromise(options: SnapshotOptions, ref: string): Pro
     }
 }
 
-function listGitLabTree(options: SnapshotOptions, ref: string): Effect.Effect<unknown[], ConnectorProviderError> {
-    return tryConnectorPromise(() => listGitLabTreePromise(options, ref));
-}
-
-async function getGitLabJsonPromise(
-    url: string,
-    token: string,
-    fetchImpl: FetchLike | undefined
-): Promise<unknown> {
+async function getGitLabJsonPromise(url: string, token: string, fetchImpl: FetchLike | undefined): Promise<unknown> {
     const response = await (fetchImpl ?? fetch)(url, {
         headers: { authorization: `Bearer ${token}`, accept: "application/json" },
     });
@@ -387,15 +420,7 @@ async function getGitLabJsonPromise(
     return text.length === 0 ? null : JSON.parse(text);
 }
 
-function getGitLabJson(url: string, token: string, fetchImpl: FetchLike | undefined): Effect.Effect<unknown, ConnectorProviderError> {
-    return tryConnectorPromise(() => getGitLabJsonPromise(url, token, fetchImpl));
-}
-
-async function getGitLabTextPromise(
-    url: string,
-    token: string,
-    fetchImpl: FetchLike | undefined
-): Promise<string> {
+async function getGitLabTextPromise(url: string, token: string, fetchImpl: FetchLike | undefined): Promise<string> {
     const response = await (fetchImpl ?? fetch)(url, { headers: { authorization: `Bearer ${token}` } });
     const contentLength = response.headers.get("content-length");
     if (contentLength && Number(contentLength) > MAX_REPOSITORY_CODE_FILE_BYTES) {
@@ -409,10 +434,6 @@ async function getGitLabTextPromise(
         );
     }
     return text;
-}
-
-function getGitLabText(url: string, token: string, fetchImpl: FetchLike | undefined): Effect.Effect<string, ConnectorProviderError> {
-    return tryConnectorPromise(() => getGitLabTextPromise(url, token, fetchImpl));
 }
 
 function mapGitLabProject(value: unknown): ProviderRepository {

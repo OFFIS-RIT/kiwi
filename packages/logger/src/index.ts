@@ -3,7 +3,33 @@ import type { LogFields, LoggerError, LoggerInstance } from "./types";
 
 export { createConsoleLogger } from "./console";
 export { shapeFields } from "./normalize";
-export type { LogAttributes, LogFields, LogLevel, LoggerError, LoggerInstance, LogValue, NormalizedLogPayload } from "./types";
+export type {
+    LogAttributes,
+    LogFields,
+    LogLevel,
+    LoggerError,
+    LoggerInstance,
+    LogValue,
+    NormalizedLogPayload,
+} from "./types";
+
+const flushLoggerInstances = Effect.fn("Logger.flush")(function* (instances: readonly LoggerInstance[]) {
+    for (const instance of instances) {
+        const flush = instance.flush;
+        if (flush) {
+            yield* flush.call(instance);
+        }
+    }
+});
+
+const shutdownLoggerInstances = Effect.fn("Logger.shutdown")(function* (instances: readonly LoggerInstance[]) {
+    for (const instance of instances) {
+        const shutdown = instance.shutdown;
+        if (shutdown) {
+            yield* shutdown.call(instance);
+        }
+    }
+});
 
 export class Logger {
     constructor(private readonly instances: LoggerInstance[]) {}
@@ -75,27 +101,11 @@ export class Logger {
     }
 
     flush(): Effect.Effect<void, LoggerError> {
-        const instances = this.instances;
-        return Effect.gen(function* () {
-            for (const instance of instances) {
-                const flush = instance.flush;
-                if (flush) {
-                    yield* flush.call(instance);
-                }
-            }
-        });
+        return flushLoggerInstances(this.instances);
     }
 
     shutdown(): Effect.Effect<void, LoggerError> {
-        const instances = this.instances;
-        return Effect.gen(function* () {
-            for (const instance of instances) {
-                const shutdown = instance.shutdown;
-                if (shutdown) {
-                    yield* shutdown.call(instance);
-                }
-            }
-        });
+        return shutdownLoggerInstances(this.instances);
     }
 }
 
@@ -133,10 +143,14 @@ export function fatal(message: string, fields?: LogFields) {
     singleton?.fatal(message, fields);
 }
 
-export function flush(): Effect.Effect<void, LoggerError> {
-    return singleton?.flush() ?? Effect.succeed(undefined);
-}
+export const flush: () => Effect.Effect<void, LoggerError> = Effect.fn("logger.flush")(function* () {
+    if (singleton) {
+        yield* singleton.flush();
+    }
+});
 
-export function shutdown(): Effect.Effect<void, LoggerError> {
-    return singleton?.shutdown() ?? Effect.succeed(undefined);
-}
+export const shutdown: () => Effect.Effect<void, LoggerError> = Effect.fn("logger.shutdown")(function* () {
+    if (singleton) {
+        yield* singleton.shutdown();
+    }
+});

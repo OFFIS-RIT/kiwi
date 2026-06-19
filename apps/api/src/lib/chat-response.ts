@@ -7,6 +7,7 @@ import {
 } from "@kiwi/ai";
 import type { MessagePart } from "@kiwi/contracts/chat";
 import type { Client } from "@kiwi/ai";
+import { withAiSlotEffect } from "@kiwi/ai/lock";
 import {
     createUIMessageStream,
     createUIMessageStreamResponse,
@@ -18,6 +19,7 @@ import {
     type ToolSet,
 } from "ai";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { runDatabaseEffect, type Database } from "@kiwi/db/effect";
 import {
     getFinishMetadata,
@@ -58,17 +60,25 @@ export type StartedChatReply = ChatReplyContext & {
     getAdditionalUsage?: () => AdditionalChatUsage;
 };
 
-function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, Error> {
+class ChatResponseError extends Schema.TaggedErrorClass<ChatResponseError>()("ChatResponseError", {
+    message: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+}) {}
+
+function chatEffect<T>(thunk: () => Promise<T>): Effect.Effect<T, ChatResponseError> {
     return Effect.tryPromise({
         try: thunk,
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: (cause) =>
+            new ChatResponseError({
+                message: cause instanceof Error ? cause.message : String(cause),
+                cause,
+            }),
     });
 }
 
 function runUpdateAssistantMessage(...args: Parameters<typeof updateAssistantMessage>) {
     return runDatabaseEffect(updateAssistantMessage(...args));
 }
-
 
 function upsertToolPart(parts: MessagePart[], next: MessagePart) {
     if (next.type !== "tool") {
@@ -212,18 +222,18 @@ export function buildFinishMetadata(options: {
     });
 }
 
-export function runChatCompletion(reply: StartedChatReply) {
-    return Effect.gen(function* () {
-        startGeneratedTitle(reply);
+export const runChatCompletion = Effect.fn("runChatCompletion")(function* (reply: StartedChatReply) {
+    startGeneratedTitle(reply);
 
-        const startedAt = Date.now();
-        const citationFileIds = new Set<string>();
-        let activeContextMessages = reply.contextMessages;
-        let activeSystemPrompt = reply.systemPrompt;
-        let retriedAfterCompaction = false;
-        let firstOutputAt: number | null = null;
+    const startedAt = Date.now();
+    const citationFileIds = new Set<string>();
+    let activeContextMessages = reply.contextMessages;
+    let activeSystemPrompt = reply.systemPrompt;
+    let retriedAfterCompaction = false;
+    let firstOutputAt: number | null = null;
 
-        const runGeneration = () => {
+    const runGeneration = () =>
+        withAiSlotEffect("text", (signal) => {
             firstOutputAt = Date.now();
 
             return generateText({
@@ -234,69 +244,69 @@ export function runChatCompletion(reply: StartedChatReply) {
                 temperature: 0.3,
                 stopWhen: stepCountIs(50),
                 providerOptions: getProviderOptions({ thinking: "medium" }),
+                abortSignal: signal,
             });
-        };
-
-        const firstAttempt = yield* Effect.match(chatEffect(runGeneration), {
-            onFailure: (error) => ({ status: "failure" as const, error }),
-            onSuccess: (result) => ({ status: "success" as const, result }),
         });
-        let result;
-        if (firstAttempt.status === "success") {
-            result = firstAttempt.result;
-        } else if (!retriedAfterCompaction && isContextOverflowError(firstAttempt.error)) {
-            retriedAfterCompaction = true;
-            const refreshAttempt = yield* Effect.match(reply.refreshAfterCompaction(), {
-                onFailure: (error) => ({ status: "failure" as const, error }),
-                onSuccess: (refreshed) => ({ status: "success" as const, refreshed }),
-            });
-            if (refreshAttempt.status === "failure") {
-                yield* updateAssistantMessage(reply.assistantId, [], "failed");
-                return yield* Effect.fail(refreshAttempt.error);
-            }
-            activeContextMessages = refreshAttempt.refreshed.contextMessages;
-            activeSystemPrompt = refreshAttempt.refreshed.systemPrompt;
 
-            const retryAttempt = yield* Effect.match(chatEffect(runGeneration), {
-                onFailure: (error) => ({ status: "failure" as const, error }),
-                onSuccess: (retryResult) => ({ status: "success" as const, retryResult }),
-            });
-            if (retryAttempt.status === "failure") {
-                yield* updateAssistantMessage(reply.assistantId, [], "failed");
-                return yield* Effect.fail(retryAttempt.error);
-            }
-            result = retryAttempt.retryResult;
-        } else {
-            yield* updateAssistantMessage(reply.assistantId, [], "failed");
-            return yield* Effect.fail(firstAttempt.error);
-        }
-
-        const parts = yield* buildAssistantPartsFromContent({
-            content: result.content,
-            citationFileIds,
-            resolveCitation: reply.resolveCitation,
-        });
-        const finishMetadata = buildFinishMetadata({
-            reply,
-            startedAt,
-            firstOutputAt,
-            totalTokens: result.totalUsage.totalTokens,
-            inputTokens: result.totalUsage.inputTokens,
-            outputTokens: result.totalUsage.outputTokens,
-            modelId: reply.client.textModelId,
-            citationFileIds,
-        });
-        parts.push({ type: "metadata", metadata: finishMetadata });
-
-        yield* updateAssistantMessage(reply.assistantId, parts, "completed", finishMetadata);
-        yield* touchChat(reply.chatId);
-
-        return {
-            id: reply.chatId,
-            message: toAssistantReply(reply.assistantId, parts, finishMetadata),
-        };
+    const firstAttempt = yield* Effect.match(runGeneration(), {
+        onFailure: (error) => ({ status: "failure" as const, error }),
+        onSuccess: (result) => ({ status: "success" as const, result }),
     });
-}
+    let result;
+    if (firstAttempt.status === "success") {
+        result = firstAttempt.result;
+    } else if (!retriedAfterCompaction && isContextOverflowError(firstAttempt.error)) {
+        retriedAfterCompaction = true;
+        const refreshAttempt = yield* Effect.match(reply.refreshAfterCompaction(), {
+            onFailure: (error) => ({ status: "failure" as const, error }),
+            onSuccess: (refreshed) => ({ status: "success" as const, refreshed }),
+        });
+        if (refreshAttempt.status === "failure") {
+            yield* updateAssistantMessage(reply.assistantId, [], "failed");
+            return yield* Effect.fail(refreshAttempt.error);
+        }
+        activeContextMessages = refreshAttempt.refreshed.contextMessages;
+        activeSystemPrompt = refreshAttempt.refreshed.systemPrompt;
+
+        const retryAttempt = yield* Effect.match(runGeneration(), {
+            onFailure: (error) => ({ status: "failure" as const, error }),
+            onSuccess: (retryResult) => ({ status: "success" as const, retryResult }),
+        });
+        if (retryAttempt.status === "failure") {
+            yield* updateAssistantMessage(reply.assistantId, [], "failed");
+            return yield* Effect.fail(retryAttempt.error);
+        }
+        result = retryAttempt.retryResult;
+    } else {
+        yield* updateAssistantMessage(reply.assistantId, [], "failed");
+        return yield* Effect.fail(firstAttempt.error);
+    }
+
+    const parts = yield* buildAssistantPartsFromContent({
+        content: result.content,
+        citationFileIds,
+        resolveCitation: reply.resolveCitation,
+    });
+    const finishMetadata = buildFinishMetadata({
+        reply,
+        startedAt,
+        firstOutputAt,
+        totalTokens: result.totalUsage.totalTokens,
+        inputTokens: result.totalUsage.inputTokens,
+        outputTokens: result.totalUsage.outputTokens,
+        modelId: reply.client.textModelId,
+        citationFileIds,
+    });
+    parts.push({ type: "metadata", metadata: finishMetadata });
+
+    yield* updateAssistantMessage(reply.assistantId, parts, "completed", finishMetadata);
+    yield* touchChat(reply.chatId);
+
+    return {
+        id: reply.chatId,
+        message: toAssistantReply(reply.assistantId, parts, finishMetadata),
+    };
+});
 
 export function createChatStreamResponse(reply: StartedChatReply) {
     startGeneratedTitle(reply);
@@ -571,7 +581,12 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                                     type: "metadata",
                                     metadata: finishMetadata,
                                 });
-                                yield* updateAssistantMessage(reply.assistantId, assistantParts, "completed", finishMetadata);
+                                yield* updateAssistantMessage(
+                                    reply.assistantId,
+                                    assistantParts,
+                                    "completed",
+                                    finishMetadata
+                                );
                                 yield* touchChat(reply.chatId);
                                 writer.write({
                                     type: "finish",

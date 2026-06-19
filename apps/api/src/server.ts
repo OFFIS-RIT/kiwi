@@ -30,7 +30,9 @@ const archiveToolCheck = await Effect.runPromise(checkArchiveUploadTools());
 if (!archiveToolCheck.ok) {
     logWarn("archive upload extraction tools are missing", { missingTools: archiveToolCheck.missing });
 }
-const legacyModelBootstrap = await runDatabaseEffect(bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET }));
+const legacyModelBootstrap = await runDatabaseEffect(
+    bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET, env: process.env })
+);
 await runDatabaseEffect(ensureMasterUser());
 
 const trustedOrigins =

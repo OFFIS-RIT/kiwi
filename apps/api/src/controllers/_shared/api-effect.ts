@@ -95,7 +95,6 @@ export function mapApiError(status: RouteStatus, error: unknown, options: ApiErr
 
 export type ApiEffect<T, E = never, R = never> = Effect.Effect<T, ApiError | E, R>;
 
-
 export function tryApiSync<T>(thunk: () => T, options: ApiErrorOptions = {}): ApiEffect<T> {
     return Effect.try({
         try: thunk,
@@ -103,12 +102,13 @@ export function tryApiSync<T>(thunk: () => T, options: ApiErrorOptions = {}): Ap
     });
 }
 
-export function runApiAction<T>(
+export function runApiAction<T, E>(
     options: ApiErrorOptions & {
         status: RouteStatus;
         user: AuthUser | null | undefined;
-        action: (user: AuthUser) => Effect.Effect<T, unknown, Database>;
+        action: (user: AuthUser) => Effect.Effect<T, E, Database>;
         success: (value: T) => unknown;
+        databaseLayer?: typeof DatabaseLayer;
     }
 ) {
     if (!options.user) {
@@ -116,13 +116,10 @@ export function runApiAction<T>(
         return Promise.resolve(options.status(apiError.status, errorResponse(apiError.responseMessage, apiError.code)));
     }
 
-    return Effect.runPromise(
-        Effect.provide(
-            Effect.match(options.action(options.user), {
-                onFailure: (error) => mapApiError(options.status, error, options),
-                onSuccess: options.success,
-            }),
-            DatabaseLayer
-        )
-    );
+    const action = Effect.match(options.action(options.user), {
+        onFailure: (error) => mapApiError(options.status, error, options),
+        onSuccess: options.success,
+    });
+
+    return Effect.runPromise(Effect.provide(action, options.databaseLayer ?? DatabaseLayer));
 }

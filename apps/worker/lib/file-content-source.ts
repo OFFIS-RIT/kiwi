@@ -9,8 +9,12 @@ import type {
 import { decryptConnectorCredentials } from "@kiwi/connectors/credentials";
 import type { ConnectorSecretPayload } from "@kiwi/connectors/credentials";
 import type { Database } from "@kiwi/db/effect";
-import { useWorkerDb } from "./effect";
-import { connectorInstallationsTable, connectorsTable, connectorResourceBindingsTable } from "@kiwi/db/tables/connectors";
+import { withWorkerDb } from "./effect";
+import {
+    connectorInstallationsTable,
+    connectorsTable,
+    connectorResourceBindingsTable,
+} from "@kiwi/db/tables/connectors";
 import { getFile } from "@kiwi/files";
 import { eq } from "drizzle-orm";
 import { env } from "../env";
@@ -83,8 +87,15 @@ function isConnectorProvider(value: string): value is ConnectorProvider {
     return value === "github" || value === "gitlab";
 }
 
-function isConnectorCredentials(value: ConnectorSecretPayload, provider: ConnectorProvider): value is ConnectorCredentials {
-    return "provider" in value && value.provider === provider && (provider === "github" ? "appId" in value : "baseUrl" in value);
+function isConnectorCredentials(
+    value: ConnectorSecretPayload,
+    provider: ConnectorProvider
+): value is ConnectorCredentials {
+    return (
+        "provider" in value &&
+        value.provider === provider &&
+        (provider === "github" ? "appId" in value : "baseUrl" in value)
+    );
 }
 
 function isInstallationCredentials(
@@ -98,14 +109,17 @@ function isInstallationCredentials(
     );
 }
 
-function readConnectorFile(bindingId: string, metadataValue?: string | null): Effect.Effect<string | null, unknown, Database> {
+function readConnectorFile(
+    bindingId: string,
+    metadataValue?: string | null
+): Effect.Effect<string | null, unknown, Database> {
     return Effect.gen(function* () {
         const metadata = parseCodeFileMetadata(metadataValue) as CompatibleCodeFileMetadata | null;
         if (!metadata) {
             return null;
         }
 
-        const [row] = yield* useWorkerDb((db) =>
+        const [row] = yield* withWorkerDb((db) =>
             db
                 .select({
                     binding: connectorResourceBindingsTable,
@@ -168,7 +182,9 @@ function connectorFileLocator(resourceId: string, metadata: CompatibleCodeFileMe
     return {
         resourceId: metadata.providerResourceId ?? resourceId,
         path: metadata.path,
-        ...(metadata.versionId ?? metadata.git?.commitSha ? { versionId: metadata.versionId ?? metadata.git?.commitSha } : {}),
+        ...((metadata.versionId ?? metadata.git?.commitSha)
+            ? { versionId: metadata.versionId ?? metadata.git?.commitSha }
+            : {}),
         ...(metadata.etag ? { etag: metadata.etag } : {}),
     };
 }

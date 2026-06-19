@@ -174,9 +174,19 @@ export function resolveImportTargetPath(
 ): string | null {
     switch (importRecord.resolutionMode) {
         case "relative":
-            return resolveRelativeImportPath(importRecord.specifier, currentFilePath, filesByPath, ECMASCRIPT_RESOLVE_EXTENSIONS);
+            return resolveRelativeImportPath(
+                importRecord.specifier,
+                currentFilePath,
+                filesByPath,
+                ECMASCRIPT_RESOLVE_EXTENSIONS
+            );
         case "zig":
-            return resolveRelativeImportPath(importRecord.specifier, currentFilePath, filesByPath, ZIG_RESOLVE_EXTENSIONS);
+            return resolveRelativeImportPath(
+                importRecord.specifier,
+                currentFilePath,
+                filesByPath,
+                ZIG_RESOLVE_EXTENSIONS
+            );
         case "c-local":
             return resolveLocalIncludePath(importRecord.specifier, currentFilePath, filesByPath);
         case "rust":
@@ -259,7 +269,7 @@ function collectCImports(root: TreeSitterNode): ImportRecord[] {
             return;
         }
 
-        const isLocalInclude = rawPath.startsWith("\"");
+        const isLocalInclude = rawPath.startsWith('"');
         imports.push({
             node,
             specifier: unquote(rawPath),

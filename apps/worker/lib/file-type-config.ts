@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import type { Database } from "@kiwi/db/effect";
-import { useWorkerDb } from "./effect";
+import { withWorkerDb } from "./effect";
 import { fileTypeConfigsTable } from "@kiwi/db/tables/file-types";
 import { and, eq } from "drizzle-orm";
 import type { GraphFileType } from "@kiwi/graph/file-type";
@@ -11,7 +11,7 @@ export function getFileTypeProcessingConfig(
     fileType: GraphFileType
 ): Effect.Effect<FileTypeProcessingConfig, unknown, Database> {
     return Effect.gen(function* () {
-        const [row] = yield* useWorkerDb((db) =>
+        const [row] = yield* withWorkerDb((db) =>
             db
                 .select({
                     chunker: fileTypeConfigsTable.chunker,

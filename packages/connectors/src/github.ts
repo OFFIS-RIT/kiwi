@@ -36,7 +36,9 @@ const SKIPPED_PATH_SEGMENTS: Record<string, true> = {
     vendor: true,
 };
 
-function tryConnectorPromise<T>(thunk: (signal: AbortSignal) => PromiseLike<T>): Effect.Effect<T, ConnectorProviderError> {
+function tryConnectorPromise<T>(
+    thunk: (signal: AbortSignal) => PromiseLike<T>
+): Effect.Effect<T, ConnectorProviderError> {
     return Effect.tryPromise({
         try: thunk,
         catch: (error) =>
@@ -84,11 +86,14 @@ export function createGitHubAppJwt(options: {
     return `${signingInput}.${signature}`;
 }
 
-export function createGitHubInstallationToken(options: InstallationTokenOptions): Effect.Effect<{
-    token: string;
-    expiresAt: string;
-}, ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
+export const createGitHubInstallationToken: (options: InstallationTokenOptions) => Effect.Effect<
+    {
+        token: string;
+        expiresAt: string;
+    },
+    ConnectorProviderError
+> = Effect.fn("createGitHubInstallationToken")(function* (options: InstallationTokenOptions) {
+    return yield* tryConnectorPromise(async () => {
         const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
         const response = await (options.fetch ?? fetch)(
             `${apiBaseUrl}/app/installations/${encodeURIComponent(options.installationId)}/access_tokens`,
@@ -110,62 +115,77 @@ export function createGitHubInstallationToken(options: InstallationTokenOptions)
         }
         return { token: json.token, expiresAt: json.expires_at };
     });
-}
+});
 
-export function getGitHubInstallationAccount(
+export const getGitHubInstallationAccount: (
     options: InstallationTokenOptions
-): Effect.Effect<ProviderInstallationAccount, ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
-        const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
-        const response = await (options.fetch ?? fetch)(
-            `${apiBaseUrl}/app/installations/${encodeURIComponent(options.installationId)}`,
-            {
-                headers: githubHeaders(
-                    createGitHubAppJwt({
-                        appId: options.credentials.appId,
-                        privateKeyPem: options.credentials.privateKeyPem,
-                        now: options.now,
-                    })
-                ),
+) => Effect.Effect<ProviderInstallationAccount, ConnectorProviderError> = Effect.fn("getGitHubInstallationAccount")(
+    function* (options: InstallationTokenOptions) {
+        return yield* tryConnectorPromise(async () => {
+            const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
+            const response = await (options.fetch ?? fetch)(
+                `${apiBaseUrl}/app/installations/${encodeURIComponent(options.installationId)}`,
+                {
+                    headers: githubHeaders(
+                        createGitHubAppJwt({
+                            appId: options.credentials.appId,
+                            privateKeyPem: options.credentials.privateKeyPem,
+                            now: options.now,
+                        })
+                    ),
+                }
+            );
+            const json = await readJsonPromise(response);
+            if (!response.ok || !isObject(json) || !isObject(json.account) || typeof json.account.login !== "string") {
+                throw new ConnectorProviderError("provider", "GitHub installation response is invalid");
             }
-        );
-        const json = await readJsonPromise(response);
-        if (!response.ok || !isObject(json) || !isObject(json.account) || typeof json.account.login !== "string") {
-            throw new ConnectorProviderError("provider", "GitHub installation response is invalid");
-        }
-    
-        return {
-            login: json.account.login,
-            type: gitHubAccountType(json.account.type),
-            repositorySelection:
+            const repositorySelection: ProviderInstallationAccount["repositorySelection"] =
                 json.repository_selection === "all" || json.repository_selection === "selected"
                     ? json.repository_selection
-                    : "unknown",
-        };
-    });
-}
+                    : "unknown";
+
+            return {
+                login: json.account.login,
+                type: gitHubAccountType(json.account.type),
+                repositorySelection,
+            };
+        });
+    }
+);
 
 export function createGitHubClient(options: GitHubClientOptions): GitResourceAdapter {
     const client: ProviderRepositoryClient = {
         provider: "github",
-        getRepository(repositoryId) {
-            return getGitHubRepository(options, repositoryId);
-        },
-        listRepositories() {
-            return listGitHubInstallationRepositories(options);
-        },
-        listBranches(repository) {
-            return listGitHubBranches({ ...options, repository });
-        },
-        loadRepositorySnapshot(repository, branch, commitSha) {
-            return loadGitHubRepositorySnapshot({ ...options, repository, branch, commitSha });
-        },
-        compareRepository(repository, fromCommitSha, toCommitSha) {
-            return compareGitHubRepository({ ...options, repository, fromCommitSha, toCommitSha });
-        },
-        readFile(repository, path, commitSha) {
-            return readGitHubRepositoryFile({ ...options, repository, path, commitSha });
-        },
+        getRepository: Effect.fn("GitHubClient.getRepository")(function* (repositoryId: string) {
+            return yield* getGitHubRepository(options, repositoryId);
+        }),
+        listRepositories: Effect.fn("GitHubClient.listRepositories")(function* () {
+            return yield* listGitHubInstallationRepositories(options);
+        }),
+        listBranches: Effect.fn("GitHubClient.listBranches")(function* (repository: ProviderRepository) {
+            return yield* listGitHubBranches({ ...options, repository });
+        }),
+        loadRepositorySnapshot: Effect.fn("GitHubClient.loadRepositorySnapshot")(function* (
+            repository: ProviderRepository,
+            branch: string,
+            commitSha?: string
+        ) {
+            return yield* loadGitHubRepositorySnapshot({ ...options, repository, branch, commitSha });
+        }),
+        compareRepository: Effect.fn("GitHubClient.compareRepository")(function* (
+            repository: ProviderRepository,
+            fromCommitSha: string,
+            toCommitSha: string
+        ) {
+            return yield* compareGitHubRepository({ ...options, repository, fromCommitSha, toCommitSha });
+        }),
+        readFile: Effect.fn("GitHubClient.readFile")(function* (
+            repository: ProviderRepository,
+            path: string,
+            commitSha: string
+        ) {
+            return yield* readGitHubRepositoryFile({ ...options, repository, path, commitSha });
+        }),
     };
 
     return createGitRepositoryAdapter({
@@ -183,46 +203,57 @@ export function createGitHubClient(options: GitHubClientOptions): GitResourceAda
     });
 }
 
-export function getGitHubRepository(
+export const getGitHubRepository: (
     options: GitHubClientOptions,
     repositoryId: string
-): Effect.Effect<ProviderRepository, ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
+) => Effect.Effect<ProviderRepository, ConnectorProviderError> = Effect.fn("getGitHubRepository")(function* (
+    options: GitHubClientOptions,
+    repositoryId: string
+) {
+    return yield* tryConnectorPromise(async () => {
         const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
         const path = repositoryId.includes("/")
             ? `/repos/${encodePathSegments(repositoryId)}`
             : `/repositories/${encodeURIComponent(repositoryId)}`;
-        return mapGitHubRepository(await getGitHubJsonPromise(`${apiBaseUrl}${path}`, options.installationToken, options.fetch));
+        return mapGitHubRepository(
+            await getGitHubJsonPromise(`${apiBaseUrl}${path}`, options.installationToken, options.fetch)
+        );
     });
-}
+});
 
-export function listGitHubInstallationRepositories(options: GitHubClientOptions): Effect.Effect<ProviderRepository[], ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
-        const repositories: ProviderRepository[] = [];
-        for (let page = 1; ; page += 1) {
-            const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
-            const json = await getGitHubJsonPromise(
-                `${apiBaseUrl}/installation/repositories?per_page=100&page=${page}`,
-                options.installationToken,
-                options.fetch
-            );
-            if (!isObject(json) || !Array.isArray(json.repositories)) {
-                throw new ConnectorProviderError("provider", "GitHub repository response is invalid");
+export const listGitHubInstallationRepositories: (
+    options: GitHubClientOptions
+) => Effect.Effect<ProviderRepository[], ConnectorProviderError> = Effect.fn("listGitHubInstallationRepositories")(
+    function* (options: GitHubClientOptions) {
+        return yield* tryConnectorPromise(async () => {
+            const repositories: ProviderRepository[] = [];
+            for (let page = 1; ; page += 1) {
+                const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
+                const json = await getGitHubJsonPromise(
+                    `${apiBaseUrl}/installation/repositories?per_page=100&page=${page}`,
+                    options.installationToken,
+                    options.fetch
+                );
+                if (!isObject(json) || !Array.isArray(json.repositories)) {
+                    throw new ConnectorProviderError("provider", "GitHub repository response is invalid");
+                }
+                for (const repo of json.repositories) {
+                    repositories.push(mapGitHubRepository(repo));
+                }
+                if (json.repositories.length < 100) {
+                    return repositories;
+                }
             }
-            for (const repo of json.repositories) {
-                repositories.push(mapGitHubRepository(repo));
-            }
-            if (json.repositories.length < 100) {
-                return repositories;
-            }
-        }
-    });
-}
+        });
+    }
+);
 
-export function listGitHubBranches(
+export const listGitHubBranches: (
     options: GitHubClientOptions & { repository: ProviderRepository }
-): Effect.Effect<ProviderBranch[], ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
+) => Effect.Effect<ProviderBranch[], ConnectorProviderError> = Effect.fn("listGitHubBranches")(function* (
+    options: GitHubClientOptions & { repository: ProviderRepository }
+) {
+    return yield* tryConnectorPromise(async () => {
         const [owner, repo] = splitFullName(options.repository.fullName);
         const branches: ProviderBranch[] = [];
         for (let page = 1; ; page += 1) {
@@ -250,101 +281,120 @@ export function listGitHubBranches(
             }
         }
     });
-}
+});
 
-export function loadGitHubRepositorySnapshot(options: SnapshotOptions): Effect.Effect<ProviderRepositorySnapshot, ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
-        const [owner, repo] = splitFullName(options.repository.fullName);
-        const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
-        let treeSha: string;
-        let branch: ProviderBranch;
-        if (options.commitSha) {
-            const commitJson = await getGitHubJsonPromise(
-                `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits/${encodeURIComponent(options.commitSha)}`,
+export const loadGitHubRepositorySnapshot: (
+    options: SnapshotOptions
+) => Effect.Effect<ProviderRepositorySnapshot, ConnectorProviderError> = Effect.fn("loadGitHubRepositorySnapshot")(
+    function* (options: SnapshotOptions) {
+        return yield* tryConnectorPromise(async () => {
+            const [owner, repo] = splitFullName(options.repository.fullName);
+            const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
+            let treeSha: string;
+            let branch: ProviderBranch;
+            if (options.commitSha) {
+                const commitJson = await getGitHubJsonPromise(
+                    `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits/${encodeURIComponent(options.commitSha)}`,
+                    options.installationToken,
+                    options.fetch
+                );
+                if (!isObject(commitJson) || !isObject(commitJson.tree) || typeof commitJson.tree.sha !== "string") {
+                    throw new ConnectorProviderError("not-found", "GitHub commit was not found");
+                }
+                treeSha = commitJson.tree.sha;
+                branch = { name: options.branch, commitSha: options.commitSha };
+            } else {
+                const branchJson = await getGitHubJsonPromise(
+                    `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/${encodeURIComponent(options.branch)}`,
+                    options.installationToken,
+                    options.fetch
+                );
+                if (
+                    !isObject(branchJson) ||
+                    !isObject(branchJson.commit) ||
+                    typeof branchJson.commit.sha !== "string"
+                ) {
+                    throw new ConnectorProviderError("not-found", "GitHub branch was not found");
+                }
+                treeSha =
+                    isObject(branchJson.commit.commit) &&
+                    isObject(branchJson.commit.commit.tree) &&
+                    typeof branchJson.commit.commit.tree.sha === "string"
+                        ? branchJson.commit.commit.tree.sha
+                        : branchJson.commit.sha;
+                branch = { name: options.branch, commitSha: branchJson.commit.sha };
+            }
+            const treeJson = await getGitHubJsonPromise(
+                `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`,
                 options.installationToken,
                 options.fetch
             );
-            if (!isObject(commitJson) || !isObject(commitJson.tree) || typeof commitJson.tree.sha !== "string") {
-                throw new ConnectorProviderError("not-found", "GitHub commit was not found");
+            if (!isObject(treeJson) || !Array.isArray(treeJson.tree)) {
+                throw new ConnectorProviderError("provider", "GitHub tree response is invalid");
             }
-            treeSha = commitJson.tree.sha;
-            branch = { name: options.branch, commitSha: options.commitSha };
-        } else {
-            const branchJson = await getGitHubJsonPromise(
-                `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/${encodeURIComponent(options.branch)}`,
-                options.installationToken,
-                options.fetch
-            );
-            if (!isObject(branchJson) || !isObject(branchJson.commit) || typeof branchJson.commit.sha !== "string") {
-                throw new ConnectorProviderError("not-found", "GitHub branch was not found");
+            if (treeJson.truncated === true) {
+                throw new ConnectorProviderError("limit", "GitHub repository tree is too large to load completely");
             }
-            treeSha =
-                isObject(branchJson.commit.commit) &&
-                isObject(branchJson.commit.commit.tree) &&
-                typeof branchJson.commit.commit.tree.sha === "string"
-                    ? branchJson.commit.commit.tree.sha
-                    : branchJson.commit.sha;
-            branch = { name: options.branch, commitSha: branchJson.commit.sha };
-        }
-        const treeJson = await getGitHubJsonPromise(
-            `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`,
-            options.installationToken,
-            options.fetch
-        );
-        if (!isObject(treeJson) || !Array.isArray(treeJson.tree)) {
-            throw new ConnectorProviderError("provider", "GitHub tree response is invalid");
-        }
-        if (treeJson.truncated === true) {
-            throw new ConnectorProviderError("limit", "GitHub repository tree is too large to load completely");
-        }
-    
-        const files: ProviderCodeFile[] = [];
-        let totalBytes = 0;
-        for (const item of treeJson.tree) {
-            if (!isGitHubBlob(item) || !shouldLoadCodePath(item.path) || item.size > MAX_REPOSITORY_CODE_FILE_BYTES) {
-                continue;
+
+            const files: ProviderCodeFile[] = [];
+            let totalBytes = 0;
+            for (const item of treeJson.tree) {
+                if (
+                    !isGitHubBlob(item) ||
+                    !shouldLoadCodePath(item.path) ||
+                    item.size > MAX_REPOSITORY_CODE_FILE_BYTES
+                ) {
+                    continue;
+                }
+                if (files.length + 1 > MAX_REPOSITORY_CODE_FILES) {
+                    throw new ConnectorProviderError("limit", "Repository contains too many supported code files");
+                }
+                if (totalBytes + item.size > MAX_REPOSITORY_CODE_BYTES) {
+                    throw new ConnectorProviderError("limit", "Repository contains too much supported code");
+                }
+                const blobJson = await getGitHubJsonPromise(
+                    `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs/${encodeURIComponent(item.sha)}`,
+                    options.installationToken,
+                    options.fetch
+                );
+                if (!isObject(blobJson) || typeof blobJson.content !== "string" || blobJson.encoding !== "base64") {
+                    throw new ConnectorProviderError("provider", "GitHub blob response is invalid");
+                }
+                const content = Buffer.from(blobJson.content.replaceAll("\n", ""), "base64").toString("utf8");
+                const size = Buffer.byteLength(content, "utf8");
+                if (size > MAX_REPOSITORY_CODE_FILE_BYTES || totalBytes + size > MAX_REPOSITORY_CODE_BYTES) {
+                    throw new ConnectorProviderError("limit", "Repository contains too much supported code");
+                }
+                files.push({
+                    path: item.path,
+                    size,
+                    checksum: item.sha,
+                    htmlUrl: `https://github.com/${options.repository.fullName}/blob/${branch.commitSha}/${item.path}`,
+                    rawUrl: `https://raw.githubusercontent.com/${options.repository.fullName}/${branch.commitSha}/${item.path}`,
+                    content,
+                });
+                totalBytes += size;
             }
-            if (files.length + 1 > MAX_REPOSITORY_CODE_FILES) {
-                throw new ConnectorProviderError("limit", "Repository contains too many supported code files");
-            }
-            if (totalBytes + item.size > MAX_REPOSITORY_CODE_BYTES) {
-                throw new ConnectorProviderError("limit", "Repository contains too much supported code");
-            }
-            const blobJson = await getGitHubJsonPromise(
-                `${apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs/${encodeURIComponent(item.sha)}`,
-                options.installationToken,
-                options.fetch
-            );
-            if (!isObject(blobJson) || typeof blobJson.content !== "string" || blobJson.encoding !== "base64") {
-                throw new ConnectorProviderError("provider", "GitHub blob response is invalid");
-            }
-            const content = Buffer.from(blobJson.content.replaceAll("\n", ""), "base64").toString("utf8");
-            const size = Buffer.byteLength(content, "utf8");
-            if (size > MAX_REPOSITORY_CODE_FILE_BYTES || totalBytes + size > MAX_REPOSITORY_CODE_BYTES) {
-                throw new ConnectorProviderError("limit", "Repository contains too much supported code");
-            }
-            files.push({
-                path: item.path,
-                size,
-                checksum: item.sha,
-                htmlUrl: `https://github.com/${options.repository.fullName}/blob/${branch.commitSha}/${item.path}`,
-                rawUrl: `https://raw.githubusercontent.com/${options.repository.fullName}/${branch.commitSha}/${item.path}`,
-                content,
-            });
-            totalBytes += size;
-        }
-    
-        return { repository: options.repository, branch, commitSha: branch.commitSha, files };
-    });
-}
-export function compareGitHubRepository(
+
+            return { repository: options.repository, branch, commitSha: branch.commitSha, files };
+        });
+    }
+);
+
+export const compareGitHubRepository: (
     options: GitHubClientOptions & {
         repository: ProviderRepository;
         fromCommitSha: string;
         toCommitSha: string;
     }
-): Effect.Effect<ProviderRepositoryDelta, ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
+) => Effect.Effect<ProviderRepositoryDelta, ConnectorProviderError> = Effect.fn("compareGitHubRepository")(function* (
+    options: GitHubClientOptions & {
+        repository: ProviderRepository;
+        fromCommitSha: string;
+        toCommitSha: string;
+    }
+) {
+    return yield* tryConnectorPromise(async () => {
         const [owner, repo] = splitFullName(options.repository.fullName);
         const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
         const json = await getGitHubJsonPromise(
@@ -355,7 +405,7 @@ export function compareGitHubRepository(
         if (!isObject(json) || !isGitHubCompareStatus(json.status)) {
             throw new ConnectorProviderError("provider", "GitHub compare response is invalid");
         }
-    
+
         if (json.status === "behind" || json.status === "diverged") {
             return {
                 fromCommitSha: options.fromCommitSha,
@@ -364,17 +414,17 @@ export function compareGitHubRepository(
                 changes: [],
             };
         }
-    
+
         if (!Array.isArray(json.files)) {
             throw new ConnectorProviderError("provider", "GitHub compare response is invalid");
         }
-    
+
         const changes: ProviderRepositoryDelta["changes"] = [];
         for (const entry of json.files) {
             if (!isGitHubCompareFile(entry)) {
                 throw new ConnectorProviderError("provider", "GitHub compare response is invalid");
             }
-    
+
             switch (entry.status) {
                 case "added":
                 case "copied":
@@ -411,7 +461,7 @@ export function compareGitHubRepository(
                     throw new ConnectorProviderError("provider", "GitHub compare response is invalid");
             }
         }
-    
+
         return {
             fromCommitSha: options.fromCommitSha,
             toCommitSha: options.toCommitSha,
@@ -419,15 +469,22 @@ export function compareGitHubRepository(
             changes,
         };
     });
-}
-export function readGitHubRepositoryFile(
+});
+
+export const readGitHubRepositoryFile: (
     options: GitHubClientOptions & {
         repository: ProviderRepository;
         path: string;
         commitSha: string;
     }
-): Effect.Effect<string, ConnectorProviderError> {
-    return tryConnectorPromise(async () => {
+) => Effect.Effect<string, ConnectorProviderError> = Effect.fn("readGitHubRepositoryFile")(function* (
+    options: GitHubClientOptions & {
+        repository: ProviderRepository;
+        path: string;
+        commitSha: string;
+    }
+) {
+    return yield* tryConnectorPromise(async () => {
         const [owner, repo] = splitFullName(options.repository.fullName);
         const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
         const response = await (options.fetch ?? fetch)(
@@ -439,24 +496,25 @@ export function readGitHubRepositoryFile(
                 },
             }
         );
-    
+
         if (!response.ok) {
             throw new ConnectorProviderError("not-found", "GitHub file was not found");
         }
-    
+
         const contentLength = response.headers.get("content-length");
         if (contentLength && Number(contentLength) > MAX_REPOSITORY_CODE_FILE_BYTES) {
             throw new ConnectorProviderError("limit", "Repository file is too large");
         }
-    
+
         const content = await response.text();
         if (Buffer.byteLength(content, "utf8") > MAX_REPOSITORY_CODE_FILE_BYTES) {
             throw new ConnectorProviderError("limit", "Repository file is too large");
         }
-    
+
         return content;
     });
-}
+});
+
 export function verifyGitHubWebhookSignature(options: {
     body: string | Buffer | Uint8Array;
     webhookSecret: string;
@@ -507,11 +565,7 @@ export function normalizeGitHubWebhookEvent(options: {
     };
 }
 
-async function getGitHubJsonPromise(
-    url: string,
-    token: string,
-    fetchImpl: FetchLike | undefined
-): Promise<unknown> {
+async function getGitHubJsonPromise(url: string, token: string, fetchImpl: FetchLike | undefined): Promise<unknown> {
     const response = await (fetchImpl ?? fetch)(url, { headers: githubHeaders(token) });
     const json = await readJsonPromise(response);
     if (!response.ok) {
@@ -521,10 +575,6 @@ async function getGitHubJsonPromise(
         );
     }
     return json;
-}
-
-function getGitHubJson(url: string, token: string, fetchImpl: FetchLike | undefined): Effect.Effect<unknown, ConnectorProviderError> {
-    return tryConnectorPromise(() => getGitHubJsonPromise(url, token, fetchImpl));
 }
 
 function githubHeaders(token: string): Record<string, string> {
@@ -581,10 +631,6 @@ function gitHubAccountType(value: unknown): ProviderInstallationAccount["type"] 
 async function readJsonPromise(response: Response): Promise<unknown> {
     const text = await response.text();
     return text.length === 0 ? null : JSON.parse(text);
-}
-
-function readJson(response: Response): Effect.Effect<unknown, ConnectorProviderError> {
-    return tryConnectorPromise(() => readJsonPromise(response));
 }
 
 function shouldLoadCodePath(filePath: string): boolean {

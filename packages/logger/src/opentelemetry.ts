@@ -92,6 +92,20 @@ function createProcessor(options: OpenTelemetryLoggerOptions, exporter: LogRecor
     return new BatchLogRecordProcessor(exporter);
 }
 
+const flushOpenTelemetryProvider = Effect.fn("OpenTelemetryLogger.flush")(function* (provider: LoggerProvider) {
+    yield* Effect.tryPromise({
+        try: () => provider.forceFlush(),
+        catch: (cause) => new LoggerError("flush", { cause }),
+    });
+});
+
+const shutdownOpenTelemetryProvider = Effect.fn("OpenTelemetryLogger.shutdown")(function* (provider: LoggerProvider) {
+    yield* Effect.tryPromise({
+        try: () => provider.shutdown(),
+        catch: (cause) => new LoggerError("shutdown", { cause }),
+    });
+});
+
 class OpenTelemetryLogger implements LoggerInstance {
     private readonly level: LogLevel;
     private readonly provider: LoggerProvider;
@@ -150,17 +164,11 @@ class OpenTelemetryLogger implements LoggerInstance {
     }
 
     flush(): Effect.Effect<void, LoggerError> {
-        return Effect.tryPromise({
-            try: () => this.provider.forceFlush(),
-            catch: (cause) => new LoggerError("flush", { cause }),
-        });
+        return flushOpenTelemetryProvider(this.provider);
     }
 
     shutdown(): Effect.Effect<void, LoggerError> {
-        return Effect.tryPromise({
-            try: () => this.provider.shutdown(),
-            catch: (cause) => new LoggerError("shutdown", { cause }),
-        });
+        return shutdownOpenTelemetryProvider(this.provider);
     }
 }
 

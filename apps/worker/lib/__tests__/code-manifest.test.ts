@@ -82,7 +82,9 @@ const mockDb = {
         from: () => ({
             where: () => {
                 selectCallCount += 1;
-                return Effect.succeed(selectCallCount === 1 ? rows.filter((row) => selectedFileIds.includes(row.id)) : rows);
+                return Effect.succeed(
+                    selectCallCount === 1 ? rows.filter((row) => selectedFileIds.includes(row.id)) : rows
+                );
             },
         }),
     }),
@@ -98,6 +100,18 @@ mock.module("@kiwi/db/effect", () => ({
         }
     },
     DatabaseLayer: {},
+}));
+
+mock.module("../effect", () => ({
+    withWorkerDb: (work: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) => {
+        const result = work(mockDb);
+        return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
+    },
+    withWorkerDbVoid: (work: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) => {
+        const result = work(mockDb);
+        return Effect.asVoid(Effect.isEffect(result) ? result : Effect.promise(async () => await result));
+    },
+    runWorkerEffect: <T, E>(effect: Effect.Effect<T, E>) => Effect.runPromise(effect),
 }));
 
 mock.module("@kiwi/files", () => ({
@@ -129,7 +143,9 @@ describe("prepareCodeManifest", () => {
     });
 
     test("includes active files from the same repository commit as selected files", async () => {
-        const key = await runWorkerTestEffect(prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" }));
+        const key = await runWorkerTestEffect(
+            prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" })
+        );
 
         expect(key).toBe("manifest-key");
         expect((uploadedManifest as { files: Array<{ path: string }> }).files.map((file) => file.path).sort()).toEqual([
@@ -188,17 +204,18 @@ describe("prepareCodeManifest", () => {
         ];
         selectedFileIds = ["file-connector-new"];
 
-        const key = await runWorkerTestEffect(prepareCodeManifest({ graphId: "graph-1", fileIds: selectedFileIds, processRunId: "run-1" }));
+        const key = await runWorkerTestEffect(
+            prepareCodeManifest({ graphId: "graph-1", fileIds: selectedFileIds, processRunId: "run-1" })
+        );
 
         expect(key).toBe("manifest-key");
         expect((uploadedManifest as { files: Array<{ path: string }> }).files.map((file) => file.path).sort()).toEqual([
             "src/index.ts",
             "src/shared.ts",
         ]);
-        expect((uploadedManifest as { files: Array<{ fileId: string }> }).files.map((file) => file.fileId).sort()).toEqual([
-            "file-connector-existing",
-            "file-connector-new",
-        ]);
+        expect(
+            (uploadedManifest as { files: Array<{ fileId: string }> }).files.map((file) => file.fileId).sort()
+        ).toEqual(["file-connector-existing", "file-connector-new"]);
     });
 
     test("includes external GitHub files from the same repository commit", async () => {
@@ -225,7 +242,9 @@ describe("prepareCodeManifest", () => {
                 headers: { "content-type": "text/plain" },
             })) as unknown as typeof fetch;
 
-        const key = await runWorkerTestEffect(prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" }));
+        const key = await runWorkerTestEffect(
+            prepareCodeManifest({ graphId: "graph-1", fileIds: ["file-new"], processRunId: "run-1" })
+        );
 
         expect(key).toBe("manifest-key");
         expect((uploadedManifest as { files: Array<{ path: string }> }).files.map((file) => file.path).sort()).toEqual([

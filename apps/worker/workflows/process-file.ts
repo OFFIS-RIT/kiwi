@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { useWorkerDb, useWorkerDbVoid } from "../lib/effect";
+import { withWorkerDb, withWorkerDbVoid } from "../lib/effect";
 import { filesTable, graphTable, processRunsTable, processStatsTable } from "@kiwi/db/tables/graph";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
@@ -76,7 +76,11 @@ export function shouldAbortRepositoryBatch(
     code: { kind: "repository"; retiredFileIds?: string[] } | undefined,
     results: PromiseSettledResult<unknown>[]
 ) {
-    return code?.kind === "repository" && code.retiredFileIds !== undefined && results.some((result) => result.status === "rejected");
+    return (
+        code?.kind === "repository" &&
+        code.retiredFileIds !== undefined &&
+        results.some((result) => result.status === "rejected")
+    );
 }
 
 export function shouldFinalizeRepositoryBatch(
@@ -99,7 +103,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
                         return;
                     }
 
-                    yield* useWorkerDbVoid((db) =>
+                    yield* withWorkerDbVoid((db) =>
                         db
                             .update(filesTable)
                             .set({
@@ -115,7 +119,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
 
         await step.run({ name: "update-project-status" }, async () =>
             runWorkerEffect(
-                useWorkerDbVoid((db) =>
+                withWorkerDbVoid((db) =>
                     Effect.gen(function* () {
                         yield* db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId));
 
@@ -137,7 +141,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
                         return [];
                     }
 
-                    return yield* useWorkerDb((db) =>
+                    return yield* withWorkerDb((db) =>
                         db
                             .select({
                                 id: filesTable.id,
@@ -234,7 +238,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
 
         await step.run({ name: "finalize-project-status" }, async () =>
             runWorkerEffect(
-                useWorkerDbVoid((db) =>
+                withWorkerDbVoid((db) =>
                     Effect.gen(function* () {
                         yield* db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
 
@@ -252,9 +256,12 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
         if (run.retryTerminal) {
             await step.run({ name: "mark-project-failed", retryPolicy: NO_RETRY }, async () =>
                 runWorkerEffect(
-                    useWorkerDbVoid((db) =>
+                    withWorkerDbVoid((db) =>
                         Effect.gen(function* () {
-                            yield* db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
+                            yield* db
+                                .update(graphTable)
+                                .set({ state: "ready" })
+                                .where(eq(graphTable.id, input.graphId));
 
                             if (input.processRunId) {
                                 yield* db
@@ -292,7 +299,7 @@ export const processFile = defineWorkflow(
             let fileData;
             [fileData] = await step.run({ name: "get-file-data" }, async () =>
                 runWorkerEffect(
-                    useWorkerDb((db) =>
+                    withWorkerDb((db) =>
                         db
                             .select()
                             .from(filesTable)
@@ -361,8 +368,11 @@ export const processFile = defineWorkflow(
                             filetype: detectedFormat.fileType,
                         } satisfies Omit<GraphFile, "loader" | "chunker">;
 
-                        if (detectedFormat.fileType !== fileData.type || detectedFormat.mimeType !== fileData.mimeType) {
-                            yield* useWorkerDbVoid((db) =>
+                        if (
+                            detectedFormat.fileType !== fileData.type ||
+                            detectedFormat.mimeType !== fileData.mimeType
+                        ) {
+                            yield* withWorkerDbVoid((db) =>
                                 db
                                     .update(filesTable)
                                     .set({
@@ -392,7 +402,7 @@ export const processFile = defineWorkflow(
 
                         const duration = performance.now() - start;
 
-                        yield* useWorkerDbVoid((db) =>
+                        yield* withWorkerDbVoid((db) =>
                             db
                                 .update(filesTable)
                                 .set({
@@ -428,8 +438,11 @@ export const processFile = defineWorkflow(
                         const client = yield* createWorkerClient(input.graphId);
                         const metadata = yield* buildMetadata(client.text, fileData.name, baseFile.metadataExcerpt);
 
-                        yield* useWorkerDbVoid((db) =>
-                            db.update(filesTable).set({ metadata: metadata || null }).where(eq(filesTable.id, input.fileId))
+                        yield* withWorkerDbVoid((db) =>
+                            db
+                                .update(filesTable)
+                                .set({ metadata: metadata || null })
+                                .where(eq(filesTable.id, input.fileId))
                         );
 
                         return {
@@ -453,10 +466,13 @@ export const processFile = defineWorkflow(
                         const start = performance.now();
 
                         const organizationId = yield* resolveGraphModelOrganizationId(input.graphId);
-                        const typeConfig = yield* getFileTypeProcessingConfig(organizationId, coerceGraphFileType(baseFile.filetype));
+                        const typeConfig = yield* getFileTypeProcessingConfig(
+                            organizationId,
+                            coerceGraphFileType(baseFile.filetype)
+                        );
                         const chunker = createGraphChunker(typeConfig.chunker, typeConfig.chunkSize);
 
-                        yield* useWorkerDbVoid((db) =>
+                        yield* withWorkerDbVoid((db) =>
                             db
                                 .update(filesTable)
                                 .set({
@@ -466,9 +482,15 @@ export const processFile = defineWorkflow(
                                 .where(eq(filesTable.id, input.fileId))
                         );
 
-                        const loadedDocument = yield* getFile<LoadedGraphDocument>(baseFile.documentKey, env.S3_BUCKET, "json");
+                        const loadedDocument = yield* getFile<LoadedGraphDocument>(
+                            baseFile.documentKey,
+                            env.S3_BUCKET,
+                            "json"
+                        );
                         if (!loadedDocument) {
-                            return yield* Effect.fail(new Error(`Failed to load document from ${baseFile.documentKey}`));
+                            return yield* Effect.fail(
+                                new Error(`Failed to load document from ${baseFile.documentKey}`)
+                            );
                         }
 
                         const units = yield* createUnitsFromText({
@@ -519,7 +541,12 @@ export const processFile = defineWorkflow(
                             graphs.push(
                                 ...(yield* Effect.all(
                                     units.map((unit) =>
-                                        processUnit(unit, client.text, fileData.name, metadataResult.metadata || undefined)
+                                        processUnit(
+                                            unit,
+                                            client.text,
+                                            fileData.name,
+                                            metadataResult.metadata || undefined
+                                        )
                                     )
                                 ))
                             );
@@ -585,9 +612,12 @@ export const processFile = defineWorkflow(
                             return FILE_DELETED;
                         }
                         yield* Effect.catch(
-                            useWorkerDbVoid((db) => {
+                            withWorkerDbVoid((db) => {
                                 const totalTime =
-                                    baseFile.duration + unitsResult.duration + graphResult.duration + saveGraphResult.duration;
+                                    baseFile.duration +
+                                    unitsResult.duration +
+                                    graphResult.duration +
+                                    saveGraphResult.duration;
 
                                 return db.insert(processStatsTable).values({
                                     totalTime,
@@ -645,7 +675,9 @@ export const processFile = defineWorkflow(
             return saveGraphResult.summary;
         } catch (error) {
             if (run.retryTerminal) {
-                await runWorkerEffect(updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error)));
+                await runWorkerEffect(
+                    updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error))
+                );
             } else {
                 await runWorkerEffect(updateFileProcessingState(input.fileId, "pending", "processing", null));
             }

@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { sql } from "drizzle-orm";
 import type { DeleteProgress, StepProgress } from "./process-progress";
@@ -34,9 +35,16 @@ type DeleteGraphProgress = DeleteProgress & {
     fileIds: Set<string>;
 };
 
+class WorkflowProgressInvariantError extends Schema.TaggedErrorClass<WorkflowProgressInvariantError>()(
+    "WorkflowProgressInvariantError",
+    {
+        message: Schema.String,
+    }
+) {}
+
 function textArray(values: readonly string[]) {
     if (values.length === 0) {
-        throw new Error("textArray called with an empty array");
+        throw new WorkflowProgressInvariantError({ message: "textArray called with an empty array" });
     }
 
     return sql`ARRAY[${sql.join(
@@ -55,10 +63,12 @@ function getWorkflowFileIds(run: DeleteWorkflowRun) {
     return fileIds.length > 0 ? fileIds : [run.id];
 }
 
-export function findActiveDeleteGraphFilesProgress(
+export const findActiveDeleteGraphFilesProgress: (
     graphIds: string[]
-): Effect.Effect<Map<string, DeleteProgress>, DatabaseError, Database> {
-    return tryDb((db) =>
+) => Effect.Effect<Map<string, DeleteProgress>, DatabaseError, Database> = Effect.fn(
+    "findActiveDeleteGraphFilesProgress"
+)((graphIds: string[]) =>
+    tryDb((db) =>
         Effect.gen(function* () {
             if (graphIds.length === 0) {
                 return new Map<string, DeleteProgress>();
@@ -149,9 +159,7 @@ export function findActiveDeleteGraphFilesProgress(
             );
 
             const fileProgressByRunId = new Map(fileProgressRows.map((row) => [row.workflowRunId, row]));
-            const descriptionProgressByRunId = new Map(
-                descriptionProgressRows.map((row) => [row.workflowRunId, row])
-            );
+            const descriptionProgressByRunId = new Map(descriptionProgressRows.map((row) => [row.workflowRunId, row]));
             const progressByGraphId = new Map<string, DeleteGraphProgress>();
             for (const run of runs) {
                 const fileIds = getWorkflowFileIds(run);
@@ -197,19 +205,20 @@ export function findActiveDeleteGraphFilesProgress(
                 ])
             );
         })
-    );
-}
+    )
+);
 
-export function findProcessDescriptionProgress(
+export const findProcessDescriptionProgress: (
     runIds: string[]
-): Effect.Effect<Map<string, StepProgress>, DatabaseError, Database> {
-    return tryDb((db) =>
-        Effect.gen(function* () {
-            if (runIds.length === 0) {
-                return new Map<string, StepProgress>();
-            }
+) => Effect.Effect<Map<string, StepProgress>, DatabaseError, Database> = Effect.fn("findProcessDescriptionProgress")(
+    (runIds: string[]) =>
+        tryDb((db) =>
+            Effect.gen(function* () {
+                if (runIds.length === 0) {
+                    return new Map<string, StepProgress>();
+                }
 
-            const rows = (yield* db.execute(sql<DescriptionWorkflowProgressRow>`
+                const rows = (yield* db.execute(sql<DescriptionWorkflowProgressRow>`
                 SELECT parent."input"->>'processRunId' AS "processRunId",
                        COUNT(DISTINCT child."id") FILTER (WHERE child."status" IN ('completed', 'succeeded'))::int AS "completedCount",
                        COUNT(DISTINCT child."id")::int AS "totalCount"
@@ -229,15 +238,15 @@ export function findProcessDescriptionProgress(
                 GROUP BY parent."input"->>'processRunId'
             `)) as DescriptionWorkflowProgressRow[];
 
-            return new Map(
-                rows.map((row) => [
-                    row.processRunId,
-                    {
-                        done: row.completedCount,
-                        total: row.totalCount,
-                    },
-                ])
-            );
-        })
-    );
-}
+                return new Map(
+                    rows.map((row) => [
+                        row.processRunId,
+                        {
+                            done: row.completedCount,
+                            total: row.totalCount,
+                        },
+                    ])
+                );
+            })
+        )
+);

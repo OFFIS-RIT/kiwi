@@ -1,5 +1,7 @@
 import { getFile, getGraphFileArtifactPaths, putNamedFile } from "@kiwi/files";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Schema from "effect/Schema";
 import { renderPDFPagePreviews } from "@kiwi/graph/lib/pdf-page-preview";
 import { getPdfPreviewPageKey } from "./text-unit-preview";
 
@@ -16,9 +18,23 @@ export type PDFPreviewPageResult =
           status: "page_missing";
       };
 
-type GetBytes = (key: string, bucket: string, type: "bytes") => Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, unknown>;
+export class PDFPreviewCacheError extends Schema.TaggedErrorClass<PDFPreviewCacheError>()("PDFPreviewCacheError", {
+    message: Schema.String,
+    cause: Schema.Unknown,
+}) {}
 
-type PutNamedFile = typeof putNamedFile;
+type GetBytes = (
+    key: string,
+    bucket: string,
+    type: "bytes"
+) => Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, unknown>;
+
+type PutNamedFile = (
+    name: string,
+    file: File | Blob | Uint8Array | string,
+    path: string,
+    bucket: string
+) => Effect.Effect<unknown, unknown>;
 type RenderPDFPagePreviews = typeof renderPDFPagePreviews;
 
 type PDFPreviewRenderResult =
@@ -36,7 +52,7 @@ type PDFPreviewCacheDeps = {
     renderPDFPagePreviews?: RenderPDFPagePreviews;
 };
 
-const inFlightPreviewRenders = new Map<string, Promise<PDFPreviewRenderResult>>();
+const inFlightPreviewRenders = new Map<string, Deferred.Deferred<PDFPreviewRenderResult, PDFPreviewCacheError>>();
 
 export function getOrRenderPDFPreviewPage(
     options: {
@@ -48,7 +64,7 @@ export function getOrRenderPDFPreviewPage(
         bucket: string;
     },
     deps: PDFPreviewCacheDeps = {}
-): Effect.Effect<PDFPreviewPageResult, unknown> {
+): Effect.Effect<PDFPreviewPageResult, PDFPreviewCacheError> {
     return Effect.gen(function* () {
         const loadFile = deps.getFile ?? getFile;
         const saveNamedFile = deps.putNamedFile ?? putNamedFile;
@@ -59,7 +75,10 @@ export function getOrRenderPDFPreviewPage(
             fileKey: options.fileKey,
             page: options.page,
         });
-        const cachedImage = yield* loadFile(cacheKey, options.bucket, "bytes");
+        const cachedImage = yield* Effect.mapError(
+            loadFile(cacheKey, options.bucket, "bytes"),
+            (cause) => new PDFPreviewCacheError({ message: "Failed to load cached PDF preview page", cause })
+        );
 
         if (cachedImage) {
             return {
@@ -73,10 +92,13 @@ export function getOrRenderPDFPreviewPage(
         const renderKey = getPdfPreviewRenderKey({ ...options, pagesToRender });
         const inFlightRender = inFlightPreviewRenders.get(renderKey);
         if (inFlightRender) {
-            return toPDFPreviewPageResult(yield* Effect.tryPromise(() => inFlightRender), options.page);
+            return toPDFPreviewPageResult(yield* Deferred.await(inFlightRender), options.page);
         }
 
-        const renderPromise = Effect.runPromise(
+        const renderDeferred = yield* Deferred.make<PDFPreviewRenderResult, PDFPreviewCacheError>();
+        inFlightPreviewRenders.set(renderKey, renderDeferred);
+
+        const renderExit = yield* Effect.exit(
             loadAndRenderPDFPreviewPages(
                 {
                     ...options,
@@ -85,15 +107,12 @@ export function getOrRenderPDFPreviewPage(
                 { getFile: loadFile, putNamedFile: saveNamedFile, renderPDFPagePreviews: renderPreview }
             )
         );
-        inFlightPreviewRenders.set(renderKey, renderPromise);
-
-        try {
-            return toPDFPreviewPageResult(yield* Effect.tryPromise(() => renderPromise), options.page);
-        } finally {
-            if (inFlightPreviewRenders.get(renderKey) === renderPromise) {
-                inFlightPreviewRenders.delete(renderKey);
-            }
+        yield* Deferred.done(renderDeferred, renderExit);
+        if (inFlightPreviewRenders.get(renderKey) === renderDeferred) {
+            inFlightPreviewRenders.delete(renderKey);
         }
+
+        return toPDFPreviewPageResult(yield* Deferred.await(renderDeferred), options.page);
     });
 }
 
@@ -106,9 +125,12 @@ function loadAndRenderPDFPreviewPages(
         bucket: string;
     },
     deps: Required<PDFPreviewCacheDeps>
-): Effect.Effect<PDFPreviewRenderResult, unknown> {
+): Effect.Effect<PDFPreviewRenderResult, PDFPreviewCacheError> {
     return Effect.gen(function* () {
-        const sourceFile = yield* deps.getFile(options.fileKey, options.bucket, "bytes");
+        const sourceFile = yield* Effect.mapError(
+            deps.getFile(options.fileKey, options.bucket, "bytes"),
+            (cause) => new PDFPreviewCacheError({ message: "Failed to load source PDF for preview rendering", cause })
+        );
         if (!sourceFile) {
             return { status: "source_missing" };
         }
@@ -137,19 +159,21 @@ function renderAndCachePDFPreviewPages(
         source: Uint8Array;
     },
     deps: Required<Pick<PDFPreviewCacheDeps, "putNamedFile" | "renderPDFPagePreviews">>
-): Effect.Effect<PDFPreviewRenderResult, unknown> {
+): Effect.Effect<PDFPreviewRenderResult, PDFPreviewCacheError> {
     return Effect.gen(function* () {
-        const renderedPages = yield* deps.renderPDFPagePreviews(options.source, options.pagesToRender);
+        const renderedPages = yield* Effect.mapError(
+            deps.renderPDFPagePreviews(options.source, options.pagesToRender),
+            (cause) => new PDFPreviewCacheError({ message: "Failed to render PDF preview pages", cause })
+        );
         const paths = getGraphFileArtifactPaths(options);
 
-        yield* Effect.tryPromise(() =>
-            Promise.allSettled(
-                [...renderedPages.entries()].map(([page, renderedImage]) =>
-                    Effect.runPromise(
-                        deps.putNamedFile(`page-${page}.png`, renderedImage, paths.derivedPdfPreviewPrefix, options.bucket)
-                    )
+        yield* Effect.all(
+            [...renderedPages.entries()].map(([page, renderedImage]) =>
+                Effect.exit(
+                    deps.putNamedFile(`page-${page}.png`, renderedImage, paths.derivedPdfPreviewPrefix, options.bucket)
                 )
-            )
+            ),
+            { concurrency: "unbounded", discard: true }
         );
 
         return {

@@ -27,7 +27,8 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
             runApiAction({
                 status,
                 user,
-                action: (currentUser) => listPrompts({ user: currentUser, scope: { kind: "user", userId: params.userId } }),
+                action: (currentUser) =>
+                    listPrompts({ user: currentUser, scope: { kind: "user", userId: params.userId } }),
                 success: (value) => status(200, successResponse(value)),
             }),
         { params: userParamsSchema }
@@ -87,7 +88,8 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
             runApiAction({
                 status,
                 user,
-                action: (currentUser) => listPrompts({ user: currentUser, scope: { kind: "team", teamId: params.teamId } }),
+                action: (currentUser) =>
+                    listPrompts({ user: currentUser, scope: { kind: "team", teamId: params.teamId } }),
                 success: (value) => status(200, successResponse(value)),
             }),
         { params: teamParamsSchema }
@@ -148,7 +150,10 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
                 status,
                 user,
                 action: (currentUser) =>
-                    listPrompts({ user: currentUser, scope: { kind: "organization", organizationId: params.organizationId } }),
+                    listPrompts({
+                        user: currentUser,
+                        scope: { kind: "organization", organizationId: params.organizationId },
+                    }),
                 success: (value) => status(200, successResponse(value)),
             }),
         { params: organizationParamsSchema }
@@ -208,7 +213,8 @@ export const promptsRoute = new Elysia({ prefix: "/prompts" })
             runApiAction({
                 status,
                 user,
-                action: (currentUser) => listPrompts({ user: currentUser, scope: { kind: "graph", graphId: params.graphId } }),
+                action: (currentUser) =>
+                    listPrompts({ user: currentUser, scope: { kind: "graph", graphId: params.graphId } }),
                 success: (value) => status(200, successResponse(value)),
             }),
         { params: graphParamsSchema }

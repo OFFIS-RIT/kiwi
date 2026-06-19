@@ -8,7 +8,7 @@ import {
     ensureDefaultOrganizationMember,
     ensureSystemAdminOrganizationMemberships,
 } from "@kiwi/auth/server";
-import { DatabaseLayer, tryDb, tryDbVoid } from "@kiwi/db/effect";
+import { tryDb, tryDbVoid } from "@kiwi/db/effect";
 import { accountTable, apikey as apiKeyTable, userTable } from "@kiwi/db/tables/auth";
 import { error as logError, info as logInfo } from "@kiwi/logger";
 import { env } from "../../env";
@@ -21,10 +21,11 @@ const masterUserPassword = env.MASTER_USER_PASSWORD?.trim() || undefined;
 const masterUserApiKey = env.MASTER_USER_API_KEY?.trim() || undefined;
 const masterUserApiKeyRecordId = masterUserId ? `master-user-api-key:${masterUserId}` : undefined;
 
-
 function ensureMasterUserOnce(masterUserId: string) {
     return Effect.gen(function* () {
-        const existingUsers = yield* tryDb((db) => db.select({ id: userTable.id, email: userTable.email }).from(userTable));
+        const existingUsers = yield* tryDb((db) =>
+            db.select({ id: userTable.id, email: userTable.email }).from(userTable)
+        );
         const existingUser = existingUsers.find((user) => user.id === masterUserId);
         const email = masterUserEmail || existingUser?.email || `${masterUserId}@local`;
 
@@ -61,7 +62,7 @@ function ensureMasterUserOnce(masterUserId: string) {
         if (masterUserPassword) {
             const password = yield* Effect.tryPromise({
                 try: () => hashPassword(masterUserPassword),
-                catch: (error) => error,
+                catch: toApiError,
             });
             const existingCredentialAccount = yield* tryDb((db) =>
                 db
@@ -104,7 +105,7 @@ function ensureMasterUserOnce(masterUserId: string) {
             } else {
                 const hashedApiKey = yield* Effect.tryPromise({
                     try: () => defaultKeyHasher(masterUserApiKey),
-                    catch: (error) => error,
+                    catch: toApiError,
                 });
                 const now = new Date();
 
@@ -175,7 +176,7 @@ export function ensureMasterUser() {
                 return;
             }
 
-            yield* Effect.catch(Effect.provide(ensureMasterUserOnce(masterUserId), DatabaseLayer), (error: unknown) => {
+            yield* Effect.catch(ensureMasterUserOnce(masterUserId), (error: unknown) => {
                 logError("failed to ensure master user", { userId: masterUserId, error });
                 return Effect.void;
             });

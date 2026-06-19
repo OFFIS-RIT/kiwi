@@ -202,7 +202,7 @@ mock.module("@kiwi/db/effect", () => ({
         Effect.asVoid(runMockDbEffect(thunk)),
 }));
 
-mock.module("@kiwi/db", () => mockDb);
+mock.module("@kiwi/db", () => ({ ...mockDb, betterAuthDb: mockDb.db }));
 
 mock.module("../../env", () => ({
     env: {

@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 import type * as Effect from "effect/Effect";
 
 export type LogLevel = "log" | "debug" | "info" | "warn" | "error" | "fatal";
@@ -11,12 +12,16 @@ export type NormalizedLogPayload = {
     attributes: LogAttributes;
 };
 
-export class LoggerError extends Error {
-    readonly _tag = "LoggerError";
-
+export class LoggerError extends Schema.TaggedErrorClass<LoggerError>()("LoggerError", {
+    operation: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+}) {
     constructor(operation: string, options?: { cause?: unknown }) {
-        super(`Logger operation failed: ${operation}`, options);
-        this.name = "LoggerError";
+        super(options?.cause === undefined ? { operation } : { operation, cause: options.cause });
+    }
+
+    override get message(): string {
+        return `Logger operation failed: ${this.operation}`;
     }
 }
 

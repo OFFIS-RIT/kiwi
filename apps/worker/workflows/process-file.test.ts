@@ -10,9 +10,8 @@ process.env.DATABASE_URL = "postgres://user:pass@localhost:5432/kiwi";
 process.env.DATABASE_DIRECT_URL = "postgres://user:pass@localhost:5432/kiwi";
 
 // Dynamic import is required so this test can seed worker env vars before env.ts is evaluated.
-const { fileProcessingWorkflow, shouldAbortRepositoryBatch, shouldFinalizeRepositoryBatch } = await import(
-    "./process-file"
-);
+const { fileProcessingWorkflow, shouldAbortRepositoryBatch, shouldFinalizeRepositoryBatch } =
+    await import("./process-file");
 const { resolveRepositoryFinalizationTargets } = await import("../lib/code-repository-finalizer");
 
 describe("fileProcessingWorkflow", () => {
@@ -37,42 +36,32 @@ describe("fileProcessingWorkflow", () => {
 describe("repository batch guards", () => {
     test("finalizes repository batches only after every child workflow succeeds", () => {
         expect(
-            shouldFinalizeRepositoryBatch(
-                { kind: "repository", retiredFileIds: ["old-file"] },
-                [{ status: "fulfilled", value: undefined }]
-            )
+            shouldFinalizeRepositoryBatch({ kind: "repository", retiredFileIds: ["old-file"] }, [
+                { status: "fulfilled", value: undefined },
+            ])
         ).toBe(true);
         expect(shouldFinalizeRepositoryBatch({ kind: "repository", retiredFileIds: ["old-file"] }, [])).toBe(true);
         expect(
-            shouldFinalizeRepositoryBatch(
-                { kind: "repository", retiredFileIds: ["old-file"] },
-                [
-                    { status: "fulfilled", value: undefined },
-                    { status: "rejected", reason: new Error("failed") },
-                ]
-            )
+            shouldFinalizeRepositoryBatch({ kind: "repository", retiredFileIds: ["old-file"] }, [
+                { status: "fulfilled", value: undefined },
+                { status: "rejected", reason: new Error("failed") },
+            ])
         ).toBe(false);
         expect(shouldFinalizeRepositoryBatch(undefined, [{ status: "fulfilled", value: undefined }])).toBe(false);
     });
 
     test("aborts incremental repository batches when any child workflow fails", () => {
         expect(
-            shouldAbortRepositoryBatch(
-                { kind: "repository", retiredFileIds: [] },
-                [
-                    { status: "fulfilled", value: undefined },
-                    { status: "rejected", reason: new Error("failed") },
-                ]
-            )
+            shouldAbortRepositoryBatch({ kind: "repository", retiredFileIds: [] }, [
+                { status: "fulfilled", value: undefined },
+                { status: "rejected", reason: new Error("failed") },
+            ])
         ).toBe(true);
         expect(
-            shouldAbortRepositoryBatch(
-                { kind: "repository" },
-                [
-                    { status: "fulfilled", value: undefined },
-                    { status: "rejected", reason: new Error("failed") },
-                ]
-            )
+            shouldAbortRepositoryBatch({ kind: "repository" }, [
+                { status: "fulfilled", value: undefined },
+                { status: "rejected", reason: new Error("failed") },
+            ])
         ).toBe(false);
     });
 });

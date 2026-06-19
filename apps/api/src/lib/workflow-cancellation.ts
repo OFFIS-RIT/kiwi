@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { error as logError } from "@kiwi/logger";
 import { sql } from "drizzle-orm";
@@ -19,6 +20,14 @@ export type WorkflowCancellationSummary = {
     canceledCount: number;
     skippedCount: number;
 };
+
+class WorkflowCancellationError extends Schema.TaggedErrorClass<WorkflowCancellationError>()(
+    "WorkflowCancellationError",
+    {
+        message: Schema.String,
+        cause: Schema.optional(Schema.Unknown),
+    }
+) {}
 
 const OPENWORKFLOW_NAMESPACE_ID = "default";
 const ACTIVE_WORKFLOW_STATUSES = ["pending", "running", "sleeping"] as const;
@@ -86,7 +95,11 @@ function cancelWorkflowRunIds(
             const status = yield* Effect.match(
                 Effect.tryPromise({
                     try: () => ow.cancelWorkflowRun(workflowRunId),
-                    catch: (error) => error,
+                    catch: (cause) =>
+                        new WorkflowCancellationError({
+                            message: cause instanceof Error ? cause.message : "Failed to cancel workflow run",
+                            cause,
+                        }),
                 }),
                 {
                     onFailure: (error) => {
@@ -116,7 +129,12 @@ function cancelWorkflowRunIds(
         }
 
         if (failedRunIds.length > 0) {
-            return yield* Effect.fail(new Error(`Failed to cancel ${failedRunIds.length} workflow run(s)`));
+            return yield* Effect.fail(
+                new WorkflowCancellationError({
+                    message: `Failed to cancel ${failedRunIds.length} workflow run(s)`,
+                    cause: failedRunIds,
+                })
+            );
         }
 
         return {
@@ -127,7 +145,9 @@ function cancelWorkflowRunIds(
     });
 }
 
-function cancelActiveWorkflowRuns(context: CancellationContext): Effect.Effect<WorkflowCancellationSummary, unknown, Database> {
+function cancelActiveWorkflowRuns(
+    context: CancellationContext
+): Effect.Effect<WorkflowCancellationSummary, unknown, Database> {
     return Effect.gen(function* () {
         const seenWorkflowRunIds = new Set<string>();
         let canceledCount = 0;
@@ -146,7 +166,12 @@ function cancelActiveWorkflowRuns(context: CancellationContext): Effect.Effect<W
             const newWorkflowRunIds = workflowRunIds.filter((workflowRunId) => !seenWorkflowRunIds.has(workflowRunId));
 
             if (newWorkflowRunIds.length === 0) {
-                return yield* Effect.fail(new Error(`Failed to cancel ${workflowRunIds.length} active workflow run(s)`));
+                return yield* Effect.fail(
+                    new WorkflowCancellationError({
+                        message: `Failed to cancel ${workflowRunIds.length} active workflow run(s)`,
+                        cause: workflowRunIds,
+                    })
+                );
             }
 
             for (const workflowRunId of newWorkflowRunIds) {
@@ -160,7 +185,12 @@ function cancelActiveWorkflowRuns(context: CancellationContext): Effect.Effect<W
 
         const remainingWorkflowRunIds = yield* findActiveWorkflowRunIds(context);
         if (remainingWorkflowRunIds.length > 0) {
-            return yield* Effect.fail(new Error(`Failed to cancel ${remainingWorkflowRunIds.length} active workflow run(s)`));
+            return yield* Effect.fail(
+                new WorkflowCancellationError({
+                    message: `Failed to cancel ${remainingWorkflowRunIds.length} active workflow run(s)`,
+                    cause: remainingWorkflowRunIds,
+                })
+            );
         }
 
         return {
@@ -171,14 +201,18 @@ function cancelActiveWorkflowRuns(context: CancellationContext): Effect.Effect<W
     });
 }
 
-export function cancelActiveGraphWorkflowRuns(graphIds: string[]): Effect.Effect<WorkflowCancellationSummary, unknown, Database> {
-    return cancelActiveWorkflowRuns({ graphIds });
-}
+export const cancelActiveGraphWorkflowRuns: (
+    graphIds: string[]
+) => Effect.Effect<WorkflowCancellationSummary, unknown, Database> = Effect.fn("cancelActiveGraphWorkflowRuns")(
+    (graphIds: string[]) => cancelActiveWorkflowRuns({ graphIds })
+);
 
-export function cancelActiveFileProcessingWorkflowRuns(
+export const cancelActiveFileProcessingWorkflowRuns: (
     graphId: string,
     fileIds: string[]
-): Effect.Effect<WorkflowCancellationSummary, unknown, Database> {
+) => Effect.Effect<WorkflowCancellationSummary, unknown, Database> = Effect.fn(
+    "cancelActiveFileProcessingWorkflowRuns"
+)((graphId: string, fileIds: string[]) => {
     if (fileIds.length === 0) {
         return Effect.succeed({
             requestedCount: 0,
@@ -192,4 +226,4 @@ export function cancelActiveFileProcessingWorkflowRuns(
         fileIds,
         workflowNames: ["process-file"],
     });
-}
+});

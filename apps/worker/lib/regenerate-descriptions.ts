@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import type { Database, DatabaseTransaction } from "@kiwi/db/effect";
-import { useWorkerDb, useWorkerDbVoid } from "./effect";
+import { withWorkerDb, withWorkerDbVoid } from "./effect";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { unexpiredSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -34,15 +34,16 @@ export function createDescriptionClient(graphId: string): Effect.Effect<Descript
     return createWorkerClient(graphId);
 }
 
-async function updateSourceEmbeddingsBatchRows(
+export function updateSourceEmbeddingsBatch(
     tx: Pick<DatabaseTransaction, "execute">,
     updates: SourceEmbeddingUpdate[]
-): Promise<void> {
-    if (updates.length === 0) {
-        return;
-    }
+): Effect.Effect<void, unknown> {
+    return Effect.gen(function* () {
+        if (updates.length === 0) {
+            return;
+        }
 
-    await (tx as any).execute(sql`
+        yield* tx.execute(sql`
         UPDATE sources AS source
         SET embedding = batch.embedding::vector,
             active = true
@@ -55,13 +56,7 @@ async function updateSourceEmbeddingsBatchRows(
         WHERE source.id = batch.id
           AND source.valid_until IS NULL
     `);
-}
-
-export function updateSourceEmbeddingsBatch(
-    tx: Pick<DatabaseTransaction, "execute">,
-    updates: SourceEmbeddingUpdate[]
-): Effect.Effect<void, unknown> {
-    return Effect.tryPromise(() => updateSourceEmbeddingsBatchRows(tx, updates));
+    });
 }
 
 function groupSources<T extends { id: string; description: string }, TKey extends string | null | undefined>(
@@ -165,7 +160,7 @@ export function regenerateEntities(
         }
         const descriptionClient = client ?? (yield* createDescriptionClient(graphId));
 
-        const entities = yield* useWorkerDb((db) =>
+        const entities = yield* withWorkerDb((db) =>
             db
                 .select({ id: entityTable.id, name: entityTable.name, description: entityTable.description })
                 .from(entityTable)
@@ -176,7 +171,7 @@ export function regenerateEntities(
             return;
         }
 
-        const sources = yield* useWorkerDb((db) =>
+        const sources = yield* withWorkerDb((db) =>
             db
                 .select({
                     id: sourcesTable.id,
@@ -210,10 +205,10 @@ export function regenerateEntities(
             })),
             descriptionClient,
             ({ id, description, embedding, sourceEmbeddings }) =>
-                useWorkerDbVoid((db) =>
+                withWorkerDbVoid((db) =>
                     db.transaction((tx) =>
-                        Effect.tryPromise(async () => {
-                            await (tx as any)
+                        Effect.gen(function* () {
+                            yield* tx
                                 .update(entityTable)
                                 .set({
                                     description,
@@ -222,14 +217,12 @@ export function regenerateEntities(
                                 })
                                 .where(eq(entityTable.id, id));
 
-                            await updateSourceEmbeddingsBatchRows(tx, sourceEmbeddings);
+                            yield* updateSourceEmbeddingsBatch(tx, sourceEmbeddings);
                         })
                     )
                 ),
             (id) =>
-                useWorkerDbVoid((db) =>
-                    db.update(entityTable).set({ active: false }).where(eq(entityTable.id, id))
-                )
+                withWorkerDbVoid((db) => db.update(entityTable).set({ active: false }).where(eq(entityTable.id, id)))
         );
     });
 }
@@ -245,7 +238,7 @@ export function regenerateRelationships(
         }
         const descriptionClient = client ?? (yield* createDescriptionClient(graphId));
 
-        const relationships = yield* useWorkerDb((db) =>
+        const relationships = yield* withWorkerDb((db) =>
             db
                 .select({
                     id: relationshipTable.id,
@@ -261,7 +254,7 @@ export function regenerateRelationships(
             return;
         }
 
-        const relationshipSources = yield* useWorkerDb((db) =>
+        const relationshipSources = yield* withWorkerDb((db) =>
             db
                 .select({
                     id: sourcesTable.id,
@@ -291,7 +284,7 @@ export function regenerateRelationships(
         ];
         const entityNames =
             entityIds.length > 0
-                ? yield* useWorkerDb((db) =>
+                ? yield* withWorkerDb((db) =>
                       db
                           .select({ id: entityTable.id, name: entityTable.name })
                           .from(entityTable)
@@ -309,10 +302,10 @@ export function regenerateRelationships(
             })),
             descriptionClient,
             ({ id, description, embedding, sourceEmbeddings }) =>
-                useWorkerDbVoid((db) =>
+                withWorkerDbVoid((db) =>
                     db.transaction((tx) =>
-                        Effect.tryPromise(async () => {
-                            await (tx as any)
+                        Effect.gen(function* () {
+                            yield* tx
                                 .update(relationshipTable)
                                 .set({
                                     description,
@@ -321,12 +314,12 @@ export function regenerateRelationships(
                                 })
                                 .where(eq(relationshipTable.id, id));
 
-                            await updateSourceEmbeddingsBatchRows(tx, sourceEmbeddings);
+                            yield* updateSourceEmbeddingsBatch(tx, sourceEmbeddings);
                         })
                     )
                 ),
             (id) =>
-                useWorkerDbVoid((db) =>
+                withWorkerDbVoid((db) =>
                     db.update(relationshipTable).set({ active: false }).where(eq(relationshipTable.id, id))
                 )
         );

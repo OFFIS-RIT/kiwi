@@ -1,5 +1,7 @@
 import type { JSONObject, JSONValue, TranscriptionModelV3, TranscriptionModelV3CallOptions } from "@ai-sdk/provider";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import { withAiSlotEffect, type AICapability, type AiSlotError } from "./concurrency";
 
 type OpenAICompatibleTranscriptionStyle = "openai" | "openrouter";
 
@@ -10,6 +12,7 @@ type OpenAICompatibleTranscriptionOptions = {
     provider?: string;
     fetch?: typeof globalThis.fetch;
     style?: OpenAICompatibleTranscriptionStyle;
+    capability?: Extract<AICapability, "audio" | "video">;
 };
 
 type TranscriptionGenerateResult = Awaited<ReturnType<TranscriptionModelV3["doGenerate"]>>;
@@ -25,6 +28,26 @@ type TranscriptionProviderOptions = {
     responseFormat?: string;
     chunkingStrategy?: string;
 };
+
+export class TranscriptionResponseError extends Schema.TaggedErrorClass<TranscriptionResponseError>()(
+    "TranscriptionResponseError",
+    {
+        message: Schema.String,
+        status: Schema.Number,
+        statusText: Schema.String,
+        body: Schema.String,
+    }
+) {}
+
+export class TranscriptionParseError extends Schema.TaggedErrorClass<TranscriptionParseError>()(
+    "TranscriptionParseError",
+    {
+        message: Schema.String,
+        cause: Schema.Unknown,
+    }
+) {}
+
+export type TranscriptionError = AiSlotError | TranscriptionResponseError | TranscriptionParseError;
 
 type RawTranscriptionResponse = JSONObject & {
     text?: JSONValue;
@@ -46,6 +69,7 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
     private readonly baseURL: string;
     private readonly fetch: typeof globalThis.fetch;
     private readonly style: OpenAICompatibleTranscriptionStyle;
+    private readonly capability: Extract<AICapability, "audio" | "video">;
 
     constructor(options: OpenAICompatibleTranscriptionOptions) {
         this.provider = options.provider ?? "openaiAPI.transcription";
@@ -54,6 +78,7 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
         this.baseURL = options.baseURL;
         this.fetch = options.fetch ?? globalThis.fetch;
         this.style = options.style ?? inferTranscriptionStyle(options.baseURL);
+        this.capability = options.capability ?? "audio";
     }
 
     doGenerate(options: TranscriptionModelV3CallOptions): Promise<TranscriptionGenerateResult> {
@@ -66,7 +91,7 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
 
     private generateOpenAITranscription(
         options: TranscriptionModelV3CallOptions
-    ): Effect.Effect<TranscriptionGenerateResult, unknown> {
+    ): Effect.Effect<TranscriptionGenerateResult, TranscriptionError> {
         return Effect.gen({ self: this }, function* () {
             const currentDate = new Date();
             const providerOptions = readTranscriptionProviderOptions(options.providerOptions);
@@ -100,12 +125,12 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
                 formData.append("temperature", String(providerOptions.temperature));
             }
 
-            const response = yield* Effect.tryPromise(() =>
+            const response = yield* withAiSlotEffect(this.capability, (signal) =>
                 this.fetch(transcriptionURL(this.baseURL), {
                     method: "POST",
                     headers: buildHeaders(this.apiKey, options.headers),
                     body: formData,
-                    signal: options.abortSignal,
+                    signal: combineAbortSignals(signal, options.abortSignal),
                 })
             );
 
@@ -138,7 +163,7 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
 
     private generateOpenRouterTranscription(
         options: TranscriptionModelV3CallOptions
-    ): Effect.Effect<TranscriptionGenerateResult, unknown> {
+    ): Effect.Effect<TranscriptionGenerateResult, TranscriptionError> {
         return Effect.gen({ self: this }, function* () {
             const currentDate = new Date();
             const providerOptions = readTranscriptionProviderOptions(options.providerOptions);
@@ -162,7 +187,7 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
                 body.provider = providerOptions.provider;
             }
 
-            const response = yield* Effect.tryPromise(() =>
+            const response = yield* withAiSlotEffect(this.capability, (signal) =>
                 this.fetch(transcriptionURL(this.baseURL), {
                     method: "POST",
                     headers: {
@@ -170,7 +195,7 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
                         "content-type": "application/json",
                     },
                     body: JSON.stringify(body),
-                    signal: options.abortSignal,
+                    signal: combineAbortSignals(signal, options.abortSignal),
                 })
             );
 
@@ -253,19 +278,25 @@ function buildHeaders(apiKey: string, headers: Record<string, string | undefined
 function parseTranscriptionResponse(
     response: Response,
     responseFormat = "json"
-): Effect.Effect<RawTranscriptionResponse, unknown> {
+): Effect.Effect<RawTranscriptionResponse, TranscriptionResponseError | TranscriptionParseError> {
     return Effect.gen(function* () {
-        const text = yield* Effect.tryPromise(() => response.text());
+        const text = yield* Effect.tryPromise({
+            try: () => response.text(),
+            catch: (cause) =>
+                new TranscriptionParseError({
+                    message: "OpenAI-compatible transcription response body could not be read",
+                    cause,
+                }),
+        });
 
         if (!response.ok) {
-            return yield* Effect.fail(
-                new Error(
-                    `OpenAI-compatible transcription request failed (${response.status} ${response.statusText}): ${text.slice(
-                        0,
-                        500
-                    )}`
-                )
-            );
+            const body = text.slice(0, 500);
+            return yield* new TranscriptionResponseError({
+                message: `OpenAI-compatible transcription request failed (${response.status} ${response.statusText}): ${body}`,
+                status: response.status,
+                statusText: response.statusText,
+                body,
+            });
         }
 
         if (!expectsJSONTranscriptionResponse(responseFormat)) {
@@ -274,7 +305,11 @@ function parseTranscriptionResponse(
 
         return yield* Effect.try({
             try: () => JSON.parse(text) as RawTranscriptionResponse,
-            catch: (error) => new Error("OpenAI-compatible transcription response was not valid JSON", { cause: error }),
+            catch: (cause) =>
+                new TranscriptionParseError({
+                    message: "OpenAI-compatible transcription response was not valid JSON",
+                    cause,
+                }),
         });
     });
 }
@@ -496,6 +531,19 @@ function buildProviderMetadata(
             ...(usage !== undefined ? { usage } : {}),
         },
     };
+}
+
+function combineAbortSignals(primary: AbortSignal, secondary: AbortSignal | undefined): AbortSignal {
+    if (!secondary) {
+        return primary;
+    }
+    if (primary.aborted) {
+        return primary;
+    }
+    if (secondary.aborted) {
+        return secondary;
+    }
+    return AbortSignal.any([primary, secondary]);
 }
 
 function readString(value: JSONValue | undefined): string | undefined {

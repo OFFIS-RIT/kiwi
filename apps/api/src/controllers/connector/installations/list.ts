@@ -6,32 +6,38 @@ import { assertCanUseInstallation, requireActiveConnector } from "../../../lib/c
 import { toPublicInstallation } from "../../../lib/connectors";
 import type { AuthUser } from "../../../middleware/auth";
 import { connectorApiErrorOptions, toApiError } from "../../_shared/api-effect";
-export function listConnectorInstallations(input: { user: AuthUser; connectorId: string }): Effect.Effect<ReturnType<typeof toPublicInstallation>[], ReturnType<typeof toApiError>, Database> {
-    return Effect.mapError(Effect.gen(function* () {
-        yield* requireActiveConnector(input.connectorId);
-        const rows = yield* tryDb((db) =>
-            db
-                .select()
-                .from(connectorInstallationsTable)
-                .where(
-                    and(
-                        eq(connectorInstallationsTable.connectorId, input.connectorId),
-                        eq(connectorInstallationsTable.status, "active")
+export function listConnectorInstallations(input: {
+    user: AuthUser;
+    connectorId: string;
+}): Effect.Effect<ReturnType<typeof toPublicInstallation>[], ReturnType<typeof toApiError>, Database> {
+    return Effect.mapError(
+        Effect.gen(function* () {
+            yield* requireActiveConnector(input.connectorId);
+            const rows = yield* tryDb((db) =>
+                db
+                    .select()
+                    .from(connectorInstallationsTable)
+                    .where(
+                        and(
+                            eq(connectorInstallationsTable.connectorId, input.connectorId),
+                            eq(connectorInstallationsTable.status, "active")
+                        )
                     )
-                )
-                .orderBy(asc(connectorInstallationsTable.providerAccountLogin))
-        );
-    
-        const visible = [];
-        for (const row of rows) {
-            const allowed = yield* Effect.match(assertCanUseInstallation(input.user, row.id), {
-                onFailure: () => false,
-                onSuccess: () => true,
-            });
-            if (allowed) {
-                visible.push(toPublicInstallation(row));
+                    .orderBy(asc(connectorInstallationsTable.providerAccountLogin))
+            );
+
+            const visible = [];
+            for (const row of rows) {
+                const allowed = yield* Effect.match(assertCanUseInstallation(input.user, row.id), {
+                    onFailure: () => false,
+                    onSuccess: () => true,
+                });
+                if (allowed) {
+                    visible.push(toPublicInstallation(row));
+                }
             }
-        }
-        return visible;
-    }), (error) => toApiError(error, connectorApiErrorOptions));
+            return visible;
+        }),
+        (error) => toApiError(error, connectorApiErrorOptions)
+    );
 }

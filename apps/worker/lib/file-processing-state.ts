@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import type { Database } from "@kiwi/db/effect";
-import { useWorkerDb, useWorkerDbVoid } from "./effect";
+import { withWorkerDb, withWorkerDbVoid } from "./effect";
 import { filesTable, type FileProcessStatus, type FileProcessStep } from "@kiwi/db/tables/graph";
 import type { FileProcessErrorCode } from "@kiwi/contracts/routes";
 import { eq } from "drizzle-orm";
@@ -11,7 +11,7 @@ export function updateFileProcessingState(
     status: FileProcessStatus,
     processErrorCode?: FileProcessErrorCode | null
 ): Effect.Effect<void, unknown, Database> {
-    return useWorkerDbVoid((db) =>
+    return withWorkerDbVoid((db) =>
         db
             .update(filesTable)
             .set({
@@ -29,7 +29,7 @@ export function updateFileProcessingState(
 
 export function stopIfFileDeleted(fileId: string): Effect.Effect<boolean, unknown, Database> {
     return Effect.gen(function* () {
-        const [file] = yield* useWorkerDb((db) =>
+        const [file] = yield* withWorkerDb((db) =>
             db.select({ deleted: filesTable.deleted }).from(filesTable).where(eq(filesTable.id, fileId)).limit(1)
         );
 

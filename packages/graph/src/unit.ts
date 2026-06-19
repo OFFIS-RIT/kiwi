@@ -1,84 +1,92 @@
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { ulid } from "ulid";
-import { withAiSlot } from "@kiwi/ai/lock";
+import { withAiSlotEffect } from "@kiwi/ai/lock";
 import { extractPrompt } from "@kiwi/ai/prompts/extract.prompt";
 import { generateText, Output } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { Graph, GraphChunker, GraphFile, GraphTextChunk, LoaderSourceChunk, TextUnitSourceChunk, Unit } from ".";
 import { SemanticChunker } from "@kiwi/loaders/chunker/semantic";
-import { loadGraphDocument } from "@kiwi/loaders/loader/document";
+import { loadGraphDocumentEffect } from "@kiwi/loaders/loader/document";
 import { toPageAwareChunksWithSource } from "@kiwi/loaders/lib/page-fence";
 import { createSourceChunks, DEFAULT_SOURCE_CHUNK_TOKENS } from "@kiwi/loaders/lib/source-chunk";
 import z from "zod";
 
 export const MAX_SOURCE_CHUNKS_PER_SOURCE = 8;
 
-export class UnitCreationError extends Error {
-    readonly _tag = "UnitCreationError";
+export class UnitCreationError extends Schema.TaggedErrorClass<UnitCreationError>()("UnitCreationError", {
+    message: Schema.String,
+    cause: Schema.Unknown,
+}) {}
 
-    constructor(override readonly cause: unknown) {
-        super("Failed to create graph units.");
-        this.name = "UnitCreationError";
-    }
-}
+export const createUnits = Effect.fn("createUnits")(function* (file: GraphFile) {
+    const document = yield* loadGraphDocumentEffect(file.loader).pipe(
+        Effect.mapError((cause) => new UnitCreationError({ message: "Failed to create graph units.", cause }))
+    );
 
-export function createUnits(file: GraphFile): Effect.Effect<Unit[], UnitCreationError> {
-    return Effect.gen(function* () {
-        const document = yield* Effect.tryPromise({
-            try: () => loadGraphDocument(file.loader),
-            catch: (cause) => new UnitCreationError(cause),
-        });
-
-        return yield* createUnitsFromText({
-            fileId: file.id,
-            fileType: file.filetype,
-            text: document.text,
-            chunker: file.chunker,
-            loaderSourceChunks: document.sourceChunks,
-        });
+    return yield* createUnitsFromText({
+        fileId: file.id,
+        fileType: file.filetype,
+        text: document.text,
+        chunker: file.chunker,
+        loaderSourceChunks: document.sourceChunks,
     });
-}
+});
 
-export function createUnitsFromText(options: {
+export const createUnitsFromText = Effect.fn("createUnitsFromText")(function* (options: {
     fileId: string;
     fileType: string;
     text: string;
     chunker: GraphChunker;
     loaderSourceChunks?: LoaderSourceChunk[];
-}): Effect.Effect<Unit[], UnitCreationError> {
-    return Effect.tryPromise({
-        try: async () => {
-            const textChunks = await options.chunker.getChunkSpans(options.text);
-            const chunks = toPageAwareChunksWithSource(textChunks, (chunk) => chunk.content);
-            const loaderSourceChunks = prepareLoaderSourceChunks(options.loaderSourceChunks ?? []);
-            let fallbackTextChunker: GraphChunker | undefined;
-            const units: Unit[] = [];
+}) {
+    const textChunks = yield* getChunkSpansEffect(options.chunker, options.text);
+    const chunks = toPageAwareChunksWithSource(textChunks, (chunk) => chunk.content);
+    const loaderSourceChunks = prepareLoaderSourceChunks(options.loaderSourceChunks ?? []);
+    let fallbackTextChunker: GraphChunker | undefined;
+    const units: Unit[] = [];
 
-            for (const chunk of chunks) {
-                const unit: Unit = {
-                    id: ulid(),
-                    fileId: options.fileId,
-                    content: chunk.content,
-                    startPage: chunk.startPage,
-                    endPage: chunk.endPage,
-                    chunks: sourceChunksForUnit(loaderSourceChunks, chunk.source),
-                };
+    for (const chunk of chunks) {
+        const unit: Unit = {
+            id: ulid(),
+            fileId: options.fileId,
+            content: chunk.content,
+            startPage: chunk.startPage,
+            endPage: chunk.endPage,
+            chunks: sourceChunksForUnit(loaderSourceChunks, chunk.source),
+        };
 
-                if (unit.chunks.length === 0) {
-                    unit.chunks = await createSourceChunks(chunk.content, {
+        if (unit.chunks.length === 0) {
+            unit.chunks = yield* Effect.tryPromise({
+                try: () =>
+                    createSourceChunks(chunk.content, {
                         fileType: options.fileType,
                         startPage: chunk.startPage,
                         endPage: chunk.endPage,
                         textChunker: (fallbackTextChunker ??= new SemanticChunker(DEFAULT_SOURCE_CHUNK_TOKENS)),
-                    });
-                }
+                    }),
+                catch: (cause) => new UnitCreationError({ message: "Failed to create graph units.", cause }),
+            });
+        }
 
-                units.push(unit);
-            }
+        units.push(unit);
+    }
 
-            return units;
-        },
-        catch: (cause) => new UnitCreationError(cause),
+    return units;
+});
+
+function getChunkSpansEffect(chunker: GraphChunker, text: string): Effect.Effect<GraphTextChunk[], UnitCreationError> {
+    if (chunker.getChunkSpansEffect) {
+        return chunker
+            .getChunkSpansEffect(text)
+            .pipe(
+                Effect.mapError((cause) => new UnitCreationError({ message: "Failed to create graph units.", cause }))
+            );
+    }
+
+    return Effect.tryPromise({
+        try: () => chunker.getChunkSpans(text),
+        catch: (cause) => new UnitCreationError({ message: "Failed to create graph units.", cause }),
     });
 }
 
@@ -201,48 +209,40 @@ function buildExtractionInput(unit: Unit): string {
         .join("\n\n");
 }
 
-export class ProcessUnitAiError extends Error {
-    readonly _tag = "ProcessUnitAiError";
+export class ProcessUnitAiError extends Schema.TaggedErrorClass<ProcessUnitAiError>()("ProcessUnitAiError", {
+    message: Schema.String,
+    cause: Schema.Unknown,
+}) {}
 
-    constructor(override readonly cause: unknown) {
-        super("Failed to extract graph data from unit.");
+export class ProcessUnitGraphMappingError extends Schema.TaggedErrorClass<ProcessUnitGraphMappingError>()(
+    "ProcessUnitGraphMappingError",
+    {
+        message: Schema.String,
+        cause: Schema.Unknown,
     }
-}
+) {}
 
-export class ProcessUnitGraphMappingError extends Error {
-    readonly _tag = "ProcessUnitGraphMappingError";
+const extractGraphData = Effect.fn("extractGraphData")(function* (unit: Unit, model: LanguageModelV3, prompt: string) {
+    const { output } = yield* withAiSlotEffect("text", (signal) =>
+        generateText({
+            model,
+            system: prompt,
+            prompt: buildExtractionInput(unit),
+            temperature: 0.1,
+            abortSignal: signal,
+            output: Output.object({
+                description: "The extracted entities and relationships from the text.",
+                schema: extractOutputSchema,
+            }),
+        })
+    ).pipe(
+        Effect.mapError(
+            (cause) => new ProcessUnitAiError({ message: "Failed to extract graph data from unit.", cause })
+        )
+    );
 
-    constructor(override readonly cause: unknown) {
-        super("Failed to map extracted graph data.");
-    }
-}
-
-function extractGraphData(
-    unit: Unit,
-    model: LanguageModelV3,
-    prompt: string
-): Effect.Effect<z.infer<typeof extractOutputSchema>, ProcessUnitAiError> {
-    return Effect.tryPromise({
-        try: async () => {
-            const { output } = await withAiSlot("text", (signal) =>
-                generateText({
-                    model,
-                    system: prompt,
-                    prompt: buildExtractionInput(unit),
-                    temperature: 0.1,
-                    abortSignal: signal,
-                    output: Output.object({
-                        description: "The extracted entities and relationships from the text.",
-                        schema: extractOutputSchema,
-                    }),
-                })
-            );
-
-            return output;
-        },
-        catch: (cause) => new ProcessUnitAiError(cause),
-    });
-}
+    return output;
+});
 
 function mapGraphEntities(
     unit: Unit,
@@ -280,7 +280,7 @@ function mapGraphEntities(
 
             return { entityNameToId, graphEntities };
         },
-        catch: (cause) => new ProcessUnitGraphMappingError(cause),
+        catch: (cause) => new ProcessUnitGraphMappingError({ message: "Failed to map extracted graph data.", cause }),
     });
 }
 
@@ -317,29 +317,26 @@ function mapGraphRelationships(
                     },
                 ];
             }),
-        catch: (cause) => new ProcessUnitGraphMappingError(cause),
+        catch: (cause) => new ProcessUnitGraphMappingError({ message: "Failed to map extracted graph data.", cause }),
     });
 }
 
-export function processUnit(
+export const processUnit = Effect.fn("processUnit")(function* (
     unit: Unit,
     model: LanguageModelV3,
     documentName = unit.fileId,
     metadata?: string
-): Effect.Effect<Graph, ProcessUnitAiError | ProcessUnitGraphMappingError> {
+) {
     const entities = ["ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"];
     const prompt = extractPrompt(entities, documentName, metadata);
+    const output = yield* extractGraphData(unit, model, prompt);
+    const { entityNameToId, graphEntities } = yield* mapGraphEntities(unit, output);
+    const graphRelationships = yield* mapGraphRelationships(unit, output, entityNameToId);
 
-    return Effect.gen(function* () {
-        const output = yield* extractGraphData(unit, model, prompt);
-        const { entityNameToId, graphEntities } = yield* mapGraphEntities(unit, output);
-        const graphRelationships = yield* mapGraphRelationships(unit, output, entityNameToId);
-
-        return {
-            id: ulid(),
-            units: [unit],
-            entities: graphEntities,
-            relationships: graphRelationships,
-        };
-    });
-}
+    return {
+        id: ulid(),
+        units: [unit],
+        entities: graphEntities,
+        relationships: graphRelationships,
+    };
+});

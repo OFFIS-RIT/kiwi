@@ -1,4 +1,7 @@
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Exit from "effect/Exit";
+import * as Schema from "effect/Schema";
 import { env } from "../env";
 
 const textEncoder = new TextEncoder();
@@ -11,38 +14,55 @@ type ProjectFileAccessTokenPayload = {
     exp: number;
 };
 
-let signingKeyPromise: Promise<CryptoKey> | null = null;
+export class ProjectFileAccessTokenError extends Schema.TaggedErrorClass<ProjectFileAccessTokenError>()(
+    "ProjectFileAccessTokenError",
+    {
+        message: Schema.String,
+        cause: Schema.Unknown,
+    }
+) {}
+
+let signingKeyDeferred: Deferred.Deferred<CryptoKey, ProjectFileAccessTokenError> | null = null;
 let signingKeySecret: string | null = null;
 
 export function importProjectFileAccessTokenSigningKey(
     secret: string,
     keyImporter: Pick<SubtleCrypto, "importKey"> = crypto.subtle
-): Effect.Effect<CryptoKey, unknown> {
+): Effect.Effect<CryptoKey, ProjectFileAccessTokenError> {
     return Effect.tryPromise({
         try: () =>
-            keyImporter.importKey(
-                "raw",
-                textEncoder.encode(secret),
-                { name: "HMAC", hash: "SHA-256" },
-                false,
-                ["sign", "verify"]
-            ),
-        catch: (error) => new Error("Failed to import AUTH_SECRET as an HMAC signing key", { cause: error }),
+            keyImporter.importKey("raw", textEncoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
+                "sign",
+                "verify",
+            ]),
+        catch: (cause) =>
+            new ProjectFileAccessTokenError({
+                message: "Failed to import AUTH_SECRET as an HMAC signing key",
+                cause,
+            }),
     });
 }
 
-function getSigningKey(): Effect.Effect<CryptoKey, unknown> {
-    const secret = env.AUTH_SECRET;
-    if (!signingKeyPromise || signingKeySecret !== secret) {
-        signingKeySecret = secret;
-        signingKeyPromise = Effect.runPromise(importProjectFileAccessTokenSigningKey(secret)).catch((error) => {
-            signingKeyPromise = null;
-            signingKeySecret = null;
-            throw error;
-        });
-    }
+function getSigningKey(): Effect.Effect<CryptoKey, ProjectFileAccessTokenError> {
+    return Effect.gen(function* () {
+        const secret = env.AUTH_SECRET;
+        if (signingKeyDeferred && signingKeySecret === secret) {
+            return yield* Deferred.await(signingKeyDeferred);
+        }
 
-    return Effect.tryPromise(() => signingKeyPromise!);
+        const deferred = yield* Deferred.make<CryptoKey, ProjectFileAccessTokenError>();
+        signingKeySecret = secret;
+        signingKeyDeferred = deferred;
+
+        const exit = yield* Effect.exit(importProjectFileAccessTokenSigningKey(secret));
+        if (Exit.isFailure(exit)) {
+            signingKeySecret = null;
+            signingKeyDeferred = null;
+        }
+        yield* Deferred.done(deferred, exit);
+
+        return yield* Deferred.await(deferred);
+    });
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {
@@ -77,7 +97,7 @@ export function createProjectFileAccessToken(
     graphId: string,
     fileId: string,
     options: { expiresInSeconds?: number; now?: Date } = {}
-): Effect.Effect<string, unknown> {
+): Effect.Effect<string, ProjectFileAccessTokenError> {
     return Effect.gen(function* () {
         const nowSeconds = Math.floor((options.now?.getTime() ?? Date.now()) / 1000);
         const payload: ProjectFileAccessTokenPayload = {
@@ -87,9 +107,14 @@ export function createProjectFileAccessToken(
         };
         const encodedPayload = base64UrlEncode(textEncoder.encode(JSON.stringify(payload)));
         const signingKey = yield* getSigningKey();
-        const signature = yield* Effect.tryPromise(() =>
-            crypto.subtle.sign("HMAC", signingKey, textEncoder.encode(encodedPayload))
-        );
+        const signature = yield* Effect.tryPromise({
+            try: () => crypto.subtle.sign("HMAC", signingKey, textEncoder.encode(encodedPayload)),
+            catch: (cause) =>
+                new ProjectFileAccessTokenError({
+                    message: "Failed to sign project file access token",
+                    cause,
+                }),
+        });
 
         return `${encodedPayload}.${base64UrlEncode(new Uint8Array(signature))}`;
     });
@@ -100,7 +125,7 @@ export function verifyProjectFileAccessToken(
     graphId: string,
     fileId: string,
     options: { now?: Date } = {}
-): Effect.Effect<boolean, unknown> {
+): Effect.Effect<boolean, ProjectFileAccessTokenError> {
     return Effect.gen(function* () {
         if (!token) {
             return false;
@@ -117,9 +142,15 @@ export function verifyProjectFileAccessToken(
         }
 
         const signingKey = yield* getSigningKey();
-        const verified = yield* Effect.tryPromise(() =>
-            crypto.subtle.verify("HMAC", signingKey, toArrayBuffer(signature), textEncoder.encode(encodedPayload))
-        );
+        const verified = yield* Effect.tryPromise({
+            try: () =>
+                crypto.subtle.verify("HMAC", signingKey, toArrayBuffer(signature), textEncoder.encode(encodedPayload)),
+            catch: (cause) =>
+                new ProjectFileAccessTokenError({
+                    message: "Failed to verify project file access token",
+                    cause,
+                }),
+        });
         if (!verified) {
             return false;
         }

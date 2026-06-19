@@ -7,6 +7,8 @@ type ToolRunOptions = {
     hints: string[];
 };
 
+type ToolFailure = Error | { readonly _tag: string; readonly message?: string };
+
 const REDACTED = "[redacted]";
 const LONG_NUMERIC_VECTOR_REGEX = /(?:-?\d+(?:\.\d+)?(?:e[+-]?\d+)?\s*,\s*){20,}-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/giu;
 
@@ -46,7 +48,7 @@ function sanitizeLogValue(value: unknown): unknown {
     );
 }
 
-function describeFailure(error: unknown) {
+function describeFailure(error: ToolFailure) {
     if (error instanceof Error && /^Invalid .* cursor$/iu.test(error.message)) {
         return {
             summary: "the provided cursor is invalid for this lookup",
@@ -63,10 +65,10 @@ function describeFailure(error: unknown) {
     };
 }
 
-export function runToolSafely<R>(
+export function runToolSafely<Args extends object, R, E extends ToolFailure>(
     options: ToolRunOptions,
-    args: Record<string, unknown>,
-    run: () => Effect.Effect<string, unknown, R>
+    args: Args,
+    run: () => Effect.Effect<string, E, R>
 ): Effect.Effect<string, never, R> {
     logDebug("ai tool execution started", { toolName: options.name, toolArgs: sanitizeLogValue(args) });
 

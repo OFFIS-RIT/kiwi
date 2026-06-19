@@ -106,7 +106,9 @@ describe("code repository graph builder", () => {
         expect(relationshipKinds(graph)).toContain("IMPLEMENTS");
         expect(graph.relationships.every((relationship) => relationship.directed === true)).toBe(true);
 
-        const runEntity = graph.entities.find((entity) => entity.name === `${repositoryPrefix}:src/index.ts#Runner.run`);
+        const runEntity = graph.entities.find(
+            (entity) => entity.name === `${repositoryPrefix}:src/index.ts#Runner.run`
+        );
         expect(runEntity).toBeDefined();
         const runChunk = runEntity?.sources
             .map((source) => graph.units.find((unit) => unit.id === source.unitId)?.chunks[0])
@@ -237,7 +239,12 @@ describe("code repository graph builder", () => {
             )
         ).toBe(2);
         expect(
-            hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:src/default-consumer.ts`, `${repositoryPrefix}:src/lib/index.ts`)
+            hasRelationship(
+                graph,
+                "IMPORTS",
+                `${repositoryPrefix}:src/default-consumer.ts`,
+                `${repositoryPrefix}:src/lib/index.ts`
+            )
         ).toBe(true);
     });
 
@@ -255,10 +262,9 @@ describe("code repository graph builder", () => {
         const barrel = baseFile({
             fileId: "file-export-star-barrel",
             path: "src/lib/index.ts",
-            content: [
-                "export { default as helper } from '../default-helper';",
-                "export * from '../shared';",
-            ].join("\n"),
+            content: ["export { default as helper } from '../default-helper';", "export * from '../shared';"].join(
+                "\n"
+            ),
         });
         const consumer = baseFile({
             fileId: "file-explicit-extension-consumer",
@@ -371,12 +377,7 @@ describe("code repository graph builder", () => {
         const consumer = baseFile({
             fileId: "file-external-default-consumer",
             path: "src/external-default.ts",
-            content: [
-                "import nanoid from 'nanoid';",
-                "export function run() {",
-                "  return nanoid();",
-                "}",
-            ].join("\n"),
+            content: ["import nanoid from 'nanoid';", "export function run() {", "  return nanoid();", "}"].join("\n"),
         });
         const manifest = buildCodeRepositoryManifest([consumer]);
         const graph = buildCodeFileGraph(consumer, manifest);
@@ -453,12 +454,7 @@ describe("code repository graph builder", () => {
         const main = baseFile({
             fileId: "file-rust-qualified-main",
             path: "src/main.rs",
-            content: [
-                "mod math;",
-                "pub fn run() -> i32 {",
-                "  crate::math::nested::add()",
-                "}",
-            ].join("\n"),
+            content: ["mod math;", "pub fn run() -> i32 {", "  crate::math::nested::add()", "}"].join("\n"),
         });
         const manifest = buildCodeRepositoryManifest([mathRoot, nestedMath, main]);
         const graph = buildCodeFileGraph(main, manifest);
@@ -523,12 +519,7 @@ describe("code repository graph builder", () => {
         const graph = buildCodeFileGraph(main, manifest);
 
         expect(
-            hasRelationship(
-                graph,
-                "CALLS",
-                `${repositoryPrefix}:src/std-mem.zig#run`,
-                "widgets:external:std#mem.eql"
-            )
+            hasRelationship(graph, "CALLS", `${repositoryPrefix}:src/std-mem.zig#run`, "widgets:external:std#mem.eql")
         ).toBe(true);
     });
 
@@ -536,11 +527,7 @@ describe("code repository graph builder", () => {
         const main = baseFile({
             fileId: "file-c-ambiguous-system-main",
             path: "src/ambiguous-stdio.c",
-            content: [
-                "#include <stdio.h>",
-                "#include <string.h>",
-                'int run(void) { return printf("hi"); }',
-            ].join("\n"),
+            content: ["#include <stdio.h>", "#include <string.h>", 'int run(void) { return printf("hi"); }'].join("\n"),
         });
         const manifest = buildCodeRepositoryManifest([main]);
         const graph = buildCodeFileGraph(main, manifest);
@@ -558,11 +545,7 @@ describe("code repository graph builder", () => {
         const main = baseFile({
             fileId: "file-c-local-over-external-main",
             path: "src/local-over-external.c",
-            content: [
-                "#include <stdio.h>",
-                "int printf(void);",
-                "int run(void) { return printf(); }",
-            ].join("\n"),
+            content: ["#include <stdio.h>", "int printf(void);", "int run(void) { return printf(); }"].join("\n"),
         });
         const manifest = buildCodeRepositoryManifest([main]);
         const graph = buildCodeFileGraph(main, manifest);
@@ -594,17 +577,18 @@ describe("code repository graph builder", () => {
         const nested = baseFile({
             fileId: "file-rust-qualified-nested",
             path: "src/nested/mod.rs",
-            content: [
-                "pub fn run() -> i32 {",
-                "  crate::math::add() + super::math::add()",
-                "}",
-            ].join("\n"),
+            content: ["pub fn run() -> i32 {", "  crate::math::add() + super::math::add()", "}"].join("\n"),
         });
         const manifest = buildCodeRepositoryManifest([math, nested]);
         const graph = buildCodeFileGraph(nested, manifest);
 
         expect(
-            relationshipCount(graph, "CALLS", `${repositoryPrefix}:src/nested/mod.rs#run`, `${repositoryPrefix}:src/math.rs#add`)
+            relationshipCount(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/nested/mod.rs#run`,
+                `${repositoryPrefix}:src/math.rs#add`
+            )
         ).toBe(2);
     });
 
@@ -612,12 +596,9 @@ describe("code repository graph builder", () => {
         const main = baseFile({
             fileId: "file-zig-std-main",
             path: "src/std-main.zig",
-            content: [
-                'const std = @import("std");',
-                "pub fn run() void {",
-                '  std.debug.print("hi", .{});',
-                "}",
-            ].join("\n"),
+            content: ['const std = @import("std");', "pub fn run() void {", '  std.debug.print("hi", .{});', "}"].join(
+                "\n"
+            ),
         });
         const manifest = buildCodeRepositoryManifest([main]);
         const graph = buildCodeFileGraph(main, manifest);
@@ -630,7 +611,9 @@ describe("code repository graph builder", () => {
                 "widgets:external:std#debug.print"
             )
         ).toBe(true);
-        expect(hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:src/std-main.zig`, "widgets:external:std")).toBe(true);
+        expect(hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:src/std-main.zig`, "widgets:external:std")).toBe(
+            true
+        );
     });
 
     test("resolves C system includes to external symbols", () => {
@@ -664,19 +647,20 @@ describe("code repository graph builder", () => {
         const main = baseFile({
             fileId: "file-rust-main",
             path: "src/main.rs",
-            content: [
-                "mod math;",
-                "use crate::math::add;",
-                "pub fn run() -> i32 {",
-                "  add() + math::add()",
-                "}",
-            ].join("\n"),
+            content: ["mod math;", "use crate::math::add;", "pub fn run() -> i32 {", "  add() + math::add()", "}"].join(
+                "\n"
+            ),
         });
         const manifest = buildCodeRepositoryManifest([math, main]);
         const graph = buildCodeFileGraph(main, manifest);
 
         expect(
-            relationshipCount(graph, "CALLS", `${repositoryPrefix}:src/main.rs#run`, `${repositoryPrefix}:src/math.rs#add`)
+            relationshipCount(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/main.rs#run`,
+                `${repositoryPrefix}:src/math.rs#add`
+            )
         ).toBe(2);
         expect(
             hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:src/main.rs`, `${repositoryPrefix}:src/math.rs`)
@@ -813,12 +797,7 @@ describe("code repository graph builder", () => {
             .find(Boolean);
 
         expect(
-            hasRelationship(
-                graph,
-                "CALLS",
-                `${repositoryPrefix}:src/main.c#run`,
-                `${repositoryPrefix}:src/math.h#add`
-            )
+            hasRelationship(graph, "CALLS", `${repositoryPrefix}:src/main.c#run`, `${repositoryPrefix}:src/math.h#add`)
         ).toBe(true);
         expect(
             hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:src/main.c`, `${repositoryPrefix}:src/math.h`)

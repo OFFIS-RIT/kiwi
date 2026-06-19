@@ -61,6 +61,7 @@ mock.module("@kiwi/db/effect", () => ({
 }));
 
 mock.module("@kiwi/db", () => ({
+    betterAuthDb: db,
     db,
 }));
 

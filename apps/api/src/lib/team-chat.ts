@@ -422,7 +422,9 @@ function buildTeamChatToolset(options: {
                             { concurrency: "unbounded" }
                         );
                         abortSignal?.throwIfAborted();
-                        const results = settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+                        const results = settled.flatMap((result) =>
+                            result.status === "fulfilled" ? [result.value] : []
+                        );
                         const failedGraphs = settled.flatMap((result) => {
                             if (result.status === "fulfilled") {
                                 return [];
@@ -544,7 +546,13 @@ export function enrichTeamCitation(
                 .from(sourcesTable)
                 .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
                 .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                .where(and(eq(sourcesTable.id, sourceId), currentSourcePredicate(sourcesTable), visibleFilePredicate(filesTable)))
+                .where(
+                    and(
+                        eq(sourcesTable.id, sourceId),
+                        currentSourcePredicate(sourcesTable),
+                        visibleFilePredicate(filesTable)
+                    )
+                )
                 .limit(1)
         );
 
@@ -577,7 +585,11 @@ export function refreshTeamReplyContext(options: {
     teamName: string;
     forceCompaction?: boolean;
     abortSignal?: AbortSignal;
-}): Effect.Effect<{ systemPrompt: string; contextMessages: ModelMessage[]; estimatedPromptTokens: number }, unknown, Database> {
+}): Effect.Effect<
+    { systemPrompt: string; contextMessages: ModelMessage[]; estimatedPromptTokens: number },
+    unknown,
+    Database
+> {
     return Effect.gen(function* () {
         const systemPrompt = prependPromptGuidance(
             createTeamChatSystemPrompt(options.teamName, options.runtime.requestInformation),

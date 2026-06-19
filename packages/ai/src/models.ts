@@ -1,6 +1,5 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
 import {
-    API_ERROR_CODES,
     ApiError,
     graphNotFoundError,
     invalidGraphOwnerError,
@@ -191,7 +190,7 @@ export function encryptModelCredentials(credentials: ModelCredentials, secret: s
 export function decryptModelCredentials(value: string, secret: string): ModelCredentials {
     const [version, rawIv, rawAuthTag, rawCiphertext] = value.split(":");
     if (version !== ENCRYPTION_VERSION || !rawIv || !rawAuthTag || !rawCiphertext) {
-        throw new Error(API_ERROR_CODES.INVALID_MODEL);
+        throw invalidModelError();
     }
 
     try {
@@ -205,14 +204,14 @@ export function decryptModelCredentials(value: string, secret: string): ModelCre
         const parsed = JSON.parse(plaintext) as ModelCredentials;
         assertValidCredentials(parsed);
         return parsed;
-    } catch (error) {
-        throw new Error(API_ERROR_CODES.INVALID_MODEL, { cause: error });
+    } catch {
+        throw invalidModelError();
     }
 }
 
 function assertValidCredentials(credentials: ModelCredentials) {
     if (!credentials || typeof credentials.apiKey !== "string" || credentials.apiKey.trim().length === 0) {
-        throw new Error(API_ERROR_CODES.INVALID_MODEL);
+        throw invalidModelError();
     }
 }
 
@@ -266,9 +265,7 @@ function readLegacyModelSeed(
     };
 }
 
-export function collectLegacyModelSeeds(
-    legacyEnv: Record<string, string | undefined> = process.env
-): LegacyModelSeed[] {
+export function collectLegacyModelSeeds(legacyEnv: Record<string, string | undefined>): LegacyModelSeed[] {
     const textModel = readLegacyModelSeed(legacyEnv, { type: "text", prefix: "AI_TEXT" });
     const embeddingModel = readLegacyModelSeed(legacyEnv, {
         type: "embedding",
@@ -343,7 +340,7 @@ function insertLegacyModelSeed(
 
 export function bootstrapLegacyModelsFromEnv(options: {
     secret: string;
-    env?: Record<string, string | undefined>;
+    env: Record<string, string | undefined>;
 }): Effect.Effect<LegacyModelBootstrapSummary, DatabaseError | ApiError, Database> {
     return Effect.gen(function* () {
         const seeds = collectLegacyModelSeeds(options.env);
@@ -376,7 +373,9 @@ export function bootstrapLegacyModelsFromEnv(options: {
                 )
                 .pipe(
                     Effect.mapError((cause) =>
-                        cause instanceof ApiError || cause instanceof DatabaseError ? cause : new DatabaseError({ cause })
+                        cause instanceof ApiError || cause instanceof DatabaseError
+                            ? cause
+                            : new DatabaseError({ cause })
                     )
                 );
         }
@@ -413,7 +412,7 @@ export function assertValidModelConfiguration(input: {
     credentials: ModelCredentials;
 }) {
     if (!isModelType(input.type) || !isModelAdapter(input.adapter) || input.providerModel.trim().length === 0) {
-        throw new Error(API_ERROR_CODES.INVALID_MODEL);
+        throw invalidModelError();
     }
 
     assertValidCredentials(input.credentials);
@@ -422,15 +421,15 @@ export function assertValidModelConfiguration(input: {
         (input.type === "embedding" || input.type === "audio" || input.type === "video") &&
         input.adapter === "anthropic"
     ) {
-        throw new Error(API_ERROR_CODES.INVALID_MODEL);
+        throw invalidModelError();
     }
 
     if (input.adapter === "azure" && !input.credentials.resourceName?.trim()) {
-        throw new Error(API_ERROR_CODES.INVALID_MODEL);
+        throw invalidModelError();
     }
 
     if (input.adapter === "openaiAPI" && !input.credentials.url?.trim()) {
-        throw new Error(API_ERROR_CODES.INVALID_MODEL);
+        throw invalidModelError();
     }
 }
 
@@ -485,7 +484,7 @@ function modelAdapter(row: AiModel, credentials: ModelCredentials): Adapter {
 
 function embeddingModelAdapter(row: AiModel, credentials: ModelCredentials): EmbeddingAdapter {
     if (!isEmbeddingCapableAdapter(row.adapter)) {
-        throw new Error(API_ERROR_CODES.INVALID_MODEL);
+        throw invalidModelError();
     }
 
     assertValidModelConfiguration({
@@ -506,7 +505,7 @@ function embeddingModelAdapter(row: AiModel, credentials: ModelCredentials): Emb
 
 function transcriptionModelAdapter(row: AiModel, credentials: ModelCredentials): Adapter {
     if (!isTranscriptionAdapter(row.adapter)) {
-        throw new Error(API_ERROR_CODES.INVALID_MODEL);
+        throw invalidModelError();
     }
 
     return modelAdapter(row, credentials);
@@ -558,7 +557,10 @@ function findTextModelByModelId(
     });
 }
 
-function requireDefaultModel(organizationId: string, type: AiModelType): Effect.Effect<AiModel, DatabaseError | ApiError, Database> {
+function requireDefaultModel(
+    organizationId: string,
+    type: AiModelType
+): Effect.Effect<AiModel, DatabaseError | ApiError, Database> {
     return findDefaultModel(organizationId, type).pipe(
         Effect.flatMap((row) => (row ? Effect.succeed(row) : Effect.fail(modelNotConfiguredError())))
     );
@@ -611,13 +613,16 @@ export function resolveResearchModelConfig(options: {
     secret: string;
 }): Effect.Effect<ResolvedResearchModels, DatabaseError | ApiError, Database> {
     return Effect.gen(function* () {
-        const textModel = yield* (options.requestedTextModelId
+        const textModel = yield* options.requestedTextModelId
             ? findTextModelByModelId(options.organizationId, options.requestedTextModelId).pipe(
                   Effect.flatMap((model) => (model ? Effect.succeed(model) : Effect.fail(invalidModelError())))
               )
-            : requireDefaultModel(options.organizationId, "text"));
+            : requireDefaultModel(options.organizationId, "text");
         const [embeddingModel, subagentModel] = yield* Effect.all(
-            [requireDefaultModel(options.organizationId, "embedding"), findDefaultModel(options.organizationId, "subagent")],
+            [
+                requireDefaultModel(options.organizationId, "embedding"),
+                findDefaultModel(options.organizationId, "subagent"),
+            ],
             { concurrency: "unbounded" }
         );
         const resolvedText = resolveModelAdapter(textModel, options.secret);
@@ -695,7 +700,9 @@ export function getDefaultModelOrganizationId(): Effect.Effect<string, DatabaseE
     });
 }
 
-export function resolveGraphModelOrganizationId(graphId: string): Effect.Effect<string, DatabaseError | ApiError, Database> {
+export function resolveGraphModelOrganizationId(
+    graphId: string
+): Effect.Effect<string, DatabaseError | ApiError, Database> {
     return Effect.gen(function* () {
         const db = yield* Database;
         const visited = new Set<string>();

@@ -1,9 +1,5 @@
 import Elysia, { t } from "elysia";
-import {
-    ModelCreateInputSchema,
-    ModelPatchInputSchema,
-    ModelQuerySchema,
-} from "@kiwi/contracts/models";
+import { ModelCreateInputSchema, ModelPatchInputSchema, ModelQuerySchema } from "@kiwi/contracts/models";
 import { successResponse } from "@kiwi/contracts/errors";
 import { asApiSchema } from "@kiwi/contracts/schema";
 import { runApiAction } from "../controllers/_shared/api-effect";

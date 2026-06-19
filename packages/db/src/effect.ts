@@ -1,35 +1,43 @@
 import { PgClient } from "@effect/sql-pg";
+import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import * as Redacted from "effect/Redacted";
 import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import { types } from "pg";
 
 const DRIZZLE_RAW_TYPE_IDS = [1184, 1114, 1082, 1186, 1231, 1115, 1185, 1187, 1182] as const;
+const getTypeParser: typeof types.getTypeParser = (
+    typeId: Parameters<typeof types.getTypeParser>[0],
+    format: Parameters<typeof types.getTypeParser>[1]
+) => {
+    if (DRIZZLE_RAW_TYPE_IDS.includes(typeId as (typeof DRIZZLE_RAW_TYPE_IDS)[number])) {
+        return (val: string) => val;
+    }
 
-export const PgClientLive = PgClient.layer({
-    url: Redacted.make(process.env.DATABASE_URL!),
-    types: {
-        getTypeParser: (typeId, format) => {
-            if (DRIZZLE_RAW_TYPE_IDS.includes(typeId as (typeof DRIZZLE_RAW_TYPE_IDS)[number])) {
-                return (val: string) => val;
-            }
+    return types.getTypeParser(typeId, format);
+};
 
-            return types.getTypeParser(typeId, format);
-        },
-    },
-});
+const pgClientConfig = Config.map(Config.redacted("DATABASE_URL"), (url) => ({
+    url,
+    types: { getTypeParser },
+}));
+
+export const PgClientLive = PgClient.layerConfig(pgClientConfig);
 
 const dbEffect = PgDrizzle.makeWithDefaults();
 
 export type EffectDatabase = Effect.Success<typeof dbEffect>;
 export class Database extends Context.Service<Database, EffectDatabase>()("@kiwi/db/Database") {}
 
-export class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()("@kiwi/db/DatabaseError", {
+export class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()("DatabaseError", {
     cause: Schema.Unknown,
-}) {}
+}) {
+    override get message(): string {
+        return "Database operation failed";
+    }
+}
 
 export type DatabaseTransaction = Parameters<Parameters<EffectDatabase["transaction"]>[0]>[0];
 
@@ -84,6 +92,6 @@ export function tryDbVoid<E>(
 export const DatabaseLive = Layer.effect(Database, dbEffect);
 export const DatabaseLayer = Layer.provide(DatabaseLive, PgClientLive);
 
-export function runDatabaseEffect<T, E, R>(effect: Effect.Effect<T, E, R>): Promise<T> {
-    return Effect.runPromise(Effect.provide(effect as Effect.Effect<T, E, never>, DatabaseLayer));
+export function runDatabaseEffect<T, E>(effect: Effect.Effect<T, E, Database>): Promise<T> {
+    return Effect.runPromise(Effect.provide(effect, DatabaseLayer));
 }

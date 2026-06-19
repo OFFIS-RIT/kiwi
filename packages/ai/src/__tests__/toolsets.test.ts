@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 mock.module("@kiwi/db", () => ({
+    betterAuthDb: {},
     db: {},
 }));
 

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { Database } from "@kiwi/db/effect";
 import { forbiddenError, graphNotFoundError, invalidPromptError } from "@kiwi/contracts/errors";
 import type { AuthUser } from "../../../middleware/auth";
 import { connectorApiErrorOptions, mapApiError, runApiAction } from "../api-effect";
@@ -11,6 +13,7 @@ const user = {
     activeTeamId: null,
     isSystemAdmin: false,
 } as AuthUser;
+const testDatabaseLayer = Layer.succeed(Database, {} as never);
 
 describe("runApiAction", () => {
     test("maps success values", async () => {
@@ -18,6 +21,7 @@ describe("runApiAction", () => {
             status: (code, body) => ({ code, body }),
             user,
             action: () => Effect.succeed({ ok: true }),
+            databaseLayer: testDatabaseLayer,
             success: (value) => ({ code: 200, body: value }),
         });
 
@@ -47,6 +51,7 @@ describe("runApiAction", () => {
             status: (code, body) => ({ code, body }),
             user,
             action: () => Effect.fail(forbiddenError()),
+            databaseLayer: testDatabaseLayer,
             success: (value) => ({ code: 200, body: value }),
         });
 
@@ -61,7 +66,9 @@ describe("runApiAction", () => {
     });
 
     test("maps legacy sentinel errors", () => {
-        expect(mapApiError((code, body) => ({ code, body }), new Error("Unhandled exception: GRAPH_NOT_FOUND"))).toEqual({
+        expect(
+            mapApiError((code, body) => ({ code, body }), new Error("Unhandled exception: GRAPH_NOT_FOUND"))
+        ).toEqual({
             code: 404,
             body: {
                 status: "error",
@@ -90,11 +97,7 @@ describe("runApiAction", () => {
 
     test("preserves connector legacy graph not found message", () => {
         expect(
-            mapApiError(
-                (code, body) => ({ code, body }),
-                new Error("GRAPH_NOT_FOUND"),
-                connectorApiErrorOptions
-            )
+            mapApiError((code, body) => ({ code, body }), new Error("GRAPH_NOT_FOUND"), connectorApiErrorOptions)
         ).toEqual({
             code: 404,
             body: {
@@ -110,6 +113,7 @@ describe("runApiAction", () => {
             status: (code, body) => ({ code, body }),
             user,
             action: () => Effect.fail(invalidPromptError()),
+            databaseLayer: testDatabaseLayer,
             success: (value) => ({ code: 200, body: value }),
         });
 
@@ -128,6 +132,7 @@ describe("runApiAction", () => {
             status: (code, body) => ({ code, body }),
             user,
             action: () => Effect.fail(graphNotFoundError()),
+            databaseLayer: testDatabaseLayer,
             success: (value) => ({ code: 200, body: value }),
         });
 
@@ -146,6 +151,7 @@ describe("runApiAction", () => {
             status: (code, body) => ({ code, body }),
             user,
             action: () => Effect.fail(new Error("boom")),
+            databaseLayer: testDatabaseLayer,
             success: (value) => ({ code: 200, body: value }),
         });
 

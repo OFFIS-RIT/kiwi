@@ -48,16 +48,23 @@ describe("connector credentials", () => {
         const encrypted = encryptUnchecked({ provider: "github", appId: "123" }, AUTH_SECRET);
 
         expect(() => decryptConnectorCredentials(encrypted, AUTH_SECRET)).toThrow("Invalid connector credentials");
-        expect(() => encryptConnectorCredentials({ provider: "gitlab", accessToken: "" } as never, AUTH_SECRET)).toThrow(
-            "Invalid connector credentials"
-        );
+        expect(() =>
+            encryptConnectorCredentials({ provider: "gitlab", accessToken: "" } as never, AUTH_SECRET)
+        ).toThrow("Invalid connector credentials");
     });
 });
 
 function encryptUnchecked(value: unknown, secret: string): string {
     const iv = randomBytes(12);
-    const key = Buffer.from(hkdfSync("sha256", secret, "kiwi-connector-credentials:v1", "connector-credential-encryption", 32));
+    const key = Buffer.from(
+        hkdfSync("sha256", secret, "kiwi-connector-credentials:v1", "connector-credential-encryption", 32)
+    );
     const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
     const ciphertext = Buffer.concat([cipher.update(Buffer.from(JSON.stringify(value), "utf8")), cipher.final()]);
-    return ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(":");
+    return [
+        "v1",
+        iv.toString("base64url"),
+        cipher.getAuthTag().toString("base64url"),
+        ciphertext.toString("base64url"),
+    ].join(":");
 }

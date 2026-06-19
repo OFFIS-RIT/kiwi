@@ -57,9 +57,9 @@ function createTxSelectQuery() {
         innerJoin: () => chain,
         where: (condition: unknown) => {
             txWhereConditions.push(condition);
-            return result;
+            return Effect.succeed(result);
         },
-        limit: () => result,
+        limit: () => Effect.succeed(result),
     };
     return chain;
 }
@@ -105,10 +105,11 @@ const transactionDb = {
     select: () => createTxSelectQuery(),
     update: () => ({
         set: (values: Record<string, unknown>) => ({
-            where: async () => {
-                bindingUpdates.push(values);
-                return undefined;
-            },
+            where: () =>
+                Effect.sync(() => {
+                    bindingUpdates.push(values);
+                    return undefined;
+                }),
         }),
     }),
     insert: () => ({
@@ -120,29 +121,31 @@ const transactionDb = {
                         typeof value === "object" && value !== null && "processRunId" in value && "fileId" in value
                 )
             ) {
-                return undefined;
+                return Effect.succeed(undefined);
             }
 
             return {
                 onConflictDoNothing: () => ({
-                    returning: () => {
-                        if (!Array.isArray(values)) {
-                            throw new Error("Expected file rows");
-                        }
-                        insertedFileValues.push(...(values as Array<Record<string, unknown>>));
-                        return (
-                            insertedFileRowsOverride ??
-                            (values as Array<{ id: string; key: string }>).map((value) => ({
-                                id: value.id,
-                                key: value.key,
-                            }))
-                        );
-                    },
+                    returning: () =>
+                        Effect.sync(() => {
+                            if (!Array.isArray(values)) {
+                                throw new Error("Expected file rows");
+                            }
+                            insertedFileValues.push(...(values as Array<Record<string, unknown>>));
+                            return (
+                                insertedFileRowsOverride ??
+                                (values as Array<{ id: string; key: string }>).map((value) => ({
+                                    id: value.id,
+                                    key: value.key,
+                                }))
+                            );
+                        }),
                 }),
-                returning: () => {
-                    processRunInsertCount += 1;
-                    return [{ id: "process-run-1" }];
-                },
+                returning: () =>
+                    Effect.sync(() => {
+                        processRunInsertCount += 1;
+                        return [{ id: "process-run-1" }];
+                    }),
             };
         },
     }),
@@ -174,8 +177,8 @@ function runMockDbEffect(thunk: (db: typeof mockDb) => Effect.Effect<unknown> | 
 }
 
 mock.module("../lib/effect", () => ({
-    useWorkerDb: runMockDbEffect,
-    useWorkerDbVoid: (thunk: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown>) =>
+    withWorkerDb: runMockDbEffect,
+    withWorkerDbVoid: (thunk: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown>) =>
         Effect.asVoid(runMockDbEffect(thunk)),
     runWorkerEffect: <T, E>(effect: Effect.Effect<T, E>) => Effect.runPromise(effect),
 }));

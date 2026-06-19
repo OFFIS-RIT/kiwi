@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { useWorkerDb } from "../lib/effect";
+import { withWorkerDb } from "../lib/effect";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { deleteFile as deleteStoredFile } from "@kiwi/files";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -16,7 +16,7 @@ import { runWorkerEffect } from "../lib/effect";
 export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, step }) => {
     const [fileData] = await step.run({ name: "get-file-data" }, async () =>
         runWorkerEffect(
-            useWorkerDb((db) =>
+            withWorkerDb((db) =>
                 db
                     .select({
                         id: filesTable.id,
@@ -38,7 +38,7 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
 
     const cleanup = await step.run({ name: "remove-file-graph-data" }, async () =>
         runWorkerEffect(
-            useWorkerDb((db) =>
+            withWorkerDb((db) =>
                 db.transaction((tx) =>
                     Effect.gen(function* () {
                         const affectedEntityRows = yield* tx

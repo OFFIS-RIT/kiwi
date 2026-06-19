@@ -1,7 +1,4 @@
-import {
-    assertValidModelConfiguration,
-    type ModelCredentials,
-} from "@kiwi/ai/models";
+import { assertValidModelConfiguration, type ModelCredentials } from "@kiwi/ai/models";
 import type { AiModelAdapter, AiModelType, ModelCredentialsPatchInput } from "@kiwi/contracts/models";
 
 export function normalizeCredentials(credentials: ModelCredentials): ModelCredentials {

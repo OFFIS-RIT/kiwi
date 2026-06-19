@@ -11,7 +11,13 @@ import o200k_base from "js-tiktoken/ranks/o200k_base";
 import { prepareCitationFencesForModel } from "./citation";
 import { OpenAICompatibleTranscriptionModel, UnsupportedTranscriptionModel } from "./transcription";
 export * from "./concurrency";
-export { OpenAICompatibleTranscriptionModel, UnsupportedTranscriptionModel } from "./transcription";
+export {
+    OpenAICompatibleTranscriptionModel,
+    TranscriptionParseError,
+    TranscriptionResponseError,
+    UnsupportedTranscriptionModel,
+    type TranscriptionError,
+} from "./transcription";
 
 let tokenEncoder: Tiktoken | undefined;
 
@@ -117,32 +123,33 @@ export function createProviderFetch(fetchFn: typeof globalThis.fetch = globalThi
 }
 
 const providerFetch = createProviderFetch();
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 
 function createProvider(adapter: Adapter) {
     switch (adapter.type) {
         case "openai":
             return createOpenAI({
-                apiKey: adapter.credentials?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
+                apiKey: adapter.credentials?.apiKey ?? "",
                 fetch: providerFetch,
             });
         case "openaiAPI":
             return createOpenAICompatible({
                 name: "openaiAPI",
-                apiKey: adapter.credentials?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
-                baseURL: adapter.credentials?.url ?? process.env.OPENAI_API_URL ?? "https://api.openai.com/v1",
+                apiKey: adapter.credentials?.apiKey ?? "",
+                baseURL: adapter.credentials?.url ?? DEFAULT_OPENAI_BASE_URL,
                 includeUsage: true,
                 supportsStructuredOutputs: true,
                 fetch: providerFetch,
             });
         case "anthropic":
             return createAnthropic({
-                apiKey: adapter.credentials?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
+                apiKey: adapter.credentials?.apiKey ?? "",
                 fetch: providerFetch,
             });
         case "azure":
             return createAzure({
-                resourceName: adapter.credentials?.resourceName ?? process.env.AZURE_RESOURCE_NAME ?? "",
-                apiKey: adapter.credentials?.apiKey ?? process.env.AZURE_API_KEY ?? "",
+                resourceName: adapter.credentials?.resourceName ?? "",
+                apiKey: adapter.credentials?.apiKey ?? "",
                 fetch: providerFetch,
             });
     }
@@ -201,23 +208,25 @@ function createTranscriptionModel(adapter: Adapter, capability: "audio" | "video
             return new OpenAICompatibleTranscriptionModel({
                 provider: "openai.transcription",
                 model: adapter.model,
-                apiKey: adapter.credentials?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
-                baseURL: process.env.OPENAI_API_URL ?? "https://api.openai.com/v1",
+                apiKey: adapter.credentials?.apiKey ?? "",
+                baseURL: DEFAULT_OPENAI_BASE_URL,
                 fetch: providerFetch,
                 style: "openai",
+                capability,
             });
         case "openaiAPI":
             return new OpenAICompatibleTranscriptionModel({
                 provider: "openaiAPI.transcription",
                 model: adapter.model,
-                apiKey: adapter.credentials?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
-                baseURL: adapter.credentials?.url ?? process.env.OPENAI_API_URL ?? "https://api.openai.com/v1",
+                apiKey: adapter.credentials?.apiKey ?? "",
+                baseURL: adapter.credentials?.url ?? DEFAULT_OPENAI_BASE_URL,
                 fetch: providerFetch,
+                capability,
             });
         case "azure":
             return createAzure({
-                resourceName: adapter.credentials?.resourceName ?? process.env.AZURE_RESOURCE_NAME ?? "",
-                apiKey: adapter.credentials?.apiKey ?? process.env.AZURE_API_KEY ?? "",
+                resourceName: adapter.credentials?.resourceName ?? "",
+                apiKey: adapter.credentials?.apiKey ?? "",
                 fetch: providerFetch,
             }).transcription(adapter.model);
         case "anthropic":

@@ -1,5 +1,6 @@
 import { lookup } from "mime-types";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { v7 as uuid } from "uuid";
 import { S3Client } from "bun";
 
@@ -21,10 +22,16 @@ export type StoredFileMetadata = {
     lastModified: Date | null;
 };
 
-export class StorageError extends Error {
+export class StorageError extends Schema.TaggedErrorClass<StorageError>()("StorageError", {
+    operation: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+}) {
     constructor(operation: string, options?: { cause?: unknown }) {
-        super(`File storage operation failed: ${operation}`, options);
-        this.name = "StorageError";
+        super(options?.cause === undefined ? { operation } : { operation, cause: options.cause });
+    }
+
+    override get message(): string {
+        return `File storage operation failed: ${this.operation}`;
     }
 }
 
@@ -112,7 +119,11 @@ export function getGraphFileArtifactPaths(input: { graphId: string; fileId: stri
     };
 }
 
-function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket: string): Effect.Effect<StoredFile, StorageError> {
+function writeFile(
+    key: string,
+    file: File | Blob | Uint8Array | string,
+    bucket: string
+): Effect.Effect<StoredFile, StorageError> {
     return tryStorage("write", async () => {
         const client = getClient(bucket);
         const s3File = client.file(key);
@@ -126,7 +137,12 @@ function writeFile(key: string, file: File | Blob | Uint8Array | string, bucket:
     });
 }
 
-export function putFile(name: string, file: File | Blob | Uint8Array | string, path: string, bucket: string): Effect.Effect<StoredFile, StorageError> {
+export function putFile(
+    name: string,
+    file: File | Blob | Uint8Array | string,
+    path: string,
+    bucket: string
+): Effect.Effect<StoredFile, StorageError> {
     const extension = name.split(".").pop() || "";
     const key = uuid();
     const filename = extension === "" ? key : `${key}.${extension}`;
@@ -144,7 +160,12 @@ export function putGraphFile(
     return writeFile(getGraphFileKey(graphId, fileId, name), file, bucket);
 }
 
-export function putNamedFile(name: string, file: File | Blob | Uint8Array | string, path: string, bucket: string): Effect.Effect<StoredFile, StorageError> {
+export function putNamedFile(
+    name: string,
+    file: File | Blob | Uint8Array | string,
+    path: string,
+    bucket: string
+): Effect.Effect<StoredFile, StorageError> {
     return writeFile(joinPath(path, name), file, bucket);
 }
 

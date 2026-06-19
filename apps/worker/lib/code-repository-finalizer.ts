@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import type { Database, DatabaseTransaction } from "@kiwi/db/effect";
-import { useWorkerDb } from "./effect";
+import { withWorkerDb } from "./effect";
 import { currentSourcePredicate, currentSourceSql } from "@kiwi/db/source-validity";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -75,7 +75,7 @@ export function invalidateSupersededRepositorySources(options: {
             return { entityIds: [], relationshipIds: [] };
         }
 
-        return yield* useWorkerDb((db) =>
+        return yield* withWorkerDb((db) =>
             db.transaction((tx) =>
                 Effect.gen(function* () {
                     const latestRows = yield* tx
@@ -104,7 +104,7 @@ function invalidateRepositorySourceTargets(options: {
             return { entityIds: [], relationshipIds: [] };
         }
 
-        return yield* useWorkerDb((db) =>
+        return yield* withWorkerDb((db) =>
             db.transaction((tx) => invalidateRepositorySources(tx, options.graphId, options.retiredFileIds, options.markDeleted))
         );
     });

@@ -3,7 +3,14 @@ import * as Effect from "effect/Effect";
 import { runDatabaseEffect, type Database } from "@kiwi/db/effect";
 import type { KiwiPermissions } from "@kiwi/auth/permissions";
 import { auth, getDefaultOrganizationId, isSystemAdminRole } from "@kiwi/auth/server";
-import { API_ERROR_CODES, errorResponse } from "../types";
+import {
+    API_ERROR_CODES,
+    type ApiError,
+    errorResponse,
+    forbiddenError,
+    internalServerError,
+    isApiError,
+} from "../types";
 import { getApiKeyHeaders, getAuthHeaders, type AuthSession, type AuthUser } from "./auth";
 
 type PermissionContext = Context & {
@@ -15,21 +22,25 @@ export function assertPermissions(
     headers: Headers,
     permissions: KiwiPermissions,
     options?: { apiKeyOnly?: boolean; organizationId?: string | null }
-): Effect.Effect<void, unknown, Database> {
+): Effect.Effect<void, ApiError, Database> {
     return Effect.gen(function* () {
         const headersToUse = options?.apiKeyOnly ? getApiKeyHeaders(headers) : getAuthHeaders(headers);
         let organizationId = options?.organizationId ?? null;
 
         const session = yield* Effect.tryPromise({
             try: () => auth.api.getSession({ headers: headersToUse }),
-            catch: (error) => error,
+            catch: () => internalServerError("Unable to verify session permissions"),
         });
         if (isSystemAdminRole(session?.user.role)) {
             return;
         }
 
         if (!organizationId) {
-            organizationId = session?.session.activeOrganizationId ?? (yield* getDefaultOrganizationId());
+            organizationId =
+                session?.session.activeOrganizationId ??
+                (yield* Effect.mapError(getDefaultOrganizationId(), () =>
+                    internalServerError("Unable to load default organization")
+                ));
         }
 
         const result = yield* Effect.tryPromise({
@@ -41,11 +52,11 @@ export function assertPermissions(
                         permissions,
                     },
                 }),
-            catch: (error) => error,
+            catch: () => internalServerError("Unable to verify organization permissions"),
         });
 
         if (!result.success) {
-            return yield* Effect.fail(new Error(API_ERROR_CODES.FORBIDDEN));
+            return yield* Effect.fail(forbiddenError());
         }
     });
 }
@@ -63,8 +74,8 @@ export function requirePermissions(permissions: KiwiPermissions) {
                 })
             );
         } catch (error) {
-            if (error instanceof Error && error.message === API_ERROR_CODES.FORBIDDEN) {
-                return status(403, errorResponse("Forbidden", API_ERROR_CODES.FORBIDDEN));
+            if (isApiError(error) && error.code === API_ERROR_CODES.FORBIDDEN) {
+                return status(error.status, errorResponse(error.responseMessage, error.code));
             }
 
             throw error;

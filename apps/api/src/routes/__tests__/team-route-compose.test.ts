@@ -2,11 +2,16 @@ import { describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import { Elysia } from "elysia";
 
-mock.module("@kiwi/db", () => ({
-    db: {
+mock.module("@kiwi/db", () => {
+    const db = {
         delete: () => ({ where: async () => undefined }),
-    },
-}));
+    };
+
+    return {
+        betterAuthDb: db,
+        db,
+    };
+});
 
 mock.module("@kiwi/files", () => ({
     deleteFile: () => Effect.succeed(true),

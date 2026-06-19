@@ -224,7 +224,7 @@ mock.module("@kiwi/db/effect", () => ({
         Effect.asVoid(runMockDbEffect(thunk)),
 }));
 
-mock.module("@kiwi/db", () => ({ db: mockDb }));
+mock.module("@kiwi/db", () => ({ betterAuthDb: mockDb, db: mockDb }));
 
 // Dynamic import is required so module mocks are installed before the route module is evaluated.
 const { connectorRoute, repositoryGraphBindingRoute } = await import("../connectors");

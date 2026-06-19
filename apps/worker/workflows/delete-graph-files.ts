@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import type { Database } from "@kiwi/db/effect";
-import { useWorkerDbVoid } from "../lib/effect";
+import { withWorkerDbVoid } from "../lib/effect";
 import { eq, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import { graphTable } from "@kiwi/db/tables/graph";
@@ -19,7 +19,7 @@ function workflowError(error: unknown) {
 }
 
 function finalizeProjectStatus(graphId: string): Effect.Effect<void, unknown, Database> {
-    return useWorkerDbVoid((db) =>
+    return withWorkerDbVoid((db) =>
         db.transaction((tx) =>
             Effect.gen(function* () {
                 yield* tx.execute(sql`
@@ -45,7 +45,7 @@ function finalizeProjectStatus(graphId: string): Effect.Effect<void, unknown, Da
 export const deleteGraphFiles = defineWorkflow(deleteGraphFilesSpec, async ({ input, step, run }) => {
     try {
         await step.run({ name: "update-project-status" }, async () =>
-            runWorkerEffect(useWorkerDbVoid((db) => db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId))))
+            runWorkerEffect(withWorkerDbVoid((db) => db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId))))
         );
 
         const deleteResults = await Promise.allSettled(

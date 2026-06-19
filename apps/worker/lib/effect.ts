@@ -1,7 +1,7 @@
 import { Database, DatabaseError, DatabaseLayer, type EffectDatabase } from "@kiwi/db/effect";
 import * as Effect from "effect/Effect";
 
-export function useWorkerDb<T, E, R>(
+export function withWorkerDb<T, E, R>(
     work: (db: EffectDatabase) => Effect.Effect<T, E, R>
 ): Effect.Effect<T, E | DatabaseError, R | Database> {
     return Effect.gen(function* () {
@@ -10,10 +10,10 @@ export function useWorkerDb<T, E, R>(
     });
 }
 
-export function useWorkerDbVoid<E, R>(
+export function withWorkerDbVoid<E, R>(
     work: (db: EffectDatabase) => Effect.Effect<unknown, E, R>
 ): Effect.Effect<void, E | DatabaseError, R | Database> {
-    return Effect.asVoid(useWorkerDb(work));
+    return Effect.asVoid(withWorkerDb(work));
 }
 
 export function runWorkerEffect<T, E, R>(effect: Effect.Effect<T, E, R>): Promise<T> {

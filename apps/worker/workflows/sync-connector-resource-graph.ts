@@ -38,7 +38,7 @@ import { env } from "../env";
 import { deleteFileSpec } from "./delete-file-spec";
 import { processFilesSpec } from "./process-files-spec";
 import { syncConnectorResourceGraphSpec } from "./sync-connector-resource-graph-spec";
-import { runWorkerEffect, useWorkerDb, useWorkerDbVoid } from "../lib/effect";
+import { runWorkerEffect, withWorkerDb, withWorkerDbVoid } from "../lib/effect";
 
 type BindingGraphRow = {
     binding: typeof connectorResourceBindingsTable.$inferSelect;
@@ -134,7 +134,7 @@ const PROVIDER_FILE_READ_CONCURRENCY = 4;
 
 function loadBindingGraph(bindingId: string): Effect.Effect<BindingGraphRow | null, unknown, Database> {
     return Effect.map(
-        useWorkerDb((db) =>
+        withWorkerDb((db) =>
             db
                 .select({
                     binding: connectorResourceBindingsTable,
@@ -160,8 +160,15 @@ function isConnectorProvider(value: string): value is ConnectorProvider {
     return value === "github" || value === "gitlab";
 }
 
-function isConnectorCredentials(value: ConnectorSecretPayload, provider: ConnectorProvider): value is ConnectorCredentials {
-    return "provider" in value && value.provider === provider && (provider === "github" ? "appId" in value : "baseUrl" in value);
+function isConnectorCredentials(
+    value: ConnectorSecretPayload,
+    provider: ConnectorProvider
+): value is ConnectorCredentials {
+    return (
+        "provider" in value &&
+        value.provider === provider &&
+        (provider === "github" ? "appId" in value : "baseUrl" in value)
+    );
 }
 
 function isGitLabConnectorCredentials(value: ConnectorCredentials): value is GitLabConnectorCredentials {
@@ -224,7 +231,10 @@ function createAdapterContext(row: BindingGraphRow): Effect.Effect<ConnectorAdap
     });
 }
 
-function readStoredInstallationCredentials(row: BindingGraphRow, provider: ConnectorProvider): ConnectorInstallationCredentials {
+function readStoredInstallationCredentials(
+    row: BindingGraphRow,
+    provider: ConnectorProvider
+): ConnectorInstallationCredentials {
     if (!row.installation.encryptedCredentials) {
         throw new Error("Invalid connector installation credentials");
     }
@@ -246,17 +256,16 @@ function resolveTargetVersion(row: BindingGraphRow, inputVersionId?: string): Ef
             (candidate) => candidate.name === row.binding.versionName
         );
         if (!version) {
-            return yield* Effect.fail(new ConnectorProviderError("not-found", "Connector resource version was not found"));
+            return yield* Effect.fail(
+                new ConnectorProviderError("not-found", "Connector resource version was not found")
+            );
         }
 
         return version.versionId;
     });
 }
 
-function loadSnapshot(
-    row: BindingGraphRow,
-    versionId: string
-): Effect.Effect<ConnectorResourceSnapshot, unknown> {
+function loadSnapshot(row: BindingGraphRow, versionId: string): Effect.Effect<ConnectorResourceSnapshot, unknown> {
     return Effect.gen(function* () {
         const { adapter } = yield* createAdapterContext(row);
         return yield* adapter.loadSnapshot(row.binding.providerResourceId, row.binding.versionName, versionId);
@@ -298,7 +307,7 @@ function loadChangedFiles(
 
 function loadActiveBindingFiles(bindingId: string): Effect.Effect<ActiveBindingFile[], unknown, Database> {
     return Effect.gen(function* () {
-        const rows = yield* useWorkerDb((db) =>
+        const rows = yield* withWorkerDb((db) =>
             db
                 .select({
                     id: filesTable.id,
@@ -306,7 +315,13 @@ function loadActiveBindingFiles(bindingId: string): Effect.Effect<ActiveBindingF
                     metadata: filesTable.metadata,
                 })
                 .from(filesTable)
-                .where(and(eq(filesTable.connectorBindingId, bindingId), eq(filesTable.type, "code"), eq(filesTable.deleted, false)))
+                .where(
+                    and(
+                        eq(filesTable.connectorBindingId, bindingId),
+                        eq(filesTable.type, "code"),
+                        eq(filesTable.deleted, false)
+                    )
+                )
         );
 
         const filesByPath = new Map<string, ActiveBindingFile>();
@@ -316,7 +331,9 @@ function loadActiveBindingFiles(bindingId: string): Effect.Effect<ActiveBindingF
                 return yield* Effect.fail(new Error(`Active connector file ${row.id} is missing connector metadata`));
             }
             if (filesByPath.has(metadata.path)) {
-                return yield* Effect.fail(new Error(`Connector binding ${bindingId} has multiple active rows for ${metadata.path}`));
+                return yield* Effect.fail(
+                    new Error(`Connector binding ${bindingId} has multiple active rows for ${metadata.path}`)
+                );
             }
             filesByPath.set(metadata.path, {
                 id: row.id,
@@ -456,7 +473,11 @@ function connectorFileKey(bindingId: string, file: ConnectorSyncFile, versionId:
         : `connector:${bindingId}:${fileVersionId}:${file.path}`;
 }
 
-function connectorFileMetadata(row: BindingGraphRow, file: ConnectorSyncFile, versionId: string): ConnectorFileMetadataInput {
+function connectorFileMetadata(
+    row: BindingGraphRow,
+    file: ConnectorSyncFile,
+    versionId: string
+): ConnectorFileMetadataInput {
     const fileVersionId = file.versionId ?? versionId;
     const webUrl = file.webUrl ?? file.htmlUrl;
     return {
@@ -540,93 +561,97 @@ function processRunStatusPriority(status: ReusableProcessRunStatus) {
     }
 }
 
-async function findReusableProcessRun(
+function findReusableProcessRun(
     tx: DatabaseTransaction,
     graphId: string,
     fileIds: string[]
-): Promise<ReusableProcessRun | null> {
-    if (fileIds.length === 0) {
-        return null;
-    }
-
-    const matchingRunRows = await (tx as any)
-        .select({
-            id: processRunFilesTable.processRunId,
-            status: processRunsTable.status,
-            fileId: processRunFilesTable.fileId,
-        })
-        .from(processRunFilesTable)
-        .innerJoin(processRunsTable, eq(processRunFilesTable.processRunId, processRunsTable.id))
-        .where(
-            and(
-                eq(processRunsTable.graphId, graphId),
-                inArray(processRunsTable.status, ["pending", "started", "completed"]),
-                inArray(processRunFilesTable.fileId, fileIds)
-            )
-        );
-
-    const expectedFileIds = new Set(fileIds);
-    const candidates = new Map<string, ReusableProcessRun & { matchedFileIds: Set<string> }>();
-    for (const row of matchingRunRows) {
-        if (!isReusableProcessRunStatus(row.status)) {
-            continue;
+): Effect.Effect<ReusableProcessRun | null, unknown> {
+    return Effect.gen(function* () {
+        if (fileIds.length === 0) {
+            return null;
         }
-        const candidate = candidates.get(row.id);
-        if (candidate) {
-            candidate.matchedFileIds.add(row.fileId);
-        } else {
-            candidates.set(row.id, {
-                id: row.id,
-                status: row.status,
-                matchedFileIds: new Set([row.fileId]),
-            });
-        }
-    }
 
-    const completeCandidateIds = [...candidates.values()]
-        .filter((candidate) => candidate.matchedFileIds.size === expectedFileIds.size)
-        .map((candidate) => candidate.id);
-    if (completeCandidateIds.length === 0) {
-        return null;
-    }
+        const matchingRunRows = yield* tx
+            .select({
+                id: processRunFilesTable.processRunId,
+                status: processRunsTable.status,
+                fileId: processRunFilesTable.fileId,
+            })
+            .from(processRunFilesTable)
+            .innerJoin(processRunsTable, eq(processRunFilesTable.processRunId, processRunsTable.id))
+            .where(
+                and(
+                    eq(processRunsTable.graphId, graphId),
+                    inArray(processRunsTable.status, ["pending", "started", "completed"]),
+                    inArray(processRunFilesTable.fileId, fileIds)
+                )
+            );
 
-    const runFileRows = await (tx as any)
-        .select({ processRunId: processRunFilesTable.processRunId, fileId: processRunFilesTable.fileId })
-        .from(processRunFilesTable)
-        .where(inArray(processRunFilesTable.processRunId, completeCandidateIds));
-    const fileIdsByRun = new Map<string, Set<string>>();
-    for (const row of runFileRows) {
-        const runFileIds = fileIdsByRun.get(row.processRunId);
-        if (runFileIds) {
-            runFileIds.add(row.fileId);
-        } else {
-            fileIdsByRun.set(row.processRunId, new Set([row.fileId]));
-        }
-    }
-
-    const exactCandidates: ReusableProcessRun[] = [];
-    for (const candidateId of completeCandidateIds) {
-        const runFileIds = fileIdsByRun.get(candidateId);
-        if (!runFileIds || runFileIds.size !== expectedFileIds.size) {
-            continue;
-        }
-        let exact = true;
-        for (const fileId of runFileIds) {
-            if (!expectedFileIds.has(fileId)) {
-                exact = false;
-                break;
+        const expectedFileIds = new Set(fileIds);
+        const candidates = new Map<string, ReusableProcessRun & { matchedFileIds: Set<string> }>();
+        for (const row of matchingRunRows) {
+            if (!isReusableProcessRunStatus(row.status)) {
+                continue;
             }
-        }
-        if (exact) {
-            const candidate = candidates.get(candidateId);
+            const candidate = candidates.get(row.id);
             if (candidate) {
-                exactCandidates.push({ id: candidate.id, status: candidate.status });
+                candidate.matchedFileIds.add(row.fileId);
+            } else {
+                candidates.set(row.id, {
+                    id: row.id,
+                    status: row.status,
+                    matchedFileIds: new Set([row.fileId]),
+                });
             }
         }
-    }
 
-    exactCandidates.sort((left, right) => processRunStatusPriority(left.status) - processRunStatusPriority(right.status));
-    return exactCandidates[0] ?? null;
+        const completeCandidateIds = [...candidates.values()]
+            .filter((candidate) => candidate.matchedFileIds.size === expectedFileIds.size)
+            .map((candidate) => candidate.id);
+        if (completeCandidateIds.length === 0) {
+            return null;
+        }
+
+        const runFileRows = yield* tx
+            .select({ processRunId: processRunFilesTable.processRunId, fileId: processRunFilesTable.fileId })
+            .from(processRunFilesTable)
+            .where(inArray(processRunFilesTable.processRunId, completeCandidateIds));
+        const fileIdsByRun = new Map<string, Set<string>>();
+        for (const row of runFileRows) {
+            const runFileIds = fileIdsByRun.get(row.processRunId);
+            if (runFileIds) {
+                runFileIds.add(row.fileId);
+            } else {
+                fileIdsByRun.set(row.processRunId, new Set([row.fileId]));
+            }
+        }
+
+        const exactCandidates: ReusableProcessRun[] = [];
+        for (const candidateId of completeCandidateIds) {
+            const runFileIds = fileIdsByRun.get(candidateId);
+            if (!runFileIds || runFileIds.size !== expectedFileIds.size) {
+                continue;
+            }
+            let exact = true;
+            for (const fileId of runFileIds) {
+                if (!expectedFileIds.has(fileId)) {
+                    exact = false;
+                    break;
+                }
+            }
+            if (exact) {
+                const candidate = candidates.get(candidateId);
+                if (candidate) {
+                    exactCandidates.push({ id: candidate.id, status: candidate.status });
+                }
+            }
+        }
+
+        exactCandidates.sort(
+            (left, right) => processRunStatusPriority(left.status) - processRunStatusPriority(right.status)
+        );
+        return exactCandidates[0] ?? null;
+    });
 }
 
 function insertConnectorFiles(
@@ -635,78 +660,80 @@ function insertConnectorFiles(
     versionId: string,
     cursor?: string
 ): Effect.Effect<InsertedConnectorFiles, unknown, Database> {
-    return useWorkerDb((db) =>
-        db.transaction((tx) => Effect.tryPromise(async () => {
-            await (tx as any)
-                .update(connectorResourceBindingsTable)
-                .set({
-                    syncStatus: "syncing",
-                    lastSeenVersionId: versionId,
-                    syncErrorCode: null,
-                    ...(cursor !== undefined ? { syncCursor: cursor } : {}),
-                })
-                .where(eq(connectorResourceBindingsTable.id, row.binding.id));
+    return withWorkerDb((db) =>
+        db.transaction((tx) =>
+            Effect.gen(function* () {
+                yield* tx
+                    .update(connectorResourceBindingsTable)
+                    .set({
+                        syncStatus: "syncing",
+                        lastSeenVersionId: versionId,
+                        syncErrorCode: null,
+                        ...(cursor !== undefined ? { syncCursor: cursor } : {}),
+                    })
+                    .where(eq(connectorResourceBindingsTable.id, row.binding.id));
 
-            const rows = fileRows(row, files, versionId);
-            const insertedFiles = await (tx as any)
-                .insert(filesTable)
-                .values(rows)
-                .onConflictDoNothing()
-                .returning({ id: filesTable.id, key: filesTable.key });
-            let committedFiles = orderedFilesByKey(rows, insertedFiles);
-            if (committedFiles.length !== files.length) {
-                const existingFiles = await (tx as any)
-                    .select({ id: filesTable.id, key: filesTable.key })
-                    .from(filesTable)
-                    .where(
-                        and(
-                            eq(filesTable.graphId, row.binding.graphId),
-                            eq(filesTable.deleted, false),
-                            inArray(
-                                filesTable.key,
-                                rows.map((file) => file.key)
+                const rows = fileRows(row, files, versionId);
+                const insertedFiles = yield* tx
+                    .insert(filesTable)
+                    .values(rows)
+                    .onConflictDoNothing()
+                    .returning({ id: filesTable.id, key: filesTable.key });
+                let committedFiles = orderedFilesByKey(rows, insertedFiles);
+                if (committedFiles.length !== files.length) {
+                    const existingFiles = yield* tx
+                        .select({ id: filesTable.id, key: filesTable.key })
+                        .from(filesTable)
+                        .where(
+                            and(
+                                eq(filesTable.graphId, row.binding.graphId),
+                                eq(filesTable.deleted, false),
+                                inArray(
+                                    filesTable.key,
+                                    rows.map((file) => file.key)
+                                )
                             )
-                        )
-                    );
-                committedFiles = orderedFilesByKey(rows, existingFiles);
-            }
-            if (committedFiles.length !== files.length) {
-                throw new Error("Failed to insert all connector files");
-            }
-
-            const fileIds = committedFiles.map((file) => file.id);
-            if (insertedFiles.length === 0) {
-                const reusableProcessRun = await findReusableProcessRun(tx, row.binding.graphId, fileIds);
-                if (reusableProcessRun) {
-                    return {
-                        fileIds,
-                        processRunId: reusableProcessRun.id,
-                        processRunStatus: reusableProcessRun.status,
-                    };
+                        );
+                    committedFiles = orderedFilesByKey(rows, existingFiles);
                 }
-            }
+                if (committedFiles.length !== files.length) {
+                    return yield* Effect.fail(new Error("Failed to insert all connector files"));
+                }
 
-            const [processRun] = await (tx as any)
-                .insert(processRunsTable)
-                .values({ graphId: row.binding.graphId, status: "pending" })
-                .returning({ id: processRunsTable.id });
-            if (!processRun) {
-                throw new Error("Failed to create process run");
-            }
+                const fileIds = committedFiles.map((file) => file.id);
+                if (insertedFiles.length === 0) {
+                    const reusableProcessRun = yield* findReusableProcessRun(tx, row.binding.graphId, fileIds);
+                    if (reusableProcessRun) {
+                        return {
+                            fileIds,
+                            processRunId: reusableProcessRun.id,
+                            processRunStatus: reusableProcessRun.status,
+                        };
+                    }
+                }
 
-            await (tx as any).insert(processRunFilesTable).values(
-                fileIds.map((fileId) => ({
+                const [processRun] = yield* tx
+                    .insert(processRunsTable)
+                    .values({ graphId: row.binding.graphId, status: "pending" })
+                    .returning({ id: processRunsTable.id });
+                if (!processRun) {
+                    return yield* Effect.fail(new Error("Failed to create process run"));
+                }
+
+                yield* tx.insert(processRunFilesTable).values(
+                    fileIds.map((fileId) => ({
+                        processRunId: processRun.id,
+                        fileId,
+                    }))
+                );
+
+                return {
+                    fileIds,
                     processRunId: processRun.id,
-                    fileId,
-                }))
-            );
-
-            return {
-                fileIds,
-                processRunId: processRun.id,
-                processRunStatus: "pending",
-            };
-        }))
+                    processRunStatus: "pending",
+                };
+            })
+        )
     );
 }
 
@@ -715,7 +742,7 @@ function markWebhookDuplicate(
     provider: typeof connectorsTable.$inferSelect.provider,
     deliveryId: string
 ) {
-    return useWorkerDbVoid((db) =>
+    return withWorkerDbVoid((db) =>
         db
             .update(connectorWebhookEventsTable)
             .set({ status: "duplicate" })
@@ -730,7 +757,7 @@ function markWebhookDuplicate(
 }
 
 function markBindingSynced(bindingId: string, versionId: string, cursor?: string) {
-    return useWorkerDbVoid((db) =>
+    return withWorkerDbVoid((db) =>
         db
             .update(connectorResourceBindingsTable)
             .set({
@@ -745,7 +772,7 @@ function markBindingSynced(bindingId: string, versionId: string, cursor?: string
 }
 
 function markBindingFailed(bindingId: string) {
-    return useWorkerDbVoid((db) =>
+    return withWorkerDbVoid((db) =>
         db
             .update(connectorResourceBindingsTable)
             .set({ syncStatus: "failed", syncErrorCode: "sync_failed" })
@@ -788,68 +815,52 @@ function runProcessFilesWithCleanup(
     });
 }
 
-export const syncConnectorResourceGraph = defineWorkflow(syncConnectorResourceGraphSpec, async ({ input, step, run }) => {
-    try {
-        const row = await step.run({ name: "load-binding" }, async () => runWorkerEffect(loadBindingGraph(input.bindingId)));
-        if (
-            !row ||
-            row.connector.status !== "active" ||
-            row.installation.status !== "active" ||
-            !row.binding.webhookEnabled
-        ) {
-            return { skipped: true };
-        }
-
-        const versionId = await step.run({ name: "resolve-target-version" }, async () =>
-            runWorkerEffect(resolveTargetVersion(row, input.versionId))
-        );
-
-        if (row.binding.lastSyncedVersionId === versionId) {
-            if (input.deliveryId) {
-                await step.run({ name: "mark-webhook-duplicate" }, async () =>
-                    runWorkerEffect(markWebhookDuplicate(row.connector.id, row.connector.provider, input.deliveryId!))
-                );
-            }
-            return { skipped: true, versionId };
-        }
-
-        if (!row.binding.lastSyncedVersionId) {
-            const snapshot = await step.run({ name: "load-provider-snapshot" }, async () => runWorkerEffect(loadSnapshot(row, versionId)));
-            if (snapshot.files.length === 0) {
-                await step.run({ name: "mark-empty-binding-synced" }, async () =>
-                    runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
-                );
-                return { versionId, fileCount: 0 };
+export const syncConnectorResourceGraph = defineWorkflow(
+    syncConnectorResourceGraphSpec,
+    async ({ input, step, run }) => {
+        try {
+            const row = await step.run({ name: "load-binding" }, async () =>
+                runWorkerEffect(loadBindingGraph(input.bindingId))
+            );
+            if (
+                !row ||
+                row.connector.status !== "active" ||
+                row.installation.status !== "active" ||
+                !row.binding.webhookEnabled
+            ) {
+                return { skipped: true };
             }
 
-            const created = await step.run({ name: "commit-external-files" }, async () =>
-                runWorkerEffect(insertConnectorFiles(row, snapshot.files, versionId, input.cursor))
+            const versionId = await step.run({ name: "resolve-target-version" }, async () =>
+                runWorkerEffect(resolveTargetVersion(row, input.versionId))
             );
-            await runWorkerEffect(runProcessFilesWithCleanup(step, row.binding.graphId, created, []));
 
-            await step.run({ name: "mark-binding-synced" }, async () =>
-                runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
-            );
-            return { versionId, fileCount: created.fileIds.length };
-        }
+            if (row.binding.lastSyncedVersionId === versionId) {
+                if (input.deliveryId) {
+                    await step.run({ name: "mark-webhook-duplicate" }, async () =>
+                        runWorkerEffect(
+                            markWebhookDuplicate(row.connector.id, row.connector.provider, input.deliveryId!)
+                        )
+                    );
+                }
+                return { skipped: true, versionId };
+            }
 
-        const activeFileRows = await step.run({ name: "load-active-binding-files" }, async () =>
-            runWorkerEffect(loadActiveBindingFiles(row.binding.id))
-        );
-        const activeFiles = activeFilesByPath(activeFileRows);
-        const delta = await step.run({ name: "compare-resource-versions" }, async () =>
-            runWorkerEffect(compareResourceVersions(row, row.binding.lastSyncedVersionId!, versionId))
-        );
-        if (!delta.isIncremental) {
-            const snapshot = await step.run({ name: "load-provider-snapshot" }, async () => runWorkerEffect(loadSnapshot(row, versionId)));
-            const retiredFileIds = [...activeFiles.values()].map((file) => file.id);
-            assertBindingSnapshotLimits(activeFiles, retiredFileIds, snapshot.files);
+            if (!row.binding.lastSyncedVersionId) {
+                const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
+                    runWorkerEffect(loadSnapshot(row, versionId))
+                );
+                if (snapshot.files.length === 0) {
+                    await step.run({ name: "mark-empty-binding-synced" }, async () =>
+                        runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
+                    );
+                    return { versionId, fileCount: 0 };
+                }
 
-            if (snapshot.files.length > 0) {
                 const created = await step.run({ name: "commit-external-files" }, async () =>
                     runWorkerEffect(insertConnectorFiles(row, snapshot.files, versionId, input.cursor))
                 );
-                await runWorkerEffect(runProcessFilesWithCleanup(step, row.binding.graphId, created, retiredFileIds));
+                await runWorkerEffect(runProcessFilesWithCleanup(step, row.binding.graphId, created, []));
 
                 await step.run({ name: "mark-binding-synced" }, async () =>
                     runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
@@ -857,60 +868,93 @@ export const syncConnectorResourceGraph = defineWorkflow(syncConnectorResourceGr
                 return { versionId, fileCount: created.fileIds.length };
             }
 
-            if (retiredFileIds.length > 0) {
-                await step.runWorkflow(processFilesSpec, {
-                    graphId: row.binding.graphId,
-                    fileIds: [],
-                    code: { kind: "repository", retiredFileIds },
-                });
+            const activeFileRows = await step.run({ name: "load-active-binding-files" }, async () =>
+                runWorkerEffect(loadActiveBindingFiles(row.binding.id))
+            );
+            const activeFiles = activeFilesByPath(activeFileRows);
+            const delta = await step.run({ name: "compare-resource-versions" }, async () =>
+                runWorkerEffect(compareResourceVersions(row, row.binding.lastSyncedVersionId!, versionId))
+            );
+            if (!delta.isIncremental) {
+                const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
+                    runWorkerEffect(loadSnapshot(row, versionId))
+                );
+                const retiredFileIds = [...activeFiles.values()].map((file) => file.id);
+                assertBindingSnapshotLimits(activeFiles, retiredFileIds, snapshot.files);
+
+                if (snapshot.files.length > 0) {
+                    const created = await step.run({ name: "commit-external-files" }, async () =>
+                        runWorkerEffect(insertConnectorFiles(row, snapshot.files, versionId, input.cursor))
+                    );
+                    await runWorkerEffect(
+                        runProcessFilesWithCleanup(step, row.binding.graphId, created, retiredFileIds)
+                    );
+
+                    await step.run({ name: "mark-binding-synced" }, async () =>
+                        runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
+                    );
+                    return { versionId, fileCount: created.fileIds.length };
+                }
+
+                if (retiredFileIds.length > 0) {
+                    await step.runWorkflow(processFilesSpec, {
+                        graphId: row.binding.graphId,
+                        fileIds: [],
+                        code: { kind: "repository", retiredFileIds },
+                    });
+                }
+                await step.run({ name: "mark-binding-synced" }, async () =>
+                    runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
+                );
+                return { versionId, fileCount: 0 };
             }
+
+            const plan = planIncrementalChanges(activeFiles, delta.changes);
+            if (plan.newPaths.length === 0 && plan.retiredFileIds.length === 0) {
+                await step.run({ name: "mark-binding-synced" }, async () =>
+                    runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
+                );
+                return { versionId, fileCount: 0 };
+            }
+
+            const changedFiles =
+                plan.newPaths.length > 0
+                    ? await step.run({ name: "load-changed-files" }, async () =>
+                          runWorkerEffect(loadChangedFiles(row, versionId, plan.newPaths))
+                      )
+                    : [];
+            assertBindingSnapshotLimits(activeFiles, plan.retiredFileIds, changedFiles);
+
+            if (changedFiles.length > 0) {
+                const created = await step.run({ name: "commit-external-files" }, async () =>
+                    runWorkerEffect(insertConnectorFiles(row, changedFiles, versionId, input.cursor))
+                );
+                await runWorkerEffect(
+                    runProcessFilesWithCleanup(step, row.binding.graphId, created, plan.retiredFileIds)
+                );
+                await step.run({ name: "mark-binding-synced" }, async () =>
+                    runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
+                );
+                return { versionId, fileCount: created.fileIds.length };
+            }
+
+            await step.runWorkflow(processFilesSpec, {
+                graphId: row.binding.graphId,
+                fileIds: [],
+                code: { kind: "repository", retiredFileIds: plan.retiredFileIds },
+            });
             await step.run({ name: "mark-binding-synced" }, async () =>
                 runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
             );
             return { versionId, fileCount: 0 };
+        } catch (error) {
+            if (run.retryTerminal) {
+                await step.run({ name: "mark-binding-failed", retryPolicy: NO_RETRY }, async () =>
+                    runWorkerEffect(markBindingFailed(input.bindingId))
+                );
+            }
+
+            throw error;
         }
-
-        const plan = planIncrementalChanges(activeFiles, delta.changes);
-        if (plan.newPaths.length === 0 && plan.retiredFileIds.length === 0) {
-            await step.run({ name: "mark-binding-synced" }, async () =>
-                runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
-            );
-            return { versionId, fileCount: 0 };
-        }
-
-        const changedFiles =
-            plan.newPaths.length > 0
-                ? await step.run({ name: "load-changed-files" }, async () => runWorkerEffect(loadChangedFiles(row, versionId, plan.newPaths)))
-                : [];
-        assertBindingSnapshotLimits(activeFiles, plan.retiredFileIds, changedFiles);
-
-        if (changedFiles.length > 0) {
-            const created = await step.run({ name: "commit-external-files" }, async () =>
-                runWorkerEffect(insertConnectorFiles(row, changedFiles, versionId, input.cursor))
-            );
-            await runWorkerEffect(runProcessFilesWithCleanup(step, row.binding.graphId, created, plan.retiredFileIds));
-            await step.run({ name: "mark-binding-synced" }, async () =>
-                runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
-            );
-            return { versionId, fileCount: created.fileIds.length };
-        }
-
-        await step.runWorkflow(processFilesSpec, {
-            graphId: row.binding.graphId,
-            fileIds: [],
-            code: { kind: "repository", retiredFileIds: plan.retiredFileIds },
-        });
-        await step.run({ name: "mark-binding-synced" }, async () =>
-            runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
-        );
-        return { versionId, fileCount: 0 };
-    } catch (error) {
-        if (run.retryTerminal) {
-            await step.run({ name: "mark-binding-failed", retryPolicy: NO_RETRY }, async () =>
-                runWorkerEffect(markBindingFailed(input.bindingId))
-            );
-        }
-
-        throw error;
     }
-});
+);

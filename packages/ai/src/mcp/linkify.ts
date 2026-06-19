@@ -8,7 +8,9 @@ export function linkifyResearchCitations(
     const segments = splitTextWithCitationFences(text);
 
     return Effect.all(
-        segments.map((segment) => (segment.type === "citation" ? resolveCitation(segment.citation) : Effect.succeed(segment.text))),
+        segments.map((segment) =>
+            segment.type === "citation" ? resolveCitation(segment.citation) : Effect.succeed(segment.text)
+        ),
         { concurrency: "unbounded" }
     ).pipe(Effect.map((resolvedCitations) => resolvedCitations.join("")));
 }

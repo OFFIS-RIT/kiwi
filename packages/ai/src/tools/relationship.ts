@@ -5,7 +5,7 @@ import { currentSourceSql, visibleFileSql } from "@kiwi/db/source-validity";
 import { and, asc, cosineDistance, eq, gt, inArray, or, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { embed, tool } from "ai";
-import { withAiSlot } from "../concurrency";
+import { withAiSlotEffect } from "../concurrency";
 import {
     decodeCursor,
     doubleLiteral,
@@ -177,14 +177,12 @@ export const searchRelationshipsTool = (
                             const fileIds = uniqueTerms(files ?? []);
                             options.onConsideredFileIds?.(fileIds);
                             const next = decodeCursor(cursor, "relationship search");
-                            const { embedding } = yield* Effect.tryPromise(() =>
-                                withAiSlot("embedding", (signal) =>
-                                    embed({
-                                        model: embeddingModel,
-                                        value: text,
-                                        abortSignal: signal,
-                                    })
-                                )
+                            const { embedding } = yield* withAiSlotEffect("embedding", (signal) =>
+                                embed({
+                                    model: embeddingModel,
+                                    value: text,
+                                    abortSignal: signal,
+                                })
                             );
                             const fileScope = buildRelationshipFileScopeExpression(fileIds);
                             const keywordBoost = buildRelationshipKeywordBoostExpression(terms);
@@ -355,7 +353,9 @@ export const getRelationshipsTool = (graphId: string) =>
                                           return `- ${row.id}, ${formatRelationshipDirection(row)}, ${source?.name ?? "Unknown"} to ${target?.name ?? "Unknown"}, ${row.kind}, ${description || "No description"}, rank ${row.rank}`;
                                       })
                                     : ["- none"]),
-                                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
+                                ...(hasMore && items.length > 0
+                                    ? [``, `Next cursor: ${items[items.length - 1]?.id}`]
+                                    : []),
                             ].join("\n");
                         })
                 )
@@ -379,7 +379,10 @@ export const getNeighboursTool = (graphId: string) =>
                     {
                         title: "Neighbours",
                         name: "get_entity_neighbours",
-                        hints: ["retry with one confirmed entity ID", "if the entity is unknown, search_entities first"],
+                        hints: [
+                            "retry with one confirmed entity ID",
+                            "if the entity is unknown, search_entities first",
+                        ],
                     },
                     { entityId, limit, cursor },
                     () =>
@@ -414,7 +417,9 @@ export const getNeighboursTool = (graphId: string) =>
                             const hasMore = relationships.length > limit;
                             const items = hasMore ? relationships.slice(0, limit) : relationships;
                             const neighbourIds = [
-                                ...new Set(items.map((row) => (row.sourceId === entityId ? row.targetId : row.sourceId))),
+                                ...new Set(
+                                    items.map((row) => (row.sourceId === entityId ? row.targetId : row.sourceId))
+                                ),
                             ];
                             const entities = neighbourIds.length
                                 ? yield* db
@@ -443,7 +448,9 @@ export const getNeighboursTool = (graphId: string) =>
                                           return `- ${neighbourId}, ${neighbour?.name ?? "Unknown"}, ${neighbour?.type ?? "Unknown"}, ${description || "No description"}; via ${row.id}, ${row.kind}, ${row.directed ? direction : "undirected"}, ${formatRelationshipDirection(row)}, ${relationship || "No relationship description"}, rank ${row.rank}`;
                                       })
                                     : ["- none"]),
-                                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
+                                ...(hasMore && items.length > 0
+                                    ? [``, `Next cursor: ${items[items.length - 1]?.id}`]
+                                    : []),
                             ].join("\n");
                         })
                 )
@@ -527,7 +534,10 @@ export const getPathBetweenTool = (graphId: string) =>
                                 const nextFrontier: string[] = [];
 
                                 for (const relationship of relationships) {
-                                    if (frontier.includes(relationship.sourceId) && !visited.has(relationship.targetId)) {
+                                    if (
+                                        frontier.includes(relationship.sourceId) &&
+                                        !visited.has(relationship.targetId)
+                                    ) {
                                         visited.add(relationship.targetId);
                                         previous.set(relationship.targetId, {
                                             entityId: relationship.sourceId,

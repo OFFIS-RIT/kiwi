@@ -45,7 +45,12 @@ mock.module("@kiwi/files", () => ({
     },
     getFileStream: () => {
         streamCalls += 1;
-        return Effect.succeed({ content: new Blob(["hello world\n"]).stream(), size: 12, type: "text/plain", lastModified: null });
+        return Effect.succeed({
+            content: new Blob(["hello world\n"]).stream(),
+            size: 12,
+            type: "text/plain",
+            lastModified: null,
+        });
     },
     listFiles: () => Effect.succeed([]),
     putGraphFile: () => Effect.succeed({ key: "key", type: "text/plain" }),
@@ -85,12 +90,14 @@ describe("graph file proxy", () => {
     });
 
     test("streams internal files from S3", async () => {
-        const result = await runApiTestEffect(getGraphFileProxyResponse({
-            graphId: "graph-1",
-            fileId: "file-1",
-            request: new Request("http://localhost/file"),
-            bucket: "bucket",
-        }));
+        const result = await runApiTestEffect(
+            getGraphFileProxyResponse({
+                graphId: "graph-1",
+                fileId: "file-1",
+                request: new Request("http://localhost/file"),
+                bucket: "bucket",
+            })
+        );
 
         expect(result.status).toBe("ok");
         expect(metadataCalls).toBe(1);
@@ -124,12 +131,14 @@ describe("graph file proxy", () => {
             }),
         };
 
-        const result = await runApiTestEffect(getGraphFileProxyResponse({
-            graphId: "graph-1",
-            fileId: "file-1",
-            request: new Request("http://localhost/file"),
-            bucket: "bucket",
-        }));
+        const result = await runApiTestEffect(
+            getGraphFileProxyResponse({
+                graphId: "graph-1",
+                fileId: "file-1",
+                request: new Request("http://localhost/file"),
+                bucket: "bucket",
+            })
+        );
 
         expect(result.status).toBe("ok");
         expect(metadataCalls).toBe(0);
@@ -177,12 +186,14 @@ describe("graph file proxy", () => {
             connector: { provider: "github", status: "active" },
         };
 
-        const result = await runApiTestEffect(getGraphFileProxyResponse({
-            graphId: "graph-1",
-            fileId: "file-1",
-            request: new Request("http://localhost/file"),
-            bucket: "bucket",
-        }));
+        const result = await runApiTestEffect(
+            getGraphFileProxyResponse({
+                graphId: "graph-1",
+                fileId: "file-1",
+                request: new Request("http://localhost/file"),
+                bucket: "bucket",
+            })
+        );
 
         expect(result.status).toBe("ok");
         expect(metadataCalls).toBe(0);

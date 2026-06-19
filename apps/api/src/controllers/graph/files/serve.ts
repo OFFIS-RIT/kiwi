@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
-import { API_ERROR_CODES, makeApiError } from "@kiwi/contracts/errors";
-import { DatabaseLayer } from "@kiwi/db/effect";
+import { API_ERROR_CODES, type ApiError, makeApiError } from "@kiwi/contracts/errors";
+import { DatabaseLayer, type Database } from "@kiwi/db/effect";
 import { env } from "../../../env";
 import { getGraphFileProxyResponse, type GraphFileProxyResult } from "../../../lib/graph/file-proxy";
 import type { AuthUser } from "../../../middleware/auth";
@@ -25,14 +25,17 @@ export function graphFileProxyResponse(result: ServeGraphFileResult) {
 
 export function runGraphFileProxyAction<T>(options: {
     status: RouteStatus;
-    action: Effect.Effect<T, unknown>;
+    action: Effect.Effect<T, ApiError, Database>;
     success: (value: T) => unknown;
 }) {
     return Effect.runPromise(
-        Effect.match(options.action, {
-            onFailure: (error) => mapApiError(options.status, error),
-            onSuccess: options.success,
-        })
+        Effect.provide(
+            Effect.match(options.action, {
+                onFailure: (error) => mapApiError(options.status, error),
+                onSuccess: options.success,
+            }),
+            DatabaseLayer
+        )
     );
 }
 
@@ -42,38 +45,30 @@ export function serveGraphFile(input: {
     request: Request;
     user: AuthUser | null | undefined;
     head?: boolean;
-}) {
-    return Effect.provide(
-        Effect.mapError(
-            Effect.catchDefect(
-                Effect.gen(function* () {
-                    yield* assertCanReadGraphFile({
-                        request: input.request,
-                        user: input.user,
-                        params: { graphId: input.graphId, fileId: input.fileId },
-                    });
+}): Effect.Effect<ServeGraphFileResult, ApiError, Database> {
+    return Effect.mapError(
+        Effect.gen(function* () {
+            yield* assertCanReadGraphFile({
+                request: input.request,
+                user: input.user,
+                params: { graphId: input.graphId, fileId: input.fileId },
+            });
 
-                    const result = yield* getGraphFileProxyResponse({
-                        graphId: input.graphId,
-                        fileId: input.fileId,
-                        request: input.request,
-                        bucket: env.S3_BUCKET,
-                        head: input.head,
-                    });
+            const result = yield* getGraphFileProxyResponse({
+                graphId: input.graphId,
+                fileId: input.fileId,
+                request: input.request,
+                bucket: env.S3_BUCKET,
+                head: input.head,
+            });
 
-                    if (result.status === "not_found") {
-                        return yield* Effect.fail(
-                            makeApiError(404, API_ERROR_CODES.INVALID_FILE_IDS, "File not found")
-                        );
-                    }
+            if (result.status === "not_found") {
+                return yield* Effect.fail(makeApiError(404, API_ERROR_CODES.INVALID_FILE_IDS, "File not found"));
+            }
 
-                    return result;
-                }),
-                (defect) => Effect.fail(defect)
-            ),
-            toApiError
-        ),
-        DatabaseLayer
+            return result;
+        }),
+        toApiError
     );
 }
 
