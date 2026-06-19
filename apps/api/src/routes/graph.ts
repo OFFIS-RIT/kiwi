@@ -127,10 +127,7 @@ function getRepositoryUrlError(error: unknown): RepositoryUrlError | undefined {
 function repositoryUrlErrorResponse(statusFn: (code: number, body: unknown) => unknown, error: unknown) {
     const repositoryError = getRepositoryUrlError(error);
     if (!repositoryError) {
-        return statusFn(
-            400,
-            errorResponse("Repository could not be loaded", API_ERROR_CODES.UNSUPPORTED_FILE_TYPE)
-        );
+        return statusFn(400, errorResponse("Repository could not be loaded", API_ERROR_CODES.UNSUPPORTED_FILE_TYPE));
     }
 
     if (repositoryError.kind === "limit") {
@@ -1157,7 +1154,7 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
                     graphId: existingGraph.id,
                     fileIds: [file.id],
                     processRunId: retry.runId,
-                    ...(file.type === "code" ? { code: { kind: "repository" as const } } : {}),
+                    ...(file.type === "code" ? { code: { kind: "repository" as const, retiredFileIds: [] } } : {}),
                 });
 
                 return status(200, {
