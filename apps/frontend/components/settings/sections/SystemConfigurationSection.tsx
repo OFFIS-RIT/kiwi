@@ -103,6 +103,10 @@ const FILE_TYPE_META: Record<FileTypeValue, { labelKey: string; extensionsKey: s
         labelKey: "settings.systemConfig.fileProcessing.fileType.toml",
         extensionsKey: "settings.systemConfig.fileProcessing.extensions.toml",
     },
+    code: {
+        labelKey: "settings.systemConfig.fileProcessing.fileType.code",
+        extensionsKey: "settings.systemConfig.fileProcessing.extensions.code",
+    },
     text: {
         labelKey: "settings.systemConfig.fileProcessing.fileType.text",
         extensionsKey: "settings.systemConfig.fileProcessing.extensions.text",
@@ -133,7 +137,7 @@ const FILE_TYPE_GROUPS = [
     {
         id: "text",
         labelKey: "settings.systemConfig.fileProcessing.group.text",
-        fileTypes: ["text"],
+        fileTypes: ["code", "text"],
     },
 ] as const satisfies ReadonlyArray<{ id: string; labelKey: string; fileTypes: readonly FileTypeValue[] }>;
 

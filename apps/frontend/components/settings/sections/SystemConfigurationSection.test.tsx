@@ -56,6 +56,15 @@ const records: FileTypeConfigRecord[] = [
         chunk_size_editable: true,
         document_mode_editable: false,
     },
+    {
+        file_type: "code",
+        loader: "text",
+        chunker: "semantic",
+        chunk_size: 2000,
+        document_mode: null,
+        chunk_size_editable: true,
+        document_mode_editable: false,
+    },
 ];
 
 const fetchFileTypeConfigsMock = vi.mocked(fetchFileTypeConfigs);
@@ -76,11 +85,15 @@ describe("SystemConfigurationSection", () => {
         renderSection();
 
         expect(await screen.findByText("Dateiverarbeitung")).toBeInTheDocument();
-        expect(await screen.findByText("3 Dateitypen geladen")).toBeInTheDocument();
+        expect(await screen.findByText("4 Dateitypen geladen")).toBeInTheDocument();
         expect(screen.getByText("Dokumente")).toBeInTheDocument();
         expect(screen.getByText("Medien")).toBeInTheDocument();
-        expect(screen.getByText("pdf")).toBeInTheDocument();
-        expect(screen.getByText("semantic")).toBeInTheDocument();
+        const pdfRow = screen.getByText("PDF").closest("[data-file-type='pdf']");
+        expect(pdfRow).not.toBeNull();
+        expect(within(pdfRow!).getByText("pdf")).toBeInTheDocument();
+        expect(within(pdfRow!).getByText("semantic")).toBeInTheDocument();
+        expect(screen.getByText("Code")).toBeInTheDocument();
+        expect(screen.getByText(".js, .ts, .tsx, .rs, .zig, .c, .h")).toBeInTheDocument();
     });
 
     test("keeps save disabled until an editable field changes", async () => {
@@ -190,7 +203,7 @@ describe("SystemConfigurationSection", () => {
 
         await user.click(screen.getByRole("button", { name: "Erneut versuchen" }));
 
-        expect(await screen.findByText("3 Dateitypen geladen")).toBeInTheDocument();
+        expect(await screen.findByText("4 Dateitypen geladen")).toBeInTheDocument();
         expect(fetchFileTypeConfigsMock).toHaveBeenCalledTimes(2);
     });
 
