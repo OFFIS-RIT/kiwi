@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import { DatabaseLayer, tryDb, type Database } from "@kiwi/db/effect";
 import { fileTypeConfigsTable } from "@kiwi/db/tables/file-types";
+import { FILE_TYPE_CHUNK_SIZE_MAX, FILE_TYPE_CHUNK_SIZE_MIN, type FileTypeConfigRecord } from "@kiwi/contracts";
 import { GRAPH_FILE_TYPES, isGraphFileType, type GraphFileType } from "@kiwi/graph/file-type";
 import { GRAPH_DOCUMENT_MODES } from "@kiwi/loaders/loader/factory";
 import {
@@ -19,32 +20,24 @@ import { API_ERROR_CODES, errorResponse, successResponse } from "../types";
 
 type RouteStatus = (code: number, body: unknown) => unknown;
 
-const MIN_CHUNK_SIZE = 50;
-const MAX_CHUNK_SIZE = 100_000;
-
 const patchFileTypeConfigSchema = z.object({
-    chunk_size: z.number().int().min(MIN_CHUNK_SIZE).max(MAX_CHUNK_SIZE).optional(),
+    chunk_size: z.number().int().min(FILE_TYPE_CHUNK_SIZE_MIN).max(FILE_TYPE_CHUNK_SIZE_MAX).optional(),
     document_mode: z.enum(GRAPH_DOCUMENT_MODES).optional(),
 });
 
-export type FileTypeConfigRecord = {
-    file_type: GraphFileType;
-    loader: string;
-    chunker: string;
-    chunk_size: number | null;
-    document_mode: string | null;
-    chunk_size_editable: boolean;
-    document_mode_editable: boolean;
-};
-
 function toFileTypeConfigRecord(fileType: GraphFileType, config: FileTypeProcessingConfig): FileTypeConfigRecord {
+    const chunkSizeEditable = fileTypeSupportsChunkSize(fileType);
+    if (chunkSizeEditable && config.chunkSize === null) {
+        throw new Error(`Editable file type "${fileType}" resolved without a chunk size`);
+    }
+
     return {
         file_type: fileType,
         loader: config.loader,
         chunker: config.chunker,
         chunk_size: config.chunkSize,
         document_mode: config.documentMode,
-        chunk_size_editable: fileTypeSupportsChunkSize(fileType),
+        chunk_size_editable: chunkSizeEditable,
         document_mode_editable: fileTypeSupportsDocumentMode(fileType),
     };
 }

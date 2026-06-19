@@ -10,6 +10,7 @@ export const queryKeys = {
     models: ["models"] as const,
     adminModels: ["models", "admin"] as const,
     selectableModels: ["models", "selectable"] as const,
+    fileTypeConfigs: ["file-type-configs"] as const,
     prompts: (scopeKind: string, scopeId: string) => ["prompts", scopeKind, scopeId] as const,
     search: (query: string) => ["search", query] as const,
     pinnedChats: ["pinned-chats"] as const,

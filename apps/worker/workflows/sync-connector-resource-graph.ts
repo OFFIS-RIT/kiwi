@@ -710,12 +710,22 @@ function insertConnectorFiles(
     );
 }
 
-function markWebhookDuplicate(provider: typeof connectorsTable.$inferSelect.provider, deliveryId: string) {
+function markWebhookDuplicate(
+    connectorId: string,
+    provider: typeof connectorsTable.$inferSelect.provider,
+    deliveryId: string
+) {
     return useWorkerDbVoid((db) =>
         db
             .update(connectorWebhookEventsTable)
             .set({ status: "duplicate" })
-            .where(and(eq(connectorWebhookEventsTable.provider, provider), eq(connectorWebhookEventsTable.deliveryId, deliveryId)))
+            .where(
+                and(
+                    eq(connectorWebhookEventsTable.connectorId, connectorId),
+                    eq(connectorWebhookEventsTable.provider, provider),
+                    eq(connectorWebhookEventsTable.deliveryId, deliveryId)
+                )
+            )
     );
 }
 
@@ -797,7 +807,7 @@ export const syncConnectorResourceGraph = defineWorkflow(syncConnectorResourceGr
         if (row.binding.lastSyncedVersionId === versionId) {
             if (input.deliveryId) {
                 await step.run({ name: "mark-webhook-duplicate" }, async () =>
-                    runWorkerEffect(markWebhookDuplicate(row.connector.provider, input.deliveryId!))
+                    runWorkerEffect(markWebhookDuplicate(row.connector.id, row.connector.provider, input.deliveryId!))
                 );
             }
             return { skipped: true, versionId };

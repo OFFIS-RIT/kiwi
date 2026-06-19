@@ -7,6 +7,7 @@
         "./chat": "./src/chat.ts",
         "./connectors": "./src/connectors.ts",
         "./errors": "./src/errors.ts",
+        "./file-types": "./src/file-types.ts",
         "./graphs": "./src/graphs.ts",
         "./models": "./src/models.ts",
         "./prompts": "./src/prompts.ts",

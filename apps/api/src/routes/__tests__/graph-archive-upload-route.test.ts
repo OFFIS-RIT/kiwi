@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { Elysia } from "elysia";
 
 const uploadedFiles: Array<{ graphId: string; fileId: string; name: string }> = [];
@@ -23,6 +24,13 @@ const insertedFileValues: Array<{
     checksum?: string;
 }> = [];
 const existingChecksumRows: Array<{ checksum: string }> = [];
+const retryFileRows: Array<{
+    id: string;
+    type: string;
+    status: string;
+    processStep: string;
+    processErrorCode: string | null;
+}> = [];
 const supersededFileIds: string[] = [];
 let repositoryLoadMode: "success" | "limit-error" | "git-error" = "success";
 
@@ -114,6 +122,27 @@ function insertReturning(values: unknown) {
     return undefined;
 }
 
+function selectableRows<TRows, TLimitedRows>(rows: TRows[], limitedRows: TLimitedRows[]) {
+    return {
+        limit: async (count: number) => limitedRows.slice(0, count),
+        then: <TResult1 = TRows[], TResult2 = never>(
+            onfulfilled?: ((value: TRows[]) => TResult1 | PromiseLike<TResult1>) | null,
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+        ) => Promise.resolve(rows).then(onfulfilled, onrejected),
+    };
+}
+
+function effectWithReturning<T>(value: T, returningValue: unknown) {
+    return Object.assign(Effect.succeed(value), {
+        returning: () => Effect.succeed(returningValue),
+    });
+}
+
+function runTransactionResult<T>(result: T | PromiseLike<T> | Effect.Effect<T>) {
+    return Effect.isEffect(result) ? Effect.runPromise(result) : result;
+}
+
+
 const db = {
     insert: () => ({
         values: (values: unknown) => ({
@@ -122,48 +151,72 @@ const db = {
     }),
     select: () => ({
         from: () => ({
-            where: async () => existingChecksumRows,
+            where: () => selectableRows(existingChecksumRows, retryFileRows),
         }),
     }),
-    transaction: async <T>(callback: (tx: typeof transactionDb) => Promise<T>) => callback(transactionDb),
+    transaction: <T>(callback: (tx: typeof transactionDb) => T | PromiseLike<T> | Effect.Effect<T>) =>
+        runTransactionResult(callback(transactionDb)),
 };
 
 const transactionDb = {
     insert: () => ({
-        values: (values: unknown) => ({
-            onConflictDoNothing: () => ({
-                returning: () => {
-                    if (Array.isArray(values)) {
-                        insertedFileValues.push(
-                            ...(values as Array<{
-                                name: string;
-                                type: string;
-                                mimeType: string;
-                                key: string;
-                                storageKind?: string;
-                                externalProvider?: string;
-                                externalUrl?: string;
-                                metadata?: string;
-                                checksum?: string;
-                            }>)
-                        );
-                    }
+        values: (values: unknown) => {
+            if (
+                (Array.isArray(values) &&
+                    values.every((value) => typeof value === "object" && value !== null && "fileId" in value)) ||
+                (typeof values === "object" && values !== null && "fileId" in values)
+            ) {
+                return Effect.succeed(undefined);
+            }
 
-                    return insertReturning(values);
-                },
-            }),
-            returning: () => insertReturning(values),
-        }),
+            return {
+                onConflictDoNothing: () => ({
+                    returning: () => {
+                        if (Array.isArray(values)) {
+                            insertedFileValues.push(
+                                ...(values as Array<{
+                                    name: string;
+                                    type: string;
+                                    mimeType: string;
+                                    key: string;
+                                    storageKind?: string;
+                                    externalProvider?: string;
+                                    externalUrl?: string;
+                                    metadata?: string;
+                                    checksum?: string;
+                                }>)
+                            );
+                        }
+
+                        return Effect.succeed(insertReturning(values));
+                    },
+                }),
+                returning: () => Effect.succeed(insertReturning(values)),
+            };
+        },
     }),
     update: () => ({
         set: (values: Record<string, unknown>) => ({
-            where: () => ({
-                returning: () =>
-                    values.deleted === true ? supersededFileIds.map((id) => ({ id })) : [existingGraph],
-            }),
+            where: () =>
+                effectWithReturning(
+                    undefined,
+                    values.deleted === true ? supersededFileIds.map((id) => ({ id })) : [existingGraph]
+                ),
         }),
     }),
 };
+
+function runMockDbEffect(thunk: (database: typeof db) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) {
+    const result = thunk(db);
+    return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
+}
+
+mock.module("@kiwi/db/effect", () => ({
+    DatabaseLayer: Layer.empty,
+    tryDb: runMockDbEffect,
+    tryDbVoid: (thunk: (database: typeof db) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) =>
+        Effect.asVoid(runMockDbEffect(thunk)),
+}));
 
 mock.module("@kiwi/db", () => ({ db }));
 
@@ -283,15 +336,19 @@ mock.module("../../lib/repository-url", () => ({
         };
     },
     loadRepositoryFromUrl: (url: string) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
             loadedUrls.push(url);
             if (repositoryLoadMode === "limit-error") {
-                throw new RepositoryUrlError("limit", "Repository contains too many supported code files");
+                return yield* Effect.fail(
+                    new RepositoryUrlError("limit", "Repository contains too many supported code files")
+                );
             }
             if (repositoryLoadMode === "git-error") {
-                throw new RepositoryUrlError("load", "Repository could not be loaded", {
-                    cause: new Error("fatal: could not read Username for 'https://github.com': terminal prompts disabled"),
-                });
+                return yield* Effect.fail(
+                    new RepositoryUrlError("load", "Repository could not be loaded", {
+                        cause: new Error("fatal: could not read Username for 'https://github.com': terminal prompts disabled"),
+                    })
+                );
             }
 
             const repositoryName = url.includes("tools") ? "tools" : "widgets";
@@ -383,6 +440,7 @@ describe("graph route archive uploads", () => {
         insertedFileValues.length = 0;
         existingChecksumRows.length = 0;
         supersededFileIds.length = 0;
+        retryFileRows.length = 0;
         archiveExpansionMode = "success";
         repositoryLoadMode = "success";
         uploadModelMode = "success";
@@ -669,6 +727,34 @@ describe("graph route archive uploads", () => {
         expect(body.data.workflowRunId).toBe("workflow-1");
         expect(uploadedFiles).toEqual([]);
         expect(workflowInputs).toHaveLength(1);
+    });
+
+    test("retries code files without retiring repository siblings", async () => {
+        retryFileRows.push({
+            id: "file-code",
+            type: "code",
+            status: "failed",
+            processStep: "failed",
+            processErrorCode: "loader_failed",
+        });
+
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/files/file-code/retry", {
+                method: "POST",
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body.status).toBe("success");
+        expect(workflowInputs).toEqual([
+            {
+                graphId: "graph-1",
+                fileIds: ["file-code"],
+                processRunId: "process-run-1",
+                code: { kind: "repository", retiredFileIds: [] },
+            },
+        ]);
     });
 
     test("maps repository loader limits to upload limit responses", async () => {

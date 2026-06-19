@@ -11,6 +11,7 @@ const bindingUpdates: Array<Record<string, unknown>> = [];
 const compareCalls: Array<{ fromVersionId: string; toVersionId: string }> = [];
 const readFileCalls: Array<{ path: string; versionId: string | undefined }> = [];
 const txWhereConditions: unknown[] = [];
+const updateWhereConditions: unknown[] = [];
 const pendingReadResolutions: Array<() => void> = [];
 const readStartWaiters: Array<{ count: number; resolve: () => void }> = [];
 
@@ -147,24 +148,29 @@ const transactionDb = {
     }),
 };
 
+function runTransactionResult<T>(result: T | PromiseLike<T> | Effect.Effect<T>) {
+    return Effect.isEffect(result) ? Effect.runPromise(result) : result;
+}
+
+
 const mockDb = {
     select: () => createSelectQuery(),
     update: () => ({
         set: (values: Record<string, unknown>) => ({
-            where: async () => {
+            where: async (condition: unknown) => {
                 bindingUpdates.push(values);
+                updateWhereConditions.push(condition);
                 return undefined;
             },
         }),
     }),
-    transaction: async <T>(callback: (tx: typeof transactionDb) => Promise<T>) => callback(transactionDb),
+    transaction: <T>(callback: (tx: typeof transactionDb) => T | PromiseLike<T> | Effect.Effect<T>) =>
+        runTransactionResult(callback(transactionDb)),
 };
 
-function runMockDbEffect(thunk: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown>) {
+function runMockDbEffect(thunk: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) {
     const result = thunk(mockDb);
-    return typeof result === "object" && result !== null && Symbol.iterator in result
-        ? (result as Effect.Effect<unknown>)
-        : Effect.tryPromise(() => result as PromiseLike<unknown>);
+    return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
 }
 
 mock.module("../lib/effect", () => ({
@@ -321,7 +327,13 @@ function activeFile(id: string, versionId: string, path: string, size: number) {
     };
 }
 
-async function runWorkflow(input: { bindingId: string; reason: "manual" | "webhook" | "initial"; versionId?: string }) {
+async function runWorkflow(input: {
+    bindingId: string;
+    reason: "manual" | "webhook" | "initial";
+    versionId?: string;
+    cursor?: string;
+    deliveryId?: string;
+}) {
     return syncConnectorResourceGraph.fn({
         input,
         step: {
@@ -369,6 +381,7 @@ describe("syncConnectorResourceGraph", () => {
         compareCalls.length = 0;
         readFileCalls.length = 0;
         txWhereConditions.length = 0;
+        updateWhereConditions.length = 0;
         pendingReadResolutions.length = 0;
         readStartWaiters.length = 0;
         selectResults = [];
@@ -594,6 +607,23 @@ describe("syncConnectorResourceGraph", () => {
             lastSyncedVersionId: "commit-new",
             syncErrorCode: null,
         });
+    });
+
+    test("scopes duplicate webhook markers to the connector", async () => {
+        selectResults = [{ kind: "limit", value: [bindingRow("commit-new")] }];
+
+        const result = await runWorkflow({
+            bindingId: "binding-1",
+            reason: "webhook",
+            versionId: "commit-new",
+            deliveryId: "delivery-1",
+        });
+
+        expect(result).toEqual({ skipped: true, versionId: "commit-new" });
+        expect(bindingUpdates).toContainEqual({ status: "duplicate" });
+        expect(queryContainsParamValue(updateWhereConditions.at(-1), "connector-1")).toBe(true);
+        expect(queryContainsParamValue(updateWhereConditions.at(-1), "github")).toBe(true);
+        expect(queryContainsParamValue(updateWhereConditions.at(-1), "delivery-1")).toBe(true);
     });
 
     test("falls back to a full snapshot when compare is not incremental", async () => {

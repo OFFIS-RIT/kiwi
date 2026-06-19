@@ -91,7 +91,7 @@ export function retryGraphFile(input: { user: AuthUser; graphId: string; fileId:
                             graphId: existingGraph.id,
                             fileIds: [file.id],
                             processRunId: retry.runId,
-                            ...(file.type === "code" ? { code: { kind: "repository" as const } } : {}),
+                            ...(file.type === "code" ? { code: { kind: "repository" as const, retiredFileIds: [] } } : {}),
                         }),
                     catch: (error) => error,
                 });
