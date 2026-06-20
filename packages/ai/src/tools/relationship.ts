@@ -220,27 +220,41 @@ export const searchRelationshipsTool = (
                                         where r.graph_id = ${graphId}
                                           and r.active = true
                                           ${fileScope}
+                                    ), limited_ranked as materialized (
+                                        select
+                                            ranked.id,
+                                            ranked."sourceId",
+                                            ranked."targetId",
+                                            ranked."sourceName",
+                                            ranked."targetName",
+                                            ranked.kind,
+                                            ranked.directed,
+                                            ranked.description,
+                                            ranked.rank,
+                                            ranked.score
+                                        from ranked
+                                        where (
+                                            ranked.semantic_score >= ${doubleLiteral(MIN_SEMANTIC_SCORE)}
+                                            or ranked.keyword_boost >= ${doubleLiteral(MIN_KEYWORD_BOOST)}
+                                            or ranked.exact_boost > 0
+                                        )
+                                        ${cursorFilter}
+                                        order by ranked.score desc, ranked.id asc
+                                        limit ${limit + 1}
                                     )
                                     select
-                                        ranked.id,
-                                        ranked."sourceId",
-                                        ranked."targetId",
-                                        ranked."sourceName",
-                                        ranked."targetName",
-                                        ranked.kind,
-                                        ranked.directed,
-                                        ranked.description,
-                                        ranked.rank,
-                                        ranked.score
-                                    from ranked
-                                    where (
-                                        ranked.semantic_score >= ${doubleLiteral(MIN_SEMANTIC_SCORE)}
-                                        or ranked.keyword_boost >= ${doubleLiteral(MIN_KEYWORD_BOOST)}
-                                        or ranked.exact_boost > 0
-                                    )
-                                    ${cursorFilter}
-                                    order by ranked.score desc, ranked.id asc
-                                    limit ${limit + 1}
+                                        limited_ranked.id,
+                                        limited_ranked."sourceId",
+                                        limited_ranked."targetId",
+                                        limited_ranked."sourceName",
+                                        limited_ranked."targetName",
+                                        limited_ranked.kind,
+                                        limited_ranked.directed,
+                                        limited_ranked.description,
+                                        limited_ranked.rank,
+                                        limited_ranked.score
+                                    from limited_ranked
+                                    order by limited_ranked.score desc, limited_ranked.id asc
                                 `)
                                 .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
                             const relationships = toSearchRelationshipRows(result);

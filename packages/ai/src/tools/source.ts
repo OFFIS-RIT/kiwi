@@ -324,25 +324,37 @@ function getScopedSources(
                       and file.graph_id = ${graphId}
                       ${fileScope}
                       ${subjectScope}
+                ), limited_ranked as materialized (
+                    select
+                        ranked.id,
+                        ranked."entityId",
+                        ranked."relationshipId",
+                        ranked.description,
+                        ranked.text,
+                        ranked."fileId",
+                        ranked."fileName",
+                        ranked.score
+                    from ranked
+                    where (
+                        ranked.semantic_score >= ${doubleLiteral(MIN_SEMANTIC_SCORE)}
+                        or ranked.keyword_boost >= ${doubleLiteral(MIN_KEYWORD_BOOST)}
+                        or ranked.exact_boost > 0
+                    )
+                    ${cursorFilter}
+                    order by ranked.score desc, ranked.id asc
+                    limit ${limit + 1}
                 )
                 select
-                    ranked.id,
-                    ranked."entityId",
-                    ranked."relationshipId",
-                    ranked.description,
-                    ranked.text,
-                    ranked."fileId",
-                    ranked."fileName",
-                    ranked.score
-                from ranked
-                where (
-                    ranked.semantic_score >= ${doubleLiteral(MIN_SEMANTIC_SCORE)}
-                    or ranked.keyword_boost >= ${doubleLiteral(MIN_KEYWORD_BOOST)}
-                    or ranked.exact_boost > 0
-                )
-                ${cursorFilter}
-                order by ranked.score desc, ranked.id asc
-                limit ${limit + 1}
+                    limited_ranked.id,
+                    limited_ranked."entityId",
+                    limited_ranked."relationshipId",
+                    limited_ranked.description,
+                    limited_ranked.text,
+                    limited_ranked."fileId",
+                    limited_ranked."fileName",
+                    limited_ranked.score
+                from limited_ranked
+                order by limited_ranked.score desc, limited_ranked.id asc
             `)
             .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
         const rows = toSearchSourceRows(result);
