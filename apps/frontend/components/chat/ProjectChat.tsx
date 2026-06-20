@@ -316,7 +316,7 @@ function stripMarkdown(text: string): string {
     cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, "$1");
     cleaned = cleaned.replace(/__([^_]+)__/g, "$1");
     cleaned = cleaned.replace(/\*([^*]+)\*/g, "$1");
-    cleaned = cleaned.replace(/_([^_]+)_/g, "$1");
+    cleaned = cleaned.replace(/(?<!\w)_([^_]+)_(?!\w)/g, "$1");
     cleaned = cleaned.replace(/~~([^~]+)~~/g, "$1");
     cleaned = cleaned.replace(/^>\s+(.+)$/gm, "$1");
     cleaned = cleaned.replace(/^[-*]{3,}$/gm, "");

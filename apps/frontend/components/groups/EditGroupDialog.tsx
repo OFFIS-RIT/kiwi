@@ -16,7 +16,8 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { fetchGroupAvailableUsers, fetchGroupUsers, updateGroup, updateGroupUsers } from "@/lib/api/groups";
+import { fetchGroupAvailableUsers, fetchGroupUsers, updateGroupUsers } from "@/lib/api/groups";
+import { useUpdateGroup } from "@/hooks/use-data";
 import { canChangeTeamAdminRole, canManageTeam, canRemoveTeamMember, canRenameTeam } from "@/lib/capabilities";
 import {
     type SearchableFields,
@@ -69,6 +70,7 @@ const MAX_NAME_LENGTH = 40;
 export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogProps) {
     const apiClient = useApiClient();
     const queryClient = useQueryClient();
+    const updateGroupMutation = useUpdateGroup();
     const t = useAppTranslations();
     const { isAdmin } = useAuth();
     const context = { isAdmin };
@@ -188,7 +190,11 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
         setError(null);
         try {
             if (canEdit) {
-                await updateGroup(apiClient, group.id, editedName, editableUsers);
+                await updateGroupMutation.mutateAsync({
+                    groupId: group.id,
+                    name: editedName,
+                    users: editableUsers.map((user) => ({ user_id: user.user_id, role: user.role })),
+                });
             } else {
                 await updateGroupUsers(
                     apiClient,
@@ -198,8 +204,9 @@ export function EditGroupDialog({ open, onOpenChange, group }: EditGroupDialogPr
                         role: user.role as "admin" | "moderator" | "member",
                     }))
                 );
+                queryClient.removeQueries({ queryKey: queryKeys.groups, exact: true });
+                await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             }
-            await queryClient.invalidateQueries({ queryKey: queryKeys.groupsWithProjects });
             onOpenChange(false);
         } catch (err) {
             setError(err instanceof Error ? err.message : t("error.saving"));

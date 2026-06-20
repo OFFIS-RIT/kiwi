@@ -11,7 +11,7 @@ import { useGroupsWithProjects } from "@/hooks/use-data";
 import { canCreateAnyProject, canCreateTeam } from "@/lib/capabilities";
 import { useAuth } from "@/providers/AuthProvider";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
-import { BookOpen, Plus, Upload, Users } from "lucide-react";
+import { BookOpen, Plus, Users } from "lucide-react";
 import { Suspense, lazy, useState } from "react";
 
 const CreateGroupDialog = lazy(() =>
@@ -59,12 +59,6 @@ export function CreateActions() {
                         <DropdownMenuItem onSelect={() => setShowProjectDialog(true)}>
                             <BookOpen className="h-4 w-4" />
                             <span>{t("create.new.project")}</span>
-                        </DropdownMenuItem>
-                    )}
-                    {canCreateProject && (
-                        <DropdownMenuItem>
-                            <Upload className="h-4 w-4" />
-                            <span>{t("upload.files")}</span>
                         </DropdownMenuItem>
                     )}
                 </DropdownMenuContent>
