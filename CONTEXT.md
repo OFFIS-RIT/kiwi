@@ -11,7 +11,7 @@ The top-level tenant. Every deployment runs around a single auto-created Default
 _Avoid_: designing UI that assumes users choose between Organizations.
 
 **Team**:
-A unit within exactly one Organization, with its own membership roles (Team Admin, Team Moderator, Team Member). The UI labels Teams as "Groups" / „Gruppen" — the sidebar's "Groups" are Teams.
+A unit within exactly one Organization, with its own membership roles (Team Admin, Team Moderator, Team Member). The UI labels Teams as "Groups" / „Gruppen" — the sidebar's "Groups" are Teams. Only Organization Admins and System Admins may create a Team (and rename or delete it); Team Admins manage membership and Team-scoped Projects but cannot create, rename, or delete the Team.
 _Avoid_: "Group" in domain docs (UI label only); confusing Team membership with Organization membership.
 
 **Graph**:

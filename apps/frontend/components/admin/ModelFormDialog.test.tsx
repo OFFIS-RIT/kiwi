@@ -129,7 +129,7 @@ describe("ModelFormDialog", () => {
         expect(idInput).toHaveValue("my-custom-id");
     });
 
-    test("shows an inline error instead of creating when the context window is empty", async () => {
+    test("disables create while the context window is below the minimum", async () => {
         const user = userEvent.setup();
         renderWithProviders(<ModelFormDialog open onOpenChange={vi.fn()} type="text" onSaved={vi.fn()} />);
 
@@ -137,9 +137,8 @@ describe("ModelFormDialog", () => {
         await user.type(screen.getByLabelText("Provider-Modell-Name"), "gpt-4.1-mini");
         await user.clear(screen.getByLabelText("Kontextfenster (Tokens)"));
         await user.type(screen.getByLabelText("API-Schlüssel"), "secret-key");
-        await user.click(screen.getByRole("button", { name: "Modell hinzufügen" }));
 
-        expect(await screen.findByText("Gib mindestens 1000 Tokens ein.")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Modell hinzufügen" })).toBeDisabled();
         expect(createModel).not.toHaveBeenCalled();
     });
 
@@ -218,16 +217,15 @@ describe("ModelFormDialog", () => {
         });
     });
 
-    test("shows an inline error instead of patching when the context window is empty", async () => {
+    test("disables saving while the context window is below the minimum", async () => {
         const user = userEvent.setup();
         renderWithProviders(
             <ModelFormDialog open onOpenChange={vi.fn()} type="text" model={adminModel} onSaved={vi.fn()} />
         );
 
         await user.clear(screen.getByLabelText("Kontextfenster (Tokens)"));
-        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
 
-        expect(await screen.findByText("Gib mindestens 1000 Tokens ein.")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeDisabled();
         expect(updateModel).not.toHaveBeenCalled();
     });
 

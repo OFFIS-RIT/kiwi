@@ -2,8 +2,10 @@
 
 import { StateDisplay } from "@/components/common/StateDisplay";
 import { useGroupsWithProjects } from "@/hooks/use-data";
+import { canCreateTeam } from "@/lib/capabilities";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { Group } from "@/types";
+import { useAuth } from "@/providers/AuthProvider";
 import { useRouter } from "next/navigation";
 import { GroupCard } from "./GroupCard";
 
@@ -14,6 +16,7 @@ type GroupListProps = {
 export function GroupList({ onEditGroup }: GroupListProps) {
     const router = useRouter();
     const t = useAppTranslations();
+    const { isAdmin } = useAuth();
     const { data: groups = [], isLoading, error: queryError } = useGroupsWithProjects();
     const error = queryError ? t("error.loading.data") : null;
 
@@ -22,7 +25,13 @@ export function GroupList({ onEditGroup }: GroupListProps) {
     }
 
     if (!isLoading && groups.length === 0) {
-        return <StateDisplay isEmpty emptyMessage={t("no.groups")} emptyDescription={t("create.first.group")} />;
+        return (
+            <StateDisplay
+                isEmpty
+                emptyMessage={t("no.groups")}
+                emptyDescription={canCreateTeam({ isAdmin }) ? t("create.first.group") : t("no.groups.member")}
+            />
+        );
     }
 
     return (
