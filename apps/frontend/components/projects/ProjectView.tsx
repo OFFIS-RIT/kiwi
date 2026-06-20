@@ -54,6 +54,10 @@ export function ProjectView({ groupId, projectId }: ProjectViewProps) {
         }
     }, [groupMissing, projectMissing, groupId, router]);
 
+    // Unknown ids → not-found. Keep this a render-phase throw, NOT an effect:
+    // throwing during render aborts the commit so the redirect effect above
+    // never schedules, keeping the redirect and not-found paths mutually
+    // exclusive.
     if ((groupMissing && !everGroupExistedRef.current) || (projectMissing && !everProjectExistedRef.current)) {
         notFound();
     }

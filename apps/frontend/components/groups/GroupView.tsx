@@ -47,7 +47,11 @@ export function GroupView({ groupId }: GroupViewProps) {
     }, [isMissing, router]);
 
     // An id we've never seen that isn't in the list is unknown — surface the
-    // not-found page instead of silently falling back to the dashboard.
+    // not-found page instead of silently falling back to the dashboard. Keep
+    // this a render-phase throw, NOT an effect: throwing during render aborts
+    // the commit, so the redirect effect above never schedules — that is what
+    // keeps the redirect and not-found paths mutually exclusive. Moving it into
+    // an effect would let both fire in the same committed render.
     if (isMissing && !everExistedRef.current) {
         notFound();
     }
