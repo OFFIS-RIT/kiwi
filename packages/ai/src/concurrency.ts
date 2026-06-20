@@ -93,11 +93,7 @@ export const withAiSlotEffect: <T>(
     }
 
     const semaphore = semaphores[capability];
-    return yield* Effect.acquireUseRelease(
-        semaphore.take(1),
-        () => runTask,
-        () => semaphore.release(1)
-    );
+    return yield* semaphore.withPermit(runTask);
 });
 
 export function withAiSlot<T>(capability: AICapability, task: (signal: AbortSignal) => Promise<T>): Promise<T> {

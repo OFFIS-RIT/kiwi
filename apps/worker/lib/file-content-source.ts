@@ -1,13 +1,11 @@
-import { createConnectorAdapter } from "@kiwi/connectors";
+import { createConnectorAdapter, isKnownConnectorProvider } from "@kiwi/connectors";
 import * as Effect from "effect/Effect";
-import type {
-    ConnectorCredentials,
-    ConnectorFileLocator,
-    ConnectorInstallationCredentials,
-    ConnectorProvider,
-} from "@kiwi/connectors";
-import { decryptConnectorCredentials } from "@kiwi/connectors/credentials";
-import type { ConnectorSecretPayload } from "@kiwi/connectors/credentials";
+import type { ConnectorFileLocator, ConnectorInstallationCredentials, ConnectorProvider } from "@kiwi/connectors";
+import {
+    decryptConnectorCredentials,
+    isConnectorCredentialsForProvider,
+    isInstallationCredentialsForProvider,
+} from "@kiwi/connectors/credentials";
 import type { Database } from "@kiwi/db/effect";
 import { withWorkerDb } from "./effect";
 import {
@@ -23,7 +21,7 @@ import { parseCodeFileMetadata } from "./code-file-metadata";
 export type FileContentSource =
     | { kind: "internal"; key: string }
     | { kind: "external"; provider: "github"; url: string; metadata?: string | null }
-    | { kind: "connector"; bindingId: string; provider: "github" | "gitlab"; metadata?: string | null };
+    | { kind: "connector"; bindingId: string; provider: ConnectorProvider; metadata?: string | null };
 
 type CompatibleCodeFileMetadata = {
     bindingId?: string;
@@ -47,7 +45,7 @@ export function fileContentSourceFromRow(row: {
 }): FileContentSource {
     if (row.storageKind === "external") {
         if (row.connectorBindingId) {
-            if (row.externalProvider !== "github" && row.externalProvider !== "gitlab") {
+            if (!row.externalProvider || !isKnownConnectorProvider(row.externalProvider)) {
                 throw new Error("Unsupported connector file source");
             }
             return {
@@ -83,32 +81,6 @@ export function readFileContentSource(source: FileContentSource): Effect.Effect<
     });
 }
 
-function isConnectorProvider(value: string): value is ConnectorProvider {
-    return value === "github" || value === "gitlab";
-}
-
-function isConnectorCredentials(
-    value: ConnectorSecretPayload,
-    provider: ConnectorProvider
-): value is ConnectorCredentials {
-    return (
-        "provider" in value &&
-        value.provider === provider &&
-        (provider === "github" ? "appId" in value : "baseUrl" in value)
-    );
-}
-
-function isInstallationCredentials(
-    value: ConnectorSecretPayload,
-    provider: ConnectorProvider
-): value is ConnectorInstallationCredentials {
-    return (
-        "provider" in value &&
-        value.provider === provider &&
-        (provider === "github" ? "installationId" in value : "accessToken" in value)
-    );
-}
-
 function readConnectorFile(
     bindingId: string,
     metadataValue?: string | null
@@ -139,12 +111,12 @@ function readConnectorFile(
         if (!row || row.connector.status !== "active" || row.installation.status !== "active") {
             return null;
         }
-        if (!isConnectorProvider(row.connector.provider)) {
+        if (!isKnownConnectorProvider(row.connector.provider)) {
             return null;
         }
 
         const connectorCredentials = decryptConnectorCredentials(row.connector.encryptedCredentials, env.AUTH_SECRET);
-        if (!isConnectorCredentials(connectorCredentials, row.connector.provider)) {
+        if (!isConnectorCredentialsForProvider(connectorCredentials, row.connector.provider)) {
             return null;
         }
 
@@ -175,7 +147,7 @@ function readInstallationCredentials(
         return null;
     }
     const installationCredentials = decryptConnectorCredentials(row.installation.encryptedCredentials, env.AUTH_SECRET);
-    return isInstallationCredentials(installationCredentials, provider) ? installationCredentials : null;
+    return isInstallationCredentialsForProvider(installationCredentials, provider) ? installationCredentials : null;
 }
 
 function connectorFileLocator(resourceId: string, metadata: CompatibleCodeFileMetadata): ConnectorFileLocator {

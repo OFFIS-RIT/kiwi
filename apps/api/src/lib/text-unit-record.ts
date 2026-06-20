@@ -42,7 +42,9 @@ export function loadTextUnitWithFile(
                 })
                 .from(textUnitTable)
                 .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-                .where(and(eq(textUnitTable.id, unitId), eq(filesTable.graphId, graphId), eq(filesTable.deleted, false)))
+                .where(
+                    and(eq(textUnitTable.id, unitId), eq(filesTable.graphId, graphId), eq(filesTable.deleted, false))
+                )
                 .limit(1)
         ),
         ([unit]) => unit ?? null

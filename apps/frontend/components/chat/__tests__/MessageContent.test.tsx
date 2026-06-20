@@ -22,6 +22,8 @@ vi.mock("@/lib/api/projects", () => {
         file_name: "document.pdf",
         file_type: "doc",
         mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        external_url: null,
+        external_provider: null,
         created_at: null,
         updated_at: null,
     };
@@ -356,6 +358,51 @@ describe("MessageContent", () => {
 
         expect(await screen.findByText("Second prefetched evidence")).toBeInTheDocument();
         expect(fetchSourceReference).not.toHaveBeenCalled();
+    });
+
+    test("links external footer source citations to the provider URL", async () => {
+        const externalUrl = "https://github.com/acme/widgets/blob/commit-1/src/index.ts";
+        const unit = {
+            id: "unit-1",
+            project_file_id: "file-1",
+            start_page: null,
+            end_page: null,
+            file_name: "document.pdf",
+            file_type: "pdf",
+            mime_type: "application/pdf",
+            external_url: externalUrl,
+            external_provider: "github",
+            created_at: null,
+            updated_at: null,
+        };
+        mocked(fetchSourceReferences).mockResolvedValueOnce({
+            items: [
+                sourceReference(unit, {
+                    source_id: "src-1",
+                    chunks: [{ type: "text", chunk_id: 1, text: "Provider-backed evidence" }],
+                }),
+            ],
+            missing_source_ids: [],
+        });
+
+        renderMessageContent([
+            {
+                type: "text",
+                text: `Alpha ${citationFence("src-1", {
+                    fileId: "file-1",
+                    fileKey: undefined,
+                    fileType: "pdf",
+                })}`,
+            },
+        ]);
+
+        const link = await screen.findByRole("link", { name: /^document\.pdf$/i });
+
+        expect(link).toHaveAttribute("href", externalUrl);
+        expect(link).toHaveAttribute("target", "_blank");
+        expect(link).toHaveAttribute("rel", "noreferrer");
+        expect(getProjectFileUrl).not.toHaveBeenCalled();
+        expect(downloadProjectFile).not.toHaveBeenCalled();
     });
 
     test("combines footer source file citations by overlapping page ranges", async () => {

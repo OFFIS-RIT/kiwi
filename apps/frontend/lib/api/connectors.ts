@@ -34,7 +34,10 @@ export async function startGitHubConnectorManifest(
     client: KiwiApiClient,
     input: GitHubConnectorManifestStartInput
 ): Promise<GitHubConnectorManifestStartSuccessData> {
-    const response = await client.post<GitHubConnectorManifestStartResponse>("/connectors/github/manifest/start", input);
+    const response = await client.post<GitHubConnectorManifestStartResponse>(
+        "/connectors/github/manifest/start",
+        input
+    );
     return unwrapApiResponse(response);
 }
 
@@ -44,7 +47,10 @@ export async function completeGitHubConnectorManifest(
 ): Promise<ConnectorRecord> {
     const params = new URLSearchParams(input);
     const response = await client.get<
-        ApiResponse<ConnectorRecord, "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR">
+        ApiResponse<
+            ConnectorRecord,
+            "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+        >
     >(`/connectors/github/manifest/callback?${params.toString()}`);
     return unwrapApiResponse(response);
 }
@@ -60,7 +66,10 @@ export async function completeGitHubConnectorInstallation(
         params.set("setup_action", input.setup_action);
     }
     const response = await client.get<
-        ApiResponse<ConnectorInstallationRecord, "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR">
+        ApiResponse<
+            ConnectorInstallationRecord,
+            "UNAUTHORIZED" | "FORBIDDEN" | "GRAPH_NOT_FOUND" | "INVALID_GRAPH_OWNER" | "INTERNAL_SERVER_ERROR"
+        >
     >(`/connectors/github/install/callback?${params.toString()}`);
     return unwrapApiResponse(response);
 }

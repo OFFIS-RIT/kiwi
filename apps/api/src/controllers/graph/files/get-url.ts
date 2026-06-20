@@ -7,14 +7,20 @@ import type { AuthUser } from "../../../middleware/auth";
 import { toApiError } from "../../_shared/api-effect";
 
 export function getGraphFileUrl(input: { user: AuthUser; graphId: string; fileKey: string }) {
-    return Effect.mapError(Effect.catchDefect(Effect.gen(function* () {
-        yield* assertCanViewGraph(input.user, input.graphId);
+    return Effect.mapError(
+        Effect.catchDefect(
+            Effect.gen(function* () {
+                yield* assertCanViewGraph(input.user, input.graphId);
 
-        const file = yield* loadGraphFileByKey(input.graphId, input.fileKey);
-        if (!file) {
-            return yield* Effect.fail(makeApiError(400, API_ERROR_CODES.INVALID_FILE_IDS, "Invalid file IDs"));
-        }
+                const file = yield* loadGraphFileByKey(input.graphId, input.fileKey);
+                if (!file) {
+                    return yield* Effect.fail(makeApiError(400, API_ERROR_CODES.INVALID_FILE_IDS, "Invalid file IDs"));
+                }
 
-        return { url: getProjectFileProxyPath(input.graphId, file.id, { fileName: file.name }) };
-    }), (defect) => Effect.fail(defect)), toApiError);
+                return { url: getProjectFileProxyPath(input.graphId, file.id, { fileName: file.name }) };
+            }),
+            (defect) => Effect.fail(defect)
+        ),
+        toApiError
+    );
 }

@@ -58,7 +58,9 @@ export function prepareCodeManifest(options: {
             return undefined;
         }
 
-        const selectedScopes = new Set(selectedRows.map(repositoryManifestScopeKey).filter((scope): scope is string => scope !== null));
+        const selectedScopes = new Set(
+            selectedRows.map(repositoryManifestScopeKey).filter((scope): scope is string => scope !== null)
+        );
         const rows = selectedScopes.size
             ? yield* withWorkerDb((db) =>
                   db
@@ -73,7 +75,13 @@ export function prepareCodeManifest(options: {
                           connectorBindingId: filesTable.connectorBindingId,
                       })
                       .from(filesTable)
-                      .where(and(eq(filesTable.graphId, options.graphId), eq(filesTable.type, "code"), eq(filesTable.deleted, false)))
+                      .where(
+                          and(
+                              eq(filesTable.graphId, options.graphId),
+                              eq(filesTable.type, "code"),
+                              eq(filesTable.deleted, false)
+                          )
+                      )
               )
             : selectedRows;
 

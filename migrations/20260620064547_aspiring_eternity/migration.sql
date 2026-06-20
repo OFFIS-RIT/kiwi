@@ -1,0 +1,1 @@
+ALTER TABLE "files" DROP CONSTRAINT "files_external_provider_check";

@@ -19,7 +19,12 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { openCitationSourceFile } from "./citation-file";
 import { MessageCodeBlock } from "./MessageCodeBlock";
-import { buildSourceFileCitations, citationReferenceKey } from "./source-file-citations";
+import {
+    buildSourceFileCitations,
+    citationReferenceKey,
+    type SourceFileCitation,
+    type SourceReferenceLink,
+} from "./source-file-citations";
 import { TextReferenceBadge, TextReferenceDialog, sourceReferenceQueryKey } from "./TextReferenceBadge";
 import { ThinkingDropdown } from "./ThinkingDropdown";
 
@@ -255,30 +260,35 @@ export function MessageContent({
     const activeCitation = activeCitationSourceId ? citationBySourceId.get(activeCitationSourceId) : undefined;
     const citationSourceIds = React.useMemo(() => [...citationBySourceId.keys()], [citationBySourceId]);
 
-    React.useEffect(() => {
-        if (!projectId || citationSourceIds.length <= 1) {
-            return;
-        }
+    const [sourceReferenceBySourceId, setSourceReferenceBySourceId] = React.useState<
+        ReadonlyMap<string, SourceReferenceLink>
+    >(() => new Map());
 
-        const uncachedSourceIds = citationSourceIds.filter(
-            (sourceId) => !queryClient.getQueryData(sourceReferenceQueryKey(projectId, sourceId))
-        );
-        if (uncachedSourceIds.length === 0) {
+    React.useEffect(() => {
+        if (!projectId || citationSourceIds.length === 0) {
+            setSourceReferenceBySourceId((current) => (current.size > 0 ? new Map() : current));
             return;
         }
 
         let cancelled = false;
-        void fetchSourceReferences(apiClient, projectId, uncachedSourceIds)
+        void fetchSourceReferences(apiClient, projectId, citationSourceIds)
             .then((references) => {
                 if (cancelled) {
                     return;
                 }
 
+                const updatedAt = Date.now();
+                const nextReferences = new Map<string, SourceReferenceLink>();
                 for (const reference of references.items) {
+                    nextReferences.set(reference.source_id, reference);
                     queryClient.setQueryData(sourceReferenceQueryKey(projectId, reference.source_id), reference, {
-                        updatedAt: Date.now(),
+                        updatedAt,
                     });
                 }
+
+                setSourceReferenceBySourceId((current) =>
+                    nextReferences.size > 0 || current.size > 0 ? nextReferences : current
+                );
             })
             .catch(() => undefined);
 
@@ -374,7 +384,22 @@ export function MessageContent({
         }
     };
 
-    const sourceFileCitations = React.useMemo(() => buildSourceFileCitations(citations), [citations]);
+    const sourceFileCitations = React.useMemo(
+        () => buildSourceFileCitations(citations, sourceReferenceBySourceId),
+        [citations, sourceReferenceBySourceId]
+    );
+
+    const renderSourceFileContent = (sourceFile: SourceFileCitation) => (
+        <>
+            <FileText className="h-3 w-3" />
+            <span>{sourceFile.fileName}</span>
+            {sourceFile.pageLabel !== null && (
+                <Badge variant="secondary" aria-hidden="true" className="px-1 py-0 text-xs font-normal">
+                    {sourceFile.pageLabel}
+                </Badge>
+            )}
+        </>
+    );
 
     const hasText = markdownContent.trim().length > 0;
 
@@ -471,28 +496,37 @@ export function MessageContent({
                 <div className="border-t border-border/50 pt-3">
                     <div className="mb-2 text-sm text-muted-foreground">{t("sources")}:</div>
                     <div className="flex flex-wrap gap-2">
-                        {sourceFileCitations.map((sourceFile) => (
-                            <Button
-                                key={sourceFile.key}
-                                variant="outline"
-                                size="sm"
-                                className="h-7 gap-1.5 px-2 py-1 text-xs"
-                                aria-label={sourceFile.accessibleLabel}
-                                onClick={() => handleFileDownload(sourceFile.citation)}
-                            >
-                                <FileText className="h-3 w-3" />
-                                <span>{sourceFile.fileName}</span>
-                                {sourceFile.pageLabel !== null && (
-                                    <Badge
-                                        variant="secondary"
-                                        aria-hidden="true"
-                                        className="px-1 py-0 text-xs font-normal"
+                        {sourceFileCitations.map((sourceFile) =>
+                            sourceFile.externalUrl ? (
+                                <Button
+                                    key={sourceFile.key}
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 gap-1.5 px-2 py-1 text-xs"
+                                    asChild
+                                >
+                                    <a
+                                        href={sourceFile.externalUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        aria-label={sourceFile.accessibleLabel}
                                     >
-                                        {sourceFile.pageLabel}
-                                    </Badge>
-                                )}
-                            </Button>
-                        ))}
+                                        {renderSourceFileContent(sourceFile)}
+                                    </a>
+                                </Button>
+                            ) : (
+                                <Button
+                                    key={sourceFile.key}
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 gap-1.5 px-2 py-1 text-xs"
+                                    aria-label={sourceFile.accessibleLabel}
+                                    onClick={() => handleFileDownload(sourceFile.citation)}
+                                >
+                                    {renderSourceFileContent(sourceFile)}
+                                </Button>
+                            )
+                        )}
                     </div>
                 </div>
             )}

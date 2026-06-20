@@ -37,7 +37,12 @@ export function setDefaultModel(input: { user: AuthUser; modelId: string }) {
                         yield* tx
                             .update(modelsTable)
                             .set({ isDefault: false })
-                            .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, currentModel.type)));
+                            .where(
+                                and(
+                                    eq(modelsTable.organizationId, organizationId),
+                                    eq(modelsTable.type, currentModel.type)
+                                )
+                            );
 
                         const [model] = yield* tx
                             .update(modelsTable)

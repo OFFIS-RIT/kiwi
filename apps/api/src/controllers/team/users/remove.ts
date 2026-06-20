@@ -34,11 +34,15 @@ export function removeTeamUser(input: { user: AuthUser; teamId: string; userId: 
                             return yield* Effect.fail(forbiddenError());
                         }
 
-                        yield* tryApiSync(() => ensureTeamHasAdmin(currentMembers.filter((member) => member.user_id !== input.userId)));
+                        yield* tryApiSync(() =>
+                            ensureTeamHasAdmin(currentMembers.filter((member) => member.user_id !== input.userId))
+                        );
 
                         yield* tx
                             .delete(teamMemberTable)
-                            .where(and(eq(teamMemberTable.teamId, input.teamId), eq(teamMemberTable.userId, input.userId)));
+                            .where(
+                                and(eq(teamMemberTable.teamId, input.teamId), eq(teamMemberTable.userId, input.userId))
+                            );
                     })
                 )
             );

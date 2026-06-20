@@ -29,25 +29,24 @@ export function createPrompt(input: { user: AuthUser; scope: PromptScopeInput; p
             switch (scope.kind) {
                 case "user": {
                     const row = yield* tryDb((db) =>
-                        db.transaction(
-                            (tx) =>
-                                Effect.gen(function* () {
-                                    yield* tx.execute(sql`set transaction isolation level serializable`);
-                                    const promptIds = yield* tx
-                                        .select({ id: userPromptsTable.id })
-                                        .from(userPromptsTable)
-                                        .where(eq(userPromptsTable.userId, scope.userId))
-                                        .limit(MAX_PROMPTS_PER_SCOPE);
-                                    if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
-                                        return yield* Effect.fail(promptLimitExceededError());
-                                    }
+                        db.transaction((tx) =>
+                            Effect.gen(function* () {
+                                yield* tx.execute(sql`set transaction isolation level serializable`);
+                                const promptIds = yield* tx
+                                    .select({ id: userPromptsTable.id })
+                                    .from(userPromptsTable)
+                                    .where(eq(userPromptsTable.userId, scope.userId))
+                                    .limit(MAX_PROMPTS_PER_SCOPE);
+                                if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
+                                    return yield* Effect.fail(promptLimitExceededError());
+                                }
 
-                                    const [created] = yield* tx
-                                        .insert(userPromptsTable)
-                                        .values({ userId: scope.userId, prompt })
-                                        .returning(userPromptFields);
-                                    return created;
-                                })
+                                const [created] = yield* tx
+                                    .insert(userPromptsTable)
+                                    .values({ userId: scope.userId, prompt })
+                                    .returning(userPromptFields);
+                                return created;
+                            })
                         )
                     );
 
@@ -59,25 +58,24 @@ export function createPrompt(input: { user: AuthUser; scope: PromptScopeInput; p
                 }
                 case "team": {
                     const row = yield* tryDb((db) =>
-                        db.transaction(
-                            (tx) =>
-                                Effect.gen(function* () {
-                                    yield* tx.execute(sql`set transaction isolation level serializable`);
-                                    const promptIds = yield* tx
-                                        .select({ id: teamPromptsTable.id })
-                                        .from(teamPromptsTable)
-                                        .where(eq(teamPromptsTable.teamId, scope.teamId))
-                                        .limit(MAX_PROMPTS_PER_SCOPE);
-                                    if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
-                                        return yield* Effect.fail(promptLimitExceededError());
-                                    }
+                        db.transaction((tx) =>
+                            Effect.gen(function* () {
+                                yield* tx.execute(sql`set transaction isolation level serializable`);
+                                const promptIds = yield* tx
+                                    .select({ id: teamPromptsTable.id })
+                                    .from(teamPromptsTable)
+                                    .where(eq(teamPromptsTable.teamId, scope.teamId))
+                                    .limit(MAX_PROMPTS_PER_SCOPE);
+                                if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
+                                    return yield* Effect.fail(promptLimitExceededError());
+                                }
 
-                                    const [created] = yield* tx
-                                        .insert(teamPromptsTable)
-                                        .values({ teamId: scope.teamId, prompt })
-                                        .returning(teamPromptFields);
-                                    return created;
-                                })
+                                const [created] = yield* tx
+                                    .insert(teamPromptsTable)
+                                    .values({ teamId: scope.teamId, prompt })
+                                    .returning(teamPromptFields);
+                                return created;
+                            })
                         )
                     );
 
@@ -89,25 +87,24 @@ export function createPrompt(input: { user: AuthUser; scope: PromptScopeInput; p
                 }
                 case "organization": {
                     const row = yield* tryDb((db) =>
-                        db.transaction(
-                            (tx) =>
-                                Effect.gen(function* () {
-                                    yield* tx.execute(sql`set transaction isolation level serializable`);
-                                    const promptIds = yield* tx
-                                        .select({ id: organizationPromptsTable.id })
-                                        .from(organizationPromptsTable)
-                                        .where(eq(organizationPromptsTable.organizationId, scope.organizationId))
-                                        .limit(MAX_PROMPTS_PER_SCOPE);
-                                    if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
-                                        return yield* Effect.fail(promptLimitExceededError());
-                                    }
+                        db.transaction((tx) =>
+                            Effect.gen(function* () {
+                                yield* tx.execute(sql`set transaction isolation level serializable`);
+                                const promptIds = yield* tx
+                                    .select({ id: organizationPromptsTable.id })
+                                    .from(organizationPromptsTable)
+                                    .where(eq(organizationPromptsTable.organizationId, scope.organizationId))
+                                    .limit(MAX_PROMPTS_PER_SCOPE);
+                                if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
+                                    return yield* Effect.fail(promptLimitExceededError());
+                                }
 
-                                    const [created] = yield* tx
-                                        .insert(organizationPromptsTable)
-                                        .values({ organizationId: scope.organizationId, prompt })
-                                        .returning(organizationPromptFields);
-                                    return created;
-                                })
+                                const [created] = yield* tx
+                                    .insert(organizationPromptsTable)
+                                    .values({ organizationId: scope.organizationId, prompt })
+                                    .returning(organizationPromptFields);
+                                return created;
+                            })
                         )
                     );
 
@@ -119,25 +116,24 @@ export function createPrompt(input: { user: AuthUser; scope: PromptScopeInput; p
                 }
                 case "graph": {
                     const row = yield* tryDb((db) =>
-                        db.transaction(
-                            (tx) =>
-                                Effect.gen(function* () {
-                                    yield* tx.execute(sql`set transaction isolation level serializable`);
-                                    const promptIds = yield* tx
-                                        .select({ id: graphPromptsTable.id })
-                                        .from(graphPromptsTable)
-                                        .where(eq(graphPromptsTable.graphId, scope.graphId))
-                                        .limit(MAX_PROMPTS_PER_SCOPE);
-                                    if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
-                                        return yield* Effect.fail(promptLimitExceededError());
-                                    }
+                        db.transaction((tx) =>
+                            Effect.gen(function* () {
+                                yield* tx.execute(sql`set transaction isolation level serializable`);
+                                const promptIds = yield* tx
+                                    .select({ id: graphPromptsTable.id })
+                                    .from(graphPromptsTable)
+                                    .where(eq(graphPromptsTable.graphId, scope.graphId))
+                                    .limit(MAX_PROMPTS_PER_SCOPE);
+                                if (promptIds.length >= MAX_PROMPTS_PER_SCOPE) {
+                                    return yield* Effect.fail(promptLimitExceededError());
+                                }
 
-                                    const [created] = yield* tx
-                                        .insert(graphPromptsTable)
-                                        .values({ graphId: scope.graphId, prompt })
-                                        .returning(graphPromptFields);
-                                    return created;
-                                })
+                                const [created] = yield* tx
+                                    .insert(graphPromptsTable)
+                                    .values({ graphId: scope.graphId, prompt })
+                                    .returning(graphPromptFields);
+                                return created;
+                            })
                         )
                     );
 

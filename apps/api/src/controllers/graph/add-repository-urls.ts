@@ -163,7 +163,7 @@ export const addGraphRepositoryUrls = Effect.fn("addGraphRepositoryUrls")(
                                     key: external.key,
                                     storageKind: "external",
                                     externalProvider: external.provider,
-                                    externalUrl: external.rawUrl,
+                                    externalUrl: external.htmlUrl,
                                     checksum: source.checksum,
                                     metadata: serializeCodeFileMetadata({
                                         repositoryUrl: source.repository.url,

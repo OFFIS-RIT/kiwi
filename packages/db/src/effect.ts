@@ -2,6 +2,7 @@ import { PgClient } from "@effect/sql-pg";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as PgDrizzle from "drizzle-orm/effect-postgres";
@@ -31,7 +32,7 @@ const dbEffect = PgDrizzle.makeWithDefaults();
 export type EffectDatabase = Effect.Success<typeof dbEffect>;
 export class Database extends Context.Service<Database, EffectDatabase>()("@kiwi/db/Database") {}
 
-export class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()("DatabaseError", {
+export class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()("@kiwi/db/DatabaseError", {
     cause: Schema.Unknown,
 }) {
     override get message(): string {
@@ -92,6 +93,12 @@ export function tryDbVoid<E>(
 export const DatabaseLive = Layer.effect(Database, dbEffect);
 export const DatabaseLayer = Layer.provide(DatabaseLive, PgClientLive);
 
+const DatabaseRuntime = ManagedRuntime.make(DatabaseLayer);
+
 export function runDatabaseEffect<T, E>(effect: Effect.Effect<T, E, Database>): Promise<T> {
-    return Effect.runPromise(Effect.provide(effect, DatabaseLayer));
+    return DatabaseRuntime.runPromise(effect);
+}
+
+export function disposeDatabaseRuntime(): Promise<void> {
+    return DatabaseRuntime.dispose();
 }

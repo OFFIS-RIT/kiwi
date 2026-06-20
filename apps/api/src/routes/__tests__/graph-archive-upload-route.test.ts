@@ -212,6 +212,8 @@ function runMockDbEffect(thunk: (database: typeof db) => Effect.Effect<unknown> 
 
 mock.module("@kiwi/db/effect", () => ({
     DatabaseLayer: Layer.empty,
+    runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+        Effect.runPromise(effect as Effect.Effect<T, E, never>),
     tryDb: runMockDbEffect,
     tryDbVoid: (thunk: (database: typeof db) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) =>
         Effect.asVoid(runMockDbEffect(thunk)),
@@ -575,8 +577,8 @@ describe("graph route archive uploads", () => {
         expect(insertedFileValues.map((file) => file.storageKind)).toEqual(["external", "external"]);
         expect(insertedFileValues.map((file) => file.externalProvider)).toEqual(["github", "github"]);
         expect(insertedFileValues.map((file) => file.externalUrl)).toEqual([
-            "https://raw.githubusercontent.com/acme/widgets/commit-1/src/index.ts",
-            "https://raw.githubusercontent.com/acme/widgets/commit-1/src/helper.ts",
+            "https://github.com/acme/widgets/blob/commit-1/src/index.ts",
+            "https://github.com/acme/widgets/blob/commit-1/src/helper.ts",
         ]);
         expect(insertedFileValues.map((file) => file.key)).toEqual([
             "external:github:acme/widgets@commit-1:src/index.ts",

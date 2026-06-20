@@ -761,6 +761,8 @@ export const enrichCitation: (
                         fileType: filesTable.type,
                         startPage: textUnitTable.startPage,
                         endPage: textUnitTable.endPage,
+                        storageKind: filesTable.storageKind,
+                        externalUrl: filesTable.externalUrl,
                     })
                     .from(sourcesTable)
                     .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
@@ -786,6 +788,7 @@ export const enrichCitation: (
                           fileType: row.fileType,
                           startPage: row.startPage ?? undefined,
                           endPage: row.endPage ?? undefined,
+                          externalUrl: row.storageKind === "external" ? (row.externalUrl ?? undefined) : undefined,
                       }
                     : null
         )
@@ -847,13 +850,21 @@ export const resolveCitationDocumentLink = Effect.fn("resolveCitationDocumentLin
         });
 
     return Effect.gen(function* () {
-        const resolvedCitation =
-            isResolvedCitationFence(citation) && citation.fileId
-                ? citation
-                : yield* enrichCitation(graphId, citation.sourceId);
+        const fallbackCitation = isResolvedCitationFence(citation) && citation.fileId ? citation : null;
+        const enrichedCitation = yield* fallbackCitation
+            ? enrichCitation(graphId, citation.sourceId).pipe(
+                  Effect.catchTag("@kiwi/db/DatabaseError", () => Effect.succeed(null))
+              )
+            : enrichCitation(graphId, citation.sourceId);
+        const resolvedCitation = enrichedCitation ?? fallbackCitation;
 
         if (!resolvedCitation?.fileId) {
             return "[source unavailable]";
+        }
+
+        const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
+        if (resolvedCitation.externalUrl) {
+            return `[${label}](${resolvedCitation.externalUrl})`;
         }
 
         const page = isPDFCitation(resolvedCitation) ? resolvedCitation.startPage : null;
@@ -865,7 +876,6 @@ export const resolveCitationDocumentLink = Effect.fn("resolveCitationDocumentLin
             page,
             token,
         });
-        const label = resolvedCitation.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]");
 
         return `[${label}](${url})`;
     }).pipe(

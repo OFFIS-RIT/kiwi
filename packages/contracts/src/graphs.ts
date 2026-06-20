@@ -138,6 +138,11 @@ export type SourceReferenceUnitRecord = {
     file_name: string;
     file_type: string;
     mime_type: string;
+    // Source link for externally stored files (connector/storage backed). Null for
+    // internally stored uploads. The footer links here when the file is external while
+    // inline citations keep rendering the locally processed content.
+    external_url: string | null;
+    external_provider: string | null;
     created_at: string | null;
     updated_at: string | null;
 };

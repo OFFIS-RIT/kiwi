@@ -375,8 +375,16 @@ function runTool(
     args: string[],
     options: { stdout: true; failure: string; maxBytes?: number }
 ): Effect.Effect<Buffer<ArrayBuffer>, unknown>;
-function runTool(command: string, args: string[], options: { stdout?: false; failure: string }): Effect.Effect<void, unknown>;
-function runTool(command: string, args: string[], options: ToolOptions): Effect.Effect<Buffer<ArrayBuffer> | void, unknown> {
+function runTool(
+    command: string,
+    args: string[],
+    options: { stdout?: false; failure: string }
+): Effect.Effect<void, unknown>;
+function runTool(
+    command: string,
+    args: string[],
+    options: ToolOptions
+): Effect.Effect<Buffer<ArrayBuffer> | void, unknown> {
     return Effect.tryPromise({
         try: () =>
             new Promise<Buffer<ArrayBuffer> | void>((resolve, reject) => {

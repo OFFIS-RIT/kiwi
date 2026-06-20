@@ -22,7 +22,9 @@ mock.module("@kiwi/db/effect", () => ({
     },
     tryDbVoid: (thunk: (db: typeof dbMock) => unknown) => {
         const result = thunk(dbMock);
-        return Effect.isEffect(result) ? Effect.asVoid(result) : Effect.asVoid(Effect.promise(async () => await result));
+        return Effect.isEffect(result)
+            ? Effect.asVoid(result)
+            : Effect.asVoid(Effect.promise(async () => await result));
     },
     runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
         Effect.runPromise(effect as Effect.Effect<T, E, never>),
@@ -52,6 +54,7 @@ const {
     replaceOrAppendMessage,
     shouldIncludeGraphCorrectionTool,
     startsAssistantOutput,
+    resolveCitationDocumentLink,
 } = await import("../chat");
 const {
     assertCompactionAttemptsRemaining,
@@ -142,6 +145,50 @@ function buildTestContext(runtime: ChatRuntime, systemPrompt = "system prompt") 
             validateMessages,
         });
 }
+
+describe("citation document links", () => {
+    test("uses provider URLs for externally stored source files", async () => {
+        const externalUrl = "https://github.com/acme/widgets/blob/commit-1/src/index.ts";
+        const row = {
+            sourceId: "src-1",
+            unitId: "unit-1",
+            fileId: "file-1",
+            fileName: "src/index.ts",
+            fileType: "code",
+            startPage: null,
+            endPage: null,
+            storageKind: "external",
+            externalUrl,
+        };
+        const query = {
+            from: mock(() => query),
+            innerJoin: mock(() => query),
+            where: mock(() => query),
+            limit: mock(async () => [row]),
+        };
+        dbMock.select = mock(() => query);
+
+        try {
+            await expect(
+                runApiTestEffect(
+                    resolveCitationDocumentLink(
+                        "graph-1",
+                        {
+                            type: "cite",
+                            sourceId: "src-1",
+                        },
+                        {
+                            baseUrl: "https://api.example.com",
+                            signed: true,
+                        }
+                    )
+                )
+            ).resolves.toBe("[src/index.ts](https://github.com/acme/widgets/blob/commit-1/src/index.ts)");
+        } finally {
+            dbMock.select = undefined;
+        }
+    });
+});
 
 describe("chat request normalization", () => {
     test("uses the explicit latest message request shape", () => {
@@ -496,13 +543,15 @@ describe("chat context helpers", () => {
             const systemPrompt = "system prompt";
 
             await expect(
-                runApiTestEffect(maybeCompactConversation({
-                    chatId: "chat-1",
-                    rows,
-                    runtime,
-                    systemPrompt,
-                    buildContext: buildTestContext(runtime, systemPrompt),
-                }))
+                runApiTestEffect(
+                    maybeCompactConversation({
+                        chatId: "chat-1",
+                        rows,
+                        runtime,
+                        systemPrompt,
+                        buildContext: buildTestContext(runtime, systemPrompt),
+                    })
+                )
             ).resolves.toHaveProperty("context");
 
             expect(dbMock.insert).not.toHaveBeenCalled();
@@ -528,14 +577,16 @@ describe("chat context helpers", () => {
         const systemPrompt = "system prompt";
 
         await expect(
-            runApiTestEffect(maybeCompactConversation({
-                chatId: "chat-1",
-                rows,
-                runtime,
-                systemPrompt,
-                buildContext: buildTestContext(runtime, systemPrompt),
-                forceCompaction: true,
-            }))
+            runApiTestEffect(
+                maybeCompactConversation({
+                    chatId: "chat-1",
+                    rows,
+                    runtime,
+                    systemPrompt,
+                    buildContext: buildTestContext(runtime, systemPrompt),
+                    forceCompaction: true,
+                })
+            )
         ).rejects.toThrow(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
     });
 
@@ -590,13 +641,15 @@ describe("chat context helpers", () => {
             expect(hugeMessageChunks.length).toBeGreaterThan(1);
             expect(hugeMessageChunks.every((chunk) => estimateToken(chunk) <= chunkBudget)).toBe(true);
 
-            await runApiTestEffect(maybeCompactConversation({
-                chatId: "chat-1",
-                rows,
-                runtime,
-                systemPrompt: "system prompt",
-                buildContext: buildTestContext(runtime, "system prompt"),
-            }));
+            await runApiTestEffect(
+                maybeCompactConversation({
+                    chatId: "chat-1",
+                    rows,
+                    runtime,
+                    systemPrompt: "system prompt",
+                    buildContext: buildTestContext(runtime, "system prompt"),
+                })
+            );
 
             const compactionCalls = compactConversationHistoryMock.mock.calls.map(
                 ([options]) => options as { transcript: string; previousSummary?: string }
@@ -640,12 +693,14 @@ describe("chat context helpers", () => {
             },
         };
 
-        const context = await runApiTestEffect(buildActiveChatContext({
-            rows: [textMessage("msg-tool-estimate", "user", "hello")],
-            runtime,
-            systemPrompt: "system prompt",
-            validateMessages: createChatMessageValidator({}),
-        }));
+        const context = await runApiTestEffect(
+            buildActiveChatContext({
+                rows: [textMessage("msg-tool-estimate", "user", "hello")],
+                runtime,
+                systemPrompt: "system prompt",
+                validateMessages: createChatMessageValidator({}),
+            })
+        );
 
         expect(context.estimatedPromptTokens).toBe(
             estimateToken(
@@ -673,16 +728,18 @@ describe("chat context helpers", () => {
             },
         };
 
-        const context = await runApiTestEffect(buildActiveChatContext({
-            rows: [
-                textMessage("msg-guidance-1", "user", "first question"),
-                textMessage("msg-guidance-2", "assistant", "first answer"),
-                textMessage("msg-guidance-3", "user", "latest question"),
-            ],
-            runtime,
-            systemPrompt: "system prompt",
-            validateMessages: createChatMessageValidator({}),
-        }));
+        const context = await runApiTestEffect(
+            buildActiveChatContext({
+                rows: [
+                    textMessage("msg-guidance-1", "user", "first question"),
+                    textMessage("msg-guidance-2", "assistant", "first answer"),
+                    textMessage("msg-guidance-3", "user", "latest question"),
+                ],
+                runtime,
+                systemPrompt: "system prompt",
+                validateMessages: createChatMessageValidator({}),
+            })
+        );
 
         const guidanceIndex = context.contextMessages.findIndex((message) =>
             JSON.stringify(message.content).includes("Prefer terse answers.")
@@ -715,19 +772,21 @@ describe("chat context helpers", () => {
         };
         const systemPrompt = "team chat system prompt";
 
-        const { context } = await runApiTestEffect(maybeCompactConversation({
-            chatId: "team-chat-1",
-            rows: [textMessage("team-msg-1", "user", "hello team")],
-            runtime,
-            systemPrompt,
-            buildContext: (rows) =>
-                buildActiveChatContext({
-                    rows,
-                    runtime,
-                    systemPrompt,
-                    validateMessages: async (rawTailRows) => rawTailRows.map((message) => toUIMessage(message)),
-                }),
-        }));
+        const { context } = await runApiTestEffect(
+            maybeCompactConversation({
+                chatId: "team-chat-1",
+                rows: [textMessage("team-msg-1", "user", "hello team")],
+                runtime,
+                systemPrompt,
+                buildContext: (rows) =>
+                    buildActiveChatContext({
+                        rows,
+                        runtime,
+                        systemPrompt,
+                        validateMessages: async (rawTailRows) => rawTailRows.map((message) => toUIMessage(message)),
+                    }),
+            })
+        );
 
         expect(context.contextMessages).toHaveLength(1);
         expect(JSON.stringify(context.contextMessages[0])).toContain("hello team");
@@ -741,23 +800,25 @@ describe("chat context helpers", () => {
         dbMock.insert = insert;
 
         await expect(
-            runApiTestEffect(syncChatMessage({
-                chatId: "chat-1",
-                message: {
-                    id: "msg-cross-chat",
-                    role: "user",
-                    parts: [{ type: "text", text: "hello" }],
-                },
-                toParts: () => [{ type: "text", text: "hello" }],
-                getMetrics: () => ({
-                    tokensPerSecond: null,
-                    timeToFirstToken: null,
-                    inputTokens: null,
-                    outputTokens: null,
-                    totalTokens: null,
-                }),
-                parseCreatedAt: () => undefined,
-            }))
+            runApiTestEffect(
+                syncChatMessage({
+                    chatId: "chat-1",
+                    message: {
+                        id: "msg-cross-chat",
+                        role: "user",
+                        parts: [{ type: "text", text: "hello" }],
+                    },
+                    toParts: () => [{ type: "text", text: "hello" }],
+                    getMetrics: () => ({
+                        tokensPerSecond: null,
+                        timeToFirstToken: null,
+                        inputTokens: null,
+                        outputTokens: null,
+                        totalTokens: null,
+                    }),
+                    parseCreatedAt: () => undefined,
+                })
+            )
         ).rejects.toThrow(API_ERROR_CODES.INVALID_CHAT_REQUEST);
 
         expect(onConflictDoUpdate).toHaveBeenCalled();

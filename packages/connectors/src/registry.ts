@@ -32,6 +32,16 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
     github: {
         provider: "github",
         resourceKind: "git-repository",
+        validateCredentials(value) {
+            return hasNonEmptyString(value, "appId") && hasNonEmptyString(value, "privateKeyPem")
+                ? isOptionalString(value, "clientId") &&
+                      isOptionalString(value, "clientSecret") &&
+                      isOptionalString(value, "webhookSecret")
+                : false;
+        },
+        validateInstallation(value) {
+            return hasNonEmptyString(value, "installationId");
+        },
         create: Effect.fn("ConnectorRegistry.github.create")(function* (options: ConnectorAdapterFactoryOptions) {
             const credentials = yield* Effect.try({
                 try: () => requireGitHubConnectorCredentials(options.provider, options.credentials),
@@ -68,6 +78,18 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
     gitlab: {
         provider: "gitlab",
         resourceKind: "git-repository",
+        validateCredentials(value) {
+            return hasNonEmptyString(value, "baseUrl") &&
+                hasNonEmptyString(value, "clientId") &&
+                hasNonEmptyString(value, "clientSecret")
+                ? isOptionalString(value, "webhookSecret")
+                : false;
+        },
+        validateInstallation(value) {
+            return hasNonEmptyString(value, "accessToken")
+                ? isOptionalString(value, "refreshToken") && isOptionalString(value, "expiresAt")
+                : false;
+        },
         create: Effect.fn("ConnectorRegistry.gitlab.create")(function* (options: ConnectorAdapterFactoryOptions) {
             const credentials = yield* Effect.try({
                 try: () => requireGitLabConnectorCredentials(options.provider, options.credentials),
@@ -98,6 +120,18 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
 
 export function getConnectorAdapterRegistryEntry(provider: ConnectorProvider): ConnectorAdapterRegistryEntry {
     return connectorAdapterRegistry[provider];
+}
+
+export function isKnownConnectorProvider(value: string): value is ConnectorProvider {
+    return Object.prototype.hasOwnProperty.call(connectorAdapterRegistry, value);
+}
+
+function hasNonEmptyString(value: Record<string, unknown>, key: string): boolean {
+    return typeof value[key] === "string" && (value[key] as string).trim().length > 0;
+}
+
+function isOptionalString(value: Record<string, unknown>, key: string): boolean {
+    return value[key] === undefined || typeof value[key] === "string";
 }
 
 export const createConnectorAdapter: (

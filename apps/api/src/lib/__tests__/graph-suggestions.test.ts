@@ -16,7 +16,9 @@ mock.module("@kiwi/db/effect", () => ({
     },
     tryDbVoid: (thunk: (db: typeof dbMock) => unknown) => {
         const result = thunk(dbMock);
-        return Effect.isEffect(result) ? Effect.asVoid(result) : Effect.asVoid(Effect.promise(async () => await result));
+        return Effect.isEffect(result)
+            ? Effect.asVoid(result)
+            : Effect.asVoid(Effect.promise(async () => await result));
     },
     runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
         Effect.runPromise(effect as Effect.Effect<T, E, never>),
@@ -226,7 +228,9 @@ describe("graph suggestion apply helpers", () => {
 
         const user = { id: "admin-1" } as Parameters<typeof applyGraphSuggestion>[2];
 
-        await expect(runApiTestEffect(applyGraphSuggestion("graph-1", "suggestion-1", user))).rejects.toBe(originalError);
+        await expect(runApiTestEffect(applyGraphSuggestion("graph-1", "suggestion-1", user))).rejects.toBe(
+            originalError
+        );
         expect(cleanupUploadedKeysMock).toHaveBeenCalledWith(["graphs/graph-1/file-1.txt"]);
     });
 });

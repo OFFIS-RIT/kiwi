@@ -50,7 +50,12 @@ export function createModel(input: { user: AuthUser; body: ModelCreateInput }) {
                             const [existingModel] = yield* tx
                                 .select({ id: modelsTable.id })
                                 .from(modelsTable)
-                                .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.modelId, modelId)))
+                                .where(
+                                    and(
+                                        eq(modelsTable.organizationId, organizationId),
+                                        eq(modelsTable.modelId, modelId)
+                                    )
+                                )
                                 .limit(1);
 
                             if (!existingModel) {
@@ -64,7 +69,12 @@ export function createModel(input: { user: AuthUser; body: ModelCreateInput }) {
                         const [existingTypeModel] = yield* tx
                             .select({ id: modelsTable.id })
                             .from(modelsTable)
-                            .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, input.body.type)))
+                            .where(
+                                and(
+                                    eq(modelsTable.organizationId, organizationId),
+                                    eq(modelsTable.type, input.body.type)
+                                )
+                            )
                             .limit(1);
                         const isDefault = input.body.is_default === true || !existingTypeModel;
 
@@ -72,7 +82,12 @@ export function createModel(input: { user: AuthUser; body: ModelCreateInput }) {
                             yield* tx
                                 .update(modelsTable)
                                 .set({ isDefault: false })
-                                .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, input.body.type)));
+                                .where(
+                                    and(
+                                        eq(modelsTable.organizationId, organizationId),
+                                        eq(modelsTable.type, input.body.type)
+                                    )
+                                );
                         }
 
                         const [model] = yield* tx
@@ -84,7 +99,9 @@ export function createModel(input: { user: AuthUser; body: ModelCreateInput }) {
                                 type: input.body.type,
                                 adapter: input.body.adapter,
                                 providerModel,
-                                ...(input.body.context_window !== undefined ? { contextWindow: input.body.context_window } : {}),
+                                ...(input.body.context_window !== undefined
+                                    ? { contextWindow: input.body.context_window }
+                                    : {}),
                                 encryptedCredentials: encryptModelCredentials(credentials, env.AUTH_SECRET),
                                 isDefault,
                             })

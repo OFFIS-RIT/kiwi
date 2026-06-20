@@ -208,6 +208,7 @@ export type ProviderRepositoryClient = GitResourceClient;
 export type ConnectorAdapter = {
     readonly provider: ConnectorProvider;
     readonly resourceKind: ConnectorResourceKind;
+    readonly capabilities?: ConnectorResourceCapabilities;
     getResource(resourceId: string): Effect.Effect<ConnectorResource, ConnectorProviderError>;
     listResources(): Effect.Effect<ConnectorResource[], ConnectorProviderError>;
     listResourceVersions(resourceId: string): Effect.Effect<ConnectorResourceVersion[], ConnectorProviderError>;
@@ -222,12 +223,65 @@ export type ConnectorAdapter = {
         toVersionId: string
     ): Effect.Effect<ConnectorResourceDelta, ConnectorProviderError>;
     readFile(locator: ConnectorFileLocator): Effect.Effect<string, ConnectorProviderError>;
+    // Optional, capability-gated operations. Implemented by storage-style adapters; git
+    // adapters leave them undefined and advertise the gap via `capabilities`.
+    listChildren?(parentId?: string): Effect.Effect<ConnectorResourceChild[], ConnectorProviderError>;
+    listChanges?(
+        resourceId: string,
+        cursor?: string
+    ): Effect.Effect<ConnectorResourceChangeSet, ConnectorProviderError>;
+    openFile?(locator: ConnectorFileLocator): Effect.Effect<ConnectorBinaryFile, ConnectorProviderError>;
     verifyWebhook?(options: ConnectorWebhookVerificationOptions): boolean;
     normalizeWebhook?(options: ConnectorWebhookNormalizationOptions): NormalizedWebhookEvent;
 };
 
 export type GitResourceAdapter = ConnectorAdapter & GitResourceClient;
 export type GitRepositoryAdapter = GitResourceAdapter;
+
+// Declares which optional capabilities an adapter supports so callers can branch on
+// behaviour without provider-specific knowledge. Git adapters expose named versions
+// and version-range compares; flat cloud storages expose cursor sync, browse and
+// binary reads instead.
+export type ConnectorResourceCapabilities = {
+    // Named, listable versions (git branches). False for storages with no version axis.
+    versions: boolean;
+    // Cursor-based incremental sync via listChanges (Dropbox/SharePoint delta tokens).
+    cursorSync: boolean;
+    // Hierarchical browse via listChildren (drives/folders).
+    children: boolean;
+    // Binary-capable reads via openFile for non-text content (PDF, office docs, images).
+    binaryFiles: boolean;
+};
+
+// A child entry when browsing a hierarchical resource, generic over git tree entries
+// and cloud-storage folders/files.
+export type ConnectorResourceChild = {
+    id: string;
+    parentId: string | null;
+    name: string;
+    path: string;
+    kind: "folder" | "file";
+    webUrl?: string;
+    size?: number;
+    versionId?: string;
+};
+
+// Cursor-based change set: the storage-native delta shape. Git adapters can derive this
+// from compareVersions; storage adapters return it directly from their delta endpoint.
+export type ConnectorResourceChangeSet = {
+    changes: ConnectorResourceChange[];
+    cursor: string;
+    isInitial: boolean;
+};
+
+// Binary-capable file read for non-text resources. Bytes are fetched on demand for
+// processing and never persisted by the connector layer.
+export type ConnectorBinaryFile = {
+    locator: ConnectorFileLocator;
+    bytes: Uint8Array;
+    size: number;
+    contentType?: string;
+};
 
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -243,6 +297,11 @@ export type ConnectorAdapterRegistryEntry = {
     provider: ConnectorProvider;
     resourceKind: ConnectorResourceKind;
     create(options: ConnectorAdapterFactoryOptions): Effect.Effect<ConnectorAdapter, ConnectorProviderError>;
+    // Structural validation of this provider's connector- and installation-credential
+    // shapes. Lets credential encryption stay provider-agnostic: new providers register
+    // their validators here instead of editing the shared credentials module.
+    validateCredentials?(value: Record<string, unknown>): boolean;
+    validateInstallation?(value: Record<string, unknown>): boolean;
     verifyWebhook?(options: ConnectorWebhookVerificationOptions): boolean;
     normalizeWebhook?(options: ConnectorWebhookNormalizationOptions): NormalizedWebhookEvent;
 };

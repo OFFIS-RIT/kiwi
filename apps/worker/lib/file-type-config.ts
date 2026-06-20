@@ -19,7 +19,12 @@ export function getFileTypeProcessingConfig(
                     documentMode: fileTypeConfigsTable.documentMode,
                 })
                 .from(fileTypeConfigsTable)
-                .where(and(eq(fileTypeConfigsTable.organizationId, organizationId), eq(fileTypeConfigsTable.fileType, fileType)))
+                .where(
+                    and(
+                        eq(fileTypeConfigsTable.organizationId, organizationId),
+                        eq(fileTypeConfigsTable.fileType, fileType)
+                    )
+                )
                 .limit(1)
         );
 

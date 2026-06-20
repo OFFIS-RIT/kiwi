@@ -73,7 +73,9 @@ export const listFilesTool = (graphId: string, options: FileToolOptions = {}) =>
                                               `- ${row.id}, ${row.name}, ${row.type}, ${row.mimeType}, ${row.size} bytes, ${row.tokenCount} tokens`
                                       )
                                     : ["- none"]),
-                                ...(hasMore && items.length > 0 ? [``, `Next cursor: ${items[items.length - 1]?.id}`] : []),
+                                ...(hasMore && items.length > 0
+                                    ? [``, `Next cursor: ${items[items.length - 1]?.id}`]
+                                    : []),
                             ].join("\n");
                         })
                 )

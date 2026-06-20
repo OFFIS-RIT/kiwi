@@ -26,11 +26,7 @@ export function archiveUploadError(expanded: {
     message: string;
 }) {
     if (expanded.kind === "limit") {
-        return makeApiError(
-            413,
-            API_ERROR_CODES.UPLOAD_LIMIT_EXCEEDED,
-            `${expanded.fileName}: ${expanded.message}`
-        );
+        return makeApiError(413, API_ERROR_CODES.UPLOAD_LIMIT_EXCEEDED, `${expanded.fileName}: ${expanded.message}`);
     }
 
     return makeApiError(415, API_ERROR_CODES.UNSUPPORTED_FILE_TYPE, `${expanded.fileName}: ${expanded.message}`);

@@ -227,7 +227,9 @@ describe("GitLab connector", () => {
             fetch: async () => jsonResponse({ compare_timeout: true, diffs: [] }),
         });
 
-        await expect(Effect.runPromise(client.compareRepository(GITLAB_REPOSITORY, "commit-old", "commit-new"))).resolves.toEqual({
+        await expect(
+            Effect.runPromise(client.compareRepository(GITLAB_REPOSITORY, "commit-old", "commit-new"))
+        ).resolves.toEqual({
             fromCommitSha: "commit-old",
             toCommitSha: "commit-new",
             isIncremental: false,

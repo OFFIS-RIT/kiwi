@@ -109,16 +109,18 @@ describe("createUnits", () => {
             },
         ];
 
-        const units = await Effect.runPromise(createUnitsFromText({
-            fileId: "file-1",
-            fileType: "pdf",
-            text,
-            chunker: fixedChunker([
-                ":::PAGE-1::: Alpha sentence one. Beta sentence two.",
-                ":::PAGE-2:::\n\nGamma sentence three.",
-            ]),
-            loaderSourceChunks,
-        }));
+        const units = await Effect.runPromise(
+            createUnitsFromText({
+                fileId: "file-1",
+                fileType: "pdf",
+                text,
+                chunker: fixedChunker([
+                    ":::PAGE-1::: Alpha sentence one. Beta sentence two.",
+                    ":::PAGE-2:::\n\nGamma sentence three.",
+                ]),
+                loaderSourceChunks,
+            })
+        );
 
         expect(units.map((unit) => unit.chunks.map((chunk) => ({ id: chunk.id, text: chunk.text })))).toEqual([
             [
@@ -140,31 +142,33 @@ describe("createUnits", () => {
 
     test("falls back to text chunks when raw chunk offsets cannot be proven", async () => {
         const text = "Alpha sentence one.";
-        const units = await Effect.runPromise(createUnitsFromText({
-            fileId: "file-1",
-            fileType: "pdf",
-            text,
-            chunker: fixedChunker(["Rewritten sentence that is not in the source text."]),
-            loaderSourceChunks: [
-                {
-                    type: "text",
-                    text,
-                    startPage: 1,
-                    endPage: 1,
-                    startOffset: 0,
-                    endOffset: text.length,
-                    regions: [
-                        {
-                            kind: "text",
-                            page: 1,
-                            width: 100,
-                            height: 200,
-                            rectangles: [{ left: 0.1, top: 0.2, width: 0.3, height: 0.04 }],
-                        },
-                    ],
-                },
-            ],
-        }));
+        const units = await Effect.runPromise(
+            createUnitsFromText({
+                fileId: "file-1",
+                fileType: "pdf",
+                text,
+                chunker: fixedChunker(["Rewritten sentence that is not in the source text."]),
+                loaderSourceChunks: [
+                    {
+                        type: "text",
+                        text,
+                        startPage: 1,
+                        endPage: 1,
+                        startOffset: 0,
+                        endOffset: text.length,
+                        regions: [
+                            {
+                                kind: "text",
+                                page: 1,
+                                width: 100,
+                                height: 200,
+                                rectangles: [{ left: 0.1, top: 0.2, width: 0.3, height: 0.04 }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        );
 
         expect(units).toHaveLength(1);
         expect(units[0]?.chunks).toEqual([
@@ -180,31 +184,33 @@ describe("createUnits", () => {
 
     test("does not attach loader chunks to zero-length unmatched spans after matched content", async () => {
         const text = "Alpha sentence one. Beta sentence two.";
-        const units = await Effect.runPromise(createUnitsFromText({
-            fileId: "file-1",
-            fileType: "pdf",
-            text,
-            chunker: fixedChunker(["Alpha sentence one.", "Rewritten sentence that is not in the source text."]),
-            loaderSourceChunks: [
-                {
-                    type: "text",
-                    text,
-                    startPage: 1,
-                    endPage: 1,
-                    startOffset: 0,
-                    endOffset: text.length,
-                    regions: [
-                        {
-                            kind: "text",
-                            page: 1,
-                            width: 100,
-                            height: 200,
-                            rectangles: [{ left: 0.1, top: 0.2, width: 0.3, height: 0.04 }],
-                        },
-                    ],
-                },
-            ],
-        }));
+        const units = await Effect.runPromise(
+            createUnitsFromText({
+                fileId: "file-1",
+                fileType: "pdf",
+                text,
+                chunker: fixedChunker(["Alpha sentence one.", "Rewritten sentence that is not in the source text."]),
+                loaderSourceChunks: [
+                    {
+                        type: "text",
+                        text,
+                        startPage: 1,
+                        endPage: 1,
+                        startOffset: 0,
+                        endOffset: text.length,
+                        regions: [
+                            {
+                                kind: "text",
+                                page: 1,
+                                width: 100,
+                                height: 200,
+                                rectangles: [{ left: 0.1, top: 0.2, width: 0.3, height: 0.04 }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        );
 
         expect(units).toHaveLength(2);
         expect(units[0]?.chunks).toEqual([
@@ -241,48 +247,50 @@ describe("createUnits", () => {
         const alphaStart = text.indexOf("Alpha text.");
         const betaStart = text.indexOf("Beta text.");
 
-        const units = await Effect.runPromise(createUnitsFromText({
-            fileId: "file-1",
-            fileType: "pdf",
-            text,
-            chunker: fixedChunker([":::PAGE-1:::", "Alpha text.", ":::PAGE-2:::", "Beta text."]),
-            loaderSourceChunks: [
-                {
-                    type: "text",
-                    text: "Alpha text.",
-                    startPage: 1,
-                    endPage: 1,
-                    startOffset: alphaStart,
-                    endOffset: alphaStart + "Alpha text.".length,
-                    regions: [
-                        {
-                            kind: "text",
-                            page: 1,
-                            width: 100,
-                            height: 200,
-                            rectangles: [{ left: 0.1, top: 0.2, width: 0.3, height: 0.04 }],
-                        },
-                    ],
-                },
-                {
-                    type: "text",
-                    text: "Beta text.",
-                    startPage: 2,
-                    endPage: 2,
-                    startOffset: betaStart,
-                    endOffset: betaStart + "Beta text.".length,
-                    regions: [
-                        {
-                            kind: "text",
-                            page: 2,
-                            width: 100,
-                            height: 200,
-                            rectangles: [{ left: 0.2, top: 0.3, width: 0.4, height: 0.05 }],
-                        },
-                    ],
-                },
-            ],
-        }));
+        const units = await Effect.runPromise(
+            createUnitsFromText({
+                fileId: "file-1",
+                fileType: "pdf",
+                text,
+                chunker: fixedChunker([":::PAGE-1:::", "Alpha text.", ":::PAGE-2:::", "Beta text."]),
+                loaderSourceChunks: [
+                    {
+                        type: "text",
+                        text: "Alpha text.",
+                        startPage: 1,
+                        endPage: 1,
+                        startOffset: alphaStart,
+                        endOffset: alphaStart + "Alpha text.".length,
+                        regions: [
+                            {
+                                kind: "text",
+                                page: 1,
+                                width: 100,
+                                height: 200,
+                                rectangles: [{ left: 0.1, top: 0.2, width: 0.3, height: 0.04 }],
+                            },
+                        ],
+                    },
+                    {
+                        type: "text",
+                        text: "Beta text.",
+                        startPage: 2,
+                        endPage: 2,
+                        startOffset: betaStart,
+                        endOffset: betaStart + "Beta text.".length,
+                        regions: [
+                            {
+                                kind: "text",
+                                page: 2,
+                                width: 100,
+                                height: 200,
+                                rectangles: [{ left: 0.2, top: 0.3, width: 0.4, height: 0.05 }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        );
 
         expect(
             units.map((unit) => ({

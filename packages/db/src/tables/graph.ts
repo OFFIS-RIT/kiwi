@@ -187,10 +187,6 @@ export const filesTable = pgTable.withRLS(
                 )
             `
         ),
-        check(
-            "files_external_provider_check",
-            sql`${table.externalProvider} IS NULL OR ${table.externalProvider} in ('github', 'gitlab')`
-        ),
         index("files_connector_binding_active_idx")
             .on(table.connectorBindingId, table.createdAt, table.id)
             .where(sql`${table.deleted} = false`),

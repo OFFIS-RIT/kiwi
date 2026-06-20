@@ -18,7 +18,11 @@ describe("getOrRenderPDFPreviewPage", () => {
         const result = await Effect.runPromise(
             getOrRenderPDFPreviewPage(options, {
                 getFile: (key) =>
-                    Effect.succeed(key.endsWith("/page-3.png") ? { type: "bytes" as const, content: new Uint8Array([1]).buffer } : null),
+                    Effect.succeed(
+                        key.endsWith("/page-3.png")
+                            ? { type: "bytes" as const, content: new Uint8Array([1]).buffer }
+                            : null
+                    ),
                 putNamedFile,
                 renderPDFPagePreviews,
             })
@@ -43,7 +47,9 @@ describe("getOrRenderPDFPreviewPage", () => {
         const result = await Effect.runPromise(
             getOrRenderPDFPreviewPage(options, {
                 getFile: (key) =>
-                    Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null),
+                    Effect.succeed(
+                        key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null
+                    ),
                 putNamedFile,
                 renderPDFPagePreviews,
             })
@@ -63,7 +69,9 @@ describe("getOrRenderPDFPreviewPage", () => {
     test("deduplicates concurrent renders for the same preview page", async () => {
         const putNamedFile = mock(() => Effect.succeed({ key: "saved", type: "image/png" }));
         const getFile = mock((key: string) =>
-            Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null)
+            Effect.succeed(
+                key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null
+            )
         );
         const renderPDFPagePreviews = mock(() =>
             Effect.promise(async () => {
@@ -90,7 +98,9 @@ describe("getOrRenderPDFPreviewPage", () => {
         });
         const putNamedFile = mock(() => Effect.succeed({ key: "saved", type: "image/png" }));
         const getFile = mock((key: string) =>
-            Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null)
+            Effect.succeed(
+                key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null
+            )
         );
         const renderPDFPagePreviews = mock(() =>
             Effect.promise(async () => {
@@ -103,9 +113,13 @@ describe("getOrRenderPDFPreviewPage", () => {
         );
         const deps = { getFile, putNamedFile, renderPDFPagePreviews };
 
-        const first = Effect.runPromise(getOrRenderPDFPreviewPage({ ...options, page: 3, pagesToRender: [3, 4] }, deps));
+        const first = Effect.runPromise(
+            getOrRenderPDFPreviewPage({ ...options, page: 3, pagesToRender: [3, 4] }, deps)
+        );
         await new Promise((resolve) => setTimeout(resolve, 0));
-        const second = Effect.runPromise(getOrRenderPDFPreviewPage({ ...options, page: 4, pagesToRender: [3, 4] }, deps));
+        const second = Effect.runPromise(
+            getOrRenderPDFPreviewPage({ ...options, page: 4, pagesToRender: [3, 4] }, deps)
+        );
         releaseRender();
 
         await expect(first).resolves.toEqual({ status: "ok", content: new Uint8Array([3]), cache: "miss" });
@@ -122,7 +136,9 @@ describe("getOrRenderPDFPreviewPage", () => {
         const result = await Effect.runPromise(
             getOrRenderPDFPreviewPage(options, {
                 getFile: (key) =>
-                    Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null),
+                    Effect.succeed(
+                        key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null
+                    ),
                 putNamedFile,
                 renderPDFPagePreviews,
             })
@@ -148,7 +164,11 @@ describe("getOrRenderPDFPreviewPage", () => {
                 { ...options, pagesToRender: [3, 4] },
                 {
                     getFile: (key) =>
-                        Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null),
+                        Effect.succeed(
+                            key === options.fileKey
+                                ? { type: "bytes" as const, content: new Uint8Array([9]).buffer }
+                                : null
+                        ),
                     putNamedFile,
                     renderPDFPagePreviews,
                 }
@@ -177,7 +197,9 @@ describe("getOrRenderPDFPreviewPage", () => {
         const result = await Effect.runPromise(
             getOrRenderPDFPreviewPage(options, {
                 getFile: (key) =>
-                    Effect.succeed(key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null),
+                    Effect.succeed(
+                        key === options.fileKey ? { type: "bytes" as const, content: new Uint8Array([9]).buffer } : null
+                    ),
                 putNamedFile,
                 renderPDFPagePreviews,
             })

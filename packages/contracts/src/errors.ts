@@ -61,7 +61,8 @@ export const graphNotFoundError = () => makeApiError(404, API_ERROR_CODES.GRAPH_
 export const modelNotFoundError = () => makeApiError(404, API_ERROR_CODES.MODEL_NOT_FOUND, "Model not found");
 export const promptNotFoundError = () => makeApiError(404, API_ERROR_CODES.PROMPT_NOT_FOUND, "Prompt not found");
 export const sourceNotFoundError = () => makeApiError(404, API_ERROR_CODES.SOURCE_NOT_FOUND, "Source not found");
-export const textUnitNotFoundError = () => makeApiError(404, API_ERROR_CODES.TEXT_UNIT_NOT_FOUND, "Text unit not found");
+export const textUnitNotFoundError = () =>
+    makeApiError(404, API_ERROR_CODES.TEXT_UNIT_NOT_FOUND, "Text unit not found");
 export const invalidTeamMembersError = () =>
     makeApiError(400, API_ERROR_CODES.INVALID_TEAM_MEMBERS, "A team must have at least one admin");
 export const invalidModelError = () => makeApiError(400, API_ERROR_CODES.INVALID_MODEL, "Invalid model");
@@ -73,7 +74,11 @@ export const invalidGraphOwnerError = () =>
 export const invalidFileIdsError = () => makeApiError(400, API_ERROR_CODES.INVALID_FILE_IDS, "Invalid file IDs");
 export const noChangesError = () => makeApiError(400, API_ERROR_CODES.NO_CHANGES, "No changes requested");
 export const modelNotConfiguredError = () =>
-    makeApiError(400, API_ERROR_CODES.MODEL_NOT_CONFIGURED, "Define a model for this organization before using AI features");
+    makeApiError(
+        400,
+        API_ERROR_CODES.MODEL_NOT_CONFIGURED,
+        "Define a model for this organization before using AI features"
+    );
 export const internalServerError = (message = "Internal server error") =>
     makeApiError(500, API_ERROR_CODES.INTERNAL_SERVER_ERROR, message);
 export const retryableInternalError = (message: string) =>

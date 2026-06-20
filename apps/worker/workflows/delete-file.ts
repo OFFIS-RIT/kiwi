@@ -52,7 +52,9 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
                             .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
                             .where(and(eq(textUnitTable.fileId, input.fileId), isNotNull(sourcesTable.relationshipId)));
 
-                        const affectedEntityIds = affectedEntityRows.map((row) => row.id).filter((id): id is string => id !== null);
+                        const affectedEntityIds = affectedEntityRows
+                            .map((row) => row.id)
+                            .filter((id): id is string => id !== null);
                         const affectedRelationshipIds = affectedRelationshipRows
                             .map((row) => row.id)
                             .filter((id): id is string => id !== null);
@@ -99,7 +101,10 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
                                       .select({ id: entityTable.id })
                                       .from(entityTable)
                                       .where(
-                                          and(eq(entityTable.graphId, input.graphId), inArray(entityTable.id, affectedEntityIds))
+                                          and(
+                                              eq(entityTable.graphId, input.graphId),
+                                              inArray(entityTable.id, affectedEntityIds)
+                                          )
                                       )
                                 : [];
                         const survivingRelationshipIds =
@@ -138,7 +143,9 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
         await Promise.all(descriptionWorkflowRuns);
     }
 
-    await step.run({ name: "delete-s3-file" }, async () => runWorkerEffect(deleteStoredFile(fileData.key, env.S3_BUCKET)));
+    await step.run({ name: "delete-s3-file" }, async () =>
+        runWorkerEffect(deleteStoredFile(fileData.key, env.S3_BUCKET))
+    );
 
     await step.run({ name: "delete-derived-file-artifacts" }, async () =>
         runWorkerEffect(

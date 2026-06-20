@@ -110,7 +110,9 @@ export const GitHubManifestCallbackQuerySchema = Schema.Struct({
     code: NonEmptyTrimmedStringSchema,
     state: NonEmptyTrimmedStringSchema,
 });
-export type GitHubManifestCallbackQuery = MutableSchemaType<Schema.Schema.Type<typeof GitHubManifestCallbackQuerySchema>>;
+export type GitHubManifestCallbackQuery = MutableSchemaType<
+    Schema.Schema.Type<typeof GitHubManifestCallbackQuerySchema>
+>;
 
 export type GitHubConnectorManifestStartSuccessData = {
     manifestUrl: string;
@@ -222,7 +224,10 @@ export type ConnectorResourceGraphBindingSyncSuccessData = {
 };
 export type RepositoryGraphBindingSyncSuccessData = ConnectorResourceGraphBindingSyncSuccessData;
 
-export type ConnectorListResponse = ApiResponse<ConnectorRecord[], "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;
+export type ConnectorListResponse = ApiResponse<
+    ConnectorRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
 
 export type ConnectorConnectStartResponse = ApiResponse<
     ConnectorConnectStartSuccessData,

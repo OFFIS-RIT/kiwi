@@ -3,11 +3,12 @@ import { Schema } from "effect";
 export const asApiSchema = Schema.toStandardSchemaV1;
 export const decodeApiSchemaSync = Schema.decodeUnknownSync;
 
-export type MutableSchemaType<T> = T extends ReadonlyArray<infer TItem>
-    ? MutableSchemaType<TItem>[]
-    : T extends object
-      ? { -readonly [TKey in keyof T]: MutableSchemaType<T[TKey]> }
-      : T;
+export type MutableSchemaType<T> =
+    T extends ReadonlyArray<infer TItem>
+        ? MutableSchemaType<TItem>[]
+        : T extends object
+          ? { -readonly [TKey in keyof T]: MutableSchemaType<T[TKey]> }
+          : T;
 
 export const NonEmptyTrimmedStringSchema = Schema.Trim.pipe(Schema.check(Schema.isMinLength(1)));
 

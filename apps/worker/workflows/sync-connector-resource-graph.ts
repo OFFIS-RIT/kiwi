@@ -5,6 +5,7 @@ import {
     MAX_REPOSITORY_CODE_BYTES as MAX_CONNECTOR_CODE_BYTES,
     MAX_REPOSITORY_CODE_FILES as MAX_CONNECTOR_CODE_FILES,
     createConnectorAdapter,
+    isKnownConnectorProvider,
     normalizeGitLabBaseUrl,
 } from "@kiwi/connectors";
 import type {
@@ -18,8 +19,11 @@ import type {
     GitLabConnectorCredentials,
     ProviderCodeFile,
 } from "@kiwi/connectors";
-import { decryptConnectorCredentials } from "@kiwi/connectors/credentials";
-import type { ConnectorSecretPayload } from "@kiwi/connectors/credentials";
+import {
+    decryptConnectorCredentials,
+    isConnectorCredentialsForProvider,
+    isInstallationCredentialsForProvider,
+} from "@kiwi/connectors/credentials";
 import type { Database, DatabaseTransaction } from "@kiwi/db/effect";
 import {
     connectorInstallationsTable,
@@ -156,38 +160,12 @@ function loadBindingGraph(bindingId: string): Effect.Effect<BindingGraphRow | nu
     );
 }
 
-function isConnectorProvider(value: string): value is ConnectorProvider {
-    return value === "github" || value === "gitlab";
-}
-
-function isConnectorCredentials(
-    value: ConnectorSecretPayload,
-    provider: ConnectorProvider
-): value is ConnectorCredentials {
-    return (
-        "provider" in value &&
-        value.provider === provider &&
-        (provider === "github" ? "appId" in value : "baseUrl" in value)
-    );
-}
-
 function isGitLabConnectorCredentials(value: ConnectorCredentials): value is GitLabConnectorCredentials {
     return value.provider === "gitlab";
 }
 
-function isInstallationCredentials(
-    value: ConnectorSecretPayload,
-    provider: ConnectorProvider
-): value is ConnectorInstallationCredentials {
-    return (
-        "provider" in value &&
-        value.provider === provider &&
-        (provider === "github" ? "installationId" in value : "accessToken" in value)
-    );
-}
-
 function connectorProvider(row: BindingGraphRow): ConnectorProvider {
-    if (!isConnectorProvider(row.connector.provider)) {
+    if (!isKnownConnectorProvider(row.connector.provider)) {
         throw new Error("Unsupported connector provider");
     }
     return row.connector.provider;
@@ -204,7 +182,7 @@ function createAdapterContext(row: BindingGraphRow): Effect.Effect<ConnectorAdap
     return Effect.gen(function* () {
         const provider = connectorProvider(row);
         const connectorCredentials = decryptConnectorCredentials(row.connector.encryptedCredentials, env.AUTH_SECRET);
-        if (!isConnectorCredentials(connectorCredentials, provider)) {
+        if (!isConnectorCredentialsForProvider(connectorCredentials, provider)) {
             return yield* Effect.fail(new Error("Invalid connector credentials"));
         }
 
@@ -239,7 +217,7 @@ function readStoredInstallationCredentials(
         throw new Error("Invalid connector installation credentials");
     }
     const installationCredentials = decryptConnectorCredentials(row.installation.encryptedCredentials, env.AUTH_SECRET);
-    if (!isInstallationCredentials(installationCredentials, provider)) {
+    if (!isInstallationCredentialsForProvider(installationCredentials, provider)) {
         throw new Error("Invalid connector installation credentials");
     }
     return installationCredentials;
@@ -519,7 +497,7 @@ function fileRows(row: BindingGraphRow, files: ConnectorSyncFile[], versionId: s
             mimeType: "text/plain",
             key,
             storageKind: "external",
-            externalUrl: file.rawUrl ?? file.webUrl ?? file.htmlUrl,
+            externalUrl: file.webUrl ?? file.htmlUrl ?? file.rawUrl,
             externalProvider: row.connector.provider,
             connectorBindingId: row.binding.id,
             checksum: `${fileVersionId}:${file.providerFileId ?? file.path}:${file.checksum}`,

@@ -17,6 +17,20 @@ describe("citation fences", () => {
         expect(parseCitationFence(stringifyCitationFence(citation))).toEqual(citation);
     });
 
+    test("round-trips external provider open URLs", () => {
+        const citation: ResolvedCitationFence = {
+            type: "cite",
+            sourceId: "source-1",
+            unitId: "unit-1",
+            fileId: "file-1",
+            fileName: "source.ts",
+            fileType: "code",
+            externalUrl: "https://github.com/acme/widgets/blob/commit-1/source.ts",
+        };
+
+        expect(parseCitationFence(stringifyCitationFence(citation))).toEqual(citation);
+    });
+
     test("keeps model-facing citation fences minimal", () => {
         expect(
             stringifyCitationFence(
@@ -29,6 +43,7 @@ describe("citation fences", () => {
                     fileType: "pdf",
                     startPage: 3,
                     endPage: 5,
+                    externalUrl: "https://github.com/acme/widgets/blob/commit-1/document.pdf",
                 },
                 { forModel: true }
             )

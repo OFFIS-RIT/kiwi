@@ -99,7 +99,10 @@ export function patchModel(input: { user: AuthUser; modelId: string; body: Model
                             );
 
                             if (input.body.credentials) {
-                                modelUpdates.encryptedCredentials = encryptModelCredentials(credentials, env.AUTH_SECRET);
+                                modelUpdates.encryptedCredentials = encryptModelCredentials(
+                                    credentials,
+                                    env.AUTH_SECRET
+                                );
                             }
                         }
 

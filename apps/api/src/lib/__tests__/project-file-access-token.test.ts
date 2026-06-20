@@ -63,16 +63,26 @@ describe("project file access tokens", () => {
             exp: Math.floor(now.getTime() / 1000) + 60,
         });
 
-        await expect(Effect.runPromise(verifyProjectFileAccessToken(token, "graph-1", "file-1", { now }))).resolves.toBe(true);
+        await expect(
+            Effect.runPromise(verifyProjectFileAccessToken(token, "graph-1", "file-1", { now }))
+        ).resolves.toBe(true);
     });
 
     test("creates tokens bound to a graph and file", async () => {
         const now = new Date("2026-01-01T00:00:00Z");
-        const token = await Effect.runPromise(createProjectFileAccessToken("graph-1", "file-1", { now, expiresInSeconds: 60 }));
+        const token = await Effect.runPromise(
+            createProjectFileAccessToken("graph-1", "file-1", { now, expiresInSeconds: 60 })
+        );
 
-        await expect(Effect.runPromise(verifyProjectFileAccessToken(token, "graph-1", "file-1", { now }))).resolves.toBe(true);
-        await expect(Effect.runPromise(verifyProjectFileAccessToken(token, "graph-2", "file-1", { now }))).resolves.toBe(false);
-        await expect(Effect.runPromise(verifyProjectFileAccessToken(token, "graph-1", "file-2", { now }))).resolves.toBe(false);
+        await expect(
+            Effect.runPromise(verifyProjectFileAccessToken(token, "graph-1", "file-1", { now }))
+        ).resolves.toBe(true);
+        await expect(
+            Effect.runPromise(verifyProjectFileAccessToken(token, "graph-2", "file-1", { now }))
+        ).resolves.toBe(false);
+        await expect(
+            Effect.runPromise(verifyProjectFileAccessToken(token, "graph-1", "file-2", { now }))
+        ).resolves.toBe(false);
     });
 
     test("rejects expired and tampered tokens", async () => {
@@ -88,6 +98,8 @@ describe("project file access tokens", () => {
                 verifyProjectFileAccessToken(token, "graph-1", "file-1", { now: new Date("2026-01-01T00:02:00Z") })
             )
         ).resolves.toBe(false);
-        await expect(Effect.runPromise(verifyProjectFileAccessToken(`${token}x`, "graph-1", "file-1"))).resolves.toBe(false);
+        await expect(Effect.runPromise(verifyProjectFileAccessToken(`${token}x`, "graph-1", "file-1"))).resolves.toBe(
+            false
+        );
     });
 });

@@ -1,10 +1,10 @@
 import * as Effect from "effect/Effect";
 import { splitTextWithCitationFences, type CitationFence } from "../citation";
 
-export function linkifyResearchCitations(
+export function linkifyResearchCitations<E = never, R = never>(
     text: string,
-    resolveCitation: (citation: CitationFence) => Effect.Effect<string, unknown>
-): Effect.Effect<string, unknown> {
+    resolveCitation: (citation: CitationFence) => Effect.Effect<string, E, R>
+): Effect.Effect<string, E, R> {
     const segments = splitTextWithCitationFences(text);
 
     return Effect.all(

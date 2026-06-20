@@ -30,6 +30,9 @@ const sourceReferenceSelect = {
     file_type: filesTable.type,
     mime_type: filesTable.mimeType,
     file_key: filesTable.key,
+    storage_kind: filesTable.storageKind,
+    external_url: filesTable.externalUrl,
+    external_provider: filesTable.externalProvider,
     created_at: textUnitTable.createdAt,
     updated_at: textUnitTable.updatedAt,
 };

@@ -265,10 +265,13 @@ export const cleanupUploadedKeys = (uploadedKeys: string[]): Effect.Effect<numbe
     Effect.map(
         Effect.all(
             uploadedKeys.map((key) =>
-                Effect.match(Effect.catchDefect(deleteFile(key, env.S3_BUCKET), (defect) => Effect.fail(defect)), {
-                    onFailure: () => false,
-                    onSuccess: () => true,
-                })
+                Effect.match(
+                    Effect.catchDefect(deleteFile(key, env.S3_BUCKET), (defect) => Effect.fail(defect)),
+                    {
+                        onFailure: () => false,
+                        onSuccess: () => true,
+                    }
+                )
             ),
             { concurrency: "unbounded" }
         ),
@@ -323,7 +326,10 @@ export const restoreGraphFileChangeFailure = (
                             yield* tx.delete(filesTable).where(inArray(filesTable.id, addedFileIds));
                         }
                         if (supersededFileIds.length > 0) {
-                            yield* tx.update(filesTable).set({ deleted: false }).where(inArray(filesTable.id, supersededFileIds));
+                            yield* tx
+                                .update(filesTable)
+                                .set({ deleted: false })
+                                .where(inArray(filesTable.id, supersededFileIds));
                         }
 
                         yield* tx
@@ -417,7 +423,9 @@ export function commitGraphFileUploads(options: {
 
                     if (insertedFiles.length === 0) {
                         if (supersededFiles.length > 0) {
-                            return yield* Effect.fail(new Error("Repository snapshot did not insert replacement files"));
+                            return yield* Effect.fail(
+                                new Error("Repository snapshot did not insert replacement files")
+                            );
                         }
 
                         return {
@@ -566,174 +574,181 @@ export function mapGraphListItemsWithProcessing(
     graphs: GraphListRow[],
     userId: string
 ): Effect.Effect<GraphListItem[], unknown, Database> {
-    return Effect.catchDefect(Effect.gen(function* () {
-        if (graphs.length === 0) {
-            return [];
-        }
+    return Effect.catchDefect(
+        Effect.gen(function* () {
+            if (graphs.length === 0) {
+                return [];
+            }
 
-        const graphIds = graphs.map((graph) => graph.graph_id);
-        const sizeBucket = sql<SizeBucket>`CASE
+            const graphIds = graphs.map((graph) => graph.graph_id);
+            const sizeBucket = sql<SizeBucket>`CASE
             WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 100000 THEN 'tiny'
             WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 1000000 THEN 'small'
             WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 10000000 THEN 'medium'
             WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 50000000 THEN 'large'
             ELSE 'huge'
         END`;
-        const [recentChatsByGraphId, runs, bucketStats, typeStats, [globalStats], deleteProgressByGraphId] =
-            yield* Effect.all(
-                [
-                    listRecentChatsByGraphId(graphIds, userId),
-                    tryDb((db) =>
-                        db
-                            .select({
-                                id: processRunsTable.id,
-                                graph_id: processRunsTable.graphId,
-                                status: processRunsTable.status,
-                            })
-                            .from(processRunsTable)
-                            .where(
-                                and(
-                                    inArray(processRunsTable.graphId, graphIds),
-                                    inArray(processRunsTable.status, ["pending", "started"])
+            const [recentChatsByGraphId, runs, bucketStats, typeStats, [globalStats], deleteProgressByGraphId] =
+                yield* Effect.all(
+                    [
+                        listRecentChatsByGraphId(graphIds, userId),
+                        tryDb((db) =>
+                            db
+                                .select({
+                                    id: processRunsTable.id,
+                                    graph_id: processRunsTable.graphId,
+                                    status: processRunsTable.status,
+                                })
+                                .from(processRunsTable)
+                                .where(
+                                    and(
+                                        inArray(processRunsTable.graphId, graphIds),
+                                        inArray(processRunsTable.status, ["pending", "started"])
+                                    )
                                 )
-                            )
-                            .orderBy(asc(processRunsTable.graphId), asc(processRunsTable.createdAt))
-                    ),
-                    tryDb((db) =>
-                        db
-                            .select({
-                                file_type: processStatsTable.fileType,
-                                size_bucket: sizeBucket,
-                                average_duration: sql<number>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
-                                sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
-                            })
-                            .from(processStatsTable)
-                            .groupBy(processStatsTable.fileType, sizeBucket)
-                    ),
-                    tryDb((db) =>
-                        db
-                            .select({
-                                file_type: processStatsTable.fileType,
-                                average_duration: sql<number>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
-                                sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
-                            })
-                            .from(processStatsTable)
-                            .groupBy(processStatsTable.fileType)
-                    ),
-                    tryDb((db) =>
-                        db
-                            .select({
-                                average_duration: sql<
-                                    number | null
-                                >`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
-                                sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
-                            })
-                            .from(processStatsTable)
-                    ),
-                    findActiveDeleteGraphFilesProgress(graphIds),
+                                .orderBy(asc(processRunsTable.graphId), asc(processRunsTable.createdAt))
+                        ),
+                        tryDb((db) =>
+                            db
+                                .select({
+                                    file_type: processStatsTable.fileType,
+                                    size_bucket: sizeBucket,
+                                    average_duration: sql<number>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
+                                    sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
+                                })
+                                .from(processStatsTable)
+                                .groupBy(processStatsTable.fileType, sizeBucket)
+                        ),
+                        tryDb((db) =>
+                            db
+                                .select({
+                                    file_type: processStatsTable.fileType,
+                                    average_duration: sql<number>`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
+                                    sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
+                                })
+                                .from(processStatsTable)
+                                .groupBy(processStatsTable.fileType)
+                        ),
+                        tryDb((db) =>
+                            db
+                                .select({
+                                    average_duration: sql<
+                                        number | null
+                                    >`SUM(${processStatsTable.totalTime}) / NULLIF(SUM(${processStatsTable.files}), 0)`,
+                                    sample_count: sql<number>`COALESCE(SUM(${processStatsTable.files}), 0)`,
+                                })
+                                .from(processStatsTable)
+                        ),
+                        findActiveDeleteGraphFilesProgress(graphIds),
+                    ],
+                    { concurrency: "unbounded" }
+                );
+
+            const runByGraphId = new Map<string, RunRow>();
+            for (const run of runs) {
+                if (!runByGraphId.has(run.graph_id)) {
+                    runByGraphId.set(run.graph_id, run);
+                }
+            }
+
+            const runIds = Array.from(runByGraphId.values()).map((run) => run.id);
+            const [runFiles, descriptionProgressByRunId] = yield* Effect.all(
+                [
+                    runIds.length > 0
+                        ? tryDb((db) =>
+                              db
+                                  .select({
+                                      process_run_id: processRunFilesTable.processRunId,
+                                      process_step: filesTable.processStep,
+                                      size: filesTable.size,
+                                      type: filesTable.type,
+                                  })
+                                  .from(processRunFilesTable)
+                                  .innerJoin(filesTable, eq(filesTable.id, processRunFilesTable.fileId))
+                                  .where(inArray(processRunFilesTable.processRunId, runIds))
+                          )
+                        : Effect.succeed([]),
+                    findProcessDescriptionProgress(runIds),
                 ],
                 { concurrency: "unbounded" }
             );
 
-        const runByGraphId = new Map<string, RunRow>();
-        for (const run of runs) {
-            if (!runByGraphId.has(run.graph_id)) {
-                runByGraphId.set(run.graph_id, run);
+            const filesByRunId = new Map<string, RunFile[]>();
+            for (const runFile of runFiles) {
+                const files = filesByRunId.get(runFile.process_run_id) ?? [];
+                files.push(runFile);
+                filesByRunId.set(runFile.process_run_id, files);
             }
-        }
 
-        const runIds = Array.from(runByGraphId.values()).map((run) => run.id);
-        const [runFiles, descriptionProgressByRunId] = yield* Effect.all(
-            [
-                runIds.length > 0
-                    ? tryDb((db) =>
-                          db
-                              .select({
-                                  process_run_id: processRunFilesTable.processRunId,
-                                  process_step: filesTable.processStep,
-                                  size: filesTable.size,
-                                  type: filesTable.type,
-                              })
-                              .from(processRunFilesTable)
-                              .innerJoin(filesTable, eq(filesTable.id, processRunFilesTable.fileId))
-                              .where(inArray(processRunFilesTable.processRunId, runIds))
-                      )
-                    : Effect.succeed([]),
-                findProcessDescriptionProgress(runIds),
-            ],
-            { concurrency: "unbounded" }
-        );
-
-        const filesByRunId = new Map<string, RunFile[]>();
-        for (const runFile of runFiles) {
-            const files = filesByRunId.get(runFile.process_run_id) ?? [];
-            files.push(runFile);
-            filesByRunId.set(runFile.process_run_id, files);
-        }
-
-        const bucketAverages = new Map<string, Average>();
-        for (const stat of bucketStats) {
-            if (stat.average_duration) {
-                bucketAverages.set(`${stat.file_type}:${stat.size_bucket}`, {
-                    duration: stat.average_duration,
-                    samples: stat.sample_count,
-                });
+            const bucketAverages = new Map<string, Average>();
+            for (const stat of bucketStats) {
+                if (stat.average_duration) {
+                    bucketAverages.set(`${stat.file_type}:${stat.size_bucket}`, {
+                        duration: stat.average_duration,
+                        samples: stat.sample_count,
+                    });
+                }
             }
-        }
 
-        const typeAverages = new Map<string, Average>();
-        for (const stat of typeStats) {
-            if (stat.average_duration) {
-                typeAverages.set(stat.file_type, {
-                    duration: stat.average_duration,
-                    samples: stat.sample_count,
-                });
+            const typeAverages = new Map<string, Average>();
+            for (const stat of typeStats) {
+                if (stat.average_duration) {
+                    typeAverages.set(stat.file_type, {
+                        duration: stat.average_duration,
+                        samples: stat.sample_count,
+                    });
+                }
             }
-        }
 
-        const globalAverage =
-            globalStats?.average_duration && globalStats.sample_count > 0
-                ? {
-                      duration: globalStats.average_duration,
-                      samples: globalStats.sample_count,
-                  }
-                : undefined;
+            const globalAverage =
+                globalStats?.average_duration && globalStats.sample_count > 0
+                    ? {
+                          duration: globalStats.average_duration,
+                          samples: globalStats.sample_count,
+                      }
+                    : undefined;
 
-        return yield* Effect.try({
-            try: () =>
-                graphs.map((graph) => {
-                    const deleteProgress = deleteProgressByGraphId.get(graph.graph_id);
-                    if (deleteProgress) {
+            return yield* Effect.try({
+                try: () =>
+                    graphs.map((graph) => {
+                        const deleteProgress = deleteProgressByGraphId.get(graph.graph_id);
+                        if (deleteProgress) {
+                            return mapGraphListItem(
+                                {
+                                    ...graph,
+                                    graph_state: "updating",
+                                },
+                                recentChatsByGraphId.get(graph.graph_id) ?? [],
+                                buildDeleteStepProgress(deleteProgress)
+                            );
+                        }
+
+                        const run = runByGraphId.get(graph.graph_id);
+                        if (!run) {
+                            return mapGraphListItem(graph, recentChatsByGraphId.get(graph.graph_id) ?? []);
+                        }
+                        const files = filesByRunId.get(run.id) ?? [];
+
                         return mapGraphListItem(
                             {
                                 ...graph,
                                 graph_state: "updating",
                             },
                             recentChatsByGraphId.get(graph.graph_id) ?? [],
-                            buildDeleteStepProgress(deleteProgress)
+                            {
+                                process_step: buildProcessStepProgress(
+                                    run,
+                                    files,
+                                    descriptionProgressByRunId.get(run.id)
+                                ),
+                                process_percentage: buildProcessPercentage(files),
+                                ...buildTimeEstimate(run, files, bucketAverages, typeAverages, globalAverage),
+                            }
                         );
-                    }
-
-                    const run = runByGraphId.get(graph.graph_id);
-                    if (!run) {
-                        return mapGraphListItem(graph, recentChatsByGraphId.get(graph.graph_id) ?? []);
-                    }
-                    const files = filesByRunId.get(run.id) ?? [];
-
-                    return mapGraphListItem(
-                        {
-                            ...graph,
-                            graph_state: "updating",
-                        },
-                        recentChatsByGraphId.get(graph.graph_id) ?? [],
-                        {
-                            process_step: buildProcessStepProgress(run, files, descriptionProgressByRunId.get(run.id)),
-                            process_percentage: buildProcessPercentage(files),
-                            ...buildTimeEstimate(run, files, bucketAverages, typeAverages, globalAverage),
-                        }
-                    );
-                }),
-            catch: (error) => error,
-        });
-    }), (defect) => Effect.fail(defect));
+                    }),
+                catch: (error) => error,
+            });
+        }),
+        (defect) => Effect.fail(defect)
+    );
 }

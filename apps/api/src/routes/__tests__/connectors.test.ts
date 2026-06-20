@@ -219,6 +219,8 @@ function runMockDbEffect(thunk: (database: MockDb) => Effect.Effect<unknown> | P
 mock.module("@kiwi/db/effect", () => ({
     DatabaseError: MockDatabaseError,
     DatabaseLayer: Layer.empty,
+    runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+        Effect.runPromise(effect as Effect.Effect<T, E, never>),
     tryDb: runMockDbEffect,
     tryDbVoid: (thunk: (database: MockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) =>
         Effect.asVoid(runMockDbEffect(thunk)),
@@ -227,7 +229,7 @@ mock.module("@kiwi/db/effect", () => ({
 mock.module("@kiwi/db", () => ({ betterAuthDb: mockDb, db: mockDb }));
 
 // Dynamic import is required so module mocks are installed before the route module is evaluated.
-const { connectorRoute, repositoryGraphBindingRoute } = await import("../connectors");
+const { connectorRoute, connectorResourceBindingRoute } = await import("../connectors");
 
 describe("connector route", () => {
     beforeEach(() => {
@@ -332,7 +334,7 @@ describe("connector route", () => {
 
     test("creates generic resource binding rows and enqueues initial sync with a version id", async () => {
         const response = await connectorRoute.handle(
-            new Request("http://localhost/connectors/connector-1/repository-graphs", {
+            new Request("http://localhost/connectors/connector-1/resource-graphs", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
@@ -368,8 +370,8 @@ describe("connector route", () => {
     test("marks manual repository graph sync failed when workflow enqueue fails", async () => {
         workflowError = new Error("enqueue failed");
 
-        const response = await repositoryGraphBindingRoute.handle(
-            new Request("http://localhost/repository-graph-bindings/binding-1/sync", { method: "POST" })
+        const response = await connectorResourceBindingRoute.handle(
+            new Request("http://localhost/connector-resource-bindings/binding-1/sync", { method: "POST" })
         );
 
         expect(response.status).toBe(400);
@@ -379,7 +381,7 @@ describe("connector route", () => {
 
     test("rejects repository listing when installation belongs to another connector", async () => {
         const response = await connectorRoute.handle(
-            new Request("http://localhost/connectors/connector-2/repositories?installationId=installation-1")
+            new Request("http://localhost/connectors/connector-2/resources?installationId=installation-1")
         );
 
         expect(response.status).toBe(403);
@@ -389,7 +391,7 @@ describe("connector route", () => {
     test("rejects branch listing when installation belongs to another connector", async () => {
         const response = await connectorRoute.handle(
             new Request(
-                "http://localhost/connectors/connector-2/repositories/repo-1/branches?installationId=installation-1"
+                "http://localhost/connectors/connector-2/resources/repo-1/versions?installationId=installation-1"
             )
         );
 
@@ -399,7 +401,7 @@ describe("connector route", () => {
 
     test("rejects repository graph creation when installation belongs to another connector", async () => {
         const response = await connectorRoute.handle(
-            new Request("http://localhost/connectors/connector-2/repository-graphs", {
+            new Request("http://localhost/connectors/connector-2/resource-graphs", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({

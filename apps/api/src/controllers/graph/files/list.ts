@@ -8,17 +8,23 @@ import type { AuthUser } from "../../../middleware/auth";
 import { toApiError } from "../../_shared/api-effect";
 
 export function listGraphFiles(input: { user: AuthUser; graphId: string }) {
-    return Effect.mapError(Effect.catchDefect(Effect.gen(function* () {
-        yield* assertCanViewGraph(input.user, input.graphId);
+    return Effect.mapError(
+        Effect.catchDefect(
+            Effect.gen(function* () {
+                yield* assertCanViewGraph(input.user, input.graphId);
 
-        const fileRows: GraphFileRow[] = yield* tryDb((db) =>
-            db
-                .select(selectGraphDetailFileFields)
-                .from(filesTable)
-                .where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.deleted, false)))
-                .orderBy(asc(filesTable.createdAt), asc(filesTable.name))
-        );
+                const fileRows: GraphFileRow[] = yield* tryDb((db) =>
+                    db
+                        .select(selectGraphDetailFileFields)
+                        .from(filesTable)
+                        .where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.deleted, false)))
+                        .orderBy(asc(filesTable.createdAt), asc(filesTable.name))
+                );
 
-        return fileRows.map(toGraphFileRecord);
-    }), (defect) => Effect.fail(defect)), toApiError);
+                return fileRows.map(toGraphFileRecord);
+            }),
+            (defect) => Effect.fail(defect)
+        ),
+        toApiError
+    );
 }

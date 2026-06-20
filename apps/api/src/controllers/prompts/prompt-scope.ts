@@ -57,7 +57,10 @@ export const graphPromptFields = {
     updatedAt: graphPromptsTable.updatedAt,
 };
 
-export function authorizePromptScope(user: AuthUser, scope: PromptScopeInput): ApiEffect<PromptScopeInput, never, Database> {
+export function authorizePromptScope(
+    user: AuthUser,
+    scope: PromptScopeInput
+): ApiEffect<PromptScopeInput, never, Database> {
     return Effect.mapError(
         Effect.gen(function* () {
             switch (scope.kind) {
@@ -88,7 +91,6 @@ export function normalizePrompt(rawPrompt: string): string {
         throw invalidPromptError();
     }
 }
-
 
 export function toPromptResponse(row: PromptRow): PromptRecord {
     return {

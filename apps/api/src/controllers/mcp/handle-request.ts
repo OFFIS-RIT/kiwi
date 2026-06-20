@@ -1,6 +1,6 @@
 import { createChatSystemPrompt, getProviderOptions } from "@kiwi/ai";
 import { linkifyResearchCitations, runMcpResearch } from "@kiwi/ai/mcp";
-import { runDatabaseEffect, Database, type Database as DatabaseContext } from "@kiwi/db/effect";
+import { runDatabaseEffect, type Database as DatabaseContext } from "@kiwi/db/effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import * as Effect from "effect/Effect";
@@ -120,7 +120,6 @@ function researchToolResult({ request, user }: McpRequestContext, input: { graph
         yield* assertMcpGraphViewPermission(request.headers);
         const { rootOwner } = yield* assertMcpCanViewGraph(user, input.graphId);
 
-        const database = yield* Database;
         const { client, promptGuidance, tools } = yield* getGraphResearchRuntime(input.graphId, {
             toolset: "mcp",
             user,
@@ -136,14 +135,10 @@ function researchToolResult({ request, user }: McpRequestContext, input: { graph
             providerOptions: getProviderOptions({ thinking: "medium" }),
             transformAnswer: (text) =>
                 linkifyResearchCitations(text, (citation) =>
-                    Effect.provideService(
-                        resolveCitationDocumentLink(input.graphId, citation, {
-                            baseUrl: getPublicApiBaseUrl(request, env.API_URL),
-                            signed: true,
-                        }),
-                        Database,
-                        database
-                    )
+                    resolveCitationDocumentLink(input.graphId, citation, {
+                        baseUrl: getPublicApiBaseUrl(request, env.API_URL),
+                        signed: true,
+                    })
                 ),
         });
 
@@ -189,19 +184,32 @@ export function handleMcpRouteRequest(context: McpRouteContext): Promise<Respons
     return handleMcpRequest({ request: context.request, user: context.user });
 }
 
-export async function handleMcpRequest(context: McpRequestContext): Promise<Response> {
-    const server = createMcpServer(context);
-    const transport = new WebStandardStreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-        enableJsonResponse: true,
-    });
+export function handleMcpRequest(context: McpRequestContext): Promise<Response> {
+    return Effect.runPromise(
+        Effect.acquireUseRelease(
+            Effect.tryPromise({
+                try: async () => {
+                    const server = createMcpServer(context);
+                    const transport = new WebStandardStreamableHTTPServerTransport({
+                        sessionIdGenerator: undefined,
+                        enableJsonResponse: true,
+                    });
 
-    await server.connect(transport);
-
-    try {
-        return await transport.handleRequest(context.request);
-    } finally {
-        await transport.close();
-        await server.close();
-    }
+                    await server.connect(transport);
+                    return { server, transport };
+                },
+                catch: (error) => error,
+            }),
+            ({ transport }) =>
+                Effect.tryPromise({
+                    try: () => transport.handleRequest(context.request),
+                    catch: (error) => error,
+                }),
+            ({ server, transport }) =>
+                Effect.promise(async () => {
+                    await transport.close();
+                    await server.close();
+                })
+        )
+    );
 }

@@ -14,6 +14,7 @@ export type CitationFence = {
     fileType?: string;
     startPage?: number;
     endPage?: number;
+    externalUrl?: string;
 };
 
 export type ResolvedCitationFence = CitationFence & {
@@ -53,6 +54,7 @@ export function stringifyCitationFence(citation: CitationFence, options?: { forM
                   fileType: citation.fileType,
                   startPage: citation.startPage,
                   endPage: citation.endPage,
+                  externalUrl: citation.externalUrl,
               };
 
     return `:::${JSON.stringify(payload)}:::`;
@@ -92,6 +94,7 @@ export function parseCitationFence(rawFence: string): CitationFence | null {
         const fileType = optionalString(parsed.fileType);
         const startPage = toPositiveInteger(parsed.startPage);
         const endPage = toPositiveInteger(parsed.endPage);
+        const externalUrl = optionalString(parsed.externalUrl ?? parsed.external_url);
 
         return {
             type: "cite",
@@ -103,6 +106,7 @@ export function parseCitationFence(rawFence: string): CitationFence | null {
             fileType,
             startPage,
             endPage,
+            externalUrl,
         };
     } catch {
         return null;

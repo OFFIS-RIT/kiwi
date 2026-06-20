@@ -65,7 +65,10 @@ function assertSourceInGraph(graphId: string, sourceId: string): Effect.Effect<v
     });
 }
 
-function assertActiveEntityInGraph(graphId: string, entityId: string): Effect.Effect<void, DatabaseError | Error, Database> {
+function assertActiveEntityInGraph(
+    graphId: string,
+    entityId: string
+): Effect.Effect<void, DatabaseError | Error, Database> {
     return Effect.gen(function* () {
         const db = yield* Database;
         const [entity] = yield* db

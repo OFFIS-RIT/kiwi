@@ -10,49 +10,58 @@ import { error as logError } from "@kiwi/logger";
 import { toApiError } from "../_shared/api-effect";
 
 export function patchGraph(input: { user: AuthUser; graphId: string; body: GraphPatchFields }) {
-    return Effect.mapError(Effect.catchDefect(Effect.gen(function* () {
-        const existingGraph = yield* assertCanPatchGraph(input.user, input.graphId);
-        const name = input.body.name?.trim();
-        const description = input.body.description === undefined ? undefined : input.body.description || null;
-        const hidden = input.body.hidden === undefined ? undefined : input.body.hidden === true || input.body.hidden === "true";
+    return Effect.mapError(
+        Effect.catchDefect(
+            Effect.gen(function* () {
+                const existingGraph = yield* assertCanPatchGraph(input.user, input.graphId);
+                const name = input.body.name?.trim();
+                const description = input.body.description === undefined ? undefined : input.body.description || null;
+                const hidden =
+                    input.body.hidden === undefined
+                        ? undefined
+                        : input.body.hidden === true || input.body.hidden === "true";
 
-        if (input.body.name !== undefined && !name) {
-            return yield* Effect.fail(makeApiError(400, API_ERROR_CODES.INVALID_NAME, "Invalid name"));
-        }
+                if (input.body.name !== undefined && !name) {
+                    return yield* Effect.fail(makeApiError(400, API_ERROR_CODES.INVALID_NAME, "Invalid name"));
+                }
 
-        const updateData: Partial<Pick<GraphRecord, "name" | "description" | "hidden">> = {};
-        if (name !== undefined && name !== existingGraph.name) {
-            updateData.name = name;
-        }
-        if (description !== undefined && description !== existingGraph.description) {
-            updateData.description = description;
-        }
-        if (hidden !== undefined && hidden !== existingGraph.hidden) {
-            updateData.hidden = hidden;
-        }
-        if (Object.keys(updateData).length === 0) {
-            return yield* Effect.fail(noChangesError());
-        }
+                const updateData: Partial<Pick<GraphRecord, "name" | "description" | "hidden">> = {};
+                if (name !== undefined && name !== existingGraph.name) {
+                    updateData.name = name;
+                }
+                if (description !== undefined && description !== existingGraph.description) {
+                    updateData.description = description;
+                }
+                if (hidden !== undefined && hidden !== existingGraph.hidden) {
+                    updateData.hidden = hidden;
+                }
+                if (Object.keys(updateData).length === 0) {
+                    return yield* Effect.fail(noChangesError());
+                }
 
-        return yield* Effect.matchEffect(
-            tryDb((db) =>
-                db
-                    .update(graphTable)
-                    .set(updateData)
-                    .where(eq(graphTable.id, existingGraph.id))
-                    .returning(selectGraphFields)
-            ),
-            {
-                onFailure: (dbPatchError) =>
-                    Effect.gen(function* () {
-                        logError("graph patch failed during database update", {
-                            graphId: existingGraph.id,
-                            error: dbPatchError,
-                        });
-                        return yield* Effect.fail(internalServerError());
-                    }),
-                onSuccess: ([graph]) => Effect.succeed({ graph: graph ?? existingGraph }),
-            }
-        );
-    }), (defect) => Effect.fail(defect)), toApiError);
+                return yield* Effect.matchEffect(
+                    tryDb((db) =>
+                        db
+                            .update(graphTable)
+                            .set(updateData)
+                            .where(eq(graphTable.id, existingGraph.id))
+                            .returning(selectGraphFields)
+                    ),
+                    {
+                        onFailure: (dbPatchError) =>
+                            Effect.gen(function* () {
+                                logError("graph patch failed during database update", {
+                                    graphId: existingGraph.id,
+                                    error: dbPatchError,
+                                });
+                                return yield* Effect.fail(internalServerError());
+                            }),
+                        onSuccess: ([graph]) => Effect.succeed({ graph: graph ?? existingGraph }),
+                    }
+                );
+            }),
+            (defect) => Effect.fail(defect)
+        ),
+        toApiError
+    );
 }

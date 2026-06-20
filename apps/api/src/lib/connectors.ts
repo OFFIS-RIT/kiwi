@@ -39,7 +39,9 @@ function connectorRequestError(error: unknown): ApiError {
     return makeApiError(
         400,
         API_ERROR_CODES.INVALID_CHAT_REQUEST,
-        error instanceof Error ? error.message.replace(/^Unhandled exception:\s*/u, "") || "Invalid connector request" : "Invalid connector request"
+        error instanceof Error
+            ? error.message.replace(/^Unhandled exception:\s*/u, "") || "Invalid connector request"
+            : "Invalid connector request"
     );
 }
 
@@ -176,25 +178,31 @@ export function createManifestUrl(state: string, name: string): string {
     return url.href;
 }
 
-export function exchangeGitHubManifestCode(code: string): Effect.Effect<{
-    id: number | string;
-    slug?: string;
-    name: string;
-    client_id?: string;
-    client_secret?: string;
-    pem: string;
-    webhook_secret?: string;
-}, ApiError> {
+export function exchangeGitHubManifestCode(code: string): Effect.Effect<
+    {
+        id: number | string;
+        slug?: string;
+        name: string;
+        client_id?: string;
+        client_secret?: string;
+        pem: string;
+        webhook_secret?: string;
+    },
+    ApiError
+> {
     return Effect.tryPromise({
         try: async () => {
-            const response = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(code)}/conversions`, {
-                method: "POST",
-                headers: {
-                    Accept: "application/vnd.github+json",
-                    "User-Agent": "kiwi-connectors",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            });
+            const response = await fetch(
+                `https://api.github.com/app-manifests/${encodeURIComponent(code)}/conversions`,
+                {
+                    method: "POST",
+                    headers: {
+                        Accept: "application/vnd.github+json",
+                        "User-Agent": "kiwi-connectors",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                }
+            );
 
             if (!response.ok) {
                 throw new Error("Invalid connector manifest code");
@@ -234,7 +242,9 @@ export function createProviderClient(
                 ? decryptConnectorCredentials(installation.encryptedCredentials, env.AUTH_SECRET)
                 : null;
             if (!decryptedInstallation || !isGitLabInstallationCredentials(decryptedInstallation)) {
-                return yield* Effect.fail(connectorRequestError(new Error("Invalid connector installation credentials")));
+                return yield* Effect.fail(
+                    connectorRequestError(new Error("Invalid connector installation credentials"))
+                );
             }
             installationCredentials = decryptedInstallation;
         }

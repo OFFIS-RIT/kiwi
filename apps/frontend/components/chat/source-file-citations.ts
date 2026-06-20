@@ -1,5 +1,11 @@
 import type { ResolvedCitationFence } from "@kiwi/ai/citation";
 
+export type SourceReferenceLink = {
+    unit: {
+        external_url: string | null;
+    };
+};
+
 type PageRange = {
     startPage: number;
     endPage: number;
@@ -13,17 +19,25 @@ type SourceFileGroup = {
 
 export type SourceFileCitation = {
     key: string;
-    /** File name rendered as the main button text. */
+    /** File name rendered as the main button/link text. */
     fileName: string;
     /** Compact page badge label (e.g. "S. 1 - 4"); null for page-less citations. */
     pageLabel: string | null;
     /** Accessible name combining file name and page range (e.g. "document.pdf S. 1 - 4"). */
     accessibleLabel: string;
     citation: ResolvedCitationFence;
+    externalUrl: string | null;
 };
 
 function citationFileRef(citation: ResolvedCitationFence): string {
     return citation.fileId ?? citation.fileKey ?? citation.sourceId;
+}
+
+function citationExternalUrl(
+    citation: ResolvedCitationFence,
+    sourceReferenceBySourceId: ReadonlyMap<string, SourceReferenceLink> | undefined
+): string | null {
+    return citation.externalUrl ?? sourceReferenceBySourceId?.get(citation.sourceId)?.unit.external_url ?? null;
 }
 
 function positivePage(value: number | undefined): number | null {
@@ -78,7 +92,10 @@ function mergePageRanges(ranges: PageRange[]): PageRange[] {
     return mergedRanges;
 }
 
-export function buildSourceFileCitations(citations: ResolvedCitationFence[]): SourceFileCitation[] {
+export function buildSourceFileCitations(
+    citations: ResolvedCitationFence[],
+    sourceReferenceBySourceId?: ReadonlyMap<string, SourceReferenceLink>
+): SourceFileCitation[] {
     const groups = new Map<string, SourceFileGroup>();
 
     for (const citation of citations) {
@@ -108,6 +125,7 @@ export function buildSourceFileCitations(citations: ResolvedCitationFence[]): So
                           pageLabel: null,
                           accessibleLabel: group.fallback.fileName,
                           citation: group.fallback,
+                          externalUrl: citationExternalUrl(group.fallback, sourceReferenceBySourceId),
                       },
                   ]
                 : [];
@@ -125,6 +143,7 @@ export function buildSourceFileCitations(citations: ResolvedCitationFence[]): So
                     startPage: range.startPage,
                     endPage: range.endPage,
                 },
+                externalUrl: citationExternalUrl(range.citation, sourceReferenceBySourceId),
             };
         });
     });

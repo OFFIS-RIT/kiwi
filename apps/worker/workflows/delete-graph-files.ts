@@ -45,7 +45,11 @@ function finalizeProjectStatus(graphId: string): Effect.Effect<void, unknown, Da
 export const deleteGraphFiles = defineWorkflow(deleteGraphFilesSpec, async ({ input, step, run }) => {
     try {
         await step.run({ name: "update-project-status" }, async () =>
-            runWorkerEffect(withWorkerDbVoid((db) => db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId))))
+            runWorkerEffect(
+                withWorkerDbVoid((db) =>
+                    db.update(graphTable).set({ state: "updating" }).where(eq(graphTable.id, input.graphId))
+                )
+            )
         );
 
         const deleteResults = await Promise.allSettled(
@@ -62,7 +66,9 @@ export const deleteGraphFiles = defineWorkflow(deleteGraphFilesSpec, async ({ in
             throw new Error(`Failed to delete ${failedDeleteCount} file(s)`);
         }
 
-        await step.run({ name: "finalize-project-status" }, async () => runWorkerEffect(finalizeProjectStatus(input.graphId)));
+        await step.run({ name: "finalize-project-status" }, async () =>
+            runWorkerEffect(finalizeProjectStatus(input.graphId))
+        );
 
         return {
             fileIds: input.fileIds,

@@ -149,7 +149,8 @@ export const graphRoute = new Elysia({ prefix: "/graphs" })
             runApiAction({
                 status,
                 user,
-                action: (currentUser) => retryGraphFile({ user: currentUser, graphId: params.id, fileId: params.fileId }),
+                action: (currentUser) =>
+                    retryGraphFile({ user: currentUser, graphId: params.id, fileId: params.fileId }),
                 success: (value) => status(200, successResponse(value)),
             }),
         {

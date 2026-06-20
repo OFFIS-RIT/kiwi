@@ -172,7 +172,8 @@ export function buildManualSuggestionRows(input: ManualSuggestionRowsInput) {
 function getSuggestionModelOrganizationId(graphId: string, user: AuthUser): Effect.Effect<string, unknown, Database> {
     return Effect.gen(function* () {
         const rootOwner = yield* resolveGraphOwnerRoot(graphId);
-        const organizationId = rootOwner.mode === "user" ? yield* getActiveOrganizationId(user) : rootOwner.organizationId;
+        const organizationId =
+            rootOwner.mode === "user" ? yield* getActiveOrganizationId(user) : rootOwner.organizationId;
 
         yield* requireOrganizationMembership(user, organizationId);
 
@@ -180,7 +181,11 @@ function getSuggestionModelOrganizationId(graphId: string, user: AuthUser): Effe
     });
 }
 
-function embedSuggestionText(graphId: string, user: AuthUser, suggestion: string): Effect.Effect<number[], unknown, Database> {
+function embedSuggestionText(
+    graphId: string,
+    user: AuthUser,
+    suggestion: string
+): Effect.Effect<number[], unknown, Database> {
     return Effect.gen(function* () {
         const organizationId = yield* getSuggestionModelOrganizationId(graphId, user);
         const embeddingModel = yield* resolveRequiredEmbeddingModelAdapter(organizationId, env.AUTH_SECRET);
@@ -251,7 +256,9 @@ function assertSuggestionTargetExists(
             db
                 .select({ id: entityTable.id })
                 .from(entityTable)
-                .where(and(eq(entityTable.id, entityId), eq(entityTable.graphId, graphId), eq(entityTable.active, true)))
+                .where(
+                    and(eq(entityTable.id, entityId), eq(entityTable.graphId, graphId), eq(entityTable.active, true))
+                )
                 .limit(1)
         );
 
@@ -260,7 +267,6 @@ function assertSuggestionTargetExists(
         }
     });
 }
-
 
 function enqueueDescriptionUpdate(
     graphId: string,
@@ -331,7 +337,12 @@ function applySourceCorrection(options: {
                 const [suggestionRow] = yield* tx
                     .select(selectGraphSuggestionFields)
                     .from(graphSuggestionsTable)
-                    .where(and(eq(graphSuggestionsTable.graphId, options.graphId), eq(graphSuggestionsTable.id, options.suggestionId)))
+                    .where(
+                        and(
+                            eq(graphSuggestionsTable.graphId, options.graphId),
+                            eq(graphSuggestionsTable.id, options.suggestionId)
+                        )
+                    )
                     .for("update")
                     .limit(1);
                 const suggestion = assertPendingGraphSuggestion(suggestionRow);
@@ -409,7 +420,12 @@ function applyEntityAddition(options: {
                         const [currentSuggestionRow] = yield* tx
                             .select(selectGraphSuggestionFields)
                             .from(graphSuggestionsTable)
-                            .where(and(eq(graphSuggestionsTable.graphId, options.graphId), eq(graphSuggestionsTable.id, options.suggestionId)))
+                            .where(
+                                and(
+                                    eq(graphSuggestionsTable.graphId, options.graphId),
+                                    eq(graphSuggestionsTable.id, options.suggestionId)
+                                )
+                            )
                             .for("update")
                             .limit(1);
                         const currentSuggestion = assertPendingGraphSuggestion(currentSuggestionRow);

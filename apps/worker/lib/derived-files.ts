@@ -34,7 +34,10 @@ export function deleteGraphFileArtifacts(
         );
         const artifactKeys = [...new Set(listedKeys.flat())];
 
-        yield* Effect.all(artifactKeys.map((key) => removeKey(key, options.bucket)), { concurrency: "unbounded" });
+        yield* Effect.all(
+            artifactKeys.map((key) => removeKey(key, options.bucket)),
+            { concurrency: "unbounded" }
+        );
 
         return artifactKeys;
     });
@@ -55,7 +58,10 @@ export function deleteGraphFileProcessingArtifacts(
         const paths = getGraphFileArtifactPaths(options);
         const artifactKeys = [...new Set(yield* loadKeys(paths.processingPrefix, options.bucket))];
 
-        yield* Effect.all(artifactKeys.map((key) => removeKey(key, options.bucket)), { concurrency: "unbounded" });
+        yield* Effect.all(
+            artifactKeys.map((key) => removeKey(key, options.bucket)),
+            { concurrency: "unbounded" }
+        );
 
         return { deletedKeyCount: artifactKeys.length };
     });

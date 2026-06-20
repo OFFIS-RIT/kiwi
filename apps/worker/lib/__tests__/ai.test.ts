@@ -80,6 +80,8 @@ describe("createWorkerClient", () => {
     test("fails when required worker models are missing", async () => {
         queueWorkerModelRows({ includeTextModel: false });
 
-        await expect(runWorkerTestEffect(createWorkerClient("graph-1"))).rejects.toThrow(API_ERROR_CODES.MODEL_NOT_CONFIGURED);
+        await expect(runWorkerTestEffect(createWorkerClient("graph-1"))).rejects.toThrow(
+            API_ERROR_CODES.MODEL_NOT_CONFIGURED
+        );
     });
 });

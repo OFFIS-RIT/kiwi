@@ -23,7 +23,10 @@ export const NormalizedPromptBodySchema = Schema.Struct({
 });
 export type PromptBody = MutableSchemaType<Schema.Schema.Type<typeof PromptBodySchema>>;
 
-export type UserPromptListResponse = ApiResponse<PromptRecord[], "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR">;
+export type UserPromptListResponse = ApiResponse<
+    PromptRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
 
 export type TeamPromptListResponse = ApiResponse<
     PromptRecord[],

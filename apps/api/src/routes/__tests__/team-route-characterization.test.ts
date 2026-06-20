@@ -205,6 +205,8 @@ class MockDatabaseError extends Error {
 mock.module("@kiwi/db/effect", () => ({
     DatabaseError: MockDatabaseError,
     DatabaseLayer: Layer.empty,
+    runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+        Effect.runPromise(effect as Effect.Effect<T, E, never>),
     tryDb: runMockDbEffect,
     tryDbVoid: (thunk: (database: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) =>
         Effect.asVoid(runMockDbEffect(thunk)),

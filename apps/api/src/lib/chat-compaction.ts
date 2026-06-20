@@ -467,7 +467,10 @@ function insertCompactionCheckpoint(options: {
         let remainingTranscript = options.transcript.trim();
 
         while (remainingTranscript.length > 0) {
-            const chunkTokenBudget = getCompactionChunkTokenBudget(options.runtime.client.compactionContextWindow, summary);
+            const chunkTokenBudget = getCompactionChunkTokenBudget(
+                options.runtime.client.compactionContextWindow,
+                summary
+            );
             const nextChunk = takeTranscriptChunk(remainingTranscript, chunkTokenBudget);
             if (nextChunk.chunk.length === 0) {
                 throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
@@ -557,7 +560,9 @@ export function maybeCompactConversation(options: {
                 throw new Error(API_ERROR_CODES.CHAT_CONTEXT_TOO_LARGE);
             }
 
-            const transcript = serializeCompactionTranscript(summarizedRows.map((message) => toUIMessage(message))).trim();
+            const transcript = serializeCompactionTranscript(
+                summarizedRows.map((message) => toUIMessage(message))
+            ).trim();
             if (transcript.length === 0) {
                 if (!isForcedCompaction) {
                     break;

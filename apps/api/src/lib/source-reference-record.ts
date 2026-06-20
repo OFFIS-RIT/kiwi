@@ -17,6 +17,9 @@ export type SourceReferenceRow = {
     file_type: string;
     mime_type: string;
     file_key: string;
+    storage_kind: string;
+    external_url: string | null;
+    external_provider: string | null;
     created_at: Date | null;
     updated_at: Date | null;
 };
@@ -63,6 +66,8 @@ function toSourceReferenceUnit(row: SourceReferenceRow): SourceReferenceUnitReco
         file_name: row.file_name,
         file_type: row.file_type,
         mime_type: row.mime_type,
+        external_url: row.storage_kind === "external" ? row.external_url : null,
+        external_provider: row.storage_kind === "external" ? row.external_provider : null,
         created_at: row.created_at?.toISOString() ?? null,
         updated_at: row.updated_at?.toISOString() ?? null,
     };

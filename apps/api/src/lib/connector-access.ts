@@ -167,9 +167,7 @@ export function assertCanSyncBinding(
     });
 }
 
-export function loadConnectorBindingGraph(
-    bindingId: string
-): Effect.Effect<
+export function loadConnectorBindingGraph(bindingId: string): Effect.Effect<
     {
         binding: ConnectorResourceBindingRow;
         installation: ConnectorInstallationRow;

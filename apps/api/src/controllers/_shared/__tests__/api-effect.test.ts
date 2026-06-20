@@ -164,4 +164,29 @@ describe("runApiAction", () => {
             },
         });
     });
+
+    test("uses route-specific error mappers", async () => {
+        const response = await runApiAction({
+            status: (code, body) => ({ code, body }),
+            user,
+            action: () => Effect.fail(new Error("CHAT_CONTEXT_TOO_LARGE")),
+            databaseLayer: testDatabaseLayer,
+            success: (value) => ({ code: 200, body: value }),
+            mapError: (status, error) =>
+                status(413, {
+                    status: "error",
+                    message: error instanceof Error ? error.message : "unknown",
+                    code: "CHAT_CONTEXT_TOO_LARGE",
+                }),
+        });
+
+        expect(response).toEqual({
+            code: 413,
+            body: {
+                status: "error",
+                message: "CHAT_CONTEXT_TOO_LARGE",
+                code: "CHAT_CONTEXT_TOO_LARGE",
+            },
+        });
+    });
 });

@@ -23,7 +23,11 @@ export function updateTeamUsers(input: { user: AuthUser; teamId: string; body: T
             yield* tryDbVoid((db) =>
                 db.transaction((tx) =>
                     Effect.gen(function* () {
-                        yield* tx.select({ id: teamTable.id }).from(teamTable).where(eq(teamTable.id, input.teamId)).for("update");
+                        yield* tx
+                            .select({ id: teamTable.id })
+                            .from(teamTable)
+                            .where(eq(teamTable.id, input.teamId))
+                            .for("update");
 
                         const currentMembers = yield* tx
                             .select({
@@ -37,10 +41,14 @@ export function updateTeamUsers(input: { user: AuthUser; teamId: string; body: T
 
                         if (!access.organizationAdmin) {
                             const currentAdminIds = new Set(
-                                currentMembers.filter((member) => member.role === "admin").map((member) => member.user_id)
+                                currentMembers
+                                    .filter((member) => member.role === "admin")
+                                    .map((member) => member.user_id)
                             );
                             const nextAdminIds = new Set(
-                                normalizedUsers.filter((member) => member.role === "admin").map((member) => member.user_id)
+                                normalizedUsers
+                                    .filter((member) => member.role === "admin")
+                                    .map((member) => member.user_id)
                             );
 
                             if (
@@ -57,7 +65,9 @@ export function updateTeamUsers(input: { user: AuthUser; teamId: string; body: T
                             return;
                         }
 
-                        const roleByUserId = new Map(normalizedUsers.map((teamUser) => [teamUser.user_id, teamUser.role]));
+                        const roleByUserId = new Map(
+                            normalizedUsers.map((teamUser) => [teamUser.user_id, teamUser.role])
+                        );
                         const teamMembers = yield* tx
                             .insert(teamMemberTable)
                             .values(

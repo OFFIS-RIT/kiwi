@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
 import { withAiSlotEffect, type AiSlotError } from "../concurrency";
 import { prependPromptGuidance, type ScopedPromptGuidance } from "../prompts/guidance.prompt";
 
-export type RunMcpResearchOptions<E = never> = {
+export type RunMcpResearchOptions<E = never, R = never> = {
     model: LanguageModelV3;
     system?: string;
     question: string;
@@ -14,7 +14,7 @@ export type RunMcpResearchOptions<E = never> = {
     temperature?: number;
     maxSteps?: number;
     providerOptions?: Parameters<typeof generateText>[0]["providerOptions"];
-    transformAnswer?: (text: string) => Effect.Effect<string, E>;
+    transformAnswer?: (text: string) => Effect.Effect<string, E, R>;
 };
 
 export type McpResearchRunResult = {
@@ -33,9 +33,9 @@ function extractFinalText(content: Awaited<ReturnType<typeof generateText>>["con
     return content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 }
 
-export function runMcpResearch<E = never>(
-    options: RunMcpResearchOptions<E>
-): Effect.Effect<McpResearchRunResult, AiSlotError | McpResearchEmptyAnswerError | E> {
+export function runMcpResearch<E = never, R = never>(
+    options: RunMcpResearchOptions<E, R>
+): Effect.Effect<McpResearchRunResult, AiSlotError | McpResearchEmptyAnswerError | E, R> {
     return Effect.gen(function* () {
         const result = yield* withAiSlotEffect("text", (signal) =>
             generateText({

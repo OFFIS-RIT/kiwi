@@ -18,7 +18,9 @@ export function deletePrompt(input: { user: AuthUser; scope: PromptScopeInput; p
                     const [row] = yield* tryDb((db) =>
                         db
                             .delete(userPromptsTable)
-                            .where(and(eq(userPromptsTable.id, input.promptId), eq(userPromptsTable.userId, scope.userId)))
+                            .where(
+                                and(eq(userPromptsTable.id, input.promptId), eq(userPromptsTable.userId, scope.userId))
+                            )
                             .returning({ id: userPromptsTable.id })
                     );
 
@@ -32,7 +34,9 @@ export function deletePrompt(input: { user: AuthUser; scope: PromptScopeInput; p
                     const [row] = yield* tryDb((db) =>
                         db
                             .delete(teamPromptsTable)
-                            .where(and(eq(teamPromptsTable.id, input.promptId), eq(teamPromptsTable.teamId, scope.teamId)))
+                            .where(
+                                and(eq(teamPromptsTable.id, input.promptId), eq(teamPromptsTable.teamId, scope.teamId))
+                            )
                             .returning({ id: teamPromptsTable.id })
                     );
 
@@ -65,7 +69,12 @@ export function deletePrompt(input: { user: AuthUser; scope: PromptScopeInput; p
                     const [row] = yield* tryDb((db) =>
                         db
                             .delete(graphPromptsTable)
-                            .where(and(eq(graphPromptsTable.id, input.promptId), eq(graphPromptsTable.graphId, scope.graphId)))
+                            .where(
+                                and(
+                                    eq(graphPromptsTable.id, input.promptId),
+                                    eq(graphPromptsTable.graphId, scope.graphId)
+                                )
+                            )
                             .returning({ id: graphPromptsTable.id })
                     );
 

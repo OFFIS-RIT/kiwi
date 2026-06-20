@@ -27,7 +27,10 @@ export function addTeamUser(input: { user: AuthUser; teamId: string; body: TeamA
                             .from(teamMemberTable)
                             .leftJoin(teamMemberRolesTable, eq(teamMemberRolesTable.teamMemberId, teamMemberTable.id))
                             .where(
-                                and(eq(teamMemberTable.teamId, input.teamId), eq(teamMemberTable.userId, input.body.user_id))
+                                and(
+                                    eq(teamMemberTable.teamId, input.teamId),
+                                    eq(teamMemberTable.userId, input.body.user_id)
+                                )
                             )
                             .limit(1);
 

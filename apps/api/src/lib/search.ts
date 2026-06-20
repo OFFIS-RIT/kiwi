@@ -300,7 +300,12 @@ export function searchWorkspace(user: AuthUser, rawQuery: string): Effect.Effect
                                   score: teamScore,
                               })
                               .from(teamTable)
-                              .where(and(eq(teamTable.organizationId, organizationId), buildSearchWhere(teamTable.name, query)))
+                              .where(
+                                  and(
+                                      eq(teamTable.organizationId, organizationId),
+                                      buildSearchWhere(teamTable.name, query)
+                                  )
+                              )
                               .orderBy(desc(teamScore), asc(teamTable.name))
                               .limit(SEARCH_LIMIT)
                         : accessibleTeamIds.length > 0

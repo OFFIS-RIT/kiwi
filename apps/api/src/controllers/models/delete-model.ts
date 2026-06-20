@@ -54,12 +54,20 @@ export function deleteModel(input: { user: AuthUser; modelId: string }) {
                         const [replacement] = yield* tx
                             .select({ id: modelsTable.id })
                             .from(modelsTable)
-                            .where(and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, currentModel.type)))
+                            .where(
+                                and(
+                                    eq(modelsTable.organizationId, organizationId),
+                                    eq(modelsTable.type, currentModel.type)
+                                )
+                            )
                             .orderBy(asc(modelsTable.createdAt), asc(modelsTable.id))
                             .limit(1);
 
                         if (replacement) {
-                            yield* tx.update(modelsTable).set({ isDefault: true }).where(eq(modelsTable.id, replacement.id));
+                            yield* tx
+                                .update(modelsTable)
+                                .set({ isDefault: true })
+                                .where(eq(modelsTable.id, replacement.id));
                         }
                     })
                 )

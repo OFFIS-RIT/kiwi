@@ -46,7 +46,6 @@ export const connectorsTable = pgTable.withRLS(
     (table) => [
         uniqueIndex("connectors_slug_unique").on(table.slug),
         index("connectors_provider_status_idx").on(table.provider, table.status),
-        check("connectors_provider_check", sql`${table.provider} in ('github', 'gitlab')`),
         check("connectors_status_check", sql`${table.status} in ('draft', 'active', 'disabled')`),
     ]
 );
@@ -97,7 +96,6 @@ export const connectorInstallationsTable = pgTable.withRLS(
         index("connector_installations_connector_status_idx").on(table.connectorId, table.status),
         index("connector_installations_organization_idx").on(table.organizationId),
         index("connector_installations_team_idx").on(table.teamId),
-        check("connector_installations_provider_check", sql`${table.provider} in ('github', 'gitlab')`),
         check("connector_installations_status_check", sql`${table.status} in ('active', 'disabled')`),
         check(
             "connector_installations_owner_scope_check",
@@ -154,8 +152,10 @@ export const connectorResourceBindingsTable = pgTable.withRLS(
             table.providerResourceId,
             table.versionName
         ),
-        index("connector_resource_bindings_installation_status_idx").on(table.connectorInstallationId, table.syncStatus),
-        check("connector_resource_bindings_provider_check", sql`${table.provider} in ('github', 'gitlab')`),
+        index("connector_resource_bindings_installation_status_idx").on(
+            table.connectorInstallationId,
+            table.syncStatus
+        ),
         check(
             "connector_resource_bindings_sync_status_check",
             sql`${table.syncStatus} in ('pending', 'syncing', 'synced', 'failed')`
@@ -192,7 +192,6 @@ export const connectorWebhookEventsTable = pgTable.withRLS(
             table.providerResourceId,
             table.versionName
         ),
-        check("connector_webhook_events_provider_check", sql`${table.provider} in ('github', 'gitlab')`),
         check(
             "connector_webhook_events_status_check",
             sql`${table.status} in ('ignored', 'enqueued', 'duplicate', 'failed')`

@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { DatabaseLayer, type Database } from "@kiwi/db/effect";
+import { DatabaseLayer, runDatabaseEffect, type Database } from "@kiwi/db/effect";
 import {
     API_ERROR_CODES,
     type ApiErrorCode,
@@ -108,18 +108,22 @@ export function runApiAction<T, E>(
         user: AuthUser | null | undefined;
         action: (user: AuthUser) => Effect.Effect<T, E, Database>;
         success: (value: T) => unknown;
+        mapError?: (status: RouteStatus, error: E) => unknown;
         databaseLayer?: typeof DatabaseLayer;
     }
-) {
+): Promise<unknown> {
     if (!options.user) {
         const apiError = unauthorizedError();
         return Promise.resolve(options.status(apiError.status, errorResponse(apiError.responseMessage, apiError.code)));
     }
 
+    const mapError = options.mapError ?? ((status: RouteStatus, error: E) => mapApiError(status, error, options));
     const action = Effect.match(options.action(options.user), {
-        onFailure: (error) => mapApiError(options.status, error, options),
+        onFailure: (error) => mapError(options.status, error),
         onSuccess: options.success,
     });
 
-    return Effect.runPromise(Effect.provide(action, options.databaseLayer ?? DatabaseLayer));
+    return options.databaseLayer
+        ? Effect.runPromise(Effect.provide(action, options.databaseLayer))
+        : runDatabaseEffect(action);
 }

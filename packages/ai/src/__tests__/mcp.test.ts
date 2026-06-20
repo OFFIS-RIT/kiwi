@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
 import { linkifyResearchCitations } from "../mcp";
 
+class LinkBaseUrl extends Context.Service<LinkBaseUrl, string>()("@kiwi/ai/test/LinkBaseUrl") {}
+
 describe("linkifyResearchCitations", () => {
     test("replaces citation fences with markdown links", async () => {
         const output = await Effect.runPromise(
-            linkifyResearchCitations(
-                'Alpha :::{"type":"cite","id":"src_1"}::: Omega',
-                (citation) => Effect.succeed(`[${citation.sourceId}](https://example.com/${citation.sourceId})`)
+            linkifyResearchCitations('Alpha :::{"type":"cite","id":"src_1"}::: Omega', (citation) =>
+                Effect.succeed(`[${citation.sourceId}](https://example.com/${citation.sourceId})`)
             )
         );
 
@@ -65,5 +67,17 @@ describe("linkifyResearchCitations", () => {
         );
 
         expect(output).toBe("Alpha [source unavailable]");
+    });
+    test("preserves resolver Effect requirements", async () => {
+        const output = await Effect.runPromise(
+            linkifyResearchCitations('Alpha :::{"type":"cite","id":"src_1"}:::', (citation) =>
+                Effect.gen(function* () {
+                    const baseUrl = yield* LinkBaseUrl;
+                    return `[${citation.sourceId}](${baseUrl}/${citation.sourceId})`;
+                })
+            ).pipe(Effect.provideService(LinkBaseUrl, "https://example.com"))
+        );
+
+        expect(output).toBe("Alpha [src_1](https://example.com/src_1)");
     });
 });

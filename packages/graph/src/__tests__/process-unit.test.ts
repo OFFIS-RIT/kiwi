@@ -47,41 +47,43 @@ describe("processUnit", () => {
 
     test("extracts from clean text and attaches attributed source chunk ids", async () => {
         const { processUnit } = await import("../unit.ts");
-        const graph = await Effect.runPromise(processUnit(
-            {
-                id: "unit-1",
-                fileId: "file-1",
-                content: "Acme hired Alice.",
-                startPage: null,
-                endPage: null,
-                chunks: [
-                    {
-                        id: 1,
-                        type: "text",
-                        text: [
-                            "Acme hired Alice.",
-                            "",
-                            "| Metric | Value |",
-                            "| --- | --- |",
-                            "| Rent | 1200 EUR |",
-                        ].join("\n"),
-                        startPage: null,
-                        endPage: null,
-                    },
-                    {
-                        id: 2,
-                        type: "image",
-                        text: "Alice works at Acme.",
-                        imageId: "img-1",
-                        imageKey: null,
-                        startPage: null,
-                        endPage: null,
-                    },
-                ],
-            },
-            {} as never,
-            "document.txt"
-        ));
+        const graph = await Effect.runPromise(
+            processUnit(
+                {
+                    id: "unit-1",
+                    fileId: "file-1",
+                    content: "Acme hired Alice.",
+                    startPage: null,
+                    endPage: null,
+                    chunks: [
+                        {
+                            id: 1,
+                            type: "text",
+                            text: [
+                                "Acme hired Alice.",
+                                "",
+                                "| Metric | Value |",
+                                "| --- | --- |",
+                                "| Rent | 1200 EUR |",
+                            ].join("\n"),
+                            startPage: null,
+                            endPage: null,
+                        },
+                        {
+                            id: 2,
+                            type: "image",
+                            text: "Alice works at Acme.",
+                            imageId: "img-1",
+                            imageKey: null,
+                            startPage: null,
+                            endPage: null,
+                        },
+                    ],
+                },
+                {} as never,
+                "document.txt"
+            )
+        );
 
         expect(generateTextMock).toHaveBeenCalledTimes(1);
         const { extractPrompt } = await import("@kiwi/ai/prompts/extract.prompt");
@@ -113,18 +115,20 @@ describe("processUnit", () => {
 
     test("uses the single available chunk when no attribution pass is needed", async () => {
         const { processUnit } = await import("../unit.ts");
-        const graph = await Effect.runPromise(processUnit(
-            {
-                id: "unit-1",
-                fileId: "file-1",
-                content: "Acme hired Alice.",
-                startPage: null,
-                endPage: null,
-                chunks: [{ id: 1, type: "text", text: "Acme hired Alice.", startPage: null, endPage: null }],
-            },
-            {} as never,
-            "document.txt"
-        ));
+        const graph = await Effect.runPromise(
+            processUnit(
+                {
+                    id: "unit-1",
+                    fileId: "file-1",
+                    content: "Acme hired Alice.",
+                    startPage: null,
+                    endPage: null,
+                    chunks: [{ id: 1, type: "text", text: "Acme hired Alice.", startPage: null, endPage: null }],
+                },
+                {} as never,
+                "document.txt"
+            )
+        );
 
         expect(generateTextMock).toHaveBeenCalledTimes(1);
         expect(generateTextMock.mock.calls[0]?.[0].prompt).toBe("Acme hired Alice.");

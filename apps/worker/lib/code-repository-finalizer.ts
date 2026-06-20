@@ -48,7 +48,9 @@ export function resolveRepositoryFinalizationTargets(
             const metadata = parseCodeFileMetadata(row.metadata);
             return (
                 metadata !== null &&
-                repositoryUrlSet.has(codeRepositoryFileFieldsFromMetadata(metadata, { graphId: "", name: "" }).repositoryUrl)
+                repositoryUrlSet.has(
+                    codeRepositoryFileFieldsFromMetadata(metadata, { graphId: "", name: "" }).repositoryUrl
+                )
             );
         })
         .map((row) => row.id);
@@ -105,7 +107,9 @@ function invalidateRepositorySourceTargets(options: {
         }
 
         return yield* withWorkerDb((db) =>
-            db.transaction((tx) => invalidateRepositorySources(tx, options.graphId, options.retiredFileIds, options.markDeleted))
+            db.transaction((tx) =>
+                invalidateRepositorySources(tx, options.graphId, options.retiredFileIds, options.markDeleted)
+            )
         );
     });
 }
@@ -125,20 +129,36 @@ function invalidateRepositorySources(
             yield* tx
                 .update(filesTable)
                 .set({ deleted: true })
-                .where(and(eq(filesTable.graphId, graphId), eq(filesTable.deleted, false), inArray(filesTable.id, retiredFileIds)));
+                .where(
+                    and(
+                        eq(filesTable.graphId, graphId),
+                        eq(filesTable.deleted, false),
+                        inArray(filesTable.id, retiredFileIds)
+                    )
+                );
         }
 
         const affectedEntityRows = yield* tx
             .selectDistinct({ id: sourcesTable.entityId })
             .from(sourcesTable)
             .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-            .where(and(inArray(textUnitTable.fileId, retiredFileIds), currentSourcePredicate(), isNotNull(sourcesTable.entityId)));
+            .where(
+                and(
+                    inArray(textUnitTable.fileId, retiredFileIds),
+                    currentSourcePredicate(),
+                    isNotNull(sourcesTable.entityId)
+                )
+            );
         const affectedRelationshipRows = yield* tx
             .selectDistinct({ id: sourcesTable.relationshipId })
             .from(sourcesTable)
             .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
             .where(
-                and(inArray(textUnitTable.fileId, retiredFileIds), currentSourcePredicate(), isNotNull(sourcesTable.relationshipId))
+                and(
+                    inArray(textUnitTable.fileId, retiredFileIds),
+                    currentSourcePredicate(),
+                    isNotNull(sourcesTable.relationshipId)
+                )
             );
 
         yield* tx.execute(sql`

@@ -81,15 +81,6 @@ function queryContainsParamValue(value: unknown, expected: unknown, seen = new W
     return false;
 }
 
-function waitForReadStarts(count: number): Promise<void> {
-    if (readStartedCount >= count) {
-        return Promise.resolve();
-    }
-    const { promise, resolve } = Promise.withResolvers<void>();
-    readStartWaiters.push({ count, resolve });
-    return promise;
-}
-
 function notifyReadStarted() {
     readStartedCount += 1;
     for (let index = readStartWaiters.length - 1; index >= 0; index -= 1) {
@@ -154,7 +145,6 @@ const transactionDb = {
 function runTransactionResult<T>(result: T | PromiseLike<T> | Effect.Effect<T>) {
     return Effect.isEffect(result) ? Effect.runPromise(result) : result;
 }
-
 
 const mockDb = {
     select: () => createSelectQuery(),
@@ -258,11 +248,14 @@ mock.module("@kiwi/connectors", () => ({
                     catch: (error) => error,
                 }),
         }),
+    isKnownConnectorProvider: () => true,
     normalizeGitLabBaseUrl: (value: string) => value.replace(/\/+$/, ""),
 }));
 
 mock.module("@kiwi/connectors/credentials", () => ({
     decryptConnectorCredentials: () => ({ provider: "github", appId: "app-1", privateKeyPem: "pem" }),
+    isConnectorCredentialsForProvider: () => true,
+    isInstallationCredentialsForProvider: () => true,
 }));
 
 mock.module("../env", () => ({
@@ -658,6 +651,7 @@ describe("syncConnectorResourceGraph", () => {
         expect(loadSnapshotCalls).toBe(1);
         expect(readFileCalls).toEqual([]);
         expect(insertedFileValues.map((row) => row.name)).toEqual(["src/reset.ts"]);
+        expect(insertedFileValues[0]?.externalUrl).toBe("https://github.com/acme/widgets/blob/commit-new/src/reset.ts");
         expect(processWorkflowInputs[0]).toMatchObject({
             graphId: "graph-1",
             processRunId: "process-run-1",

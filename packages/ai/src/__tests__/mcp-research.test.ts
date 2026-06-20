@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
 const generateTextMock = mock(async () => ({
@@ -30,7 +31,10 @@ mock.module("ai", async () => ({
     validateUIMessages: validateUIMessagesMock,
 }));
 
+// Dynamic import is required so Bun module mocks are installed before the research module is evaluated.
 const { runMcpResearch } = await import("../mcp/research");
+
+class AnswerPrefix extends Context.Service<AnswerPrefix, string>()("@kiwi/ai/test/AnswerPrefix") {}
 
 describe("runMcpResearch", () => {
     test("prepends scoped prompt guidance to the research question", async () => {
@@ -54,5 +58,26 @@ describe("runMcpResearch", () => {
         expect(call.messages[0]?.content).toContain("## Graph Specific Prompts");
         expect(call.messages[0]?.content).toContain("ACME means Acme Corp.");
         expect(call.messages[0]?.content.endsWith("What changed?")).toBe(true);
+    });
+
+    test("preserves transformAnswer Effect requirements", async () => {
+        generateTextMock.mockClear();
+
+        const result = await Effect.runPromise(
+            runMcpResearch({
+                model: {} as never,
+                question: "What changed?",
+                transformAnswer: (text) =>
+                    Effect.gen(function* () {
+                        const prefix = yield* AnswerPrefix;
+                        return `${prefix}: ${text}`;
+                    }),
+            }).pipe(Effect.provideService(AnswerPrefix, "Linked"))
+        );
+
+        expect(result).toEqual({
+            rawAnswer: "Answer",
+            answer: "Linked: Answer",
+        });
     });
 });

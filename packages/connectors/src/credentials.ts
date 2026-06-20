@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
-import type { ConnectorCredentials, ConnectorInstallationCredentials } from "./types";
+import type { ConnectorCredentials, ConnectorInstallationCredentials, ConnectorProvider } from "./types";
+import { connectorAdapterRegistry, isKnownConnectorProvider } from "./registry";
 
 const ENCRYPTION_VERSION = "v1";
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
@@ -66,35 +67,35 @@ export function assertValidConnectorCredentials(value: unknown): asserts value i
         return;
     }
 
-    if (value.provider === "github") {
-        if (hasNonEmptyString(value, "appId") && hasNonEmptyString(value, "privateKeyPem")) {
-            assertOptionalString(value, "clientId");
-            assertOptionalString(value, "clientSecret");
-            assertOptionalString(value, "webhookSecret");
-            return;
-        }
-        if (hasNonEmptyString(value, "installationId")) {
-            return;
-        }
-    }
-
-    if (value.provider === "gitlab") {
-        if (
-            hasNonEmptyString(value, "baseUrl") &&
-            hasNonEmptyString(value, "clientId") &&
-            hasNonEmptyString(value, "clientSecret")
-        ) {
-            assertOptionalString(value, "webhookSecret");
-            return;
-        }
-        if (hasNonEmptyString(value, "accessToken")) {
-            assertOptionalString(value, "refreshToken");
-            assertOptionalString(value, "expiresAt");
+    // Per-provider credential shapes are validated by the adapter registry so this module
+    // stays provider-agnostic; a new provider only registers its validators there.
+    if (typeof value.provider === "string" && isKnownConnectorProvider(value.provider)) {
+        const entry = connectorAdapterRegistry[value.provider];
+        if (entry.validateCredentials?.(value) === true || entry.validateInstallation?.(value) === true) {
             return;
         }
     }
 
     throw new Error("Invalid connector credentials");
+}
+
+// Registry-driven type guards shared by callers that decrypt stored payloads (worker
+// sync + file reads). They validate the payload against the provider's registered shape
+// so no consumer hardcodes the known provider list.
+export function isConnectorCredentialsForProvider(
+    value: ConnectorSecretPayload,
+    provider: ConnectorProvider
+): value is ConnectorCredentials {
+    const record = value as Record<string, unknown>;
+    return record.provider === provider && connectorAdapterRegistry[provider]?.validateCredentials?.(record) === true;
+}
+
+export function isInstallationCredentialsForProvider(
+    value: ConnectorSecretPayload,
+    provider: ConnectorProvider
+): value is ConnectorInstallationCredentials {
+    const record = value as Record<string, unknown>;
+    return record.provider === provider && connectorAdapterRegistry[provider]?.validateInstallation?.(record) === true;
 }
 
 function deriveEncryptionKey(secret: string): Buffer {
@@ -120,11 +121,4 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function hasNonEmptyString(value: object, key: string): boolean {
     const record = value as Record<string, unknown>;
     return typeof record[key] === "string" && record[key].trim().length > 0;
-}
-
-function assertOptionalString(value: object, key: string) {
-    const record = value as Record<string, unknown>;
-    if (record[key] !== undefined && typeof record[key] !== "string") {
-        throw new Error("Invalid connector credentials");
-    }
 }

@@ -43,12 +43,14 @@ describe("inferSupportedUploadedFiles", () => {
             throw new Error("expected supported upload");
         }
 
-        await runApiTestEffect(assertConfiguredUploadModels({
-            organizationId: "org-1",
-            files: result.files,
-            secret: "test-secret",
-            resolveModelAdapter: resolveRequiredModelAdapterMock,
-        }));
+        await runApiTestEffect(
+            assertConfiguredUploadModels({
+                organizationId: "org-1",
+                files: result.files,
+                secret: "test-secret",
+                resolveModelAdapter: resolveRequiredModelAdapterMock,
+            })
+        );
 
         expect(resolveRequiredModelAdapterMock).toHaveBeenCalledTimes(2);
         expect(resolveRequiredModelAdapterMock).toHaveBeenCalledWith("org-1", "audio", "test-secret");

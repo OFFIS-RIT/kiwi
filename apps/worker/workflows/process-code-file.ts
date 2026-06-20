@@ -137,8 +137,8 @@ export const processCodeFile = defineWorkflow(
 
                         yield* updateFileProcessingState(input.fileId, "extracting", "processing");
                         const start = performance.now();
-                        const { buildCodeFileGraph, buildCodeRepositoryManifest } = yield* Effect.tryPromise(() =>
-                            import("@kiwi/graph/code/repository")
+                        const { buildCodeFileGraph, buildCodeRepositoryManifest } = yield* Effect.tryPromise(
+                            () => import("@kiwi/graph/code/repository")
                         );
                         const manifest = input.codeManifestKey
                             ? yield* loadCodeManifest(input.codeManifestKey)
@@ -256,7 +256,9 @@ export const processCodeFile = defineWorkflow(
             return saveGraphResult.summary;
         } catch (error) {
             if (run.retryTerminal) {
-                await runWorkerEffect(updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error)));
+                await runWorkerEffect(
+                    updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error))
+                );
             } else {
                 await runWorkerEffect(updateFileProcessingState(input.fileId, "pending", "processing", null));
             }

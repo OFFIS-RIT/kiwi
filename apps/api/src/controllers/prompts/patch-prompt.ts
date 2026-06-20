@@ -29,7 +29,9 @@ export function patchPrompt(input: { user: AuthUser; scope: PromptScopeInput; pr
                         db
                             .update(userPromptsTable)
                             .set({ prompt })
-                            .where(and(eq(userPromptsTable.id, input.promptId), eq(userPromptsTable.userId, scope.userId)))
+                            .where(
+                                and(eq(userPromptsTable.id, input.promptId), eq(userPromptsTable.userId, scope.userId))
+                            )
                             .returning(userPromptFields)
                     );
 
@@ -44,7 +46,9 @@ export function patchPrompt(input: { user: AuthUser; scope: PromptScopeInput; pr
                         db
                             .update(teamPromptsTable)
                             .set({ prompt })
-                            .where(and(eq(teamPromptsTable.id, input.promptId), eq(teamPromptsTable.teamId, scope.teamId)))
+                            .where(
+                                and(eq(teamPromptsTable.id, input.promptId), eq(teamPromptsTable.teamId, scope.teamId))
+                            )
                             .returning(teamPromptFields)
                     );
 
@@ -79,7 +83,12 @@ export function patchPrompt(input: { user: AuthUser; scope: PromptScopeInput; pr
                         db
                             .update(graphPromptsTable)
                             .set({ prompt })
-                            .where(and(eq(graphPromptsTable.id, input.promptId), eq(graphPromptsTable.graphId, scope.graphId)))
+                            .where(
+                                and(
+                                    eq(graphPromptsTable.id, input.promptId),
+                                    eq(graphPromptsTable.graphId, scope.graphId)
+                                )
+                            )
                             .returning(graphPromptFields)
                     );
 

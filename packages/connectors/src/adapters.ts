@@ -29,6 +29,9 @@ export function createGitRepositoryAdapter(options: {
     return {
         ...client,
         resourceKind: "git-repository",
+        // Git exposes named branch versions and version-range compares; it does not browse
+        // children, sync by cursor, or read binary blobs through this adapter.
+        capabilities: { versions: true, cursorSync: false, children: false, binaryFiles: false },
         getResource: Effect.fn("GitResourceAdapter.getResource")(function* (resourceId: string) {
             return yield* Effect.map(client.getRepository(resourceId), mapProviderRepositoryToResource);
         }),

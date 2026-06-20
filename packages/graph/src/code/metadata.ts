@@ -33,7 +33,6 @@ export type LegacyCodeFileMetadata = {
     external?: { provider: "github"; rawUrl: string; htmlUrl: string };
 };
 
-
 export function serializeCodeFileMetadata(metadata: CodeFileMetadata | LegacyCodeFileMetadata): string {
     return JSON.stringify(metadata);
 }

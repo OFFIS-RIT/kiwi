@@ -16,6 +16,9 @@ function sourceRow(overrides: Partial<SourceReferenceRow> = {}): SourceReference
         file_type: "text",
         mime_type: "text/plain",
         file_key: "source.txt",
+        storage_kind: "internal",
+        external_url: null,
+        external_provider: null,
         created_at: null,
         updated_at: null,
         ...overrides,
@@ -29,6 +32,22 @@ describe("toSourceReferenceRecord", () => {
         expect(reference.chunks).toEqual([{ type: "text", chunk_id: 1, text: "Alpha chunk" }]);
         expect(reference.pdf_regions).toEqual([]);
         expect(reference.unit).not.toHaveProperty("text");
+        expect(reference.unit.external_url).toBeNull();
+        expect(reference.unit.external_provider).toBeNull();
+    });
+
+    test("exposes the external source link on the unit for externally stored files", async () => {
+        const reference = await toSourceReferenceRecord(
+            "graph-1",
+            sourceRow({
+                storage_kind: "external",
+                external_provider: "github",
+                external_url: "https://github.com/acme/app/blob/main/src/index.ts",
+            })
+        );
+
+        expect(reference.unit.external_url).toBe("https://github.com/acme/app/blob/main/src/index.ts");
+        expect(reference.unit.external_provider).toBe("github");
     });
 
     test("falls back to full unit text for legacy non-PDF sources without stored chunks", async () => {

@@ -73,9 +73,7 @@ describe("AI model registry helpers", () => {
         const existing = new Set(["gpt-5.5", "gpt-5.5-1"]);
 
         await expect(
-            Effect.runPromise(
-                allocateUniqueModelId("gpt-5.5", (candidate) => Effect.succeed(existing.has(candidate)))
-            )
+            Effect.runPromise(allocateUniqueModelId("gpt-5.5", (candidate) => Effect.succeed(existing.has(candidate))))
         ).resolves.toBe("gpt-5.5-2");
     });
 

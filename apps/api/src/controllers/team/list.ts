@@ -26,10 +26,12 @@ export function listTeams(input: { user: AuthUser }) {
                         .orderBy(asc(teamTable.name))
                 );
 
-                return teams.map((team): TeamListItem => ({
-                    ...team,
-                    role: "admin",
-                }));
+                return teams.map(
+                    (team): TeamListItem => ({
+                        ...team,
+                        role: "admin",
+                    })
+                );
             }
 
             const role = sql<TeamMemberRole>`coalesce(${teamMemberRolesTable.role}, 'member')`;

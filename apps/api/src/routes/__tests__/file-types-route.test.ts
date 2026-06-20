@@ -42,6 +42,8 @@ function runMockDbEffect(thunk: (database: typeof db) => Effect.Effect<unknown> 
 
 mock.module("@kiwi/db/effect", () => ({
     DatabaseLayer: Layer.empty,
+    runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+        Effect.runPromise(effect as Effect.Effect<T, E, never>),
     tryDb: runMockDbEffect,
 }));
 

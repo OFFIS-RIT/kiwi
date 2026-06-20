@@ -39,7 +39,10 @@ export function listModels(input: { user: AuthUser; query: ModelQuery }) {
                     .from(modelsTable)
                     .where(
                         input.query.type
-                            ? and(eq(modelsTable.organizationId, organizationId), eq(modelsTable.type, input.query.type))
+                            ? and(
+                                  eq(modelsTable.organizationId, organizationId),
+                                  eq(modelsTable.type, input.query.type)
+                              )
                             : eq(modelsTable.organizationId, organizationId)
                     )
                     .orderBy(asc(modelsTable.type), asc(modelsTable.displayName), asc(modelsTable.modelId))

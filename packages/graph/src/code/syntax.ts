@@ -65,9 +65,18 @@ function definitionFromNode(file: ParsedCodeFile, node: TreeSitterNode): Definit
             const simpleName = fieldText(node, "name");
             if (!simpleName) return null;
             const parentQualifiedName =
-                node.type === "function_signature_item" ? enclosingRustTraitName(node) : enclosingRustImplTypeName(node);
+                node.type === "function_signature_item"
+                    ? enclosingRustTraitName(node)
+                    : enclosingRustImplTypeName(node);
             return parentQualifiedName
-                ? definition(file, node, simpleName, `${parentQualifiedName}.${simpleName}`, "CODE_METHOD", parentQualifiedName)
+                ? definition(
+                      file,
+                      node,
+                      simpleName,
+                      `${parentQualifiedName}.${simpleName}`,
+                      "CODE_METHOD",
+                      parentQualifiedName
+                  )
                 : definition(file, node, simpleName, simpleName, "CODE_FUNCTION");
         }
         case "function_definition": {
@@ -168,8 +177,10 @@ function memberLikeName(node: TreeSitterNode): string | null {
     }
 
     if (node.type === "field_expression") {
-        const object = childForField(node, "object")?.text ?? childForField(node, "value")?.text ?? node.namedChild(0)?.text;
-        const property = childForField(node, "property")?.text ?? childForField(node, "field")?.text ?? node.namedChild(1)?.text;
+        const object =
+            childForField(node, "object")?.text ?? childForField(node, "value")?.text ?? node.namedChild(0)?.text;
+        const property =
+            childForField(node, "property")?.text ?? childForField(node, "field")?.text ?? node.namedChild(1)?.text;
         return object && property ? `${object}.${property}` : (property ?? null);
     }
 

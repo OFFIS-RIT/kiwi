@@ -63,7 +63,8 @@ mock.module("@kiwi/connectors", () => ({
                 return [{ name: "main", commitSha: "commit-sha" }];
             }),
     }),
-    createGitHubInstallationToken: () => Effect.succeed({ token: "installation-token", expiresAt: "2026-01-01T01:00:00Z" }),
+    createGitHubInstallationToken: () =>
+        Effect.succeed({ token: "installation-token", expiresAt: "2026-01-01T01:00:00Z" }),
     createGitLabClient: () => {
         throw new Error("GitLab client was not expected");
     },
