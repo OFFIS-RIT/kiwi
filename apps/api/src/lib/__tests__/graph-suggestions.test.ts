@@ -54,6 +54,15 @@ mock.module("../../openworkflow", () => ({
     },
 }));
 
+mock.module("@kiwi/ai", () => ({
+    estimateToken: (value: string) => value.length,
+    makeAiClient: () => Effect.succeed({ embedding: {} }),
+}));
+
+mock.module("@kiwi/ai/models", () => ({
+    resolveRequiredEmbeddingModelAdapter: () => Effect.succeed({ adapter: {} }),
+}));
+
 mock.module("../chat-client", () => ({
     getRequiredResearchClient: () => ({ embedding: {} }),
 }));
@@ -95,21 +104,6 @@ const {
 const { API_ERROR_CODES } = await import("../../types");
 
 mock.restore();
-
-const encryptedModelCredentials = "v1:G183hwnvbORsT9EW:kHjjs9mrWpOCxQQ1AODT1w:EVGQ3pTv5NW_68o_oii3Z4EQLD3KOQ";
-const embeddingModelRow = {
-    id: "embedding-model-1",
-    organizationId: "org-1",
-    modelId: "embedding-default",
-    displayName: "Embedding default",
-    type: "embedding",
-    adapter: "openai",
-    providerModel: "text-embedding-3-small",
-    encryptedCredentials: encryptedModelCredentials,
-    isDefault: true,
-    createdAt: new Date("2026-01-01T00:00:00.000Z"),
-    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
-};
 
 describe("graph suggestion apply helpers", () => {
     beforeEach(() => {
@@ -209,12 +203,7 @@ describe("graph suggestion apply helpers", () => {
             createdAt: new Date("2026-01-01T00:00:00.000Z"),
             updatedAt: new Date("2026-01-01T00:00:00.000Z"),
         };
-        const selectResults = [
-            [pendingEntitySuggestion],
-            [{ id: "entity-1" }],
-            [embeddingModelRow],
-            [pendingEntitySuggestion],
-        ];
+        const selectResults = [[pendingEntitySuggestion], [{ id: "entity-1" }], [pendingEntitySuggestion]];
 
         dbMock.select = mock(() => ({
             from: () => ({

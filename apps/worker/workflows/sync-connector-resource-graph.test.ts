@@ -166,7 +166,7 @@ function runMockDbEffect(thunk: (db: typeof mockDb) => Effect.Effect<unknown> | 
     return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
 }
 
-mock.module("../lib/effect", () => ({
+mock.module("../lib/runtime/effect", () => ({
     withWorkerDb: runMockDbEffect,
     withWorkerDbVoid: (thunk: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown>) =>
         Effect.asVoid(runMockDbEffect(thunk)),

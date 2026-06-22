@@ -10,7 +10,7 @@ import {
     processStatsTable,
 } from "@kiwi/db/tables/graph";
 import { teamTable } from "@kiwi/db/tables/auth";
-import { deleteFile } from "@kiwi/files";
+import { deleteFile, type FileStorage } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { env } from "../../env";
@@ -261,7 +261,7 @@ function textList(values: readonly string[]) {
     );
 }
 
-export const cleanupUploadedKeys = (uploadedKeys: string[]): Effect.Effect<number, unknown> =>
+export const cleanupUploadedKeys = (uploadedKeys: string[]): Effect.Effect<number, unknown, FileStorage> =>
     Effect.map(
         Effect.all(
             uploadedKeys.map((key) =>
@@ -310,7 +310,7 @@ export const restoreGraphFileChangeFailure = (
     uploadedKeys: string[],
     processRunId?: string,
     supersededFileIds: string[] = []
-): Effect.Effect<void, unknown, Database> =>
+): Effect.Effect<void, unknown, Database | FileStorage> =>
     Effect.gen(function* () {
         const failedDeletes = yield* cleanupUploadedKeys(uploadedKeys);
 
@@ -374,7 +374,7 @@ export function commitGraphFileUploads(options: {
     graph: GraphRecord;
     uploadedFiles: UploadedFile[];
     supersedeRepositoryUrls?: string[];
-}): Effect.Effect<GraphFileUploadCommit, unknown, Database> {
+}): Effect.Effect<GraphFileUploadCommit, unknown, Database | FileStorage> {
     return Effect.gen(function* () {
         const result = yield* tryDb((db) =>
             db.transaction((tx) =>

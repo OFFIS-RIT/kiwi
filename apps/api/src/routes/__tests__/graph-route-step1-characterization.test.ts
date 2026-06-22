@@ -186,7 +186,7 @@ const mockDb = {
 };
 
 mock.module("@kiwi/ai/models", () => ({
-    getDefaultModelOrganizationId: () => "org-1",
+    getDefaultModelOrganizationId: () => Effect.succeed("org-1"),
 }));
 
 class MockDatabaseError extends Error {

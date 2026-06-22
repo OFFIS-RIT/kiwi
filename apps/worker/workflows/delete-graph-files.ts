@@ -1,12 +1,12 @@
 import * as Effect from "effect/Effect";
 import type { Database } from "@kiwi/db/effect";
-import { withWorkerDbVoid } from "../lib/effect";
+import { withWorkerDbVoid } from "../lib/runtime/effect";
 import { eq, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import { graphTable } from "@kiwi/db/tables/graph";
 import { deleteFileSpec } from "./delete-file-spec";
 import { deleteGraphFilesSpec } from "./delete-graph-files-spec";
-import { runWorkerEffect } from "../lib/effect";
+import { runWorkerEffect } from "../lib/runtime/effect";
 
 const NO_RETRY = { maximumAttempts: 1 } as const;
 

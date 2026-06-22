@@ -64,10 +64,10 @@ const baseRows: MockFileRow[] = [
 ];
 
 const fileContents: Record<string, string> = {
-    "key-new": "import { helper } from './helper';\nexport function main() { return helper(); }\n",
+    "key-new": "import { helper } from '../../__tests__/helper';\nexport function main() { return helper(); }\n",
     "key-existing": "export function helper() { return 1; }\n",
     "key-other": "export function helper() { return 2; }\n",
-    "key-connector-new": "import { shared } from './shared';\nexport const main = () => shared;\n",
+    "key-connector-new": "import { shared } from '../../__tests__/shared';\nexport const main = () => shared;\n",
     "key-connector-existing": "export const shared = 1;\n",
     "key-connector-other-binding": "export const shared = 2;\n",
 };
@@ -102,7 +102,7 @@ mock.module("@kiwi/db/effect", () => ({
     DatabaseLayer: {},
 }));
 
-mock.module("../effect", () => ({
+mock.module("../../runtime/effect", () => ({
     withWorkerDb: (work: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) => {
         const result = work(mockDb);
         return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
@@ -126,13 +126,13 @@ mock.module("@kiwi/files", () => ({
         }),
 }));
 
-mock.module("../../env", () => ({
+mock.module("../../../env", () => ({
     env: { S3_BUCKET: "test-bucket" },
 }));
 
 // Dynamic import is required so module mocks and env are installed before worker modules are evaluated.
-const { prepareCodeManifest } = await import("../code-manifest");
-const { readFileContentSource } = await import("../file-content-source");
+const { prepareCodeManifest } = await import("../manifest");
+const { readFileContentSource } = await import("../../files/content-source");
 
 describe("prepareCodeManifest", () => {
     beforeEach(() => {
@@ -258,7 +258,7 @@ describe("prepareCodeManifest", () => {
 describe("readFileContentSource", () => {
     test("reads internal S3 content", async () => {
         await expect(runWorkerTestEffect(readFileContentSource({ kind: "internal", key: "key-new" }))).resolves.toBe(
-            "import { helper } from './helper';\nexport function main() { return helper(); }\n"
+            "import { helper } from '../../__tests__/helper';\nexport function main() { return helper(); }\n"
         );
     });
 

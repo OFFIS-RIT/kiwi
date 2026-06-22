@@ -47,14 +47,13 @@ describe("inferSupportedUploadedFiles", () => {
             assertConfiguredUploadModels({
                 organizationId: "org-1",
                 files: result.files,
-                secret: "test-secret",
                 resolveModelAdapter: resolveRequiredModelAdapterMock,
             })
         );
 
         expect(resolveRequiredModelAdapterMock).toHaveBeenCalledTimes(2);
-        expect(resolveRequiredModelAdapterMock).toHaveBeenCalledWith("org-1", "audio", "test-secret");
-        expect(resolveRequiredModelAdapterMock).toHaveBeenCalledWith("org-1", "video", "test-secret");
+        expect(resolveRequiredModelAdapterMock).toHaveBeenCalledWith("org-1", "audio");
+        expect(resolveRequiredModelAdapterMock).toHaveBeenCalledWith("org-1", "video");
     });
 });
 

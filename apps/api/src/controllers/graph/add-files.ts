@@ -87,7 +87,6 @@ export const addGraphFiles = Effect.fn("addGraphFiles")((input: { user: AuthUser
             yield* assertConfiguredUploadModels({
                 organizationId,
                 files: supportedUpload.files,
-                secret: env.AUTH_SECRET,
             });
 
             const uploadedFiles: UploadedFile[] = [];

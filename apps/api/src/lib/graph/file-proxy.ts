@@ -7,7 +7,7 @@ import {
     connectorResourceBindingsTable,
 } from "@kiwi/db/tables/connectors";
 import { filesTable } from "@kiwi/db/tables/graph";
-import { getFileMetadata, getFileStream } from "@kiwi/files";
+import { getFileMetadata, getFileStream, type FileStorage } from "@kiwi/files";
 import { parseCodeFileMetadata } from "@kiwi/graph/code/metadata";
 import { createProviderClient } from "../connectors";
 import { contentDispositionForFile, contentDispositionHeader, parseByteRange } from "../file-proxy";
@@ -83,7 +83,7 @@ export function getGraphFileProxyResponse(options: {
     request: Request;
     bucket: string;
     head?: boolean;
-}): Effect.Effect<GraphFileProxyResult, unknown, Database> {
+}): Effect.Effect<GraphFileProxyResult, unknown, Database | FileStorage> {
     return Effect.catchDefect(
         Effect.gen(function* () {
             const file = yield* loadGraphFileForProxy(options.graphId, options.fileId);

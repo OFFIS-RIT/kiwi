@@ -1,14 +1,14 @@
 import { and, eq, inArray } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import type { Database } from "@kiwi/db/effect";
-import { withWorkerDb } from "./effect";
+import { withWorkerDb } from "../runtime/effect";
 import { filesTable } from "@kiwi/db/tables/graph";
-import { getFile, putNamedFile } from "@kiwi/files";
+import { getFile, putNamedFile, type FileStorage } from "@kiwi/files";
 import { buildCodeRepositoryManifest } from "@kiwi/graph/code/repository";
 import type { CodeRepositoryFile, CodeRepositoryManifest } from "@kiwi/graph/code/repository";
-import { env } from "../env";
-import { codeRepositoryFileFieldsFromMetadata, parseCodeFileMetadata } from "./code-file-metadata";
-import { fileContentSourceFromRow, readFileContentSource } from "./file-content-source";
+import { env } from "../../env";
+import { codeRepositoryFileFieldsFromMetadata, parseCodeFileMetadata } from "./metadata";
+import { fileContentSourceFromRow, readFileContentSource } from "../files/content-source";
 
 type ManifestFileRow = {
     id: string;
@@ -25,7 +25,7 @@ export function prepareCodeManifest(options: {
     graphId: string;
     fileIds: string[];
     processRunId?: string;
-}): Effect.Effect<string | undefined, unknown, Database> {
+}): Effect.Effect<string | undefined, unknown, Database | FileStorage> {
     return Effect.gen(function* () {
         if (options.fileIds.length === 0) {
             return undefined;
@@ -135,7 +135,7 @@ function repositoryManifestScopeKey(row: Pick<ManifestFileRow, "connectorBinding
     return `repository:${fields.repositoryUrl}\0${fields.commitSha}`;
 }
 
-export function loadCodeManifest(key: string): Effect.Effect<CodeRepositoryManifest, unknown> {
+export function loadCodeManifest(key: string): Effect.Effect<CodeRepositoryManifest, unknown, FileStorage> {
     return Effect.gen(function* () {
         const manifest = yield* getFile<CodeRepositoryManifest>(key, env.S3_BUCKET, "json");
         if (!manifest) {

@@ -1,22 +1,21 @@
 import * as Effect from "effect/Effect";
 import { bootstrapLegacyModelsFromEnv } from "@kiwi/ai/models";
-import { disposeDatabaseRuntime, runDatabaseEffect } from "@kiwi/db/effect";
+import { disposeDatabaseRuntime } from "@kiwi/db/effect";
 import { info, warn as logWarn } from "@kiwi/logger";
 import { createApiApp } from "./app";
 import { ensureMasterUser } from "./controllers/auth/ensure-master-user";
 import { env } from "./env";
 import { checkArchiveUploadTools } from "./lib/archive-upload";
 import { initLogger, shutdownLogger } from "./logger";
+import { runApiEffect } from "./effect";
 
 initLogger();
 const archiveToolCheck = await Effect.runPromise(checkArchiveUploadTools());
 if (!archiveToolCheck.ok) {
     logWarn("archive upload extraction tools are missing", { missingTools: archiveToolCheck.missing });
 }
-const legacyModelBootstrap = await runDatabaseEffect(
-    bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET, env: process.env })
-);
-await runDatabaseEffect(ensureMasterUser());
+const legacyModelBootstrap = await runApiEffect(bootstrapLegacyModelsFromEnv({ env: process.env }));
+await runApiEffect(ensureMasterUser());
 
 const trustedOrigins =
     env.TRUSTED_ORIGINS?.split(",")

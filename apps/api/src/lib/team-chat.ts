@@ -8,7 +8,9 @@ import {
     type ChatValidationToolset,
     type RequestInformation,
     type ResolvedCitationFence,
+    type AiClientFactory,
 } from "@kiwi/ai";
+import type { AiModelRegistry } from "@kiwi/ai/models";
 import { prependPromptGuidance } from "@kiwi/ai/prompts/guidance.prompt";
 import { createRequestInformationSection } from "@kiwi/ai/prompts/request-info.prompt";
 import { runDatabaseEffect, tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
@@ -483,7 +485,7 @@ export function getTeamChatRuntime(options: {
     team: TeamAccessTeam;
     questionContext: TeamQuestionContext;
     requestedModelId?: string;
-}): Effect.Effect<TeamChatRuntime, unknown, Database> {
+}): Effect.Effect<TeamChatRuntime, unknown, Database | AiModelRegistry | AiClientFactory> {
     return Effect.gen(function* () {
         const [organizationPrompts, userPrompts, teamPrompts] = yield* Effect.all([
             listOrganizationPromptTexts(),
@@ -640,7 +642,7 @@ export function startTeamReply(
         contextMessages: ModelMessage[];
     },
     unknown,
-    Database
+    Database | AiModelRegistry | AiClientFactory
 > {
     return Effect.gen(function* () {
         const normalizedRequest = normalizeChatRequest(request);

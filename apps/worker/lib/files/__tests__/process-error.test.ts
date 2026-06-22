@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { classifyFileProcessError } from "../file-process-error";
+import { classifyFileProcessError } from "../process-error";
 
 describe("classifyFileProcessError", () => {
     test("does not classify infrastructure timeout errors as file complexity", () => {

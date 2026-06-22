@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import { tryDb, type Database } from "@kiwi/db/effect";
 import { teamTable } from "@kiwi/db/tables/auth";
 import { filesTable, graphTable } from "@kiwi/db/tables/graph";
-import { deleteFile, listFiles } from "@kiwi/files";
+import { deleteFile, listFiles, type FileStorage } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { internalServerError, teamNotFoundError } from "@kiwi/contracts/errors";
 import { and, eq, inArray } from "drizzle-orm";
@@ -159,7 +159,7 @@ function cleanupTeamS3Objects(input: {
     teamId: string;
     graphIds: string[];
     fileRows: Array<{ key: string }>;
-}): Effect.Effect<{ attemptedKeyCount: number; failedKeyCount: number }, unknown> {
+}): Effect.Effect<{ attemptedKeyCount: number; failedKeyCount: number }, unknown, FileStorage> {
     return Effect.gen(function* () {
         const trackedKeys = input.fileRows.map((file) => file.key);
         const listedKeyResults = yield* Effect.all(

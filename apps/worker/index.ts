@@ -2,7 +2,7 @@ import { BackendPostgres } from "openworkflow/postgres";
 import { OpenWorkflow } from "openworkflow";
 import { configureAIConcurrency } from "@kiwi/ai";
 import { bootstrapLegacyModelsFromEnv } from "@kiwi/ai/models";
-import { runWorkerEffect } from "./lib/effect";
+import { runWorkerEffect } from "./lib/runtime/effect";
 import { env } from "./env";
 
 configureAIConcurrency({
@@ -13,7 +13,7 @@ configureAIConcurrency({
     video: env.AI_VIDEO_CONCURRENCY,
 });
 
-await runWorkerEffect(bootstrapLegacyModelsFromEnv({ secret: env.AUTH_SECRET, env: process.env }));
+await runWorkerEffect(bootstrapLegacyModelsFromEnv({ env: process.env }));
 
 export const backend = await BackendPostgres.connect(env.DATABASE_DIRECT_URL);
 export const ow = new OpenWorkflow({ backend });

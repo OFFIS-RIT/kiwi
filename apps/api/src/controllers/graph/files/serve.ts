@@ -1,10 +1,10 @@
 import * as Effect from "effect/Effect";
 import { API_ERROR_CODES, type ApiError, makeApiError } from "@kiwi/contracts/errors";
-import { DatabaseLayer, type Database } from "@kiwi/db/effect";
 import { env } from "../../../env";
 import { getGraphFileProxyResponse, type GraphFileProxyResult } from "../../../lib/graph/file-proxy";
 import type { AuthUser } from "../../../middleware/auth";
 import { mapApiError, type RouteStatus, toApiError } from "../../_shared/api-effect";
+import { runApiEffect, type ApiServices } from "../../../effect";
 import { assertCanReadGraphFile } from "./authorize-read";
 
 export type ServeGraphFileResult = Exclude<GraphFileProxyResult, { status: "not_found" }>;
@@ -25,17 +25,14 @@ export function graphFileProxyResponse(result: ServeGraphFileResult) {
 
 export function runGraphFileProxyAction<T>(options: {
     status: RouteStatus;
-    action: Effect.Effect<T, ApiError, Database>;
+    action: Effect.Effect<T, ApiError, ApiServices>;
     success: (value: T) => unknown;
 }) {
-    return Effect.runPromise(
-        Effect.provide(
-            Effect.match(options.action, {
-                onFailure: (error) => mapApiError(options.status, error),
-                onSuccess: options.success,
-            }),
-            DatabaseLayer
-        )
+    return runApiEffect(
+        Effect.match(options.action, {
+            onFailure: (error) => mapApiError(options.status, error),
+            onSuccess: options.success,
+        })
     );
 }
 
@@ -45,7 +42,7 @@ export function serveGraphFile(input: {
     request: Request;
     user: AuthUser | null | undefined;
     head?: boolean;
-}): Effect.Effect<ServeGraphFileResult, ApiError, Database> {
+}): Effect.Effect<ServeGraphFileResult, ApiError, ApiServices> {
     return Effect.mapError(
         Effect.gen(function* () {
             yield* assertCanReadGraphFile({

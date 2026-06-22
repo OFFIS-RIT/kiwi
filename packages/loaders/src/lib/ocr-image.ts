@@ -6,7 +6,7 @@ import * as Schema from "effect/Schema";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { withAiSlotEffect } from "@kiwi/ai/lock";
 import { embeddedImagePrompt } from "@kiwi/ai/prompts/image.prompt";
-import { putNamedFile } from "@kiwi/files";
+import { FileStorageLive, putNamedFile, type FileStorage } from "@kiwi/files";
 import { generateText } from "ai";
 
 export type OCRImageAsset = {
@@ -26,7 +26,7 @@ type OCRImageEffectDeps = {
         name: string,
         content: Uint8Array,
         storage: OCRImageStorage
-    ) => Effect.Effect<{ key: string }, unknown>;
+    ) => Effect.Effect<{ key: string }, unknown, FileStorage>;
 };
 
 type OCRImageDeps = OCRImageEffectDeps & {
@@ -116,7 +116,9 @@ export function processOCRImages(
     storage: OCRImageStorage,
     deps: OCRImageDeps = {}
 ): Promise<string> {
-    return Effect.runPromise(processOCRImagesEffect(text, images, model, storage, deps));
+    return Effect.runPromise(
+        Effect.provide(processOCRImagesEffect(text, images, model, storage, deps), FileStorageLive)
+    );
 }
 
 export const processOCRImagesEffect = Effect.fn("processOCRImagesEffect")(function* (
@@ -275,7 +277,11 @@ function describeImageEffectForDeps(
 
 function uploadImageEffectForDeps(
     deps: Pick<OCRImageDeps, "uploadImage" | "uploadImageEffect">
-): (name: string, content: Uint8Array, storage: OCRImageStorage) => Effect.Effect<{ key: string }, OCRImageError> {
+): (
+    name: string,
+    content: Uint8Array,
+    storage: OCRImageStorage
+) => Effect.Effect<{ key: string }, OCRImageError, FileStorage> {
     if (deps.uploadImageEffect) {
         return (name, content, storage) =>
             deps.uploadImageEffect!(name, content, storage).pipe(
@@ -359,7 +365,7 @@ function defaultUploadImageEffect(
     name: string,
     content: Uint8Array,
     storage: OCRImageStorage
-): Effect.Effect<{ key: string }, OCRImageError> {
+): Effect.Effect<{ key: string }, OCRImageError, FileStorage> {
     return putNamedFile(name, content, storage.imagePrefix, storage.bucket).pipe(
         Effect.mapError((cause) => toOCRImageError("Failed to upload OCR image.", cause))
     );

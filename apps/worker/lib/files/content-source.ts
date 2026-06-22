@@ -7,16 +7,16 @@ import {
     isInstallationCredentialsForProvider,
 } from "@kiwi/connectors/credentials";
 import type { Database } from "@kiwi/db/effect";
-import { withWorkerDb } from "./effect";
+import { withWorkerDb } from "../runtime/effect";
 import {
     connectorInstallationsTable,
     connectorsTable,
     connectorResourceBindingsTable,
 } from "@kiwi/db/tables/connectors";
-import { getFile } from "@kiwi/files";
+import { getFile, type FileStorage } from "@kiwi/files";
 import { eq } from "drizzle-orm";
-import { env } from "../env";
-import { parseCodeFileMetadata } from "./code-file-metadata";
+import { env } from "../../env";
+import { parseCodeFileMetadata } from "../code/metadata";
 
 export type FileContentSource =
     | { kind: "internal"; key: string }
@@ -66,7 +66,9 @@ export function fileContentSourceFromRow(row: {
     return { kind: "internal", key: row.key };
 }
 
-export function readFileContentSource(source: FileContentSource): Effect.Effect<string | null, unknown, Database> {
+export function readFileContentSource(
+    source: FileContentSource
+): Effect.Effect<string | null, unknown, Database | FileStorage> {
     return Effect.gen(function* () {
         if (source.kind === "internal") {
             const file = yield* getFile(source.key, env.S3_BUCKET, "text");

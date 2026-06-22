@@ -1,11 +1,11 @@
 import * as Effect from "effect/Effect";
 import type { Database, DatabaseTransaction } from "@kiwi/db/effect";
-import { withWorkerDb } from "./effect";
+import { withWorkerDb } from "../runtime/effect";
 import { currentSourcePredicate, currentSourceSql } from "@kiwi/db/source-validity";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import { codeRepositoryFileFieldsFromMetadata, parseCodeFileMetadata } from "./code-file-metadata";
-import { textArray } from "./sql";
+import { codeRepositoryFileFieldsFromMetadata, parseCodeFileMetadata } from "./metadata";
+import { textArray } from "../db/sql";
 
 export type RepositoryFileMetadataRow = {
     id: string;

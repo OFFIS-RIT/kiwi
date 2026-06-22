@@ -138,7 +138,6 @@ export const addGraphRepositoryUrls = Effect.fn("addGraphRepositoryUrls")(
                 yield* assertConfiguredUploadModels({
                     organizationId,
                     files: repositorySources.map(() => ({ type: "code" as const })),
-                    secret: env.AUTH_SECRET,
                 });
 
                 const uploadedFiles: UploadedFile[] = [];

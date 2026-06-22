@@ -2,6 +2,9 @@ import { createAnthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/ant
 import { createAzure } from "@ai-sdk/azure";
 import { createOpenAI, type OpenAILanguageModelChatOptions } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import type { EmbeddingModelV3, JSONValue, LanguageModelV3, TranscriptionModelV3 } from "@ai-sdk/provider";
 import type { MessagePart, MessageToolPart } from "@kiwi/contracts/chat";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
@@ -173,6 +176,14 @@ export type Client = {
     video?: TranscriptionModelV3;
 };
 
+export type AiClientFactoryService = {
+    readonly getClient: (config: ClientConfig) => Effect.Effect<Client>;
+};
+
+export class AiClientFactory extends Context.Service<AiClientFactory, AiClientFactoryService>()(
+    "@kiwi/ai/AiClientFactory"
+) {}
+
 /**
  * Create a pre-configured AI client with separate adapters per capability.
  *
@@ -200,6 +211,16 @@ export function getClient(config: ClientConfig): Client {
         audio: config.audio ? createTranscriptionModel(config.audio, "audio") : undefined,
         video: config.video ? createTranscriptionModel(config.video, "video") : undefined,
     };
+}
+
+export const AiClientFactoryLive = Layer.succeed(AiClientFactory, {
+    getClient: Effect.fn("AiClientFactory.getClient")(function* (config: ClientConfig) {
+        return getClient(config);
+    }),
+} satisfies AiClientFactoryService);
+
+export function makeAiClient(config: ClientConfig): Effect.Effect<Client, never, AiClientFactory> {
+    return AiClientFactory.use((factory) => factory.getClient(config));
 }
 
 function createTranscriptionModel(adapter: Adapter, capability: "audio" | "video"): TranscriptionModelV3 {

@@ -1,15 +1,15 @@
 import * as Effect from "effect/Effect";
-import type { Database, DatabaseTransaction } from "@kiwi/db/effect";
-import { withWorkerDb, withWorkerDbVoid } from "./effect";
+import type { DatabaseTransaction } from "@kiwi/db/effect";
+import { withWorkerDb, withWorkerDbVoid, type WorkerServices } from "../runtime/effect";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { unexpiredSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { embed, embedMany } from "ai";
 import { withAiSlot } from "@kiwi/ai";
-import { buildDescription } from "./description";
-import { createWorkerClient } from "./ai";
-import { chunkItems } from "./chunk";
-import { DESCRIPTION_BATCH_SIZE } from "./description-workflow";
+import { buildDescription } from "./build";
+import { createWorkerClient } from "../ai/client";
+import { chunkItems } from "../collections/chunk";
+import { DESCRIPTION_BATCH_SIZE } from "./workflow";
 
 type SourceEmbeddingUpdate = {
     id: string;
@@ -30,7 +30,7 @@ type DescriptionItem = {
     sources: DescriptionSource[];
 };
 
-export function createDescriptionClient(graphId: string): Effect.Effect<DescriptionClient, unknown, Database> {
+export function createDescriptionClient(graphId: string): Effect.Effect<DescriptionClient, unknown, WorkerServices> {
     return createWorkerClient(graphId);
 }
 
@@ -153,7 +153,7 @@ export function regenerateEntities(
     graphId: string,
     entityIds: string[],
     client?: DescriptionClient
-): Effect.Effect<void, unknown, Database> {
+): Effect.Effect<void, unknown, WorkerServices> {
     return Effect.gen(function* () {
         if (entityIds.length === 0) {
             return;
@@ -231,7 +231,7 @@ export function regenerateRelationships(
     graphId: string,
     relationshipIds: string[],
     client?: DescriptionClient
-): Effect.Effect<void, unknown, Database> {
+): Effect.Effect<void, unknown, WorkerServices> {
     return Effect.gen(function* () {
         if (relationshipIds.length === 0) {
             return;

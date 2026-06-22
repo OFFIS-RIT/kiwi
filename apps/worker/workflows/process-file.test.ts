@@ -12,7 +12,7 @@ process.env.DATABASE_DIRECT_URL = "postgres://user:pass@localhost:5432/kiwi";
 // Dynamic import is required so this test can seed worker env vars before env.ts is evaluated.
 const { fileProcessingWorkflow, shouldAbortRepositoryBatch, shouldFinalizeRepositoryBatch } =
     await import("./process-file");
-const { resolveRepositoryFinalizationTargets } = await import("../lib/code-repository-finalizer");
+const { resolveRepositoryFinalizationTargets } = await import("../lib/code/repository-finalizer");
 
 describe("fileProcessingWorkflow", () => {
     test("routes mixed batch children by stored file type", () => {

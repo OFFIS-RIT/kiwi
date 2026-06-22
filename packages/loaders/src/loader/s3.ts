@@ -1,4 +1,4 @@
-import { getFile } from "@kiwi/files";
+import { FileStorageLive, getFile } from "@kiwi/files";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type { GraphBinaryLoader } from "../types";
@@ -17,21 +17,25 @@ export class S3Loader implements GraphBinaryLoader {
     getTextEffect(): Effect.Effect<string, S3LoaderError> {
         const { bucket, key } = this;
 
-        return Effect.gen(function* () {
-            const body = yield* getFile(key, bucket, "text").pipe(
-                Effect.mapError(
-                    (cause) => new S3LoaderError({ message: `Failed to load file ${key} from bucket ${bucket}`, cause })
-                )
-            );
-            if (!body) {
-                return yield* new S3LoaderError({
-                    message: `Failed to load file ${key} from bucket ${bucket}`,
-                    cause: "File not found",
-                });
-            }
+        return Effect.provide(
+            Effect.gen(function* () {
+                const body = yield* getFile(key, bucket, "text").pipe(
+                    Effect.mapError(
+                        (cause) =>
+                            new S3LoaderError({ message: `Failed to load file ${key} from bucket ${bucket}`, cause })
+                    )
+                );
+                if (!body) {
+                    return yield* new S3LoaderError({
+                        message: `Failed to load file ${key} from bucket ${bucket}`,
+                        cause: "File not found",
+                    });
+                }
 
-            return body.content;
-        });
+                return body.content;
+            }),
+            FileStorageLive
+        );
     }
 
     getText(): Promise<string> {
@@ -41,21 +45,25 @@ export class S3Loader implements GraphBinaryLoader {
     getBinaryEffect(): Effect.Effect<ArrayBuffer, S3LoaderError> {
         const { bucket, key } = this;
 
-        return Effect.gen(function* () {
-            const body = yield* getFile(key, bucket, "bytes").pipe(
-                Effect.mapError(
-                    (cause) => new S3LoaderError({ message: `Failed to load file ${key} from bucket ${bucket}`, cause })
-                )
-            );
-            if (!body) {
-                return yield* new S3LoaderError({
-                    message: `Failed to load file ${key} from bucket ${bucket}`,
-                    cause: "File not found",
-                });
-            }
+        return Effect.provide(
+            Effect.gen(function* () {
+                const body = yield* getFile(key, bucket, "bytes").pipe(
+                    Effect.mapError(
+                        (cause) =>
+                            new S3LoaderError({ message: `Failed to load file ${key} from bucket ${bucket}`, cause })
+                    )
+                );
+                if (!body) {
+                    return yield* new S3LoaderError({
+                        message: `Failed to load file ${key} from bucket ${bucket}`,
+                        cause: "File not found",
+                    });
+                }
 
-            return body.content;
-        });
+                return body.content;
+            }),
+            FileStorageLive
+        );
     }
 
     getBinary(): Promise<ArrayBuffer> {

@@ -8,7 +8,7 @@ type TurboConfig = {
 
 describe("turbo environment passthrough", () => {
     test("passes worker auth and AI concurrency configuration through workspace tasks", () => {
-        const configPath = join(import.meta.dir, "../../../..", "turbo.json");
+        const configPath = join(import.meta.dir, "../../..", "turbo.json");
         const config = JSON.parse(readFileSync(configPath, "utf8")) as TurboConfig;
 
         expect(config.globalPassThroughEnv).not.toContain("DOCUMENT_MODE");
@@ -26,7 +26,7 @@ describe("turbo environment passthrough", () => {
     });
 
     test("production compose provides usable AI concurrency defaults and worker auth secret", () => {
-        const composePath = join(import.meta.dir, "../../../..", "compose.prod.yml");
+        const composePath = join(import.meta.dir, "../../..", "compose.prod.yml");
         const compose = readFileSync(composePath, "utf8");
 
         expect(compose).toContain("AUTH_SECRET: ${AUTH_SECRET}");

@@ -2,6 +2,9 @@ import { describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import { getOrRenderPDFPreviewPage } from "../pdf-preview-cache";
 
+const runPreviewEffect = <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+    Effect.runPromise(effect as Effect.Effect<T, E, never>);
+
 const options = {
     graphId: "graph-1",
     fileId: "file-1",
@@ -15,7 +18,7 @@ describe("getOrRenderPDFPreviewPage", () => {
         const renderPDFPagePreviews = mock(() => Effect.succeed(new Map<number, Uint8Array>()));
         const putNamedFile = mock(() => Effect.succeed({ key: "unused", type: "image/png" }));
 
-        const result = await Effect.runPromise(
+        const result = await runPreviewEffect(
             getOrRenderPDFPreviewPage(options, {
                 getFile: (key) =>
                     Effect.succeed(
@@ -44,7 +47,7 @@ describe("getOrRenderPDFPreviewPage", () => {
             )
         );
 
-        const result = await Effect.runPromise(
+        const result = await runPreviewEffect(
             getOrRenderPDFPreviewPage(options, {
                 getFile: (key) =>
                     Effect.succeed(
@@ -81,8 +84,8 @@ describe("getOrRenderPDFPreviewPage", () => {
         );
 
         const [first, second] = await Promise.all([
-            Effect.runPromise(getOrRenderPDFPreviewPage(options, { getFile, putNamedFile, renderPDFPagePreviews })),
-            Effect.runPromise(getOrRenderPDFPreviewPage(options, { getFile, putNamedFile, renderPDFPagePreviews })),
+            runPreviewEffect(getOrRenderPDFPreviewPage(options, { getFile, putNamedFile, renderPDFPagePreviews })),
+            runPreviewEffect(getOrRenderPDFPreviewPage(options, { getFile, putNamedFile, renderPDFPagePreviews })),
         ]);
 
         expect(first).toEqual({ status: "ok", content: new Uint8Array([3]), cache: "miss" });
@@ -113,11 +116,9 @@ describe("getOrRenderPDFPreviewPage", () => {
         );
         const deps = { getFile, putNamedFile, renderPDFPagePreviews };
 
-        const first = Effect.runPromise(
-            getOrRenderPDFPreviewPage({ ...options, page: 3, pagesToRender: [3, 4] }, deps)
-        );
+        const first = runPreviewEffect(getOrRenderPDFPreviewPage({ ...options, page: 3, pagesToRender: [3, 4] }, deps));
         await new Promise((resolve) => setTimeout(resolve, 0));
-        const second = Effect.runPromise(
+        const second = runPreviewEffect(
             getOrRenderPDFPreviewPage({ ...options, page: 4, pagesToRender: [3, 4] }, deps)
         );
         releaseRender();
@@ -133,7 +134,7 @@ describe("getOrRenderPDFPreviewPage", () => {
         const putNamedFile = mock(() => Effect.fail(new Error("Storage unavailable")));
         const renderPDFPagePreviews = mock(() => Effect.succeed(new Map([[3, new Uint8Array([3])]])));
 
-        const result = await Effect.runPromise(
+        const result = await runPreviewEffect(
             getOrRenderPDFPreviewPage(options, {
                 getFile: (key) =>
                     Effect.succeed(
@@ -159,7 +160,7 @@ describe("getOrRenderPDFPreviewPage", () => {
             )
         );
 
-        await Effect.runPromise(
+        await runPreviewEffect(
             getOrRenderPDFPreviewPage(
                 { ...options, pagesToRender: [3, 4] },
                 {
@@ -179,7 +180,7 @@ describe("getOrRenderPDFPreviewPage", () => {
     });
 
     test("reports missing source file", async () => {
-        const result = await Effect.runPromise(
+        const result = await runPreviewEffect(
             getOrRenderPDFPreviewPage(options, {
                 getFile: () => Effect.succeed(null),
                 putNamedFile: mock(() => Effect.succeed({ key: "unused", type: "image/png" })),
@@ -194,7 +195,7 @@ describe("getOrRenderPDFPreviewPage", () => {
         const putNamedFile = mock(() => Effect.succeed({ key: "unused", type: "image/png" }));
         const renderPDFPagePreviews = mock(() => Effect.succeed(new Map<number, Uint8Array>()));
 
-        const result = await Effect.runPromise(
+        const result = await runPreviewEffect(
             getOrRenderPDFPreviewPage(options, {
                 getFile: (key) =>
                     Effect.succeed(

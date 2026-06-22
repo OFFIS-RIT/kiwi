@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import type { Database } from "@kiwi/db/effect";
+import { resolveRequiredModelAdapter, type AiModelRegistry } from "@kiwi/ai/models";
 import { API_ERROR_CODES, errorResponse } from "../../types";
 import { inferGraphFileType, type GraphFileType } from "../graph-file-type";
 
@@ -20,16 +20,8 @@ export type UploadFileTypeCheck =
 type StatusFn = (code: number, body: unknown) => unknown;
 type UploadModelResolver = (
     organizationId: string,
-    type: "audio" | "video",
-    secret: string
-) => Effect.Effect<unknown, unknown, Database>;
-
-function getDefaultUploadModelResolver(): Effect.Effect<UploadModelResolver, unknown> {
-    return Effect.tryPromise({
-        try: () => import("@kiwi/ai/models").then(({ resolveRequiredModelAdapter }) => resolveRequiredModelAdapter),
-        catch: (error) => error,
-    });
-}
+    type: "audio" | "video"
+) => Effect.Effect<unknown, unknown, AiModelRegistry>;
 
 export function inferSupportedUploadedFiles(files: FileWithChecksum[]): UploadFileTypeCheck {
     const typedFiles: SupportedFileWithChecksum[] = [];
@@ -49,12 +41,11 @@ export function unsupportedUploadResponse(statusFn: StatusFn, check: Extract<Upl
 export function assertConfiguredUploadModels(options: {
     organizationId: string;
     files: readonly UploadModelFile[];
-    secret: string;
     resolveModelAdapter?: UploadModelResolver;
-}): Effect.Effect<void, unknown, Database> {
+}): Effect.Effect<void, unknown, AiModelRegistry> {
     return Effect.gen(function* () {
         const requiredModelTypes = new Set<"audio" | "video">();
-        const resolveModelAdapter = options.resolveModelAdapter ?? (yield* getDefaultUploadModelResolver());
+        const resolveModelAdapter = options.resolveModelAdapter ?? resolveRequiredModelAdapter;
 
         for (const file of options.files) {
             if (file.type === "audio" || file.type === "video") {
@@ -63,7 +54,7 @@ export function assertConfiguredUploadModels(options: {
         }
 
         yield* Effect.all(
-            [...requiredModelTypes].map((type) => resolveModelAdapter(options.organizationId, type, options.secret)),
+            [...requiredModelTypes].map((type) => resolveModelAdapter(options.organizationId, type)),
             { concurrency: "unbounded", discard: true }
         );
     });

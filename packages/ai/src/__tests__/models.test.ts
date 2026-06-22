@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { API_ERROR_CODES } from "@kiwi/contracts/responses";
 import type { AiModel, AiModelAdapter, AiModelType } from "@kiwi/db/tables/models";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { Database, type EffectDatabase } from "@kiwi/db/effect";
 
 let queuedModelRows: unknown[][] = [];
@@ -17,10 +18,6 @@ const testDatabase = {
     select: selectMock,
 } as unknown as EffectDatabase;
 
-function runWithDatabase<T, E>(effect: Effect.Effect<T, E, Database>): Promise<T> {
-    return Effect.runPromise(Effect.provideService(effect, Database, testDatabase));
-}
-
 const {
     allocateUniqueModelId,
     assertValidModelConfiguration,
@@ -28,11 +25,17 @@ const {
     decryptModelCredentials,
     encryptModelCredentials,
     normalizeModelId,
+    makeAiModelRegistryLayer,
     resolveResearchModelConfig,
     resolveWorkerModelConfig,
 } = await import("../models");
 
 const TEST_SECRET = "test-auth-secret";
+
+function runWithModelRegistry<T, E, R>(effect: Effect.Effect<T, E, R>): Promise<T> {
+    const layer = makeAiModelRegistryLayer(TEST_SECRET).pipe(Layer.provide(Layer.succeed(Database, testDatabase)));
+    return Effect.runPromise(Effect.provide(effect as Effect.Effect<T, E, never>, layer));
+}
 
 function queueModelQueries(...rows: unknown[][]) {
     queuedModelRows = [...rows];
@@ -152,11 +155,10 @@ describe("AI model registry helpers", () => {
         queueModelQueries([]);
 
         await expect(
-            runWithDatabase(
+            runWithModelRegistry(
                 resolveResearchModelConfig({
                     organizationId: "org-1",
                     requestedTextModelId: "missing-model",
-                    secret: TEST_SECRET,
                 })
             )
         ).rejects.toThrow(API_ERROR_CODES.INVALID_MODEL);
@@ -184,10 +186,9 @@ describe("AI model registry helpers", () => {
 
         queueModelQueries([textModel], [embeddingModel], [subagentModel]);
 
-        const resolved = await runWithDatabase(
+        const resolved = await runWithModelRegistry(
             resolveResearchModelConfig({
                 organizationId: "org-1",
-                secret: TEST_SECRET,
             })
         );
 
@@ -211,10 +212,9 @@ describe("AI model registry helpers", () => {
 
         queueModelQueries([extractModel], [], [embeddingModel], [], [], []);
 
-        const resolved = await runWithDatabase(
+        const resolved = await runWithModelRegistry(
             resolveWorkerModelConfig({
                 organizationId: "org-1",
-                secret: TEST_SECRET,
             })
         );
 

@@ -1,10 +1,12 @@
 import { lookup } from "mime-types";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { v7 as uuid } from "uuid";
 import { S3Client } from "bun";
 
-type StoredFile = {
+export type StoredFile = {
     key: string;
     type: string;
 };
@@ -34,6 +36,67 @@ export class StorageError extends Schema.TaggedErrorClass<StorageError>()("Stora
         return `File storage operation failed: ${this.operation}`;
     }
 }
+
+type FileBody = File | Blob | Uint8Array | string;
+
+export type FileStorageGetFile = {
+    (key: string, bucket: string): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, StorageError>;
+    (
+        key: string,
+        bucket: string,
+        type: "bytes"
+    ): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, StorageError>;
+    (key: string, bucket: string, type: "text"): Effect.Effect<{ type: "text"; content: string } | null, StorageError>;
+    <T = unknown>(
+        key: string,
+        bucket: string,
+        type: "json"
+    ): Effect.Effect<{ type: "json"; content: T } | null, StorageError>;
+};
+
+export type FileStorageService = {
+    readonly putFile: (
+        name: string,
+        file: FileBody,
+        path: string,
+        bucket: string
+    ) => Effect.Effect<StoredFile, StorageError>;
+    readonly putGraphFile: (
+        graphId: string,
+        fileId: string,
+        name: string,
+        file: FileBody,
+        bucket: string
+    ) => Effect.Effect<StoredFile, StorageError>;
+    readonly putNamedFile: (
+        name: string,
+        file: FileBody,
+        path: string,
+        bucket: string
+    ) => Effect.Effect<StoredFile, StorageError>;
+    readonly getFile: FileStorageGetFile;
+    readonly getFileStream: (
+        key: string,
+        bucket: string,
+        range?: { start: number; end: number },
+        metadata?: StoredFileMetadata
+    ) => Effect.Effect<StoredFileStream | null, StorageError>;
+    readonly getFileArrayBuffer: (
+        key: string,
+        bucket: string,
+        range?: { start: number; end: number }
+    ) => Effect.Effect<ArrayBuffer | null, StorageError>;
+    readonly getFileMetadata: (key: string, bucket: string) => Effect.Effect<StoredFileMetadata | null, StorageError>;
+    readonly deleteFile: (key: string, bucket: string) => Effect.Effect<boolean, StorageError>;
+    readonly listFiles: (path: string, bucket: string) => Effect.Effect<string[], StorageError>;
+    readonly getPresignedDownloadUrl: (
+        key: string,
+        bucket: string,
+        expiresIn?: number
+    ) => Effect.Effect<string, StorageError>;
+};
+
+export class FileStorage extends Context.Service<FileStorage, FileStorageService>()("@kiwi/files/FileStorage") {}
 
 function tryStorage<T>(operation: string, thunk: () => PromiseLike<T>): Effect.Effect<T, StorageError> {
     return Effect.tryPromise({
@@ -119,11 +182,7 @@ export function getGraphFileArtifactPaths(input: { graphId: string; fileId: stri
     };
 }
 
-function writeFile(
-    key: string,
-    file: File | Blob | Uint8Array | string,
-    bucket: string
-): Effect.Effect<StoredFile, StorageError> {
+function writeFile(key: string, file: FileBody, bucket: string): Effect.Effect<StoredFile, StorageError> {
     return tryStorage("write", async () => {
         const client = getClient(bucket);
         const s3File = client.file(key);
@@ -137,9 +196,9 @@ function writeFile(
     });
 }
 
-export function putFile(
+function putFileImpl(
     name: string,
-    file: File | Blob | Uint8Array | string,
+    file: FileBody,
     path: string,
     bucket: string
 ): Effect.Effect<StoredFile, StorageError> {
@@ -150,45 +209,45 @@ export function putFile(
     return writeFile(joinPath(path, filename), file, bucket);
 }
 
-export function putGraphFile(
+function putGraphFileImpl(
     graphId: string,
     fileId: string,
     name: string,
-    file: File | Blob | Uint8Array | string,
+    file: FileBody,
     bucket: string
 ): Effect.Effect<StoredFile, StorageError> {
     return writeFile(getGraphFileKey(graphId, fileId, name), file, bucket);
 }
 
-export function putNamedFile(
+function putNamedFileImpl(
     name: string,
-    file: File | Blob | Uint8Array | string,
+    file: FileBody,
     path: string,
     bucket: string
 ): Effect.Effect<StoredFile, StorageError> {
     return writeFile(joinPath(path, name), file, bucket);
 }
 
-export function getFile(
+function getFileImpl(
     key: string,
     bucket: string
 ): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, StorageError>;
-export function getFile(
+function getFileImpl(
     key: string,
     bucket: string,
     type: "bytes"
 ): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, StorageError>;
-export function getFile(
+function getFileImpl(
     key: string,
     bucket: string,
     type: "text"
 ): Effect.Effect<{ type: "text"; content: string } | null, StorageError>;
-export function getFile<T = unknown>(
+function getFileImpl<T = unknown>(
     key: string,
     bucket: string,
     type: "json"
 ): Effect.Effect<{ type: "json"; content: T } | null, StorageError>;
-export function getFile(
+function getFileImpl(
     key: string,
     bucket: string,
     type: "bytes" | "text" | "json" = "bytes"
@@ -219,7 +278,7 @@ export function getFile(
     });
 }
 
-export function getFileStream(
+function getFileStreamImpl(
     key: string,
     bucket: string,
     range?: { start: number; end: number },
@@ -255,7 +314,7 @@ export function getFileStream(
     });
 }
 
-export function getFileArrayBuffer(
+function getFileArrayBufferImpl(
     key: string,
     bucket: string,
     range?: { start: number; end: number }
@@ -278,7 +337,7 @@ export function getFileArrayBuffer(
     });
 }
 
-export function getFileMetadata(key: string, bucket: string): Effect.Effect<StoredFileMetadata | null, StorageError> {
+function getFileMetadataImpl(key: string, bucket: string): Effect.Effect<StoredFileMetadata | null, StorageError> {
     return tryStorage("metadata", async () => {
         const client = getClient(bucket);
         const s3File = client.file(key);
@@ -298,7 +357,7 @@ export function getFileMetadata(key: string, bucket: string): Effect.Effect<Stor
     });
 }
 
-export function deleteFile(key: string, bucket: string): Effect.Effect<boolean, StorageError> {
+function deleteFileImpl(key: string, bucket: string): Effect.Effect<boolean, StorageError> {
     return tryStorage("delete", async () => {
         const client = getClient(bucket);
         const s3File = client.file(key);
@@ -314,7 +373,7 @@ export function deleteFile(key: string, bucket: string): Effect.Effect<boolean, 
     });
 }
 
-export function listFiles(path: string, bucket: string): Effect.Effect<string[], StorageError> {
+function listFilesImpl(path: string, bucket: string): Effect.Effect<string[], StorageError> {
     return tryStorage("list", async () => {
         const client = getClient(bucket);
         const trimmedPath = path.replace(/^\/+/u, "").replace(/\/+$/u, "");
@@ -347,7 +406,7 @@ export function listFiles(path: string, bucket: string): Effect.Effect<string[],
     });
 }
 
-export function getPresignedDownloadUrl(
+function getPresignedDownloadUrlImpl(
     key: string,
     bucket: string,
     expiresIn = 3600
@@ -363,4 +422,120 @@ export function getPresignedDownloadUrl(
         },
         catch: (cause) => new StorageError("presign", { cause }),
     });
+}
+
+const readFileImpl = getFileImpl as (
+    key: string,
+    bucket: string,
+    type: "bytes" | "text" | "json"
+) => Effect.Effect<{ type: "bytes" | "text" | "json"; content: unknown } | null, StorageError>;
+const getFileLive: FileStorageGetFile = ((key: string, bucket: string, type: "bytes" | "text" | "json" = "bytes") =>
+    readFileImpl(key, bucket, type)) as FileStorageGetFile;
+
+export const FileStorageLive = Layer.succeed(FileStorage, {
+    putFile: Effect.fn("FileStorage.putFile")(putFileImpl),
+    putGraphFile: Effect.fn("FileStorage.putGraphFile")(putGraphFileImpl),
+    putNamedFile: Effect.fn("FileStorage.putNamedFile")(putNamedFileImpl),
+    getFile: getFileLive,
+    getFileStream: Effect.fn("FileStorage.getFileStream")(getFileStreamImpl),
+    getFileArrayBuffer: Effect.fn("FileStorage.getFileArrayBuffer")(getFileArrayBufferImpl),
+    getFileMetadata: Effect.fn("FileStorage.getFileMetadata")(getFileMetadataImpl),
+    deleteFile: Effect.fn("FileStorage.deleteFile")(deleteFileImpl),
+    listFiles: Effect.fn("FileStorage.listFiles")(listFilesImpl),
+    getPresignedDownloadUrl: Effect.fn("FileStorage.getPresignedDownloadUrl")(getPresignedDownloadUrlImpl),
+} satisfies FileStorageService);
+
+export function putFile(
+    name: string,
+    file: FileBody,
+    path: string,
+    bucket: string
+): Effect.Effect<StoredFile, StorageError, FileStorage> {
+    return FileStorage.use((storage) => storage.putFile(name, file, path, bucket));
+}
+
+export function putGraphFile(
+    graphId: string,
+    fileId: string,
+    name: string,
+    file: FileBody,
+    bucket: string
+): Effect.Effect<StoredFile, StorageError, FileStorage> {
+    return FileStorage.use((storage) => storage.putGraphFile(graphId, fileId, name, file, bucket));
+}
+
+export function putNamedFile(
+    name: string,
+    file: FileBody,
+    path: string,
+    bucket: string
+): Effect.Effect<StoredFile, StorageError, FileStorage> {
+    return FileStorage.use((storage) => storage.putNamedFile(name, file, path, bucket));
+}
+
+export function getFile(
+    key: string,
+    bucket: string
+): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, StorageError, FileStorage>;
+export function getFile(
+    key: string,
+    bucket: string,
+    type: "bytes"
+): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, StorageError, FileStorage>;
+export function getFile(
+    key: string,
+    bucket: string,
+    type: "text"
+): Effect.Effect<{ type: "text"; content: string } | null, StorageError, FileStorage>;
+export function getFile<T = unknown>(
+    key: string,
+    bucket: string,
+    type: "json"
+): Effect.Effect<{ type: "json"; content: T } | null, StorageError, FileStorage>;
+export function getFile(
+    key: string,
+    bucket: string,
+    type: "bytes" | "text" | "json" = "bytes"
+): Effect.Effect<{ type: "bytes" | "text" | "json"; content: unknown } | null, StorageError, FileStorage> {
+    return FileStorage.use((storage) => storage.getFile(key, bucket, type as "bytes"));
+}
+
+export function getFileStream(
+    key: string,
+    bucket: string,
+    range?: { start: number; end: number },
+    metadata?: StoredFileMetadata
+): Effect.Effect<StoredFileStream | null, StorageError, FileStorage> {
+    return FileStorage.use((storage) => storage.getFileStream(key, bucket, range, metadata));
+}
+
+export function getFileArrayBuffer(
+    key: string,
+    bucket: string,
+    range?: { start: number; end: number }
+): Effect.Effect<ArrayBuffer | null, StorageError, FileStorage> {
+    return FileStorage.use((storage) => storage.getFileArrayBuffer(key, bucket, range));
+}
+
+export function getFileMetadata(
+    key: string,
+    bucket: string
+): Effect.Effect<StoredFileMetadata | null, StorageError, FileStorage> {
+    return FileStorage.use((storage) => storage.getFileMetadata(key, bucket));
+}
+
+export function deleteFile(key: string, bucket: string): Effect.Effect<boolean, StorageError, FileStorage> {
+    return FileStorage.use((storage) => storage.deleteFile(key, bucket));
+}
+
+export function listFiles(path: string, bucket: string): Effect.Effect<string[], StorageError, FileStorage> {
+    return FileStorage.use((storage) => storage.listFiles(path, bucket));
+}
+
+export function getPresignedDownloadUrl(
+    key: string,
+    bucket: string,
+    expiresIn = 3600
+): Effect.Effect<string, StorageError, FileStorage> {
+    return FileStorage.use((storage) => storage.getPresignedDownloadUrl(key, bucket, expiresIn));
 }

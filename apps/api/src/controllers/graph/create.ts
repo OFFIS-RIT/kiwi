@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
 import { ulid } from "ulid";
 import { tryDb, tryDbVoid, type Database } from "@kiwi/db/effect";
 import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
-import { putGraphFile } from "@kiwi/files";
+import { putGraphFile, type FileStorage } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
 import type { GraphCreateFields } from "@kiwi/contracts/graphs";
@@ -72,7 +72,7 @@ function cleanupFailedGraphCreation(
     uploadedKeys: string[],
     phase: "upload" | "db_insert_files" | "enqueue",
     ownerMode: NewGraphOwner["ownerMode"]
-): Effect.Effect<void, unknown, Database> {
+): Effect.Effect<void, unknown, Database | FileStorage> {
     return Effect.gen(function* () {
         const failedDeletes = yield* cleanupUploadedKeys(uploadedKeys);
 
@@ -134,7 +134,6 @@ export const createGraph = Effect.fn("createGraph")(
                 yield* assertConfiguredUploadModels({
                     organizationId,
                     files: supportedUpload.files,
-                    secret: env.AUTH_SECRET,
                 });
 
                 const hidden =

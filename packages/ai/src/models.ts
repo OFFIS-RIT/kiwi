@@ -18,7 +18,9 @@ import {
     type AiModelType,
 } from "@kiwi/db/tables/models";
 import { and, asc, eq, sql } from "drizzle-orm";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import type { Adapter, ClientConfig, EmbeddingAdapter } from "./index";
 import { buildAdapter, buildEmbeddingAdapter } from "./chat";
 
@@ -97,6 +99,32 @@ export type ResolvedResearchModels = {
 export type ResolvedWorkerModels = {
     config: Required<Pick<ClientConfig, "text" | "embedding">> & Pick<ClientConfig, "image" | "audio" | "video">;
 };
+
+export type AiModelRegistryService = {
+    readonly bootstrapLegacyModelsFromEnv: (options: {
+        env: Record<string, string | undefined>;
+    }) => Effect.Effect<LegacyModelBootstrapSummary, DatabaseError | ApiError>;
+    readonly resolveRequiredModelAdapter: (
+        organizationId: string,
+        type: Exclude<AiModelType, "embedding">
+    ) => Effect.Effect<ResolvedModelAdapter, DatabaseError | ApiError>;
+    readonly resolveRequiredEmbeddingModelAdapter: (
+        organizationId: string
+    ) => Effect.Effect<ResolvedEmbeddingModelAdapter, DatabaseError | ApiError>;
+    readonly resolveResearchModelConfig: (options: {
+        organizationId: string;
+        requestedTextModelId?: string;
+    }) => Effect.Effect<ResolvedResearchModels, DatabaseError | ApiError>;
+    readonly resolveWorkerModelConfig: (options: {
+        organizationId: string;
+    }) => Effect.Effect<ResolvedWorkerModels, DatabaseError | ApiError>;
+    readonly getDefaultModelOrganizationId: () => Effect.Effect<string, DatabaseError | ApiError>;
+    readonly resolveGraphModelOrganizationId: (graphId: string) => Effect.Effect<string, DatabaseError | ApiError>;
+};
+
+export class AiModelRegistry extends Context.Service<AiModelRegistry, AiModelRegistryService>()(
+    "@kiwi/ai/AiModelRegistry"
+) {}
 
 export function normalizeModelId(value: string): string {
     const normalized = value
@@ -338,10 +366,13 @@ function insertLegacyModelSeed(
     });
 }
 
-export function bootstrapLegacyModelsFromEnv(options: {
-    secret: string;
-    env: Record<string, string | undefined>;
-}): Effect.Effect<LegacyModelBootstrapSummary, DatabaseError | ApiError, Database> {
+function bootstrapLegacyModelsFromEnvWithDb(
+    db: EffectDatabase,
+    options: {
+        secret: string;
+        env: Record<string, string | undefined>;
+    }
+): Effect.Effect<LegacyModelBootstrapSummary, DatabaseError | ApiError> {
     return Effect.gen(function* () {
         const seeds = collectLegacyModelSeeds(options.env);
         if (seeds.length === 0) {
@@ -351,7 +382,6 @@ export function bootstrapLegacyModelsFromEnv(options: {
             };
         }
 
-        const db = yield* Database;
         const organizations = yield* mapDatabaseError(db.select({ id: organizationTable.id }).from(organizationTable));
         let seededModelCount = 0;
 
@@ -512,13 +542,13 @@ function transcriptionModelAdapter(row: AiModel, credentials: ModelCredentials):
 }
 
 function findDefaultModel(
+    queryRunner: ModelQueryRunner,
     organizationId: string,
     type: AiModelType
-): Effect.Effect<AiModel | null, DatabaseError, Database> {
+): Effect.Effect<AiModel | null, DatabaseError> {
     return Effect.gen(function* () {
-        const db = yield* Database;
         const [row] = yield* mapDatabaseError(
-            db
+            queryRunner
                 .select()
                 .from(modelsTable)
                 .where(
@@ -535,13 +565,13 @@ function findDefaultModel(
 }
 
 function findTextModelByModelId(
+    queryRunner: ModelQueryRunner,
     organizationId: string,
     modelId: string
-): Effect.Effect<AiModel | null, DatabaseError, Database> {
+): Effect.Effect<AiModel | null, DatabaseError> {
     return Effect.gen(function* () {
-        const db = yield* Database;
         const [row] = yield* mapDatabaseError(
-            db
+            queryRunner
                 .select()
                 .from(modelsTable)
                 .where(
@@ -558,10 +588,11 @@ function findTextModelByModelId(
 }
 
 function requireDefaultModel(
+    queryRunner: ModelQueryRunner,
     organizationId: string,
     type: AiModelType
-): Effect.Effect<AiModel, DatabaseError | ApiError, Database> {
-    return findDefaultModel(organizationId, type).pipe(
+): Effect.Effect<AiModel, DatabaseError | ApiError> {
+    return findDefaultModel(queryRunner, organizationId, type).pipe(
         Effect.flatMap((row) => (row ? Effect.succeed(row) : Effect.fail(modelNotConfiguredError())))
     );
 }
@@ -590,38 +621,45 @@ function resolveTranscriptionModelAdapter(row: AiModel, secret: string): Resolve
     };
 }
 
-export function resolveRequiredModelAdapter(
+function resolveRequiredModelAdapterWithDb(
+    queryRunner: ModelQueryRunner,
     organizationId: string,
     type: Exclude<AiModelType, "embedding">,
     secret: string
-): Effect.Effect<ResolvedModelAdapter, DatabaseError | ApiError, Database> {
-    return requireDefaultModel(organizationId, type).pipe(Effect.map((row) => resolveModelAdapter(row, secret)));
+): Effect.Effect<ResolvedModelAdapter, DatabaseError | ApiError> {
+    return requireDefaultModel(queryRunner, organizationId, type).pipe(
+        Effect.map((row) => resolveModelAdapter(row, secret))
+    );
 }
 
-export function resolveRequiredEmbeddingModelAdapter(
+function resolveRequiredEmbeddingModelAdapterWithDb(
+    queryRunner: ModelQueryRunner,
     organizationId: string,
     secret: string
-): Effect.Effect<ResolvedEmbeddingModelAdapter, DatabaseError | ApiError, Database> {
-    return requireDefaultModel(organizationId, "embedding").pipe(
+): Effect.Effect<ResolvedEmbeddingModelAdapter, DatabaseError | ApiError> {
+    return requireDefaultModel(queryRunner, organizationId, "embedding").pipe(
         Effect.map((row) => resolveEmbeddingModelAdapter(row, secret))
     );
 }
 
-export function resolveResearchModelConfig(options: {
-    organizationId: string;
-    requestedTextModelId?: string;
-    secret: string;
-}): Effect.Effect<ResolvedResearchModels, DatabaseError | ApiError, Database> {
+function resolveResearchModelConfigWithDb(
+    queryRunner: ModelQueryRunner,
+    options: {
+        organizationId: string;
+        requestedTextModelId?: string;
+        secret: string;
+    }
+): Effect.Effect<ResolvedResearchModels, DatabaseError | ApiError> {
     return Effect.gen(function* () {
         const textModel = yield* options.requestedTextModelId
-            ? findTextModelByModelId(options.organizationId, options.requestedTextModelId).pipe(
+            ? findTextModelByModelId(queryRunner, options.organizationId, options.requestedTextModelId).pipe(
                   Effect.flatMap((model) => (model ? Effect.succeed(model) : Effect.fail(invalidModelError())))
               )
-            : requireDefaultModel(options.organizationId, "text");
+            : requireDefaultModel(queryRunner, options.organizationId, "text");
         const [embeddingModel, subagentModel] = yield* Effect.all(
             [
-                requireDefaultModel(options.organizationId, "embedding"),
-                findDefaultModel(options.organizationId, "subagent"),
+                requireDefaultModel(queryRunner, options.organizationId, "embedding"),
+                findDefaultModel(queryRunner, options.organizationId, "subagent"),
             ],
             { concurrency: "unbounded" }
         );
@@ -643,19 +681,22 @@ export function resolveResearchModelConfig(options: {
     });
 }
 
-export function resolveWorkerModelConfig(options: {
-    organizationId: string;
-    secret: string;
-}): Effect.Effect<ResolvedWorkerModels, DatabaseError | ApiError, Database> {
+function resolveWorkerModelConfigWithDb(
+    queryRunner: ModelQueryRunner,
+    options: {
+        organizationId: string;
+        secret: string;
+    }
+): Effect.Effect<ResolvedWorkerModels, DatabaseError | ApiError> {
     return Effect.gen(function* () {
         const [extractModel, textModel, embeddingModel, imageModel, audioModel, videoModel] = yield* Effect.all(
             [
-                findDefaultModel(options.organizationId, "extract"),
-                findDefaultModel(options.organizationId, "text"),
-                requireDefaultModel(options.organizationId, "embedding"),
-                findDefaultModel(options.organizationId, "image"),
-                findDefaultModel(options.organizationId, "audio"),
-                findDefaultModel(options.organizationId, "video"),
+                findDefaultModel(queryRunner, options.organizationId, "extract"),
+                findDefaultModel(queryRunner, options.organizationId, "text"),
+                requireDefaultModel(queryRunner, options.organizationId, "embedding"),
+                findDefaultModel(queryRunner, options.organizationId, "image"),
+                findDefaultModel(queryRunner, options.organizationId, "audio"),
+                findDefaultModel(queryRunner, options.organizationId, "video"),
             ],
             { concurrency: "unbounded" }
         );
@@ -677,11 +718,12 @@ export function resolveWorkerModelConfig(options: {
     });
 }
 
-export function getDefaultModelOrganizationId(): Effect.Effect<string, DatabaseError | ApiError, Database> {
+function getDefaultModelOrganizationIdWithDb(
+    queryRunner: ModelQueryRunner
+): Effect.Effect<string, DatabaseError | ApiError> {
     return Effect.gen(function* () {
-        const db = yield* Database;
         const [organization] = yield* mapDatabaseError(
-            db
+            queryRunner
                 .select({ id: organizationTable.id })
                 .from(organizationTable)
                 .orderBy(
@@ -700,11 +742,11 @@ export function getDefaultModelOrganizationId(): Effect.Effect<string, DatabaseE
     });
 }
 
-export function resolveGraphModelOrganizationId(
+function resolveGraphModelOrganizationIdWithDb(
+    queryRunner: ModelQueryRunner,
     graphId: string
-): Effect.Effect<string, DatabaseError | ApiError, Database> {
+): Effect.Effect<string, DatabaseError | ApiError> {
     return Effect.gen(function* () {
-        const db = yield* Database;
         const visited = new Set<string>();
         let currentGraphId = graphId;
         let isRootLookup = true;
@@ -717,7 +759,7 @@ export function resolveGraphModelOrganizationId(
             visited.add(currentGraphId);
 
             const [graph] = yield* mapDatabaseError(
-                db
+                queryRunner
                     .select({
                         id: graphTable.id,
                         organizationId: graphTable.organizationId,
@@ -739,7 +781,7 @@ export function resolveGraphModelOrganizationId(
             }
 
             if (graph.userId) {
-                return yield* getDefaultModelOrganizationId();
+                return yield* getDefaultModelOrganizationIdWithDb(queryRunner);
             }
 
             if (!graph.graphId) {
@@ -750,4 +792,79 @@ export function resolveGraphModelOrganizationId(
             isRootLookup = false;
         }
     });
+}
+
+export function makeAiModelRegistryLayer(secret: string) {
+    return Layer.effect(
+        AiModelRegistry,
+        Effect.gen(function* () {
+            const db = yield* Database;
+
+            return {
+                bootstrapLegacyModelsFromEnv: Effect.fn("AiModelRegistry.bootstrapLegacyModelsFromEnv")((options) =>
+                    bootstrapLegacyModelsFromEnvWithDb(db, { ...options, secret })
+                ),
+                resolveRequiredModelAdapter: Effect.fn("AiModelRegistry.resolveRequiredModelAdapter")(
+                    (organizationId, type) => resolveRequiredModelAdapterWithDb(db, organizationId, type, secret)
+                ),
+                resolveRequiredEmbeddingModelAdapter: Effect.fn("AiModelRegistry.resolveRequiredEmbeddingModelAdapter")(
+                    (organizationId) => resolveRequiredEmbeddingModelAdapterWithDb(db, organizationId, secret)
+                ),
+                resolveResearchModelConfig: Effect.fn("AiModelRegistry.resolveResearchModelConfig")((options) =>
+                    resolveResearchModelConfigWithDb(db, { ...options, secret })
+                ),
+                resolveWorkerModelConfig: Effect.fn("AiModelRegistry.resolveWorkerModelConfig")((options) =>
+                    resolveWorkerModelConfigWithDb(db, { ...options, secret })
+                ),
+                getDefaultModelOrganizationId: Effect.fn("AiModelRegistry.getDefaultModelOrganizationId")(() =>
+                    getDefaultModelOrganizationIdWithDb(db)
+                ),
+                resolveGraphModelOrganizationId: Effect.fn("AiModelRegistry.resolveGraphModelOrganizationId")(
+                    (graphId) => resolveGraphModelOrganizationIdWithDb(db, graphId)
+                ),
+            } satisfies AiModelRegistryService;
+        })
+    );
+}
+
+export function bootstrapLegacyModelsFromEnv(options: {
+    env: Record<string, string | undefined>;
+}): Effect.Effect<LegacyModelBootstrapSummary, DatabaseError | ApiError, AiModelRegistry> {
+    return AiModelRegistry.use((registry) => registry.bootstrapLegacyModelsFromEnv(options));
+}
+
+export function resolveRequiredModelAdapter(
+    organizationId: string,
+    type: Exclude<AiModelType, "embedding">
+): Effect.Effect<ResolvedModelAdapter, DatabaseError | ApiError, AiModelRegistry> {
+    return AiModelRegistry.use((registry) => registry.resolveRequiredModelAdapter(organizationId, type));
+}
+
+export function resolveRequiredEmbeddingModelAdapter(
+    organizationId: string
+): Effect.Effect<ResolvedEmbeddingModelAdapter, DatabaseError | ApiError, AiModelRegistry> {
+    return AiModelRegistry.use((registry) => registry.resolveRequiredEmbeddingModelAdapter(organizationId));
+}
+
+export function resolveResearchModelConfig(options: {
+    organizationId: string;
+    requestedTextModelId?: string;
+}): Effect.Effect<ResolvedResearchModels, DatabaseError | ApiError, AiModelRegistry> {
+    return AiModelRegistry.use((registry) => registry.resolveResearchModelConfig(options));
+}
+
+export function resolveWorkerModelConfig(options: {
+    organizationId: string;
+}): Effect.Effect<ResolvedWorkerModels, DatabaseError | ApiError, AiModelRegistry> {
+    return AiModelRegistry.use((registry) => registry.resolveWorkerModelConfig(options));
+}
+
+export function getDefaultModelOrganizationId(): Effect.Effect<string, DatabaseError | ApiError, AiModelRegistry> {
+    return AiModelRegistry.use((registry) => registry.getDefaultModelOrganizationId());
+}
+
+export function resolveGraphModelOrganizationId(
+    graphId: string
+): Effect.Effect<string, DatabaseError | ApiError, AiModelRegistry> {
+    return AiModelRegistry.use((registry) => registry.resolveGraphModelOrganizationId(graphId));
 }

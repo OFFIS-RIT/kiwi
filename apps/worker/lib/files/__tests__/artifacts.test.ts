@@ -9,9 +9,12 @@ import {
     getDerivedPdfPreviewPrefix,
     getDerivedSourceKey,
     getProcessingArtifactPrefix,
-} from "../derived-files";
+} from "../artifacts";
 
-describe("derived-files", () => {
+const runDerivedTestEffect = <T, E>(effect: Effect.Effect<T, E, unknown>) =>
+    Effect.runPromise(effect as Effect.Effect<T, E, never>);
+
+describe("file artifacts", () => {
     test("builds deterministic derived storage paths", () => {
         const fileKey = "graphs/graph-1/file-1.pdf";
 
@@ -27,7 +30,7 @@ describe("derived-files", () => {
     test("deletes every artifact key for a file", async () => {
         const listedPaths: string[] = [];
         const deletedKeys: string[] = [];
-        const keys = await Effect.runPromise(
+        const keys = await runDerivedTestEffect(
             deleteGraphFileArtifacts(
                 {
                     graphId: "graph-1",
@@ -73,7 +76,7 @@ describe("derived-files", () => {
 
     test("also deletes legacy derived and workflow keys for existing files", async () => {
         const deletedKeys: string[] = [];
-        const keys = await Effect.runPromise(
+        const keys = await runDerivedTestEffect(
             deleteGraphFileArtifacts(
                 {
                     graphId: "graph-1",
@@ -118,7 +121,7 @@ describe("derived-files", () => {
     test("deletes only transient processing artifacts after successful processing", async () => {
         const listedPaths: string[] = [];
         const deletedKeys: string[] = [];
-        const result = await Effect.runPromise(
+        const result = await runDerivedTestEffect(
             deleteGraphFileProcessingArtifacts(
                 {
                     graphId: "graph-1",

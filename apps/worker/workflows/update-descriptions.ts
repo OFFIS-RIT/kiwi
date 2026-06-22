@@ -1,6 +1,6 @@
-import { runWorkerEffect } from "../lib/effect";
+import { runWorkerEffect } from "../lib/runtime/effect";
 import { defineWorkflow } from "openworkflow";
-import { regenerateEntities, regenerateRelationships } from "../lib/regenerate-descriptions";
+import { regenerateEntities, regenerateRelationships } from "../lib/descriptions/regenerate";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 
 export const updateDescriptions = defineWorkflow(updateDescriptionsSpec, async ({ input, step }) => {

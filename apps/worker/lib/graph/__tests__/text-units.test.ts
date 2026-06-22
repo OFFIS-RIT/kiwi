@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Unit } from "@kiwi/graph";
-import { toTextUnitRows } from "../text-unit-rows";
+import { toTextUnitRows } from "../text-units";
 
 describe("toTextUnitRows", () => {
     test("keeps page spans in the text unit persistence payload", () => {

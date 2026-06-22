@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
 
-import { buildDescription, chunkDescriptionSources } from "../description";
+import { buildDescription, chunkDescriptionSources } from "../build";
 
 describe("chunkDescriptionSources", () => {
     test("merges a small tail chunk into the previous chunk", () => {

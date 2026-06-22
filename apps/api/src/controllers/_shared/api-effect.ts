@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { DatabaseLayer, runDatabaseEffect, type Database } from "@kiwi/db/effect";
+import type * as Layer from "effect/Layer";
 import {
     API_ERROR_CODES,
     type ApiErrorCode,
@@ -11,6 +11,7 @@ import {
     unauthorizedError,
 } from "@kiwi/contracts/errors";
 import type { AuthUser } from "../../middleware/auth";
+import { runApiEffect, type ApiServices } from "../../effect";
 
 export type RouteStatus = (code: number, body: unknown) => unknown;
 
@@ -102,14 +103,14 @@ export function tryApiSync<T>(thunk: () => T, options: ApiErrorOptions = {}): Ap
     });
 }
 
-export function runApiAction<T, E>(
+export function runApiAction<T, E, R>(
     options: ApiErrorOptions & {
         status: RouteStatus;
         user: AuthUser | null | undefined;
-        action: (user: AuthUser) => Effect.Effect<T, E, Database>;
+        action: (user: AuthUser) => Effect.Effect<T, E, R>;
         success: (value: T) => unknown;
         mapError?: (status: RouteStatus, error: E) => unknown;
-        databaseLayer?: typeof DatabaseLayer;
+        databaseLayer?: Layer.Layer<R>;
     }
 ): Promise<unknown> {
     if (!options.user) {
@@ -125,5 +126,5 @@ export function runApiAction<T, E>(
 
     return options.databaseLayer
         ? Effect.runPromise(Effect.provide(action, options.databaseLayer))
-        : runDatabaseEffect(action);
+        : runApiEffect(action as Effect.Effect<unknown, never, ApiServices>);
 }

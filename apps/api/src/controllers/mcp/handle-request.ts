@@ -1,6 +1,6 @@
 import { createChatSystemPrompt, getProviderOptions } from "@kiwi/ai";
 import { linkifyResearchCitations, runMcpResearch } from "@kiwi/ai/mcp";
-import { runDatabaseEffect, type Database as DatabaseContext } from "@kiwi/db/effect";
+import { type Database as DatabaseContext } from "@kiwi/db/effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import * as Effect from "effect/Effect";
@@ -14,6 +14,7 @@ import { env } from "../../env";
 import { API_ERROR_CODES, internalServerError, isApiError, makeApiError, type ApiError } from "../../types";
 import type { AuthSession, AuthUser } from "../../middleware/auth";
 import { mcpJsonRpcErrorResponse } from "./responses";
+import { runApiEffect } from "../../effect";
 
 const getGraphsOutput = z.object({
     graphs: z.array(z.record(z.string(), z.unknown())),
@@ -154,14 +155,14 @@ function researchToolResult({ request, user }: McpRequestContext, input: { graph
 
 function registerMcpTools(server: McpServer, context: McpRequestContext) {
     server.tool("get_graphs", "List the graphs/projects that the current API key can access.", async () =>
-        runDatabaseEffect(getGraphsToolResult(context))
+        runApiEffect(getGraphsToolResult(context))
     );
 
     server.tool(
         "research",
         "Research a question against one graph/project and return a Markdown answer with document links.",
         researchInput,
-        async ({ graphId, question }) => runDatabaseEffect(researchToolResult(context, { graphId, question }))
+        async ({ graphId, question }) => runApiEffect(researchToolResult(context, { graphId, question }))
     );
 }
 

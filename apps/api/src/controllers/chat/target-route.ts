@@ -9,6 +9,7 @@ import { parseListNumber } from "../../lib/parse-query-params";
 import type { AuthUser } from "../../middleware/auth";
 import { API_ERROR_CODES, makeApiError } from "../../types";
 import { runApiAction, type RouteStatus } from "../_shared/api-effect";
+import type { ApiServices } from "../../effect";
 
 export type ChatRouteParams = Record<string, string | undefined>;
 export type ChatRouteQuery = {
@@ -43,7 +44,7 @@ export type ChatRouteSpec<TTarget> = {
         request: ChatRequest;
         mode: "completion" | "stream";
         abortSignal: AbortSignal;
-    }) => Effect.Effect<StartedChatReply, unknown, Database>;
+    }) => Effect.Effect<StartedChatReply, unknown, ApiServices>;
 };
 
 function getParam(params: ChatRouteParams, name: string) {
@@ -57,7 +58,7 @@ export function runChatTargetAction<T>(options: {
     user: AuthUser | null | undefined;
     status: RouteStatus;
     mapError: (status: RouteStatus, error: unknown) => unknown;
-    action: (user: AuthUser) => Effect.Effect<T, unknown, Database>;
+    action: (user: AuthUser) => Effect.Effect<T, unknown, ApiServices>;
     success: (value: T) => unknown;
 }) {
     return runApiAction({
@@ -104,7 +105,7 @@ export function createChatTargetController<TTarget>(spec: ChatRouteSpec<TTarget>
         request: ChatRequest;
         mode: "completion" | "stream";
         abortSignal: AbortSignal;
-    }) => Effect.Effect<StartedChatReply, unknown, Database> = Effect.fn("ChatTargetController.startReply")(
+    }) => Effect.Effect<StartedChatReply, unknown, ApiServices> = Effect.fn("ChatTargetController.startReply")(
         function* (options: {
             user: AuthUser;
             params: ChatRouteParams;

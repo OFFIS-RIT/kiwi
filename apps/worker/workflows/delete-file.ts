@@ -1,17 +1,17 @@
 import * as Effect from "effect/Effect";
-import { withWorkerDb } from "../lib/effect";
+import { withWorkerDb } from "../lib/runtime/effect";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { deleteFile as deleteStoredFile } from "@kiwi/files";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import { env } from "../env";
-import { chunkItems } from "../lib/chunk";
-import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
-import { textArray } from "../lib/sql";
+import { chunkItems } from "../lib/collections/chunk";
+import { DESCRIPTION_BATCH_SIZE } from "../lib/descriptions/workflow";
+import { textArray } from "../lib/db/sql";
 import { deleteFileSpec } from "./delete-file-spec";
-import { deleteGraphFileArtifacts } from "../lib/derived-files";
+import { deleteGraphFileArtifacts } from "../lib/files/artifacts";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
-import { runWorkerEffect } from "../lib/effect";
+import { runWorkerEffect } from "../lib/runtime/effect";
 
 export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, step }) => {
     const [fileData] = await step.run({ name: "get-file-data" }, async () =>

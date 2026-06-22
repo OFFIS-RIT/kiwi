@@ -1,0 +1,2 @@
+[tools]
+odin = { version = "latest", exe = "odin" }

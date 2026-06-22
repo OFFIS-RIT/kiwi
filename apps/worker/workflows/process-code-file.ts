@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { withWorkerDb, withWorkerDbVoid } from "../lib/effect";
+import { withWorkerDb, withWorkerDbVoid } from "../lib/runtime/effect";
 import { filesTable, processStatsTable } from "@kiwi/db/tables/graph";
 import { and, eq } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
@@ -10,14 +10,14 @@ import type { CodeRepositoryFile } from "@kiwi/graph/code/repository";
 import { getFile, putNamedFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { env } from "../env";
-import { deleteGraphFileProcessingArtifacts, getGraphFileArtifactPaths } from "../lib/derived-files";
-import { classifyFileProcessError } from "../lib/file-process-error";
-import { loadCodeManifest } from "../lib/code-manifest";
-import { fileContentSourceFromRow, readFileContentSource } from "../lib/file-content-source";
-import { codeRepositoryFileFieldsFromMetadata, parseCodeFileMetadata } from "../lib/code-file-metadata";
-import { updateFileProcessingState, stopIfFileDeleted } from "../lib/file-processing-state";
-import { saveGraphToDatabase } from "../lib/save-graph";
-import { runWorkerEffect } from "../lib/effect";
+import { deleteGraphFileProcessingArtifacts, getGraphFileArtifactPaths } from "../lib/files/artifacts";
+import { classifyFileProcessError } from "../lib/files/process-error";
+import { loadCodeManifest } from "../lib/code/manifest";
+import { fileContentSourceFromRow, readFileContentSource } from "../lib/files/content-source";
+import { codeRepositoryFileFieldsFromMetadata, parseCodeFileMetadata } from "../lib/code/metadata";
+import { updateFileProcessingState, stopIfFileDeleted } from "../lib/files/processing-state";
+import { saveGraphToDatabase } from "../lib/graph/save";
+import { runWorkerEffect } from "../lib/runtime/effect";
 
 const FILE_DELETED = "__file_deleted__" as const;
 

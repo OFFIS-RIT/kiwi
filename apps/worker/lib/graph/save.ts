@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import type { Database, DatabaseTransaction } from "@kiwi/db/effect";
-import { withWorkerDb } from "./effect";
+import { withWorkerDb } from "../runtime/effect";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import {
     currentSourceSql,
@@ -10,9 +10,9 @@ import {
 } from "@kiwi/db/source-validity";
 import type { Graph } from "@kiwi/graph";
 import { eq, sql, and } from "drizzle-orm";
-import { chunkItems } from "./chunk";
-import { EMPTY_VECTOR_SQL, entityCompactNameKey, textArray } from "./sql";
-import { toTextUnitRows } from "./text-unit-rows";
+import { chunkItems } from "../collections/chunk";
+import { EMPTY_VECTOR_SQL, entityCompactNameKey, textArray } from "../db/sql";
+import { toTextUnitRows } from "./text-units";
 
 const DEFAULT_RELATIONSHIP_KIND = "RELATED";
 

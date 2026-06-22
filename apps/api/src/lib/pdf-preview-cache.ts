@@ -1,4 +1,4 @@
-import { getFile, getGraphFileArtifactPaths, putNamedFile } from "@kiwi/files";
+import { getFile, getGraphFileArtifactPaths, putNamedFile, type FileStorage } from "@kiwi/files";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Schema from "effect/Schema";
@@ -27,14 +27,14 @@ type GetBytes = (
     key: string,
     bucket: string,
     type: "bytes"
-) => Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, unknown>;
+) => Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, unknown, FileStorage>;
 
 type PutNamedFile = (
     name: string,
     file: File | Blob | Uint8Array | string,
     path: string,
     bucket: string
-) => Effect.Effect<unknown, unknown>;
+) => Effect.Effect<unknown, unknown, FileStorage>;
 type RenderPDFPagePreviews = typeof renderPDFPagePreviews;
 
 type PDFPreviewRenderResult =
@@ -64,7 +64,7 @@ export function getOrRenderPDFPreviewPage(
         bucket: string;
     },
     deps: PDFPreviewCacheDeps = {}
-): Effect.Effect<PDFPreviewPageResult, PDFPreviewCacheError> {
+): Effect.Effect<PDFPreviewPageResult, PDFPreviewCacheError, FileStorage> {
     return Effect.gen(function* () {
         const loadFile = deps.getFile ?? getFile;
         const saveNamedFile = deps.putNamedFile ?? putNamedFile;
@@ -125,7 +125,7 @@ function loadAndRenderPDFPreviewPages(
         bucket: string;
     },
     deps: Required<PDFPreviewCacheDeps>
-): Effect.Effect<PDFPreviewRenderResult, PDFPreviewCacheError> {
+): Effect.Effect<PDFPreviewRenderResult, PDFPreviewCacheError, FileStorage> {
     return Effect.gen(function* () {
         const sourceFile = yield* Effect.mapError(
             deps.getFile(options.fileKey, options.bucket, "bytes"),
@@ -159,7 +159,7 @@ function renderAndCachePDFPreviewPages(
         source: Uint8Array;
     },
     deps: Required<Pick<PDFPreviewCacheDeps, "putNamedFile" | "renderPDFPagePreviews">>
-): Effect.Effect<PDFPreviewRenderResult, PDFPreviewCacheError> {
+): Effect.Effect<PDFPreviewRenderResult, PDFPreviewCacheError, FileStorage> {
     return Effect.gen(function* () {
         const renderedPages = yield* Effect.mapError(
             deps.renderPDFPagePreviews(options.source, options.pagesToRender),

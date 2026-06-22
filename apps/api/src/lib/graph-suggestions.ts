@@ -1,13 +1,13 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { ulid } from "ulid";
-import { estimateToken, getClient } from "@kiwi/ai";
-import { resolveRequiredEmbeddingModelAdapter } from "@kiwi/ai/models";
+import { estimateToken, makeAiClient, type AiClientFactory } from "@kiwi/ai";
+import { resolveRequiredEmbeddingModelAdapter, type AiModelRegistry } from "@kiwi/ai/models";
 import type { GraphSuggestionApplySuccessData, GraphSuggestionRecord } from "@kiwi/contracts";
 import { tryDb, tryDbVoid, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { filesTable, entityTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { graphSuggestionsTable, type GraphSuggestion } from "@kiwi/db/tables/suggestions";
-import { putGraphFile } from "@kiwi/files";
+import { putGraphFile, type FileStorage } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { updateDescriptionsSpec } from "@kiwi/worker/update-descriptions-spec";
 import { env } from "../env";
@@ -185,11 +185,11 @@ function embedSuggestionText(
     graphId: string,
     user: AuthUser,
     suggestion: string
-): Effect.Effect<number[], unknown, Database> {
+): Effect.Effect<number[], unknown, Database | AiModelRegistry | AiClientFactory> {
     return Effect.gen(function* () {
         const organizationId = yield* getSuggestionModelOrganizationId(graphId, user);
-        const embeddingModel = yield* resolveRequiredEmbeddingModelAdapter(organizationId, env.AUTH_SECRET);
-        const client = getClient({ embedding: embeddingModel.adapter });
+        const embeddingModel = yield* resolveRequiredEmbeddingModelAdapter(organizationId);
+        const client = yield* makeAiClient({ embedding: embeddingModel.adapter });
         const { embedding: embeddingClient } = client;
         if (!embeddingClient) {
             return yield* Effect.fail(new Error(API_ERROR_CODES.MODEL_NOT_CONFIGURED));
@@ -398,7 +398,7 @@ function applyEntityAddition(options: {
     suggestionId: string;
     userId: string;
     embedding: number[];
-}): Effect.Effect<ApplyMutationResult, unknown, Database> {
+}): Effect.Effect<ApplyMutationResult, unknown, Database | FileStorage> {
     return Effect.gen(function* () {
         const suggestion = yield* getPendingSuggestion(options.graphId, options.suggestionId);
         if (suggestion.kind !== "entity_addition" || !suggestion.entityId) {
@@ -517,7 +517,7 @@ export function applyGraphSuggestion(
     graphId: string,
     suggestionId: string,
     user: AuthUser
-): Effect.Effect<GraphSuggestionApplySuccessData, unknown, Database> {
+): Effect.Effect<GraphSuggestionApplySuccessData, unknown, Database | FileStorage | AiModelRegistry | AiClientFactory> {
     return Effect.gen(function* () {
         const suggestion = yield* getPendingSuggestion(graphId, suggestionId);
         yield* assertSuggestionTargetExists(graphId, suggestion);

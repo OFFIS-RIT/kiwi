@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
-import { getFile } from "@kiwi/files";
+import { getFile, type FileStorage } from "@kiwi/files";
 import type { SourceReferenceBatchSuccessData } from "@kiwi/contracts";
 import { env } from "../env";
 import { sourceNotFoundError } from "@kiwi/contracts/errors";
@@ -83,31 +83,31 @@ export const loadSourceReferenceImage: (
     graphId: string,
     sourceId: string,
     chunkId: number
-) => Effect.Effect<SourceReferenceImage, unknown, Database> = Effect.fn("loadSourceReferenceImage")(function* (
-    graphId: string,
-    sourceId: string,
-    chunkId: number
-) {
-    const row = yield* loadSourceReferenceRow(graphId, sourceId);
-    if (!row) {
-        return yield* Effect.fail(sourceNotFoundError());
-    }
+) => Effect.Effect<SourceReferenceImage, unknown, Database | FileStorage> = Effect.fn("loadSourceReferenceImage")(
+    function* (graphId: string, sourceId: string, chunkId: number) {
+        const row = yield* loadSourceReferenceRow(graphId, sourceId);
+        if (!row) {
+            return yield* Effect.fail(sourceNotFoundError());
+        }
 
-    const chunk = selectSourceChunks(row.chunks, row.source_chunk_ids).find((candidate) => candidate.id === chunkId);
-    if (!chunk || chunk.type !== "image" || !chunk.imageKey) {
-        return yield* Effect.fail(sourceNotFoundError());
-    }
+        const chunk = selectSourceChunks(row.chunks, row.source_chunk_ids).find(
+            (candidate) => candidate.id === chunkId
+        );
+        if (!chunk || chunk.type !== "image" || !chunk.imageKey) {
+            return yield* Effect.fail(sourceNotFoundError());
+        }
 
-    const file = yield* getFile(chunk.imageKey, env.S3_BUCKET, "bytes");
-    if (!file) {
-        return yield* Effect.fail(sourceNotFoundError());
-    }
+        const file = yield* getFile(chunk.imageKey, env.S3_BUCKET, "bytes");
+        if (!file) {
+            return yield* Effect.fail(sourceNotFoundError());
+        }
 
-    return {
-        content: new Uint8Array(file.content),
-        contentType: getImageContentType(chunk.imageKey),
-    };
-});
+        return {
+            content: new Uint8Array(file.content),
+            contentType: getImageContentType(chunk.imageKey),
+        };
+    }
+);
 
 function loadSourceReferenceRow(
     graphId: string,

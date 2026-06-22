@@ -37,12 +37,12 @@ import { serializeCodeFileMetadata } from "@kiwi/graph/code/metadata";
 import { and, eq, inArray } from "drizzle-orm";
 import { defineWorkflow } from "openworkflow";
 import type { Workflow } from "openworkflow";
-import { parseCodeFileMetadata } from "../lib/code-file-metadata";
+import { parseCodeFileMetadata } from "../lib/code/metadata";
 import { env } from "../env";
 import { deleteFileSpec } from "./delete-file-spec";
 import { processFilesSpec } from "./process-files-spec";
 import { syncConnectorResourceGraphSpec } from "./sync-connector-resource-graph-spec";
-import { runWorkerEffect, withWorkerDb, withWorkerDbVoid } from "../lib/effect";
+import { runWorkerEffect, withWorkerDb, withWorkerDbVoid } from "../lib/runtime/effect";
 
 type BindingGraphRow = {
     binding: typeof connectorResourceBindingsTable.$inferSelect;

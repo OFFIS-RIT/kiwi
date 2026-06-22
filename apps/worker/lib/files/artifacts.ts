@@ -1,4 +1,4 @@
-import { deleteFile, getGraphFileArtifactPaths, listFiles } from "@kiwi/files";
+import { deleteFile, getGraphFileArtifactPaths, listFiles, type FileStorage } from "@kiwi/files";
 import * as Effect from "effect/Effect";
 
 export {
@@ -11,8 +11,8 @@ export {
 } from "@kiwi/files";
 
 type DerivedCleanupDeps = {
-    listFiles?: (path: string, bucket: string) => Effect.Effect<string[], unknown>;
-    deleteFile?: (key: string, bucket: string) => Effect.Effect<boolean, unknown>;
+    listFiles?: (path: string, bucket: string) => Effect.Effect<string[], unknown, FileStorage>;
+    deleteFile?: (key: string, bucket: string) => Effect.Effect<boolean, unknown, FileStorage>;
 };
 
 export function deleteGraphFileArtifacts(
@@ -23,7 +23,7 @@ export function deleteGraphFileArtifacts(
         bucket: string;
     },
     deps: DerivedCleanupDeps = {}
-): Effect.Effect<string[], unknown> {
+): Effect.Effect<string[], unknown, FileStorage> {
     return Effect.gen(function* () {
         const loadKeys = deps.listFiles ?? listFiles;
         const removeKey = deps.deleteFile ?? deleteFile;
@@ -51,7 +51,7 @@ export function deleteGraphFileProcessingArtifacts(
         bucket: string;
     },
     deps: DerivedCleanupDeps = {}
-): Effect.Effect<{ deletedKeyCount: number }, unknown> {
+): Effect.Effect<{ deletedKeyCount: number }, unknown, FileStorage> {
     return Effect.gen(function* () {
         const loadKeys = deps.listFiles ?? listFiles;
         const removeKey = deps.deleteFile ?? deleteFile;

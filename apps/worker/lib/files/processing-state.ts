@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import type { Database } from "@kiwi/db/effect";
-import { withWorkerDb, withWorkerDbVoid } from "./effect";
+import { withWorkerDb, withWorkerDbVoid } from "../runtime/effect";
 import { filesTable, type FileProcessStatus, type FileProcessStep } from "@kiwi/db/tables/graph";
 import type { FileProcessErrorCode } from "@kiwi/contracts/routes";
 import { eq } from "drizzle-orm";
