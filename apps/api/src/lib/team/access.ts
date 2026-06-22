@@ -10,7 +10,7 @@ import {
     teamTable,
     type TeamMemberRole,
 } from "@kiwi/db/tables/auth";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "@kiwi/db/drizzle";
 import type { AuthUser } from "../../middleware/auth";
 import { forbiddenError, teamNotFoundError } from "@kiwi/contracts/errors";
 

@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import { tryDb } from "@kiwi/db/effect";
 import { memberTable, userTable } from "@kiwi/db/tables/auth";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq } from "@kiwi/db/drizzle";
 import { requireTeamMemberManageAccess } from "../../../lib/team/access";
 import type { AuthUser } from "../../../middleware/auth";
 import { toApiError } from "../../_shared/api-effect";

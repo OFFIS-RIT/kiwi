@@ -12,7 +12,7 @@ import {
 import { teamTable } from "@kiwi/db/tables/auth";
 import { deleteFile, type FileStorage } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "@kiwi/db/drizzle";
 import { env } from "../../env";
 import { API_ERROR_CODES } from "../../types";
 import { mapApiError } from "../../controllers/_shared/api-effect";

@@ -19,7 +19,7 @@ import { filesTable, graphTable, sourcesTable, textUnitTable } from "@kiwi/db/ta
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from "ai";
 import * as Effect from "effect/Effect";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "@kiwi/db/drizzle";
 import { z } from "zod";
 import type { AuthUser } from "../middleware/auth";
 import type { GraphState } from "../types/routes";

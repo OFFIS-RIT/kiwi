@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import { defaultKeyHasher } from "@better-auth/api-key";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import { hashPassword } from "better-auth/crypto";
 import {
     API_KEY_RATE_LIMIT_MAX_REQUESTS,

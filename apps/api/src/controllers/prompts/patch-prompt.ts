@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { promptNotFoundError } from "@kiwi/contracts/errors";
 import { tryDb } from "@kiwi/db/effect";

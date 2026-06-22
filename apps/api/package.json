@@ -28,9 +28,8 @@
         "ai": "catalog:",
         "better-auth": "catalog:",
         "better-auth-credentials-plugin": "catalog:",
-        "drizzle-orm": "catalog:",
         "effect": "catalog:",
-        "elysia": "1.4.28",
+        "elysia": "1.4.29",
         "openworkflow": "catalog:",
         "ulid": "^3.0.2",
         "zod": "catalog:"

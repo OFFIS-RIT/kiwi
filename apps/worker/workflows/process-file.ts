@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import { withWorkerDb, withWorkerDbVoid } from "../lib/runtime/effect";
 import { filesTable, graphTable, processRunsTable, processStatsTable } from "@kiwi/db/tables/graph";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "@kiwi/db/drizzle";
 import { defineWorkflow } from "openworkflow";
 import z from "zod";
 import { S3Loader } from "@kiwi/loaders/loader/s3";

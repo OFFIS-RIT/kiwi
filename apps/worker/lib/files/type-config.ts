@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import type { Database } from "@kiwi/db/effect";
 import { withWorkerDb } from "../runtime/effect";
 import { fileTypeConfigsTable } from "@kiwi/db/tables/file-types";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import type { GraphFileType } from "@kiwi/graph/file-type";
 import { resolveFileTypeProcessingConfig, type FileTypeProcessingConfig } from "@kiwi/graph/lib/processing-config";
 

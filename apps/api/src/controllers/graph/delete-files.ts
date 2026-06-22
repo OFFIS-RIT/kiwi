@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { tryDb, tryDbVoid } from "@kiwi/db/effect";
 import { filesTable, graphTable } from "@kiwi/db/tables/graph";

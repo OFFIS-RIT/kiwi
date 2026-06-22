@@ -21,7 +21,7 @@
         "@kiwi/contracts": "workspace:*",
         "@kiwi/files": "workspace:*",
         "@kiwi/loaders": "workspace:*",
-        "@libpdf/core": "^0.3.6",
+        "@libpdf/core": "^0.4.0",
         "@tree-sitter-grammars/tree-sitter-zig": "^1.1.2",
         "ai": "catalog:",
         "effect": "catalog:",

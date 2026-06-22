@@ -7,7 +7,7 @@ import {
     type ConnectorProvider,
 } from "@kiwi/db/tables/connectors";
 import { graphTable } from "@kiwi/db/tables/graph";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import type { AuthUser } from "../middleware/auth";
 import {
     API_ERROR_CODES,

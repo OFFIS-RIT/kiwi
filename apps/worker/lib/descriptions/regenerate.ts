@@ -3,7 +3,7 @@ import type { DatabaseTransaction } from "@kiwi/db/effect";
 import { withWorkerDb, withWorkerDbVoid, type WorkerServices } from "../runtime/effect";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { unexpiredSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "@kiwi/db/drizzle";
 import { embed, embedMany } from "ai";
 import { withAiSlot } from "@kiwi/ai";
 import { buildDescription } from "./build";

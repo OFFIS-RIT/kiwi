@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import { withWorkerDb, withWorkerDbVoid } from "../lib/runtime/effect";
 import { filesTable, processStatsTable } from "@kiwi/db/tables/graph";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import { defineWorkflow } from "openworkflow";
 import z from "zod";
 import { estimateToken } from "@kiwi/ai";

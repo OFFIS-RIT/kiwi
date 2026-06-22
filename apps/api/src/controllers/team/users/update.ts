@@ -3,7 +3,7 @@ import { tryDbVoid } from "@kiwi/db/effect";
 import { teamMemberRolesTable, teamMemberTable, teamTable, type TeamMemberRole } from "@kiwi/db/tables/auth";
 import type { TeamUpdateUsersInput } from "@kiwi/contracts/teams";
 import { forbiddenError } from "@kiwi/contracts/errors";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql } from "@kiwi/db/drizzle";
 import { requireTeamMemberManageAccess } from "../../../lib/team/access";
 import type { AuthUser } from "../../../middleware/auth";
 import { toApiError, tryApiSync } from "../../_shared/api-effect";

@@ -3,7 +3,7 @@ import { tryDb, type Database } from "@kiwi/db/effect";
 import { connectorInstallationsTable } from "@kiwi/db/tables/connectors";
 import type { GitHubInstallCallbackQuery } from "@kiwi/contracts/connectors";
 import { API_ERROR_CODES } from "@kiwi/contracts/errors";
-import { sql } from "drizzle-orm";
+import { sql } from "@kiwi/db/drizzle";
 import { requireOrganizationAdmin, requireTeamGraphCreateAccess } from "../../../lib/team/access";
 import { requireActiveConnector } from "../../../lib/connector-access";
 import {

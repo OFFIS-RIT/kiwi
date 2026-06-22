@@ -14,7 +14,7 @@ import {
     connectorResourceBindingsTable,
 } from "@kiwi/db/tables/connectors";
 import { getFile, type FileStorage } from "@kiwi/files";
-import { eq } from "drizzle-orm";
+import { eq } from "@kiwi/db/drizzle";
 import { env } from "../../env";
 import { parseCodeFileMetadata } from "../code/metadata";
 

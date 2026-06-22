@@ -3,7 +3,7 @@ import { roleIncludes } from "@kiwi/auth/permissions";
 import { tryDb } from "@kiwi/db/effect";
 import { teamMemberRolesTable, teamMemberTable, teamTable, type TeamMemberRole } from "@kiwi/db/tables/auth";
 import type { TeamListItem } from "@kiwi/contracts/teams";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "@kiwi/db/drizzle";
 import { requireOrganizationMembership } from "../../lib/team/access";
 import type { AuthUser } from "../../middleware/auth";
 import { toApiError } from "../_shared/api-effect";

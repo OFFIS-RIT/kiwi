@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { tryDb } from "@kiwi/db/effect";
 import { fileTypeConfigsTable } from "@kiwi/db/tables/file-types";

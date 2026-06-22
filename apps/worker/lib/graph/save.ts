@@ -9,7 +9,7 @@ import {
     visibleFileSql,
 } from "@kiwi/db/source-validity";
 import type { Graph } from "@kiwi/graph";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and } from "@kiwi/db/drizzle";
 import { chunkItems } from "../collections/chunk";
 import { EMPTY_VECTOR_SQL, entityCompactNameKey, textArray } from "../db/sql";
 import { toTextUnitRows } from "./text-units";

@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import type { Database } from "@kiwi/db/effect";
 import { withWorkerDbVoid } from "../lib/runtime/effect";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql } from "@kiwi/db/drizzle";
 import { defineWorkflow } from "openworkflow";
 import { graphTable } from "@kiwi/db/tables/graph";
 import { deleteFileSpec } from "./delete-file-spec";

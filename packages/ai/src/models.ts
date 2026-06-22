@@ -17,7 +17,7 @@ import {
     type AiModelAdapter,
     type AiModelType,
 } from "@kiwi/db/tables/models";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "@kiwi/db/drizzle";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";

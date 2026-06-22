@@ -1,4 +1,4 @@
-import { sql, type SQL } from "drizzle-orm";
+import { sql, type SQL } from "@kiwi/db/drizzle";
 
 export const MIN_SEMANTIC_SCORE = 0.02;
 export const MIN_KEYWORD_BOOST = 0.08;

@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { ulid } from "ulid";

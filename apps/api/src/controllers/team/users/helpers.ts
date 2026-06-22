@@ -9,7 +9,7 @@ import {
 } from "@kiwi/db/tables/auth";
 import type { TeamUserInput } from "@kiwi/contracts/teams";
 import { forbiddenError, invalidTeamMembersError } from "@kiwi/contracts/errors";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "@kiwi/db/drizzle";
 
 export function normalizeUsers({
     users,

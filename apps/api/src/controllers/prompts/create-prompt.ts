@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, sql } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { internalServerError, promptLimitExceededError } from "@kiwi/contracts/errors";
 import { tryDb } from "@kiwi/db/effect";

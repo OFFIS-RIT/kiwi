@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import { withWorkerDb } from "../lib/runtime/effect";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { deleteFile as deleteStoredFile } from "@kiwi/files";
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "@kiwi/db/drizzle";
 import { defineWorkflow } from "openworkflow";
 import { env } from "../env";
 import { chunkItems } from "../lib/collections/chunk";

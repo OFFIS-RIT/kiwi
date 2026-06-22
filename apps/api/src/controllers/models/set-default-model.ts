@@ -3,7 +3,7 @@ import { normalizeModelId, toAdminModelRecord } from "@kiwi/ai/models";
 import { tryDb } from "@kiwi/db/effect";
 import { modelsTable } from "@kiwi/db/tables/models";
 import { modelNotFoundError } from "@kiwi/contracts/errors";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import { env } from "../../env";
 import { requireOrganizationAdmin } from "../../lib/team/access";
 import type { AuthUser } from "../../middleware/auth";

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { tryDb } from "@kiwi/db/effect";
 import { teamTable } from "@kiwi/db/tables/auth";

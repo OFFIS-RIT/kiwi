@@ -4,7 +4,7 @@ import { toAdminModelRecord, toPublicModelRecord } from "@kiwi/ai/models";
 import { tryDb } from "@kiwi/db/effect";
 import { modelsTable } from "@kiwi/db/tables/models";
 import type { ModelQuery } from "@kiwi/contracts/models";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "@kiwi/db/drizzle";
 import { env } from "../../env";
 import { requireOrganizationMembership } from "../../lib/team/access";
 import type { AuthUser } from "../../middleware/auth";

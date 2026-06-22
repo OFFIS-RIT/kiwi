@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql } from "@kiwi/db/drizzle";
 
 export const EMPTY_VECTOR_SQL = sql.raw("('[0' || repeat(',0', 4095) || ']')::vector");
 

@@ -3,7 +3,7 @@ import { tryDbVoid } from "@kiwi/db/effect";
 import { organizationTable } from "@kiwi/db/tables/auth";
 import { modelsTable } from "@kiwi/db/tables/models";
 import { modelNotConfiguredError, modelNotFoundError } from "@kiwi/contracts/errors";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { requireOrganizationAdmin } from "../../lib/team/access";
 import type { AuthUser } from "../../middleware/auth";

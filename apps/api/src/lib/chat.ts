@@ -31,7 +31,7 @@ import { filesTable, graphPromptsTable, processRunsTable, sourcesTable, textUnit
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { error as logError, warn as logWarn } from "@kiwi/logger";
 import * as Effect from "effect/Effect";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "@kiwi/db/drizzle";
 import { createProjectFileAccessToken } from "./project-file-access-token";
 import { getProjectFileProxyUrl } from "./project-file-url";
 import {

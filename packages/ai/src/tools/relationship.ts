@@ -2,7 +2,7 @@ import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import type { EmbeddingModelV3 } from "@ai-sdk/provider";
 import { entityTable, relationshipTable } from "@kiwi/db/tables/graph";
 import { currentSourceSql, visibleFileSql } from "@kiwi/db/source-validity";
-import { and, asc, cosineDistance, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, cosineDistance, eq, gt, inArray, or, sql } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { embed, tool } from "ai";
 import { withAiSlotEffect } from "../concurrency";

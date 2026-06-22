@@ -34,7 +34,7 @@ import {
 import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
 import type { ProcessRunStatus } from "@kiwi/db/tables/graph";
 import { serializeCodeFileMetadata } from "@kiwi/graph/code/metadata";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "@kiwi/db/drizzle";
 import { defineWorkflow } from "openworkflow";
 import type { Workflow } from "openworkflow";
 import { parseCodeFileMetadata } from "../lib/code/metadata";

@@ -5,7 +5,7 @@ import { filesTable, graphTable } from "@kiwi/db/tables/graph";
 import { deleteFile, listFiles, type FileStorage } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { internalServerError, teamNotFoundError } from "@kiwi/contracts/errors";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "@kiwi/db/drizzle";
 import { env } from "../../env";
 import { chunk } from "../../lib/array";
 import { requireOrganizationAdmin } from "../../lib/team/access";

@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
-import { sql } from "drizzle-orm";
+import { sql } from "@kiwi/db/drizzle";
 import type { DeleteProgress, StepProgress } from "./process-progress";
 
 const OPENWORKFLOW_NAMESPACE_ID = "default";

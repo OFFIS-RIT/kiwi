@@ -18,7 +18,7 @@ import { tryDb, tryDbVoid, type Database, type DatabaseError } from "@kiwi/db/ef
 import { chatTable, messageTable, type ChatMessage } from "@kiwi/db/tables/chats";
 import type { ScopedPromptGuidance } from "@kiwi/ai/prompts/guidance.prompt";
 import { validateUIMessages, type ModelMessage } from "ai";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne } from "@kiwi/db/drizzle";
 import { API_ERROR_CODES } from "../types";
 import type { ChatRequestBody } from "../types/routes";
 import { chatTargetInsertValues, chatTargetMatchesRow, type ChatTarget } from "./chat-target";

@@ -4,7 +4,7 @@ import { organizationTable } from "@kiwi/db/tables/auth";
 import { modelsTable } from "@kiwi/db/tables/models";
 import { internalServerError, modelNotConfiguredError } from "@kiwi/contracts/errors";
 import type { ModelCreateInput } from "@kiwi/contracts/models";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { env } from "../../env";
 import { requireOrganizationAdmin } from "../../lib/team/access";

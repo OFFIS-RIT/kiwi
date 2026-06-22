@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { error as logError } from "@kiwi/logger";
-import { sql } from "drizzle-orm";
+import { sql } from "@kiwi/db/drizzle";
 import { ow } from "../openworkflow";
 
 type WorkflowRunIdRow = {

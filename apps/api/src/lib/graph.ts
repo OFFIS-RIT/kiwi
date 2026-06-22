@@ -1,7 +1,7 @@
 import { DatabaseError, type EffectDatabase } from "@kiwi/db/effect";
 import * as Effect from "effect/Effect";
 import { graphTable } from "@kiwi/db/tables/graph";
-import { inArray } from "drizzle-orm";
+import { inArray } from "@kiwi/db/drizzle";
 
 type GraphQueryRunner = {
     select: EffectDatabase["select"];

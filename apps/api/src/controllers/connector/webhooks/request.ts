@@ -3,7 +3,7 @@ import { API_ERROR_CODES, type ApiError, makeApiError } from "@kiwi/contracts/er
 import { normalizeConnectorWebhook, verifyConnectorWebhook, type ConnectorResourceKind } from "@kiwi/connectors";
 import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { connectorsTable, type ConnectorProvider } from "@kiwi/db/tables/connectors";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import { decryptSecret } from "../../../lib/connectors";
 
 const CONNECTOR_PROVIDERS: Record<ConnectorProvider, true> = { github: true, gitlab: true };

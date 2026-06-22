@@ -2,8 +2,8 @@ import * as Effect from "effect/Effect";
 import { roleIncludes } from "@kiwi/auth/permissions";
 import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { memberTable, organizationTable, teamTable } from "@kiwi/db/tables/auth";
-import { and, eq, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { and, eq, sql } from "@kiwi/db/drizzle";
+import { alias } from "@kiwi/db/drizzle";
 import type { AuthUser } from "../middleware/auth";
 import {
     forbiddenError,

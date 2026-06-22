@@ -1,4 +1,4 @@
-import { and, eq, isNull, type SQL } from "drizzle-orm";
+import { and, eq, isNull, type SQL } from "@kiwi/db/drizzle";
 import { chatTable } from "@kiwi/db/tables/chats";
 
 export type GraphChatTarget = {

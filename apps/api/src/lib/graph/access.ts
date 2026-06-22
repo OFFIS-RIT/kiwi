@@ -1,7 +1,7 @@
 import { tryDb, type Database } from "@kiwi/db/effect";
 import * as Effect from "effect/Effect";
 import { graphTable } from "@kiwi/db/tables/graph";
-import { eq } from "drizzle-orm";
+import { eq } from "@kiwi/db/drizzle";
 import type { AuthUser } from "../../middleware/auth";
 import { forbiddenError, graphNotFoundError, invalidGraphOwnerError } from "@kiwi/contracts/errors";
 import {

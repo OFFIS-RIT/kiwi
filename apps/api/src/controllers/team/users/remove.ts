@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import { tryDbVoid } from "@kiwi/db/effect";
 import { teamMemberRolesTable, teamMemberTable, type TeamMemberRole } from "@kiwi/db/tables/auth";
 import { forbiddenError } from "@kiwi/contracts/errors";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "@kiwi/db/drizzle";
 import { requireTeamMemberManageAccess } from "../../../lib/team/access";
 import type { AuthUser } from "../../../middleware/auth";
 import { toApiError, tryApiSync } from "../../_shared/api-effect";

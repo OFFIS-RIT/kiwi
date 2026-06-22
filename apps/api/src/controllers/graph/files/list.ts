@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import { tryDb } from "@kiwi/db/effect";
 import { filesTable } from "@kiwi/db/tables/graph";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "@kiwi/db/drizzle";
 import { assertCanViewGraph } from "../../../lib/graph/access";
 import { selectGraphDetailFileFields, toGraphFileRecord, type GraphFileRow } from "../../../lib/graph/route";
 import type { AuthUser } from "../../../middleware/auth";

@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import { tryDb, type Database } from "@kiwi/db/effect";
 import { teamMemberTable, teamTable } from "@kiwi/db/tables/auth";
 import { graphTable } from "@kiwi/db/tables/graph";
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, eq, isNull, or } from "@kiwi/db/drizzle";
 import type { AuthUser } from "../../middleware/auth";
 import type { GraphListItem } from "../../types/routes";
 import { requireOrganizationMembership } from "../team/access";

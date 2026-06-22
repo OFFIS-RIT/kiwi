@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { ulid } from "ulid";
 import { estimateToken, makeAiClient, type AiClientFactory } from "@kiwi/ai";

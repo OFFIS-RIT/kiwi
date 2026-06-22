@@ -1,7 +1,7 @@
 import { tryDbVoid, type Database } from "@kiwi/db/effect";
 import { chatTable } from "@kiwi/db/tables/chats";
 import type { KiwiPermissions } from "@kiwi/auth/permissions";
-import { eq } from "drizzle-orm";
+import { eq } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { mapChatError, setChatArchived, setChatPinned, type ChatRequest } from "../../lib/chat";
 import { createChatStreamResponse, runChatCompletion, type StartedChatReply } from "../../lib/chat-response";

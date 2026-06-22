@@ -1,6 +1,6 @@
 import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import { filesTable } from "@kiwi/db/tables/graph";
-import { and, asc, eq, gt, ilike } from "drizzle-orm";
+import { and, asc, eq, gt, ilike } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { tool } from "ai";
 import z from "zod";

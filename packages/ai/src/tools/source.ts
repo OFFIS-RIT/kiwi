@@ -7,7 +7,7 @@ import {
     visibleFilePredicate,
     visibleFileSql,
 } from "@kiwi/db/source-validity";
-import { and, asc, cosineDistance, eq, gt, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, cosineDistance, eq, gt, inArray, or, sql, type SQL } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { embed, tool } from "ai";
 import { withAiSlotEffect, type AiSlotError } from "../concurrency";

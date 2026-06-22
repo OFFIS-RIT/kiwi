@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import { tryDb } from "@kiwi/db/effect";
 import { graphPromptsTable } from "@kiwi/db/tables/graph";
 import { organizationPromptsTable, teamPromptsTable, userPromptsTable } from "@kiwi/db/tables/auth";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq } from "@kiwi/db/drizzle";
 import type { AuthUser } from "../../middleware/auth";
 import { toApiError } from "../_shared/api-effect";
 import {

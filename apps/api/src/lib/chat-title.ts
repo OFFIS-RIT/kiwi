@@ -5,7 +5,7 @@ import { runDatabaseEffect, tryDbVoid } from "@kiwi/db/effect";
 import { chatTable } from "@kiwi/db/tables/chats";
 import { error as logError } from "@kiwi/logger";
 import { generateText } from "ai";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { createChatTitle } from "./chat";
 

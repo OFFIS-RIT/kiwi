@@ -2,7 +2,7 @@ import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
 import { graphSuggestionsTable } from "@kiwi/db/tables/suggestions";
 import { entityTable, filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { tool } from "ai";
 import { z } from "zod";

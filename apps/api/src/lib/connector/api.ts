@@ -13,7 +13,7 @@ import {
 } from "@kiwi/contracts/errors";
 import type { ProviderBranch, ProviderRepository } from "@kiwi/connectors";
 import { syncConnectorResourceGraphSpec } from "@kiwi/worker/sync-connector-resource-graph-spec";
-import { eq } from "drizzle-orm";
+import { eq } from "@kiwi/db/drizzle";
 import {
     assertCanUseInstallation,
     requireActiveConnector,

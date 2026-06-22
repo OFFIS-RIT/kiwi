@@ -7,7 +7,7 @@ import {
     connectorWebhookEventsTable,
 } from "@kiwi/db/tables/connectors";
 import { syncConnectorResourceGraphSpec } from "@kiwi/worker/sync-connector-resource-graph-spec";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or } from "@kiwi/db/drizzle";
 import { ow } from "../../../openworkflow";
 import { toApiError } from "../../_shared/api-effect";
 import type { ConnectorWebhookCandidate, NormalizedConnectorWebhook } from "./request";

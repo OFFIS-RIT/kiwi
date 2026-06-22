@@ -3,7 +3,7 @@ import { tryDb } from "@kiwi/db/effect";
 import { teamMemberRolesTable, teamMemberTable, teamTable } from "@kiwi/db/tables/auth";
 import type { TeamPatchInput } from "@kiwi/contracts/teams";
 import { teamNotFoundError } from "@kiwi/contracts/errors";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import { requireOrganizationAdmin } from "../../lib/team/access";
 import type { AuthUser } from "../../middleware/auth";
 import { toApiError, tryApiSync } from "../_shared/api-effect";

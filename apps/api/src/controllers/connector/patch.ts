@@ -3,7 +3,7 @@ import { tryDb, type Database } from "@kiwi/db/effect";
 import { connectorsTable } from "@kiwi/db/tables/connectors";
 import type { ConnectorPatchInput } from "@kiwi/contracts/connectors";
 import { API_ERROR_CODES } from "@kiwi/contracts/errors";
-import { eq } from "drizzle-orm";
+import { eq } from "@kiwi/db/drizzle";
 import type { AuthUser } from "../../middleware/auth";
 import { encryptSecret, toPublicConnector } from "../../lib/connectors";
 import { assertSystemAdmin } from "../../lib/connector/api";

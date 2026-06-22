@@ -14,7 +14,7 @@ import { deriveAuthMode, getLdapConfigState } from "./mode";
 import { DEFAULT_ORGANIZATION_SLUG } from "./organization";
 import { apiKey } from "@better-auth/api-key";
 import * as authTables from "@kiwi/db/tables/auth";
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "@kiwi/db/drizzle";
 
 function parseBooleanEnv(value?: string) {
     if (!value) {

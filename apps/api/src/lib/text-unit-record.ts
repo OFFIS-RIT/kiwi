@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "@kiwi/db/drizzle";
 import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { filesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import type { TextUnitRecord } from "../types/routes";

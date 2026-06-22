@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import { tryDb, type Database } from "@kiwi/db/effect";
 import { connectorInstallationsTable } from "@kiwi/db/tables/connectors";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "@kiwi/db/drizzle";
 import { assertCanUseInstallation, requireActiveConnector } from "../../../lib/connector-access";
 import { toPublicInstallation } from "../../../lib/connectors";
 import type { AuthUser } from "../../../middleware/auth";
