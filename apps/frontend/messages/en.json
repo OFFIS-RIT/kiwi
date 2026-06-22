@@ -91,6 +91,7 @@
     "copied.code": "Code copied",
     "start.recording": "Start voice input",
     "stop.recording": "Stop voice input",
+    "stop.response": "Stop response",
     "play.message": "Play",
     "stop.speaking": "Stop",
     "deep.mode": "Deep Mode",

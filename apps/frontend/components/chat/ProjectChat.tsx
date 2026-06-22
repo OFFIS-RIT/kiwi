@@ -37,6 +37,7 @@ import {
     MicOff,
     RotateCcw,
     SendIcon,
+    Square,
     Volume2,
     VolumeX,
     X,
@@ -512,7 +513,7 @@ function ProjectChatSession({
         }
     }, [selectedModelId, selectableModels]);
 
-    const { messages, sendMessage, status, addToolOutput } = useChat<ChatUIMessage>({
+    const { messages, sendMessage, status, addToolOutput, stop } = useChat<ChatUIMessage>({
         chat: entry.chat,
     });
 
@@ -915,21 +916,31 @@ function ProjectChatSession({
                             {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                         </Button>
                     )}
-                    <Button
-                        size="icon"
-                        onClick={() => void handleSendMessage()}
-                        disabled={
-                            !inputValue.trim() ||
-                            isAssistantTyping ||
-                            isRecording ||
-                            !!pendingClarification ||
-                            noModelsConfigured
-                        }
-                        className={isEmptyChat ? "h-10 w-10 shrink-0" : undefined}
-                    >
-                        <SendIcon className="h-4 w-4" />
-                        <span className="sr-only">{t("send.message")}</span>
-                    </Button>
+                    {isAssistantTyping ? (
+                        <Button
+                            size="icon"
+                            onClick={() => stop()}
+                            className={isEmptyChat ? "h-10 w-10 shrink-0" : undefined}
+                        >
+                            <Square className="h-4 w-4" />
+                            <span className="sr-only">{t("stop.response")}</span>
+                        </Button>
+                    ) : (
+                        <Button
+                            size="icon"
+                            onClick={() => void handleSendMessage()}
+                            disabled={
+                                !inputValue.trim() ||
+                                isRecording ||
+                                !!pendingClarification ||
+                                noModelsConfigured
+                            }
+                            className={isEmptyChat ? "h-10 w-10 shrink-0" : undefined}
+                        >
+                            <SendIcon className="h-4 w-4" />
+                            <span className="sr-only">{t("send.message")}</span>
+                        </Button>
+                    )}
                 </div>
             </div>
         </div>
