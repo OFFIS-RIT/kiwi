@@ -36,7 +36,6 @@ import { processFilesSpec } from "./process-files-spec";
 import { deleteGraphFileProcessingArtifacts, getGraphFileArtifactPaths } from "../lib/derived-files";
 import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
 import { processDescriptionsGroupsSpec, DESCRIPTION_BATCHES_PER_GROUP } from "./process-descriptions-group-spec";
-import { chunkItems } from "../lib/chunk";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { getFileTypeProcessingConfig } from "../lib/file-type-config";
 import { toTextUnitRows } from "../lib/text-unit-rows";
@@ -233,7 +232,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
                 );
             }
 
-            const groupResults = await Promise.all(groupPromises);
+            const groupResults = await Promise.allSettled(groupPromises);
             if (groupResults.length > 0 && groupResults.every((result) => result.status === "rejected")) {
                 throw new Error(`All ${groupResults.length} description groups failed`);
             }
