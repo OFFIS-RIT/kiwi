@@ -1,35 +1,35 @@
 import { defineWorkflow } from "openworkflow";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
-import { processDescriptionsGroupsSpec, DESCRIPTION_BATCHES_PER_GROUP } from "./process-descriptions-group-spec";
+import { processDescriptionsGroupsSpec } from "./process-descriptions-group-spec";
 import { chunkItems } from "../lib/chunk";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 
+/**
+ * Spawns update-descriptions sub-workflows for a slice of entity/relationship IDs.
+ * Each process-descriptions-group call handles at most DESCRIPTION_BATCHES_PER_GROUP
+ * worth of IDs (pre-sliced by process-files), so this simply batches them for
+ * update-descriptions without additional grouping.
+ */
 export const processDescriptionsGroups = defineWorkflow(
     processDescriptionsGroupsSpec,
     async ({ input, step }) => {
         const entityIdBatches = chunkItems(input.entityIds, DESCRIPTION_BATCH_SIZE);
         const relationshipIdBatches = chunkItems(input.relationshipIds, DESCRIPTION_BATCH_SIZE);
 
-        const allBatches = [
-            ...entityIdBatches.map((entityIds) => ({ entityIds, relationshipIds: [] as string[] })),
-            ...relationshipIdBatches.map((relationshipIds) => ({ entityIds: [] as string[], relationshipIds })),
-        ];
+        for (const entityIds of entityIdBatches) {
+            await step.runWorkflow(updateDescriptionsSpec, {
+                graphId: input.graphId,
+                entityIds,
+                relationshipIds: [],
+            });
+        }
 
-        const batchesPerGroup = Math.min(DESCRIPTION_BATCHES_PER_GROUP, allBatches.length);
-        const groupSize = Math.ceil(allBatches.length / batchesPerGroup);
-
-        for (let i = 0; i < allBatches.length; i += groupSize) {
-            const groupBatches = allBatches.slice(i, i + groupSize);
-            const groupEntityIds = groupBatches.flatMap((b) => b.entityIds);
-            const groupRelationshipIds = groupBatches.flatMap((b) => b.relationshipIds);
-
-            if (groupEntityIds.length > 0 || groupRelationshipIds.length > 0) {
-                await step.runWorkflow(updateDescriptionsSpec, {
-                    graphId: input.graphId,
-                    entityIds: groupEntityIds,
-                    relationshipIds: groupRelationshipIds,
-                });
-            }
+        for (const relationshipIds of relationshipIdBatches) {
+            await step.runWorkflow(updateDescriptionsSpec, {
+                graphId: input.graphId,
+                entityIds: [],
+                relationshipIds,
+            });
         }
     }
 );
