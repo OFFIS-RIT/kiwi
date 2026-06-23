@@ -209,7 +209,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
         const totalBatches = totalEntityBatches + totalRelationshipBatches;
         const groupsCount = Math.ceil(totalBatches / DESCRIPTION_BATCHES_PER_GROUP);
 
-        await step.run({ name: "generate-descriptions" }, async () => {
+        await step.run({ name: "spawn-description-groups" }, async () => {
             const entityIdBatches = chunkItems(descriptions.entityIds, DESCRIPTION_BATCH_SIZE);
             const relationshipIdBatches = chunkItems(descriptions.relationshipIds, DESCRIPTION_BATCH_SIZE);
             const allBatches = [
