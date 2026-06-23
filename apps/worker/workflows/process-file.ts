@@ -35,7 +35,7 @@ import { chunkItems } from "../lib/chunk";
 import { processFilesSpec } from "./process-files-spec";
 import { deleteGraphFileProcessingArtifacts, getGraphFileArtifactPaths } from "../lib/derived-files";
 import { buildMetadata, buildMetadataExcerpt } from "../lib/metadata";
-import { updateDescriptionsSpec } from "./update-descriptions-spec";
+import { processDescriptionsGroupsSpec, DESCRIPTION_BATCHES_PER_GROUP } from "./process-descriptions-group-spec";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
 import { getFileTypeProcessingConfig } from "../lib/file-type-config";
 import { toTextUnitRows } from "../lib/text-unit-rows";
@@ -200,20 +200,42 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             };
         });
 
-        await Promise.all([
-            ...chunkItems(descriptions.entityIds, DESCRIPTION_BATCH_SIZE).map((entityIds) =>
-                step.runWorkflow(updateDescriptionsSpec, {
+        // Two-level fan-out: spawn groups of description batches to avoid exceeding
+        // the OpenWorkflow step limit (1000) on large projects with many entities/relationships.
+        // Each group spawns update-descriptions sub-workflows internally, so the parent workflow
+        // only counts one step per group instead of one step per batch.
+        const totalEntityBatches = chunkItems(descriptions.entityIds, DESCRIPTION_BATCH_SIZE).length;
+        const totalRelationshipBatches = chunkItems(descriptions.relationshipIds, DESCRIPTION_BATCH_SIZE).length;
+        const totalBatches = totalEntityBatches + totalRelationshipBatches;
+        const groupsCount = Math.ceil(totalBatches / DESCRIPTION_BATCHES_PER_GROUP);
+
+        const entityIdBatches = chunkItems(descriptions.entityIds, DESCRIPTION_BATCH_SIZE);
+        const relationshipIdBatches = chunkItems(descriptions.relationshipIds, DESCRIPTION_BATCH_SIZE);
+        const allBatches = [
+            ...entityIdBatches.map((ids) => ({ entityIds: ids, relationshipIds: [] as string[] })),
+            ...relationshipIdBatches.map((ids) => ({ entityIds: [] as string[], relationshipIds: ids })),
+        ];
+
+        const groupPromises = [];
+        for (let i = 0; i < groupsCount; i++) {
+            const groupBatches = allBatches.slice(i * DESCRIPTION_BATCHES_PER_GROUP, (i + 1) * DESCRIPTION_BATCHES_PER_GROUP);
+            const groupEntityIds = groupBatches.flatMap((b) => b.entityIds);
+            const groupRelationshipIds = groupBatches.flatMap((b) => b.relationshipIds);
+
+            groupPromises.push(
+                step.runWorkflow(processDescriptionsGroupsSpec, {
                     graphId: input.graphId,
-                    entityIds,
+                    entityIds: groupEntityIds,
+                    relationshipIds: groupRelationshipIds,
                 })
-            ),
-            ...chunkItems(descriptions.relationshipIds, DESCRIPTION_BATCH_SIZE).map((relationshipIds) =>
-                step.runWorkflow(updateDescriptionsSpec, {
-                    graphId: input.graphId,
-                    relationshipIds,
-                })
-            ),
-        ]);
+            );
+        }
+
+        const groupResults = await Promise.allSettled(groupPromises);
+        const failedGroups = groupResults.filter((r) => r.status === "rejected");
+        if (failedGroups.length > 0) {
+            throw new Error(`${failedGroups.length} of ${groupResults.length} description groups failed`);
+        }
 
         await step.run({ name: "finalize-project-status" }, async () => {
             await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
