@@ -8,3 +8,4 @@ export * from "./prompts";
 export * from "./schema";
 export * from "./source";
 export * from "./teams";
+export * from "./workers";

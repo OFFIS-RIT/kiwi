@@ -4,6 +4,7 @@ import { withWorkerDb, withWorkerDbVoid, type WorkerServices } from "../runtime/
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { unexpiredSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
 import { and, eq, inArray, isNotNull, sql } from "@kiwi/db/drizzle";
+import { textArray } from "../db/sql";
 import { embed, embedMany } from "ai";
 import { withAiSlot } from "@kiwi/ai";
 import { buildDescription } from "./build";
@@ -14,6 +15,20 @@ import { DESCRIPTION_BATCH_SIZE } from "./workflow";
 type SourceEmbeddingUpdate = {
     id: string;
     embedding: number[];
+};
+
+type DescriptionUpdate = {
+    id: string;
+    description: string;
+    embedding: number[];
+    sourceEmbeddings: SourceEmbeddingUpdate[];
+};
+
+type DescriptionGenerationResult = { type: "deactivate"; id: string } | { type: "update"; update: DescriptionUpdate };
+
+type DescriptionPersistenceBatch = {
+    updates: DescriptionUpdate[];
+    deactivateIds: string[];
 };
 
 type DescriptionClient = Effect.Success<ReturnType<typeof createWorkerClient>>;
@@ -34,16 +49,15 @@ export function createDescriptionClient(graphId: string): Effect.Effect<Descript
     return createWorkerClient(graphId);
 }
 
-export function updateSourceEmbeddingsBatch(
+export const updateSourceEmbeddingsBatch = Effect.fn("updateSourceEmbeddingsBatch")(function* (
     tx: Pick<DatabaseTransaction, "execute">,
     updates: SourceEmbeddingUpdate[]
-): Effect.Effect<void, unknown> {
-    return Effect.gen(function* () {
-        if (updates.length === 0) {
-            return;
-        }
+) {
+    if (updates.length === 0) {
+        return;
+    }
 
-        yield* tx.execute(sql`
+    yield* tx.execute(sql`
         UPDATE sources AS source
         SET embedding = batch.embedding::vector,
             active = true
@@ -56,8 +70,91 @@ export function updateSourceEmbeddingsBatch(
         WHERE source.id = batch.id
           AND source.valid_until IS NULL
     `);
-    });
-}
+});
+
+const updateEntityDescriptionsBatch = Effect.fn("updateEntityDescriptionsBatch")(function* (
+    tx: Pick<DatabaseTransaction, "execute">,
+    updates: DescriptionUpdate[]
+) {
+    if (updates.length === 0) {
+        return;
+    }
+
+    yield* tx.execute(sql`
+        UPDATE entities AS entity
+        SET description = batch.description,
+            embedding = batch.embedding::vector,
+            active = true,
+            updated_at = NOW()
+        FROM (
+            VALUES ${sql.join(
+                updates.map(
+                    (update) => sql`(${update.id}, ${update.description}, ${JSON.stringify(update.embedding)})`
+                ),
+                sql`, `
+            )}
+        ) AS batch(id, description, embedding)
+        WHERE entity.id = batch.id
+    `);
+});
+
+const updateRelationshipDescriptionsBatch = Effect.fn("updateRelationshipDescriptionsBatch")(function* (
+    tx: Pick<DatabaseTransaction, "execute">,
+    updates: DescriptionUpdate[]
+) {
+    if (updates.length === 0) {
+        return;
+    }
+
+    yield* tx.execute(sql`
+        UPDATE relationships AS relationship
+        SET description = batch.description,
+            embedding = batch.embedding::vector,
+            active = true,
+            updated_at = NOW()
+        FROM (
+            VALUES ${sql.join(
+                updates.map(
+                    (update) => sql`(${update.id}, ${update.description}, ${JSON.stringify(update.embedding)})`
+                ),
+                sql`, `
+            )}
+        ) AS batch(id, description, embedding)
+        WHERE relationship.id = batch.id
+    `);
+});
+
+const deactivateEntitiesBatch = Effect.fn("deactivateEntitiesBatch")(function* (
+    tx: Pick<DatabaseTransaction, "execute">,
+    ids: string[]
+) {
+    if (ids.length === 0) {
+        return;
+    }
+
+    yield* tx.execute(sql`
+        UPDATE entities
+        SET active = false,
+            updated_at = NOW()
+        WHERE id = ANY(${textArray(ids)})
+    `);
+});
+
+const deactivateRelationshipsBatch = Effect.fn("deactivateRelationshipsBatch")(function* (
+    tx: Pick<DatabaseTransaction, "execute">,
+    ids: string[]
+) {
+    if (ids.length === 0) {
+        return;
+    }
+
+    yield* tx.execute(sql`
+        UPDATE relationships
+        SET active = false,
+            updated_at = NOW()
+        WHERE id = ANY(${textArray(ids)})
+    `);
+});
 
 function groupSources<T extends { id: string; description: string }, TKey extends string | null | undefined>(
     rows: T[],
@@ -83,68 +180,81 @@ function groupSources<T extends { id: string; description: string }, TKey extend
     return grouped;
 }
 
+const generateDescriptionUpdate = Effect.fn("generateDescriptionUpdate")(function* (
+    item: DescriptionItem,
+    client: DescriptionClient
+): Effect.fn.Return<DescriptionGenerationResult, unknown> {
+    if (item.sources.length === 0) {
+        return { type: "deactivate", id: item.id };
+    }
+
+    const sourceDescriptions = item.sources.map((source) => source.description);
+    const description = yield* buildDescription(client.text, item.name, sourceDescriptions, item.description);
+
+    const { embedding } = yield* Effect.tryPromise(() =>
+        withAiSlot("embedding", (signal) =>
+            embed({
+                model: client.embedding,
+                value: description,
+                abortSignal: signal,
+            })
+        )
+    );
+
+    const { embeddings: sourceEmbeddings } = yield* Effect.tryPromise(() =>
+        withAiSlot("embedding", (signal) =>
+            embedMany({
+                model: client.embedding,
+                values: sourceDescriptions,
+                abortSignal: signal,
+            })
+        )
+    );
+
+    return {
+        type: "update",
+        update: {
+            id: item.id,
+            description,
+            embedding,
+            sourceEmbeddings: item.sources.map((source, index) => ({
+                id: source.id,
+                embedding: sourceEmbeddings[index]!,
+            })),
+        },
+    };
+});
+
+function collectDescriptionPersistenceBatch(results: DescriptionGenerationResult[]): DescriptionPersistenceBatch {
+    const updates: DescriptionUpdate[] = [];
+    const deactivateIds: string[] = [];
+
+    for (const result of results) {
+        if (result.type === "update") {
+            updates.push(result.update);
+        } else {
+            deactivateIds.push(result.id);
+        }
+    }
+
+    return { updates, deactivateIds };
+}
+
 function regenerateDescriptions<R>(
     items: DescriptionItem[],
     client: DescriptionClient,
-    update: (args: {
-        id: string;
-        description: string;
-        embedding: number[];
-        sourceEmbeddings: SourceEmbeddingUpdate[];
-    }) => Effect.Effect<void, unknown, R>,
-    deactivate: (id: string) => Effect.Effect<void, unknown, R>
+    persistBatch: (batch: DescriptionPersistenceBatch) => Effect.Effect<void, unknown, R>
 ): Effect.Effect<void, unknown, R> {
     return Effect.gen(function* () {
         for (const chunk of chunkItems(items, DESCRIPTION_BATCH_SIZE)) {
-            yield* Effect.all(
-                chunk.map((item) =>
-                    Effect.gen(function* () {
-                        if (item.sources.length === 0) {
-                            yield* deactivate(item.id);
-                            return;
-                        }
-
-                        const sourceDescriptions = item.sources.map((source) => source.description);
-                        const description = yield* buildDescription(
-                            client.text,
-                            item.name,
-                            sourceDescriptions,
-                            item.description
-                        );
-
-                        const { embedding } = yield* Effect.tryPromise(() =>
-                            withAiSlot("embedding", (signal) =>
-                                embed({
-                                    model: client.embedding,
-                                    value: description,
-                                    abortSignal: signal,
-                                })
-                            )
-                        );
-
-                        const { embeddings: sourceEmbeddings } = yield* Effect.tryPromise(() =>
-                            withAiSlot("embedding", (signal) =>
-                                embedMany({
-                                    model: client.embedding,
-                                    values: sourceDescriptions,
-                                    abortSignal: signal,
-                                })
-                            )
-                        );
-
-                        yield* update({
-                            id: item.id,
-                            description,
-                            embedding,
-                            sourceEmbeddings: item.sources.map((source, index) => ({
-                                id: source.id,
-                                embedding: sourceEmbeddings[index]!,
-                            })),
-                        });
-                    })
-                ),
-                { concurrency: "unbounded" }
+            const results = yield* Effect.all(
+                chunk.map((item) => generateDescriptionUpdate(item, client)),
+                {
+                    concurrency: DESCRIPTION_BATCH_SIZE,
+                }
             );
+
+            yield* persistBatch(collectDescriptionPersistenceBatch(results));
         }
     });
 }
@@ -204,25 +314,23 @@ export function regenerateEntities(
                 sources: sourcesByEntity.get(entity.id) ?? [],
             })),
             descriptionClient,
-            ({ id, description, embedding, sourceEmbeddings }) =>
-                withWorkerDbVoid((db) =>
+            Effect.fn("regenerateEntities.persistBatch")(function* ({
+                updates,
+                deactivateIds,
+            }: DescriptionPersistenceBatch) {
+                yield* withWorkerDbVoid((db) =>
                     db.transaction((tx) =>
                         Effect.gen(function* () {
-                            yield* tx
-                                .update(entityTable)
-                                .set({
-                                    description,
-                                    embedding,
-                                    active: true,
-                                })
-                                .where(eq(entityTable.id, id));
-
-                            yield* updateSourceEmbeddingsBatch(tx, sourceEmbeddings);
+                            yield* updateEntityDescriptionsBatch(tx, updates);
+                            yield* deactivateEntitiesBatch(tx, deactivateIds);
+                            yield* updateSourceEmbeddingsBatch(
+                                tx,
+                                updates.flatMap((update) => update.sourceEmbeddings)
+                            );
                         })
                     )
-                ),
-            (id) =>
-                withWorkerDbVoid((db) => db.update(entityTable).set({ active: false }).where(eq(entityTable.id, id)))
+                );
+            })
         );
     });
 }
@@ -301,27 +409,23 @@ export function regenerateRelationships(
                 sources: relationshipSourcesById.get(relationship.id) ?? [],
             })),
             descriptionClient,
-            ({ id, description, embedding, sourceEmbeddings }) =>
-                withWorkerDbVoid((db) =>
+            Effect.fn("regenerateRelationships.persistBatch")(function* ({
+                updates,
+                deactivateIds,
+            }: DescriptionPersistenceBatch) {
+                yield* withWorkerDbVoid((db) =>
                     db.transaction((tx) =>
                         Effect.gen(function* () {
-                            yield* tx
-                                .update(relationshipTable)
-                                .set({
-                                    description,
-                                    embedding,
-                                    active: true,
-                                })
-                                .where(eq(relationshipTable.id, id));
-
-                            yield* updateSourceEmbeddingsBatch(tx, sourceEmbeddings);
+                            yield* updateRelationshipDescriptionsBatch(tx, updates);
+                            yield* deactivateRelationshipsBatch(tx, deactivateIds);
+                            yield* updateSourceEmbeddingsBatch(
+                                tx,
+                                updates.flatMap((update) => update.sourceEmbeddings)
+                            );
                         })
                     )
-                ),
-            (id) =>
-                withWorkerDbVoid((db) =>
-                    db.update(relationshipTable).set({ active: false }).where(eq(relationshipTable.id, id))
-                )
+                );
+            })
         );
     });
 }

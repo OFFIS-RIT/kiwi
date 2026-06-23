@@ -12,6 +12,7 @@ process.env.DATABASE_DIRECT_URL = "postgres://user:pass@localhost:5432/kiwi";
 // Dynamic import is required so this test can seed worker env vars before env.ts is evaluated.
 const { fileProcessingWorkflow, shouldAbortRepositoryBatch, shouldFinalizeRepositoryBatch } =
     await import("./process-file");
+const { allSettledWithConcurrency } = await import("./process-descriptions-group");
 const { resolveRepositoryFinalizationTargets } = await import("../lib/code/repository-finalizer");
 
 describe("fileProcessingWorkflow", () => {
@@ -30,6 +31,37 @@ describe("fileProcessingWorkflow", () => {
             graphId: "graph-1",
             fileId: "text-file",
         });
+    });
+});
+
+describe("allSettledWithConcurrency", () => {
+    test("limits active work and preserves all-settled results", async () => {
+        let active = 0;
+        let maxActive = 0;
+
+        const results = await allSettledWithConcurrency([1, 2, 3, 4, 5], 2, async (item) => {
+            active += 1;
+            maxActive = Math.max(maxActive, active);
+            await new Promise((resolve) => setTimeout(resolve, 1));
+            active -= 1;
+
+            if (item === 4) {
+                throw new Error("child failed");
+            }
+
+            return item * 2;
+        });
+
+        expect(maxActive).toBeLessThanOrEqual(2);
+        expect(results.map((result) => result.status)).toEqual([
+            "fulfilled",
+            "fulfilled",
+            "fulfilled",
+            "rejected",
+            "fulfilled",
+        ]);
+        expect(results[0]).toEqual({ status: "fulfilled", value: 2 });
+        expect((results[3] as PromiseRejectedResult).reason).toBeInstanceOf(Error);
     });
 });
 

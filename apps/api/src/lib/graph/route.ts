@@ -18,13 +18,8 @@ import { API_ERROR_CODES } from "../../types";
 import { mapApiError } from "../../controllers/_shared/api-effect";
 import type { GraphDetailFileRecord, GraphFileRecord, GraphListItem, GraphRecentChatItem } from "../../types/routes";
 import { selectGraphFields, type GraphRecord } from "./access";
-import {
-    buildDeleteStepProgress,
-    buildProcessPercentage,
-    buildProcessStepProgress,
-    buildProcessTimeEstimate,
-    type StepProgress,
-} from "../process-progress";
+import { buildDeleteStepProgress, buildProcessPercentage, buildProcessStepProgress } from "../process-progress";
+import { WorkerEta, type WorkerEtaAverage, type WorkerEtaFileState, type WorkerEtaSizeBucket } from "../worker-eta";
 import { findActiveDeleteGraphFilesProgress, findProcessDescriptionProgress } from "../workflow-progress";
 import type { GraphFileType } from "../graph-file-type";
 import type { FileWithChecksum } from "./upload-file-type";
@@ -83,9 +78,10 @@ type RunRow = {
     id: string;
     graph_id: string;
     status: ProcessRunStatus;
+    started_at: Date | null;
 };
 
-type SizeBucket = "tiny" | "small" | "medium" | "large" | "huge";
+type SizeBucket = WorkerEtaSizeBucket;
 
 type RunFile = {
     process_run_id: string;
@@ -94,10 +90,7 @@ type RunFile = {
     type: string;
 };
 
-type Average = {
-    duration: number;
-    samples: number;
-};
+type Average = WorkerEtaAverage;
 
 type RecentChatRow = {
     id: string;
@@ -106,9 +99,6 @@ type RecentChatRow = {
     isPinned: boolean;
     updatedAt: Date | string | null;
 };
-
-const MIN_BUCKET_SAMPLE_COUNT = 3;
-const MIN_TYPE_SAMPLE_COUNT = 5;
 
 type StatusFn = (code: number, body: unknown) => unknown;
 
@@ -157,63 +147,20 @@ export const toGraphFileRecord = (file: GraphFileRow): GraphDetailFileRecord => 
     updated_at: file.updated_at?.toISOString() ?? null,
 });
 
-function getFileSizeBucket(bytes: number): SizeBucket {
-    if (bytes < 100_000) return "tiny";
-    if (bytes < 1_000_000) return "small";
-    if (bytes < 10_000_000) return "medium";
-    if (bytes < 50_000_000) return "large";
-    return "huge";
-}
-
-function pickAverage(
-    file: RunFile,
-    bucketAverages: Map<string, Average>,
-    typeAverages: Map<string, Average>,
-    globalAverage?: Average
-): Average | undefined {
-    const bucketAverage = bucketAverages.get(`${file.type}:${getFileSizeBucket(file.size)}`);
-    if (bucketAverage && bucketAverage.samples >= MIN_BUCKET_SAMPLE_COUNT) {
-        return bucketAverage;
+function toWorkerEtaFileState(step: FileProcessStep): WorkerEtaFileState {
+    if (step === "pending") {
+        return "waiting";
     }
 
-    const typeAverage = typeAverages.get(file.type);
-    if (typeAverage && typeAverage.samples >= MIN_TYPE_SAMPLE_COUNT) {
-        return typeAverage;
+    if (step === "completed") {
+        return "completed";
     }
 
-    if (globalAverage && globalAverage.samples > 0) {
-        return globalAverage;
+    if (step === "failed") {
+        return "failed";
     }
 
-    return undefined;
-}
-
-function buildTimeEstimate(
-    run: RunRow,
-    files: RunFile[],
-    bucketAverages: Map<string, Average>,
-    typeAverages: Map<string, Average>,
-    globalAverage?: Average,
-    descriptionProgress?: StepProgress
-): Pick<GraphListItem, "process_estimated_duration" | "process_time_remaining"> {
-    if (run.status !== "started" || files.length === 0) {
-        return {};
-    }
-
-    const estimatedFiles = [];
-    for (const file of files) {
-        const estimate = pickAverage(file, bucketAverages, typeAverages, globalAverage);
-        if (!estimate) {
-            continue;
-        }
-
-        estimatedFiles.push({
-            process_step: file.process_step,
-            estimated_duration: estimate.duration,
-        });
-    }
-
-    return buildProcessTimeEstimate(estimatedFiles, descriptionProgress);
+    return "active";
 }
 
 function textArray(values: readonly string[]) {
@@ -546,7 +493,7 @@ export const mapGraphListItem = (
 export function mapGraphListItemsWithProcessing(
     graphs: GraphListRow[],
     userId: string
-): Effect.Effect<GraphListItem[], unknown, Database> {
+): Effect.Effect<GraphListItem[], unknown, Database | WorkerEta> {
     return Effect.catchDefect(
         Effect.gen(function* () {
             if (graphs.length === 0) {
@@ -554,6 +501,7 @@ export function mapGraphListItemsWithProcessing(
             }
 
             const graphIds = graphs.map((graph) => graph.graph_id);
+            const workerEta = yield* WorkerEta;
             const sizeBucket = sql<SizeBucket>`CASE
             WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 100000 THEN 'tiny'
             WHEN ${processStatsTable.fileSizes} / NULLIF(${processStatsTable.files}, 0) < 1000000 THEN 'small'
@@ -571,6 +519,7 @@ export function mapGraphListItemsWithProcessing(
                                     id: processRunsTable.id,
                                     graph_id: processRunsTable.graphId,
                                     status: processRunsTable.status,
+                                    started_at: processRunsTable.startedAt,
                                 })
                                 .from(processRunsTable)
                                 .where(
@@ -681,56 +630,76 @@ export function mapGraphListItemsWithProcessing(
                       }
                     : undefined;
 
-            return yield* Effect.try({
-                try: () =>
-                    graphs.map((graph) => {
-                        const deleteProgress = deleteProgressByGraphId.get(graph.graph_id);
-                        if (deleteProgress) {
-                            return mapGraphListItem(
+            const items: GraphListItem[] = [];
+            for (const graph of graphs) {
+                const deleteProgress = deleteProgressByGraphId.get(graph.graph_id);
+                if (deleteProgress) {
+                    items.push(
+                        yield* Effect.try({
+                            try: () =>
+                                mapGraphListItem(
+                                    {
+                                        ...graph,
+                                        graph_state: "updating",
+                                    },
+                                    recentChatsByGraphId.get(graph.graph_id) ?? [],
+                                    buildDeleteStepProgress(deleteProgress)
+                                ),
+                            catch: (error) => error,
+                        })
+                    );
+                    continue;
+                }
+
+                const run = runByGraphId.get(graph.graph_id);
+                if (!run) {
+                    items.push(
+                        yield* Effect.try({
+                            try: () => mapGraphListItem(graph, recentChatsByGraphId.get(graph.graph_id) ?? []),
+                            catch: (error) => error,
+                        })
+                    );
+                    continue;
+                }
+
+                const files = filesByRunId.get(run.id) ?? [];
+                const descriptionProgress = descriptionProgressByRunId.get(run.id);
+                const eta = yield* workerEta.estimateProcessRun({
+                    status: run.status,
+                    startedAt: run.started_at,
+                    files: files.map((file) => ({
+                        type: file.type,
+                        size: file.size,
+                        state: toWorkerEtaFileState(file.process_step),
+                    })),
+                    bucketAverages,
+                    typeAverages,
+                    globalAverage,
+                    descriptionProgress,
+                    workerConcurrency: env.WORKER_CONCURRENCY,
+                });
+
+                items.push(
+                    yield* Effect.try({
+                        try: () =>
+                            mapGraphListItem(
                                 {
                                     ...graph,
                                     graph_state: "updating",
                                 },
                                 recentChatsByGraphId.get(graph.graph_id) ?? [],
-                                buildDeleteStepProgress(deleteProgress)
-                            );
-                        }
+                                {
+                                    process_step: buildProcessStepProgress(run, files, descriptionProgress),
+                                    process_percentage: buildProcessPercentage(files, descriptionProgress),
+                                    ...(eta ?? {}),
+                                }
+                            ),
+                        catch: (error) => error,
+                    })
+                );
+            }
 
-                        const run = runByGraphId.get(graph.graph_id);
-                        if (!run) {
-                            return mapGraphListItem(graph, recentChatsByGraphId.get(graph.graph_id) ?? []);
-                        }
-                        const files = filesByRunId.get(run.id) ?? [];
-
-                        return mapGraphListItem(
-                            {
-                                ...graph,
-                                graph_state: "updating",
-                            },
-                            recentChatsByGraphId.get(graph.graph_id) ?? [],
-                            {
-                                process_step: buildProcessStepProgress(
-                                    run,
-                                    files,
-                                    descriptionProgressByRunId.get(run.id)
-                                ),
-                                process_percentage: buildProcessPercentage(
-                                    files,
-                                    descriptionProgressByRunId.get(run.id)
-                                ),
-                                ...buildTimeEstimate(
-                                    run,
-                                    files,
-                                    bucketAverages,
-                                    typeAverages,
-                                    globalAverage,
-                                    descriptionProgressByRunId.get(run.id)
-                                ),
-                            }
-                        );
-                    }),
-                catch: (error) => error,
-            });
+            return items;
         }),
         (defect) => Effect.fail(defect)
     );

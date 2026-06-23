@@ -16,7 +16,6 @@ const FILE_STEP_PROGRESS: Record<FileProcessStep, number> = {
 const PROCESS_FILE_PHASE_PERCENTAGE = 90;
 const PROCESS_DESCRIPTION_PHASE_PERCENTAGE = 100 - PROCESS_FILE_PHASE_PERCENTAGE;
 const MAX_ACTIVE_PROCESS_PERCENTAGE = 99;
-const ETA_BUFFER_MULTIPLIER = 1.15;
 
 type RunRow = {
     status: ProcessRunStatus;
@@ -89,38 +88,6 @@ export function buildProcessPercentage(files: RunFile[], descriptionProgress?: S
         Math.round(descriptionRatio(descriptionProgress) * PROCESS_DESCRIPTION_PHASE_PERCENTAGE);
 
     return Math.max(PROCESS_FILE_PHASE_PERCENTAGE, Math.min(MAX_ACTIVE_PROCESS_PERCENTAGE, percentage));
-}
-
-export function buildProcessTimeEstimate(
-    files: EstimatedRunFile[],
-    descriptionProgress?: StepProgress
-): { process_estimated_duration: number; process_time_remaining: number } | Record<string, never> {
-    if (files.length === 0) {
-        return {};
-    }
-
-    let estimatedFileDuration = 0;
-    let fileTimeRemaining = 0;
-
-    for (const file of files) {
-        estimatedFileDuration += file.estimated_duration;
-        fileTimeRemaining += file.estimated_duration * (1 - fileStepProgress(file.process_step) / 100);
-    }
-
-    if (estimatedFileDuration <= 0) {
-        return {};
-    }
-
-    const estimatedDescriptionDuration =
-        estimatedFileDuration * (PROCESS_DESCRIPTION_PHASE_PERCENTAGE / PROCESS_FILE_PHASE_PERCENTAGE);
-    const descriptionTimeRemaining = estimatedDescriptionDuration * (1 - descriptionRatio(descriptionProgress));
-
-    return {
-        process_estimated_duration: Math.ceil(
-            (estimatedFileDuration + estimatedDescriptionDuration) * ETA_BUFFER_MULTIPLIER
-        ),
-        process_time_remaining: Math.ceil((fileTimeRemaining + descriptionTimeRemaining) * ETA_BUFFER_MULTIPLIER),
-    };
 }
 
 export function buildProcessStepProgress(

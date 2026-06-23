@@ -7,9 +7,10 @@ import { and, asc, eq, isNull, or } from "@kiwi/db/drizzle";
 import type { AuthUser } from "../../middleware/auth";
 import type { GraphListItem } from "../../types/routes";
 import { requireOrganizationMembership } from "../team/access";
+import type { WorkerEta } from "../worker-eta";
 import { mapGraphListItemsWithProcessing, selectGraphListFields } from "./route";
 
-export function listAccessibleGraphs(user: AuthUser): Effect.Effect<GraphListItem[], unknown, Database> {
+export function listAccessibleGraphs(user: AuthUser): Effect.Effect<GraphListItem[], unknown, Database | WorkerEta> {
     return Effect.gen(function* () {
         const membership = yield* requireOrganizationMembership(user);
         const organizationId = membership.organizationId;

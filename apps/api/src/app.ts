@@ -16,6 +16,7 @@ import { promptsRoute } from "./routes/prompts";
 import { searchRoute } from "./routes/search";
 import { teamChatRoute } from "./routes/team-chat";
 import { teamRoute } from "./routes/team";
+import { workersRoute } from "./routes/workers";
 
 export type ApiAppOptions = {
     trustedOrigins: readonly string[];
@@ -57,5 +58,6 @@ export function createApiApp(options: ApiAppOptions) {
         .use(searchRoute)
         .use(teamChatRoute)
         .use(teamRoute)
+        .use(workersRoute)
         .get("/health", () => ({ status: "ok" }));
 }

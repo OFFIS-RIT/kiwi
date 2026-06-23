@@ -20,6 +20,7 @@ export const env = createEnv({
         S3_ENDPOINT: z.url(),
         S3_REGION: z.string(),
         S3_BUCKET: z.string(),
+        WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
     },
     runtimeEnv: process.env,
 });

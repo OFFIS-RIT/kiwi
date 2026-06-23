@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-    buildDeleteStepProgress,
-    buildProcessPercentage,
-    buildProcessStepProgress,
-    buildProcessTimeEstimate,
-} from "../process-progress";
+import { buildDeleteStepProgress, buildProcessPercentage, buildProcessStepProgress } from "../process-progress";
 
 describe("buildProcessStepProgress", () => {
     test("returns undefined for an empty file list", () => {
@@ -87,39 +82,6 @@ describe("buildProcessPercentage", () => {
                 total: 3,
             })
         ).toBe(99);
-    });
-});
-
-describe("buildProcessTimeEstimate", () => {
-    test("includes the description phase in total duration and remaining time", () => {
-        expect(
-            buildProcessTimeEstimate([
-                {
-                    process_step: "completed",
-                    estimated_duration: 900,
-                },
-            ])
-        ).toEqual({
-            process_estimated_duration: 1150,
-            process_time_remaining: 115,
-        });
-    });
-
-    test("reduces remaining time by description progress", () => {
-        expect(
-            buildProcessTimeEstimate(
-                [
-                    {
-                        process_step: "completed",
-                        estimated_duration: 900,
-                    },
-                ],
-                { done: 1, total: 2 }
-            )
-        ).toEqual({
-            process_estimated_duration: 1150,
-            process_time_remaining: 58,
-        });
     });
 });
 
