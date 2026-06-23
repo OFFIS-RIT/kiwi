@@ -16,20 +16,22 @@ export const processDescriptionsGroups = defineWorkflow(
         const entityIdBatches = chunkItems(input.entityIds, DESCRIPTION_BATCH_SIZE);
         const relationshipIdBatches = chunkItems(input.relationshipIds, DESCRIPTION_BATCH_SIZE);
 
-        for (const entityIds of entityIdBatches) {
-            await step.runWorkflow(updateDescriptionsSpec, {
+        const entityPromises = entityIdBatches.map((entityIds) =>
+            step.runWorkflow(updateDescriptionsSpec, {
                 graphId: input.graphId,
                 entityIds,
                 relationshipIds: [],
-            });
-        }
+            })
+        );
 
-        for (const relationshipIds of relationshipIdBatches) {
-            await step.runWorkflow(updateDescriptionsSpec, {
+        const relationshipPromises = relationshipIdBatches.map((relationshipIds) =>
+            step.runWorkflow(updateDescriptionsSpec, {
                 graphId: input.graphId,
                 entityIds: [],
                 relationshipIds,
-            });
-        }
+            })
+        );
+
+        await Promise.all([...entityPromises, ...relationshipPromises]);
     }
 );
