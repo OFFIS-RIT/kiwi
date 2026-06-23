@@ -1,12 +1,33 @@
 import { FILE_PROCESS_STEP_VALUES, type FileProcessStep, type ProcessRunStatus } from "@kiwi/db/tables/graph";
 import type { ApiBatchStepProgressLike } from "../types/routes";
 
+const FILE_STEP_PROGRESS: Record<FileProcessStep, number> = {
+    pending: 0,
+    preprocessing: 10,
+    metadata: 25,
+    chunking: 40,
+    extracting: 60,
+    deduplicating: 75,
+    saving: 90,
+    completed: 100,
+    failed: 100,
+};
+
+const PROCESS_FILE_PHASE_PERCENTAGE = 90;
+const PROCESS_DESCRIPTION_PHASE_PERCENTAGE = 100 - PROCESS_FILE_PHASE_PERCENTAGE;
+const MAX_ACTIVE_PROCESS_PERCENTAGE = 99;
+const ETA_BUFFER_MULTIPLIER = 1.15;
+
 type RunRow = {
     status: ProcessRunStatus;
 };
 
 type RunFile = {
     process_step: FileProcessStep;
+};
+
+export type EstimatedRunFile = RunFile & {
+    estimated_duration: number;
 };
 
 export type StepProgress = {
@@ -19,6 +40,88 @@ export type DeleteProgress = {
     files: StepProgress;
     descriptions: StepProgress;
 };
+
+function clampRatio(value: number) {
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+
+    return Math.max(0, Math.min(1, value));
+}
+
+function descriptionRatio(descriptionProgress?: StepProgress) {
+    if (!descriptionProgress || descriptionProgress.total <= 0) {
+        return 0;
+    }
+
+    return clampRatio(descriptionProgress.done / descriptionProgress.total);
+}
+
+function formatStepProgress(progress: StepProgress) {
+    const total = Math.max(0, progress.total);
+    const done = Math.max(0, Math.min(progress.done, total));
+    return `${done}/${total}`;
+}
+
+function fileStepProgress(step: FileProcessStep) {
+    return FILE_STEP_PROGRESS[step];
+}
+
+export function buildProcessPercentage(files: RunFile[], descriptionProgress?: StepProgress): number {
+    if (files.length === 0) {
+        return 0;
+    }
+
+    const totalProgress = files.reduce((sum, file) => sum + fileStepProgress(file.process_step), 0);
+    const fileProgressPercentage = totalProgress / files.length;
+    const filePhasePercentage = Math.round(fileProgressPercentage * (PROCESS_FILE_PHASE_PERCENTAGE / 100));
+
+    if (fileProgressPercentage < 100) {
+        return Math.max(0, Math.min(PROCESS_FILE_PHASE_PERCENTAGE, filePhasePercentage));
+    }
+
+    if (!descriptionProgress || descriptionProgress.total <= 0) {
+        return PROCESS_FILE_PHASE_PERCENTAGE;
+    }
+
+    const percentage =
+        PROCESS_FILE_PHASE_PERCENTAGE +
+        Math.round(descriptionRatio(descriptionProgress) * PROCESS_DESCRIPTION_PHASE_PERCENTAGE);
+
+    return Math.max(PROCESS_FILE_PHASE_PERCENTAGE, Math.min(MAX_ACTIVE_PROCESS_PERCENTAGE, percentage));
+}
+
+export function buildProcessTimeEstimate(
+    files: EstimatedRunFile[],
+    descriptionProgress?: StepProgress
+): { process_estimated_duration: number; process_time_remaining: number } | Record<string, never> {
+    if (files.length === 0) {
+        return {};
+    }
+
+    let estimatedFileDuration = 0;
+    let fileTimeRemaining = 0;
+
+    for (const file of files) {
+        estimatedFileDuration += file.estimated_duration;
+        fileTimeRemaining += file.estimated_duration * (1 - fileStepProgress(file.process_step) / 100);
+    }
+
+    if (estimatedFileDuration <= 0) {
+        return {};
+    }
+
+    const estimatedDescriptionDuration =
+        estimatedFileDuration * (PROCESS_DESCRIPTION_PHASE_PERCENTAGE / PROCESS_FILE_PHASE_PERCENTAGE);
+    const descriptionTimeRemaining = estimatedDescriptionDuration * (1 - descriptionRatio(descriptionProgress));
+
+    return {
+        process_estimated_duration: Math.ceil(
+            (estimatedFileDuration + estimatedDescriptionDuration) * ETA_BUFFER_MULTIPLIER
+        ),
+        process_time_remaining: Math.ceil((fileTimeRemaining + descriptionTimeRemaining) * ETA_BUFFER_MULTIPLIER),
+    };
+}
 
 export function buildProcessStepProgress(
     run: RunRow,
@@ -46,10 +149,10 @@ export function buildProcessStepProgress(
         counts[file.process_step] += 1;
     }
 
-    if (run.status === "started" && counts.completed === total) {
+    if (run.status === "started" && counts.completed + counts.failed === total) {
         if (descriptionProgress && descriptionProgress.total > 0) {
             return {
-                describing: `${descriptionProgress.done}/${descriptionProgress.total}`,
+                describing: formatStepProgress(descriptionProgress),
             };
         }
 
@@ -79,13 +182,13 @@ export function buildDeleteStepProgress(progress: DeleteProgress): {
         processStep.describing = `${progress.descriptions.done}/${progress.descriptions.total}`;
     }
 
-    const deletingRatio = progress.files.total > 0 ? progress.files.done / progress.files.total : 0;
-    const descriptionRatio =
-        progress.descriptions.total > 0 ? progress.descriptions.done / progress.descriptions.total : deletingRatio;
+    const deletingRatio = progress.files.total > 0 ? clampRatio(progress.files.done / progress.files.total) : 0;
+    const deleteDescriptionRatio =
+        progress.descriptions.total > 0 ? descriptionRatio(progress.descriptions) : deletingRatio;
     const processPercentage =
         progress.descriptions.total > 0
-            ? 5 + Math.round(Math.min(deletingRatio, 1) * 55 + Math.min(descriptionRatio, 1) * 35)
-            : 5 + Math.round(Math.min(deletingRatio, 1) * 90);
+            ? 5 + Math.round(deletingRatio * 55 + deleteDescriptionRatio * 35)
+            : 5 + Math.round(deletingRatio * 90);
 
     return {
         process_step: processStep,

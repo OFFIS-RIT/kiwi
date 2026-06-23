@@ -26,6 +26,25 @@
 		}
 	}
 
+	# Preserve the public host the upstream gateway forwards (X-Forwarded-Host)
+	# instead of letting Caddy overwrite it with the internal Host. Next.js'
+	# Server Actions CSRF check compares the browser Origin against
+	# X-Forwarded-Host; without this it sees the internal VM host and aborts the
+	# action. Per-server agnostic — each gateway forwards its own public host.
+	#
+	# Security: only trust X-Forwarded-Host from private-range peers (the
+	# internal gateway). A client reaching Caddy directly from a public address
+	# can't forge a matching Origin/X-Forwarded-Host pair to bypass the CSRF
+	# check. Caddy must stay behind the sanitising gateway, never exposed directly.
+	@forwarded_host {
+		header X-Forwarded-Host *
+		remote_ip private_ranges
+	}
+	handle @forwarded_host {
+		reverse_proxy frontend:3000 {
+			header_up X-Forwarded-Host {http.request.header.X-Forwarded-Host}
+		}
+	}
 	handle {
 		reverse_proxy frontend:3000
 	}

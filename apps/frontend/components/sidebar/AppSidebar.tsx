@@ -727,7 +727,7 @@ function PinnedChatItem({
                         <Pin className="mr-2 h-4 w-4" />
                         <span>{t("chat.unpin")}</span>
                     </DropdownMenuItem>
-                    <DropdownMenuItem>
+                    <DropdownMenuItem disabled>
                         <Edit className="mr-2 h-4 w-4" />
                         <span>{t("chat.rename")}</span>
                     </DropdownMenuItem>
@@ -736,9 +736,9 @@ function PinnedChatItem({
                         <span>{t("chat.archive")}</span>
                     </DropdownMenuItem>
                     {chat.targetType === "graph" ? (
-                        <DropdownMenuItem onSelect={() => setHasUnreadUpdate(chat.id, true)}>
+                        <DropdownMenuItem onSelect={() => setHasUnreadUpdate(chat.id, !hasBackgroundUpdate)}>
                             <Mail className="mr-2 h-4 w-4" />
-                            <span>{t("chat.mark.unread")}</span>
+                            <span>{hasBackgroundUpdate ? t("chat.mark.read") : t("chat.mark.unread")}</span>
                         </DropdownMenuItem>
                     ) : null}
                     <DropdownMenuSeparator />
@@ -819,6 +819,10 @@ function ProjectItem({
     const [loadedChats, setLoadedChats] = useState<Project["recentChats"] | null>(null);
     const [hasMoreChats, setHasMoreChats] = useState(project.recentChats.length > RECENT_CHAT_LIMIT);
     const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
+    // Local fallback for manual unread: a chat may have no live session entry
+    // (evicted or after reload), where setHasUnreadUpdate alone would no-op.
+    // This is intentionally minimal; the persisted, cross-section-consistent
+    // unread model is tracked in #472.
     const [manuallyUnreadChatIds, setManuallyUnreadChatIds] = useState<Set<string>>(() => new Set());
     const [openChatMenuId, setOpenChatMenuId] = useState<string | null>(null);
     const [chatToDelete, setChatToDelete] = useState<Project["recentChats"][number] | null>(null);
@@ -1041,6 +1045,7 @@ function ProjectItem({
     };
 
     const markChatAsRead = (conversationId: string) => {
+        setHasUnreadUpdate(conversationId, false);
         setManuallyUnreadChatIds((current) => {
             if (!current.has(conversationId)) return current;
             const next = new Set(current);
@@ -1204,7 +1209,7 @@ function ProjectItem({
                                                     <Pin className="mr-2 h-4 w-4" />
                                                     <span>{chat.isPinned ? t("chat.unpin") : t("chat.pin")}</span>
                                                 </DropdownMenuItem>
-                                                <DropdownMenuItem>
+                                                <DropdownMenuItem disabled>
                                                     <Edit className="mr-2 h-4 w-4" />
                                                     <span>{t("chat.rename")}</span>
                                                 </DropdownMenuItem>
@@ -1215,9 +1220,21 @@ function ProjectItem({
                                                     <Archive className="mr-2 h-4 w-4" />
                                                     <span>{t("chat.archive")}</span>
                                                 </DropdownMenuItem>
-                                                <DropdownMenuItem onSelect={() => markChatAsUnread(chat.id)}>
+                                                <DropdownMenuItem
+                                                    onSelect={() => {
+                                                        if (hasBackgroundUpdate) {
+                                                            markChatAsRead(chat.id);
+                                                        } else {
+                                                            markChatAsUnread(chat.id);
+                                                        }
+                                                    }}
+                                                >
                                                     <Mail className="mr-2 h-4 w-4" />
-                                                    <span>{t("chat.mark.unread")}</span>
+                                                    <span>
+                                                        {hasBackgroundUpdate
+                                                            ? t("chat.mark.read")
+                                                            : t("chat.mark.unread")}
+                                                    </span>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <DropdownMenuItem

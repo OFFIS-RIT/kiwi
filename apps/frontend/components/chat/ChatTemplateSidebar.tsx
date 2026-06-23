@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { FileText, Plus } from "lucide-react";
 import type { ChatTemplate } from "./chat-templates";
@@ -111,7 +111,11 @@ export function ChatTemplateSidebar({ templates, onInsert, open, onOpenChange }:
             </div>
 
             <Sheet open={showSheet} onOpenChange={onOpenChange}>
-                <SheetContent side="right" className="p-4 lg:hidden" aria-label={t("chat.templates")}>
+                <SheetContent side="right" className="p-4 lg:hidden">
+                    <SheetHeader className="sr-only">
+                        <SheetTitle>{t("chat.templates")}</SheetTitle>
+                        <SheetDescription>{t("chat.templates.description")}</SheetDescription>
+                    </SheetHeader>
                     <SidebarPanel templates={templates} onInsert={onInsert} />
                 </SheetContent>
             </Sheet>
