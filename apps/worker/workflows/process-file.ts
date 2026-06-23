@@ -209,34 +209,32 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
         const totalBatches = totalEntityBatches + totalRelationshipBatches;
         const groupsCount = Math.ceil(totalBatches / DESCRIPTION_BATCHES_PER_GROUP);
 
-        await step.run({ name: "spawn-description-groups" }, async () => {
-            const entityIdBatches = chunkItems(descriptions.entityIds, DESCRIPTION_BATCH_SIZE);
-            const relationshipIdBatches = chunkItems(descriptions.relationshipIds, DESCRIPTION_BATCH_SIZE);
-            const allBatches = [
-                ...entityIdBatches.map((ids) => ({ entityIds: ids, relationshipIds: [] as string[] })),
-                ...relationshipIdBatches.map((ids) => ({ entityIds: [] as string[], relationshipIds: ids })),
-            ];
+        const entityIdBatches = chunkItems(descriptions.entityIds, DESCRIPTION_BATCH_SIZE);
+        const relationshipIdBatches = chunkItems(descriptions.relationshipIds, DESCRIPTION_BATCH_SIZE);
+        const allBatches = [
+            ...entityIdBatches.map((ids) => ({ entityIds: ids, relationshipIds: [] as string[] })),
+            ...relationshipIdBatches.map((ids) => ({ entityIds: [] as string[], relationshipIds: ids })),
+        ];
 
-            const groupPromises = [];
-            for (let i = 0; i < groupsCount; i++) {
-                const groupBatches = allBatches.slice(i * DESCRIPTION_BATCHES_PER_GROUP, (i + 1) * DESCRIPTION_BATCHES_PER_GROUP);
-                const groupEntityIds = groupBatches.flatMap((b) => b.entityIds);
-                const groupRelationshipIds = groupBatches.flatMap((b) => b.relationshipIds);
+        const groupPromises = [];
+        for (let i = 0; i < groupsCount; i++) {
+            const groupBatches = allBatches.slice(i * DESCRIPTION_BATCHES_PER_GROUP, (i + 1) * DESCRIPTION_BATCHES_PER_GROUP);
+            const groupEntityIds = groupBatches.flatMap((b) => b.entityIds);
+            const groupRelationshipIds = groupBatches.flatMap((b) => b.relationshipIds);
 
-                groupPromises.push(
-                    step.runWorkflow(processDescriptionsGroupsSpec, {
-                        graphId: input.graphId,
-                        entityIds: groupEntityIds,
-                        relationshipIds: groupRelationshipIds,
-                    })
-                );
-            }
+            groupPromises.push(
+                step.runWorkflow(processDescriptionsGroupsSpec, {
+                    graphId: input.graphId,
+                    entityIds: groupEntityIds,
+                    relationshipIds: groupRelationshipIds,
+                })
+            );
+        }
 
-            const groupResults = await Promise.allSettled(groupPromises);
-            if (groupResults.length > 0 && groupResults.every((result) => result.status === "rejected")) {
-                throw new Error(`All ${groupResults.length} description groups failed`);
-            }
-        });
+        const groupResults = await Promise.allSettled(groupPromises);
+        if (groupResults.length > 0 && groupResults.every((result) => result.status === "rejected")) {
+            throw new Error(`All ${groupResults.length} description groups failed`);
+        }
 
         await step.run({ name: "finalize-project-status" }, async () => {
             await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
