@@ -109,6 +109,7 @@ async function startWorkerProcess() {
         { deleteGraphFiles },
         { processFile, processFiles },
         { updateDescriptions },
+        { processDescriptionsGroups },
     ] = await Promise.all([
         import("."),
         import("./env"),
@@ -116,6 +117,7 @@ async function startWorkerProcess() {
         import("./workflows/delete-graph-files"),
         import("./workflows/process-file"),
         import("./workflows/update-descriptions"),
+        import("./workflows/process-descriptions-group"),
     ]);
 
     const parentPid = process.ppid;
@@ -126,6 +128,7 @@ async function startWorkerProcess() {
     ow.implementWorkflow(deleteProjectFile.spec, deleteProjectFile.fn);
     ow.implementWorkflow(deleteGraphFiles.spec, deleteGraphFiles.fn);
     ow.implementWorkflow(updateDescriptions.spec, updateDescriptions.fn);
+    ow.implementWorkflow(processDescriptionsGroups.spec, processDescriptionsGroups.fn);
 
     const worker = ow.newWorker({ concurrency });
     let shuttingDown = false;
