@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { buildDeleteStepProgress, buildProcessStepProgress } from "../process-progress";
+import {
+    buildDeleteStepProgress,
+    buildProcessPercentage,
+    buildProcessStepProgress,
+    buildProcessTimeEstimate,
+} from "../process-progress";
 
 describe("buildProcessStepProgress", () => {
     test("returns undefined for an empty file list", () => {
@@ -57,6 +62,63 @@ describe("buildProcessStepProgress", () => {
             )
         ).toEqual({
             describing: "1/3",
+        });
+    });
+});
+
+describe("buildProcessPercentage", () => {
+    test("caps completed file processing at ninety percent before descriptions", () => {
+        expect(buildProcessPercentage([{ process_step: "completed" }, { process_step: "completed" }])).toBe(90);
+    });
+
+    test("uses description progress for the final ten percent", () => {
+        expect(
+            buildProcessPercentage([{ process_step: "completed" }, { process_step: "completed" }], {
+                done: 1,
+                total: 2,
+            })
+        ).toBe(95);
+    });
+
+    test("keeps active processing below one hundred percent until finalized", () => {
+        expect(
+            buildProcessPercentage([{ process_step: "completed" }], {
+                done: 3,
+                total: 3,
+            })
+        ).toBe(99);
+    });
+});
+
+describe("buildProcessTimeEstimate", () => {
+    test("includes the description phase in total duration and remaining time", () => {
+        expect(
+            buildProcessTimeEstimate([
+                {
+                    process_step: "completed",
+                    estimated_duration: 900,
+                },
+            ])
+        ).toEqual({
+            process_estimated_duration: 1150,
+            process_time_remaining: 115,
+        });
+    });
+
+    test("reduces remaining time by description progress", () => {
+        expect(
+            buildProcessTimeEstimate(
+                [
+                    {
+                        process_step: "completed",
+                        estimated_duration: 900,
+                    },
+                ],
+                { done: 1, total: 2 }
+            )
+        ).toEqual({
+            process_estimated_duration: 1150,
+            process_time_remaining: 58,
         });
     });
 });

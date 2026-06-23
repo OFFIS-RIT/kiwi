@@ -193,23 +193,113 @@ export async function findProcessDescriptionProgress(runIds: string[]) {
     }
 
     const result = await db.execute(sql<DescriptionWorkflowProgressRow>`
-        SELECT parent."input"->>'processRunId' AS "processRunId",
-               COUNT(DISTINCT child."id") FILTER (WHERE child."status" IN ('completed', 'succeeded'))::int AS "completedCount",
-               COUNT(DISTINCT child."id")::int AS "totalCount"
-        FROM openworkflow.workflow_runs parent
-        INNER JOIN openworkflow.step_attempts step_attempt
-            ON step_attempt."namespace_id" = parent."namespace_id"
-           AND step_attempt."workflow_run_id" = parent."id"
-        INNER JOIN openworkflow.workflow_runs child
-            ON child."namespace_id" = step_attempt."child_workflow_run_namespace_id"
-           AND child."id" = step_attempt."child_workflow_run_id"
-        WHERE parent."namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
-          AND parent."workflow_name" = 'process-files'
-          AND parent."status" = ANY(${textArray(ACTIVE_WORKFLOW_RUN_STATUSES)})
-          AND parent."input"->>'processRunId' = ANY(${textArray(runIds)})
-          AND step_attempt."kind" = 'workflow'
-          AND child."workflow_name" = 'update-descriptions'
-        GROUP BY parent."input"->>'processRunId'
+        WITH process_children AS (
+            SELECT parent."input"->>'processRunId' AS "processRunId",
+                   child."namespace_id" AS "childNamespaceId",
+                   child."id" AS "childWorkflowRunId",
+                   child."workflow_name" AS "childWorkflowName",
+                   child."status" AS "childStatus",
+                   child."input" AS "childInput"
+            FROM openworkflow.workflow_runs parent
+            INNER JOIN openworkflow.step_attempts step_attempt
+                ON step_attempt."namespace_id" = parent."namespace_id"
+               AND step_attempt."workflow_run_id" = parent."id"
+            INNER JOIN openworkflow.workflow_runs child
+                ON child."namespace_id" = step_attempt."child_workflow_run_namespace_id"
+               AND child."id" = step_attempt."child_workflow_run_id"
+            WHERE parent."namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
+              AND parent."workflow_name" = 'process-files'
+              AND parent."status" = ANY(${textArray(ACTIVE_WORKFLOW_RUN_STATUSES)})
+              AND parent."input"->>'processRunId' = ANY(${textArray(runIds)})
+              AND step_attempt."kind" = 'workflow'
+              AND child."workflow_name" IN ('update-descriptions', 'process-descriptions-groups')
+        ),
+        direct_updates AS (
+            SELECT "processRunId",
+                   "childWorkflowRunId" AS "workflowRunId",
+                   "childStatus" AS "status",
+                   (
+                       jsonb_array_length(COALESCE("childInput"->'entityIds', '[]'::jsonb)) +
+                       jsonb_array_length(COALESCE("childInput"->'relationshipIds', '[]'::jsonb))
+                   )::int AS "itemCount"
+            FROM process_children
+            WHERE "childWorkflowName" = 'update-descriptions'
+        ),
+        description_groups AS (
+            SELECT "processRunId",
+                   "childNamespaceId",
+                   "childWorkflowRunId",
+                   "childStatus",
+                   (
+                       jsonb_array_length(COALESCE("childInput"->'entityIds', '[]'::jsonb)) +
+                       jsonb_array_length(COALESCE("childInput"->'relationshipIds', '[]'::jsonb))
+                   )::int AS "itemCount"
+            FROM process_children
+            WHERE "childWorkflowName" = 'process-descriptions-groups'
+        ),
+        group_update_rows AS (
+            SELECT description_group."processRunId",
+                   description_group."childWorkflowRunId" AS "groupWorkflowRunId",
+                   description_child."id" AS "workflowRunId",
+                   description_child."status" AS "status",
+                   (
+                       jsonb_array_length(COALESCE(description_child."input"->'entityIds', '[]'::jsonb)) +
+                       jsonb_array_length(COALESCE(description_child."input"->'relationshipIds', '[]'::jsonb))
+                   )::int AS "itemCount"
+            FROM description_groups description_group
+            INNER JOIN openworkflow.step_attempts description_step
+                ON description_step."namespace_id" = description_group."childNamespaceId"
+               AND description_step."workflow_run_id" = description_group."childWorkflowRunId"
+               AND description_step."kind" = 'workflow'
+            INNER JOIN openworkflow.workflow_runs description_child
+                ON description_child."namespace_id" = description_step."child_workflow_run_namespace_id"
+               AND description_child."id" = description_step."child_workflow_run_id"
+               AND description_child."workflow_name" = 'update-descriptions'
+        ),
+        group_update_progress AS (
+            SELECT "processRunId",
+                   "groupWorkflowRunId",
+                   COALESCE(
+                       SUM("itemCount") FILTER (WHERE "status" IN ('completed', 'succeeded')),
+                       0
+                   )::int AS "completedCount",
+                   COALESCE(SUM("itemCount"), 0)::int AS "totalCount"
+            FROM group_update_rows
+            GROUP BY "processRunId", "groupWorkflowRunId"
+        ),
+        group_progress AS (
+            SELECT description_group."processRunId",
+                   GREATEST(
+                       CASE
+                           WHEN description_group."childStatus" IN ('completed', 'succeeded')
+                               THEN description_group."itemCount"
+                           ELSE 0
+                       END,
+                       COALESCE(group_update_progress."completedCount", 0)
+                   )::int AS "completedCount",
+                   GREATEST(
+                       description_group."itemCount",
+                       COALESCE(group_update_progress."totalCount", 0)
+                   )::int AS "totalCount"
+            FROM description_groups description_group
+            LEFT JOIN group_update_progress
+                ON group_update_progress."processRunId" = description_group."processRunId"
+               AND group_update_progress."groupWorkflowRunId" = description_group."childWorkflowRunId"
+        ),
+        progress_rows AS (
+            SELECT "processRunId",
+                   CASE WHEN "status" IN ('completed', 'succeeded') THEN "itemCount" ELSE 0 END AS "completedCount",
+                   "itemCount" AS "totalCount"
+            FROM direct_updates
+            UNION ALL
+            SELECT "processRunId", "completedCount", "totalCount"
+            FROM group_progress
+        )
+        SELECT "processRunId",
+               COALESCE(SUM("completedCount"), 0)::int AS "completedCount",
+               COALESCE(SUM("totalCount"), 0)::int AS "totalCount"
+        FROM progress_rows
+        GROUP BY "processRunId"
     `);
 
     return new Map(

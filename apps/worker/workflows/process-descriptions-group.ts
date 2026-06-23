@@ -10,32 +10,29 @@ import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
  * worth of IDs (pre-sliced by process-files), so this simply batches them for
  * update-descriptions without additional grouping.
  */
-export const processDescriptionsGroups = defineWorkflow(
-    processDescriptionsGroupsSpec,
-    async ({ input, step }) => {
-        const entityIdBatches = chunkItems(input.entityIds, DESCRIPTION_BATCH_SIZE);
-        const relationshipIdBatches = chunkItems(input.relationshipIds, DESCRIPTION_BATCH_SIZE);
+export const processDescriptionsGroups = defineWorkflow(processDescriptionsGroupsSpec, async ({ input, step }) => {
+    const entityIdBatches = chunkItems(input.entityIds, DESCRIPTION_BATCH_SIZE);
+    const relationshipIdBatches = chunkItems(input.relationshipIds, DESCRIPTION_BATCH_SIZE);
 
-        const entityPromises = entityIdBatches.map((entityIds) =>
-            step.runWorkflow(updateDescriptionsSpec, {
-                graphId: input.graphId,
-                entityIds,
-                relationshipIds: [],
-            })
-        );
+    const entityPromises = entityIdBatches.map((entityIds) =>
+        step.runWorkflow(updateDescriptionsSpec, {
+            graphId: input.graphId,
+            entityIds,
+            relationshipIds: [],
+        })
+    );
 
-        const relationshipPromises = relationshipIdBatches.map((relationshipIds) =>
-            step.runWorkflow(updateDescriptionsSpec, {
-                graphId: input.graphId,
-                entityIds: [],
-                relationshipIds,
-            })
-        );
+    const relationshipPromises = relationshipIdBatches.map((relationshipIds) =>
+        step.runWorkflow(updateDescriptionsSpec, {
+            graphId: input.graphId,
+            entityIds: [],
+            relationshipIds,
+        })
+    );
 
-        const results = await Promise.allSettled([...entityPromises, ...relationshipPromises]);
-        const failures = results.filter((r) => r.status === "rejected");
-        if (failures.length > 0) {
-            throw new Error(`${failures.length} of ${results.length} description batches failed`);
-        }
+    const results = await Promise.allSettled([...entityPromises, ...relationshipPromises]);
+    const failures = results.filter((r) => r.status === "rejected");
+    if (failures.length > 0) {
+        throw new Error(`${failures.length} of ${results.length} description batches failed`);
     }
-);
+});

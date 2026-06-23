@@ -218,7 +218,10 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
 
         const groupPromises = [];
         for (let i = 0; i < groupsCount; i++) {
-            const groupBatches = allBatches.slice(i * DESCRIPTION_BATCHES_PER_GROUP, (i + 1) * DESCRIPTION_BATCHES_PER_GROUP);
+            const groupBatches = allBatches.slice(
+                i * DESCRIPTION_BATCHES_PER_GROUP,
+                (i + 1) * DESCRIPTION_BATCHES_PER_GROUP
+            );
             const groupEntityIds = groupBatches.flatMap((b) => b.entityIds);
             const groupRelationshipIds = groupBatches.flatMap((b) => b.relationshipIds);
 

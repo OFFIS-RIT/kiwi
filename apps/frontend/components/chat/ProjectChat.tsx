@@ -929,12 +929,7 @@ function ProjectChatSession({
                         <Button
                             size="icon"
                             onClick={() => void handleSendMessage()}
-                            disabled={
-                                !inputValue.trim() ||
-                                isRecording ||
-                                !!pendingClarification ||
-                                noModelsConfigured
-                            }
+                            disabled={!inputValue.trim() || isRecording || !!pendingClarification || noModelsConfigured}
                             className={isEmptyChat ? "h-10 w-10 shrink-0" : undefined}
                         >
                             <SendIcon className="h-4 w-4" />

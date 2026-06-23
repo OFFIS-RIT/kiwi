@@ -38,7 +38,7 @@ _Avoid_: character count; Abschnittsgröße.
 
 **Processing Status**:
 The coarse lifecycle state of a File, used to group files in the UI. Exactly three values: `processing`, `processed`, `failed`. A freshly-added file is `processing`.
-_Avoid_: "ready", "pending", "queued" as *status* values — these are not statuses (see Process Step).
+_Avoid_: "ready", "pending", "queued" as _status_ values — these are not statuses (see Process Step).
 
 **Process Step**:
 The fine-grained pipeline cursor within a File that is `processing`: `pending → preprocessing → metadata → chunking → extracting → deduplicating → saving → completed` (plus `failed`). Surfaced as sub-detail under the Processing group; not a top-level grouping.
@@ -112,7 +112,7 @@ One individual settings item the user navigates to and configures — e.g. Appea
 _Avoid_: "tab", "page" (a Section is not a separate page — see Settings below), "setting" (singular, ambiguous with an individual field).
 
 **Settings Category**:
-A grouping/heading that holds related Sections in the settings sidebar — e.g. General, Administration, System Admin. Purely organizational; the user does not navigate *to* a Category. A Category is hidden entirely when the user lacks the rights for all of its Sections (e.g. System Admin is invisible to non-system-admins).
+A grouping/heading that holds related Sections in the settings sidebar — e.g. General, Administration, System Admin. Purely organizational; the user does not navigate _to_ a Category. A Category is hidden entirely when the user lacks the rights for all of its Sections (e.g. System Admin is invisible to non-system-admins).
 _Avoid_: "Group" (reserved for a Team — the sidebar's "Groups" are Teams, an unrelated concept), "area".
 
 **Administration (Category)**:
@@ -169,7 +169,7 @@ System Admins are treated as effective Organization Admins for existing Organiza
 _Avoid_: conflating with Organization Admin, "Org Admin" as shorthand for System Admin.
 
 **Organization Admin**:
-A member whose `member.role` is `admin` *within a given Organization*. Scoped to that one Organization: manages its Teams ("Groups"), Projects, and chats. This is part of the `isAdmin` flag (`isSystemAdmin` OR org-admin). Org-admin powers are exercised inline in the app sidebar and in the Administration settings Category.
+A member whose `member.role` is `admin` _within a given Organization_. Scoped to that one Organization: manages its Teams ("Groups"), Projects, and chats. This is part of the `isAdmin` flag (`isSystemAdmin` OR org-admin). Org-admin powers are exercised inline in the app sidebar and in the Administration settings Category.
 In practice this role is only ever held by System Admins: there is no UI or API to assign it, every deployment runs a single auto-created Default Organization, and System Admins are auto-provisioned as org-admin members of every Organization. Treat the standalone Organization Admin as a latent role in the schema, not a persona to design UI for.
 _Avoid_: calling this simply "admin" without qualification — unqualified "admin" is ambiguous between the two axes; designing features around a standalone Organization Admin persona.
 
