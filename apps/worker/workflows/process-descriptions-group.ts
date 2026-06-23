@@ -32,6 +32,6 @@ export const processDescriptionsGroups = defineWorkflow(
             })
         );
 
-        await Promise.all([...entityPromises, ...relationshipPromises]);
+        await Promise.allSettled([...entityPromises, ...relationshipPromises]);
     }
 );
