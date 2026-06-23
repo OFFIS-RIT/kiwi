@@ -16,7 +16,13 @@ import { env } from "../env";
 import { API_ERROR_CODES, errorResponse } from "../types";
 import type { GraphDetailFileRecord, GraphFileRecord, GraphListItem, GraphRecentChatItem } from "../types/routes";
 import { selectGraphFields, type GraphRecord } from "./graph-access";
-import { buildDeleteStepProgress, buildProcessStepProgress } from "./process-progress";
+import {
+    buildDeleteStepProgress,
+    buildProcessPercentage,
+    buildProcessStepProgress,
+    buildProcessTimeEstimate,
+} from "./process-progress";
+import type { StepProgress } from "./process-progress";
 import { findActiveDeleteGraphFilesProgress, findProcessDescriptionProgress } from "./workflow-progress";
 import type { GraphFileType } from "./graph-file-type";
 import type { FileWithChecksum } from "./graph-upload-file-type";
@@ -89,19 +95,6 @@ type RecentChatRow = {
     updatedAt: Date | string | null;
 };
 
-const FILE_STEP_PROGRESS: Record<FileProcessStep, number> = {
-    pending: 0,
-    preprocessing: 10,
-    metadata: 25,
-    chunking: 40,
-    extracting: 60,
-    deduplicating: 75,
-    saving: 90,
-    completed: 100,
-    failed: 100,
-};
-
-const ETA_BUFFER_MULTIPLIER = 1.15;
 const MIN_BUCKET_SAMPLE_COUNT = 3;
 const MIN_TYPE_SAMPLE_COUNT = 5;
 
@@ -152,16 +145,6 @@ export const toGraphFileRecord = (file: GraphFileRow): GraphDetailFileRecord => 
     updated_at: file.updated_at?.toISOString() ?? null,
 });
 
-function buildProcessPercentage(files: RunFile[]): number {
-    if (files.length === 0) {
-        return 0;
-    }
-
-    const totalProgress = files.reduce((sum, file) => sum + FILE_STEP_PROGRESS[file.process_step], 0);
-
-    return Math.max(0, Math.min(99, Math.round(totalProgress / files.length)));
-}
-
 function getFileSizeBucket(bytes: number): SizeBucket {
     if (bytes < 100_000) return "tiny";
     if (bytes < 1_000_000) return "small";
@@ -198,37 +181,27 @@ function buildTimeEstimate(
     files: RunFile[],
     bucketAverages: Map<string, Average>,
     typeAverages: Map<string, Average>,
-    globalAverage?: Average
+    globalAverage?: Average,
+    descriptionProgress?: StepProgress
 ): Pick<GraphListItem, "process_estimated_duration" | "process_time_remaining"> {
     if (run.status !== "started" || files.length === 0) {
         return {};
     }
 
-    let estimatedDuration = 0;
-    let timeRemaining = 0;
-    let filesWithEstimate = 0;
-
+    const estimatedFiles = [];
     for (const file of files) {
         const estimate = pickAverage(file, bucketAverages, typeAverages, globalAverage);
         if (!estimate) {
             continue;
         }
 
-        const fileDuration = estimate.duration;
-        const progress = FILE_STEP_PROGRESS[file.process_step];
-        estimatedDuration += fileDuration;
-        timeRemaining += fileDuration * (1 - progress / 100);
-        filesWithEstimate += 1;
+        estimatedFiles.push({
+            process_step: file.process_step,
+            estimated_duration: estimate.duration,
+        });
     }
 
-    if (filesWithEstimate === 0) {
-        return {};
-    }
-
-    return {
-        process_estimated_duration: Math.ceil(estimatedDuration * ETA_BUFFER_MULTIPLIER),
-        process_time_remaining: Math.ceil(timeRemaining * ETA_BUFFER_MULTIPLIER),
-    };
+    return buildProcessTimeEstimate(estimatedFiles, descriptionProgress);
 }
 
 function textArray(values: readonly string[]) {
@@ -727,8 +700,15 @@ export async function mapGraphListItemsWithProcessing(
             recentChatsByGraphId.get(graph.graph_id) ?? [],
             {
                 process_step: buildProcessStepProgress(run, files, descriptionProgressByRunId.get(run.id)),
-                process_percentage: buildProcessPercentage(files),
-                ...buildTimeEstimate(run, files, bucketAverages, typeAverages, globalAverage),
+                process_percentage: buildProcessPercentage(files, descriptionProgressByRunId.get(run.id)),
+                ...buildTimeEstimate(
+                    run,
+                    files,
+                    bucketAverages,
+                    typeAverages,
+                    globalAverage,
+                    descriptionProgressByRunId.get(run.id)
+                ),
             }
         );
     });

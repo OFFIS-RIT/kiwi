@@ -13,7 +13,7 @@ type ProjectCardProps = {
     project: Project;
     groupId: string;
     groupName: string;
-    canOpenDetails: boolean;
+    canEdit: boolean;
     onSelect: () => void;
     onEdit: () => void;
 };
@@ -38,7 +38,7 @@ function formatRemaining(parts: ReturnType<typeof formatDuration>, t: (key: stri
     return `${Math.max(1, parts.seconds)}${t("duration.second.short")}`;
 }
 
-export function ProjectCard({ project, groupId, groupName, canOpenDetails, onSelect, onEdit }: ProjectCardProps) {
+export function ProjectCard({ project, groupId, groupName, canEdit, onSelect, onEdit }: ProjectCardProps) {
     const t = useAppTranslations();
     const prefetchProjectChat = usePrefetchProjectChat(project.id);
     const lastUpdated = project.lastUpdated;
@@ -59,7 +59,7 @@ export function ProjectCard({ project, groupId, groupName, canOpenDetails, onSel
             prefetchHref={`/${groupId}/${project.id}`}
             onPrefetchVisible={prefetchProjectChat}
             onSelect={onSelect}
-            onEdit={canOpenDetails ? onEdit : undefined}
+            onEdit={canEdit ? onEdit : undefined}
         >
             {isProcessing ? (
                 <div className="space-y-3 pt-1">

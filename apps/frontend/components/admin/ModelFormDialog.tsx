@@ -142,11 +142,28 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
     const requireUrl = adapter === "openaiAPI";
     const requireResourceName = adapter === "azure";
 
+    // Mirror the submit-time and backend checks so the action button reflects
+    // validity (consistent with the System Configuration form): no save until
+    // every required field is filled and the context window meets its minimum.
+    const contextWindowValue = showContextWindow ? parseContextWindowTokens(contextWindow) : null;
+    const isFormValid =
+        displayName.trim().length > 0 &&
+        providerModel.trim().length > 0 &&
+        (!showContextWindow || contextWindowValue !== null) &&
+        (isEdit || modelId.trim().length > 0) &&
+        (!requireApiKey || apiKey.trim().length > 0) &&
+        (!requireUrl || url.trim().length > 0) &&
+        (!requireResourceName || resourceName.trim().length > 0);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        const contextWindowValue = showContextWindow ? parseContextWindowTokens(contextWindow) : null;
         if (showContextWindow && contextWindowValue === null) {
             setContextWindowError(t("settings.models.field.contextWindow.error", { min: MIN_CONTEXT_WINDOW_TOKENS }));
+            return;
+        }
+        // Defensive guard: pressing Enter in a field can submit the form even
+        // when the Save button is disabled in some browsers.
+        if (!isFormValid) {
             return;
         }
         setContextWindowError(null);
@@ -362,7 +379,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
                             {t("cancel")}
                         </Button>
-                        <Button type="submit" disabled={loading}>
+                        <Button type="submit" disabled={loading || !isFormValid}>
                             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                             {isEdit ? t("save.changes") : t("settings.models.add")}
                         </Button>

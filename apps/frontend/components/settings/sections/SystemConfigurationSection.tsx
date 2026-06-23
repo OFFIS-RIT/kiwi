@@ -316,6 +316,18 @@ function hasValidationErrors(records: FileTypeConfigRecord[], drafts: FileTypeCo
     });
 }
 
+// Any draft that differs from its saved value — including invalid ones, which
+// changedConfigsForRecords() drops. Reset must key off this (not changedConfigs)
+// so the user can always revert out of an invalid value.
+function hasPendingEditsForRecords(records: FileTypeConfigRecord[], drafts: FileTypeConfigDrafts) {
+    const baseline = draftsFromRecords(records);
+    return records.some((record) => {
+        const draft = draftForRecord(drafts, record);
+        const base = draftForRecord(baseline, record);
+        return draft.chunkSizeValue !== base.chunkSizeValue || draft.documentModeValue !== base.documentModeValue;
+    });
+}
+
 function FileTypeConfigRow({
     record,
     draft,
@@ -549,6 +561,10 @@ export function SystemConfigurationSection() {
 
     const changedConfigs = useMemo(() => changedConfigsForRecords(fileTypeRecords, drafts), [fileTypeRecords, drafts]);
     const hasInvalidDrafts = useMemo(() => hasValidationErrors(fileTypeRecords, drafts), [fileTypeRecords, drafts]);
+    const hasPendingEdits = useMemo(
+        () => hasPendingEditsForRecords(fileTypeRecords, drafts),
+        [fileTypeRecords, drafts]
+    );
     const hasChanges = changedConfigs.length > 0;
 
     const saveMutation = useMutation({
@@ -637,7 +653,7 @@ export function SystemConfigurationSection() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={!hasChanges || saveMutation.isPending}
+                    disabled={!hasPendingEdits || saveMutation.isPending}
                     onClick={resetAllChanges}
                     aria-label={t("settings.systemConfig.fileProcessing.resetAll.aria")}
                 >

@@ -1,6 +1,7 @@
 "use client";
 
 import { AppSidebarInset } from "@/components/common/AppSidebarInset";
+import { DashboardDialogsProvider } from "@/components/common/DashboardDialogsContext";
 import { AppHeader } from "@/components/common/AppHeader";
 import { AppSidebar } from "@/components/sidebar";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
@@ -8,7 +9,7 @@ import { recordLastAppPath } from "@/lib/last-app-path";
 import { SettingsProvider } from "@/providers/SettingsProvider";
 import type { Group, Project } from "@/types";
 import { usePathname, useRouter } from "next/navigation";
-import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 const DeleteGroupDialog = lazy(() => import("@/components/groups").then((mod) => ({ default: mod.DeleteGroupDialog })));
 const DeleteProjectDialog = lazy(() =>
@@ -46,15 +47,20 @@ export function DashboardFrame({ children }: DashboardFrameProps) {
         recordLastAppPath(pathname);
     }, [pathname]);
 
-    const handleEditProject = (project: Project, groupId: string) => {
+    const handleEditProject = useCallback((project: Project, groupId: string) => {
         setEditingProject({ ...project, groupId });
         setEditProjectDialogOpen(true);
-    };
+    }, []);
 
-    const handleEditGroup = (group: Group) => {
+    const handleEditGroup = useCallback((group: Group) => {
         setEditingGroup(group);
         setEditGroupDialogOpen(true);
-    };
+    }, []);
+
+    const dashboardDialogs = useMemo(
+        () => ({ editGroup: handleEditGroup, editProject: handleEditProject }),
+        [handleEditGroup, handleEditProject]
+    );
 
     if (isSettings) {
         return (
@@ -71,7 +77,7 @@ export function DashboardFrame({ children }: DashboardFrameProps) {
     }
 
     return (
-        <>
+        <DashboardDialogsProvider value={dashboardDialogs}>
             <AppSidebar
                 onEditGroup={handleEditGroup}
                 onEditProject={handleEditProject}
@@ -121,6 +127,6 @@ export function DashboardFrame({ children }: DashboardFrameProps) {
                     group={deletingGroup}
                 />
             </Suspense>
-        </>
+        </DashboardDialogsProvider>
     );
 }

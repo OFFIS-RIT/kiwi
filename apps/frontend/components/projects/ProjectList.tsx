@@ -3,7 +3,7 @@
 import { StateDisplay } from "@/components/common/StateDisplay";
 import { useGroupsWithProjects } from "@/hooks/use-data";
 import { useCurrentSelection } from "@/hooks/use-current-selection";
-import { canMutateProjectInGroup, canViewProjectFilesInGroup } from "@/lib/capabilities";
+import { canOpenProjectEditorInGroup } from "@/lib/capabilities";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import { useAuth } from "@/providers/AuthProvider";
@@ -44,9 +44,10 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
     }
 
     const group = groups.find((g) => g.id === selectedGroup?.id);
-    const canOpenProjectDetails = group
-        ? canMutateProjectInGroup(group, { isAdmin }) || canViewProjectFilesInGroup()
-        : false;
+    // Same capability as the sidebar's project "Bearbeiten": Team Admin/
+    // Moderator (or System Admin). Members can still open and chat, but no
+    // longer see the edit affordance.
+    const canEditProject = group ? canOpenProjectEditorInGroup(group, { isAdmin }) : false;
 
     const projectFilesQueries = useQueries({
         queries: (group?.projects || []).map((project) => ({
@@ -129,7 +130,7 @@ export function ProjectList({ onEditProject }: ProjectListProps) {
                         }}
                         groupId={group.id}
                         groupName={group.name}
-                        canOpenDetails={canOpenProjectDetails}
+                        canEdit={canEditProject}
                         onSelect={() => router.push(`/${group.id}/${project.id}`)}
                         onEdit={() => onEditProject?.(project, group.id)}
                     />

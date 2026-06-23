@@ -1,17 +1,10 @@
 "use client";
 
-import { ChartConfig, ChartContainer } from "@/components/ui/chart";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDuration } from "@/lib/utils";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import type { Project } from "@/types";
 import { PolarAngleAxis, RadialBar, RadialBarChart } from "recharts";
-
-const chartConfig = {
-    progress: {
-        label: "Progress",
-    },
-} satisfies ChartConfig;
 
 type ProjectProgressChartProps = {
     project: Project;
@@ -52,22 +45,22 @@ export function ProjectProgressChart({ project }: ProjectProgressChartProps) {
         <Tooltip>
             <TooltipTrigger asChild>
                 <div className="h-4 w-4 shrink-0 cursor-pointer pointer-events-auto">
-                    <ChartContainer config={chartConfig} className="h-4 w-4 p-0!">
-                        <RadialBarChart
-                            data={chartData}
-                            startAngle={90}
-                            endAngle={-270}
-                            innerRadius="60%"
-                            outerRadius="100%"
-                            barSize={2}
-                            cx="50%"
-                            cy="50%"
-                            margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
-                        >
-                            <PolarAngleAxis type="number" domain={[0, 100]} tick={false} axisLine={false} />
-                            <RadialBar dataKey="value" background={{ fill: "hsl(var(--muted))" }} cornerRadius={2} />
-                        </RadialBarChart>
-                    </ChartContainer>
+                    <RadialBarChart
+                        width={16}
+                        height={16}
+                        data={chartData}
+                        startAngle={90}
+                        endAngle={-270}
+                        innerRadius="60%"
+                        outerRadius="100%"
+                        barSize={2}
+                        cx="50%"
+                        cy="50%"
+                        margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
+                    >
+                        <PolarAngleAxis type="number" domain={[0, 100]} tick={false} axisLine={false} />
+                        <RadialBar dataKey="value" background={{ fill: "hsl(var(--muted))" }} cornerRadius={2} />
+                    </RadialBarChart>
                 </div>
             </TooltipTrigger>
             <TooltipContent side="top" align="center" sideOffset={8}>
