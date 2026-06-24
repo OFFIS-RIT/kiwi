@@ -142,7 +142,7 @@ function toSearchSourceRows(rows: readonly Record<string, unknown>[]): SearchSou
         score: Number(row.score ?? 0),
     }));
 }
-function toSimilarSourceRows(rows: Record<string, unknown>[]): SimilarSourceRow[] {
+function toSimilarSourceRows(rows: readonly Record<string, unknown>[]): SimilarSourceRow[] {
     return rows.map((row) => ({
         id: String(row.id ?? ""),
         entityId: String(row.entityId ?? ""),
@@ -448,34 +448,41 @@ function getScopedSources(
         ].join("\n");
     });
 }
-async function loadSeedSourceRows(graphId: string, sourceIds: string[]): Promise<SeedSourceRow[]> {
-    if (sourceIds.length === 0) {
-        return [];
-    }
+function loadSeedSourceRows(
+    graphId: string,
+    sourceIds: string[]
+): Effect.Effect<SeedSourceRow[], DatabaseError, Database> {
+    return Effect.gen(function* () {
+        if (sourceIds.length === 0) {
+            return [];
+        }
 
-    return db
-        .select({
-            id: sourcesTable.id,
-            entityId: sourcesTable.entityId,
-            relationshipId: sourcesTable.relationshipId,
-            description: sourcesTable.description,
-            fileId: filesTable.id,
-            fileName: filesTable.name,
-        })
-        .from(sourcesTable)
-        .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
-        .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
-        .where(
-            and(
-                eq(sourcesTable.active, true),
-                eq(filesTable.graphId, graphId),
-                eq(filesTable.deleted, false),
-                inArray(sourcesTable.id, sourceIds)
+        const db = yield* Database;
+        return yield* db
+            .select({
+                id: sourcesTable.id,
+                entityId: sourcesTable.entityId,
+                relationshipId: sourcesTable.relationshipId,
+                description: sourcesTable.description,
+                fileId: filesTable.id,
+                fileName: filesTable.name,
+            })
+            .from(sourcesTable)
+            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+            .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+            .where(
+                and(
+                    currentSourcePredicate(sourcesTable),
+                    eq(filesTable.graphId, graphId),
+                    visibleFilePredicate(filesTable),
+                    inArray(sourcesTable.id, sourceIds)
+                )
             )
-        );
+            .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
+    });
 }
 
-async function getSimilarSources(
+function getSimilarSources(
     graphId: string,
     {
         sourceIds: sources,
@@ -490,95 +497,100 @@ async function getSimilarSources(
         limit: number;
         onConsideredFileIds?: SourceToolOptions["onConsideredFileIds"];
     }
-) {
-    const sourceIds = uniqueTerms(sources);
-    const fileIds = uniqueTerms(files ?? []);
-    const excludedSourceIds = uniqueTerms([...sourceIds, ...(excludeSourceIds ?? [])]);
-    const excludedSourceScope = buildExcludedSourceExpression(excludedSourceIds);
-    const fileScope = buildFileScopeExpression(fileIds);
-    const seedRows = await loadSeedSourceRows(graphId, sourceIds);
-    const seedById = new Map(seedRows.map((row) => [row.id, row]));
-    const seenSourceIds = new Set(excludedSourceIds);
-    const output: string[] = ["## Similar Sources Check"];
+): Effect.Effect<string, DatabaseError, Database> {
+    return Effect.gen(function* () {
+        const db = yield* Database;
+        const sourceIds = uniqueTerms(sources);
+        const fileIds = uniqueTerms(files ?? []);
+        const excludedSourceIds = uniqueTerms([...sourceIds, ...(excludeSourceIds ?? [])]);
+        const excludedSourceScope = buildExcludedSourceExpression(excludedSourceIds);
+        const fileScope = buildFileScopeExpression(fileIds);
+        const seedRows = yield* loadSeedSourceRows(graphId, sourceIds);
+        const seedById = new Map(seedRows.map((row) => [row.id, row]));
+        const seenSourceIds = new Set(excludedSourceIds);
+        const output: string[] = ["## Similar Sources Check"];
 
-    onConsideredFileIds?.(fileIds);
-    onConsideredFileIds?.(seedRows.map((row) => row.fileId));
+        onConsideredFileIds?.(fileIds);
+        onConsideredFileIds?.(seedRows.map((row) => row.fileId));
 
-    for (const sourceId of sourceIds) {
-        const seed = seedById.get(sourceId);
+        for (const sourceId of sourceIds) {
+            const seed = seedById.get(sourceId);
 
-        if (!seed) {
-            output.push("", `### Seed source ${sourceId}`, "- missing, inactive, deleted, or outside this graph");
-            continue;
-        }
-
-        const candidateLimit = limit * 3;
-        const distance = sql<number>`(candidate.embedding <=> seed.embedding)`;
-        const result = await db.execute(sql<SimilarSourceRow>`
-            with seed as (
-                select source.id, source.embedding
-                from sources source
-                inner join text_units seed_text_unit on seed_text_unit.id = source.text_unit_id
-                inner join files seed_file on seed_file.id = seed_text_unit.file_id
-                where source.id = ${seed.id}
-                  and source.active = true
-                  and seed_file.graph_id = ${graphId}
-                  and seed_file.deleted = false
-                limit 1
-            )
-            select
-                candidate.id,
-                coalesce(candidate.entity_id, '') as "entityId",
-                coalesce(candidate.relationship_id, '') as "relationshipId",
-                candidate.description,
-                text_unit.text,
-                file.id as "fileId",
-                file.name as "fileName",
-                ${distance} as distance
-            from seed
-            inner join sources candidate on candidate.active = true
-            inner join text_units text_unit on text_unit.id = candidate.text_unit_id
-            inner join files file on file.id = text_unit.file_id
-            where file.graph_id = ${graphId}
-              and file.deleted = false
-              ${fileScope}
-              ${excludedSourceScope}
-            order by distance asc, candidate.id asc
-            limit ${candidateLimit}
-        `);
-        const candidates = toSimilarSourceRows(result.rows);
-        const newCandidates = candidates.filter((candidate) => {
-            if (seenSourceIds.has(candidate.id)) {
-                return false;
+            if (!seed) {
+                output.push("", `### Seed source ${sourceId}`, "- missing, inactive, deleted, or outside this graph");
+                continue;
             }
 
-            seenSourceIds.add(candidate.id);
-            return true;
-        });
-        const items = newCandidates.slice(0, limit);
-        const seedSubject = formatSubject(seed.entityId, seed.relationshipId);
+            const candidateLimit = limit * 3;
+            const distance = sql<number>`(candidate.embedding <=> seed.embedding)`;
+            const result = yield* db
+                .execute(sql<SimilarSourceRow>`
+                    with seed as (
+                        select source.id, source.embedding
+                        from sources source
+                        inner join text_units seed_text_unit on seed_text_unit.id = source.text_unit_id
+                        inner join files seed_file on seed_file.id = seed_text_unit.file_id
+                        where ${currentSourceSql("source")}
+                          and source.id = ${seed.id}
+                          and seed_file.graph_id = ${graphId}
+                          and ${visibleFileSql("seed_file")}
+                        limit 1
+                    )
+                    select
+                        candidate.id,
+                        coalesce(candidate.entity_id, '') as "entityId",
+                        coalesce(candidate.relationship_id, '') as "relationshipId",
+                        candidate.description,
+                        text_unit.text,
+                        file.id as "fileId",
+                        file.name as "fileName",
+                        ${distance} as distance
+                    from seed
+                    inner join sources candidate on ${currentSourceSql("candidate")}
+                    inner join text_units text_unit on text_unit.id = candidate.text_unit_id
+                    inner join files file on file.id = text_unit.file_id
+                    where file.graph_id = ${graphId}
+                      and ${visibleFileSql("file")}
+                      ${fileScope}
+                      ${excludedSourceScope}
+                    order by distance asc, candidate.id asc
+                    limit ${candidateLimit}
+                `)
+                .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
+            const candidates = toSimilarSourceRows(result);
+            const newCandidates = candidates.filter((candidate) => {
+                if (seenSourceIds.has(candidate.id)) {
+                    return false;
+                }
 
-        onConsideredFileIds?.(items.map((row) => row.fileId));
-        output.push(
-            "",
-            `### Seed source ${seed.id}`,
-            `Seed: ${seedSubject}, file ${seed.fileId} ${seed.fileName}, ${truncateWords(seed.description) || "No description"}`,
-            ...(items.length > 0
-                ? items.map((row) => {
-                      const subject = formatSubject(row.entityId, row.relationshipId);
-                      const sameSubject =
-                          (row.entityId && row.entityId === seed.entityId) ||
-                          (row.relationshipId && row.relationshipId === seed.relationshipId)
-                              ? "same subject"
-                              : "different subject";
+                seenSourceIds.add(candidate.id);
+                return true;
+            });
+            const items = newCandidates.slice(0, limit);
+            const seedSubject = formatSubject(seed.entityId, seed.relationshipId);
 
-                      return `- ${row.id}, ${subject}, ${sameSubject}, file ${row.fileId} ${row.fileName}, distance ${formatDistance(row.distance)}, similarity ${formatSimilarity(row.distance)}, ${truncateWords(row.description) || "No description"}, excerpt: ${truncateWords(row.text) || "No excerpt"}`;
-                  })
-                : ["- no new similar sources found"])
-        );
-    }
+            onConsideredFileIds?.(items.map((row) => row.fileId));
+            output.push(
+                "",
+                `### Seed source ${seed.id}`,
+                `Seed: ${seedSubject}, file ${seed.fileId} ${seed.fileName}, ${truncateWords(seed.description) || "No description"}`,
+                ...(items.length > 0
+                    ? items.map((row) => {
+                          const subject = formatSubject(row.entityId, row.relationshipId);
+                          const sameSubject =
+                              (row.entityId && row.entityId === seed.entityId) ||
+                              (row.relationshipId && row.relationshipId === seed.relationshipId)
+                                  ? "same subject"
+                                  : "different subject";
 
-    return output.join("\n");
+                          return `- ${row.id}, ${subject}, ${sameSubject}, file ${row.fileId} ${row.fileName}, distance ${formatDistance(row.distance)}, similarity ${formatSimilarity(row.distance)}, ${truncateWords(row.description) || "No description"}, excerpt: ${truncateWords(row.text) || "No excerpt"}`;
+                      })
+                    : ["- no new similar sources found"])
+            );
+        }
+
+        return output.join("\n");
+    });
 }
 
 export const getEntitySourcesTool = (
@@ -657,25 +669,27 @@ export const similarSourcesCheckTool = (graphId: string, options: SourceToolOpti
             "Find semantically similar source descriptions for source IDs that were already retrieved. Use this to discover new, related sources that may support, qualify, or contradict answer-determining evidence.",
         inputSchema: similarSourcesCheckSchema,
         execute: ({ sourceIds, excludeSourceIds, files, limit }) =>
-            runToolSafely(
-                {
-                    title: "Similar sources",
-                    name: "similar_sources_check",
-                    hints: [
-                        "pass source IDs already found so they are excluded from results",
-                        "use excludeSourceIds for any other source IDs already seen in this conversation",
-                        "inspect returned descriptions and excerpts for conflicting values or outcomes",
-                    ],
-                },
-                { sourceIds, excludeSourceIds, files, limit },
-                () =>
-                    getSimilarSources(graphId, {
-                        sourceIds,
-                        excludeSourceIds,
-                        files,
-                        limit,
-                        onConsideredFileIds: options.onConsideredFileIds,
-                    })
+            runDatabaseEffect(
+                runToolSafely(
+                    {
+                        title: "Similar sources",
+                        name: "similar_sources_check",
+                        hints: [
+                            "pass source IDs already found so they are excluded from results",
+                            "use excludeSourceIds for any other source IDs already seen in this conversation",
+                            "inspect returned descriptions and excerpts for conflicting values or outcomes",
+                        ],
+                    },
+                    { sourceIds, excludeSourceIds, files, limit },
+                    () =>
+                        getSimilarSources(graphId, {
+                            sourceIds,
+                            excludeSourceIds,
+                            files,
+                            limit,
+                            onConsideredFileIds: options.onConsideredFileIds,
+                        })
+                )
             ),
     });
 
