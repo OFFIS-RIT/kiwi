@@ -24,6 +24,8 @@ describe("subagent prompts", () => {
         expect(prompt).toContain("## Curated Facts");
         expect(prompt).toContain("Critical:");
         expect(prompt).toContain("## Best Citation Candidates");
+        expect(prompt).toContain("similar_sources_check");
+        expect(prompt).toContain("only contains new candidates");
     });
 
     test("subagent prompts include request information when provided", () => {

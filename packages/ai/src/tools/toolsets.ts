@@ -4,7 +4,12 @@ import { correctionTool, type CorrectionToolContext } from "./correction";
 import { listEntitiesTool, searchEntityTool } from "./entity";
 import { listFilesTool } from "./file";
 import { getNeighboursTool, getPathBetweenTool, getRelationshipsTool, searchRelationshipsTool } from "./relationship";
-import { getEntitySourcesTool, getRelationshipSourcesTool, getSourceFileMetadataTool } from "./source";
+import {
+    getEntitySourcesTool,
+    getRelationshipSourcesTool,
+    getSourceFileMetadataTool,
+    similarSourcesCheckTool,
+} from "./source";
 import { askQuestionTool } from "./user";
 
 export type { CorrectionToolContext } from "./correction";
@@ -32,6 +37,7 @@ export function buildSourceGroundingToolset({ graphId, embeddingModel, onConside
     return {
         get_entity_sources: getEntitySourcesTool(graphId, embeddingModel, { onConsideredFileIds }),
         get_relationship_sources: getRelationshipSourcesTool(graphId, embeddingModel, { onConsideredFileIds }),
+        similar_sources_check: similarSourcesCheckTool(graphId, { onConsideredFileIds }),
     } satisfies ToolSet;
 }
 

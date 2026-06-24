@@ -42,6 +42,7 @@ describe("toolsets", () => {
         expect(Object.keys(buildSourceGroundingToolset(options)).sort()).toEqual([
             "get_entity_sources",
             "get_relationship_sources",
+            "similar_sources_check",
         ]);
     });
 
@@ -50,6 +51,7 @@ describe("toolsets", () => {
             "get_entity_sources",
             "get_relationship_sources",
             "get_source_file_metadata",
+            "similar_sources_check",
         ]);
         expect(Object.keys(buildServerToolset(options))).not.toContain("get_source_file_metadata");
     });
@@ -59,6 +61,7 @@ describe("toolsets", () => {
 
         expect(toolNames).toContain("search_entities");
         expect(toolNames).toContain("get_entity_sources");
+        expect(toolNames).toContain("similar_sources_check");
         expect(toolNames).not.toContain("correction");
         expect(toolNames).not.toContain("ask_clarifying_questions");
     });
