@@ -117,9 +117,10 @@ export function findVerticalReadingSplit<T>(
 
     const centerLeft = pageWidth * 0.45;
     const centerRight = pageWidth * 0.55;
-    const narrowRegions = regions.filter(
-        (region) => region.width <= pageWidth * 0.55 && (region.right <= centerLeft || region.left >= centerRight)
-    );
+    const narrowRegions = regions.filter((region) => {
+        const crossesCenterBand = region.left < centerLeft && region.right > centerRight;
+        return region.left < pageWidth && region.right > 0 && region.width <= pageWidth * 0.55 && !crossesCenterBand;
+    });
     if (narrowRegions.length < 2) {
         return null;
     }
@@ -129,7 +130,7 @@ export function findVerticalReadingSplit<T>(
         return null;
     }
 
-    const minimumGap = Math.max(24, pageWidth * 0.04);
+    const minimumGap = Math.max(12, pageWidth * 0.02);
     let bestGap: { start: number; end: number } | null = null;
     for (let index = 0; index < merged.length - 1; index += 1) {
         const current = merged[index];
@@ -239,19 +240,21 @@ export function orderRegionsWithVerticalSplit<T>(
     };
 
     for (const span of spanning) {
+        const belongsWithSpan = (region: PositionedRegion<T>) =>
+            verticalRegionsOverlap(region, span, Math.max(1, Math.min(region.height, span.height) * 1.25));
         const above = nonSpanning.filter(
-            (region) => !emitted.has(region) && region.centerY < currentTop && region.centerY > span.top
+            (region) =>
+                !emitted.has(region) &&
+                region.centerY < currentTop &&
+                region.centerY > span.top &&
+                !belongsWithSpan(region)
         );
         if (above.length > 0) {
             pushOrdered(orderPositionedRegions(above, pageWidth, depth));
         }
 
         const overlapping = nonSpanning.filter(
-            (region) =>
-                !emitted.has(region) &&
-                region.centerY < currentTop &&
-                region.centerY <= span.top &&
-                verticalRegionsOverlap(region, span, 1)
+            (region) => !emitted.has(region) && region.centerY < currentTop && belongsWithSpan(region)
         );
         pushOrdered(sortRegionsTopLeft([...overlapping, span]));
         currentTop = span.bottom;

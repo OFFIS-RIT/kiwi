@@ -10,6 +10,7 @@ import {
 } from "./constants";
 import { average, getTop, median, overlapLength, squashWhitespace, unionBoxes } from "./geometry";
 import { orderItemsByReadingLayout } from "./layout";
+import { repairLoneSurrogates } from "./unicode";
 
 const STRONG_INLINE_TOKEN_CONNECTORS = new Set(["_", "/", "\\", "+", "=", "^", "~", "*"]);
 const STREAM_ORDER_BACKWARD_MOVEMENT_RATIO = 0.25;
@@ -266,7 +267,7 @@ export function splitHorizontalTextLine(chars: TextChar[]): TextChar[][] {
     const visibleChars = ordered.filter((char) => getExpandedCharText(char.char).trim().length > 0);
     const averageWidth = average(visibleChars.map((char) => char.bbox.width)) || 4;
     const medianFontSize = median(visibleChars.map((char) => char.fontSize)) || 12;
-    const breakThreshold = Math.max(24, averageWidth * 4.5, medianFontSize * 2.4);
+    const breakThreshold = Math.max(12, averageWidth * 3, medianFontSize * 1.25);
     const groups: TextChar[][] = [[]];
 
     for (let index = 0; index < ordered.length; index += 1) {
@@ -341,10 +342,81 @@ export function splitLineCharsByDirection(chars: TextChar[]): { horizontal: Text
         }
     }
 
+    for (const run of getStackedVerticalCharRuns(chars, horizontal)) {
+        for (const char of run) {
+            horizontal.delete(char);
+            vertical.add(char);
+        }
+    }
+
     return {
         horizontal: chars.filter((char) => horizontal.has(char)),
         vertical: chars.filter((char) => vertical.has(char)),
     };
+}
+
+function getStackedVerticalCharRuns(chars: TextChar[], horizontal: Set<TextChar>): TextChar[][] {
+    const visible = chars.filter((char) => horizontal.has(char) && getExpandedCharText(char.char).trim().length > 0);
+    if (visible.length < 3) {
+        return [];
+    }
+
+    const ordered = [...visible].sort((left, right) => getTextCharCenterX(left) - getTextCharCenterX(right));
+    const clusters: TextChar[][] = [];
+    for (const char of ordered) {
+        const current = clusters[clusters.length - 1];
+        if (!current) {
+            clusters.push([char]);
+            continue;
+        }
+
+        const fontSize = median(current.map((entry) => entry.fontSize)) || char.fontSize;
+        const centerTolerance = Math.max(2.5, fontSize * 0.35);
+        if (Math.abs(getTextCharCenterX(char) - average(current.map(getTextCharCenterX))) <= centerTolerance) {
+            current.push(char);
+            continue;
+        }
+
+        clusters.push([char]);
+    }
+
+    return clusters.filter(isStackedVerticalCharRun);
+}
+
+function isStackedVerticalCharRun(chars: TextChar[]): boolean {
+    const visible = chars.filter((char) => getExpandedCharText(char.char).trim().length > 0);
+    if (visible.length < 3) {
+        return false;
+    }
+
+    const bbox = unionBoxes(visible.map((char) => char.bbox));
+    if (!bbox) {
+        return false;
+    }
+
+    const medianFontSize = median(visible.map((char) => char.fontSize)) || 0;
+    const centerXSpread = Math.max(...visible.map(getTextCharCenterX)) - Math.min(...visible.map(getTextCharCenterX));
+    if (centerXSpread > Math.max(3, medianFontSize * 0.45)) {
+        return false;
+    }
+
+    const text = visible.map((char) => getExpandedCharText(char.char)).join("");
+    if (text.length > 32 || !/[\p{L}\p{N}]/u.test(text)) {
+        return false;
+    }
+
+    if (bbox.height < Math.max(medianFontSize * 2.2, bbox.width * 2.4)) {
+        return false;
+    }
+
+    const ordered = sortVerticalTextChars(visible);
+    const gaps: number[] = [];
+    for (let index = 1; index < ordered.length; index += 1) {
+        gaps.push(Math.abs(getTextCharCenterY(ordered[index - 1]!) - getTextCharCenterY(ordered[index]!)));
+    }
+
+    const medianGap = median(gaps) || 0;
+    return medianGap > 0 && medianGap <= Math.max(medianFontSize * 1.6, 18);
 }
 
 function getVerticalCharRuns(chars: TextChar[], vertical: Set<TextChar>): TextChar[][] {
@@ -647,21 +719,64 @@ export function sortVerticalTextChars(chars: TextChar[]): TextChar[] {
 }
 
 export function reconstructVerticalTextFromChars(chars: TextChar[]): string {
+    const ordered = sortVerticalTextChars(dedupeTextChars(chars));
+    const gapThreshold = getVerticalWordGapThreshold(ordered);
     const parts: string[] = [];
+    let previousVisible: TextChar | null = null;
 
-    for (const char of sortVerticalTextChars(dedupeTextChars(chars))) {
+    for (const char of ordered) {
         const text = getExpandedCharText(char.char);
         if (text.trim().length === 0) {
             if (parts.length > 0 && parts[parts.length - 1] !== " ") {
                 parts.push(" ");
             }
+            previousVisible = null;
             continue;
         }
 
+        if (
+            previousVisible &&
+            getVerticalCharGap(previousVisible, char) > gapThreshold &&
+            parts.length > 0 &&
+            parts[parts.length - 1] !== " "
+        ) {
+            parts.push(" ");
+        }
+
         parts.push(text);
+        previousVisible = char;
     }
 
     return parts.join("").replace(/\s+/g, " ").trim();
+}
+
+function getVerticalWordGapThreshold(chars: TextChar[]): number {
+    const visible = chars.filter((char) => getExpandedCharText(char.char).trim().length > 0);
+    if (visible.length <= 1) {
+        return 0;
+    }
+
+    const gaps: number[] = [];
+    for (let index = 1; index < visible.length; index += 1) {
+        const gap = getVerticalCharGap(visible[index - 1]!, visible[index]!);
+        if (gap > 0) {
+            gaps.push(gap);
+        }
+    }
+
+    const fontSize = median(visible.map((char) => char.fontSize)) || 0;
+    if (gaps.length === 0) {
+        return Math.max(0.5, fontSize * 0.08);
+    }
+
+    const sorted = gaps.sort((left, right) => left - right);
+    const lowerHalf = sorted.slice(0, Math.max(1, Math.ceil(sorted.length / 2)));
+    const normalGap = median(lowerHalf) || 0;
+    return Math.max(0.5, Math.min(fontSize * 0.2, normalGap * 1.4));
+}
+
+function getVerticalCharGap(previous: TextChar, current: TextChar): number {
+    return previous.bbox.y - getTop(current.bbox);
 }
 
 export function getTextCharCenterX(char: TextChar): number {
@@ -760,7 +875,7 @@ export function pushWord(words: Word[], chars: TextChar[], lineIndex: number): v
 export function getLineText(line: TextLine): string {
     const chars = getPreparedLineChars(line);
     if (chars.length === 0) {
-        return squashWhitespace(line.text);
+        return squashWhitespace(repairLoneSurrogates(line.text));
     }
 
     if (inferLineDirection(line, chars) === "vertical") {
@@ -885,7 +1000,7 @@ export function isLikelyDuplicateTextChar(
 }
 
 export function getExpandedCharText(value: string): string {
-    return LIGATURE_EXPANSIONS[value] ?? value;
+    return repairLoneSurrogates(LIGATURE_EXPANSIONS[value] ?? value);
 }
 
 export function isScriptLikeTextChar(previous: TextChar, current: TextChar): boolean {
@@ -910,6 +1025,9 @@ export function cleanupExtractedTextSpacing(value: string): string {
     return value
         .replace(/\s+([,;:!?])/g, "$1")
         .replace(/\s+\.(?!\.)/g, ".")
+        .replace(/([A-ZÄÖÜ]{2,})\s+([A-ZÄÖÜ]{2,})(?=[./-])/g, "$1$2")
+        .replace(/(\p{L})-\s+(?=\p{Ll})/gu, "$1")
+        .replace(/([\p{L}\p{N}])\s+-\s*(?=[\p{Lu}\p{N}])/gu, "$1-")
         .replace(/\s+([+*=^~])/g, "$1")
         .replace(/([+*=^~])\s+/g, "$1")
         .replace(/([([{])\s+/g, "$1")

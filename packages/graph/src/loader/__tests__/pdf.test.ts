@@ -562,21 +562,20 @@ async function buildMathTableFixture() {
     });
 }
 
-async function buildWhitespaceSeparatedTableFixture() {
-    return buildHybridFixture(
-        (pdf) => {
-            const page = pdf.addPage({ size: "letter" });
+async function buildWhitespaceSeparatedTableFixture(
+    options: { tableMode?: TestPDFTableMode } = { tableMode: "lines" }
+) {
+    return buildHybridFixture((pdf) => {
+        const page = pdf.addPage({ size: "letter" });
 
-            page.drawText("Whitespace Segments", { x: 210, y: 740, size: 22 });
-            drawLineRows(page, 50, 620, [
-                "City          Score          Rank",
-                "Berlin        91             1",
-                "Leipzig       84             2",
-                "Essen         77             3",
-            ]);
-        },
-        { tableMode: "lines" }
-    );
+        page.drawText("Whitespace Segments", { x: 210, y: 740, size: 22 });
+        drawLineRows(page, 50, 620, [
+            "City          Score          Rank",
+            "Berlin        91             1",
+            "Leipzig       84             2",
+            "Essen         77             3",
+        ]);
+    }, options);
 }
 
 async function buildRotatedTextFixture() {
@@ -875,6 +874,42 @@ async function buildMultiColumnFixture() {
     });
 }
 
+async function buildNarrowGutterColumnFixture() {
+    return buildHybridFixture((pdf) => {
+        const page = pdf.addPage({ size: "a4" });
+
+        page.drawText("Narrow Gutter Report", { x: 56, y: 780, size: 18 });
+
+        page.drawText("RIGHT SECTION", { x: 305, y: 730, size: 12 });
+        drawLineRows(page, 305, 708, [
+            "Right alpha starts high.",
+            "Right beta continues high.",
+            "Right gamma keeps the second column active.",
+            "Right delta overlaps the first column vertically.",
+            "Right epsilon closes after the left column begins.",
+            "Right zeta remains parallel to the left column.",
+            "Right eta remains parallel to the left column.",
+            "Right theta remains parallel to the left column.",
+            "Right iota remains parallel to the left column.",
+            "Right kappa closes after the left column begins.",
+        ]);
+
+        page.drawText("LEFT SECTION", { x: 56, y: 520, size: 12 });
+        drawLineRows(page, 56, 498, [
+            "Left alpha before right.",
+            "Left beta first column.",
+            "Left gamma first column.",
+        ]);
+
+        page.drawText("FULL WIDTH NEXT", { x: 56, y: 360, size: 12 });
+        page.drawText("Full width body resumes after both columns and spans the entire page.", {
+            x: 56,
+            y: 338,
+            size: 12,
+        });
+    });
+}
+
 async function buildReferenceListFixture() {
     return buildHybridFixture((pdf) => {
         const page = pdf.addPage({ size: "letter" });
@@ -1118,6 +1153,13 @@ describe("PDFLoader", () => {
         expect(fixture.hybrid).toMatch(/\| Essen \| 77 \| 3 \|/);
     });
 
+    test("detects whitespace separated tables in default strict-line mode", async () => {
+        const fixture = await buildWhitespaceSeparatedTableFixture({});
+
+        expect(fixture.hybrid).toMatch(/\| City \| Score \| Rank \|/);
+        expect(fixture.hybrid).toMatch(/\| Leipzig \| 84 \| 2 \|/);
+    });
+
     test("reconstructs 90 and 270 degree text in plain and hybrid modes", async () => {
         const fixture = await buildRotatedTextFixture();
 
@@ -1301,6 +1343,19 @@ describe("PDFLoader", () => {
         expect(hybridLeftBottomSecond).toBeGreaterThan(hybridLeftBottom);
         expect(hybridRightBottom).toBeGreaterThan(hybridLeftBottomSecond);
         expect(fixture.hybrid).not.toMatch(/^\| .+\|$/m);
+    });
+
+    test("keeps narrow-gutter two-column sections in column order", async () => {
+        const fixture = await buildNarrowGutterColumnFixture();
+
+        const left = fixture.hybrid.indexOf("Left alpha before right.");
+        const right = fixture.hybrid.indexOf("Right alpha starts high.");
+        const next = fixture.hybrid.indexOf("FULL WIDTH NEXT");
+
+        expect(fixture.hybrid).toMatch(/^# Narrow Gutter Report$/m);
+        expect(left).toBeGreaterThan(-1);
+        expect(right).toBeGreaterThan(left);
+        expect(next).toBeGreaterThan(right);
     });
 
     test("keeps reference-like tables as prose in hybrid mode", async () => {
