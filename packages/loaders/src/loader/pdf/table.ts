@@ -92,7 +92,6 @@ export function detectTables(
         buildTableBlocksFromModels(tablePage, tableFindTables(tablePage, tableDefaultSettings(tableMode)), "lines")
     );
     if (!strictLines && !proseLikeMultiColumn) {
-        const rejectNonStrictEdges = strictLines ? nonStrictDrawnEdges : [];
         appendUniqueTables(
             tables,
             rejectTablesOverlappingNonStrictEdges(
@@ -101,7 +100,7 @@ export function detectTables(
                     tableFindTables(tablePage, tableSettingsForStrategy("text", "text")),
                     "text"
                 ),
-                rejectNonStrictEdges
+                nonStrictDrawnEdges
             )
         );
         appendUniqueTables(
@@ -111,7 +110,17 @@ export function detectTables(
                     lines,
                     tables.map((table) => table.bbox)
                 ),
-                rejectNonStrictEdges
+                nonStrictDrawnEdges
+            )
+        );
+    }
+
+    if (strictLines && explicitEdges.length === 0 && !proseLikeMultiColumn) {
+        appendUniqueTables(
+            tables,
+            detectWhitespaceSeparatedTables(
+                lines,
+                tables.map((table) => table.bbox)
             )
         );
     }
@@ -210,7 +219,9 @@ export function buildTableBlocksFromModels(
     const tables: TableBlock[] = [];
 
     for (const model of models) {
-        const rows = tidyExtractedTableRows(tableExtractRows(model, TABLE_DEFAULT_TEXT_TOLERANCE));
+        const extractedRows = tableExtractRows(model, TABLE_DEFAULT_TEXT_TOLERANCE);
+        const transposed = shouldTransposeRotatedTableModel(model, extractedRows);
+        const rows = tidyExtractedTableRows(transposed ? transposeRotatedTableRows(extractedRows) : extractedRows);
         if (!tableIsLikelyTabular(rows)) {
             continue;
         }
@@ -225,7 +236,10 @@ export function buildTableBlocksFromModels(
         }
 
         const bbox = tableBBoxToBoundingBox(tableModelBBox(model), page.bbox.bottom);
-        const normalized = tidyTableCells(tableModelToCells(model, page.bbox.bottom));
+        const cells = transposed
+            ? tableModelToTransposedCells(model, page.bbox.bottom)
+            : tableModelToCells(model, page.bbox.bottom);
+        const normalized = tidyTableCells(cells);
         if (!normalized) {
             continue;
         }
@@ -1420,6 +1434,72 @@ export function tableModelToCells(model: TableModelData, pageHeight: number): Ta
     return cells;
 }
 
+export function shouldTransposeRotatedTableModel(model: TableModelData, rows: Array<Array<string | null>>): boolean {
+    const rowCount = rows.length;
+    const colCount = Math.max(0, ...rows.map((row) => row.length));
+    if (colCount <= TABLE_MAX_COLS || rowCount >= colCount || rowCount > TABLE_MAX_COLS) {
+        return false;
+    }
+
+    const bbox = tableModelBBox(model);
+    let visibleChars = 0;
+    let verticalChars = 0;
+    for (const char of model.page.chars) {
+        const horizontalMid = (char.x0 + char.x1) / 2;
+        const verticalMid = (char.top + char.bottom) / 2;
+        if (
+            horizontalMid < bbox.x0 ||
+            horizontalMid >= bbox.x1 ||
+            verticalMid < bbox.top ||
+            verticalMid >= bbox.bottom
+        ) {
+            continue;
+        }
+
+        if (!char.text.trim()) {
+            continue;
+        }
+
+        visibleChars += 1;
+        if (inferTextCharDirection(tableCharToTextChar(char)) === "vertical") {
+            verticalChars += 1;
+        }
+    }
+
+    return visibleChars >= 20 && verticalChars / visibleChars >= 0.6;
+}
+
+export function transposeRotatedTableRows(rows: Array<Array<string | null>>): Array<Array<string | null>> {
+    const width = Math.max(0, ...rows.map((row) => row.length));
+    const reversed = rows.map((row) => Array.from({ length: width }, (_, index) => row[index] ?? null)).reverse();
+    return Array.from({ length: width }, (_, column) => reversed.map((row) => row[column] ?? null));
+}
+
+export function tableModelToTransposedCells(model: TableModelData, pageHeight: number): TableCell[] {
+    const rows = tableModelRows(model);
+    const lastPhysicalRow = rows.length - 1;
+    const cells: TableCell[] = [];
+
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex]!;
+        for (let colIndex = 0; colIndex < row.cells.length; colIndex += 1) {
+            const cell = row.cells[colIndex];
+            if (!cell) {
+                continue;
+            }
+
+            cells.push({
+                bbox: tableBBoxToBoundingBox(cell, pageHeight),
+                row: colIndex,
+                col: lastPhysicalRow - rowIndex,
+                text: "",
+            });
+        }
+    }
+
+    return cells;
+}
+
 export function tableModelRows(model: TableModelData): TableCellGroup[] {
     return tableGetRowsOrCols(model, true);
 }
@@ -1843,7 +1923,7 @@ export function tidyExtractedTableRows(rows: Array<Array<string | null>>): Array
 }
 
 export function cleanTableCellText(value: string): string {
-    return squashWhitespace(value)
+    return cleanupExtractedTextSpacing(squashWhitespace(value))
         .replace(/([A-Za-zÄÖÜäöüß])-\s+(?=[a-zäöüß])/g, "$1")
         .trim();
 }

@@ -27,6 +27,7 @@ import {
     type PDFPageContentEntry as PageContentEntry,
 } from "./source-reference";
 import { applyActualTextToPageText, getLineText, inferLineDirection, tidyPageText } from "./text";
+import { repairPageTextLoneSurrogates } from "./unicode";
 
 type PDFHybridOCRFallbackOptions = Pick<FullOCRDeps, "rasterizeSelectedPages" | "transcribePage"> & {
     content: Uint8Array;
@@ -189,7 +190,7 @@ function preparePages(pdf: PDFDocumentLike, allowOCRFallback: boolean): Prepared
 
 function preparePageText(pdf: PDFDocumentLike, page: PDFPageLike, content?: PageContentAnalysis) {
     const pageContent = content ?? analyzePageContent(pdf, page, () => "ignored-image");
-    const extractedText = page.extractText();
+    const extractedText = repairPageTextLoneSurrogates(page.extractText());
     const actualTextApplied = applyActualTextToPageText(extractedText, pageContent.actualTextSpans);
     return tidyPageText(actualTextApplied);
 }

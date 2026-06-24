@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { BoundingBox, PageText, TextChar, TextLine } from "../types";
-import { extractWords, getLineText } from "../text";
-import { reconstructTableCellText } from "../table";
+import type { BoundingBox, PageText, TableModelData, TablePage, TextChar, TextLine } from "../types";
+import { extractWords, getLineText, tidyPageText } from "../text";
+import { buildTableBlocksFromModels, reconstructTableCellText } from "../table";
+import { repairPageTextLoneSurrogates } from "../unicode";
 
 type TextCharOptions = {
     width?: number;
@@ -61,6 +62,42 @@ function pageText(line: TextLine): PageText {
         height: line.bbox.y + line.bbox.height + 20,
         lines: [line],
         text: line.text,
+    };
+}
+
+function rotatedTableModel(physicalRows = 8, physicalCols = 13): TableModelData {
+    const cells: TableModelData["cells"] = [];
+    const chars: TablePage["chars"] = [];
+    let sequenceIndex = 0;
+
+    for (let row = 0; row < physicalRows; row += 1) {
+        for (let col = 0; col < physicalCols; col += 1) {
+            const x0 = col * 20;
+            const top = row * 20;
+            cells.push({ x0, top, x1: x0 + 20, bottom: top + 20 });
+            chars.push({
+                text: "x",
+                x0: x0 + 6,
+                x1: x0 + 14,
+                top: top + 6,
+                bottom: top + 8,
+                fontSize: 8,
+                fontName: "Helvetica",
+                baseline: top + 8,
+                sequenceIndex,
+            });
+            sequenceIndex += 1;
+        }
+    }
+
+    return {
+        page: {
+            bbox: { x0: 0, top: 0, x1: physicalCols * 20, bottom: physicalRows * 20 },
+            words: [],
+            chars,
+            edges: [],
+        },
+        cells,
     };
 }
 
@@ -177,6 +214,63 @@ describe("PDF text reconstruction", () => {
         expect(getLineText(textLine([...first, ...second]))).toBe("ABC DEF");
     });
 
+    test("joins split uppercase party tokens before inline connectors", () => {
+        const chars = positionedChars("Gruppe DIE LI NKE./Piratenpartei", 10, 0);
+
+        expect(getLineText(textLine(chars))).toBe("Gruppe DIE LINKE./Piratenpartei");
+    });
+
+    test("normalizes soft hyphen breaks and spaced name hyphens", () => {
+        const chars = positionedChars("Interferome- ter Eilers -Dörfler", 10, 0);
+
+        expect(getLineText(textLine(chars))).toBe("Interferometer Eilers-Dörfler");
+    });
+
+    test("splits same-baseline prose columns across a narrow gutter", () => {
+        const left = positionedChars("Left column paragraph text", 56, 0, {
+            width: 5,
+            height: 10,
+            fontSize: 10,
+        });
+        const right = positionedChars("Right column paragraph text", 205, left.length, {
+            width: 5,
+            height: 10,
+            fontSize: 10,
+        });
+        const page = tidyPageText(pageText(textLine([...left, ...right])));
+
+        expect(page.lines.map(getLineText)).toEqual(["Left column paragraph text", "Right column paragraph text"]);
+    });
+
+    test("uses vertical glyph gaps as word breaks", () => {
+        const chars: TextChar[] = [];
+        let cursor = 120;
+        let sequenceIndex = 0;
+        for (const char of "BodensaurerBuchenwalddes") {
+            if (char === "B" && chars.length > 0) {
+                cursor -= 1.25;
+            }
+            if (char === "d" && chars.at(-1)?.char === "d") {
+                cursor -= 1.25;
+            }
+
+            const height = 2.5;
+            cursor -= height;
+            chars.push(
+                textChar(char, 20, sequenceIndex, {
+                    width: 4.2,
+                    height,
+                    fontSize: 5,
+                    y: cursor,
+                    baseline: cursor + height,
+                })
+            );
+            sequenceIndex += 1;
+        }
+
+        expect(getLineText(textLine(chars))).toBe("Bodensaurer Buchenwald des");
+    });
+
     test("reconstructs two-font table cell text without splitting same-baseline glyph runs", () => {
         const logo = splitFontWordChars();
         const description = positionedChars("Interferometer", 210, logo.length, {
@@ -200,5 +294,37 @@ describe("PDF text reconstruction", () => {
         });
 
         expect(reconstructTableCellText([...word, ...description])).toBe("AXIOM Device");
+    });
+
+    test("reconstructs stacked table header glyphs as vertical words", () => {
+        const chars = Array.from("PHASE", (char, index) =>
+            textChar(char, 10, index, {
+                width: 5,
+                height: 8,
+                fontSize: 10,
+                y: 120 - index * 10,
+                baseline: 128 - index * 10,
+            })
+        );
+
+        expect(reconstructTableCellText(chars)).toBe("PHASE");
+    });
+
+    test("repairs lone surrogates without changing valid pairs", () => {
+        const emoji = "😀";
+        const line = textLine([textChar("\udf65", 10, 0), textChar(emoji, 20, 1)]);
+        const repaired = repairPageTextLoneSurrogates({ ...pageText(line), text: `A\udf65${emoji}` });
+
+        expect(repaired.text).toBe(`A�${emoji}`);
+        expect(repaired.lines[0]?.spans[0]?.chars.map((char) => char.char)).toEqual(["�", emoji]);
+    });
+
+    test("transposes rotated grid tables before enforcing the column limit", () => {
+        const model = rotatedTableModel();
+        const [table] = buildTableBlocksFromModels(model.page, [model], "lines");
+
+        expect(table?.rowCount).toBe(13);
+        expect(table?.colCount).toBe(8);
+        expect(table?.markdown).toContain("| x | x | x | x | x | x | x | x |");
     });
 });

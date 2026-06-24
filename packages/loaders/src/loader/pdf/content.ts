@@ -39,6 +39,52 @@ import {
     squashWhitespace,
     transformPoint,
 } from "./geometry";
+import { repairLoneSurrogates } from "./unicode";
+
+const PDF_DOC_ENCODING_HIGH: Partial<Record<number, number>> = {
+    128: 8226,
+    129: 8224,
+    130: 8225,
+    131: 8230,
+    132: 8212,
+    133: 8211,
+    134: 402,
+    135: 8260,
+    136: 8249,
+    137: 8250,
+    138: 8722,
+    139: 8240,
+    140: 8222,
+    141: 8220,
+    142: 8221,
+    143: 8216,
+    144: 8217,
+    145: 8218,
+    146: 8482,
+    147: 64257,
+    148: 64258,
+    149: 321,
+    150: 338,
+    151: 352,
+    152: 376,
+    153: 381,
+    154: 305,
+    155: 322,
+    156: 339,
+    157: 353,
+    158: 382,
+    160: 8364,
+};
+const PDF_DOC_ENCODING_LOW: Partial<Record<number, number>> = {
+    24: 728,
+    25: 711,
+    26: 710,
+    27: 729,
+    28: 733,
+    29: 731,
+    30: 730,
+    31: 732,
+};
 
 export function analyzePageContent(
     pdf: PDFDocumentLike,
@@ -496,18 +542,58 @@ export function decodePDFTextOperand(value: Operand | undefined): string | null 
 }
 
 export function decodePDFStringBytes(bytes: Uint8Array): string {
-    let output: string;
+    const output =
+        bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff
+            ? decodeUTF16BEStringBytes(bytes)
+            : decodePDFDocEncodingBytes(bytes);
 
-    if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
-        output = "";
-        for (let index = 2; index + 1 < bytes.length; index += 2) {
-            output += String.fromCharCode((bytes[index]! << 8) | bytes[index + 1]!);
-        }
-    } else {
-        output = Buffer.from(bytes).toString("latin1");
+    return repairLoneSurrogates(output.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " "));
+}
+
+function decodeUTF16BEStringBytes(bytes: Uint8Array): string {
+    let output = "";
+    for (let index = 2; index + 1 < bytes.length; index += 2) {
+        output += String.fromCharCode((bytes[index]! << 8) | bytes[index + 1]!);
     }
+    return output;
+}
 
-    return output.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ");
+function decodePDFDocEncodingBytes(bytes: Uint8Array): string {
+    let output = "";
+    for (const byte of bytes) {
+        if (byte < 24) {
+            if (byte === 9 || byte === 10 || byte === 13) {
+                output += String.fromCharCode(byte);
+            }
+            continue;
+        }
+
+        if (byte <= 31) {
+            const code = PDF_DOC_ENCODING_LOW[byte];
+            if (code !== undefined) {
+                output += String.fromCharCode(code);
+            }
+            continue;
+        }
+
+        if (byte < 128) {
+            output += String.fromCharCode(byte);
+            continue;
+        }
+
+        if (byte <= 160) {
+            const code = PDF_DOC_ENCODING_HIGH[byte];
+            if (code !== undefined) {
+                output += String.fromCharCode(code);
+            }
+            continue;
+        }
+
+        if (byte !== 173) {
+            output += String.fromCharCode(byte);
+        }
+    }
+    return output;
 }
 
 export function operandInteger(value: Operand | undefined): number | null {

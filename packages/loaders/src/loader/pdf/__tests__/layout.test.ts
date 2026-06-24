@@ -25,4 +25,28 @@ describe("PDF reading layout", () => {
 
         expect(ordered).toEqual(["Form W-4", "Employee's Withholding Certificate", "OMB No. 1545-0074"]);
     });
+
+    test("uses column order when the gutter is narrow but content overlaps vertically", () => {
+        const title = region("Title", { x: 56, y: 760, width: 300, height: 18 });
+        const leftHeading = region("Left heading", { x: 56, y: 500, width: 110, height: 12 });
+        const leftBody = region("Left body", { x: 56, y: 440, width: 234, height: 52 });
+        const rightHeading = region("Right heading", { x: 305, y: 710, width: 150, height: 12 });
+        const rightBody = region("Right body", { x: 305, y: 430, width: 232, height: 270 });
+        const span = region("Next full-width section", { x: 56, y: 340, width: 360, height: 12 });
+
+        const ordered = orderPositionedRegions(
+            [rightBody, span, title, leftBody, rightHeading, leftHeading],
+            595,
+            0
+        ).map((entry) => entry.value.text);
+
+        expect(ordered).toEqual([
+            "Title",
+            "Left heading",
+            "Left body",
+            "Right heading",
+            "Right body",
+            "Next full-width section",
+        ]);
+    });
 });

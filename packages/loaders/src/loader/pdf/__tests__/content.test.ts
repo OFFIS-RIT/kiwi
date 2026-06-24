@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { analyzePageContent, createTokenizer } from "../content";
+import { analyzePageContent, createTokenizer, decodePDFStringBytes } from "../content";
 import type { PDFArrayLike, PDFDictLike, PDFDocumentLike, PDFPageLike, PDFStreamLike } from "../types";
 
 const encoder = new TextEncoder();
@@ -36,6 +36,10 @@ describe("PDF content parser", () => {
         expect(tokenizer.next()).toEqual({ kind: "operator", value: ">" });
         expect(tokenizer.next()).toEqual({ kind: "operator", value: "BDC" });
         expect(tokenizer.next()).toBeNull();
+    });
+
+    test("decodes PDFDocEncoding text strings", () => {
+        expect(decodePDFStringBytes(Uint8Array.of(0x48, 0x80, 0x93, 0x94, 0xa0, 0xad))).toBe("H•ﬁﬂ€");
     });
 });
 
