@@ -108,6 +108,7 @@
     "step.get_path_between_entities": "Finde Verbindungen...",
     "step.get_entity_sources": "Lade Entitätsquellen...",
     "step.get_relationship_sources": "Lade Beziehungsquellen...",
+    "step.similar_sources_check": "Prüfe ähnliche Quellen...",
     "step.explore_graph_with_subagent": "Erkunde Projekt vertieft...",
     "step.curate_sources_with_subagent": "Kuratierte Quellen werden gesucht...",
     "step.ask_clarifying_questions": "Rückfrage gestellt",

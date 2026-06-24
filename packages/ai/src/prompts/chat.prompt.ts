@@ -61,6 +61,7 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
                   "- get_path_between_entities: Find one short connection path between two entity IDs.",
                   "- get_entity_sources: Retrieve grounding source excerpts for already-identified entity IDs. If you provide a refinement query, it uses semantic retrieval with keyword boosting. Use source IDs returned by this tool for citations.",
                   "- get_relationship_sources: Retrieve grounding source excerpts for already-identified relationship IDs. If you provide a refinement query, it uses semantic retrieval with keyword boosting. Use source IDs returned by this tool for citations.",
+                  "- similar_sources_check: Given source IDs you already found, retrieve new semantically similar source descriptions from the same graph. Use this to check whether answer-determining evidence has similar sources that support, qualify, or contradict it.",
               ]
             : []),
         ...(includeClientTools
@@ -145,6 +146,7 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
                   "- Keep each query short and semantic. Use keywords only as short lexical anchors when exact terms, names, or original spellings matter.",
                   "- Use list_files when the user asks about a specific document or when narrowing retrieval to one or more files would improve precision.",
                   "- Use get_entity_sources only after you have identified relevant entity IDs through graph exploration, and use get_relationship_sources only after you have identified relevant relationship IDs. The source IDs from these tools are the only IDs you should cite.",
+                  "- Before finalizing a factual answer that depends on one or more answer-determining source IDs, run similar_sources_check on those source IDs when another source could plausibly disagree. Pass every source ID already found in sourceIds or excludeSourceIds so the tool returns only new candidates.",
                   "- It is fine to alternate between entity search, relationship search, neighbour exploration, file narrowing, and path exploration in multiple passes before collecting sources.",
                   "- After new graph exploration reveals additional relevant entities or relationships, run the corresponding source tool again if needed so the final answer stays fully grounded.",
                   "- For follow-up questions, do not rely only on earlier retrieval. Run fresh searches when needed to cover the new scope.",
@@ -198,6 +200,24 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
               : [
                     "- Work only from available context and previously cited information.",
                     "- If available context is insufficient, say what is missing instead of naming unavailable tools.",
+                ]),
+        "",
+        "# Contradiction Verification Gate",
+        ...(includeGraphTools
+            ? [
+                  "- Do not finalize an answer from the first plausible source when the answer depends on a concrete value, date, name, outcome, quantity, status, permission, or winner.",
+                  "- Use similar_sources_check before the final answer for answer-determining citations unless the request is only conversational, formatting-only, or already impossible to answer from graph evidence.",
+                  "- Inspect similar-source candidates for conflicting values, dates, names, outcomes, quantities, statuses, or permissions before deciding the final wording.",
+                  "- If similar sources disagree, report that the graph contains conflicting evidence and cite each conflicting statement instead of silently choosing one.",
+                  "- Prefer one conflicting answer only when retrieved source text or metadata clearly establishes authority; otherwise present the disagreement as unresolved.",
+              ]
+            : useSubagentOnlyInstructions
+              ? [
+                    "- Require the source curation subagent report to surface contradictions or similar-source gaps before treating its source IDs as final evidence.",
+                    "- If delegated source curation reports disagreement, cite each conflicting statement instead of silently choosing one.",
+                ]
+              : [
+                    "- If available context contains disagreement, cite or describe the disagreement instead of silently choosing one claim.",
                 ]),
         "",
         "# Key Principles",

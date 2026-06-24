@@ -39,6 +39,15 @@ describe("createChatPrompt", () => {
         expect(prompt).toContain("Most recent completed workflow marker: 2026-01-02T00:00:00.000Z.");
     });
 
+    test("requires similar source checks for answer-determining evidence", () => {
+        const prompt = createChatPrompt();
+
+        expect(prompt).toContain("similar_sources_check");
+        expect(prompt).toContain("# Contradiction Verification Gate");
+        expect(prompt).toContain("Do not finalize an answer from the first plausible source");
+        expect(prompt).toContain("Pass every source ID already found in sourceIds or excludeSourceIds");
+    });
+
     test("includes request information when provided", () => {
         const prompt = createChatPrompt({
             requestInformation: {

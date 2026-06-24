@@ -108,6 +108,7 @@
     "step.get_path_between_entities": "Finding connections...",
     "step.get_entity_sources": "Retrieving entity sources...",
     "step.get_relationship_sources": "Retrieving relationship sources...",
+    "step.similar_sources_check": "Checking similar sources...",
     "step.explore_graph_with_subagent": "Exploring project deeply...",
     "step.curate_sources_with_subagent": "Curating sources...",
     "step.ask_clarifying_questions": "Asked clarifying questions",
