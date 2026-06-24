@@ -142,3 +142,13 @@ index 32ce29913c66439e0ddd3808bc3b3afbdfb8c0e5..cc595556ff082ebd734be25e79b3a514
          // mark success
          executionFence.deactivate();
          await executeWorkflowRunTransition({
+@@ -911,6 +940,9 @@ export async function executeWorkflow(params) {
+     }
+     catch (error) {
+         executionFence.deactivate();
++        if (executionFence.sleepSignal) {
++            error = executionFence.sleepSignal;
++        }
+         // handle sleep signal by parking the workflow in running status
+         if (error instanceof SleepSignal) {
+             await executeWorkflowRunTransition({
