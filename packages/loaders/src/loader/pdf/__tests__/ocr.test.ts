@@ -1,8 +1,126 @@
 import { describe, expect, mock, test } from "bun:test";
 import { DEFAULT_RASTER_SCALE } from "../constants";
-import { shouldUsePageOCRFallback } from "../document";
+import { getPageOCRRotation, shouldUsePageOCRFallback } from "../document";
 import { extractOCRTextFromPDFPages, getPageRasterScale } from "../ocr";
-import type { ImageOccurrence, PageContentAnalysis, PageText } from "../types";
+import type { BoundingBox, Edge, ImageOccurrence, PageContentAnalysis, PageText, TextChar, TextLine } from "../types";
+
+const TWO_PIXEL_PNG_BASE64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8AAQv8BD/kD/YURmXYAAAAASUVORK5CYII=";
+
+function pngSize(image: Uint8Array): string {
+    const view = new DataView(image.buffer, image.byteOffset, image.byteLength);
+    return `${view.getUint32(16, false)}x${view.getUint32(20, false)}`;
+}
+
+function bboxForChars(chars: TextChar[]): BoundingBox {
+    const left = Math.min(...chars.map((char) => char.bbox.x));
+    const right = Math.max(...chars.map((char) => char.bbox.x + char.bbox.width));
+    const bottom = Math.min(...chars.map((char) => char.bbox.y));
+    const top = Math.max(...chars.map((char) => char.bbox.y + char.bbox.height));
+
+    return { x: left, y: bottom, width: right - left, height: top - bottom };
+}
+
+function verticalLine(text: string, x: number, y: number, sequenceStart: number): TextLine {
+    const chars = Array.from(text, (char, index): TextChar => {
+        const baseline = y + index * 6;
+        return {
+            char,
+            bbox: { x, y: baseline, width: 8, height: 5 },
+            fontSize: 8,
+            fontName: "Helvetica",
+            baseline,
+            sequenceIndex: sequenceStart + index,
+        };
+    });
+    const bbox = bboxForChars(chars);
+
+    return {
+        text,
+        bbox,
+        baseline: chars[0]?.baseline ?? bbox.y,
+        spans: [
+            {
+                text,
+                bbox,
+                chars,
+                fontSize: 8,
+                fontName: "Helvetica",
+            },
+        ],
+    };
+}
+
+function rectGridEdges(xs: number[], ys: number[]): Edge[] {
+    const left = Math.min(...xs);
+    const right = Math.max(...xs);
+    const bottom = Math.min(...ys);
+    const top = Math.max(...ys);
+
+    return [
+        ...xs.map((x): Edge => ({ orientation: "vertical", position: x, start: bottom, end: top, source: "rect" })),
+        ...ys.map((y): Edge => ({ orientation: "horizontal", position: y, start: left, end: right, source: "rect" })),
+    ];
+}
+
+function rotatedTablePage(): { pageText: PageText; content: PageContentAnalysis } {
+    const xs = [40, 100, 160, 220];
+    const ys = [40, 80, 120, 160, 200];
+    const lines: TextLine[] = [];
+    let sequence = 0;
+    for (let row = 0; row < 4; row += 1) {
+        for (let column = 0; column < 3; column += 1) {
+            const text = `R${row + 1}C${column + 1}`;
+            lines.push(verticalLine(text, xs[column]! + 16, ys[row]! + 12, sequence));
+            sequence += text.length;
+        }
+    }
+
+    return {
+        pageText: {
+            pageIndex: 0,
+            width: 260,
+            height: 220,
+            text: lines.map((line) => line.text).join("\n"),
+            lines,
+        },
+        content: {
+            images: [],
+            explicitEdges: rectGridEdges(xs, ys),
+            actualTextSpans: [],
+        },
+    };
+}
+
+function sparseRotatedTablePage(): { pageText: PageText; content: PageContentAnalysis } {
+    const xs = [40, 120, 220];
+    const ys = [40, 80, 120, 160, 200];
+    const lines: TextLine[] = [];
+    let sequence = 0;
+    for (let row = 0; row < 4; row += 1) {
+        for (let column = 0; column < 3; column += 1) {
+            const text = `T${row + 1}-${column + 1}`;
+            const x = xs[Math.min(column, xs.length - 2)]! + 16 + column * 10;
+            lines.push(verticalLine(text, x, ys[row]! + 12, sequence));
+            sequence += text.length;
+        }
+    }
+
+    return {
+        pageText: {
+            pageIndex: 0,
+            width: 260,
+            height: 220,
+            text: lines.map((line) => line.text).join("\n"),
+            lines,
+        },
+        content: {
+            images: [],
+            explicitEdges: rectGridEdges(xs, ys),
+            actualTextSpans: [],
+        },
+    };
+}
 
 function pageText(lines: string[]): PageText {
     return {
@@ -106,10 +224,27 @@ describe("shouldUsePageOCRFallback", () => {
     });
 });
 
+
+describe("getPageOCRRotation", () => {
+    test("only rotates OCR pages with a high-confidence vertical drawn table", () => {
+        const fixture = rotatedTablePage();
+
+        expect(getPageOCRRotation(fixture.pageText, fixture.content)).toBe(90);
+        expect(getPageOCRRotation(fixture.pageText, { ...fixture.content, explicitEdges: [] })).toBe(0);
+    });
+
+    test("rotates sparse vertical table fallback pages", () => {
+        const fixture = sparseRotatedTablePage();
+
+        expect(getPageOCRRotation(fixture.pageText, fixture.content)).toBe(90);
+    });
+});
 describe("getPageRasterScale", () => {
-    test("caps large pages while keeping raster dimensions below 2000px", () => {
+    test("raises OCR DPI while keeping raster dimensions below 2000px", () => {
         expect(getPageRasterScale({ width: 595.28, height: 841.89 })).toBe(DEFAULT_RASTER_SCALE);
-        expect(getPageRasterScale({ width: 595.28 * 1.2, height: 841.89 * 1.2 })).toBeCloseTo(0.75);
+        expect(getPageRasterScale({ width: 595.28 * 1.2, height: 841.89 * 1.2 })).toBeCloseTo(
+            2000 / (841.89 * 1.2)
+        );
         expect(getPageRasterScale({ width: 3000, height: 1000 })).toBeCloseTo(2000 / 3000);
     });
 });
@@ -132,6 +267,24 @@ describe("extractOCRTextFromPDFPages", () => {
         );
 
         expect(textByPage).toEqual(new Map([[1, "Page 2"]]));
+        expect(transcribePage).toHaveBeenCalledTimes(1);
+    });
+
+    test("rotates vertical fallback pages before transcription", async () => {
+        const transcribePage = mock(async (image: Uint8Array) => pngSize(image));
+        const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
+
+        const textByPage = await extractOCRTextFromPDFPages(
+            new Uint8Array([9]),
+            [{ index: 0, width: 595.28, height: 841.89, ocrRotation: 90 }],
+            {} as never,
+            {
+                rasterizeSelectedPages: async () => new Map([[0, image]]),
+                transcribePage,
+            }
+        );
+
+        expect(textByPage).toEqual(new Map([[0, "1x2"]]));
         expect(transcribePage).toHaveBeenCalledTimes(1);
     });
 });

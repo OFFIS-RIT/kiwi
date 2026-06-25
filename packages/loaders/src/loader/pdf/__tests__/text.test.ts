@@ -310,6 +310,33 @@ describe("PDF text reconstruction", () => {
         expect(reconstructTableCellText(chars)).toBe("PHASE");
     });
 
+    test("keeps square leading glyphs with their vertical table word", () => {
+        const chars = Array.from("Wide", (char, index) =>
+            textChar(char, 10, index, {
+                width: 4.15,
+                height: char === "W" ? 4.37 : 2.45,
+                fontSize: 4.15,
+                y: 120 + index * 3,
+                baseline: 120 + index * 3,
+            })
+        );
+
+        expect(reconstructTableCellText(chars)).toBe("Wide");
+    });
+
+    test("keeps right-to-left emitted horizontal table cells in stream order", () => {
+        const chars = Array.from("size (ha)", (char, index) =>
+            textChar(char, 70 - index * 5, index, {
+                width: 5,
+                height: 8,
+                fontSize: 8,
+                baseline: 108,
+            })
+        );
+
+        expect(reconstructTableCellText(chars)).toBe("size (ha)");
+    });
+
     test("repairs lone surrogates without changing valid pairs", () => {
         const emoji = "😀";
         const line = textLine([textChar("\udf65", 10, 0), textChar(emoji, 20, 1)]);

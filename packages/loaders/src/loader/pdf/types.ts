@@ -12,10 +12,15 @@ export type PDFParserOptions = {
     tableMode?: PDFTableMode;
 };
 
+export type PDFOCRRotation = 0 | 90 | 180 | 270;
+export type PDFOCRPageSelection = Pick<PDFPageLike, "index" | "width" | "height"> & {
+    ocrRotation?: PDFOCRRotation;
+};
+
 export type PDFPageRasterizer = (content: Uint8Array) => Promise<Uint8Array[]>;
 export type PDFSelectedPageRasterizer = (
     content: Uint8Array,
-    pages: Array<Pick<PDFPageLike, "index" | "width" | "height">>
+    pages: PDFOCRPageSelection[]
 ) => Promise<Map<number, Uint8Array>>;
 export type PDFPageTranscriber = (image: Uint8Array, model: LanguageModelV3) => Promise<string>;
 
@@ -174,6 +179,7 @@ export type PreparedPage = {
     pageText: PageText;
     content: PageContentAnalysis;
     ocrFallback: boolean;
+    ocrRotation: PDFOCRRotation;
 };
 
 export type PathState = {
