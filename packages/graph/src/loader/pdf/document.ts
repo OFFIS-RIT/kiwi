@@ -1,6 +1,7 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { LoadedGraphDocument } from "../..";
 import { describeOCRImages } from "../../lib/ocr-image";
+import { stripPageFences } from "../../lib/page-fence";
 import type {
     FullOCRDeps,
     ImageOccurrence,
@@ -163,7 +164,17 @@ async function extractPDFHybridDocumentFromDocument(
         builder.appendPage(page.index, content, sourceChunksForMaterializedEntries(entries));
     }
 
-    return builder.build();
+    const document = builder.build();
+    if (stripPageFences(document.text).trim() === "" && options.ocrFallback) {
+        return extractFullOCRDocumentFromPDF(
+            options.ocrFallback.content,
+            pdf,
+            options.ocrFallback.model,
+            options.ocrFallback
+        );
+    }
+
+    return document;
 }
 
 function preparePages(pdf: PDFDocumentLike, allowOCRFallback: boolean): PreparedPage[] {

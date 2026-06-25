@@ -1051,6 +1051,33 @@ describe("PDFLoader", () => {
         expect(putNamedFileMock).not.toHaveBeenCalled();
     });
 
+    test("falls back to full OCR when hybrid extraction finds no readable text", async () => {
+        const bytes = await buildPDFBinary((pdf) => {
+            const page = pdf.addPage({ size: "letter" });
+            page.drawLine({ start: { x: 60, y: 640 }, end: { x: 520, y: 640 }, thickness: 2, color: rgb(0, 0, 0) });
+            page.drawLine({ start: { x: 60, y: 600 }, end: { x: 520, y: 600 }, thickness: 2, color: rgb(0, 0, 0) });
+        });
+        const loader = {
+            getText: async () => "",
+            getBinary: async () => bytes.slice().buffer,
+        };
+        rasterizedPages = [new Uint8Array([7])];
+        fullOCRPageOutputs = ["Fallback OCR found the general sentence."];
+
+        const text = await new PDFLoader({
+            loader,
+            mode: "hybrid",
+            model: {} as never,
+            storage: { bucket: "bucket", imagePrefix: "graphs/graph-1/file-1.pdf/file-1/images" },
+        }).getText();
+
+        expect(text).toBe(":::PAGE-1:::\n\nFallback OCR found the general sentence.");
+        expect(pdfToImgMock).toHaveBeenCalledTimes(1);
+        expect(generateTextMock).toHaveBeenCalledTimes(1);
+        expect(generateTextMock.mock.calls[0]?.[0]).toMatchObject({ system: transcribePrompt });
+        expect(putNamedFileMock).not.toHaveBeenCalled();
+    });
+
     test("detects curve-derived grids in loose pdfplumber lines table mode", async () => {
         const fixture = await buildCurvePathTableFixture({ tableMode: "lines" });
 
