@@ -5,14 +5,10 @@ import { transcribePrompt } from "@kiwi/ai/prompts/transcribe.prompt";
 import { generateText } from "ai";
 import { DEFAULT_RASTER_SCALE, PNG_MIME_TYPE } from "./constants";
 import { rasterizeAllPDFPages, rasterizeSelectedPDFPages } from "./rasterize";
+import { rotatePNG } from "./png";
 import { renderPageFence } from "../../lib/page-fence";
-import type { FullOCRDeps, PDFDocumentLike, PDFPageLike } from "./types";
-
-const LARGE_PAGE_RASTER_SCALE = 0.75;
+import type { FullOCRDeps, PDFDocumentLike, PDFOCRPageSelection, PDFPageLike } from "./types";
 const MAX_RASTER_DIMENSION_PIXELS = 2000;
-const A4_SHORT_EDGE_POINTS = 595.28;
-const A4_LONG_EDGE_POINTS = 841.89;
-const LARGE_PAGE_TOLERANCE = 1.1;
 
 export async function extractFullOCRTextFromPDF(
     content: ArrayBuffer,
@@ -39,7 +35,7 @@ export async function defaultRasterizePages(content: Uint8Array): Promise<Uint8A
 
 export async function extractOCRTextFromPDFPages(
     content: Uint8Array,
-    pages: Array<Pick<PDFPageLike, "index" | "width" | "height">>,
+    pages: PDFOCRPageSelection[],
     model: LanguageModelV3,
     deps: Pick<FullOCRDeps, "rasterizeSelectedPages" | "transcribePage"> = {}
 ): Promise<Map<number, string>> {
@@ -57,7 +53,8 @@ export async function extractOCRTextFromPDFPages(
                 return undefined;
             }
 
-            return [page.index, (await transcribePage(image, model)).trim()] as const;
+            const rotatedImage = page.ocrRotation ? rotatePNG(image, page.ocrRotation) : image;
+            return [page.index, (await transcribePage(rotatedImage, model)).trim()] as const;
         })
     );
 
@@ -68,7 +65,7 @@ export async function extractOCRTextFromPDFPages(
 
 export async function defaultRasterizeSelectedPages(
     content: Uint8Array,
-    pages: Array<Pick<PDFPageLike, "index" | "width" | "height">>
+    pages: PDFOCRPageSelection[]
 ): Promise<Map<number, Uint8Array>> {
     const scale = Math.min(DEFAULT_RASTER_SCALE, ...pages.map(getPageRasterScale));
     return rasterizeSelectedPDFPages(content, pages, scale);
@@ -88,16 +85,8 @@ export async function resolveRasterScale(content: Uint8Array): Promise<number> {
 export function getPageRasterScale(page: Pick<PDFPageLike, "width" | "height">): number {
     const shortEdge = Math.min(page.width, page.height);
     const longEdge = Math.max(page.width, page.height);
-    const largePage =
-        shortEdge > A4_SHORT_EDGE_POINTS * LARGE_PAGE_TOLERANCE ||
-        longEdge > A4_LONG_EDGE_POINTS * LARGE_PAGE_TOLERANCE;
-
-    if (!largePage) {
-        return DEFAULT_RASTER_SCALE;
-    }
-
     const proportional = Math.min(MAX_RASTER_DIMENSION_PIXELS / shortEdge, MAX_RASTER_DIMENSION_PIXELS / longEdge);
-    return Math.min(LARGE_PAGE_RASTER_SCALE, proportional);
+    return Math.min(DEFAULT_RASTER_SCALE, proportional);
 }
 
 export async function defaultTranscribePage(image: Uint8Array, model: LanguageModelV3): Promise<string> {
@@ -106,7 +95,7 @@ export async function defaultTranscribePage(image: Uint8Array, model: LanguageMo
         generateText({
             model,
             system: transcribePrompt,
-            temperature: 0.1,
+            temperature: 0,
             messages: [
                 {
                     role: "user",

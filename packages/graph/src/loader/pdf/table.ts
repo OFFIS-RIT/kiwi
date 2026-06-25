@@ -74,6 +74,9 @@ import {
     textCharBeginsNewWord,
 } from "./text";
 
+const TABLE_MAX_LINE_ROWS = 120;
+const TABLE_MAX_LINE_COLS = 32;
+
 export function detectTables(
     pageText: PageText,
     words: Word[],
@@ -91,6 +94,12 @@ export function detectTables(
         tables,
         buildTableBlocksFromModels(tablePage, tableFindTables(tablePage, tableDefaultSettings(tableMode)), "lines")
     );
+    if (strictLines && tables.length === 0 && looksLikeRotatedDrawnTableLayout(lines, nonStrictDrawnEdges)) {
+        appendUniqueTables(
+            tables,
+            buildTableBlocksFromModels(tablePage, tableFindTables(tablePage, tableDefaultSettings("lines")), "lines")
+        );
+    }
     if (!strictLines && !proseLikeMultiColumn) {
         appendUniqueTables(
             tables,
@@ -163,6 +172,22 @@ function edgeOverlapsBox(edge: Edge, bbox: BoundingBox): boolean {
     );
 }
 
+export function looksLikeRotatedDrawnTableLayout(lines: TextLine[], edges: Edge[]): boolean {
+    const textLines = lines.filter((line) => getLineText(line).length > 0);
+    if (textLines.length < 8 || edges.length < 8) {
+        return false;
+    }
+
+    const verticalLineCount = textLines.filter((line) => inferLineDirection(line) === "vertical").length;
+    if (verticalLineCount / textLines.length < 0.5) {
+        return false;
+    }
+
+    const verticalEdges = edges.filter((edge) => edge.orientation === "vertical").length;
+    const horizontalEdges = edges.filter((edge) => edge.orientation === "horizontal").length;
+    return verticalEdges >= 3 && horizontalEdges >= 3;
+}
+
 export function looksLikeMultiColumnProseLayout(lines: TextLine[], pageWidth: number): boolean {
     const candidates = lines
         .filter((line) => inferLineDirection(line) === "horizontal")
@@ -221,8 +246,17 @@ export function buildTableBlocksFromModels(
     for (const model of models) {
         const extractedRows = tableExtractRows(model, TABLE_DEFAULT_TEXT_TOLERANCE);
         const transposed = shouldTransposeRotatedTableModel(model, extractedRows);
-        const rows = tidyExtractedTableRows(transposed ? transposeRotatedTableRows(extractedRows) : extractedRows);
-        if (!tableIsLikelyTabular(rows)) {
+        const rawRows = transposed ? transposeRotatedTableRows(extractedRows) : extractedRows;
+        let rows = tidyExtractedTableRows(rawRows);
+        const maxRows = strategy === "lines" ? TABLE_MAX_LINE_ROWS : TABLE_MAX_ROWS;
+        const maxCols = strategy === "lines" ? TABLE_MAX_LINE_COLS : TABLE_MAX_COLS;
+        const minCellDensity = strategy === "lines" ? 0.03 : 0.2;
+        if (strategy === "lines" && !tableIsLikelyTabular(rows, maxCols, minCellDensity)) {
+            rows = tidyExtractedLineTableRows(rawRows);
+        }
+        const rowCount = rows.length;
+        const colCount = Math.max(0, ...rows.map((row) => row.length));
+        if (!tableIsLikelyTabular(rows, maxCols, minCellDensity)) {
             continue;
         }
 
@@ -230,7 +264,7 @@ export function buildTableBlocksFromModels(
             continue;
         }
 
-        const markdown = tableRowsToMarkdown(rows);
+        const markdown = tableRowsToMarkdown(rows, maxCols);
         if (!markdown) {
             continue;
         }
@@ -244,11 +278,14 @@ export function buildTableBlocksFromModels(
             continue;
         }
 
+        const effectiveRowCount = normalized.rowCount > maxRows ? rowCount : normalized.rowCount;
+        const effectiveColCount = normalized.colCount > maxCols ? colCount : normalized.colCount;
+
         if (
-            normalized.rowCount < TABLE_MIN_ROWS ||
-            normalized.colCount < TABLE_MIN_COLS ||
-            normalized.rowCount > TABLE_MAX_ROWS ||
-            normalized.colCount > TABLE_MAX_COLS
+            effectiveRowCount < TABLE_MIN_ROWS ||
+            effectiveColCount < TABLE_MIN_COLS ||
+            effectiveRowCount > maxRows ||
+            effectiveColCount > maxCols
         ) {
             continue;
         }
@@ -257,8 +294,8 @@ export function buildTableBlocksFromModels(
             bbox,
             markdown,
             cells: normalized.cells,
-            rowCount: normalized.rowCount,
-            colCount: normalized.colCount,
+            rowCount: effectiveRowCount,
+            colCount: effectiveColCount,
         });
     }
 
@@ -1590,11 +1627,21 @@ export function reconstructTextLinesFromChars(chars: TextChar[], tolerance: numb
     const horizontalLines = reconstructHorizontalTextLines(horizontalChars, tolerance);
     const verticalLines = buildVerticalTextLines(verticalChars).map((line) => getPreparedLineChars(line));
 
-    return [...horizontalLines, ...verticalLines].sort((left, right) => {
+    const lines = [...horizontalLines, ...verticalLines];
+    const verticalDominates = verticalLines.length > horizontalLines.length;
+    return lines.sort((left, right) => {
         const bboxLeft = unionBoxes(left.map((char) => char.bbox));
         const bboxRight = unionBoxes(right.map((char) => char.bbox));
         if (!bboxLeft || !bboxRight) {
             return 0;
+        }
+
+        if (verticalDominates) {
+            const xDelta = bboxLeft.x - bboxRight.x;
+            if (Math.abs(xDelta) > 1) {
+                return xDelta;
+            }
+            return getTop(bboxRight) - getTop(bboxLeft);
         }
 
         const topDelta = getTop(bboxRight) - getTop(bboxLeft);
@@ -1773,7 +1820,7 @@ export function tableAlmostEqual(a: number, b: number, epsilon: number): boolean
     return Math.abs(a - b) <= epsilon;
 }
 
-export function tableRowsToMarkdown(rows: Array<Array<string | null>>): string | null {
+export function tableRowsToMarkdown(rows: Array<Array<string | null>>, maxColumnCount = TABLE_MAX_COLS): string | null {
     const trimmed = rows
         .map((row) => row.map((cell) => (cell ?? "").trim()))
         .filter((row) => row.some((cell) => cell.length > 0));
@@ -1782,33 +1829,53 @@ export function tableRowsToMarkdown(rows: Array<Array<string | null>>): string |
     }
 
     const columnCount = Math.max(...trimmed.map((row) => row.length));
-    if (columnCount < 2 || columnCount > TABLE_MAX_COLS) {
+    if (columnCount < 2 || columnCount > maxColumnCount) {
         return null;
     }
 
     const normalized = trimmed.map((row) =>
         Array.from({ length: columnCount }, (_, index) => escapeMarkdownTableCell(row[index] ?? ""))
     );
-    const header = normalized[0]!;
-    if (header.filter(Boolean).length < Math.min(2, columnCount)) {
+    const firstDenseHeaderIndex = normalized.findIndex(
+        (row) => row.filter(Boolean).length >= Math.min(2, columnCount)
+    );
+    const sparseKeyValueHeader =
+        columnCount === 2 &&
+        firstDenseHeaderIndex > 1 &&
+        normalized
+            .slice(0, firstDenseHeaderIndex)
+            .every((row) => row[0]?.length && (row[1] ?? "").length === 0);
+    const headerIndex = sparseKeyValueHeader ? 0 : firstDenseHeaderIndex;
+    if (headerIndex < 0 || normalized.length - headerIndex < 2) {
         return null;
     }
 
+    const captionRows = normalized
+        .slice(0, headerIndex)
+        .map((row) => row.filter(Boolean).join(" "))
+        .filter(Boolean);
+    const header = normalized[headerIndex]!;
     const separator = Array.from({ length: columnCount }, () => "---");
-    return [
+    const markdown = [
         `| ${header.join(" | ")} |`,
         `| ${separator.join(" | ")} |`,
-        ...normalized.slice(1).map((row) => `| ${row.join(" | ")} |`),
+        ...normalized.slice(headerIndex + 1).map((row) => `| ${row.join(" | ")} |`),
     ].join("\n");
+
+    return captionRows.length > 0 ? `${captionRows.join("\n")}\n\n${markdown}` : markdown;
 }
 
-export function tableIsLikelyTabular(rows: Array<Array<string | null>>): boolean {
+export function tableIsLikelyTabular(
+    rows: Array<Array<string | null>>,
+    maxColumnCount = TABLE_MAX_COLS,
+    minCellDensity = 0.2
+): boolean {
     if (rows.length < 2) {
         return false;
     }
 
     const columnCount = Math.max(...rows.map((row) => row.length));
-    if (columnCount < 2 || columnCount > TABLE_MAX_COLS) {
+    if (columnCount < 2 || columnCount > maxColumnCount) {
         return false;
     }
 
@@ -1833,7 +1900,7 @@ export function tableIsLikelyTabular(rows: Array<Array<string | null>>): boolean
     if (nonEmpty < 2) {
         return false;
     }
-    if (nonEmpty / totalCells < 0.2) {
+    if (nonEmpty / totalCells < minCellDensity) {
         return false;
     }
     if (nonEmpty <= 2 && totalChars > 0 && maxChars >= totalChars * 0.85) {
@@ -1922,9 +1989,62 @@ export function tidyExtractedTableRows(rows: Array<Array<string | null>>): Array
     return normalized;
 }
 
+export function tidyExtractedLineTableRows(rows: Array<Array<string | null>>): Array<Array<string | null>> {
+    const normalized = rows
+        .map((row) => row.map((cell) => cleanTableCellText(cell ?? "") || null))
+        .filter((row) => row.some(Boolean));
+    const merged = mergeWrappedLineTableRows(removeEmptyTableColumns(padTableRows(normalized))).filter((row) =>
+        row.some(Boolean)
+    );
+    return removeEmptyTableColumns(padTableRows(merged));
+}
+
+export function mergeWrappedLineTableRows(rows: Array<Array<string | null>>): Array<Array<string | null>> {
+    const merged = rows.map((row) => [...row]);
+
+    for (let index = 0; index < merged.length; index += 1) {
+        const row = merged[index];
+        if (!row) {
+            continue;
+        }
+
+        const nonEmpty = row.flatMap((cell, cellIndex) => (cell ? [{ cell, cellIndex }] : []));
+        if (nonEmpty.length !== 1 || nonEmpty[0]?.cellIndex !== 0) {
+            continue;
+        }
+
+        const text = nonEmpty[0].cell;
+        const previous = merged[index - 1];
+        const next = merged[index + 1];
+        const previousIsSparse = previous !== undefined && !previous.slice(1).some(Boolean);
+        const nextIsSparse = next !== undefined && !next.slice(1).some(Boolean);
+        if (/^[a-zäöüß]/.test(text) && next?.[0]?.endsWith("-") && nextIsSparse) {
+            next[0] = cleanTableCellText(`${next[0]} ${text}`) || next[0];
+            merged[index] = row.map(() => null);
+            continue;
+        }
+
+        if (text.endsWith("-") && next?.[0] && nextIsSparse) {
+            next[0] = cleanTableCellText(`${text} ${next[0]}`) || next[0];
+            merged[index] = row.map(() => null);
+            continue;
+        }
+
+        if ((/^[a-zäöüß]/.test(text) || /^und\b/i.test(text)) && previous?.[0] && previousIsSparse) {
+            previous[0] = cleanTableCellText(`${previous[0]} ${text}`) || previous[0];
+            merged[index] = row.map(() => null);
+        }
+    }
+
+    return merged;
+}
+
 export function cleanTableCellText(value: string): string {
     return cleanupExtractedTextSpacing(squashWhitespace(value))
-        .replace(/([A-Za-zÄÖÜäöüß])-\s+(?=[a-zäöüß])/g, "$1")
+        .replace(/([\p{L}\p{N}])-\s+(?=\p{Lu}[\p{L}\p{N}./-]*(?:\s|$))/gu, "$1-")
+        .replace(/([A-Za-zÄÖÜäöüß])-\s+([a-zäöüß]+)/g, (_match, left: string, right: string) =>
+            /^(und|oder)$/i.test(right) ? `${left}- ${right}` : `${left}${right}`
+        )
         .trim();
 }
 
@@ -2028,6 +2148,19 @@ export function textCharsToSegment(chars: TextChar[]): LineSegmentBlock | null {
 
 export function reconstructTextFromChars(chars: TextChar[]): string {
     const ordered = dedupeTextChars(sortTextChars(chars));
+    const visibleBySequence = [...chars]
+        .sort((left, right) => (left.sequenceIndex ?? 0) - (right.sequenceIndex ?? 0))
+        .filter((char) => getExpandedCharText(char.char).trim().length > 0);
+    const backwardSteps = visibleBySequence.filter((char, index) => {
+        const previous = visibleBySequence[index - 1];
+        return previous !== undefined && char.bbox.x < previous.bbox.x;
+    }).length;
+    if (visibleBySequence.length > 1 && backwardSteps / (visibleBySequence.length - 1) >= 0.8) {
+        return [...chars]
+            .sort((left, right) => (left.sequenceIndex ?? 0) - (right.sequenceIndex ?? 0))
+            .map((char) => getExpandedCharText(char.char))
+            .join("");
+    }
     const output: TextChar[] = [];
     const parts: string[] = [];
 
@@ -2446,7 +2579,7 @@ export function mergeAdjacentTableColumns(
     return rows.map((row) => {
         const left = squashWhitespace(row[index] ?? "");
         const right = squashWhitespace(row[index + 1] ?? "");
-        const merged = squashWhitespace(joinUniqueTableParts(left, right));
+        const merged = cleanTableCellText(joinUniqueTableParts(left, right));
         return row.flatMap((cell, cellIndex) => {
             if (cellIndex === index) {
                 return [merged || null];
@@ -2501,6 +2634,12 @@ export function mergeWrappedTableRows(rows: Array<Array<string | null>>): Array<
         const next = merged[index + 1];
         const previousHasValue = previous ? previous.slice(1).some(Boolean) : false;
         const nextHasValue = next ? next.slice(1).some(Boolean) : false;
+
+        if (/^[a-zäöüß]/.test(text) && next?.[0]?.endsWith("-") && !next.slice(1).some(Boolean)) {
+            next[0] = squashWhitespace(`${next[0].slice(0, -1)}${text}`) || next[0];
+            merged[index] = row.map(() => null);
+            continue;
+        }
 
         if (text.endsWith("-") && next?.[0]) {
             next[0] = squashWhitespace(`${text.slice(0, -1)}${next[0]}`) || next[0];

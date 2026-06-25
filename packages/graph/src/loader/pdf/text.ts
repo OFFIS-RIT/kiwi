@@ -349,10 +349,49 @@ export function splitLineCharsByDirection(chars: TextChar[]): { horizontal: Text
         }
     }
 
+    for (const char of [...horizontal]) {
+        if (!isEmbeddedVerticalGlyph(char, vertical)) {
+            continue;
+        }
+
+        horizontal.delete(char);
+        vertical.add(char);
+    }
+
     return {
         horizontal: chars.filter((char) => horizontal.has(char)),
         vertical: chars.filter((char) => vertical.has(char)),
     };
+}
+
+function isEmbeddedVerticalGlyph(char: TextChar, vertical: Set<TextChar>): boolean {
+    const text = getExpandedCharText(char.char);
+    if (!/^[\p{L}\p{N}]$/u.test(text) || typeof char.sequenceIndex !== "number") {
+        return false;
+    }
+
+    const centerX = getTextCharCenterX(char);
+    const sameColumn = [...vertical].filter(
+        (candidate) => Math.abs(getTextCharCenterX(candidate) - centerX) <= Math.max(2, char.fontSize * 0.6)
+    );
+    if (sameColumn.length < 2) {
+        return false;
+    }
+
+    const before = sameColumn.some(
+        (candidate) =>
+            typeof candidate.sequenceIndex === "number" &&
+            candidate.sequenceIndex < char.sequenceIndex! &&
+            char.sequenceIndex! - candidate.sequenceIndex <= 3
+    );
+    const after = sameColumn.some(
+        (candidate) =>
+            typeof candidate.sequenceIndex === "number" &&
+            candidate.sequenceIndex > char.sequenceIndex! &&
+            candidate.sequenceIndex - char.sequenceIndex! <= 3
+    );
+
+    return after && (before || sameColumn.length >= 3);
 }
 
 function getStackedVerticalCharRuns(chars: TextChar[], horizontal: Set<TextChar>): TextChar[][] {
@@ -1026,7 +1065,9 @@ export function cleanupExtractedTextSpacing(value: string): string {
         .replace(/\s+([,;:!?])/g, "$1")
         .replace(/\s+\.(?!\.)/g, ".")
         .replace(/([A-ZÄÖÜ]{2,})\s+([A-ZÄÖÜ]{2,})(?=[./-])/g, "$1$2")
-        .replace(/(\p{L})-\s+(?=\p{Ll})/gu, "$1")
+        .replace(/(\p{L})-\s+(\p{Ll}+)/gu, (_match, left: string, right: string) =>
+            /^(und|oder)$/iu.test(right) ? `${left}- ${right}` : `${left}${right}`
+        )
         .replace(/([\p{L}\p{N}])\s+-\s*(?=[\p{Lu}\p{N}])/gu, "$1-")
         .replace(/\s+([+*=^~])/g, "$1")
         .replace(/([+*=^~])\s+/g, "$1")
@@ -1214,6 +1255,16 @@ export function reconstructLogicalLineText(chars: TextChar[]): string {
 
 export function reconstructTextFromChars(chars: TextChar[]): string {
     const ordered = dedupeTextChars(sortTextChars(chars));
+    const visibleBySequence = sortTextCharsBySequence(chars).filter((char) => getExpandedCharText(char.char).trim().length > 0);
+    const backwardSteps = visibleBySequence.filter((char, index) => {
+        const previous = visibleBySequence[index - 1];
+        return previous !== undefined && char.bbox.x < previous.bbox.x;
+    }).length;
+    if (visibleBySequence.length > 1 && backwardSteps / (visibleBySequence.length - 1) >= RTL_BACKWARD_MOVEMENT_RATIO) {
+        return sortTextCharsBySequence(chars)
+            .map((char) => getExpandedCharText(char.char))
+            .join("");
+    }
     const output: TextChar[] = [];
     const parts: string[] = [];
 

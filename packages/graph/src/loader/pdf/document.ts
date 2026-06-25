@@ -8,6 +8,7 @@ import type {
     PageContentAnalysis,
     PDFDocumentLike,
     PDFOCRImage,
+    PDFOCRRotation,
     PDFParserOptions,
     PDFPageLike,
     PreparedPage,
@@ -17,6 +18,7 @@ import { analyzePageContent } from "./content";
 import { extractOCRTextFromPDFPages } from "./ocr";
 import { getPDFPageGeometry, type PDFPageGeometry } from "./page-geometry";
 import { findRepeatedEdgeLinePatterns, renderPageBlocks } from "./render";
+import { detectTables, extractWords, looksLikeRotatedDrawnTableLayout } from "./table";
 import {
     extractImageFenceId,
     materializePageEntries,
@@ -114,7 +116,14 @@ async function extractPDFHybridDocumentFromDocument(
     const ocrFallbackTexts = options.ocrFallback
         ? await extractOCRTextFromPDFPages(
               options.ocrFallback.content,
-              pages.filter((entry) => entry.ocrFallback).map((entry) => entry.page),
+              pages
+                  .filter((entry) => entry.ocrFallback)
+                  .map((entry) => ({
+                      index: entry.page.index,
+                      width: entry.page.width,
+                      height: entry.page.height,
+                      ocrRotation: entry.ocrRotation,
+                  })),
               options.ocrFallback.model,
               options.ocrFallback
           )
@@ -193,6 +202,7 @@ function preparePages(pdf: PDFDocumentLike, allowOCRFallback: boolean): Prepared
             pageText,
             content,
             ocrFallback: allowOCRFallback && shouldUsePageOCRFallback(pageText, content),
+            ocrRotation: getPageOCRRotation(pageText, content),
         });
     }
 
@@ -269,6 +279,92 @@ function pageContentEntriesForBlock(
             region,
         },
     ];
+}
+
+export function getPageOCRRotation(pageText: PreparedPage["pageText"], content: PageContentAnalysis): PDFOCRRotation {
+    const textLines = pageText.lines.filter((line) => getLineText(line).length > 0);
+    if (textLines.length < 12) {
+        return 0;
+    }
+
+    const verticalLineRatio = textLines.filter((line) => inferLineDirection(line) === "vertical").length / textLines.length;
+    if (verticalLineRatio < 0.85) {
+        return 0;
+    }
+
+    const nonStrictDrawnEdges = content.explicitEdges.filter((edge) => edge.source === "rect" || edge.source === "curve");
+    const verticalEdgeCount = nonStrictDrawnEdges.filter((edge) => edge.orientation === "vertical").length;
+    const horizontalEdgeCount = nonStrictDrawnEdges.filter((edge) => edge.orientation === "horizontal").length;
+    if (
+        verticalEdgeCount < 3 ||
+        horizontalEdgeCount < 4 ||
+        !looksLikeRotatedDrawnTableLayout(pageText.lines, nonStrictDrawnEdges)
+    ) {
+        return 0;
+    }
+
+    const tables = detectTables(pageText, extractWords(pageText), pageText.lines, content.explicitEdges, "lines_strict");
+    const pageArea = pageText.width * pageText.height;
+    const hasLargeDetectedTable = tables.some(
+        (table) =>
+            table.rowCount >= 4 &&
+            table.colCount >= 2 &&
+            table.cells.length >= 8 &&
+            (table.bbox.width * table.bbox.height) / pageArea >= 0.12
+    );
+
+    return hasLargeDetectedTable || hasHighConfidenceRotatedDrawnGrid(pageText, nonStrictDrawnEdges) ? 90 : 0;
+}
+
+function hasHighConfidenceRotatedDrawnGrid(
+    pageText: PreparedPage["pageText"],
+    edges: PageContentAnalysis["explicitEdges"]
+): boolean {
+    const bounds = drawnEdgeBounds(edges);
+    if (!bounds) {
+        return false;
+    }
+
+    const width = bounds.right - bounds.left;
+    const height = bounds.bottom - bounds.top;
+    return (
+        width / pageText.width >= 0.12 &&
+        height / pageText.height >= 0.5 &&
+        (width * height) / (pageText.width * pageText.height) >= 0.12
+    );
+}
+
+function drawnEdgeBounds(edges: PageContentAnalysis["explicitEdges"]):
+    | { left: number; right: number; top: number; bottom: number }
+    | null {
+    if (edges.length === 0) {
+        return null;
+    }
+
+    let left = Number.POSITIVE_INFINITY;
+    let right = Number.NEGATIVE_INFINITY;
+    let top = Number.POSITIVE_INFINITY;
+    let bottom = Number.NEGATIVE_INFINITY;
+    for (const edge of edges) {
+        if (edge.orientation === "vertical") {
+            left = Math.min(left, edge.position);
+            right = Math.max(right, edge.position);
+            top = Math.min(top, edge.start, edge.end);
+            bottom = Math.max(bottom, edge.start, edge.end);
+            continue;
+        }
+
+        left = Math.min(left, edge.start, edge.end);
+        right = Math.max(right, edge.start, edge.end);
+        top = Math.min(top, edge.position);
+        bottom = Math.max(bottom, edge.position);
+    }
+
+    if (![left, right, top, bottom].every(Number.isFinite)) {
+        return null;
+    }
+
+    return { left, right, top, bottom };
 }
 
 export function shouldUsePageOCRFallback(pageText: PreparedPage["pageText"], content: PageContentAnalysis): boolean {
