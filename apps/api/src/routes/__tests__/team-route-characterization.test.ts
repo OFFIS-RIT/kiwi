@@ -203,6 +203,7 @@ class MockDatabaseError extends Error {
 }
 
 mock.module("@kiwi/db/effect", () => ({
+    Database: Effect.succeed(mockDb),
     DatabaseError: MockDatabaseError,
     DatabaseLayer: Layer.empty,
     runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
@@ -218,6 +219,7 @@ mock.module("@kiwi/db", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
+    FileStorageLive: Layer.empty,
     deleteFile: (key: string) => {
         deletedS3Keys.push(key);
         return scenario === "delete-team-warning" && key.endsWith("extra.txt")

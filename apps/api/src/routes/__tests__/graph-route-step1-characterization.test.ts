@@ -186,6 +186,8 @@ const mockDb = {
 };
 
 mock.module("@kiwi/ai/models", () => ({
+    AiModelRegistry: Effect.succeed({}),
+    makeAiModelRegistryLayer: () => Layer.empty,
     getDefaultModelOrganizationId: () => Effect.succeed("org-1"),
 }));
 
@@ -197,6 +199,7 @@ class MockDatabaseError extends Error {
 }
 
 mock.module("@kiwi/db/effect", () => ({
+    Database: Effect.succeed(mockDb),
     DatabaseError: MockDatabaseError,
     DatabaseLayer: Layer.empty,
     runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
@@ -219,6 +222,7 @@ mock.module("../../env", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
+    FileStorageLive: Layer.empty,
     deleteFile: (key: string) => {
         deletedS3Keys.push(key);
         return scenario === "delete-graph-warning" && key.endsWith("extra.txt")
@@ -245,6 +249,9 @@ mock.module("@kiwi/graph/code/metadata", () => ({
 }));
 
 mock.module("@kiwi/logger", () => ({
+    debug: () => undefined,
+    info: () => undefined,
+    warn: () => undefined,
     error: () => undefined,
 }));
 

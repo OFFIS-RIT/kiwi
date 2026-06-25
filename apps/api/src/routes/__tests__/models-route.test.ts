@@ -128,6 +128,7 @@ const transactionDb = {
 };
 
 mock.module("@kiwi/ai/models", () => ({
+    AiModelRegistry: Effect.succeed({}),
     allocateModelId: (_tx: unknown, _organizationId: string, modelId: string) =>
         Effect.succeed(`allocated-${modelId.trim()}`),
     assertValidModelConfiguration: () => undefined,
@@ -141,6 +142,7 @@ mock.module("@kiwi/ai/models", () => ({
         return `encrypted:${credentials.apiKey}:${credentials.url ?? ""}:${credentials.resourceName ?? ""}`;
     },
     lockModelOrganization: () => Effect.succeed(undefined),
+    makeAiModelRegistryLayer: () => Layer.empty,
     normalizeModelId: (modelId: string) => modelId.trim().toLowerCase(),
     toAdminModelRecord: (row: typeof currentModel) => ({
         model_id: row.modelId,
@@ -195,6 +197,7 @@ class MockDatabaseError extends Error {
 }
 
 mock.module("@kiwi/db/effect", () => ({
+    Database: Effect.succeed(mockDb.db),
     DatabaseError: MockDatabaseError,
     DatabaseLayer: Layer.empty,
     runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>

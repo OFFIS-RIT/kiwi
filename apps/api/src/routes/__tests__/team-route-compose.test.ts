@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { Elysia } from "elysia";
 
 mock.module("@kiwi/db", () => {
@@ -14,6 +15,7 @@ mock.module("@kiwi/db", () => {
 });
 
 mock.module("@kiwi/files", () => ({
+    FileStorageLive: Layer.empty,
     deleteFile: () => Effect.succeed(true),
     listFiles: () => Effect.succeed([]),
     putGraphFile: () => Effect.succeed({ key: "graphs/graph-1/file-1.txt", type: "text/plain" }),

@@ -211,6 +211,8 @@ function runMockDbEffect(thunk: (database: typeof db) => Effect.Effect<unknown> 
 }
 
 mock.module("@kiwi/db/effect", () => ({
+    Database: Effect.succeed(db),
+    DatabaseError: class DatabaseError extends Error {},
     DatabaseLayer: Layer.empty,
     runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
         Effect.runPromise(effect as Effect.Effect<T, E, never>),
@@ -236,6 +238,7 @@ mock.module("@kiwi/logger", () => ({
 }));
 
 mock.module("@kiwi/files", () => ({
+    FileStorageLive: Layer.empty,
     deleteFile: () => Effect.succeed(true),
     listFiles: () => Effect.succeed([]),
     putGraphFile: (graphId: string, fileId: string, name: string) => {
@@ -262,8 +265,10 @@ mock.module("@kiwi/worker/delete-graph-files-spec", () => ({
 }));
 
 mock.module("@kiwi/ai/models", () => ({
+    AiModelRegistry: Effect.succeed({}),
     getDefaultModelOrganizationId: () => Effect.succeed("org-1"),
     resolveRequiredModelAdapter: () => Effect.succeed({}),
+    makeAiModelRegistryLayer: () => Layer.empty,
 }));
 
 mock.module("../../lib/archive-upload", () => ({

@@ -20,6 +20,7 @@ const Database = Context.Service<unknown>("@kiwi/db/Database");
 
 mock.module("@kiwi/db/effect", () => ({
     Database,
+    DatabaseError: class DatabaseError extends Error {},
     DatabaseLayer: Layer.empty,
     tryDbVoid: () => Effect.void,
     runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>
@@ -50,6 +51,11 @@ mock.module("../../lib/chat", () => ({
 mock.module("../../lib/chat-response", () => ({
     createChatStreamResponse: () => new Response(),
     runChatCompletion: () => Effect.succeed({}),
+}));
+
+mock.module("@kiwi/ai/models", () => ({
+    AiModelRegistry: Effect.succeed({}),
+    makeAiModelRegistryLayer: () => Layer.empty,
 }));
 
 // Dynamic import is required so Bun module mocks are installed before the route module is evaluated.

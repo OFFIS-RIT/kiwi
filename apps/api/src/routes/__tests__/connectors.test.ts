@@ -217,6 +217,7 @@ function runMockDbEffect(thunk: (database: MockDb) => Effect.Effect<unknown> | P
 }
 
 mock.module("@kiwi/db/effect", () => ({
+    Database: Effect.succeed(mockDb),
     DatabaseError: MockDatabaseError,
     DatabaseLayer: Layer.empty,
     runDatabaseEffect: <T, E>(effect: Effect.Effect<T, E, unknown>) =>

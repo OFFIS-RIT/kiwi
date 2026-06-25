@@ -33,8 +33,8 @@ const sourceValiditySnapshot = new URL(
     "../../../../migrations/20260614105716_tricky_plazm/snapshot.json",
     import.meta.url
 );
-const saveGraphModule = new URL("../../../../apps/worker/lib/save-graph.ts", import.meta.url);
-const regenerateDescriptionsModule = new URL("../../../../apps/worker/lib/regenerate-descriptions.ts", import.meta.url);
+const saveGraphModule = new URL("../../../../apps/worker/lib/graph/save.ts", import.meta.url);
+const regenerateDescriptionsModule = new URL("../../../../apps/worker/lib/descriptions/regenerate.ts", import.meta.url);
 const sourceReferenceModule = new URL("../../../../apps/api/src/lib/source-reference.ts", import.meta.url);
 
 describe("source reference migration compatibility", () => {
@@ -277,7 +277,7 @@ describe("source validity migration compatibility", () => {
 
         expect(source).toContain("unexpiredSourcePredicate(sourcesTable)");
         expect(source).toContain("visibleFilePredicate(filesTable)");
-        expect(source).toContain("set({ active: false })");
+        expect(source).toContain("SET active = false");
         expect(source).toContain("AND source.valid_until IS NULL");
     });
 });
