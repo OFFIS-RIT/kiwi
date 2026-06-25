@@ -1,3 +1,4 @@
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type * as Duration from "effect/Duration";
@@ -55,7 +56,10 @@ function describeTimeout(timeout: Duration.Input): string {
 }
 
 function isEffectTimeout(error: unknown): boolean {
-    return typeof error === "object" && error !== null && "_tag" in error && error._tag === "TimeoutException";
+    return (
+        Cause.isTimeoutError(error) ||
+        (typeof error === "object" && error !== null && "_tag" in error && error._tag === "TimeoutException")
+    );
 }
 
 export const withAiSlotEffect: <T>(

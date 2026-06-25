@@ -150,9 +150,39 @@ describe("withAiSlot", () => {
                 })
         );
 
-        await expect(timedOut).rejects.toBeDefined();
+        await expect(timedOut).rejects.toMatchObject({
+            _tag: "AiRequestTimeoutError",
+            capability: "text",
+            timeout: "5 millis",
+        });
         expect(aborted).toBe(true);
 
         await expect(withAiSlot("text", async () => "next")).resolves.toBe("next");
+    });
+
+    test("starts request timeout after acquiring a slot", async () => {
+        configureAIConcurrency({ text: 1 }, { requestTimeout: "100 millis" });
+
+        const startedAt = performance.now();
+        let thirdStartedAt = 0;
+
+        const sleep = (millis: number) => new Promise<void>((resolve) => setTimeout(resolve, millis));
+        const results = Promise.all([
+            withAiSlot("text", async () => {
+                await sleep(70);
+                return "first";
+            }),
+            withAiSlot("text", async () => {
+                await sleep(70);
+                return "second";
+            }),
+            withAiSlot("text", async () => {
+                thirdStartedAt = performance.now();
+                return "third";
+            }),
+        ]);
+
+        await expect(results).resolves.toEqual(["first", "second", "third"]);
+        expect(thirdStartedAt - startedAt).toBeGreaterThan(100);
     });
 });
