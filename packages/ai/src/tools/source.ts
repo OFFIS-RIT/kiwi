@@ -228,11 +228,15 @@ const similarSourcesCheckSchema = z.object({
         .array(z.string())
         .min(1)
         .max(10)
-        .describe("Source IDs you already found and want to check for semantically similar, still-unseen sources."),
+        .describe(
+            "All source IDs already found for a candidate direct factual answer; these are excluded while finding new semantically similar sources."
+        ),
     excludeSourceIds: z
         .array(z.string())
         .max(100)
-        .describe("Optional additional source IDs already seen in this conversation; these are excluded from results.")
+        .describe(
+            "Optional additional source IDs already seen in this conversation; these are also excluded from results."
+        )
         .optional(),
     files: z.array(z.string()).describe("Optional file IDs to narrow similar-source candidates.").optional(),
     limit: z
@@ -508,7 +512,10 @@ function getSimilarSources(
         const seedRows = yield* loadSeedSourceRows(graphId, sourceIds);
         const seedById = new Map(seedRows.map((row) => [row.id, row]));
         const seenSourceIds = new Set(excludedSourceIds);
-        const output: string[] = ["## Similar Sources Check"];
+        const output: string[] = [
+            "## Similar Sources Check",
+            "Compare these new sources against the seed sources before answering. If any relevant result gives a different answer, version, value, outcome, or qualification, report the disagreement with citations instead of settling for one answer.",
+        ];
 
         onConsideredFileIds?.(fileIds);
         onConsideredFileIds?.(seedRows.map((row) => row.fileId));
@@ -666,7 +673,7 @@ export const getRelationshipSourcesTool = (
 export const similarSourcesCheckTool = (graphId: string, options: SourceToolOptions = {}) =>
     tool({
         description:
-            "Find semantically similar source descriptions for source IDs that were already retrieved. Use this to discover new, related sources that may support, qualify, or contradict answer-determining evidence.",
+            "Required verification tool for direct factual answers after get_entity_sources or get_relationship_sources returns candidate citation IDs. Finds new semantically similar source descriptions that may support, qualify, or contradict answer-determining evidence.",
         inputSchema: similarSourcesCheckSchema,
         execute: ({ sourceIds, excludeSourceIds, files, limit }) =>
             runDatabaseEffect(
@@ -675,9 +682,9 @@ export const similarSourcesCheckTool = (graphId: string, options: SourceToolOpti
                         title: "Similar sources",
                         name: "similar_sources_check",
                         hints: [
-                            "pass source IDs already found so they are excluded from results",
-                            "use excludeSourceIds for any other source IDs already seen in this conversation",
-                            "inspect returned descriptions and excerpts for conflicting values or outcomes",
+                            "for direct factual answers, call this after source retrieval and before the final answer",
+                            "pass all source IDs already found so they are excluded from results",
+                            "if any returned relevant source differs from the candidate answer, report the disagreement instead of settling for one answer",
                         ],
                     },
                     { sourceIds, excludeSourceIds, files, limit },

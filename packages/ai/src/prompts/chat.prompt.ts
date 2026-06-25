@@ -146,7 +146,7 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
                   "- Keep each query short and semantic. Use keywords only as short lexical anchors when exact terms, names, or original spellings matter.",
                   "- Use list_files when the user asks about a specific document or when narrowing retrieval to one or more files would improve precision.",
                   "- Use get_entity_sources only after you have identified relevant entity IDs through graph exploration, and use get_relationship_sources only after you have identified relevant relationship IDs. The source IDs from these tools are the only IDs you should cite.",
-                  "- Before finalizing a factual answer that depends on one or more answer-determining source IDs, run similar_sources_check on those source IDs when another source could plausibly disagree. Pass every source ID already found in sourceIds or excludeSourceIds so the tool returns only new candidates.",
+                  "- For direct factual answer questions (who, what, when, where, which, how many, winner, value, status, permission), the retrieval phase is incomplete until you run similar_sources_check on source IDs that support the candidate answer. Pass every source ID already found in sourceIds or excludeSourceIds so the tool returns only new candidates.",
                   "- It is fine to alternate between entity search, relationship search, neighbour exploration, file narrowing, and path exploration in multiple passes before collecting sources.",
                   "- After new graph exploration reveals additional relevant entities or relationships, run the corresponding source tool again if needed so the final answer stays fully grounded.",
                   "- For follow-up questions, do not rely only on earlier retrieval. Run fresh searches when needed to cover the new scope.",
@@ -205,11 +205,11 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
         "# Contradiction Verification Gate",
         ...(includeGraphTools
             ? [
-                  "- Do not finalize an answer from the first plausible source when the answer depends on a concrete value, date, name, outcome, quantity, status, permission, or winner.",
-                  "- Use similar_sources_check before the final answer for answer-determining citations unless the request is only conversational, formatting-only, or already impossible to answer from graph evidence.",
-                  "- Inspect similar-source candidates for conflicting values, dates, names, outcomes, quantities, statuses, or permissions before deciding the final wording.",
-                  "- If similar sources disagree, report that the graph contains conflicting evidence and cite each conflicting statement instead of silently choosing one.",
-                  "- Prefer one conflicting answer only when retrieved source text or metadata clearly establishes authority; otherwise present the disagreement as unresolved.",
+                  "- Do not finalize a direct factual answer from the first plausible source. If source tools return any source ID that supports a candidate answer, similar_sources_check is required before the final answer.",
+                  "- This is not optional just because the first source seems sufficient or the user did not explicitly ask for differences, versions, contradictions, or confidence.",
+                  "- Use similar_sources_check before the final answer for concrete values, dates, names, outcomes, quantities, statuses, permissions, winners, or other answer-determining facts.",
+                  "- If similar_sources_check returns any relevant source that gives a different answer, version, value, outcome, or qualification, the final answer must lead with that disagreement and include each version with citations. Do not settle for one answer by omitting the conflicting or qualifying source.",
+                  "- A single-answer final is allowed only when similar_sources_check finds no new relevant source, or when all relevant similar sources support the same answer. Prefer one conflicting answer only when retrieved source text or metadata clearly establishes authority; otherwise present the disagreement as unresolved.",
               ]
             : useSubagentOnlyInstructions
               ? [
@@ -226,7 +226,7 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
         "- Entities and relationships are equally important evidence. Do not rely on only entities or only relationships, and inspect relevant connections when they may affect the answer.",
         "- Do not guess, invent facts, or infer beyond what the evidence supports.",
         "- Unsupported and unrelated substantive requests must be refused under the Evidence Grounding Gate, while still respecting harmless formatting or style requests.",
-        "- If sources contradict each other, state the contradiction clearly and cite each conflicting statement.",
+        "- If sources contradict or qualify each other, the final answer must surface that disagreement with citations. Never resolve contradictions by omission.",
         "",
         "# Citation Rules",
         '- When evidence supports a claim, cite it inline using only this exact fence format: :::{"type": "cite", "id":"<source-id>"}:::.',
@@ -237,8 +237,8 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
         '- Invalid examples: `[[src_123]]`, `:::{"id":"src_123","type":"cite"}:::`, `:::{"type":"citation","id":"src_123"}:::`, or any escaped variant like `:::{\\"type\\"...`.',
         includeGraphTools
             ? includeSubagentTools
-                ? "- Use only source IDs returned by get_entity_sources, get_relationship_sources, curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information."
-                : "- Use only source IDs returned by get_entity_sources or get_relationship_sources, or source IDs already cited earlier in the chat history when reusing that same cited information."
+                ? "- Use only source IDs returned by get_entity_sources, get_relationship_sources, similar_sources_check, curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information."
+                : "- Use only source IDs returned by get_entity_sources, get_relationship_sources, similar_sources_check, or source IDs already cited earlier in the chat history when reusing that same cited information."
             : useSubagentOnlyInstructions
               ? "- Use only source IDs returned by curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information."
               : "- Use only source IDs already cited earlier in the chat history when reusing that same cited information.",

@@ -80,8 +80,9 @@ export function createSourceCuratorSubagentPrompt(options: SubagentPromptOptions
         "- Prefer sources that directly support the parent task, contain concrete facts, and reduce ambiguity.",
         "- Use entity IDs and relationship IDs supplied in the task. If both are present, inspect both when relevant.",
         "- Use refinement queries, file filters, and pagination when needed to find better evidence.",
-        "- After selecting promising answer-determining source IDs, call similar_sources_check to find new similar sources before returning; pass all source IDs already seen in sourceIds or excludeSourceIds so the result only contains new candidates.",
-        "- Use similar_sources_check results to verify whether source descriptions disagree on concrete values, dates, names, outcomes, quantities, statuses, permissions, or winners.",
+        "- For direct factual answer questions, after selecting promising answer-determining source IDs, call similar_sources_check before returning. Pass all source IDs already seen in sourceIds or excludeSourceIds so the result only contains new candidates.",
+        "- Treat similar_sources_check as required for concrete values, dates, names, outcomes, quantities, statuses, permissions, winners, or other facts that determine the answer; use its results to verify whether source descriptions disagree or qualify each other.",
+        "- If similar_sources_check returns a relevant source with a different answer, version, value, outcome, or qualification, list it under `## Conflicts Or Gaps`; do not settle on one answer by omitting that source.",
         "- Highlight contradictions, weak evidence, missing evidence, and source gaps clearly.",
         "- Keep source IDs exact. These are the citation IDs the parent agent may use.",
         "- Do not invent facts beyond the returned source excerpts.",
@@ -100,7 +101,7 @@ export function createSourceCuratorSubagentPrompt(options: SubagentPromptOptions
         "- List the strongest source IDs for the parent agent to cite, with one short reason per source and any metadata-based ranking reason.",
         "",
         "## Conflicts Or Gaps",
-        "- List contradictions, missing evidence, weak evidence, or source coverage gaps.",
+        "- List contradictions, competing versions, qualifying evidence, missing evidence, weak evidence, or source coverage gaps. If similar_sources_check found a relevant different answer, include it here.",
         "- If none are found, write `- none`.",
     ].join("\n");
 }

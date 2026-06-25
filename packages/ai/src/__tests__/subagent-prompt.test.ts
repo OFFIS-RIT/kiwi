@@ -26,6 +26,8 @@ describe("subagent prompts", () => {
         expect(prompt).toContain("## Best Citation Candidates");
         expect(prompt).toContain("similar_sources_check");
         expect(prompt).toContain("only contains new candidates");
+        expect(prompt).toContain("Treat similar_sources_check as required");
+        expect(prompt).toContain("do not settle on one answer");
     });
 
     test("subagent prompts include request information when provided", () => {

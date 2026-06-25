@@ -44,8 +44,12 @@ describe("createChatPrompt", () => {
 
         expect(prompt).toContain("similar_sources_check");
         expect(prompt).toContain("# Contradiction Verification Gate");
-        expect(prompt).toContain("Do not finalize an answer from the first plausible source");
-        expect(prompt).toContain("Pass every source ID already found in sourceIds or excludeSourceIds");
+        expect(prompt).toContain("the retrieval phase is incomplete until you run similar_sources_check");
+        expect(prompt).toContain("similar_sources_check is required before the final answer");
+        expect(prompt).toContain("not optional just because the first source seems sufficient");
+        expect(prompt).toContain("final answer must lead with that disagreement");
+        expect(prompt).toContain("Do not settle for one answer");
+        expect(prompt).toContain("similar_sources_check, or source IDs");
     });
 
     test("includes request information when provided", () => {
