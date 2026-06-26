@@ -1255,7 +1255,9 @@ export function reconstructLogicalLineText(chars: TextChar[]): string {
 
 export function reconstructTextFromChars(chars: TextChar[]): string {
     const ordered = dedupeTextChars(sortTextChars(chars));
-    const visibleBySequence = sortTextCharsBySequence(chars).filter((char) => getExpandedCharText(char.char).trim().length > 0);
+    const visibleBySequence = sortTextCharsBySequence(chars).filter(
+        (char) => getExpandedCharText(char.char).trim().length > 0
+    );
     const backwardSteps = visibleBySequence.filter((char, index) => {
         const previous = visibleBySequence[index - 1];
         return previous !== undefined && char.bbox.x < previous.bbox.x;

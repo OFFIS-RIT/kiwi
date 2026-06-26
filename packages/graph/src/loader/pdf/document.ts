@@ -287,12 +287,15 @@ export function getPageOCRRotation(pageText: PreparedPage["pageText"], content: 
         return 0;
     }
 
-    const verticalLineRatio = textLines.filter((line) => inferLineDirection(line) === "vertical").length / textLines.length;
+    const verticalLineRatio =
+        textLines.filter((line) => inferLineDirection(line) === "vertical").length / textLines.length;
     if (verticalLineRatio < 0.85) {
         return 0;
     }
 
-    const nonStrictDrawnEdges = content.explicitEdges.filter((edge) => edge.source === "rect" || edge.source === "curve");
+    const nonStrictDrawnEdges = content.explicitEdges.filter(
+        (edge) => edge.source === "rect" || edge.source === "curve"
+    );
     const verticalEdgeCount = nonStrictDrawnEdges.filter((edge) => edge.orientation === "vertical").length;
     const horizontalEdgeCount = nonStrictDrawnEdges.filter((edge) => edge.orientation === "horizontal").length;
     if (
@@ -303,7 +306,13 @@ export function getPageOCRRotation(pageText: PreparedPage["pageText"], content: 
         return 0;
     }
 
-    const tables = detectTables(pageText, extractWords(pageText), pageText.lines, content.explicitEdges, "lines_strict");
+    const tables = detectTables(
+        pageText,
+        extractWords(pageText),
+        pageText.lines,
+        content.explicitEdges,
+        "lines_strict"
+    );
     const pageArea = pageText.width * pageText.height;
     const hasLargeDetectedTable = tables.some(
         (table) =>
@@ -334,9 +343,9 @@ function hasHighConfidenceRotatedDrawnGrid(
     );
 }
 
-function drawnEdgeBounds(edges: PageContentAnalysis["explicitEdges"]):
-    | { left: number; right: number; top: number; bottom: number }
-    | null {
+function drawnEdgeBounds(
+    edges: PageContentAnalysis["explicitEdges"]
+): { left: number; right: number; top: number; bottom: number } | null {
     if (edges.length === 0) {
         return null;
     }

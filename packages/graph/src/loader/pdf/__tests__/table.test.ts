@@ -173,9 +173,7 @@ describe("PDF table detection", () => {
         expect(tables[0]?.colCount).toBe(2);
         expect(tables[0]?.markdown).toContain("| Reason |  |");
         expect(tables[0]?.markdown).toContain("| Plan-, Build- und Review-Tasks |  |");
-        expect(tables[0]?.markdown).toContain(
-            "| Purpose | • first item continued • second item |"
-        );
+        expect(tables[0]?.markdown).toContain("| Purpose | • first item continued • second item |");
         expect(tables[0]?.markdown).toContain("| Unitsize (ha) |  |");
         expect(tables[0]?.markdown).toContain("| Field-No./ Label |  |");
     });
