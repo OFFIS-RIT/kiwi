@@ -4,7 +4,16 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { v7 as uuid } from "uuid";
-import { S3Client } from "bun";
+import {
+    DeleteObjectCommand,
+    GetObjectCommand,
+    HeadObjectCommand,
+    ListObjectsV2Command,
+    PutObjectCommand,
+    S3Client,
+} from "@aws-sdk/client-s3";
+import type { GetObjectCommandOutput, HeadObjectCommandOutput } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export type StoredFile = {
     key: string;
@@ -105,15 +114,97 @@ function tryStorage<T>(operation: string, thunk: () => PromiseLike<T>): Effect.E
     });
 }
 
-const getClient = (bucket: string) => {
-    return new S3Client({
+let client: S3Client | undefined;
+
+const getClient = () => {
+    client ??= new S3Client({
         region: process.env.S3_REGION as string,
-        accessKeyId: (process.env.S3_ACCESS_KEY_ID ?? process.env.S3_ACCESS_KEY) as string,
-        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string,
         endpoint: process.env.S3_ENDPOINT,
-        bucket,
+        forcePathStyle: process.env.S3_ENDPOINT ? true : undefined,
+        requestChecksumCalculation: "WHEN_REQUIRED",
+        responseChecksumValidation: "WHEN_REQUIRED",
+        credentials: {
+            accessKeyId: (process.env.S3_ACCESS_KEY_ID ?? process.env.S3_ACCESS_KEY) as string,
+            secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string,
+        },
     });
+
+    return client;
 };
+
+function isS3NotFound(cause: unknown): boolean {
+    if (!cause || typeof cause !== "object") {
+        return false;
+    }
+
+    const error = cause as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number } };
+    return (
+        error.name === "NoSuchKey" ||
+        error.name === "NotFound" ||
+        error.Code === "NoSuchKey" ||
+        error.$metadata?.httpStatusCode === 404
+    );
+}
+
+async function getObject(
+    key: string,
+    bucket: string,
+    range?: { start: number; end: number }
+): Promise<GetObjectCommandOutput | null> {
+    try {
+        return await getClient().send(
+            new GetObjectCommand({
+                Bucket: bucket,
+                Key: key,
+                Range: range ? `bytes=${range.start}-${range.end}` : undefined,
+            })
+        );
+    } catch (cause) {
+        if (isS3NotFound(cause)) {
+            return null;
+        }
+
+        throw cause;
+    }
+}
+
+async function headObject(key: string, bucket: string): Promise<HeadObjectCommandOutput | null> {
+    try {
+        return await getClient().send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    } catch (cause) {
+        if (isS3NotFound(cause)) {
+            return null;
+        }
+
+        throw cause;
+    }
+}
+
+function requireBody(
+    body: GetObjectCommandOutput["Body"],
+    operation: string
+): NonNullable<GetObjectCommandOutput["Body"]> {
+    if (!body) {
+        throw new Error(`S3 returned no body for ${operation}`);
+    }
+
+    return body;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    const buffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(buffer).set(bytes);
+
+    return buffer;
+}
+
+async function toS3Body(file: FileBody): Promise<string | Uint8Array> {
+    if (typeof file === "string" || file instanceof Uint8Array) {
+        return file;
+    }
+
+    return new Uint8Array(await file.arrayBuffer());
+}
 
 const getFileType = (name: string) => {
     const extension = name.split(".").pop() || "";
@@ -184,10 +275,14 @@ export function getGraphFileArtifactPaths(input: { graphId: string; fileId: stri
 
 function writeFile(key: string, file: FileBody, bucket: string): Effect.Effect<StoredFile, StorageError> {
     return tryStorage("write", async () => {
-        const client = getClient(bucket);
-        const s3File = client.file(key);
-
-        await s3File.write(file);
+        await getClient().send(
+            new PutObjectCommand({
+                Bucket: bucket,
+                Key: key,
+                Body: await toS3Body(file),
+                ContentType: file instanceof Blob && file.type ? file.type : getFileType(key),
+            })
+        );
 
         return {
             key,
@@ -253,26 +348,24 @@ function getFileImpl(
     type: "bytes" | "text" | "json" = "bytes"
 ): Effect.Effect<{ type: "bytes" | "text" | "json"; content: unknown } | null, StorageError> {
     return tryStorage("read", async () => {
-        const client = getClient(bucket);
-        const s3File = client.file(key);
-
-        const exists = await s3File.exists();
-        if (!exists) {
+        const response = await getObject(key, bucket);
+        if (!response) {
             return null;
         }
 
+        const body = requireBody(response.Body, "read");
         switch (type) {
             case "text": {
-                const text = await s3File.text();
+                const text = await body.transformToString();
                 return { type, content: text };
             }
             case "json": {
-                const json = await s3File.json();
-                return { type, content: json };
+                const text = await body.transformToString();
+                return { type, content: JSON.parse(text) };
             }
             case "bytes": {
-                const bytes = await s3File.bytes();
-                return { type, content: bytes };
+                const bytes = await body.transformToByteArray();
+                return { type, content: toArrayBuffer(bytes) };
             }
         }
     });
@@ -285,31 +378,19 @@ function getFileStreamImpl(
     metadata?: StoredFileMetadata
 ): Effect.Effect<StoredFileStream | null, StorageError> {
     return tryStorage("stream", async () => {
-        const client = getClient(bucket);
-        const s3File = client.file(key);
-
-        let fileMetadata = metadata;
-        if (!fileMetadata) {
-            const exists = await s3File.exists();
-            if (!exists) {
-                return null;
-            }
-
-            const stat = await s3File.stat();
-            fileMetadata = {
-                size: stat.size,
-                type: s3File.type || getFileType(key),
-                lastModified: stat.lastModified ?? null,
-            };
+        const response = await getObject(key, bucket, range);
+        if (!response) {
+            return null;
         }
 
-        const file = range ? s3File.slice(range.start, range.end + 1) : s3File;
+        const body = requireBody(response.Body, "stream");
+        const size = range ? range.end - range.start + 1 : (metadata?.size ?? response.ContentLength ?? 0);
 
         return {
-            content: file.stream(),
-            size: range ? range.end - range.start + 1 : fileMetadata.size,
-            type: fileMetadata.type,
-            lastModified: fileMetadata.lastModified,
+            content: body.transformToWebStream() as ReadableStream<Uint8Array>,
+            size,
+            type: metadata?.type ?? response.ContentType ?? getFileType(key),
+            lastModified: metadata?.lastModified ?? response.LastModified ?? null,
         };
     });
 }
@@ -320,54 +401,40 @@ function getFileArrayBufferImpl(
     range?: { start: number; end: number }
 ): Effect.Effect<ArrayBuffer | null, StorageError> {
     return tryStorage("read bytes", async () => {
-        const client = getClient(bucket);
-        const s3File = client.file(key);
-
-        const exists = await s3File.exists();
-        if (!exists) {
+        const response = await getObject(key, bucket, range);
+        if (!response) {
             return null;
         }
 
-        const file = range ? s3File.slice(range.start, range.end + 1) : s3File;
-        const bytes = await file.bytes();
-        const buffer = new ArrayBuffer(bytes.byteLength);
-        new Uint8Array(buffer).set(bytes);
+        const bytes = await requireBody(response.Body, "read bytes").transformToByteArray();
 
-        return buffer;
+        return toArrayBuffer(bytes);
     });
 }
 
 function getFileMetadataImpl(key: string, bucket: string): Effect.Effect<StoredFileMetadata | null, StorageError> {
     return tryStorage("metadata", async () => {
-        const client = getClient(bucket);
-        const s3File = client.file(key);
-
-        const exists = await s3File.exists();
-        if (!exists) {
+        const response = await headObject(key, bucket);
+        if (!response) {
             return null;
         }
 
-        const stat = await s3File.stat();
-
         return {
-            size: stat.size,
-            type: s3File.type || getFileType(key),
-            lastModified: stat.lastModified ?? null,
+            size: response.ContentLength ?? 0,
+            type: response.ContentType ?? getFileType(key),
+            lastModified: response.LastModified ?? null,
         };
     });
 }
 
 function deleteFileImpl(key: string, bucket: string): Effect.Effect<boolean, StorageError> {
     return tryStorage("delete", async () => {
-        const client = getClient(bucket);
-        const s3File = client.file(key);
-
-        const exists = await s3File.exists();
-        if (!exists) {
+        const response = await headObject(key, bucket);
+        if (!response) {
             return false;
         }
 
-        await s3File.delete();
+        await getClient().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 
         return true;
     });
@@ -375,31 +442,31 @@ function deleteFileImpl(key: string, bucket: string): Effect.Effect<boolean, Sto
 
 function listFilesImpl(path: string, bucket: string): Effect.Effect<string[], StorageError> {
     return tryStorage("list", async () => {
-        const client = getClient(bucket);
         const trimmedPath = path.replace(/^\/+/u, "").replace(/\/+$/u, "");
         const prefix = trimmedPath === "" ? "" : `${trimmedPath}/`;
         const keys = new Set<string>();
-        let startAfter: string | undefined;
+        let continuationToken: string | undefined;
 
         while (true) {
-            const response = await client.list({
-                prefix,
-                startAfter,
-            });
+            const response = await getClient().send(
+                new ListObjectsV2Command({
+                    Bucket: bucket,
+                    Prefix: prefix,
+                    ContinuationToken: continuationToken,
+                })
+            );
 
-            for (const entry of response.contents ?? []) {
-                keys.add(entry.key);
+            for (const entry of response.Contents ?? []) {
+                if (entry.Key) {
+                    keys.add(entry.Key);
+                }
             }
 
-            if (!response.isTruncated || (response.contents?.length ?? 0) === 0) {
+            if (!response.IsTruncated || !response.NextContinuationToken) {
                 break;
             }
 
-            const lastEntry = response.contents?.[response.contents.length - 1];
-            startAfter = lastEntry?.key;
-            if (!startAfter) {
-                break;
-            }
+            continuationToken = response.NextContinuationToken;
         }
 
         return [...keys];
@@ -411,17 +478,9 @@ function getPresignedDownloadUrlImpl(
     bucket: string,
     expiresIn = 3600
 ): Effect.Effect<string, StorageError> {
-    return Effect.try({
-        try: () => {
-            const client = getClient(bucket);
-
-            return client.presign(key, {
-                method: "GET",
-                expiresIn,
-            });
-        },
-        catch: (cause) => new StorageError("presign", { cause }),
-    });
+    return tryStorage("presign", async () =>
+        getSignedUrl(getClient(), new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn })
+    );
 }
 
 const readFileImpl = getFileImpl as (

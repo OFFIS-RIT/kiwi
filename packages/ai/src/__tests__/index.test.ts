@@ -24,11 +24,11 @@ describe("AI config helpers", () => {
 });
 
 describe("createProviderFetch", () => {
-    test("disables Bun's default timeout and applies the shared request timeout", async () => {
-        let capturedInit: (RequestInit & { timeout?: false }) | undefined;
+    test("applies the shared request timeout", async () => {
+        let capturedInit: RequestInit | undefined;
 
         const providerFetch = createProviderFetch(async (_input, init) => {
-            capturedInit = init as RequestInit & { timeout?: false };
+            capturedInit = init;
             return new Response("ok");
         });
 
@@ -37,7 +37,6 @@ describe("createProviderFetch", () => {
         });
 
         expect(capturedInit).toBeDefined();
-        expect(capturedInit?.timeout).toBe(false);
         expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
         expect(capturedInit?.signal?.aborted).toBe(false);
         expect(AI_REQUEST_TIMEOUT_MS).toBe(90 * 60 * 1000);

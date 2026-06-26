@@ -24,10 +24,6 @@ export {
 
 let tokenEncoder: Tiktoken | undefined;
 
-type BunRequestInit = RequestInit & {
-    timeout?: false;
-};
-
 type OpenAICredentials = {
     apiKey: string;
 };
@@ -111,15 +107,11 @@ function getRequestSignal(signal: AbortSignal | null | undefined): AbortSignal {
 }
 
 export function createProviderFetch(fetchFn: typeof globalThis.fetch = globalThis.fetch): typeof globalThis.fetch {
-    return Object.assign((input: Parameters<typeof globalThis.fetch>[0], init?: BunRequestInit) => {
-        const nextInit: BunRequestInit = {
+    return Object.assign((input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+        const nextInit: RequestInit = {
             ...init,
             signal: getRequestSignal(init?.signal),
         };
-
-        if (typeof Bun !== "undefined") {
-            nextInit.timeout = false;
-        }
 
         return fetchFn(input, nextInit);
     }, fetchFn);
