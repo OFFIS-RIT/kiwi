@@ -64,12 +64,6 @@ jobs:
               env:
                   CXXFLAGS: -std=c++20
 
-            - name: Patch tree-sitter Bun native binding
-              run: |
-                  mkdir -p node_modules/.bun/tree-sitter@0.25.0/node_modules/tree-sitter/prebuilds/linux-x64
-                  cp node_modules/.bun/tree-sitter@0.25.0/node_modules/tree-sitter/build/Release/tree_sitter_runtime_binding.node node_modules/.bun/tree-sitter@0.25.0/node_modules/tree-sitter/prebuilds/linux-x64/tree-sitter.node
-                  cp node_modules/.bun/@tree-sitter-grammars+tree-sitter-zig@1.1.2+7aa2583e580bc282/node_modules/@tree-sitter-grammars/tree-sitter-zig/prebuilds/linux-x64/@tree-sitter-grammars+tree-sitter-zig.node node_modules/.bun/@tree-sitter-grammars+tree-sitter-zig@1.1.2+7aa2583e580bc282/node_modules/@tree-sitter-grammars/tree-sitter-zig/prebuilds/linux-x64/tree-sitter-zig.node
-
             - name: Prepare environment
               run: cp .env.sample .env
 
@@ -113,12 +107,6 @@ jobs:
               run: bun install --frozen-lockfile
               env:
                   CXXFLAGS: -std=c++20
-
-            - name: Patch tree-sitter Bun native binding
-              run: |
-                  mkdir -p node_modules/.bun/tree-sitter@0.25.0/node_modules/tree-sitter/prebuilds/linux-x64
-                  cp node_modules/.bun/tree-sitter@0.25.0/node_modules/tree-sitter/build/Release/tree_sitter_runtime_binding.node node_modules/.bun/tree-sitter@0.25.0/node_modules/tree-sitter/prebuilds/linux-x64/tree-sitter.node
-                  cp node_modules/.bun/@tree-sitter-grammars+tree-sitter-zig@1.1.2+7aa2583e580bc282/node_modules/@tree-sitter-grammars/tree-sitter-zig/prebuilds/linux-x64/@tree-sitter-grammars+tree-sitter-zig.node node_modules/.bun/@tree-sitter-grammars+tree-sitter-zig@1.1.2+7aa2583e580bc282/node_modules/@tree-sitter-grammars/tree-sitter-zig/prebuilds/linux-x64/tree-sitter-zig.node
 
             - name: Prepare environment
               run: cp .env.sample .env

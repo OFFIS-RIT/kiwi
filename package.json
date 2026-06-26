@@ -11,6 +11,8 @@
         "test": "dotenv -- turbo test",
         "lint": "oxlint",
         "format": "oxfmt",
+        "tree-sitter:repair": "bun scripts/repair-tree-sitter-bindings.ts",
+        "postinstall": "bun run tree-sitter:repair",
         "worker:dash": "dotenv -- bun run --filter @kiwi/worker dashboard",
         "db:generate": "dotenv -- drizzle-kit generate",
         "db:migrate": "dotenv -- drizzle-kit migrate",
@@ -67,6 +69,11 @@
         "openworkflow@0.9.0": "patches/openworkflow@0.9.0.patch"
     },
     "trustedDependencies": [
-        "tree-sitter"
+        "@tree-sitter-grammars/tree-sitter-zig",
+        "tree-sitter",
+        "tree-sitter-c",
+        "tree-sitter-javascript",
+        "tree-sitter-rust",
+        "tree-sitter-typescript"
     ]
 }

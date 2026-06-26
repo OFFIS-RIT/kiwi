@@ -14,6 +14,7 @@ WORKDIR /app
 
 COPY package.json bun.lock ./
 COPY patches patches
+COPY scripts scripts
 COPY apps/api/package.json apps/api/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY apps/worker/package.json apps/worker/package.json
@@ -27,14 +28,6 @@ COPY packages/graph/package.json packages/graph/package.json
 COPY packages/logger/package.json packages/logger/package.json
 
 RUN CXXFLAGS="-std=c++20" bun install --frozen-lockfile
-
-RUN arch="$(node -p 'process.arch')" \
-    && cd packages/graph/node_modules/tree-sitter \
-    && CXXFLAGS="-std=c++20" node-gyp rebuild \
-    && mkdir -p "prebuilds/linux-${arch}" \
-    && cp build/Release/tree_sitter_runtime_binding.node "prebuilds/linux-${arch}/tree-sitter.node" \
-    && cd ../@tree-sitter-grammars/tree-sitter-zig \
-    && cp "prebuilds/linux-${arch}/@tree-sitter-grammars+tree-sitter-zig.node" "prebuilds/linux-${arch}/tree-sitter-zig.node"
 
 COPY apps/worker/index.ts apps/worker/index.ts
 COPY apps/worker/env.ts apps/worker/env.ts
