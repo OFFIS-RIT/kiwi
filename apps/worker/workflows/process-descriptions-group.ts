@@ -30,9 +30,5 @@ export const processDescriptionsGroups = defineWorkflow(processDescriptionsGroup
         })
     );
 
-    const results = await Promise.allSettled([...entityPromises, ...relationshipPromises]);
-    const failures = results.filter((r) => r.status === "rejected");
-    if (failures.length > 0) {
-        throw new Error(`${failures.length} of ${results.length} description batches failed`);
-    }
+    await Promise.all([...entityPromises, ...relationshipPromises]);
 });

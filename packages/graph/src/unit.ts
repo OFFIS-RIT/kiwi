@@ -1,7 +1,7 @@
 import { ulid } from "ulid";
 import { withAiSlot } from "@kiwi/ai/lock";
 import { extractPrompt } from "@kiwi/ai/prompts/extract.prompt";
-import { generateText, Output } from "ai";
+import { generateText, NoObjectGeneratedError, Output } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { Graph, GraphChunker, GraphFile, GraphTextChunk, LoaderSourceChunk, TextUnitSourceChunk, Unit } from ".";
 import { SemanticChunker } from "./chunking/semantic";
@@ -11,6 +11,7 @@ import { createSourceChunks, DEFAULT_SOURCE_CHUNK_TOKENS } from "./lib/source-ch
 import z from "zod";
 
 export const MAX_SOURCE_CHUNKS_PER_SOURCE = 8;
+const EXTRACT_OUTPUT_MAX_ATTEMPTS = 3;
 
 export async function createUnits(file: GraphFile): Promise<Unit[]> {
     const document = await loadGraphDocument(file.loader);
@@ -180,6 +181,48 @@ function buildExtractionInput(unit: Unit): string {
         .join("\n\n");
 }
 
+function emptyGraphForUnit(unit: Unit): Graph {
+    return {
+        id: ulid(),
+        units: [unit],
+        entities: [],
+        relationships: [],
+    };
+}
+
+async function extractUnitOutput(unit: Unit, model: LanguageModelV3, prompt: string) {
+    const extractionInput = buildExtractionInput(unit);
+
+    for (let attempt = 1; attempt <= EXTRACT_OUTPUT_MAX_ATTEMPTS; attempt += 1) {
+        try {
+            const { output } = await withAiSlot("text", () =>
+                generateText({
+                    model,
+                    system: prompt,
+                    prompt: extractionInput,
+                    temperature: 0.1,
+                    output: Output.object({
+                        description: "The extracted entities and relationships from the text.",
+                        schema: extractOutputSchema,
+                    }),
+                })
+            );
+
+            return output;
+        } catch (error) {
+            if (!NoObjectGeneratedError.isInstance(error)) {
+                throw error;
+            }
+
+            if (attempt === EXTRACT_OUTPUT_MAX_ATTEMPTS) {
+                return null;
+            }
+        }
+    }
+
+    return null;
+}
+
 export async function processUnit(
     unit: Unit,
     model: LanguageModelV3,
@@ -188,19 +231,11 @@ export async function processUnit(
 ): Promise<Graph> {
     const entities = ["ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"];
     const prompt = extractPrompt(entities, documentName, metadata);
+    const output = await extractUnitOutput(unit, model, prompt);
 
-    const { output } = await withAiSlot("text", () =>
-        generateText({
-            model,
-            system: prompt,
-            prompt: buildExtractionInput(unit),
-            temperature: 0.1,
-            output: Output.object({
-                description: "The extracted entities and relationships from the text.",
-                schema: extractOutputSchema,
-            }),
-        })
-    );
+    if (!output) {
+        return emptyGraphForUnit(unit);
+    }
 
     const entityNameToId = new Map<string, string>();
     const graphEntities = output.entities.map((entity) => {

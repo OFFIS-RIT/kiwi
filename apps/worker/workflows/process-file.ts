@@ -234,11 +234,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             );
         }
 
-        const groupResults = await Promise.allSettled(groupPromises);
-        const failedGroups = groupResults.filter((r) => r.status === "rejected");
-        if (failedGroups.length > 0) {
-            throw new Error(`${failedGroups.length} of ${groupResults.length} description groups failed`);
-        }
+        await Promise.all(groupPromises);
 
         await step.run({ name: "finalize-project-status" }, async () => {
             await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
