@@ -1453,28 +1453,7 @@ describe("PDFLoader", () => {
         expect(document.sourceChunks?.map((chunk) => chunk.text).join(" ")).toContain("word259");
     });
 
-    test("scales oversized pages to 0.75 for full OCR rasterization", async () => {
-        const bytes = await buildPDFBinary((pdf) => {
-            pdf.addPage({ width: 1190.56, height: 1683.78 });
-        });
-        const loader = {
-            getText: async () => "",
-            getBinary: async () => bytes.slice().buffer,
-        };
-        rasterizedPages = [new Uint8Array([1])];
-        fullOCRPageOutputs = ["# Oversized"];
-
-        await new PDFLoader({
-            loader,
-            mode: "ocr",
-            model: {} as never,
-        }).getText();
-
-        expect(pdfToImgMock).toHaveBeenCalledTimes(1);
-        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 0.75 });
-    });
-
-    test("keeps normal page sizes at default full OCR raster scale", async () => {
+    test("keeps normal pages at scale 2 for full OCR rasterization", async () => {
         const bytes = await buildPDFBinary((pdf) => {
             pdf.addPage({ size: "letter" });
         });
@@ -1492,7 +1471,28 @@ describe("PDFLoader", () => {
         }).getText();
 
         expect(pdfToImgMock).toHaveBeenCalledTimes(1);
-        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 1 });
+        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 2 });
+    });
+
+    test("caps huge full OCR rasterized pages to 2000px", async () => {
+        const bytes = await buildPDFBinary((pdf) => {
+            pdf.addPage({ width: 3000, height: 1000 });
+        });
+        const loader = {
+            getText: async () => "",
+            getBinary: async () => bytes.slice().buffer,
+        };
+        rasterizedPages = [new Uint8Array([1])];
+        fullOCRPageOutputs = ["# Huge"];
+
+        await new PDFLoader({
+            loader,
+            mode: "ocr",
+            model: {} as never,
+        }).getText();
+
+        expect(pdfToImgMock).toHaveBeenCalledTimes(1);
+        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 2000 / 3000 });
     });
 
     test("throws when full OCR mode is missing a model", async () => {

@@ -1836,15 +1836,11 @@ export function tableRowsToMarkdown(rows: Array<Array<string | null>>, maxColumn
     const normalized = trimmed.map((row) =>
         Array.from({ length: columnCount }, (_, index) => escapeMarkdownTableCell(row[index] ?? ""))
     );
-    const firstDenseHeaderIndex = normalized.findIndex(
-        (row) => row.filter(Boolean).length >= Math.min(2, columnCount)
-    );
+    const firstDenseHeaderIndex = normalized.findIndex((row) => row.filter(Boolean).length >= Math.min(2, columnCount));
     const sparseKeyValueHeader =
         columnCount === 2 &&
         firstDenseHeaderIndex > 1 &&
-        normalized
-            .slice(0, firstDenseHeaderIndex)
-            .every((row) => row[0]?.length && (row[1] ?? "").length === 0);
+        normalized.slice(0, firstDenseHeaderIndex).every((row) => row[0]?.length && (row[1] ?? "").length === 0);
     const headerIndex = sparseKeyValueHeader ? 0 : firstDenseHeaderIndex;
     if (headerIndex < 0 || normalized.length - headerIndex < 2) {
         return null;

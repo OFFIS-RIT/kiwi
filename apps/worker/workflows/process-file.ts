@@ -3,14 +3,12 @@ import { withWorkerDb, withWorkerDbVoid } from "../lib/runtime/effect";
 import { filesTable, graphTable, processRunsTable, processStatsTable } from "@kiwi/db/tables/graph";
 import { and, eq, inArray, sql } from "@kiwi/db/drizzle";
 import { defineWorkflow } from "openworkflow";
-import z from "zod";
 import { S3Loader } from "@kiwi/loaders/loader/s3";
 import { createGraphChunker } from "@kiwi/loaders/chunker/factory";
 import { env } from "../env";
 import type { Graph, GraphFile, LoadedGraphDocument, Unit } from "@kiwi/graph";
 import { dedupe } from "@kiwi/graph/dedupe";
 import { coerceGraphFileType } from "@kiwi/graph/file-type";
-import type { GraphFileType } from "@kiwi/graph/file-type";
 import { loadGraphDocument } from "@kiwi/loaders/loader/document";
 import { createDetectedGraphLoader, detectGraphLoaderFileFormat } from "@kiwi/loaders/loader/factory";
 import { mergeGraphs } from "@kiwi/graph/merge";
@@ -35,7 +33,12 @@ import { prepareCodeManifest } from "../lib/code/manifest";
 import { invalidateSupersededRepositorySources } from "../lib/code/repository-finalizer";
 import { updateFileProcessingState, stopIfFileDeleted } from "../lib/files/processing-state";
 import { runWorkerEffect } from "../lib/runtime/effect";
-import { processCodeFile } from "./process-code-file";
+import {
+    fileProcessingWorkflow,
+    shouldAbortRepositoryBatch,
+    shouldFinalizeRepositoryBatch,
+} from "../lib/files/workflow";
+import { processFileSpec } from "./process-file-spec";
 
 const FILE_DELETED = "__file_deleted__" as const;
 const NO_RETRY = { maximumAttempts: 1 } as const;
@@ -47,52 +50,6 @@ function workflowError(error: unknown) {
     }
 
     return new Error("Workflow failed", { cause: error });
-}
-
-export function fileProcessingWorkflow(
-    graphId: string,
-    fileId: string,
-    fileType: GraphFileType | undefined,
-    codeManifestKey?: string
-) {
-    return fileType === "code"
-        ? {
-              spec: processCodeFile.spec,
-              input: {
-                  graphId,
-                  fileId,
-                  ...(codeManifestKey ? { codeManifestKey } : {}),
-              },
-          }
-        : {
-              spec: processFile.spec,
-              input: {
-                  graphId,
-                  fileId,
-              },
-          };
-}
-
-export function shouldAbortRepositoryBatch(
-    code: { kind: "repository"; retiredFileIds?: string[] } | undefined,
-    results: PromiseSettledResult<unknown>[]
-) {
-    return (
-        code?.kind === "repository" &&
-        code.retiredFileIds !== undefined &&
-        results.some((result) => result.status === "rejected")
-    );
-}
-
-export function shouldFinalizeRepositoryBatch(
-    code: { kind: "repository"; retiredFileIds?: string[] } | undefined,
-    results: PromiseSettledResult<unknown>[]
-) {
-    return (
-        code?.kind === "repository" &&
-        results.every((result) => result.status === "fulfilled") &&
-        (results.length > 0 || (code.retiredFileIds?.length ?? 0) > 0)
-    );
 }
 
 export const processFiles = defineWorkflow(processFilesSpec, async ({ input, step, run }) => {
@@ -256,11 +213,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             );
         }
 
-        const groupResults = await Promise.allSettled(groupPromises);
-        const failedGroups = groupResults.filter((r) => r.status === "rejected");
-        if (failedGroups.length > 0) {
-            throw new Error(`${failedGroups.length} of ${groupResults.length} description groups failed`);
-        }
+        await Promise.all(groupPromises);
 
         await step.run({ name: "finalize-project-status" }, async () =>
             runWorkerEffect(
@@ -305,410 +258,384 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
     }
 });
 
-export const processFile = defineWorkflow(
-    {
-        name: "process-file",
-        version: "1.0.0",
-        retryPolicy: {
-            initialInterval: "1s",
-            backoffCoefficient: 2,
-            maximumInterval: "30s",
-            maximumAttempts: 3,
-        },
-        schema: z.object({
-            graphId: z.string(),
-            fileId: z.string(),
-        }),
-    },
-    async ({ input, step, run }) => {
-        try {
-            let fileData;
-            [fileData] = await step.run({ name: "get-file-data" }, async () =>
-                runWorkerEffect(
-                    withWorkerDb((db) =>
-                        db
-                            .select()
-                            .from(filesTable)
-                            .where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.id, input.fileId)))
-                            .limit(1)
-                    )
+export const processFile = defineWorkflow(processFileSpec, async ({ input, step, run }) => {
+    try {
+        let fileData;
+        [fileData] = await step.run({ name: "get-file-data" }, async () =>
+            runWorkerEffect(
+                withWorkerDb((db) =>
+                    db
+                        .select()
+                        .from(filesTable)
+                        .where(and(eq(filesTable.graphId, input.graphId), eq(filesTable.id, input.fileId)))
+                        .limit(1)
                 )
-            );
+            )
+        );
 
-            if (!fileData) {
-                return;
-            }
-
-            if (fileData.deleted) {
-                await runWorkerEffect(updateFileProcessingState(input.fileId, "completed", "processed"));
-                return;
-            }
-
-            const paths = getGraphFileArtifactPaths({
-                graphId: input.graphId,
-                fileId: input.fileId,
-                fileKey: fileData.key,
-            });
-
-            const baseFile = await step.run({ name: "preprocess-file" }, async () =>
-                runWorkerEffect(
-                    Effect.gen(function* () {
-                        if (yield* stopIfFileDeleted(input.fileId)) {
-                            return FILE_DELETED;
-                        }
-
-                        yield* updateFileProcessingState(input.fileId, "preprocessing", "processing");
-                        const start = performance.now();
-                        const client = yield* createWorkerClient(input.graphId);
-                        const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
-                        const fileContent = yield* Effect.tryPromise(() => s3Loader.getBinary());
-                        const declaredType = coerceGraphFileType(fileData.type);
-                        const derivedImageStorage = {
-                            bucket: env.S3_BUCKET,
-                            imagePrefix: paths.derivedImagePrefix,
-                        };
-                        const detectedFormat = detectGraphLoaderFileFormat({
-                            content: fileContent,
-                            declaredType,
-                            mimeType: fileData.mimeType,
-                            audioModel: client.audio,
-                            videoModel: client.video,
-                        });
-                        const organizationId = yield* resolveGraphModelOrganizationId(input.graphId);
-                        const typeConfig = yield* getFileTypeProcessingConfig(organizationId, detectedFormat.fileType);
-                        const { loader } = createDetectedGraphLoader({
-                            content: fileContent,
-                            declaredType,
-                            mimeType: fileData.mimeType,
-                            format: detectedFormat,
-                            documentMode: typeConfig.documentMode ?? undefined,
-                            imageModel: client.image,
-                            audioModel: client.audio,
-                            videoModel: client.video,
-                            derivedImageStorage,
-                        });
-                        const baseGraphFile = {
-                            id: input.fileId,
-                            key: fileData.key,
-                            filename: fileData.name,
-                            filetype: detectedFormat.fileType,
-                        } satisfies Omit<GraphFile, "loader" | "chunker">;
-
-                        if (
-                            detectedFormat.fileType !== fileData.type ||
-                            detectedFormat.mimeType !== fileData.mimeType
-                        ) {
-                            yield* withWorkerDbVoid((db) =>
-                                db
-                                    .update(filesTable)
-                                    .set({
-                                        type: detectedFormat.fileType,
-                                        mimeType: detectedFormat.mimeType,
-                                    })
-                                    .where(eq(filesTable.id, input.fileId))
-                            );
-
-                            fileData.type = detectedFormat.fileType;
-                            fileData.mimeType = detectedFormat.mimeType;
-                        }
-
-                        const graphFile = {
-                            ...baseGraphFile,
-                            loader,
-                        } satisfies Omit<GraphFile, "chunker">;
-                        const document = yield* Effect.tryPromise(() => loadGraphDocument(graphFile.loader));
-                        const contentText = requireReadableContentText(document.text);
-                        const tokens = estimateToken(contentText);
-                        const uploadedDocument = yield* putNamedFile(
-                            "document.json",
-                            JSON.stringify(document),
-                            paths.processingPrefix,
-                            env.S3_BUCKET
-                        );
-
-                        const duration = performance.now() - start;
-
-                        yield* withWorkerDbVoid((db) =>
-                            db
-                                .update(filesTable)
-                                .set({
-                                    tokenCount: tokens,
-                                    loader: detectedFormat.loaderKind,
-                                    documentMode: typeConfig.documentMode,
-                                })
-                                .where(eq(filesTable.id, input.fileId))
-                        );
-
-                        return {
-                            ...baseGraphFile,
-                            documentKey: uploadedDocument.key,
-                            duration,
-                            tokenCount: tokens,
-                            metadataExcerpt: buildMetadataExcerpt(contentText),
-                        };
-                    })
-                )
-            );
-            if (baseFile === FILE_DELETED) {
-                return;
-            }
-
-            const metadataResult = await step.run({ name: "metadata" }, async () =>
-                runWorkerEffect(
-                    Effect.gen(function* () {
-                        if (yield* stopIfFileDeleted(input.fileId)) {
-                            return FILE_DELETED;
-                        }
-
-                        yield* updateFileProcessingState(input.fileId, "metadata", "processing");
-                        const client = yield* createWorkerClient(input.graphId);
-                        const metadata = yield* buildMetadata(client.text, fileData.name, baseFile.metadataExcerpt);
-
-                        yield* withWorkerDbVoid((db) =>
-                            db
-                                .update(filesTable)
-                                .set({ metadata: metadata || null })
-                                .where(eq(filesTable.id, input.fileId))
-                        );
-
-                        return {
-                            metadata,
-                        };
-                    })
-                )
-            );
-            if (metadataResult === FILE_DELETED) {
-                return;
-            }
-
-            const unitsResult = await step.run({ name: "build-units" }, async () =>
-                runWorkerEffect(
-                    Effect.gen(function* () {
-                        if (yield* stopIfFileDeleted(input.fileId)) {
-                            return FILE_DELETED;
-                        }
-
-                        yield* updateFileProcessingState(input.fileId, "chunking", "processing");
-                        const start = performance.now();
-
-                        const organizationId = yield* resolveGraphModelOrganizationId(input.graphId);
-                        const typeConfig = yield* getFileTypeProcessingConfig(
-                            organizationId,
-                            coerceGraphFileType(baseFile.filetype)
-                        );
-                        const chunker = createGraphChunker(typeConfig.chunker, typeConfig.chunkSize);
-
-                        yield* withWorkerDbVoid((db) =>
-                            db
-                                .update(filesTable)
-                                .set({
-                                    chunker: typeConfig.chunker,
-                                    chunkSize: typeConfig.chunkSize,
-                                })
-                                .where(eq(filesTable.id, input.fileId))
-                        );
-
-                        const loadedDocument = yield* getFile<LoadedGraphDocument>(
-                            baseFile.documentKey,
-                            env.S3_BUCKET,
-                            "json"
-                        );
-                        if (!loadedDocument) {
-                            return yield* Effect.fail(
-                                new Error(`Failed to load document from ${baseFile.documentKey}`)
-                            );
-                        }
-
-                        const units = yield* createUnitsFromText({
-                            fileId: baseFile.id,
-                            fileType: baseFile.filetype,
-                            text: loadedDocument.content.text,
-                            chunker,
-                            loaderSourceChunks: loadedDocument.content.sourceChunks,
-                        });
-                        const uploadedUnits = yield* putNamedFile(
-                            "units.json",
-                            JSON.stringify(units),
-                            paths.processingPrefix,
-                            env.S3_BUCKET
-                        );
-
-                        const duration = performance.now() - start;
-
-                        return {
-                            unitsKey: uploadedUnits.key,
-                            duration,
-                        };
-                    })
-                )
-            );
-            if (unitsResult === FILE_DELETED) {
-                return;
-            }
-
-            const graphResult = await step.run({ name: "build-graph" }, async () =>
-                runWorkerEffect(
-                    Effect.gen(function* () {
-                        if (yield* stopIfFileDeleted(input.fileId)) {
-                            return FILE_DELETED;
-                        }
-
-                        yield* updateFileProcessingState(input.fileId, "extracting", "processing");
-                        const start = performance.now();
-                        const client = yield* createWorkerClient(input.graphId);
-
-                        const loadedUnits = yield* getFile<Unit[]>(unitsResult.unitsKey, env.S3_BUCKET, "json");
-                        if (!loadedUnits) {
-                            return yield* Effect.fail(new Error(`Failed to load units from ${unitsResult.unitsKey}`));
-                        }
-
-                        const graphs: Graph[] = [];
-                        for (const units of chunkItems(loadedUnits.content, PROCESS_UNIT_BATCH_SIZE)) {
-                            graphs.push(
-                                ...(yield* Effect.all(
-                                    units.map((unit) =>
-                                        processUnit(
-                                            unit,
-                                            client.text,
-                                            fileData.name,
-                                            metadataResult.metadata || undefined
-                                        )
-                                    )
-                                ))
-                            );
-                        }
-                        const mergedGraph = mergeGraphs(graphs);
-                        const graph = dedupe(mergedGraph);
-                        const uploadedGraph = yield* putNamedFile(
-                            "graph.json",
-                            JSON.stringify(graph),
-                            paths.processingPrefix,
-                            env.S3_BUCKET
-                        );
-
-                        const duration = performance.now() - start;
-
-                        return {
-                            graphKey: uploadedGraph.key,
-                            duration,
-                        };
-                    })
-                )
-            );
-            if (graphResult === FILE_DELETED) {
-                return;
-            }
-
-            const saveGraphResult = await step.run({ name: "save-graph" }, async () =>
-                runWorkerEffect(
-                    Effect.gen(function* () {
-                        if (yield* stopIfFileDeleted(input.fileId)) {
-                            return FILE_DELETED;
-                        }
-
-                        yield* updateFileProcessingState(input.fileId, "deduplicating", "processing");
-                        yield* updateFileProcessingState(input.fileId, "saving", "processing");
-
-                        const loadedGraph = yield* getFile<Graph>(graphResult.graphKey, env.S3_BUCKET, "json");
-                        if (!loadedGraph) {
-                            return yield* Effect.fail(new Error(`Failed to load graph from ${graphResult.graphKey}`));
-                        }
-
-                        const saveResult = yield* saveGraphToDatabase(input.graphId, loadedGraph.content);
-
-                        return {
-                            summary: {
-                                fileId: input.fileId,
-                                ...saveResult.summary,
-                            },
-                            duration: saveResult.duration,
-                            metrics: saveResult.metrics,
-                        };
-                    })
-                )
-            );
-            if (saveGraphResult === FILE_DELETED) {
-                return;
-            }
-
-            const statsResult = await step.run({ name: "store-process-stats" }, async () =>
-                runWorkerEffect(
-                    Effect.gen(function* () {
-                        if (yield* stopIfFileDeleted(input.fileId)) {
-                            return FILE_DELETED;
-                        }
-                        yield* Effect.catch(
-                            withWorkerDbVoid((db) => {
-                                const totalTime =
-                                    baseFile.duration +
-                                    unitsResult.duration +
-                                    graphResult.duration +
-                                    saveGraphResult.duration;
-
-                                return db.insert(processStatsTable).values({
-                                    totalTime,
-                                    files: 1,
-                                    fileSizes: fileData.size,
-                                    fileType: baseFile.filetype,
-                                    tokenCount: baseFile.tokenCount,
-                                });
-                            }),
-                            (error: unknown) =>
-                                Effect.sync(() => {
-                                    logError("failed to store file process stats", {
-                                        graphId: input.graphId,
-                                        fileId: input.fileId,
-                                        error,
-                                    });
-                                })
-                        );
-                    })
-                )
-            );
-            if (statsResult === FILE_DELETED) {
-                return;
-            }
-
-            await step.run({ name: "mark-file-complete" }, async () =>
-                runWorkerEffect(updateFileProcessingState(input.fileId, "completed", "processed"))
-            );
-
-            await step.run({ name: "cleanup-processing-artifacts" }, async () =>
-                runWorkerEffect(
-                    Effect.matchEffect(
-                        deleteGraphFileProcessingArtifacts({
-                            graphId: input.graphId,
-                            fileId: input.fileId,
-                            fileKey: fileData.key,
-                            bucket: env.S3_BUCKET,
-                        }),
-                        {
-                            onFailure: (error) =>
-                                Effect.sync(() => {
-                                    logError("failed to cleanup processing artifacts", {
-                                        graphId: input.graphId,
-                                        fileId: input.fileId,
-                                        error,
-                                    });
-                                    return { deletedKeyCount: 0 };
-                                }),
-                            onSuccess: (value) => Effect.succeed(value),
-                        }
-                    )
-                )
-            );
-
-            return saveGraphResult.summary;
-        } catch (error) {
-            if (run.retryTerminal) {
-                await runWorkerEffect(
-                    updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error))
-                );
-            } else {
-                await runWorkerEffect(updateFileProcessingState(input.fileId, "pending", "processing", null));
-            }
-
-            throw workflowError(error);
+        if (!fileData) {
+            return;
         }
+
+        if (fileData.deleted) {
+            await runWorkerEffect(updateFileProcessingState(input.fileId, "completed", "processed"));
+            return;
+        }
+
+        const paths = getGraphFileArtifactPaths({
+            graphId: input.graphId,
+            fileId: input.fileId,
+            fileKey: fileData.key,
+        });
+
+        const baseFile = await step.run({ name: "preprocess-file" }, async () =>
+            runWorkerEffect(
+                Effect.gen(function* () {
+                    if (yield* stopIfFileDeleted(input.fileId)) {
+                        return FILE_DELETED;
+                    }
+
+                    yield* updateFileProcessingState(input.fileId, "preprocessing", "processing");
+                    const start = performance.now();
+                    const client = yield* createWorkerClient(input.graphId);
+                    const s3Loader = new S3Loader(fileData.key, env.S3_BUCKET);
+                    const fileContent = yield* Effect.tryPromise(() => s3Loader.getBinary());
+                    const declaredType = coerceGraphFileType(fileData.type);
+                    const derivedImageStorage = {
+                        bucket: env.S3_BUCKET,
+                        imagePrefix: paths.derivedImagePrefix,
+                    };
+                    const detectedFormat = detectGraphLoaderFileFormat({
+                        content: fileContent,
+                        declaredType,
+                        mimeType: fileData.mimeType,
+                        audioModel: client.audio,
+                        videoModel: client.video,
+                    });
+                    const organizationId = yield* resolveGraphModelOrganizationId(input.graphId);
+                    const typeConfig = yield* getFileTypeProcessingConfig(organizationId, detectedFormat.fileType);
+                    const { loader } = createDetectedGraphLoader({
+                        content: fileContent,
+                        declaredType,
+                        mimeType: fileData.mimeType,
+                        format: detectedFormat,
+                        documentMode: typeConfig.documentMode ?? undefined,
+                        imageModel: client.image,
+                        audioModel: client.audio,
+                        videoModel: client.video,
+                        derivedImageStorage,
+                    });
+                    const baseGraphFile = {
+                        id: input.fileId,
+                        key: fileData.key,
+                        filename: fileData.name,
+                        filetype: detectedFormat.fileType,
+                    } satisfies Omit<GraphFile, "loader" | "chunker">;
+
+                    if (detectedFormat.fileType !== fileData.type || detectedFormat.mimeType !== fileData.mimeType) {
+                        yield* withWorkerDbVoid((db) =>
+                            db
+                                .update(filesTable)
+                                .set({
+                                    type: detectedFormat.fileType,
+                                    mimeType: detectedFormat.mimeType,
+                                })
+                                .where(eq(filesTable.id, input.fileId))
+                        );
+
+                        fileData.type = detectedFormat.fileType;
+                        fileData.mimeType = detectedFormat.mimeType;
+                    }
+
+                    const graphFile = {
+                        ...baseGraphFile,
+                        loader,
+                    } satisfies Omit<GraphFile, "chunker">;
+                    const document = yield* Effect.tryPromise(() => loadGraphDocument(graphFile.loader));
+                    const contentText = requireReadableContentText(document.text);
+                    const tokens = estimateToken(contentText);
+                    const uploadedDocument = yield* putNamedFile(
+                        "document.json",
+                        JSON.stringify(document),
+                        paths.processingPrefix,
+                        env.S3_BUCKET
+                    );
+
+                    const duration = performance.now() - start;
+
+                    yield* withWorkerDbVoid((db) =>
+                        db
+                            .update(filesTable)
+                            .set({
+                                tokenCount: tokens,
+                                loader: detectedFormat.loaderKind,
+                                documentMode: typeConfig.documentMode,
+                            })
+                            .where(eq(filesTable.id, input.fileId))
+                    );
+
+                    return {
+                        ...baseGraphFile,
+                        documentKey: uploadedDocument.key,
+                        duration,
+                        tokenCount: tokens,
+                        metadataExcerpt: buildMetadataExcerpt(contentText),
+                    };
+                })
+            )
+        );
+        if (baseFile === FILE_DELETED) {
+            return;
+        }
+
+        const metadataResult = await step.run({ name: "metadata" }, async () =>
+            runWorkerEffect(
+                Effect.gen(function* () {
+                    if (yield* stopIfFileDeleted(input.fileId)) {
+                        return FILE_DELETED;
+                    }
+
+                    yield* updateFileProcessingState(input.fileId, "metadata", "processing");
+                    const client = yield* createWorkerClient(input.graphId);
+                    const metadata = yield* buildMetadata(client.text, fileData.name, baseFile.metadataExcerpt);
+
+                    yield* withWorkerDbVoid((db) =>
+                        db
+                            .update(filesTable)
+                            .set({ metadata: metadata || null })
+                            .where(eq(filesTable.id, input.fileId))
+                    );
+
+                    return {
+                        metadata,
+                    };
+                })
+            )
+        );
+        if (metadataResult === FILE_DELETED) {
+            return;
+        }
+
+        const unitsResult = await step.run({ name: "build-units" }, async () =>
+            runWorkerEffect(
+                Effect.gen(function* () {
+                    if (yield* stopIfFileDeleted(input.fileId)) {
+                        return FILE_DELETED;
+                    }
+
+                    yield* updateFileProcessingState(input.fileId, "chunking", "processing");
+                    const start = performance.now();
+
+                    const organizationId = yield* resolveGraphModelOrganizationId(input.graphId);
+                    const typeConfig = yield* getFileTypeProcessingConfig(
+                        organizationId,
+                        coerceGraphFileType(baseFile.filetype)
+                    );
+                    const chunker = createGraphChunker(typeConfig.chunker, typeConfig.chunkSize);
+
+                    yield* withWorkerDbVoid((db) =>
+                        db
+                            .update(filesTable)
+                            .set({
+                                chunker: typeConfig.chunker,
+                                chunkSize: typeConfig.chunkSize,
+                            })
+                            .where(eq(filesTable.id, input.fileId))
+                    );
+
+                    const loadedDocument = yield* getFile<LoadedGraphDocument>(
+                        baseFile.documentKey,
+                        env.S3_BUCKET,
+                        "json"
+                    );
+                    if (!loadedDocument) {
+                        return yield* Effect.fail(new Error(`Failed to load document from ${baseFile.documentKey}`));
+                    }
+
+                    const units = yield* createUnitsFromText({
+                        fileId: baseFile.id,
+                        fileType: baseFile.filetype,
+                        text: loadedDocument.content.text,
+                        chunker,
+                        loaderSourceChunks: loadedDocument.content.sourceChunks,
+                    });
+                    const uploadedUnits = yield* putNamedFile(
+                        "units.json",
+                        JSON.stringify(units),
+                        paths.processingPrefix,
+                        env.S3_BUCKET
+                    );
+
+                    const duration = performance.now() - start;
+
+                    return {
+                        unitsKey: uploadedUnits.key,
+                        duration,
+                    };
+                })
+            )
+        );
+        if (unitsResult === FILE_DELETED) {
+            return;
+        }
+
+        const graphResult = await step.run({ name: "build-graph" }, async () =>
+            runWorkerEffect(
+                Effect.gen(function* () {
+                    if (yield* stopIfFileDeleted(input.fileId)) {
+                        return FILE_DELETED;
+                    }
+
+                    yield* updateFileProcessingState(input.fileId, "extracting", "processing");
+                    const start = performance.now();
+                    const client = yield* createWorkerClient(input.graphId);
+
+                    const loadedUnits = yield* getFile<Unit[]>(unitsResult.unitsKey, env.S3_BUCKET, "json");
+                    if (!loadedUnits) {
+                        return yield* Effect.fail(new Error(`Failed to load units from ${unitsResult.unitsKey}`));
+                    }
+
+                    const graphs: Graph[] = [];
+                    for (const units of chunkItems(loadedUnits.content, PROCESS_UNIT_BATCH_SIZE)) {
+                        graphs.push(
+                            ...(yield* Effect.all(
+                                units.map((unit) =>
+                                    processUnit(unit, client.text, fileData.name, metadataResult.metadata || undefined)
+                                )
+                            ))
+                        );
+                    }
+                    const mergedGraph = mergeGraphs(graphs);
+                    const graph = dedupe(mergedGraph);
+                    const uploadedGraph = yield* putNamedFile(
+                        "graph.json",
+                        JSON.stringify(graph),
+                        paths.processingPrefix,
+                        env.S3_BUCKET
+                    );
+
+                    const duration = performance.now() - start;
+
+                    return {
+                        graphKey: uploadedGraph.key,
+                        duration,
+                    };
+                })
+            )
+        );
+        if (graphResult === FILE_DELETED) {
+            return;
+        }
+
+        const saveGraphResult = await step.run({ name: "save-graph" }, async () =>
+            runWorkerEffect(
+                Effect.gen(function* () {
+                    if (yield* stopIfFileDeleted(input.fileId)) {
+                        return FILE_DELETED;
+                    }
+
+                    yield* updateFileProcessingState(input.fileId, "deduplicating", "processing");
+                    yield* updateFileProcessingState(input.fileId, "saving", "processing");
+
+                    const loadedGraph = yield* getFile<Graph>(graphResult.graphKey, env.S3_BUCKET, "json");
+                    if (!loadedGraph) {
+                        return yield* Effect.fail(new Error(`Failed to load graph from ${graphResult.graphKey}`));
+                    }
+
+                    const saveResult = yield* saveGraphToDatabase(input.graphId, loadedGraph.content);
+
+                    return {
+                        summary: {
+                            fileId: input.fileId,
+                            ...saveResult.summary,
+                        },
+                        duration: saveResult.duration,
+                        metrics: saveResult.metrics,
+                    };
+                })
+            )
+        );
+        if (saveGraphResult === FILE_DELETED) {
+            return;
+        }
+
+        const statsResult = await step.run({ name: "store-process-stats" }, async () =>
+            runWorkerEffect(
+                Effect.gen(function* () {
+                    if (yield* stopIfFileDeleted(input.fileId)) {
+                        return FILE_DELETED;
+                    }
+                    yield* Effect.catch(
+                        withWorkerDbVoid((db) => {
+                            const totalTime =
+                                baseFile.duration +
+                                unitsResult.duration +
+                                graphResult.duration +
+                                saveGraphResult.duration;
+
+                            return db.insert(processStatsTable).values({
+                                totalTime,
+                                files: 1,
+                                fileSizes: fileData.size,
+                                fileType: baseFile.filetype,
+                                tokenCount: baseFile.tokenCount,
+                            });
+                        }),
+                        (error: unknown) =>
+                            Effect.sync(() => {
+                                logError("failed to store file process stats", {
+                                    graphId: input.graphId,
+                                    fileId: input.fileId,
+                                    error,
+                                });
+                            })
+                    );
+                })
+            )
+        );
+        if (statsResult === FILE_DELETED) {
+            return;
+        }
+
+        await step.run({ name: "mark-file-complete" }, async () =>
+            runWorkerEffect(updateFileProcessingState(input.fileId, "completed", "processed"))
+        );
+
+        await step.run({ name: "cleanup-processing-artifacts" }, async () =>
+            runWorkerEffect(
+                Effect.matchEffect(
+                    deleteGraphFileProcessingArtifacts({
+                        graphId: input.graphId,
+                        fileId: input.fileId,
+                        fileKey: fileData.key,
+                        bucket: env.S3_BUCKET,
+                    }),
+                    {
+                        onFailure: (error) =>
+                            Effect.sync(() => {
+                                logError("failed to cleanup processing artifacts", {
+                                    graphId: input.graphId,
+                                    fileId: input.fileId,
+                                    error,
+                                });
+                                return { deletedKeyCount: 0 };
+                            }),
+                        onSuccess: (value) => Effect.succeed(value),
+                    }
+                )
+            )
+        );
+
+        return saveGraphResult.summary;
+    } catch (error) {
+        if (run.retryTerminal) {
+            await runWorkerEffect(
+                updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error))
+            );
+        } else {
+            await runWorkerEffect(updateFileProcessingState(input.fileId, "pending", "processing", null));
+        }
+
+        throw workflowError(error);
     }
-);
+});

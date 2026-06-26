@@ -27,6 +27,8 @@ const extractionOutput = {
     ],
 };
 
+const noObjectGeneratedError = () => ({ name: "AI_NoObjectGeneratedError" });
+
 const generateTextMock = mock(async () => {
     return {
         output: extractionOutput,
@@ -35,6 +37,12 @@ const generateTextMock = mock(async () => {
 
 mock.module("ai", () => ({
     generateText: generateTextMock,
+    NoObjectGeneratedError: {
+        isInstance: (error: unknown) =>
+            typeof error === "object" &&
+            error !== null &&
+            (error as { name?: unknown }).name === "AI_NoObjectGeneratedError",
+    },
     Output: {
         object: (value: unknown) => value,
     },
@@ -195,5 +203,58 @@ describe("processUnit", () => {
 
         expect(normalizeSourceChunkIds([], { chunks })).toEqual([]);
         expect(normalizeSourceChunkIds([9, 1, 9, 2, 3, 4, 5, 6, 7, 8], { chunks })).toEqual([9, 1, 2, 3, 4, 5, 6, 7]);
+    });
+
+    test("retries object generation parse failures before returning graph", async () => {
+        generateTextMock.mockRejectedValueOnce(noObjectGeneratedError());
+        generateTextMock.mockRejectedValueOnce(noObjectGeneratedError());
+        generateTextMock.mockResolvedValueOnce({ output: extractionOutput });
+
+        const { processUnit } = await import("../unit.ts");
+        const graph = await Effect.runPromise(
+            processUnit(
+                {
+                    id: "unit-1",
+                    fileId: "file-1",
+                    content: "Acme hired Alice.",
+                    startPage: null,
+                    endPage: null,
+                    chunks: [{ id: 1, type: "text", text: "Acme hired Alice.", startPage: null, endPage: null }],
+                },
+                {} as never,
+                "document.txt"
+            )
+        );
+
+        expect(generateTextMock).toHaveBeenCalledTimes(3);
+        expect(graph.entities).toHaveLength(2);
+        expect(graph.relationships).toHaveLength(1);
+    });
+
+    test("skips the unit after three object generation parse failures", async () => {
+        generateTextMock.mockRejectedValueOnce(noObjectGeneratedError());
+        generateTextMock.mockRejectedValueOnce(noObjectGeneratedError());
+        generateTextMock.mockRejectedValueOnce(noObjectGeneratedError());
+
+        const { processUnit } = await import("../unit.ts");
+        const graph = await Effect.runPromise(
+            processUnit(
+                {
+                    id: "unit-1",
+                    fileId: "file-1",
+                    content: "Acme hired Alice.",
+                    startPage: null,
+                    endPage: null,
+                    chunks: [{ id: 1, type: "text", text: "Acme hired Alice.", startPage: null, endPage: null }],
+                },
+                {} as never,
+                "document.txt"
+            )
+        );
+
+        expect(generateTextMock).toHaveBeenCalledTimes(3);
+        expect(graph.units.map((unit) => unit.id)).toEqual(["unit-1"]);
+        expect(graph.entities).toEqual([]);
+        expect(graph.relationships).toEqual([]);
     });
 });

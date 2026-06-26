@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 import { ulid } from "ulid";
 import { withAiSlotEffect } from "@kiwi/ai/lock";
 import { extractPrompt } from "@kiwi/ai/prompts/extract.prompt";
-import { generateText, Output } from "ai";
+import { generateText, NoObjectGeneratedError, Output } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { Graph, GraphChunker, GraphFile, GraphTextChunk, LoaderSourceChunk, TextUnitSourceChunk, Unit } from ".";
 import { SemanticChunker } from "@kiwi/loaders/chunker/semantic";
@@ -13,6 +13,7 @@ import { createSourceChunks, DEFAULT_SOURCE_CHUNK_TOKENS } from "@kiwi/loaders/l
 import z from "zod";
 
 export const MAX_SOURCE_CHUNKS_PER_SOURCE = 8;
+const EXTRACT_OUTPUT_MAX_ATTEMPTS = 3;
 
 export class UnitCreationError extends Schema.TaggedErrorClass<UnitCreationError>()("UnitCreationError", {
     message: Schema.String,
@@ -209,6 +210,15 @@ function buildExtractionInput(unit: Unit): string {
         .join("\n\n");
 }
 
+function emptyGraphForUnit(unit: Unit): Graph {
+    return {
+        id: ulid(),
+        units: [unit],
+        entities: [],
+        relationships: [],
+    };
+}
+
 export class ProcessUnitAiError extends Schema.TaggedErrorClass<ProcessUnitAiError>()("ProcessUnitAiError", {
     message: Schema.String,
     cause: Schema.Unknown,
@@ -222,26 +232,48 @@ export class ProcessUnitGraphMappingError extends Schema.TaggedErrorClass<Proces
     }
 ) {}
 
-const extractGraphData = Effect.fn("extractGraphData")(function* (unit: Unit, model: LanguageModelV3, prompt: string) {
-    const { output } = yield* withAiSlotEffect("text", (signal) =>
-        generateText({
-            model,
-            system: prompt,
-            prompt: buildExtractionInput(unit),
-            temperature: 0.1,
-            abortSignal: signal,
-            output: Output.object({
-                description: "The extracted entities and relationships from the text.",
-                schema: extractOutputSchema,
-            }),
-        })
-    ).pipe(
-        Effect.mapError(
-            (cause) => new ProcessUnitAiError({ message: "Failed to extract graph data from unit.", cause })
-        )
-    );
+function isNoObjectGeneratedCause(cause: unknown): boolean {
+    if (NoObjectGeneratedError.isInstance(cause)) {
+        return true;
+    }
 
-    return output;
+    if (cause !== null && typeof cause === "object" && "cause" in cause) {
+        return NoObjectGeneratedError.isInstance((cause as { cause?: unknown }).cause);
+    }
+
+    return false;
+}
+
+const extractGraphData = Effect.fn("extractGraphData")(function* (unit: Unit, model: LanguageModelV3, prompt: string) {
+    const extractionInput = buildExtractionInput(unit);
+
+    for (let attempt = 1; attempt <= EXTRACT_OUTPUT_MAX_ATTEMPTS; attempt += 1) {
+        const output = yield* withAiSlotEffect("text", (signal) =>
+            generateText({
+                model,
+                system: prompt,
+                prompt: extractionInput,
+                temperature: 0.1,
+                abortSignal: signal,
+                output: Output.object({
+                    description: "The extracted entities and relationships from the text.",
+                    schema: extractOutputSchema,
+                }),
+            })
+        ).pipe(
+            Effect.map(({ output }) => output),
+            Effect.catchIf(isNoObjectGeneratedCause, () => Effect.succeed(null)),
+            Effect.mapError(
+                (cause) => new ProcessUnitAiError({ message: "Failed to extract graph data from unit.", cause })
+            )
+        );
+
+        if (output !== null) {
+            return output;
+        }
+    }
+
+    return null;
 });
 
 function mapGraphEntities(
@@ -330,6 +362,9 @@ export const processUnit = Effect.fn("processUnit")(function* (
     const entities = ["ORGANIZATION", "PERSON", "LOCATION", "CONCEPT", "CREATIVE_WORK", "DATE", "PRODUCT", "EVENT"];
     const prompt = extractPrompt(entities, documentName, metadata);
     const output = yield* extractGraphData(unit, model, prompt);
+    if (output === null) {
+        return emptyGraphForUnit(unit);
+    }
     const { entityNameToId, graphEntities } = yield* mapGraphEntities(unit, output);
     const graphRelationships = yield* mapGraphRelationships(unit, output, entityNameToId);
 

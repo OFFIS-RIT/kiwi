@@ -224,7 +224,6 @@ describe("shouldUsePageOCRFallback", () => {
     });
 });
 
-
 describe("getPageOCRRotation", () => {
     test("only rotates OCR pages with a high-confidence vertical drawn table", () => {
         const fixture = rotatedTablePage();
@@ -240,11 +239,9 @@ describe("getPageOCRRotation", () => {
     });
 });
 describe("getPageRasterScale", () => {
-    test("raises OCR DPI while keeping raster dimensions below 2000px", () => {
+    test("uses scale 2 unless the rendered image would exceed 2000px", () => {
         expect(getPageRasterScale({ width: 595.28, height: 841.89 })).toBe(DEFAULT_RASTER_SCALE);
-        expect(getPageRasterScale({ width: 595.28 * 1.2, height: 841.89 * 1.2 })).toBeCloseTo(
-            2000 / (841.89 * 1.2)
-        );
+        expect(getPageRasterScale({ width: 1190.56, height: 1683.78 })).toBeCloseTo(2000 / 1683.78);
         expect(getPageRasterScale({ width: 3000, height: 1000 })).toBeCloseTo(2000 / 3000);
     });
 });

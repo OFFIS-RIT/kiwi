@@ -1,19 +1,7 @@
 import { describe, expect, test } from "bun:test";
-
-process.env.AUTH_SECRET = "test-secret";
-process.env.S3_ACCESS_KEY_ID = "test-access-key";
-process.env.S3_SECRET_ACCESS_KEY = "test-secret-key";
-process.env.S3_ENDPOINT = "http://localhost:9000";
-process.env.S3_REGION = "us-east-1";
-process.env.S3_BUCKET = "test-bucket";
-process.env.DATABASE_URL = "postgres://user:pass@localhost:5432/kiwi";
-process.env.DATABASE_DIRECT_URL = "postgres://user:pass@localhost:5432/kiwi";
-
-// Dynamic import is required so this test can seed worker env vars before env.ts is evaluated.
-const { fileProcessingWorkflow, shouldAbortRepositoryBatch, shouldFinalizeRepositoryBatch } =
-    await import("./process-file");
-const { allSettledWithConcurrency } = await import("./process-descriptions-group");
-const { resolveRepositoryFinalizationTargets } = await import("../lib/code/repository-finalizer");
+import { fileProcessingWorkflow, shouldAbortRepositoryBatch, shouldFinalizeRepositoryBatch } from "../workflow";
+import { resolveRepositoryFinalizationTargets } from "../../code/repository-finalizer";
+import { allSettledWithConcurrency } from "../../../workflows/process-descriptions-group";
 
 describe("fileProcessingWorkflow", () => {
     test("routes mixed batch children by stored file type", () => {

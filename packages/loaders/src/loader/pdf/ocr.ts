@@ -83,10 +83,12 @@ export async function resolveRasterScale(content: Uint8Array): Promise<number> {
 }
 
 export function getPageRasterScale(page: Pick<PDFPageLike, "width" | "height">): number {
-    const shortEdge = Math.min(page.width, page.height);
     const longEdge = Math.max(page.width, page.height);
-    const proportional = Math.min(MAX_RASTER_DIMENSION_PIXELS / shortEdge, MAX_RASTER_DIMENSION_PIXELS / longEdge);
-    return Math.min(DEFAULT_RASTER_SCALE, proportional);
+    if (longEdge <= 0) {
+        return DEFAULT_RASTER_SCALE;
+    }
+
+    return Math.min(DEFAULT_RASTER_SCALE, MAX_RASTER_DIMENSION_PIXELS / longEdge);
 }
 
 export async function defaultTranscribePage(image: Uint8Array, model: LanguageModelV3): Promise<string> {

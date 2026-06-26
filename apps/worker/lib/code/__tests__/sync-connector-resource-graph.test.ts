@@ -166,7 +166,7 @@ function runMockDbEffect(thunk: (db: typeof mockDb) => Effect.Effect<unknown> | 
     return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
 }
 
-mock.module("../lib/runtime/effect", () => ({
+mock.module("../../runtime/effect", () => ({
     withWorkerDb: runMockDbEffect,
     withWorkerDbVoid: (thunk: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown>) =>
         Effect.asVoid(runMockDbEffect(thunk)),
@@ -258,7 +258,7 @@ mock.module("@kiwi/connectors/credentials", () => ({
     isInstallationCredentialsForProvider: () => true,
 }));
 
-mock.module("../env", () => ({
+mock.module("../../../env", () => ({
     env: {
         AUTH_SECRET: "test-secret",
     },
@@ -366,7 +366,7 @@ async function runWorkflow(input: {
 }
 
 // Test exception: static import cannot work because Bun module mocks must be registered before evaluating the workflow module.
-const { syncConnectorResourceGraph } = await import("./sync-connector-resource-graph");
+const { syncConnectorResourceGraph } = await import("../../../workflows/sync-connector-resource-graph");
 
 describe("syncConnectorResourceGraph", () => {
     beforeEach(() => {
