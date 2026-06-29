@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import type * as Effect from "effect/Effect";
 
-export type BuiltInConnectorProvider = "github" | "gitlab" | "nextcloud";
+export type BuiltInConnectorProvider = "github" | "gitlab" | "nextcloud" | "sharepoint";
 export type ConnectorProvider = string;
 
 export type ConnectorProviderFamily = "resource-source" | "chat-bot";
@@ -73,6 +73,9 @@ export type ConnectorResource = {
     id: string;
     displayName: string;
     webUrl: string;
+    path?: string;
+    providerItemId?: string;
+    metadata?: unknown;
     private: boolean;
     defaultVersion?: ConnectorResourceVersion | null;
     defaultBranch?: string | null;

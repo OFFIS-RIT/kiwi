@@ -197,6 +197,17 @@ export type NextcloudConnectorCreateInput = MutableSchemaType<
     Schema.Schema.Type<typeof NextcloudConnectorCreateInputSchema>
 >;
 
+export const SharePointConnectorCreateInputSchema = Schema.Struct({
+    name: NonEmptyTrimmedStringSchema,
+    slug: NonEmptyTrimmedStringSchema,
+    tenantId: NonEmptyTrimmedStringSchema,
+    clientId: NonEmptyTrimmedStringSchema,
+    clientSecret: NonEmptyTrimmedStringSchema,
+});
+export type SharePointConnectorCreateInput = MutableSchemaType<
+    Schema.Schema.Type<typeof SharePointConnectorCreateInputSchema>
+>;
+
 export const ConnectorPatchInputSchema = Schema.Struct({
     name: OptionalNonEmptyTrimmedStringSchema,
     status: Schema.optional(Schema.Literals(["active", "disabled"] as const)),
@@ -262,6 +273,17 @@ export const NextcloudConnectorInstallationCreateInputSchema = Schema.Struct({
 });
 export type NextcloudConnectorInstallationCreateInput = MutableSchemaType<
     Schema.Schema.Type<typeof NextcloudConnectorInstallationCreateInputSchema>
+>;
+
+export const SharePointConnectorInstallationCreateInputSchema = Schema.Struct({
+    siteId: NonEmptyTrimmedStringSchema,
+    driveId: NonEmptyTrimmedStringSchema,
+    folderPath: NonEmptyTrimmedStringSchema,
+    folderId: OptionalNonEmptyTrimmedStringSchema,
+    owner: ConnectorOwnerScopeInputSchema,
+});
+export type SharePointConnectorInstallationCreateInput = MutableSchemaType<
+    Schema.Schema.Type<typeof SharePointConnectorInstallationCreateInputSchema>
 >;
 
 export const ConnectorBindingCreateInputSchema = Schema.Struct({
@@ -362,6 +384,14 @@ export type NextcloudConnectorCreateResponse = ApiResponse<
     "UNAUTHORIZED" | "FORBIDDEN" | "INVALID_NAME" | "INTERNAL_SERVER_ERROR"
 >;
 export type NextcloudConnectorInstallationCreateResponse = ApiResponse<
+    ConnectorInstallationRecord,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+export type SharePointConnectorCreateResponse = ApiResponse<
+    ConnectorRecord,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INVALID_NAME" | "INTERNAL_SERVER_ERROR"
+>;
+export type SharePointConnectorInstallationCreateResponse = ApiResponse<
     ConnectorInstallationRecord,
     "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
 >;

@@ -3,6 +3,7 @@ export * from "./types";
 export * from "./github";
 export * from "./gitlab";
 export * from "./nextcloud";
+export * from "./sharepoint";
 export * from "./adapters";
 export * from "./registry";
 export * from "./in-memory-resource";

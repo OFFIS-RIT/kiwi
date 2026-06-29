@@ -353,6 +353,35 @@ describe("connector route", () => {
         });
     });
 
+    test("creates a SharePoint connector app for system admins", async () => {
+        authUser.isSystemAdmin = true;
+
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/sharepoint", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    name: "SharePoint",
+                    slug: "sharepoint",
+                    tenantId: "tenant-1",
+                    clientId: "client-1",
+                    clientSecret: "secret-1",
+                }),
+            })
+        );
+
+        expect(response.status).toBe(200);
+        expect(insertValues[0]).toMatchObject({
+            provider: "sharepoint",
+            name: "SharePoint",
+            slug: "sharepoint",
+            status: "active",
+            encryptedCredentials: "encrypted",
+            webhookSecretEncrypted: "encrypted-secret",
+            createdByUserId: "user-1",
+        });
+    });
+
     test("creates a team-scoped Nextcloud folder installation for team admins", async () => {
         const response = await connectorRoute.handle(
             new Request("http://localhost/connectors/connector-1/nextcloud/installations", {
@@ -388,6 +417,50 @@ describe("connector route", () => {
         expect(conflictConfigs[0]?.set).toMatchObject({
             providerAccountLogin: "alice",
             providerAccountType: "user",
+            encryptedCredentials: "encrypted",
+            repositorySelection: "selected",
+            status: "active",
+            installedByUserId: "user-1",
+        });
+    });
+
+    test("creates a team-scoped SharePoint folder installation for team admins", async () => {
+        activeConnectorProvider = "sharepoint";
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-1/sharepoint/installations", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    siteId: "site-1",
+                    driveId: "drive-1",
+                    folderPath: "/Team",
+                    folderId: "folder-team",
+                    owner: { kind: "team", teamId: "team-1" },
+                }),
+            })
+        );
+
+        expect(response.status).toBe(200);
+        expect(insertValues[0]).toMatchObject({
+            connectorId: "connector-1",
+            provider: "sharepoint",
+            providerInstallationId: "site-1:drive-1:folder-team",
+            providerAccountLogin: "site-1",
+            providerAccountType: "organization",
+            subjectKind: "team",
+            subjectTeamId: "team-1",
+            organizationId: "org-1",
+            teamId: "team-1",
+            installedByUserId: "user-1",
+            encryptedCredentials: "encrypted",
+            repositorySelection: "selected",
+            status: "active",
+        });
+        expect(conflictConfigs[0]?.target).toHaveLength(3);
+        expect(conflictConfigs[0]).toHaveProperty("targetWhere");
+        expect(conflictConfigs[0]?.set).toMatchObject({
+            providerAccountLogin: "site-1",
+            providerAccountType: "organization",
             encryptedCredentials: "encrypted",
             repositorySelection: "selected",
             status: "active",

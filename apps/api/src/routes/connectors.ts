@@ -9,6 +9,8 @@ import {
     GitLabConnectorCreateInputSchema,
     NextcloudConnectorCreateInputSchema,
     NextcloudConnectorInstallationCreateInputSchema,
+    SharePointConnectorCreateInputSchema,
+    SharePointConnectorInstallationCreateInputSchema,
     ConnectorResourceGraphCreateInputSchema,
     RepositoryGraphCreateInputSchema,
 } from "@kiwi/contracts/connectors";
@@ -18,6 +20,7 @@ import Elysia from "elysia";
 import { connectorApiErrorOptions, runApiAction } from "../controllers/_shared/api-effect";
 import { createGitLabConnector } from "../controllers/connector/create-gitlab";
 import { createNextcloudConnector } from "../controllers/connector/create-nextcloud";
+import { createSharePointConnector } from "../controllers/connector/create-sharepoint";
 import {
     createConnectorGraphBinding,
     type ConnectorGraphCreateRequest,
@@ -28,6 +31,7 @@ import { completeGitHubConnectorInstall } from "../controllers/connector/install
 import { startConnectorInstall } from "../controllers/connector/install/start";
 import { listConnectorInstallations } from "../controllers/connector/installations/list";
 import { createNextcloudConnectorInstallation } from "../controllers/connector/installations/create-nextcloud";
+import { createSharePointConnectorInstallation } from "../controllers/connector/installations/create-sharepoint";
 import { listConnectors } from "../controllers/connector/list";
 import { completeGitHubConnectorManifest } from "../controllers/connector/manifest/complete-github";
 import { startGitHubConnectorManifest } from "../controllers/connector/manifest/start-github";
@@ -96,6 +100,18 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
             }),
         { body: asApiSchema(NextcloudConnectorCreateInputSchema) }
     )
+    .post(
+        "/sharepoint",
+        ({ body, status, user }) =>
+            runApiAction({
+                status,
+                user,
+                action: (currentUser) => createSharePointConnector({ user: currentUser, body }),
+                success: (value) => status(200, successResponse(value)),
+                ...connectorApiErrorOptions,
+            }),
+        { body: asApiSchema(SharePointConnectorCreateInputSchema) }
+    )
     .patch(
         "/:id",
         ({ params, body, status, user }) =>
@@ -153,6 +169,19 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                 ...connectorApiErrorOptions,
             }),
         { body: asApiSchema(NextcloudConnectorInstallationCreateInputSchema) }
+    )
+    .post(
+        "/:id/sharepoint/installations",
+        ({ params, body, status, user }) =>
+            runApiAction({
+                status,
+                user,
+                action: (currentUser) =>
+                    createSharePointConnectorInstallation({ user: currentUser, connectorId: params.id, body }),
+                success: (value) => status(200, successResponse(value)),
+                ...connectorApiErrorOptions,
+            }),
+        { body: asApiSchema(SharePointConnectorInstallationCreateInputSchema) }
     )
     .get(
         "/:id/discover",

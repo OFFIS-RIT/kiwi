@@ -18,6 +18,12 @@ import {
     NEXTCLOUD_RESOURCE_CAPABILITIES,
     nextcloudCredentialDescriptors,
 } from "./nextcloud";
+import {
+    createSharePointAdapter,
+    SHAREPOINT_PROVIDER,
+    SHAREPOINT_RESOURCE_CAPABILITIES,
+    sharepointCredentialDescriptors,
+} from "./sharepoint";
 import type {
     ConnectorAdapter,
     ConnectorAdapterFactoryOptions,
@@ -224,6 +230,57 @@ const builtInConnectorAdapterRegistry = {
                         username: installation.username as string,
                         appPassword: installation.appPassword as string,
                         folderPath: installation.folderPath as string,
+                        fetch: options.fetch,
+                    }),
+                catch: toConnectorProviderError,
+            });
+        }),
+    }),
+    [SHAREPOINT_PROVIDER]: withDefaultCredentialValidators({
+        provider: SHAREPOINT_PROVIDER,
+        family: "resource-source",
+        display: {
+            name: "SharePoint",
+            description: "Microsoft Graph SharePoint document library source",
+            docsUrl: "https://learn.microsoft.com/en-us/graph/api/resources/driveitem",
+        },
+        resourceKind: "folder",
+        capabilities: SHAREPOINT_RESOURCE_CAPABILITIES,
+        setup: [
+            {
+                kind: "manualCredentials",
+                label: "Microsoft Graph application",
+                description:
+                    "Store the tenant ID, client ID, and client secret used for application-permission Graph access.",
+            },
+        ],
+        install: [
+            {
+                kind: "manualActivation",
+                label: "SharePoint folder",
+                description: "Store a site, drive, and folder path for team or organization access.",
+            },
+        ],
+        credentialDescriptors: sharepointCredentialDescriptors,
+        create: Effect.fn("ConnectorRegistry.sharepoint.create")(function* (options: ConnectorAdapterFactoryOptions) {
+            const credentials = yield* Effect.try({
+                try: () => requireConnectorCredentialData(options.provider, "app", options.credentials),
+                catch: toConnectorProviderError,
+            });
+            const installation = yield* Effect.try({
+                try: () => requireConnectorCredentialData(options.provider, "installation", options.installation),
+                catch: toConnectorProviderError,
+            });
+            return yield* Effect.try({
+                try: () =>
+                    createSharePointAdapter({
+                        tenantId: credentials.tenantId as string,
+                        clientId: credentials.clientId as string,
+                        clientSecret: credentials.clientSecret as string,
+                        siteId: installation.siteId as string,
+                        driveId: installation.driveId as string,
+                        folderPath: installation.folderPath as string,
+                        folderId: installation.folderId as string | undefined,
                         fetch: options.fetch,
                     }),
                 catch: toConnectorProviderError,

@@ -12,6 +12,7 @@ import {
 import type { ConnectorResource, FetchLike } from "../types";
 import { IN_MEMORY_RESOURCE_PROVIDER, inMemoryResourceConnectorRegistryEntry } from "../in-memory-resource";
 import { NEXTCLOUD_PROVIDER } from "../nextcloud";
+import { SHAREPOINT_PROVIDER } from "../sharepoint";
 
 const GITHUB_RESOURCE: ConnectorResource = {
     provider: "github",
@@ -201,6 +202,34 @@ describe("connector adapter registry", () => {
                 subject: "installation",
                 version: "v1",
                 data: { username: "alice", appPassword: "app-password", folderPath: "/Team" },
+            })
+        ).toBe(true);
+    });
+
+    test("includes SharePoint as a built-in folder source provider", () => {
+        const descriptor = getConnectorAdapterRegistryEntry(SHAREPOINT_PROVIDER);
+        expect(descriptor).toMatchObject({
+            provider: SHAREPOINT_PROVIDER,
+            family: "resource-source",
+            resourceKind: "folder",
+            capabilities: { versions: false, cursorSync: true, children: true, binaryFiles: true },
+        });
+        expect(descriptor.setup.map((setup) => setup.kind)).toEqual(["manualCredentials"]);
+        expect(descriptor.install.map((install) => install.kind)).toEqual(["manualActivation"]);
+        expect(
+            descriptor.validateCredentials?.({
+                provider: SHAREPOINT_PROVIDER,
+                subject: "app",
+                version: "v1",
+                data: { tenantId: "tenant-1", clientId: "client-1", clientSecret: "secret-1" },
+            })
+        ).toBe(true);
+        expect(
+            descriptor.validateInstallation?.({
+                provider: SHAREPOINT_PROVIDER,
+                subject: "installation",
+                version: "v1",
+                data: { siteId: "site-1", driveId: "drive-1", folderPath: "/Team", folderId: "folder-team" },
             })
         ).toBe(true);
     });
