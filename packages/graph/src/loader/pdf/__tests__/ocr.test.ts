@@ -2,7 +2,16 @@ import { describe, expect, mock, test } from "bun:test";
 import { DEFAULT_RASTER_SCALE } from "../constants";
 import { getPageOCRRotation, shouldUsePageOCRFallback } from "../document";
 import { extractOCRTextFromPDFPages, getPageRasterScale } from "../ocr";
-import type { BoundingBox, Edge, ImageOccurrence, PageContentAnalysis, PageText, TextChar, TextLine } from "../types";
+import type {
+    BoundingBox,
+    Edge,
+    ImageOccurrence,
+    PageContentAnalysis,
+    PageText,
+    PDFOCRPageSelection,
+    TextChar,
+    TextLine,
+} from "../types";
 
 const TWO_PIXEL_PNG_BASE64 =
     "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8AAQv8BD/kD/YURmXYAAAAASUVORK5CYII=";
@@ -283,5 +292,67 @@ describe("extractOCRTextFromPDFPages", () => {
 
         expect(textByPage).toEqual(new Map([[0, "1x2"]]));
         expect(transcribePage).toHaveBeenCalledTimes(1);
+    });
+
+    test("retries length-limited OCR pages with higher raster scales and rotation", async () => {
+        const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
+        const rasterizeSelectedPages = mock(
+            async (_content: Uint8Array, pages: PDFOCRPageSelection[], _scale?: number) =>
+                new Map(pages.map((page) => [page.index, image] as const))
+        );
+        let attempts = 0;
+        const transcribePage = mock(async (transcribedImage: Uint8Array) => {
+            attempts += 1;
+            if (attempts < 4) {
+                return { text: `partial ${attempts}`, finishReason: "length" as const };
+            }
+
+            return { text: pngSize(transcribedImage), finishReason: "stop" as const };
+        });
+
+        const textByPage = await extractOCRTextFromPDFPages(
+            new Uint8Array([9]),
+            [{ index: 0, width: 595.28, height: 841.89 }],
+            {} as never,
+            {
+                rasterizeSelectedPages,
+                transcribePage,
+            }
+        );
+
+        expect(textByPage).toEqual(new Map([[0, "1x2"]]));
+        expect(transcribePage).toHaveBeenCalledTimes(4);
+        expect(rasterizeSelectedPages.mock.calls.map((call) => call[2])).toEqual([
+            undefined,
+            DEFAULT_RASTER_SCALE * 1.25,
+            DEFAULT_RASTER_SCALE * 1.5,
+        ]);
+    });
+
+    test("skips OCR pages when every retry finishes because of length", async () => {
+        const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
+        const rasterizeSelectedPages = mock(
+            async (_content: Uint8Array, pages: PDFOCRPageSelection[], _scale?: number) =>
+                new Map(pages.map((page) => [page.index, image] as const))
+        );
+        const transcribePage = mock(async () => ({ text: "partial page", finishReason: "length" as const }));
+
+        const textByPage = await extractOCRTextFromPDFPages(
+            new Uint8Array([9]),
+            [{ index: 0, width: 595.28, height: 841.89 }],
+            {} as never,
+            {
+                rasterizeSelectedPages,
+                transcribePage,
+            }
+        );
+
+        expect(textByPage).toEqual(new Map());
+        expect(transcribePage).toHaveBeenCalledTimes(4);
+        expect(rasterizeSelectedPages.mock.calls.map((call) => call[2])).toEqual([
+            undefined,
+            DEFAULT_RASTER_SCALE * 1.25,
+            DEFAULT_RASTER_SCALE * 1.5,
+        ]);
     });
 });

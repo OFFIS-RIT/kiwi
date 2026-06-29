@@ -20,9 +20,14 @@ export type PDFOCRPageSelection = Pick<PDFPageLike, "index" | "width" | "height"
 export type PDFPageRasterizer = (content: Uint8Array) => Promise<Uint8Array[]>;
 export type PDFSelectedPageRasterizer = (
     content: Uint8Array,
-    pages: PDFOCRPageSelection[]
+    pages: PDFOCRPageSelection[],
+    scale?: number
 ) => Promise<Map<number, Uint8Array>>;
-export type PDFPageTranscriber = (image: Uint8Array, model: LanguageModelV3) => Promise<string>;
+export type PDFPageTranscription = {
+    text: string;
+    finishReason?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown";
+};
+export type PDFPageTranscriber = (image: Uint8Array, model: LanguageModelV3) => Promise<string | PDFPageTranscription>;
 
 export type FullOCRDeps = {
     rasterizePages?: PDFPageRasterizer;
