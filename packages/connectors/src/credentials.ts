@@ -71,7 +71,7 @@ export function assertValidConnectorCredentials(value: unknown): asserts value i
     // stays provider-agnostic; a new provider only registers its validators there.
     if (typeof value.provider === "string" && isKnownConnectorProvider(value.provider)) {
         const entry = connectorAdapterRegistry[value.provider];
-        if (entry.validateCredentials?.(value) === true || entry.validateInstallation?.(value) === true) {
+        if (entry && (entry.validateCredentials?.(value) === true || entry.validateInstallation?.(value) === true)) {
             return;
         }
     }
@@ -87,7 +87,8 @@ export function isConnectorCredentialsForProvider(
     provider: ConnectorProvider
 ): value is ConnectorCredentials {
     const record = value as Record<string, unknown>;
-    return record.provider === provider && connectorAdapterRegistry[provider]?.validateCredentials?.(record) === true;
+    const entry = connectorAdapterRegistry[provider];
+    return record.provider === provider && entry?.validateCredentials?.(record) === true;
 }
 
 export function isInstallationCredentialsForProvider(
@@ -95,7 +96,8 @@ export function isInstallationCredentialsForProvider(
     provider: ConnectorProvider
 ): value is ConnectorInstallationCredentials {
     const record = value as Record<string, unknown>;
-    return record.provider === provider && connectorAdapterRegistry[provider]?.validateInstallation?.(record) === true;
+    const entry = connectorAdapterRegistry[provider];
+    return record.provider === provider && entry?.validateInstallation?.(record) === true;
 }
 
 function deriveEncryptionKey(secret: string): Buffer {

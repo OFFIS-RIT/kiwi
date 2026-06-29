@@ -58,7 +58,7 @@ function markWebhookEvent(
 
 function enqueueBindingWorkflows(
     bindings: ConnectorResourceBinding[],
-    trigger: { versionId: string; cursor: string | null; deliveryId: string }
+    trigger: { versionId: string | null; cursor: string | null; deliveryId: string }
 ): Effect.Effect<void, ApiError | DatabaseError, Database> {
     return Effect.gen(function* () {
         const enqueuedBindingIds = new Set<string>();
@@ -69,7 +69,7 @@ function enqueueBindingWorkflows(
                         await ow.runWorkflow(syncConnectorResourceGraphSpec, {
                             bindingId: binding.id,
                             reason: "webhook",
-                            versionId: trigger.versionId,
+                            ...(trigger.versionId ? { versionId: trigger.versionId } : {}),
                             ...(trigger.cursor ? { cursor: trigger.cursor } : {}),
                             deliveryId: trigger.deliveryId,
                         });
@@ -89,7 +89,10 @@ function enqueueBindingWorkflows(
                                         .set(
                                             enqueuedBindingIds.has(binding.id)
                                                 ? {
-                                                      lastSeenVersionId: trigger.versionId,
+                                                      ...(trigger.versionId
+                                                          ? { lastSeenVersionId: trigger.versionId }
+                                                          : {}),
+                                                      ...(trigger.cursor ? { syncCursor: trigger.cursor } : {}),
                                                       syncStatus: "pending",
                                                       syncErrorCode: null,
                                                   }
@@ -110,7 +113,12 @@ function enqueueBindingWorkflows(
                 bindings.map((binding) =>
                     db
                         .update(connectorResourceBindingsTable)
-                        .set({ lastSeenVersionId: trigger.versionId, syncStatus: "pending", syncErrorCode: null })
+                        .set({
+                            ...(trigger.versionId ? { lastSeenVersionId: trigger.versionId } : {}),
+                            ...(trigger.cursor ? { syncCursor: trigger.cursor } : {}),
+                            syncStatus: "pending",
+                            syncErrorCode: null,
+                        })
                         .where(eq(connectorResourceBindingsTable.id, binding.id))
                 )
             )
@@ -120,16 +128,15 @@ function enqueueBindingWorkflows(
 
 function listMatchingBindings(connector: ConnectorWebhookCandidate, event: NormalizedConnectorWebhook) {
     if (
-        event.eventType !== "push" ||
-        event.deleted ||
-        !event.versionName ||
-        !event.versionId ||
+        (event.type !== "resource.versionChanged" && event.type !== "resource.cursorAdvanced") ||
         (!event.resourceId && !event.resourceName)
     ) {
         return Effect.succeed([]);
     }
 
-    const versionName = event.versionName;
+    const versionWhere = event.versionName
+        ? eq(connectorResourceBindingsTable.versionName, event.versionName)
+        : undefined;
 
     const resourceWhere = event.resourceId
         ? event.resourceName
@@ -152,8 +159,9 @@ function listMatchingBindings(connector: ConnectorWebhookCandidate, event: Norma
                     and(
                         eq(connectorInstallationsTable.connectorId, connector.id),
                         eq(connectorResourceBindingsTable.provider, event.provider),
-                        eq(connectorResourceBindingsTable.versionName, versionName),
+                        eq(connectorResourceBindingsTable.resourceKind, event.resourceKind),
                         eq(connectorResourceBindingsTable.webhookEnabled, true),
+                        ...(versionWhere ? [versionWhere] : []),
                         resourceWhere
                     )
                 )
@@ -170,7 +178,10 @@ export function handleConnectorWebhook({
         Effect.gen(function* () {
             const bindings = yield* listMatchingBindings(connector, event);
             const status =
-                event.eventType !== "push" || event.deleted || bindings.length === 0 ? "ignored" : "enqueued";
+                (event.type !== "resource.versionChanged" && event.type !== "resource.cursorAdvanced") ||
+                bindings.length === 0
+                    ? "ignored"
+                    : "enqueued";
             const [ledger] = yield* tryDb((db) =>
                 db
                     .insert(connectorWebhookEventsTable)
@@ -197,13 +208,17 @@ export function handleConnectorWebhook({
             let activeLedger = ledger ?? null;
             if (!activeLedger) {
                 const existingLedger = yield* loadWebhookEvent(connector.id, event.provider, event.deliveryId);
-                if (existingLedger?.status !== "failed" || status !== "enqueued" || !event.versionId) {
+                if (
+                    existingLedger?.status !== "failed" ||
+                    status !== "enqueued" ||
+                    (!event.versionId && !event.cursor)
+                ) {
                     return { status: "duplicate" };
                 }
                 activeLedger = existingLedger;
             }
 
-            if (status === "enqueued" && event.versionId) {
+            if (status === "enqueued" && (event.versionId || event.cursor)) {
                 yield* Effect.matchEffect(
                     enqueueBindingWorkflows(bindings, {
                         versionId: event.versionId,

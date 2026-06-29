@@ -8,6 +8,7 @@
         "./types": "./src/types.ts",
         "./github": "./src/github.ts",
         "./gitlab": "./src/gitlab.ts",
+        "./in-memory-resource": "./src/in-memory-resource.ts",
         "./webhooks": "./src/webhooks.ts"
     },
     "scripts": {

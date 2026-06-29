@@ -16,32 +16,83 @@ import type {
     ConnectorAdapter,
     ConnectorAdapterFactoryOptions,
     ConnectorAdapterRegistryEntry,
+    ConnectorCredentialDescriptors,
+    ConnectorCredentialPayloadData,
+    ConnectorCredentialSubject,
     ConnectorCredentials,
     ConnectorInstallationCredentials,
     ConnectorProvider,
+    ConnectorProviderDisplay,
+    ConnectorResourceCapabilities,
     GitHubConnectorCredentials,
     GitHubInstallationCredentials,
     GitLabConnectorCredentials,
     GitLabInstallationCredentials,
     NormalizedWebhookEvent,
+    VersionedConnectorCredentialPayload,
 } from "./types";
-import { ConnectorProviderError } from "./types";
+import { ConnectorProviderError, NO_SYNC_CONNECTOR_RESOURCE_CAPABILITIES } from "./types";
 import { readConnectorWebhookHeader } from "./adapters";
 
-export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapterRegistryEntry> = {
-    github: {
+const GIT_RESOURCE_CAPABILITIES: ConnectorResourceCapabilities = {
+    versions: true,
+    cursorSync: false,
+    children: false,
+    binaryFiles: false,
+};
+
+const gitHubCredentialDescriptors = {
+    app: {
+        subject: "app",
+        version: "v1",
+        validate: isGitHubConnectorCredentialData,
+    },
+    installation: {
+        subject: "installation",
+        version: "v1",
+        validate: isGitHubInstallationCredentialData,
+    },
+} satisfies Required<ConnectorCredentialDescriptors>;
+
+const gitLabCredentialDescriptors = {
+    app: {
+        subject: "app",
+        version: "v1",
+        validate: isGitLabConnectorCredentialData,
+    },
+    installation: {
+        subject: "installation",
+        version: "v1",
+        validate: isGitLabInstallationCredentialData,
+    },
+} satisfies Required<ConnectorCredentialDescriptors>;
+
+const builtInConnectorAdapterRegistry = {
+    github: withDefaultCredentialValidators({
         provider: "github",
+        family: "resource-source",
+        display: {
+            name: "GitHub",
+            description: "GitHub App repository source",
+            docsUrl: "https://docs.github.com/apps",
+        },
         resourceKind: "git-repository",
-        validateCredentials(value) {
-            return hasNonEmptyString(value, "appId") && hasNonEmptyString(value, "privateKeyPem")
-                ? isOptionalString(value, "clientId") &&
-                      isOptionalString(value, "clientSecret") &&
-                      isOptionalString(value, "webhookSecret")
-                : false;
-        },
-        validateInstallation(value) {
-            return hasNonEmptyString(value, "installationId");
-        },
+        capabilities: GIT_RESOURCE_CAPABILITIES,
+        setup: [
+            {
+                kind: "manifest",
+                label: "GitHub App manifest",
+                description: "Create a GitHub App from a generated manifest.",
+            },
+        ],
+        install: [
+            {
+                kind: "externalRedirect",
+                label: "GitHub App installation",
+                description: "Send the installing user to GitHub's app installation flow.",
+            },
+        ],
+        credentialDescriptors: gitHubCredentialDescriptors,
         create: Effect.fn("ConnectorRegistry.github.create")(function* (options: ConnectorAdapterFactoryOptions) {
             const credentials = yield* Effect.try({
                 try: () => requireGitHubConnectorCredentials(options.provider, options.credentials),
@@ -74,22 +125,32 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
         normalizeWebhook(options) {
             return normalizeGitHubWebhookEvent(options);
         },
-    },
-    gitlab: {
+    }),
+    gitlab: withDefaultCredentialValidators({
         provider: "gitlab",
+        family: "resource-source",
+        display: {
+            name: "GitLab",
+            description: "GitLab project source",
+            docsUrl: "https://docs.gitlab.com/integration/oauth_provider/",
+        },
         resourceKind: "git-repository",
-        validateCredentials(value) {
-            return hasNonEmptyString(value, "baseUrl") &&
-                hasNonEmptyString(value, "clientId") &&
-                hasNonEmptyString(value, "clientSecret")
-                ? isOptionalString(value, "webhookSecret")
-                : false;
-        },
-        validateInstallation(value) {
-            return hasNonEmptyString(value, "accessToken")
-                ? isOptionalString(value, "refreshToken") && isOptionalString(value, "expiresAt")
-                : false;
-        },
+        capabilities: GIT_RESOURCE_CAPABILITIES,
+        setup: [
+            {
+                kind: "manualCredentials",
+                label: "GitLab OAuth application",
+                description: "Register a GitLab OAuth application and paste the client credentials.",
+            },
+        ],
+        install: [
+            {
+                kind: "oauth",
+                label: "GitLab OAuth authorization",
+                description: "Authorize the registered GitLab application for a user or group.",
+            },
+        ],
+        credentialDescriptors: gitLabCredentialDescriptors,
         create: Effect.fn("ConnectorRegistry.gitlab.create")(function* (options: ConnectorAdapterFactoryOptions) {
             const credentials = yield* Effect.try({
                 try: () => requireGitLabConnectorCredentials(options.provider, options.credentials),
@@ -115,23 +176,68 @@ export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapte
         normalizeWebhook(options) {
             return normalizeGitLabWebhookEvent(options);
         },
-    },
+    }),
+} satisfies Record<string, ConnectorAdapterRegistryEntry>;
+
+export const connectorAdapterRegistry: Record<ConnectorProvider, ConnectorAdapterRegistryEntry> = {
+    ...builtInConnectorAdapterRegistry,
 };
 
+export function registerConnectorAdapter(entry: ConnectorAdapterRegistryEntry): ConnectorAdapterRegistryEntry {
+    const normalized = withDefaultCredentialValidators(entry);
+    connectorAdapterRegistry[normalized.provider] = normalized;
+    return normalized;
+}
+
+export function createChatBotConnectorRegistryEntry(options: {
+    provider: ConnectorProvider;
+    display: ConnectorProviderDisplay;
+    setup?: readonly ConnectorAdapterRegistryEntry["setup"][number][];
+    install?: readonly ConnectorAdapterRegistryEntry["install"][number][];
+    credentialDescriptors: ConnectorCredentialDescriptors;
+}): ConnectorAdapterRegistryEntry {
+    return withDefaultCredentialValidators({
+        provider: options.provider,
+        family: "chat-bot",
+        display: options.display,
+        capabilities: NO_SYNC_CONNECTOR_RESOURCE_CAPABILITIES,
+        setup: options.setup ?? [
+            {
+                kind: "oauthApp",
+                label: "Bot OAuth app",
+                description: "Register the bot app with the chat provider.",
+            },
+        ],
+        install: options.install ?? [
+            {
+                kind: "botInstall",
+                label: "Install bot",
+                description: "Install the bot into the target workspace or organization.",
+            },
+            {
+                kind: "oauth",
+                label: "Authorize bot",
+                description: "Complete the provider OAuth flow for bot credentials.",
+            },
+        ],
+        credentialDescriptors: options.credentialDescriptors,
+    });
+}
+
 export function getConnectorAdapterRegistryEntry(provider: ConnectorProvider): ConnectorAdapterRegistryEntry {
-    return connectorAdapterRegistry[provider];
+    const entry = connectorAdapterRegistry[provider];
+    if (!entry) {
+        throw new ConnectorProviderError("validation", `Provider ${provider} is not registered`);
+    }
+    return entry;
+}
+
+export function listConnectorAdapterRegistryEntries(): ConnectorAdapterRegistryEntry[] {
+    return Object.values(connectorAdapterRegistry);
 }
 
 export function isKnownConnectorProvider(value: string): value is ConnectorProvider {
     return Object.prototype.hasOwnProperty.call(connectorAdapterRegistry, value);
-}
-
-function hasNonEmptyString(value: Record<string, unknown>, key: string): boolean {
-    return typeof value[key] === "string" && (value[key] as string).trim().length > 0;
-}
-
-function isOptionalString(value: Record<string, unknown>, key: string): boolean {
-    return value[key] === undefined || typeof value[key] === "string";
 }
 
 export const createConnectorAdapter: (
@@ -139,14 +245,25 @@ export const createConnectorAdapter: (
 ) => Effect.Effect<ConnectorAdapter, ConnectorProviderError> = Effect.fn("createConnectorAdapter")(function* (
     options: ConnectorAdapterFactoryOptions
 ) {
-    return yield* connectorAdapterRegistry[options.provider].create(options);
+    const entry = connectorAdapterRegistry[options.provider];
+    if (!entry) {
+        return yield* Effect.fail(
+            new ConnectorProviderError("validation", `Provider ${options.provider} is not registered`)
+        );
+    }
+    if ((entry.family ?? "resource-source") !== "resource-source" || !entry.create) {
+        return yield* Effect.fail(
+            new ConnectorProviderError("validation", `Provider ${options.provider} does not create resource adapters`)
+        );
+    }
+    return yield* entry.create(options);
 });
 
 export function verifyConnectorWebhook(
     provider: ConnectorProvider,
     options: Parameters<NonNullable<ConnectorAdapterRegistryEntry["verifyWebhook"]>>[0]
 ): boolean {
-    const verifyWebhook = connectorAdapterRegistry[provider].verifyWebhook;
+    const verifyWebhook = getConnectorAdapterRegistryEntry(provider).verifyWebhook;
     if (!verifyWebhook) {
         throw new ConnectorProviderError("validation", `Provider ${provider} does not support webhook verification`);
     }
@@ -158,12 +275,88 @@ export function normalizeConnectorWebhook(
     provider: ConnectorProvider,
     options: Parameters<NonNullable<ConnectorAdapterRegistryEntry["normalizeWebhook"]>>[0]
 ): NormalizedWebhookEvent {
-    const normalizeWebhook = connectorAdapterRegistry[provider].normalizeWebhook;
+    const normalizeWebhook = getConnectorAdapterRegistryEntry(provider).normalizeWebhook;
     if (!normalizeWebhook) {
         throw new ConnectorProviderError("validation", `Provider ${provider} does not support webhook normalization`);
     }
 
     return normalizeWebhook(options);
+}
+
+function withDefaultCredentialValidators(entry: ConnectorAdapterRegistryEntry): ConnectorAdapterRegistryEntry {
+    return {
+        ...entry,
+        validateCredentials: entry.validateCredentials ?? ((value) => validateCredentialPayload(entry, "app", value)),
+        validateInstallation:
+            entry.validateInstallation ?? ((value) => validateCredentialPayload(entry, "installation", value)),
+    };
+}
+
+function validateCredentialPayload(
+    entry: ConnectorAdapterRegistryEntry,
+    subject: ConnectorCredentialSubject,
+    value: Record<string, unknown>
+): boolean {
+    const descriptor = entry.credentialDescriptors[subject];
+    if (!descriptor) {
+        return false;
+    }
+
+    if (isVersionedConnectorCredentialPayload(value)) {
+        return (
+            value.provider === entry.provider &&
+            value.subject === subject &&
+            value.version === descriptor.version &&
+            descriptor.validate(value.data)
+        );
+    }
+
+    return value.provider === entry.provider && descriptor.validate(value);
+}
+
+function requireConnectorCredentialData(
+    provider: ConnectorProvider,
+    subject: ConnectorCredentialSubject,
+    value: ConnectorCredentials | ConnectorInstallationCredentials
+): ConnectorCredentialPayloadData {
+    const entry = getConnectorAdapterRegistryEntry(provider);
+    const descriptor = entry.credentialDescriptors[subject];
+    if (!descriptor) {
+        throw new ConnectorProviderError("validation", `Provider ${provider} does not accept ${subject} credentials`);
+    }
+
+    if (!isObject(value)) {
+        throw new ConnectorProviderError("validation", "Connector credentials must be an object");
+    }
+
+    if (isVersionedConnectorCredentialPayload(value)) {
+        if (
+            value.provider === provider &&
+            value.subject === subject &&
+            value.version === descriptor.version &&
+            descriptor.validate(value.data)
+        ) {
+            return value.data;
+        }
+        throw new ConnectorProviderError("validation", `Provider ${provider} ${subject} credentials are invalid`);
+    }
+
+    if (value.provider === provider && descriptor.validate(value)) {
+        return value;
+    }
+
+    throw new ConnectorProviderError("validation", `Provider ${provider} ${subject} credentials are invalid`);
+}
+
+function isVersionedConnectorCredentialPayload(
+    value: Record<string, unknown>
+): value is VersionedConnectorCredentialPayload {
+    return (
+        typeof value.provider === "string" &&
+        typeof value.subject === "string" &&
+        typeof value.version === "string" &&
+        isObject(value.data)
+    );
 }
 
 function toConnectorProviderError(error: unknown): ConnectorProviderError {
@@ -176,42 +369,111 @@ function requireGitHubConnectorCredentials(
     provider: ConnectorProvider,
     credentials: ConnectorCredentials
 ): GitHubConnectorCredentials {
-    if (provider === "github" && credentials.provider === "github") {
-        return credentials;
+    if (provider !== "github") {
+        throw new ConnectorProviderError("validation", "GitHub connector credentials are required for this provider");
     }
-
-    throw new ConnectorProviderError("validation", "GitHub connector credentials are required for this provider");
+    const data = requireConnectorCredentialData(provider, "app", credentials);
+    return {
+        provider: "github",
+        appId: data.appId as string,
+        privateKeyPem: data.privateKeyPem as string,
+        clientId: optionalString(data, "clientId"),
+        clientSecret: optionalString(data, "clientSecret"),
+        webhookSecret: optionalString(data, "webhookSecret"),
+    };
 }
 
 function requireGitHubInstallationCredentials(
     provider: ConnectorProvider,
     installation: ConnectorInstallationCredentials
 ): GitHubInstallationCredentials {
-    if (provider === "github" && installation.provider === "github") {
-        return installation;
+    if (provider !== "github") {
+        throw new ConnectorProviderError(
+            "validation",
+            "GitHub installation credentials are required for this provider"
+        );
     }
-
-    throw new ConnectorProviderError("validation", "GitHub installation credentials are required for this provider");
+    const data = requireConnectorCredentialData(provider, "installation", installation);
+    return {
+        provider: "github",
+        installationId: data.installationId as string,
+    };
 }
 
 function requireGitLabConnectorCredentials(
     provider: ConnectorProvider,
     credentials: ConnectorCredentials
 ): GitLabConnectorCredentials {
-    if (provider === "gitlab" && credentials.provider === "gitlab") {
-        return credentials;
+    if (provider !== "gitlab") {
+        throw new ConnectorProviderError("validation", "GitLab connector credentials are required for this provider");
     }
-
-    throw new ConnectorProviderError("validation", "GitLab connector credentials are required for this provider");
+    const data = requireConnectorCredentialData(provider, "app", credentials);
+    return {
+        provider: "gitlab",
+        baseUrl: data.baseUrl as string,
+        clientId: data.clientId as string,
+        clientSecret: data.clientSecret as string,
+        webhookSecret: optionalString(data, "webhookSecret"),
+    };
 }
 
 function requireGitLabInstallationCredentials(
     provider: ConnectorProvider,
     installation: ConnectorInstallationCredentials
 ): GitLabInstallationCredentials {
-    if (provider === "gitlab" && installation.provider === "gitlab") {
-        return installation;
+    if (provider !== "gitlab") {
+        throw new ConnectorProviderError(
+            "validation",
+            "GitLab installation credentials are required for this provider"
+        );
     }
+    const data = requireConnectorCredentialData(provider, "installation", installation);
+    return {
+        provider: "gitlab",
+        accessToken: data.accessToken as string,
+        refreshToken: optionalString(data, "refreshToken"),
+        expiresAt: optionalString(data, "expiresAt"),
+    };
+}
 
-    throw new ConnectorProviderError("validation", "GitLab installation credentials are required for this provider");
+function isGitHubConnectorCredentialData(value: ConnectorCredentialPayloadData): boolean {
+    return hasNonEmptyString(value, "appId") && hasNonEmptyString(value, "privateKeyPem")
+        ? isOptionalString(value, "clientId") &&
+              isOptionalString(value, "clientSecret") &&
+              isOptionalString(value, "webhookSecret")
+        : false;
+}
+
+function isGitHubInstallationCredentialData(value: ConnectorCredentialPayloadData): boolean {
+    return hasNonEmptyString(value, "installationId");
+}
+
+function isGitLabConnectorCredentialData(value: ConnectorCredentialPayloadData): boolean {
+    return hasNonEmptyString(value, "baseUrl") &&
+        hasNonEmptyString(value, "clientId") &&
+        hasNonEmptyString(value, "clientSecret")
+        ? isOptionalString(value, "webhookSecret")
+        : false;
+}
+
+function isGitLabInstallationCredentialData(value: ConnectorCredentialPayloadData): boolean {
+    return hasNonEmptyString(value, "accessToken")
+        ? isOptionalString(value, "refreshToken") && isOptionalString(value, "expiresAt")
+        : false;
+}
+
+function hasNonEmptyString(value: Record<string, unknown>, key: string): boolean {
+    return typeof value[key] === "string" && (value[key] as string).trim().length > 0;
+}
+
+function isOptionalString(value: Record<string, unknown>, key: string): boolean {
+    return value[key] === undefined || typeof value[key] === "string";
+}
+
+function optionalString(value: Record<string, unknown>, key: string): string | undefined {
+    return typeof value[key] === "string" ? value[key] : undefined;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

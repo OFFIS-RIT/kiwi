@@ -2,12 +2,15 @@ import { createHmac, generateKeyPairSync } from "node:crypto";
 import * as Effect from "effect/Effect";
 import { describe, expect, test } from "bun:test";
 import {
+    connectorAdapterRegistry,
     createConnectorAdapter,
     getConnectorAdapterRegistryEntry,
     normalizeConnectorWebhook,
+    registerConnectorAdapter,
     verifyConnectorWebhook,
 } from "../registry";
 import type { ConnectorResource, FetchLike } from "../types";
+import { IN_MEMORY_RESOURCE_PROVIDER, inMemoryResourceConnectorRegistryEntry } from "../in-memory-resource";
 
 const GITHUB_RESOURCE: ConnectorResource = {
     provider: "github",
@@ -171,6 +174,79 @@ describe("connector adapter registry", () => {
             branch: "main",
             commitSha: "commit-sha",
         });
+    });
+
+    test("supports the in-memory non-git provider descriptor with cursor children and binary capabilities", async () => {
+        const provider = IN_MEMORY_RESOURCE_PROVIDER;
+        const previous = connectorAdapterRegistry[provider];
+        registerConnectorAdapter(inMemoryResourceConnectorRegistryEntry);
+
+        try {
+            const descriptor = getConnectorAdapterRegistryEntry(provider);
+            expect(descriptor).toMatchObject({
+                provider,
+                family: "resource-source",
+                resourceKind: "folder",
+                capabilities: { versions: false, cursorSync: true, children: true, binaryFiles: true },
+            });
+            expect(descriptor.setup.map((setup) => setup.kind)).toEqual(["none"]);
+            expect(descriptor.install.map((install) => install.kind)).toEqual(["manualActivation"]);
+            expect(
+                descriptor.validateCredentials?.({
+                    provider,
+                    subject: "app",
+                    version: "v1",
+                    data: { fixture: "test" },
+                })
+            ).toBe(true);
+            expect(
+                descriptor.validateInstallation?.({
+                    provider,
+                    subject: "installation",
+                    version: "v1",
+                    data: { accountId: "fixture-account" },
+                })
+            ).toBe(true);
+
+            const adapter = await Effect.runPromise(
+                createConnectorAdapter({
+                    provider,
+                    credentials: { provider, subject: "app", version: "v1", data: { fixture: "test" } },
+                    installation: {
+                        provider,
+                        subject: "installation",
+                        version: "v1",
+                        data: { accountId: "fixture-account" },
+                    },
+                })
+            );
+
+            expect(adapter).toMatchObject({
+                provider,
+                resourceKind: "folder",
+                capabilities: { versions: false, cursorSync: true, children: true, binaryFiles: true },
+            });
+            await expect(Effect.runPromise(adapter.listChildren?.() ?? Effect.succeed([]))).resolves.toEqual([
+                expect.objectContaining({ id: "folder:docs", kind: "folder", parentId: null }),
+            ]);
+            const changeSet = await Effect.runPromise(adapter.listChanges?.("drive:fixture") ?? Effect.succeed(null));
+            expect(changeSet).toMatchObject({ cursor: "cursor:fixture:1" });
+            expect(changeSet?.changes).toEqual(
+                expect.arrayContaining([expect.objectContaining({ providerItemId: "file:docs/readme.txt" })])
+            );
+            await expect(
+                Effect.runPromise(
+                    adapter.openFile?.({ resourceId: "drive:fixture", path: "docs/manual.pdf", etag: "etag-pdf" }) ??
+                        Effect.succeed(null)
+                )
+            ).resolves.toMatchObject({ size: 4, contentType: "application/pdf" });
+        } finally {
+            if (previous) {
+                connectorAdapterRegistry[provider] = previous;
+            } else {
+                delete connectorAdapterRegistry[provider];
+            }
+        }
     });
 
     test("rejects provider mismatches", async () => {

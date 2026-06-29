@@ -8,17 +8,19 @@ import {
 } from "./schema";
 import type { GraphRecord } from "./graphs";
 
-export type ConnectorProvider = "github" | "gitlab";
+export type ConnectorProvider = string;
 export type ConnectorStatus = "draft" | "active" | "disabled";
 export type ConnectorInstallationStatus = "active" | "disabled" | "pending";
+export type ConnectorInstallationSubjectKind = "user" | "team" | "organization";
 export type ConnectorAccountType = "user" | "organization" | "group" | null;
 export type ConnectorRepositorySelection = "all" | "selected" | "unknown";
-export type ConnectorResourceKind = "git-repository" | "folder";
+export type ConnectorResourceKind = string;
 export type ConnectorResourceGraphBindingSyncStatus = "pending" | "syncing" | "synced" | "failed";
 export type RepositoryGraphBindingSyncStatus = ConnectorResourceGraphBindingSyncStatus;
 
-export const ConnectorProviderSchema = Schema.Literals(["github", "gitlab"] as const);
-export const ConnectorResourceKindSchema = Schema.Literals(["git-repository", "folder"] as const);
+export const ConnectorProviderSchema = NonEmptyTrimmedStringSchema;
+export const ConnectorInstallationSubjectKindSchema = Schema.Literals(["user", "team", "organization"] as const);
+export const ConnectorResourceKindSchema = NonEmptyTrimmedStringSchema;
 const NullableStringSchema = Schema.Union([Schema.String, Schema.Null]);
 
 export type ConnectorRecord = {
@@ -40,6 +42,11 @@ export type ConnectorInstallationRecord = {
     providerInstallationId: string;
     providerAccountLogin: string;
     providerAccountType: ConnectorAccountType;
+    subjectKind: ConnectorInstallationSubjectKind;
+    subjectUserId: string | null;
+    subjectTeamId: string | null;
+    subjectOrganizationId: string | null;
+    installedByUserId: string | null;
     organizationId: string | null;
     teamId: string | null;
     repositorySelection: ConnectorRepositorySelection;
@@ -50,17 +57,22 @@ export type ConnectorInstallationRecord = {
 
 export const ConnectorResourceRecordSchema = Schema.Struct({
     provider: ConnectorProviderSchema,
-    id: NonEmptyTrimmedStringSchema,
-    fullName: NonEmptyTrimmedStringSchema,
-    name: NonEmptyTrimmedStringSchema,
-    htmlUrl: UrlStringSchema,
-    defaultBranch: NullableStringSchema,
-    private: Schema.Boolean,
-    resourceKind: Schema.optional(ConnectorResourceKindSchema),
-    displayName: OptionalNonEmptyTrimmedStringSchema,
-    webUrl: Schema.optional(UrlStringSchema),
+    resourceKind: ConnectorResourceKindSchema,
+    resourceId: NonEmptyTrimmedStringSchema,
+    providerResourceId: OptionalNonEmptyTrimmedStringSchema,
+    resourceDisplayName: NonEmptyTrimmedStringSchema,
+    resourceWebUrl: UrlStringSchema,
     defaultVersionName: OptionalNonEmptyTrimmedStringSchema,
     defaultVersionId: OptionalNonEmptyTrimmedStringSchema,
+    metadata: Schema.optional(Schema.Unknown),
+    id: OptionalNonEmptyTrimmedStringSchema,
+    fullName: OptionalNonEmptyTrimmedStringSchema,
+    name: OptionalNonEmptyTrimmedStringSchema,
+    htmlUrl: Schema.optional(UrlStringSchema),
+    defaultBranch: Schema.optional(NullableStringSchema),
+    private: Schema.optional(Schema.Boolean),
+    displayName: OptionalNonEmptyTrimmedStringSchema,
+    webUrl: Schema.optional(UrlStringSchema),
 });
 export type ConnectorResourceRecord = MutableSchemaType<Schema.Schema.Type<typeof ConnectorResourceRecordSchema>>;
 
@@ -68,10 +80,13 @@ export const ConnectorRepositoryRecordSchema = ConnectorResourceRecordSchema;
 export type ConnectorRepositoryRecord = ConnectorResourceRecord;
 
 export const ConnectorResourceVersionRecordSchema = Schema.Struct({
-    name: NonEmptyTrimmedStringSchema,
-    commitSha: NonEmptyTrimmedStringSchema,
-    resourceId: OptionalNonEmptyTrimmedStringSchema,
+    versionName: NonEmptyTrimmedStringSchema,
     versionId: OptionalNonEmptyTrimmedStringSchema,
+    resourceId: OptionalNonEmptyTrimmedStringSchema,
+    syncCursor: OptionalNonEmptyTrimmedStringSchema,
+    metadata: Schema.optional(Schema.Unknown),
+    name: OptionalNonEmptyTrimmedStringSchema,
+    commitSha: OptionalNonEmptyTrimmedStringSchema,
 });
 export type ConnectorResourceVersionRecord = MutableSchemaType<
     Schema.Schema.Type<typeof ConnectorResourceVersionRecordSchema>
@@ -85,15 +100,27 @@ export type ConnectorResourceGraphBindingRecord = {
     graphId: string;
     connectorInstallationId: string;
     provider: ConnectorProvider;
-    providerRepositoryId: string;
-    repositoryFullName: string;
-    repositoryHtmlUrl: string;
-    branch: string;
-    lastSeenCommitSha: string | null;
-    lastSyncedCommitSha: string | null;
+    resourceKind: ConnectorResourceKind;
+    resourceId: string;
+    providerResourceId: string;
+    resourceDisplayName: string;
+    resourceWebUrl: string;
+    versionName: string | null;
+    versionId: string | null;
+    lastSeenVersionId: string | null;
+    lastSyncedVersionId: string | null;
+    syncCursor: string | null;
+    metadata: unknown | null;
     syncStatus: ConnectorResourceGraphBindingSyncStatus;
     syncErrorCode: string | null;
+    syncEnabled: boolean;
     webhookEnabled: boolean;
+    providerRepositoryId?: string;
+    repositoryFullName?: string;
+    repositoryHtmlUrl?: string;
+    branch?: string;
+    lastSeenCommitSha?: string | null;
+    lastSyncedCommitSha?: string | null;
     createdAt: string | null;
     updatedAt: string | null;
 };
@@ -141,6 +168,10 @@ export const ConnectorPatchInputSchema = Schema.Struct({
 export type ConnectorPatchInput = MutableSchemaType<Schema.Schema.Type<typeof ConnectorPatchInputSchema>>;
 
 export const ConnectorConnectQuerySchema = Schema.Struct({
+    subjectKind: Schema.optional(ConnectorInstallationSubjectKindSchema),
+    subjectUserId: OptionalNonEmptyTrimmedStringSchema,
+    subjectTeamId: OptionalNonEmptyTrimmedStringSchema,
+    subjectOrganizationId: OptionalNonEmptyTrimmedStringSchema,
     organizationId: OptionalNonEmptyTrimmedStringSchema,
     teamId: OptionalNonEmptyTrimmedStringSchema,
 });
@@ -161,6 +192,11 @@ export type ConnectorResourceQuery = MutableSchemaType<Schema.Schema.Type<typeof
 export const ConnectorRepositoryQuerySchema = ConnectorResourceQuerySchema;
 export type ConnectorRepositoryQuery = ConnectorResourceQuery;
 
+const UserConnectorOwnerScopeInputSchema = Schema.Struct({
+    kind: Schema.Literal("user"),
+    userId: NonEmptyTrimmedStringSchema,
+});
+
 const TeamConnectorOwnerScopeInputSchema = Schema.Struct({
     kind: Schema.Literal("team"),
     teamId: NonEmptyTrimmedStringSchema,
@@ -169,10 +205,11 @@ const TeamConnectorOwnerScopeInputSchema = Schema.Struct({
 export const ConnectorOwnerScopeInputSchema = Schema.Union([
     Schema.Struct({
         kind: Schema.Literal("organization"),
+        organizationId: OptionalNonEmptyTrimmedStringSchema,
     }),
     TeamConnectorOwnerScopeInputSchema,
+    UserConnectorOwnerScopeInputSchema,
 ]);
-export type ConnectorOwnerScopeInput = MutableSchemaType<Schema.Schema.Type<typeof ConnectorOwnerScopeInputSchema>>;
 
 export const ConnectorBindingCreateInputSchema = Schema.Struct({
     connectorInstallationId: NonEmptyTrimmedStringSchema,
@@ -180,8 +217,12 @@ export const ConnectorBindingCreateInputSchema = Schema.Struct({
     resourceId: NonEmptyTrimmedStringSchema,
     resourceDisplayName: NonEmptyTrimmedStringSchema,
     resourceWebUrl: UrlStringSchema,
-    versionName: NonEmptyTrimmedStringSchema,
-    versionId: NonEmptyTrimmedStringSchema,
+    versionName: OptionalNonEmptyTrimmedStringSchema,
+    versionId: OptionalNonEmptyTrimmedStringSchema,
+    syncCursor: OptionalNonEmptyTrimmedStringSchema,
+    metadata: Schema.optional(Schema.Unknown),
+    syncEnabled: Schema.optional(Schema.Boolean),
+    webhookEnabled: Schema.optional(Schema.Boolean),
     name: NonEmptyTrimmedStringSchema,
     owner: ConnectorOwnerScopeInputSchema,
 });
@@ -190,6 +231,25 @@ export type ConnectorBindingCreateInput = MutableSchemaType<
 >;
 
 export const ConnectorResourceGraphCreateInputSchema = Schema.Struct({
+    connectorInstallationId: NonEmptyTrimmedStringSchema,
+    resourceKind: ConnectorResourceKindSchema,
+    resourceId: NonEmptyTrimmedStringSchema,
+    resourceDisplayName: NonEmptyTrimmedStringSchema,
+    resourceWebUrl: UrlStringSchema,
+    versionName: OptionalNonEmptyTrimmedStringSchema,
+    versionId: OptionalNonEmptyTrimmedStringSchema,
+    syncCursor: OptionalNonEmptyTrimmedStringSchema,
+    metadata: Schema.optional(Schema.Unknown),
+    syncEnabled: Schema.optional(Schema.Boolean),
+    webhookEnabled: Schema.optional(Schema.Boolean),
+    name: NonEmptyTrimmedStringSchema,
+    owner: ConnectorOwnerScopeInputSchema,
+});
+export type ConnectorResourceGraphCreateInput = MutableSchemaType<
+    Schema.Schema.Type<typeof ConnectorResourceGraphCreateInputSchema>
+>;
+
+export const RepositoryGraphCreateInputSchema = Schema.Struct({
     connectorInstallationId: NonEmptyTrimmedStringSchema,
     repositoryId: NonEmptyTrimmedStringSchema,
     repositoryFullName: NonEmptyTrimmedStringSchema,
@@ -201,15 +261,14 @@ export const ConnectorResourceGraphCreateInputSchema = Schema.Struct({
     resourceWebUrl: Schema.optional(UrlStringSchema),
     versionName: OptionalNonEmptyTrimmedStringSchema,
     versionId: OptionalNonEmptyTrimmedStringSchema,
+    syncCursor: OptionalNonEmptyTrimmedStringSchema,
+    metadata: Schema.optional(Schema.Unknown),
+    syncEnabled: Schema.optional(Schema.Boolean),
+    webhookEnabled: Schema.optional(Schema.Boolean),
     name: NonEmptyTrimmedStringSchema,
     owner: ConnectorOwnerScopeInputSchema,
 });
-export type ConnectorResourceGraphCreateInput = MutableSchemaType<
-    Schema.Schema.Type<typeof ConnectorResourceGraphCreateInputSchema>
->;
-
-export const RepositoryGraphCreateInputSchema = ConnectorResourceGraphCreateInputSchema;
-export type RepositoryGraphCreateInput = ConnectorResourceGraphCreateInput;
+export type RepositoryGraphCreateInput = MutableSchemaType<Schema.Schema.Type<typeof RepositoryGraphCreateInputSchema>>;
 
 export type ConnectorResourceGraphCreateSuccessData = {
     graph: GraphRecord;

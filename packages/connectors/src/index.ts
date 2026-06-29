@@ -4,4 +4,5 @@ export * from "./github";
 export * from "./gitlab";
 export * from "./adapters";
 export * from "./registry";
+export * from "./in-memory-resource";
 export * from "./webhooks";

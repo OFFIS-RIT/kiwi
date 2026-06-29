@@ -7,13 +7,17 @@ import {
     GitHubManifestCallbackQuerySchema,
     GitLabConnectorCreateInputSchema,
     ConnectorResourceGraphCreateInputSchema,
+    RepositoryGraphCreateInputSchema,
 } from "@kiwi/contracts/connectors";
 import { successResponse } from "@kiwi/contracts/errors";
 import { asApiSchema } from "@kiwi/contracts/schema";
 import Elysia from "elysia";
 import { connectorApiErrorOptions, runApiAction } from "../controllers/_shared/api-effect";
 import { createGitLabConnector } from "../controllers/connector/create-gitlab";
-import { createConnectorGraphBinding } from "../controllers/connector/bindings/create-graph";
+import {
+    createConnectorGraphBinding,
+    type ConnectorGraphCreateRequest,
+} from "../controllers/connector/bindings/create-graph";
 import { getConnectorGraphBinding } from "../controllers/connector/bindings/get";
 import { syncConnectorGraphBinding } from "../controllers/connector/bindings/sync";
 import { completeGitHubConnectorInstall } from "../controllers/connector/install/complete-github";
@@ -137,7 +141,42 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
         { query: asApiSchema(ConnectorResourceQuerySchema) }
     )
     .get(
+        "/:id/repositories",
+        ({ params, query, status, user }) =>
+            runApiAction({
+                status,
+                user,
+                action: (currentUser) =>
+                    listConnectorResources({
+                        user: currentUser,
+                        connectorId: params.id,
+                        installationId: query.installationId,
+                    }),
+                success: (value) => status(200, successResponse(value)),
+                ...connectorApiErrorOptions,
+            }),
+        { query: asApiSchema(ConnectorResourceQuerySchema) }
+    )
+    .get(
         "/:id/resources/:resourceId/versions",
+        ({ params, query, status, user }) =>
+            runApiAction({
+                status,
+                user,
+                action: (currentUser) =>
+                    listConnectorResourceVersions({
+                        user: currentUser,
+                        connectorId: params.id,
+                        installationId: query.installationId,
+                        resourceId: params.resourceId,
+                    }),
+                success: (value) => status(200, successResponse(value)),
+                ...connectorApiErrorOptions,
+            }),
+        { query: asApiSchema(ConnectorResourceQuerySchema) }
+    )
+    .get(
+        "/:id/repositories/:resourceId/branches",
         ({ params, query, status, user }) =>
             runApiAction({
                 status,
@@ -161,16 +200,37 @@ export const connectorRoute = new Elysia({ prefix: "/connectors" })
                 status,
                 user,
                 action: (currentUser) =>
-                    createConnectorGraphBinding({ user: currentUser, connectorId: params.id, body }),
+                    createConnectorGraphBinding({
+                        user: currentUser,
+                        connectorId: params.id,
+                        body: body as ConnectorGraphCreateRequest,
+                    }),
                 success: (value) => status(200, successResponse(value)),
                 ...connectorApiErrorOptions,
             }),
         { body: asApiSchema(ConnectorResourceGraphCreateInputSchema) }
+    )
+    .post(
+        "/:id/repository-graphs",
+        ({ params, body, status, user }) =>
+            runApiAction({
+                status,
+                user,
+                action: (currentUser) =>
+                    createConnectorGraphBinding({
+                        user: currentUser,
+                        connectorId: params.id,
+                        body: body as ConnectorGraphCreateRequest,
+                    }),
+                success: (value) => status(200, successResponse(value)),
+                ...connectorApiErrorOptions,
+            }),
+        { body: asApiSchema(RepositoryGraphCreateInputSchema) }
     );
 
-export const connectorResourceBindingRoute = new Elysia({ prefix: "/connector-resource-bindings" })
+export const connectorResourceBindingRoute = new Elysia()
     .use(authMiddleware)
-    .get("/:id", ({ params, status, user }) =>
+    .get("/connector-resource-bindings/:id", ({ params, status, user }) =>
         runApiAction({
             status,
             user,
@@ -179,7 +239,25 @@ export const connectorResourceBindingRoute = new Elysia({ prefix: "/connector-re
             ...connectorApiErrorOptions,
         })
     )
-    .post("/:id/sync", ({ params, status, user }) =>
+    .get("/repository-graph-bindings/:id", ({ params, status, user }) =>
+        runApiAction({
+            status,
+            user,
+            action: (currentUser) => getConnectorGraphBinding({ user: currentUser, bindingId: params.id }),
+            success: (value) => status(200, successResponse(value)),
+            ...connectorApiErrorOptions,
+        })
+    )
+    .post("/connector-resource-bindings/:id/sync", ({ params, status, user }) =>
+        runApiAction({
+            status,
+            user,
+            action: (currentUser) => syncConnectorGraphBinding({ user: currentUser, bindingId: params.id }),
+            success: (value) => status(200, successResponse(value)),
+            ...connectorApiErrorOptions,
+        })
+    )
+    .post("/repository-graph-bindings/:id/sync", ({ params, status, user }) =>
         runApiAction({
             status,
             user,

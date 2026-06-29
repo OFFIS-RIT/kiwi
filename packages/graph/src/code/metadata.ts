@@ -1,5 +1,5 @@
-export type CodeFileMetadataProvider = "github" | "gitlab";
-export type CodeFileMetadataResourceKind = "git-repository" | "folder";
+export type CodeFileMetadataProvider = string;
+export type CodeFileMetadataResourceKind = string;
 
 export type CodeFileGitMetadata = {
     repositoryName: string;
@@ -111,8 +111,8 @@ function parseGitMetadata(value: unknown): CodeFileGitMetadata | undefined | nul
 function parseV2Metadata(parsed: Record<string, unknown>): CodeFileMetadata | null {
     if (
         parsed.schemaVersion !== 2 ||
-        (parsed.provider !== "github" && parsed.provider !== "gitlab") ||
-        (parsed.resourceKind !== "git-repository" && parsed.resourceKind !== "folder") ||
+        !nonEmptyString(parsed.provider) ||
+        !nonEmptyString(parsed.resourceKind) ||
         !nonEmptyString(parsed.bindingId) ||
         !nonEmptyString(parsed.providerResourceId) ||
         !nonEmptyString(parsed.resourceDisplayName) ||

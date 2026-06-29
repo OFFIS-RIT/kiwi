@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { connectorResourceBindingsTable } from "@kiwi/db/tables/connectors";
 
 type SelectResult = { kind: "where"; value: unknown[] } | { kind: "limit"; value: unknown[] };
 
@@ -22,6 +23,7 @@ const insertResults: unknown[][] = [];
 const insertValues: Array<Record<string, unknown>> = [];
 const updates: Array<Record<string, unknown>> = [];
 const joins: unknown[] = [];
+const wheres: unknown[] = [];
 const workflowInputs: Array<Record<string, unknown>> = [];
 let workflowFailureIndex: number | null = null;
 
@@ -37,7 +39,10 @@ function selectQuery() {
             joins.push(args);
             return chain;
         },
-        where: () => (result.kind === "where" ? result.value : chain),
+        where: (clause?: unknown) => {
+            wheres.push(clause);
+            return result.kind === "where" ? result.value : chain;
+        },
         limit: () => result.value,
     };
     return chain;
@@ -97,17 +102,20 @@ mock.module("../../openworkflow", () => ({
     },
 }));
 
-function signedGitHubRequest(body: string) {
+function signedGitHubRequest(body: string, connectorIdOrSlug?: string) {
     const signature = `sha256=${createHmac("sha256", "secret").update(body).digest("hex")}`;
-    return new Request("http://localhost/connectors/webhooks/github", {
-        method: "POST",
-        headers: {
-            "x-hub-signature-256": signature,
-            "x-github-event": "push",
-            "x-github-delivery": "delivery-1",
-        },
-        body,
-    });
+    return new Request(
+        `http://localhost/connectors/webhooks/github${connectorIdOrSlug ? `/${connectorIdOrSlug}` : ""}`,
+        {
+            method: "POST",
+            headers: {
+                "x-hub-signature-256": signature,
+                "x-github-event": "push",
+                "x-github-delivery": "delivery-1",
+            },
+            body,
+        }
+    );
 }
 
 function pushBody() {
@@ -116,6 +124,22 @@ function pushBody() {
         after: "commit-new",
         repository: { id: 7, full_name: "acme/app" },
     });
+}
+
+function containsReference(value: unknown, expected: unknown, seen = new Set<object>()): boolean {
+    if (value === expected) {
+        return true;
+    }
+    if (!value || typeof value !== "object" || seen.has(value)) {
+        return false;
+    }
+    seen.add(value);
+    for (const nested of Object.values(value)) {
+        if (containsReference(nested, expected, seen)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Dynamic import is required so Bun module mocks are installed before the route module is evaluated.
@@ -128,6 +152,7 @@ describe("connector webhook route", () => {
         insertResults.length = 0;
         insertValues.length = 0;
         joins.length = 0;
+        wheres.length = 0;
         workflowInputs.length = 0;
         workflowFailureIndex = null;
     });
@@ -143,6 +168,21 @@ describe("connector webhook route", () => {
             code: "INVALID_CHAT_REQUEST",
         });
         expect(insertResults).toEqual([]);
+    });
+
+    test("loads one connector when the webhook URL includes connector identity", async () => {
+        selectResults.push({ kind: "limit", value: [connector] }, { kind: "where", value: [{ binding: bindingOne }] });
+        insertResults.push([ledger]);
+
+        const response = await connectorWebhookRoute.handle(signedGitHubRequest(pushBody(), "connector-1"));
+
+        expect(response.status).toBe(202);
+        await expect(response.json()).resolves.toMatchObject({
+            status: "success",
+            data: { status: "enqueued", enqueued: 1 },
+        });
+        expect(workflowInputs.map((input) => input.bindingId)).toEqual(["binding-1"]);
+        expect(selectResults).toEqual([]);
     });
 
     test("marks failed workflow enqueues so delivery retries can recover", async () => {
@@ -172,6 +212,9 @@ describe("connector webhook route", () => {
         expect(updates).toContainEqual({ syncStatus: "failed", syncErrorCode: "enqueue_failed" });
         expect(updates).toContainEqual({ status: "failed", errorCode: "enqueue_failed" });
         expect(joins).toHaveLength(1);
+        expect(wheres.some((where) => containsReference(where, connectorResourceBindingsTable.resourceKind))).toBe(
+            true
+        );
     });
 
     test("re-enqueues failed duplicate webhook deliveries", async () => {

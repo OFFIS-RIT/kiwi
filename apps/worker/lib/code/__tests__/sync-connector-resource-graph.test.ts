@@ -15,15 +15,27 @@ const updateWhereConditions: unknown[] = [];
 const pendingReadResolutions: Array<() => void> = [];
 const readStartWaiters: Array<{ count: number; resolve: () => void }> = [];
 
+const uploadedNamedFiles: Array<{ name: string; file: unknown; path: string; bucket: string }> = [];
 let selectResults: SelectResult[] = [];
 let txSelectResults: unknown[][] = [];
 let insertedFileRowsOverride: Array<{ id: string; key: string }> | null = null;
 let processRunInsertCount = 0;
 let processFilesError: Error | null = null;
-let compareChanges: ConnectorResourceChange[] = [];
+let compareChanges: Array<ConnectorResourceChange & Record<string, unknown>> = [];
 let compareIsIncremental = true;
-let snapshotFiles: ProviderCodeFile[] = [];
+let snapshotFiles: Array<ProviderCodeFile & Record<string, unknown>> = [];
 let readFileContents: Record<string, string> = {};
+let adapterProvider = "github";
+let adapterResourceKind = "git-repository";
+let adapterCapabilities = { versions: true, cursorSync: false, children: false, binaryFiles: false };
+let listChangesResult: {
+    changes: Array<ConnectorResourceChange & Record<string, unknown>>;
+    cursor: string;
+    isInitial: boolean;
+} | null = null;
+const listChangesCalls: Array<{ resourceId: string; cursor: string | undefined }> = [];
+const openFileCalls: Array<{ resourceId: string; path: string; versionId?: string; etag?: string }> = [];
+const openFileContents: Record<string, { bytes: Uint8Array; size: number; contentType?: string }> = {};
 let loadSnapshotCalls = 0;
 let activeReadFileCalls = 0;
 let holdReadFiles = false;
@@ -187,8 +199,9 @@ mock.module("@kiwi/connectors", () => ({
     MAX_REPOSITORY_CODE_FILES: 100,
     createConnectorAdapter: () =>
         Effect.succeed({
-            provider: "github",
-            resourceKind: "git-repository",
+            provider: adapterProvider,
+            resourceKind: adapterResourceKind,
+            capabilities: adapterCapabilities,
             getResource: () =>
                 Effect.succeed({
                     provider: "github",
@@ -247,6 +260,23 @@ mock.module("@kiwi/connectors", () => ({
                     },
                     catch: (error) => error,
                 }),
+            listChanges: (resourceId: string, cursor?: string) =>
+                Effect.sync(() => {
+                    listChangesCalls.push({ resourceId, cursor });
+                    if (!listChangesResult) {
+                        throw new Error("Missing mocked listChanges result");
+                    }
+                    return listChangesResult;
+                }),
+            openFile: (locator: { resourceId: string; path: string; versionId?: string; etag?: string }) =>
+                Effect.sync(() => {
+                    openFileCalls.push(locator);
+                    const file = openFileContents[locator.path];
+                    if (!file) {
+                        throw new Error(`Missing mocked binary content for ${locator.path}`);
+                    }
+                    return { locator, ...file };
+                }),
         }),
     isKnownConnectorProvider: () => true,
     normalizeGitLabBaseUrl: (value: string) => value.replace(/\/+$/, ""),
@@ -264,7 +294,23 @@ mock.module("../../../env", () => ({
     },
 }));
 
-function bindingRow(lastSyncedVersionId: string | null) {
+mock.module("@kiwi/files", () => ({
+    putNamedFile: (name: string, file: unknown, path: string, bucket: string) =>
+        Effect.sync(() => {
+            uploadedNamedFiles.push({ name, file, path, bucket });
+            return { key: `${path}/${name}`, type: "application/octet-stream" };
+        }),
+}));
+
+function bindingRow(
+    lastSyncedVersionId: string | null,
+    overrides: {
+        binding?: Record<string, unknown>;
+        installation?: Record<string, unknown>;
+        connector?: Record<string, unknown>;
+        graph?: Record<string, unknown>;
+    } = {}
+) {
     return {
         binding: {
             id: "binding-1",
@@ -276,8 +322,11 @@ function bindingRow(lastSyncedVersionId: string | null) {
             resourceWebUrl: "https://github.com/acme/widgets",
             versionName: "main",
             webhookEnabled: true,
+            syncEnabled: true,
+            syncCursor: null,
             lastSeenVersionId: lastSyncedVersionId,
             lastSyncedVersionId,
+            ...overrides.binding,
         },
         installation: {
             id: "installation-1",
@@ -285,21 +334,30 @@ function bindingRow(lastSyncedVersionId: string | null) {
             providerInstallationId: "99",
             encryptedCredentials: null,
             status: "active",
+            ...overrides.installation,
         },
         connector: {
             id: "connector-1",
             provider: "github",
             encryptedCredentials: "encrypted",
             status: "active",
+            ...overrides.connector,
         },
         graph: {
             id: "graph-1",
             state: "ready",
+            ...overrides.graph,
         },
     };
 }
 
-function activeFile(id: string, versionId: string, path: string, size: number) {
+function activeFile(
+    id: string,
+    versionId: string,
+    path: string,
+    size: number,
+    metadataOverrides: Record<string, unknown> = {}
+) {
     return {
         id,
         size,
@@ -319,8 +377,32 @@ function activeFile(id: string, versionId: string, path: string, size: number) {
                 commitSha: versionId,
                 branch: "main",
             },
+            ...metadataOverrides,
         }),
     };
+}
+
+function useFakeStorageAdapter() {
+    adapterProvider = "fixture-storage";
+    adapterResourceKind = "folder";
+    adapterCapabilities = { versions: false, cursorSync: true, children: true, binaryFiles: true };
+}
+
+function fakeStorageBinding(lastSyncedVersionId: string | null) {
+    return bindingRow(lastSyncedVersionId, {
+        binding: {
+            providerResourceId: "drive-1",
+            resourceKind: "folder",
+            resourceDisplayName: "Team Drive",
+            resourceWebUrl: "https://storage.test/team-drive",
+            versionName: null,
+            syncCursor: lastSyncedVersionId,
+            webhookEnabled: false,
+            syncEnabled: true,
+        },
+        connector: { provider: "fixture-storage" },
+        installation: { encryptedCredentials: "encrypted-installation" },
+    });
 }
 
 async function runWorkflow(input: {
@@ -386,6 +468,16 @@ describe("syncConnectorResourceGraph", () => {
         compareIsIncremental = true;
         snapshotFiles = [];
         readFileContents = {};
+        adapterProvider = "github";
+        adapterResourceKind = "git-repository";
+        adapterCapabilities = { versions: true, cursorSync: false, children: false, binaryFiles: false };
+        listChangesResult = null;
+        listChangesCalls.length = 0;
+        openFileCalls.length = 0;
+        uploadedNamedFiles.length = 0;
+        for (const key of Object.keys(openFileContents)) {
+            delete openFileContents[key];
+        }
         loadSnapshotCalls = 0;
         activeReadFileCalls = 0;
         holdReadFiles = false;
@@ -427,6 +519,167 @@ describe("syncConnectorResourceGraph", () => {
             code: { kind: "repository", retiredFileIds: ["old-file"] },
         });
         expect(String(insertedFileValues[0]?.checksum)).toStartWith("commit-new:src/index.ts:");
+    });
+
+    test("manual sync runs when webhooks are disabled but sync is enabled", async () => {
+        compareChanges = [{ status: "modified", newPath: "src/index.ts" }];
+        readFileContents = {
+            "src/index.ts": "export const manual = true;\n",
+        };
+        selectResults = [
+            {
+                kind: "limit",
+                value: [bindingRow("commit-old", { binding: { webhookEnabled: false, syncEnabled: true } })],
+            },
+            {
+                kind: "where",
+                value: [activeFile("old-file", "commit-old", "src/index.ts", 25)],
+            },
+        ];
+
+        const result = await runWorkflow({ bindingId: "binding-1", reason: "manual", versionId: "commit-new" });
+
+        expect(result).toMatchObject({ versionId: "commit-new", fileCount: 1 });
+        expect(readFileCalls).toEqual([{ path: "src/index.ts", versionId: "commit-new" }]);
+        expect(processWorkflowInputs).toHaveLength(1);
+        expect(bindingUpdates).toContainEqual({
+            syncStatus: "synced",
+            lastSeenVersionId: "commit-new",
+            lastSyncedVersionId: "commit-new",
+            syncErrorCode: null,
+        });
+    });
+
+    test("folder providers retire renamed and deleted items by provider item id", async () => {
+        useFakeStorageAdapter();
+        listChangesResult = {
+            cursor: "cursor-next",
+            isInitial: false,
+            changes: [
+                {
+                    status: "renamed",
+                    providerItemId: "file-report",
+                    oldProviderItemId: "file-report",
+                    newPath: "Renamed/report.txt",
+                    displayName: "report.txt",
+                    contentAccessMode: "text",
+                    processingKind: "code",
+                },
+                {
+                    status: "deleted",
+                    providerItemId: "file-removed",
+                },
+            ] as Array<ConnectorResourceChange & Record<string, unknown>>,
+        };
+        readFileContents = {
+            "Renamed/report.txt": "renamed report\n",
+        };
+        selectResults = [
+            { kind: "limit", value: [fakeStorageBinding("cursor-old")] },
+            {
+                kind: "where",
+                value: [
+                    activeFile("old-report", "etag-old", "Archive/report.txt", 15, {
+                        providerFileId: "file-report",
+                        resourceKind: "folder",
+                        git: undefined,
+                    }),
+                    activeFile("old-removed", "etag-removed", "Archive/removed.txt", 10, {
+                        providerFileId: "file-removed",
+                        resourceKind: "folder",
+                        git: undefined,
+                    }),
+                ],
+            },
+        ];
+
+        const result = await runWorkflow({ bindingId: "binding-1", reason: "manual" });
+
+        expect(result).toMatchObject({ versionId: "cursor-next", fileCount: 1 });
+        expect(listChangesCalls).toEqual([{ resourceId: "drive-1", cursor: "cursor-old" }]);
+        expect(readFileCalls).toEqual([{ path: "Renamed/report.txt", versionId: "cursor-next" }]);
+        expect(insertedFileValues[0]?.key).toContain("file-report");
+        expect(JSON.parse(String(insertedFileValues[0]?.metadata))).toMatchObject({
+            resourceKind: "folder",
+            providerResourceId: "drive-1",
+            providerFileId: "file-report",
+            path: "Renamed/report.txt",
+        });
+        expect(processWorkflowInputs[0]).toMatchObject({
+            code: { kind: "repository", retiredFileIds: ["old-report", "old-removed"] },
+        });
+    });
+
+    test("binary document cursor items upload and process through the file pipeline", async () => {
+        useFakeStorageAdapter();
+        openFileContents["Documents/report.pdf"] = {
+            bytes: new Uint8Array([37, 80, 68, 70]),
+            size: 4,
+            contentType: "application/pdf",
+        };
+        listChangesResult = {
+            cursor: "cursor-next",
+            isInitial: false,
+            changes: [
+                {
+                    status: "modified",
+                    providerItemId: "pdf-1",
+                    parentProviderItemId: "folder-1",
+                    newPath: "Documents/report.pdf",
+                    displayName: "report.pdf",
+                    mimeType: "application/pdf",
+                    contentType: "application/pdf",
+                    size: 42,
+                    checksum: "etag-pdf",
+                    etag: "etag-pdf",
+                    webUrl: "https://storage.test/team-drive/Documents/report.pdf",
+                    contentAccessMode: "binary",
+                    processingKind: "document",
+                },
+            ] as Array<ConnectorResourceChange & Record<string, unknown>>,
+        };
+        selectResults = [
+            { kind: "limit", value: [fakeStorageBinding("cursor-old")] },
+            { kind: "where", value: [] },
+        ];
+
+        const result = await runWorkflow({ bindingId: "binding-1", reason: "manual" });
+
+        expect(result).toMatchObject({ versionId: "cursor-next", fileCount: 1 });
+        expect(listChangesCalls).toEqual([{ resourceId: "drive-1", cursor: "cursor-old" }]);
+        expect(openFileCalls).toEqual([
+            { resourceId: "drive-1", path: "Documents/report.pdf", versionId: "cursor-next", etag: "etag-pdf" },
+        ]);
+        expect(uploadedNamedFiles).toMatchObject([
+            {
+                name: "report.pdf",
+                path: "graphs/graph-1/connector-resources/binding-1/cursor-next",
+            },
+        ]);
+        expect(insertedFileValues[0]).toMatchObject({
+            name: "Documents/report.pdf",
+            type: "pdf",
+            mimeType: "application/pdf",
+            storageKind: "internal",
+            externalUrl: "https://storage.test/team-drive/Documents/report.pdf",
+            externalProvider: "fixture-storage",
+            connectorBindingId: "binding-1",
+            checksum: "cursor-next:pdf-1:etag-pdf",
+        });
+        expect(processWorkflowInputs).toHaveLength(1);
+        expect(processWorkflowInputs[0]).toMatchObject({
+            graphId: "graph-1",
+            fileIds: [insertedFileValues[0]?.id],
+            processRunId: "process-run-1",
+        });
+        expect(processWorkflowInputs[0]).not.toHaveProperty("code");
+        expect(bindingUpdates).toContainEqual({
+            syncStatus: "synced",
+            lastSeenVersionId: "cursor-next",
+            lastSyncedVersionId: "cursor-next",
+            syncErrorCode: null,
+            syncCursor: "cursor-next",
+        });
     });
 
     test("limits concurrent provider reads for incremental changed files", async () => {

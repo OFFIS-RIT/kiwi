@@ -1,82 +1,159 @@
 import * as Effect from "effect/Effect";
 import type { Database } from "@kiwi/db/effect";
 import type { graphTable } from "@kiwi/db/tables/graph";
-import type { RepositoryGraphCreateInput } from "@kiwi/contracts/connectors";
-import { API_ERROR_CODES } from "@kiwi/contracts/errors";
+import type { ConnectorResourceKind } from "@kiwi/contracts/connectors";
+import type { ApiError } from "@kiwi/contracts/errors";
 import type { AuthUser } from "../../../middleware/auth";
 import {
     assertCanBindResourceGraph,
     createGraphBinding,
     enqueueInitialBindingSync,
     requireConnectorInstallationContext,
-    requireGitRepositoryResource,
-    requireGitResourceVersion,
+    requireConnectorResource,
+    requireConnectorResourceVersion,
     toBindingResponse,
     type ConnectorBindingCreateInput,
+    type ConnectorBindingResponse,
+    type ResolvedConnectorResource,
+    type ResolvedConnectorResourceVersion,
 } from "../../../lib/connector/api";
 import { connectorApiErrorOptions, toApiError, tryApiSync } from "../../_shared/api-effect";
 
-function toConnectorBindingCreateInput(body: RepositoryGraphCreateInput): ConnectorBindingCreateInput {
-    const resourceKind = body.resourceKind ?? "git-repository";
-    if (resourceKind !== "git-repository") {
-        throw new Error(API_ERROR_CODES.GRAPH_NOT_FOUND);
+export type ConnectorGraphCreateRequest = {
+    connectorInstallationId: string;
+    resourceKind?: ConnectorResourceKind;
+    resourceId?: string;
+    resourceDisplayName?: string;
+    resourceWebUrl?: string;
+    versionName?: string;
+    versionId?: string;
+    syncCursor?: string;
+    metadata?: unknown;
+    resourceMetadata?: unknown;
+    syncEnabled?: boolean;
+    webhookEnabled?: boolean;
+    repositoryId?: string;
+    repositoryFullName?: string;
+    repositoryHtmlUrl?: string;
+    branch?: string;
+    name: string;
+    owner: ConnectorBindingCreateInput["owner"];
+};
+
+function toConnectorBindingCreateInput(body: ConnectorGraphCreateRequest): ConnectorBindingCreateInput {
+    const resourceId = body.resourceId ?? body.repositoryId;
+    const resourceDisplayName = body.resourceDisplayName ?? body.repositoryFullName;
+    const resourceWebUrl = body.resourceWebUrl ?? body.repositoryHtmlUrl;
+    if (!resourceId || !resourceDisplayName || !resourceWebUrl) {
+        throw new Error("Connector resource fields are required");
     }
     return {
         connectorInstallationId: body.connectorInstallationId,
-        resourceKind,
-        resourceId: body.resourceId ?? body.repositoryId,
-        resourceDisplayName: body.resourceDisplayName ?? body.repositoryFullName,
-        resourceWebUrl: body.resourceWebUrl ?? body.repositoryHtmlUrl,
+        resourceKind: body.resourceKind ?? "git-repository",
+        resourceId,
+        resourceDisplayName,
+        resourceWebUrl,
         versionName: body.versionName ?? body.branch,
         versionId: body.versionId,
+        syncCursor: body.syncCursor,
+        metadata: body.metadata ?? body.resourceMetadata,
+        syncEnabled: body.syncEnabled,
+        webhookEnabled: body.webhookEnabled,
         name: body.name,
         owner: body.owner,
     };
 }
 
-export function createConnectorGraphBinding(input: {
+function toRequestedConnectorResource(provider: string, body: ConnectorBindingCreateInput): ResolvedConnectorResource {
+    return {
+        provider,
+        kind: body.resourceKind,
+        id: body.resourceId,
+        displayName: body.resourceDisplayName,
+        webUrl: body.resourceWebUrl,
+        private: false,
+        defaultVersionName: body.versionName ?? null,
+        defaultVersionId: body.versionId,
+    };
+}
+
+function toRequestedConnectorResourceVersion(
+    body: ConnectorBindingCreateInput
+): ResolvedConnectorResourceVersion | undefined {
+    if (!body.versionName) {
+        return undefined;
+    }
+    return {
+        name: body.versionName,
+        versionId: body.versionId ?? body.versionName,
+        resourceId: body.resourceId,
+    };
+}
+
+export type ConnectorGraphBindingCreateResult = {
+    graph: typeof graphTable.$inferSelect;
+    binding: ConnectorBindingResponse;
+    workflowRunId: string;
+};
+
+export const createConnectorGraphBinding: (input: {
     user: AuthUser;
     connectorId: string;
-    body: RepositoryGraphCreateInput;
-}): Effect.Effect<
-    { graph: typeof graphTable.$inferSelect; binding: ReturnType<typeof toBindingResponse>; workflowRunId: string },
-    ReturnType<typeof toApiError>,
-    Database
-> {
-    return Effect.mapError(
-        Effect.gen(function* () {
-            const body = yield* tryApiSync(() => toConnectorBindingCreateInput(input.body));
-            const { connector, installation } = yield* requireConnectorInstallationContext({
-                user: input.user,
-                connectorId: input.connectorId,
-                installationId: body.connectorInstallationId,
-            });
+    body: ConnectorGraphCreateRequest;
+}) => Effect.Effect<ConnectorGraphBindingCreateResult, ApiError, Database> = Effect.fn("createConnectorGraphBinding")(
+    (input: { user: AuthUser; connectorId: string; body: ConnectorGraphCreateRequest }) =>
+        Effect.mapError(
+            Effect.gen(function* () {
+                const body = yield* tryApiSync(() => toConnectorBindingCreateInput(input.body));
+                const { connector, installation } = yield* requireConnectorInstallationContext({
+                    user: input.user,
+                    connectorId: input.connectorId,
+                    installationId: body.connectorInstallationId,
+                });
 
-            yield* assertCanBindResourceGraph({ user: input.user, installation, owner: body.owner });
-            const resource = yield* requireGitRepositoryResource({
-                connector,
-                installation,
-                resourceId: body.resourceId,
-            });
-            const version = yield* requireGitResourceVersion({
-                connector,
-                installation,
-                resourceId: resource.id,
-                versionName: body.versionName,
-            });
-            const created = yield* createGraphBinding({ connector, installation, body, resource, version });
-            const workflowRunId = yield* enqueueInitialBindingSync({
-                graphId: created.graph.id,
-                bindingId: created.binding.id,
-                versionId: version.versionId,
-            });
+                const ownerScope = yield* assertCanBindResourceGraph({
+                    user: input.user,
+                    installation,
+                    owner: body.owner,
+                });
+                const resource =
+                    body.resourceKind === "git-repository"
+                        ? yield* requireConnectorResource({
+                              connector,
+                              installation,
+                              resourceKind: body.resourceKind,
+                              resourceId: body.resourceId,
+                          })
+                        : toRequestedConnectorResource(connector.provider, body);
+                const version =
+                    body.resourceKind === "git-repository" && body.versionName
+                        ? yield* requireConnectorResourceVersion({
+                              connector,
+                              installation,
+                              resourceId: resource.id,
+                              versionName: body.versionName,
+                          })
+                        : toRequestedConnectorResourceVersion(body);
+                const created = yield* createGraphBinding({
+                    connector,
+                    installation,
+                    ownerScope,
+                    body,
+                    resource,
+                    version,
+                });
+                const workflowRunId = yield* enqueueInitialBindingSync({
+                    graphId: created.graph.id,
+                    bindingId: created.binding.id,
+                    versionId: version?.versionId,
+                });
 
-            return {
-                graph: created.graph,
-                binding: toBindingResponse(created.binding),
-                workflowRunId,
-            };
-        }),
-        (error) => toApiError(error, connectorApiErrorOptions)
-    );
-}
+                return {
+                    graph: created.graph,
+                    binding: toBindingResponse(created.binding),
+                    workflowRunId,
+                };
+            }),
+            (error) => toApiError(error, connectorApiErrorOptions)
+        )
+);

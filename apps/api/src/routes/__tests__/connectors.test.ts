@@ -340,10 +340,11 @@ describe("connector route", () => {
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
                     connectorInstallationId: "installation-1",
-                    repositoryId: "repo-1",
-                    repositoryFullName: "acme/app",
-                    repositoryHtmlUrl: "https://github.com/acme/app",
-                    branch: "main",
+                    resourceKind: "git-repository",
+                    resourceId: "repo-1",
+                    resourceDisplayName: "acme/app",
+                    resourceWebUrl: "https://github.com/acme/app",
+                    versionName: "main",
                     name: "App",
                     owner: { kind: "organization" },
                 }),
@@ -365,6 +366,47 @@ describe("connector route", () => {
             bindingId: "row-1",
             reason: "initial",
             versionId: "commit-sha",
+        });
+    });
+
+    test("creates provider-neutral folder bindings without a branch version lookup", async () => {
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-1/resource-graphs", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    connectorInstallationId: "installation-1",
+                    resourceKind: "folder",
+                    resourceId: "drive-1",
+                    resourceDisplayName: "Team Drive",
+                    resourceWebUrl: "https://storage.test/team-drive",
+                    metadata: { driveType: "team" },
+                    webhookEnabled: false,
+                    syncEnabled: true,
+                    name: "Team Drive",
+                    owner: { kind: "organization" },
+                }),
+            })
+        );
+
+        expect(response.status).toBe(200);
+        expect(listBranchesCalls).toEqual([]);
+        expect(insertValues[1]).toMatchObject({
+            provider: "github",
+            resourceKind: "folder",
+            providerResourceId: "drive-1",
+            resourceDisplayName: "Team Drive",
+            resourceWebUrl: "https://storage.test/team-drive",
+            versionName: null,
+            syncEnabled: true,
+            webhookEnabled: false,
+            syncStatus: "pending",
+        });
+        const metadata = insertValues[1]?.resourceMetadata;
+        expect(typeof metadata === "string" ? JSON.parse(metadata) : metadata).toEqual({ driveType: "team" });
+        expect(workflowInputs[0]).toEqual({
+            bindingId: "row-1",
+            reason: "initial",
         });
     });
 
@@ -407,10 +449,11 @@ describe("connector route", () => {
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
                     connectorInstallationId: "installation-1",
-                    repositoryId: "repo-1",
-                    repositoryFullName: "acme/app",
-                    repositoryHtmlUrl: "https://github.com/acme/app",
-                    branch: "main",
+                    resourceKind: "git-repository",
+                    resourceId: "repo-1",
+                    resourceDisplayName: "acme/app",
+                    resourceWebUrl: "https://github.com/acme/app",
+                    versionName: "main",
                     name: "App",
                     owner: { kind: "organization" },
                 }),

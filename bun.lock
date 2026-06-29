@@ -129,6 +129,7 @@
         "@kiwi/graph": "workspace:*",
         "@kiwi/loaders": "workspace:*",
         "@kiwi/logger": "workspace:*",
+        "@kiwi/sync": "workspace:*",
         "@openworkflow/cli": "^0.4.4",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
@@ -320,6 +321,9 @@
     },
     "packages/sync": {
       "name": "@kiwi/sync",
+      "dependencies": {
+        "effect": "catalog:",
+      },
       "devDependencies": {
         "@types/bun": "catalog:",
       },

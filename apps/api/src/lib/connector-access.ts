@@ -81,8 +81,12 @@ export function requireActiveConnector(
 
 export function assertCanManageConnectorOwner(
     user: AuthUser,
-    input: { organizationId?: string; teamId?: string }
+    input: { organizationId?: string; teamId?: string; userId?: string }
 ): Effect.Effect<void, ApiError | DatabaseError, Database> {
+    if (input.userId) {
+        return input.userId === user.id ? Effect.void : Effect.fail(forbiddenError());
+    }
+
     if (input.teamId) {
         return Effect.asVoid(mapConnectorAccessEffect(requireTeamGraphCreateAccess(user, input.teamId)));
     }
@@ -112,8 +116,15 @@ export function assertCanUseInstallation(
         }
 
         yield* assertCanManageConnectorOwner(user, {
-            organizationId: installation.organizationId ?? undefined,
-            teamId: installation.teamId ?? undefined,
+            userId: installation.subjectKind === "user" ? (installation.subjectUserId ?? undefined) : undefined,
+            organizationId:
+                installation.subjectKind === "organization"
+                    ? (installation.subjectOrganizationId ?? undefined)
+                    : (installation.organizationId ?? undefined),
+            teamId:
+                installation.subjectKind === "team"
+                    ? (installation.subjectTeamId ?? undefined)
+                    : (installation.teamId ?? undefined),
         });
         return installation;
     });
@@ -146,26 +157,30 @@ export function assertCanViewBinding(
     });
 }
 
-export function assertCanSyncBinding(
+export const assertCanSyncBinding: (
     user: AuthUser,
     bindingId: string
-): Effect.Effect<
+) => Effect.Effect<
     { binding: ConnectorResourceBindingRow; graph: typeof graphTable.$inferSelect },
     ApiError | DatabaseError,
     Database
-> {
-    return Effect.gen(function* () {
-        const row = yield* assertCanViewBinding(user, bindingId);
-        yield* assertCanManageConnectorOwner(user, {
-            organizationId: row.graph.organizationId ?? undefined,
-            teamId: row.graph.teamId ?? undefined,
-        });
-        if (!row.binding.webhookEnabled) {
-            return yield* Effect.fail(forbiddenError());
-        }
-        return row;
+> = Effect.fn("assertCanSyncBinding")(function* (user: AuthUser, bindingId: string) {
+    const row = yield* loadConnectorBindingGraph(bindingId);
+    if (!row) {
+        return yield* Effect.fail(graphNotFoundError());
+    }
+
+    yield* mapConnectorAccessEffect(assertCanViewGraphWithRootOwner(user, row.binding.graphId));
+    yield* assertCanManageConnectorOwner(user, {
+        userId: row.graph.userId ?? undefined,
+        organizationId: row.graph.organizationId ?? undefined,
+        teamId: row.graph.teamId ?? undefined,
     });
-}
+    if (row.connector.status !== "active" || row.installation.status !== "active" || !row.binding.syncEnabled) {
+        return yield* Effect.fail(forbiddenError());
+    }
+    return { binding: row.binding, graph: row.graph };
+});
 
 export function loadConnectorBindingGraph(bindingId: string): Effect.Effect<
     {

@@ -1,9 +1,54 @@
 import * as Schema from "effect/Schema";
 import type * as Effect from "effect/Effect";
 
-export type ConnectorProvider = "github" | "gitlab";
+export type BuiltInConnectorProvider = "github" | "gitlab";
+export type ConnectorProvider = string;
 
-export type ConnectorResourceKind = "git-repository" | "folder";
+export type ConnectorProviderFamily = "resource-source" | "chat-bot";
+
+export type ConnectorResourceKind = string;
+
+export type ConnectorAppSetupKind = "manifest" | "manualCredentials" | "oauthApp" | "serviceAccount" | "none";
+
+export type ConnectorInstallFlowKind = "externalRedirect" | "oauth" | "manualActivation" | "botInstall" | "none";
+
+export type ConnectorCredentialSubject = "app" | "installation";
+
+export type ConnectorCredentialPayloadData = Record<string, unknown>;
+
+export type VersionedConnectorCredentialPayload<
+    Subject extends ConnectorCredentialSubject = ConnectorCredentialSubject,
+    Provider extends ConnectorProvider = ConnectorProvider,
+> = {
+    provider: Provider;
+    subject: Subject;
+    version: string;
+    data: ConnectorCredentialPayloadData;
+};
+
+export type ConnectorProviderDisplay = {
+    name: string;
+    description?: string;
+    docsUrl?: string;
+};
+
+export type ConnectorAppSetupDescriptor = {
+    kind: ConnectorAppSetupKind;
+    label: string;
+    description?: string;
+};
+
+export type ConnectorInstallFlowDescriptor = {
+    kind: ConnectorInstallFlowKind;
+    label: string;
+    description?: string;
+};
+
+export type ConnectorCredentialDescriptor<Subject extends ConnectorCredentialSubject = ConnectorCredentialSubject> = {
+    subject: Subject;
+    version: string;
+    validate(data: ConnectorCredentialPayloadData): boolean;
+};
 
 export type GitResource = {
     provider: ConnectorProvider;
@@ -56,15 +101,20 @@ export type ConnectorResourceChange =
     | {
           status: "added" | "modified";
           newPath: string;
+          providerItemId?: string;
+          etag?: string;
       }
     | {
           status: "deleted";
           oldPath: string;
+          providerItemId?: string;
       }
     | {
           status: "renamed";
           oldPath: string;
           newPath: string;
+          providerItemId?: string;
+          etag?: string;
       };
 
 export type ConnectorResourceDelta = {
@@ -121,9 +171,15 @@ export type GitResourceDelta = {
 };
 export type ProviderRepositoryDelta = GitResourceDelta;
 
-export type ConnectorCredentials = GitHubConnectorCredentials | GitLabConnectorCredentials;
+export type ConnectorCredentials =
+    | VersionedConnectorCredentialPayload<"app">
+    | GitHubConnectorCredentials
+    | GitLabConnectorCredentials;
 
-export type ConnectorInstallationCredentials = GitHubInstallationCredentials | GitLabInstallationCredentials;
+export type ConnectorInstallationCredentials =
+    | VersionedConnectorCredentialPayload<"installation">
+    | GitHubInstallationCredentials
+    | GitLabInstallationCredentials;
 
 export type GitHubConnectorCredentials = {
     provider: "github";
@@ -253,6 +309,13 @@ export type ConnectorResourceCapabilities = {
     binaryFiles: boolean;
 };
 
+export const NO_SYNC_CONNECTOR_RESOURCE_CAPABILITIES: ConnectorResourceCapabilities = {
+    versions: false,
+    cursorSync: false,
+    children: false,
+    binaryFiles: false,
+};
+
 // A child entry when browsing a hierarchical resource, generic over git tree entries
 // and cloud-storage folders/files.
 export type ConnectorResourceChild = {
@@ -293,10 +356,21 @@ export type ConnectorAdapterFactoryOptions = {
     fetch?: FetchLike;
 };
 
+export type ConnectorCredentialDescriptors = {
+    app?: ConnectorCredentialDescriptor<"app">;
+    installation?: ConnectorCredentialDescriptor<"installation">;
+};
+
 export type ConnectorAdapterRegistryEntry = {
     provider: ConnectorProvider;
-    resourceKind: ConnectorResourceKind;
-    create(options: ConnectorAdapterFactoryOptions): Effect.Effect<ConnectorAdapter, ConnectorProviderError>;
+    family: ConnectorProviderFamily;
+    display: ConnectorProviderDisplay;
+    resourceKind?: ConnectorResourceKind;
+    capabilities: ConnectorResourceCapabilities;
+    setup: readonly ConnectorAppSetupDescriptor[];
+    install: readonly ConnectorInstallFlowDescriptor[];
+    credentialDescriptors: ConnectorCredentialDescriptors;
+    create?(options: ConnectorAdapterFactoryOptions): Effect.Effect<ConnectorAdapter, ConnectorProviderError>;
     // Structural validation of this provider's connector- and installation-credential
     // shapes. Lets credential encryption stay provider-agnostic: new providers register
     // their validators here instead of editing the shared credentials module.

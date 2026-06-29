@@ -5,13 +5,16 @@ import { organizationTable, teamTable, userTable } from "./auth";
 import { graphTable } from "./graph";
 
 export const CONNECTOR_PROVIDER_VALUES = ["github", "gitlab"] as const;
-export type ConnectorProvider = (typeof CONNECTOR_PROVIDER_VALUES)[number];
+export type ConnectorProvider = string;
 
 export const CONNECTOR_STATUS_VALUES = ["draft", "active", "disabled"] as const;
 export type ConnectorStatus = (typeof CONNECTOR_STATUS_VALUES)[number];
 
-export const CONNECTOR_INSTALLATION_STATUS_VALUES = ["active", "disabled"] as const;
+export const CONNECTOR_INSTALLATION_STATUS_VALUES = ["active", "disabled", "pending"] as const;
 export type ConnectorInstallationStatus = (typeof CONNECTOR_INSTALLATION_STATUS_VALUES)[number];
+
+export const CONNECTOR_INSTALLATION_SUBJECT_KIND_VALUES = ["user", "team", "organization"] as const;
+export type ConnectorInstallationSubjectKind = (typeof CONNECTOR_INSTALLATION_SUBJECT_KIND_VALUES)[number];
 
 export const CONNECTOR_RESOURCE_SYNC_STATUS_VALUES = ["pending", "syncing", "synced", "failed"] as const;
 export type ConnectorResourceSyncStatus = (typeof CONNECTOR_RESOURCE_SYNC_STATUS_VALUES)[number];
@@ -25,7 +28,7 @@ export const connectorsTable = pgTable.withRLS(
         id: text("id")
             .primaryKey()
             .$default(() => ulid()),
-        provider: text("provider", { enum: CONNECTOR_PROVIDER_VALUES }).notNull(),
+        provider: text("provider").notNull(),
         name: text("name").notNull(),
         slug: text("slug").notNull(),
         status: text("status", { enum: CONNECTOR_STATUS_VALUES }).notNull().default("active"),
@@ -62,10 +65,23 @@ export const connectorInstallationsTable = pgTable.withRLS(
                 name: "connector_installations_connector_id_connectors_id_fk",
                 onDelete: "cascade",
             }),
-        provider: text("provider", { enum: CONNECTOR_PROVIDER_VALUES }).notNull(),
+        provider: text("provider").notNull(),
         providerInstallationId: text("provider_installation_id").notNull(),
         providerAccountLogin: text("provider_account_login").notNull(),
         providerAccountType: text("provider_account_type"),
+        subjectKind: text("subject_kind", { enum: CONNECTOR_INSTALLATION_SUBJECT_KIND_VALUES }).notNull(),
+        subjectUserId: text("subject_user_id").references(() => userTable.id, {
+            name: "connector_installations_subject_user_id_user_id_fk",
+            onDelete: "cascade",
+        }),
+        subjectTeamId: text("subject_team_id").references(() => teamTable.id, {
+            name: "connector_installations_subject_team_id_team_id_fk",
+            onDelete: "cascade",
+        }),
+        subjectOrganizationId: text("subject_organization_id").references(() => organizationTable.id, {
+            name: "connector_installations_subject_organization_id_organization_id_fk",
+            onDelete: "cascade",
+        }),
         organizationId: text("organization_id").references(() => organizationTable.id, {
             name: "connector_installations_organization_id_organization_id_fk",
             onDelete: "cascade",
@@ -87,19 +103,34 @@ export const connectorInstallationsTable = pgTable.withRLS(
             .$onUpdate(() => sql`NOW()`),
     },
     (table) => [
-        uniqueIndex("connector_installations_org_scope_unique")
-            .on(table.connectorId, table.providerInstallationId, table.organizationId)
-            .where(sql`${table.teamId} is null`),
-        uniqueIndex("connector_installations_team_scope_unique")
-            .on(table.connectorId, table.providerInstallationId, table.organizationId, table.teamId)
-            .where(sql`${table.teamId} is not null`),
+        uniqueIndex("connector_installations_user_subject_unique")
+            .on(table.connectorId, table.providerInstallationId, table.subjectUserId)
+            .where(sql`${table.subjectKind} = 'user'`),
+        uniqueIndex("connector_installations_team_subject_unique")
+            .on(table.connectorId, table.providerInstallationId, table.subjectTeamId)
+            .where(sql`${table.subjectKind} = 'team'`),
+        uniqueIndex("connector_installations_organization_subject_unique")
+            .on(table.connectorId, table.providerInstallationId, table.subjectOrganizationId)
+            .where(sql`${table.subjectKind} = 'organization'`),
         index("connector_installations_connector_status_idx").on(table.connectorId, table.status),
+        index("connector_installations_subject_user_idx").on(table.subjectUserId),
+        index("connector_installations_subject_team_idx").on(table.subjectTeamId),
+        index("connector_installations_subject_organization_idx").on(table.subjectOrganizationId),
+        index("connector_installations_installed_by_user_idx").on(table.installedByUserId),
         index("connector_installations_organization_idx").on(table.organizationId),
         index("connector_installations_team_idx").on(table.teamId),
-        check("connector_installations_status_check", sql`${table.status} in ('active', 'disabled')`),
+        check("connector_installations_status_check", sql`${table.status} in ('active', 'disabled', 'pending')`),
         check(
-            "connector_installations_owner_scope_check",
-            sql`(${table.organizationId} is not null and ${table.teamId} is null) or (${table.organizationId} is not null and ${table.teamId} is not null)`
+            "connector_installations_subject_kind_check",
+            sql`${table.subjectKind} in ('user', 'team', 'organization')`
+        ),
+        check(
+            "connector_installations_subject_scope_check",
+            sql`(
+                (${table.subjectKind} = 'user' and ${table.subjectUserId} is not null and ${table.subjectTeamId} is null and ${table.subjectOrganizationId} is null)
+                or (${table.subjectKind} = 'team' and ${table.subjectUserId} is null and ${table.subjectTeamId} is not null and ${table.subjectOrganizationId} is null)
+                or (${table.subjectKind} = 'organization' and ${table.subjectUserId} is null and ${table.subjectTeamId} is null and ${table.subjectOrganizationId} is not null)
+            )`
         ),
     ]
 );
@@ -122,18 +153,19 @@ export const connectorResourceBindingsTable = pgTable.withRLS(
                 name: "connector_resource_bindings_connector_installation_id_fk",
                 onDelete: "restrict",
             }),
-        provider: text("provider", { enum: CONNECTOR_PROVIDER_VALUES }).notNull(),
-        resourceKind: text("resource_kind").notNull().default("git-repository"),
+        provider: text("provider").notNull(),
+        resourceKind: text("resource_kind").notNull(),
         providerResourceId: text("provider_resource_id").notNull(),
         resourceDisplayName: text("resource_display_name").notNull(),
         resourceWebUrl: text("resource_web_url").notNull(),
-        versionName: text("version_name").notNull(),
+        versionName: text("version_name"),
         lastSeenVersionId: text("last_seen_version_id"),
         lastSyncedVersionId: text("last_synced_version_id"),
         syncCursor: text("sync_cursor"),
         resourceMetadata: text("resource_metadata"),
         syncStatus: text("sync_status", { enum: CONNECTOR_RESOURCE_SYNC_STATUS_VALUES }).notNull().default("pending"),
         syncErrorCode: text("sync_error_code"),
+        syncEnabled: boolean("sync_enabled").notNull().default(true),
         webhookEnabled: boolean("webhook_enabled").notNull().default(true),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
         updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
@@ -142,11 +174,12 @@ export const connectorResourceBindingsTable = pgTable.withRLS(
     },
     (table) => [
         uniqueIndex("connector_resource_bindings_graph_unique").on(table.graphId),
-        uniqueIndex("connector_resource_bindings_resource_version_unique").on(
-            table.connectorInstallationId,
-            table.providerResourceId,
-            table.versionName
-        ),
+        uniqueIndex("connector_resource_bindings_resource_version_unique")
+            .on(table.connectorInstallationId, table.providerResourceId, table.versionName)
+            .where(sql`${table.versionName} is not null`),
+        uniqueIndex("connector_resource_bindings_resource_unique")
+            .on(table.connectorInstallationId, table.providerResourceId)
+            .where(sql`${table.versionName} is null`),
         index("connector_resource_bindings_provider_resource_version_idx").on(
             table.provider,
             table.providerResourceId,
@@ -175,7 +208,7 @@ export const connectorWebhookEventsTable = pgTable.withRLS(
                 name: "connector_webhook_events_connector_id_connectors_id_fk",
                 onDelete: "cascade",
             }),
-        provider: text("provider", { enum: CONNECTOR_PROVIDER_VALUES }).notNull(),
+        provider: text("provider").notNull(),
         deliveryId: text("delivery_id").notNull(),
         eventName: text("event_name").notNull(),
         providerResourceId: text("provider_resource_id"),

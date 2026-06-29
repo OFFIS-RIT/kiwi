@@ -2,7 +2,12 @@ import * as Effect from "effect/Effect";
 import { DatabaseError, tryDb, tryDbVoid, type Database } from "@kiwi/db/effect";
 import { connectorResourceBindingsTable } from "@kiwi/db/tables/connectors";
 import { graphTable } from "@kiwi/db/tables/graph";
-import type { ConnectorProvider, ConnectorRepositoryRecord } from "@kiwi/contracts/connectors";
+import type {
+    ConnectorBindingCreateInput as ContractConnectorBindingCreateInput,
+    ConnectorProvider,
+    ConnectorRepositoryRecord,
+    ConnectorResourceKind as ContractConnectorResourceKind,
+} from "@kiwi/contracts/connectors";
 import {
     API_ERROR_CODES,
     forbiddenError,
@@ -41,7 +46,7 @@ function connectorEffectError(error: unknown): ApiError | DatabaseError {
     );
 }
 
-export type ConnectorResourceKind = "git-repository";
+export type ConnectorResourceKind = ContractConnectorResourceKind;
 
 export type ResolvedConnectorResource = {
     provider: ConnectorProvider;
@@ -50,26 +55,21 @@ export type ResolvedConnectorResource = {
     displayName: string;
     webUrl: string;
     private: boolean;
-    defaultVersion: string | null;
-    git: ConnectorRepositoryRecord;
+    defaultVersionName: string | null;
+    defaultVersionId?: string;
+    git?: ConnectorRepositoryRecord;
 };
 
 export type ResolvedConnectorResourceVersion = {
     name: string;
     versionId: string;
-    git: ProviderBranch;
+    resourceId?: string;
+    git?: ProviderBranch;
 };
 
-export type ConnectorBindingCreateInput = {
-    connectorInstallationId: string;
-    resourceKind: ConnectorResourceKind;
-    resourceId: string;
-    resourceDisplayName?: string;
-    resourceWebUrl?: string;
-    versionName: string;
-    versionId?: string;
-    name: string;
-    owner: { kind: "organization" } | { kind: "team"; teamId: string };
+export type ConnectorBindingCreateInput = ContractConnectorBindingCreateInput & {
+    syncEnabled?: boolean;
+    webhookEnabled?: boolean;
 };
 
 export function assertSystemAdmin(user: AuthUser) {
@@ -93,21 +93,75 @@ export function assertInstallationBelongsToConnector(
 
 type ConnectorResourceBinding = typeof connectorResourceBindingsTable.$inferSelect;
 
-export function toBindingResponse(binding: ConnectorResourceBinding) {
+export type ConnectorBindingResponse = {
+    id: string;
+    graphId: string;
+    connectorInstallationId: string;
+    provider: ConnectorProvider;
+    resourceKind: ConnectorResourceKind;
+    resourceId: string;
+    providerResourceId: string;
+    resourceDisplayName: string;
+    resourceWebUrl: string;
+    versionName: string | null;
+    versionId: string | null;
+    lastSeenVersionId: string | null;
+    lastSyncedVersionId: string | null;
+    syncCursor: string | null;
+    metadata: unknown | null;
+    syncStatus: ConnectorResourceBinding["syncStatus"];
+    syncErrorCode: string | null;
+    syncEnabled: boolean;
+    webhookEnabled: boolean;
+    providerRepositoryId: string;
+    repositoryFullName: string;
+    repositoryHtmlUrl: string;
+    branch: string | null;
+    lastSeenCommitSha: string | null;
+    lastSyncedCommitSha: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+};
+
+function parseBindingMetadata(value: string | null): unknown | null {
+    if (!value) {
+        return null;
+    }
+    try {
+        return JSON.parse(value) as unknown;
+    } catch {
+        return value;
+    }
+}
+
+export function toBindingResponse(binding: ConnectorResourceBinding): ConnectorBindingResponse {
+    const metadata = parseBindingMetadata(binding.resourceMetadata);
     return {
         id: binding.id,
         graphId: binding.graphId,
         connectorInstallationId: binding.connectorInstallationId,
         provider: binding.provider as ConnectorProvider,
+        resourceKind: binding.resourceKind as ConnectorResourceKind,
+        resourceId: binding.providerResourceId,
+        providerResourceId: binding.providerResourceId,
+        resourceDisplayName: binding.resourceDisplayName,
+        resourceWebUrl: binding.resourceWebUrl,
+        versionName: binding.versionName,
+        versionId: binding.lastSeenVersionId,
+        lastSeenVersionId: binding.lastSeenVersionId,
+        lastSyncedVersionId: binding.lastSyncedVersionId,
+        syncCursor: binding.syncCursor,
+        metadata,
+        syncStatus: binding.syncStatus,
+        syncErrorCode: binding.syncErrorCode,
+        syncEnabled: binding.syncEnabled,
+        webhookEnabled: binding.webhookEnabled,
         providerRepositoryId: binding.providerResourceId,
         repositoryFullName: binding.resourceDisplayName,
         repositoryHtmlUrl: binding.resourceWebUrl,
         branch: binding.versionName,
         lastSeenCommitSha: binding.lastSeenVersionId,
         lastSyncedCommitSha: binding.lastSyncedVersionId,
-        syncStatus: binding.syncStatus,
-        syncErrorCode: binding.syncErrorCode,
-        webhookEnabled: binding.webhookEnabled,
         createdAt: binding.createdAt?.toISOString() ?? null,
         updatedAt: binding.updatedAt?.toISOString() ?? null,
     };
@@ -140,7 +194,7 @@ export function toConnectorResource(repository: ProviderRepository): ResolvedCon
         displayName: repository.fullName,
         webUrl: repository.htmlUrl,
         private: repository.private,
-        defaultVersion: repository.defaultBranch,
+        defaultVersionName: repository.defaultBranch,
         git: {
             id: repository.id,
             provider: repository.provider,
@@ -150,6 +204,10 @@ export function toConnectorResource(repository: ProviderRepository): ResolvedCon
             defaultBranch: repository.defaultBranch,
             private: repository.private,
             resourceKind: "git-repository",
+            resourceId: repository.id,
+            providerResourceId: repository.id,
+            resourceDisplayName: repository.fullName,
+            resourceWebUrl: repository.htmlUrl,
             displayName: repository.fullName,
             webUrl: repository.htmlUrl,
             defaultVersionName: repository.defaultBranch ?? undefined,
@@ -157,8 +215,11 @@ export function toConnectorResource(repository: ProviderRepository): ResolvedCon
     };
 }
 
-export function toConnectorResourceVersion(branch: ProviderBranch): ResolvedConnectorResourceVersion {
-    return { name: branch.name, versionId: branch.commitSha, git: branch };
+export function toConnectorResourceVersion(
+    resourceId: string,
+    branch: ProviderBranch
+): ResolvedConnectorResourceVersion {
+    return { name: branch.name, versionId: branch.commitSha, resourceId, git: branch };
 }
 
 export function listConnectorResourceRecords(
@@ -176,47 +237,68 @@ export function listConnectorResourceVersionRecords(input: {
     resourceId: string;
 }): Effect.Effect<ResolvedConnectorResourceVersion[], ApiError> {
     return Effect.map(listProviderBranches(input.connector, input.installation, input.resourceId), (branches) =>
-        branches.map(toConnectorResourceVersion)
+        branches.map((branch) => toConnectorResourceVersion(input.resourceId, branch))
     );
 }
+
+export type ConnectorGraphOwnerScope = {
+    organizationId: string | null;
+    teamId: string | null;
+    userId: string | null;
+};
 
 export function assertCanBindResourceGraph(input: {
     user: AuthUser;
     installation: ConnectorInstallationRow;
     owner: ConnectorBindingCreateInput["owner"];
-}): Effect.Effect<{ organizationId: string | null; teamId: string | null }, ApiError | DatabaseError, Database> {
+}): Effect.Effect<ConnectorGraphOwnerScope, ApiError | DatabaseError, Database> {
     return Effect.gen(function* () {
+        if (input.owner.kind === "user") {
+            if (
+                input.owner.userId !== input.user.id ||
+                input.installation.subjectKind !== "user" ||
+                input.installation.subjectUserId !== input.owner.userId
+            ) {
+                return yield* Effect.fail(forbiddenError());
+            }
+            return { organizationId: null, teamId: null, userId: input.owner.userId };
+        }
+
         if (input.owner.kind === "team") {
-            if (input.installation.teamId !== input.owner.teamId) {
+            const installationTeamId = input.installation.subjectTeamId ?? input.installation.teamId;
+            if (installationTeamId !== input.owner.teamId) {
                 return yield* Effect.fail(forbiddenError());
             }
             const access = yield* Effect.mapError(
                 requireTeamGraphCreateAccess(input.user, input.owner.teamId),
                 connectorEffectError
             );
-            if (input.installation.organizationId !== access.team.organizationId) {
+            if (input.installation.organizationId && input.installation.organizationId !== access.team.organizationId) {
                 return yield* Effect.fail(forbiddenError());
             }
-            return { organizationId: input.installation.organizationId, teamId: input.owner.teamId };
+            return { organizationId: access.team.organizationId, teamId: input.owner.teamId, userId: null };
         }
 
-        if (input.installation.teamId !== null || !input.installation.organizationId) {
+        const organizationId =
+            input.owner.organizationId ?? input.installation.subjectOrganizationId ?? input.installation.organizationId;
+        if (input.installation.subjectKind === "team" || input.installation.teamId !== null || !organizationId) {
             return yield* Effect.fail(forbiddenError());
         }
-        yield* Effect.mapError(
-            requireOrganizationAdmin(input.user, input.installation.organizationId),
+        const membership = yield* Effect.mapError(
+            requireOrganizationAdmin(input.user, organizationId),
             connectorEffectError
         );
-        return { organizationId: input.installation.organizationId, teamId: null };
+        return { organizationId: membership.organizationId, teamId: null, userId: null };
     });
 }
 
 export function createGraphBinding(input: {
     connector: ConnectorRow;
     installation: ConnectorInstallationRow;
+    ownerScope: ConnectorGraphOwnerScope;
     body: ConnectorBindingCreateInput;
     resource: ResolvedConnectorResource;
-    version: ResolvedConnectorResourceVersion;
+    version?: ResolvedConnectorResourceVersion;
 }): Effect.Effect<
     { graph: typeof graphTable.$inferSelect; binding: ConnectorResourceBinding },
     DatabaseError,
@@ -231,8 +313,9 @@ export function createGraphBinding(input: {
                 const [graph] = yield* tx
                     .insert(graphTable)
                     .values({
-                        organizationId: input.installation.organizationId,
-                        teamId: input.body.owner.kind === "team" ? input.body.owner.teamId : null,
+                        organizationId: input.ownerScope.organizationId,
+                        teamId: input.ownerScope.teamId,
+                        userId: input.ownerScope.userId,
                         name: input.body.name,
                         description: null,
                         state: "updating",
@@ -250,8 +333,13 @@ export function createGraphBinding(input: {
                         providerResourceId: input.resource.id,
                         resourceDisplayName: input.resource.displayName,
                         resourceWebUrl: input.resource.webUrl,
-                        versionName: input.version.name,
-                        lastSeenVersionId: input.version.versionId,
+                        versionName: input.version?.name ?? input.body.versionName ?? null,
+                        lastSeenVersionId: input.version?.versionId ?? input.body.versionId ?? null,
+                        syncCursor: input.body.syncCursor,
+                        resourceMetadata:
+                            input.body.metadata === undefined ? null : JSON.stringify(input.body.metadata),
+                        syncEnabled: input.body.syncEnabled ?? true,
+                        webhookEnabled: input.body.webhookEnabled ?? input.body.resourceKind === "git-repository",
                         syncStatus: "pending",
                     })
                     .returning();
@@ -265,7 +353,7 @@ export function createGraphBinding(input: {
 export function enqueueInitialBindingSync(input: {
     graphId: string;
     bindingId: string;
-    versionId: string;
+    versionId?: string;
 }): Effect.Effect<string, ApiError | DatabaseError, Database> {
     return Effect.gen(function* () {
         return yield* Effect.matchEffect(
@@ -274,7 +362,7 @@ export function enqueueInitialBindingSync(input: {
                     const handle = await ow.runWorkflow(syncConnectorResourceGraphSpec, {
                         bindingId: input.bindingId,
                         reason: "initial",
-                        versionId: input.versionId,
+                        ...(input.versionId ? { versionId: input.versionId } : {}),
                     });
                     return handle.workflowRun.id;
                 },
@@ -345,14 +433,17 @@ export function enqueueManualBindingSync(binding: ConnectorResourceBinding): Eff
     });
 }
 
-export function requireGitRepositoryResource(input: {
+export function requireConnectorResource(input: {
     connector: ConnectorRow;
     installation: ConnectorInstallationRow;
+    resourceKind: ConnectorResourceKind;
     resourceId: string;
 }): Effect.Effect<ResolvedConnectorResource, ApiError> {
     return Effect.gen(function* () {
         const resources = yield* listConnectorResourceRecords(input.connector, input.installation);
-        const resource = resources.find((candidate) => resourceMatches(candidate, input.resourceId));
+        const resource = resources.find(
+            (candidate) => candidate.kind === input.resourceKind && resourceMatches(candidate, input.resourceId)
+        );
         if (!resource) {
             return yield* Effect.fail(graphNotFoundError());
         }
@@ -360,7 +451,7 @@ export function requireGitRepositoryResource(input: {
     });
 }
 
-export function requireGitResourceVersion(input: {
+export function requireConnectorResourceVersion(input: {
     connector: ConnectorRow;
     installation: ConnectorInstallationRow;
     resourceId: string;

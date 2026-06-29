@@ -5,17 +5,28 @@ import {
     MAX_REPOSITORY_CODE_BYTES as MAX_CONNECTOR_CODE_BYTES,
     MAX_REPOSITORY_CODE_FILES as MAX_CONNECTOR_CODE_FILES,
     createConnectorAdapter,
-    isKnownConnectorProvider,
     normalizeGitLabBaseUrl,
 } from "@kiwi/connectors";
+import { UnsupportedSyncStrategyError } from "@kiwi/sync";
+import { putNamedFile } from "@kiwi/files";
+import type { FileStorage } from "@kiwi/files";
+import { inferGraphFileType } from "@kiwi/graph/file-type";
+import type {
+    SyncDelta,
+    SyncSnapshot,
+    SyncStrategyKind,
+    SyncedExternalItem,
+    SyncedExternalItemChange,
+} from "@kiwi/sync";
 import type {
     ConnectorAdapter,
     ConnectorCredentials,
     ConnectorInstallationCredentials,
     ConnectorProvider,
     ConnectorResourceChange,
-    ConnectorResourceSnapshot,
+    ConnectorResourceDelta,
     ConnectorResourceKind,
+    ConnectorResourceSnapshot,
     GitLabConnectorCredentials,
     ProviderCodeFile,
 } from "@kiwi/connectors";
@@ -56,22 +67,69 @@ type ConnectorAdapterContext = {
     gitLabBaseUrl?: string;
 };
 
-type ConnectorSyncFile = ProviderCodeFile & {
-    displayName?: string;
-    providerFileId?: string;
-    versionId?: string;
-    etag?: string;
-    webUrl?: string;
+type CodeSyncedExternalItem = SyncedExternalItem & {
+    providerItemId: string;
+    path: string;
+    displayName: string;
+    size: number;
+    checksum: string;
+    webUrl: string;
+    versionId: string;
+    contentAccessMode: "text";
+    processingKind: "code";
+    textContent: string;
+};
+
+type StoredSyncedExternalItem = SyncedExternalItem & {
+    providerItemId: string;
+    path: string;
+    displayName: string;
+    size: number;
+    checksum: string;
+    mimeType: string;
+    contentType: string;
+    versionId: string;
+    contentAccessMode: "text" | "binary";
+    processingKind: "document" | "media";
+    storageKey: string;
+};
+
+type LoadedSyncedExternalItem = CodeSyncedExternalItem | StoredSyncedExternalItem;
+
+type CodeSyncSnapshot = Omit<SyncSnapshot, "items"> & {
+    items: readonly CodeSyncedExternalItem[];
 };
 
 type ActiveBindingFile = {
     id: string;
     size: number;
     path: string;
+    providerItemId?: string;
+};
+
+type ActiveBindingFiles = {
+    byPath: Map<string, ActiveBindingFile>;
+    byProviderItemId: Map<string, ActiveBindingFile>;
+};
+
+type PlannedSyncItem = {
+    path: string;
+    providerItemId?: string;
+    parentProviderItemId?: string | null;
+    displayName?: string;
+    mimeType?: string;
+    contentType?: string;
+    size?: number;
+    checksum?: string;
+    etag?: string;
+    webUrl?: string;
+    rawUrl?: string;
+    contentAccessMode?: SyncedExternalItem["contentAccessMode"];
+    processingKind?: SyncedExternalItem["processingKind"];
 };
 
 type IncrementalSyncPlan = {
-    newPaths: string[];
+    newItems: PlannedSyncItem[];
     retiredFileIds: string[];
 };
 
@@ -92,11 +150,11 @@ type ConnectorFileRow = {
     graphId: string;
     name: string;
     size: number;
-    type: "code";
-    mimeType: "text/plain";
+    type: string;
+    mimeType: string;
     key: string;
-    storageKind: "external";
-    externalUrl: string;
+    storageKind: "external" | "internal";
+    externalUrl: string | null;
     externalProvider: string;
     connectorBindingId: string;
     checksum: string;
@@ -107,6 +165,7 @@ type WorkflowStep = Pick<Parameters<Workflow<unknown, unknown, unknown>["fn"]>[0
 
 type CompatibleCodeFileMetadata = {
     path: string;
+    providerFileId?: string;
     versionId?: string;
     git?: { commitSha?: string };
 };
@@ -165,17 +224,21 @@ function isGitLabConnectorCredentials(value: ConnectorCredentials): value is Git
 }
 
 function connectorProvider(row: BindingGraphRow): ConnectorProvider {
-    if (!isKnownConnectorProvider(row.connector.provider)) {
-        throw new Error("Unsupported connector provider");
-    }
     return row.connector.provider;
 }
 
 function connectorResourceKind(row: BindingGraphRow): ConnectorResourceKind {
-    if (row.binding.resourceKind !== "git-repository" && row.binding.resourceKind !== "folder") {
-        throw new Error("Unsupported connector resource kind");
-    }
     return row.binding.resourceKind;
+}
+
+function requireBindingVersionName(row: BindingGraphRow): string {
+    if (!row.binding.versionName) {
+        throw new UnsupportedSyncStrategyError({
+            strategy: "versioned-resource",
+            message: "Versioned resource sync requires a binding version name",
+        });
+    }
+    return row.binding.versionName;
 }
 
 function createAdapterContext(row: BindingGraphRow): Effect.Effect<ConnectorAdapterContext, unknown> {
@@ -223,6 +286,53 @@ function readStoredInstallationCredentials(
     return installationCredentials;
 }
 
+const selectConnectorSyncStrategy = Effect.fn("selectConnectorSyncStrategy")(function* (adapter: ConnectorAdapter) {
+    const capabilities = adapter.capabilities;
+    if (!capabilities) {
+        return yield* Effect.fail(
+            new UnsupportedSyncStrategyError({
+                strategy: "unknown",
+                message: "Connector adapter did not declare sync capabilities",
+            })
+        );
+    }
+    if (capabilities.versions) {
+        return "versioned-resource";
+    }
+    if (capabilities.cursorSync) {
+        return "cursor";
+    }
+    if (capabilities.children) {
+        return "hierarchical-snapshot";
+    }
+    if (capabilities.binaryFiles) {
+        return "binary-document";
+    }
+    return yield* Effect.fail(
+        new UnsupportedSyncStrategyError({
+            strategy: "unknown",
+            message: "Connector adapter does not advertise a supported sync capability",
+        })
+    );
+});
+
+const selectBindingSyncStrategy = Effect.fn("selectBindingSyncStrategy")(function* (row: BindingGraphRow) {
+    const { adapter } = yield* createAdapterContext(row);
+    return yield* selectConnectorSyncStrategy(adapter);
+});
+
+const requireVersionedSyncStrategy = Effect.fn("requireVersionedSyncStrategy")(function* (strategy: SyncStrategyKind) {
+    if (strategy === "versioned-resource") {
+        return;
+    }
+    return yield* Effect.fail(
+        new UnsupportedSyncStrategyError({
+            strategy,
+            message: `Connector sync strategy "${strategy}" is not supported by resource graph sync yet`,
+        })
+    );
+});
+
 function resolveTargetVersion(row: BindingGraphRow, inputVersionId?: string): Effect.Effect<string, unknown> {
     if (inputVersionId) {
         return Effect.succeed(inputVersionId);
@@ -230,8 +340,9 @@ function resolveTargetVersion(row: BindingGraphRow, inputVersionId?: string): Ef
 
     return Effect.gen(function* () {
         const { adapter } = yield* createAdapterContext(row);
+        const versionName = requireBindingVersionName(row);
         const version = (yield* adapter.listResourceVersions(row.binding.providerResourceId)).find(
-            (candidate) => candidate.name === row.binding.versionName
+            (candidate) => candidate.name === versionName
         );
         if (!version) {
             return yield* Effect.fail(
@@ -243,44 +354,322 @@ function resolveTargetVersion(row: BindingGraphRow, inputVersionId?: string): Ef
     });
 }
 
-function loadSnapshot(row: BindingGraphRow, versionId: string): Effect.Effect<ConnectorResourceSnapshot, unknown> {
-    return Effect.gen(function* () {
-        const { adapter } = yield* createAdapterContext(row);
-        return yield* adapter.loadSnapshot(row.binding.providerResourceId, row.binding.versionName, versionId);
-    });
-}
-
-function compareResourceVersions(row: BindingGraphRow, fromVersionId: string, toVersionId: string) {
-    return Effect.gen(function* () {
-        const { adapter } = yield* createAdapterContext(row);
-        return yield* adapter.compareVersions(row.binding.providerResourceId, fromVersionId, toVersionId);
-    });
-}
-
-function loadChangedFiles(
-    row: BindingGraphRow,
-    versionId: string,
-    paths: string[]
-): Effect.Effect<ConnectorSyncFile[], unknown> {
+function loadSnapshot(row: BindingGraphRow, versionId: string): Effect.Effect<CodeSyncSnapshot, unknown> {
     return Effect.gen(function* () {
         const context = yield* createAdapterContext(row);
-        const files: ConnectorSyncFile[] = [];
-        for (let index = 0; index < paths.length; index += PROVIDER_FILE_READ_CONCURRENCY) {
-            const batch = paths.slice(index, index + PROVIDER_FILE_READ_CONCURRENCY);
-            files.push(
+        const versionName = requireBindingVersionName(row);
+        const snapshot = yield* context.adapter.loadSnapshot(row.binding.providerResourceId, versionName, versionId);
+        return connectorSnapshotToSyncSnapshot(row, snapshot);
+    });
+}
+
+function compareResourceVersions(
+    row: BindingGraphRow,
+    fromVersionId: string,
+    toVersionId: string
+): Effect.Effect<SyncDelta, unknown> {
+    return Effect.gen(function* () {
+        const { adapter } = yield* createAdapterContext(row);
+        const delta = yield* adapter.compareVersions(row.binding.providerResourceId, fromVersionId, toVersionId);
+        return connectorDeltaToSyncDelta(delta);
+    });
+}
+
+function listCursorChanges(row: BindingGraphRow, cursor?: string): Effect.Effect<SyncDelta, unknown> {
+    return Effect.gen(function* () {
+        const { adapter } = yield* createAdapterContext(row);
+        if (!adapter.listChanges) {
+            return yield* Effect.fail(
+                new UnsupportedSyncStrategyError({
+                    strategy: "cursor",
+                    message: "Connector adapter advertised cursor sync without listChanges",
+                })
+            );
+        }
+        const changeSet = yield* adapter.listChanges(row.binding.providerResourceId, cursor);
+        return {
+            isIncremental: !changeSet.isInitial,
+            fromVersionId: cursor,
+            toVersionId: changeSet.cursor,
+            cursor: changeSet.cursor,
+            changes: changeSet.changes.map(connectorChangeToSyncChange),
+        };
+    });
+}
+
+function loadChangedItems(
+    row: BindingGraphRow,
+    versionId: string,
+    plannedItems: PlannedSyncItem[]
+): Effect.Effect<LoadedSyncedExternalItem[], unknown, FileStorage> {
+    return Effect.gen(function* () {
+        const context = yield* createAdapterContext(row);
+        const items: LoadedSyncedExternalItem[] = [];
+        for (let index = 0; index < plannedItems.length; index += PROVIDER_FILE_READ_CONCURRENCY) {
+            const batch = plannedItems.slice(index, index + PROVIDER_FILE_READ_CONCURRENCY);
+            items.push(
                 ...(yield* Effect.all(
-                    batch.map((path) =>
-                        Effect.map(
-                            context.adapter.readFile({ resourceId: row.binding.providerResourceId, path, versionId }),
-                            (content) => buildConnectorFile(row, context, versionId, path, content)
-                        )
-                    ),
+                    batch.map((plannedItem) => loadChangedItem(row, context, versionId, plannedItem)),
                     { concurrency: PROVIDER_FILE_READ_CONCURRENCY }
                 ))
             );
         }
-        return files;
+        return items;
     });
+}
+
+function loadChangedItem(
+    row: BindingGraphRow,
+    context: ConnectorAdapterContext,
+    versionId: string,
+    plannedItem: PlannedSyncItem
+): Effect.Effect<LoadedSyncedExternalItem, unknown, FileStorage> {
+    if (plannedItem.processingKind === "document" || plannedItem.processingKind === "media") {
+        return loadStoredSyncItem(row, context, versionId, plannedItem);
+    }
+
+    if (
+        plannedItem.processingKind !== undefined &&
+        (plannedItem.processingKind !== "code" || plannedItem.contentAccessMode !== "text")
+    ) {
+        return Effect.fail(
+            new UnsupportedSyncStrategyError({
+                strategy: "cursor",
+                message: "Only text code connector items can use repository processing",
+            })
+        );
+    }
+
+    return Effect.map(
+        context.adapter.readFile({
+            resourceId: row.binding.providerResourceId,
+            path: plannedItem.path,
+            versionId,
+        }),
+        (content) => buildCodeSyncItem(row, context, versionId, plannedItem, content)
+    );
+}
+
+function plannedItemDisplayName(item: PlannedSyncItem): string {
+    return item.displayName ?? item.path.split("/").at(-1) ?? item.path;
+}
+
+function loadStoredSyncItem(
+    row: BindingGraphRow,
+    context: ConnectorAdapterContext,
+    versionId: string,
+    plannedItem: PlannedSyncItem
+): Effect.Effect<StoredSyncedExternalItem, unknown, FileStorage> {
+    return Effect.gen(function* () {
+        const loaded =
+            plannedItem.contentAccessMode === "binary"
+                ? yield* loadBinarySyncItem(row, context, versionId, plannedItem)
+                : plannedItem.contentAccessMode === "text"
+                  ? yield* loadTextFileSyncItem(row, context, versionId, plannedItem)
+                  : yield* Effect.fail(
+                        new UnsupportedSyncStrategyError({
+                            strategy: "cursor",
+                            message: "External connector items must expose text or binary content before processing",
+                            capability: "binaryFiles",
+                        })
+                    );
+        const uploaded = yield* putNamedFile(
+            loaded.displayName,
+            loaded.bytes,
+            `graphs/${row.binding.graphId}/connector-resources/${row.binding.id}/${versionId}`,
+            env.S3_BUCKET
+        );
+        return {
+            ...plannedItem,
+            providerItemId: plannedItem.providerItemId ?? plannedItem.path,
+            displayName: loaded.displayName,
+            size: loaded.size,
+            checksum: plannedItem.checksum ?? createContentChecksum(loaded.bytes),
+            mimeType: loaded.mimeType,
+            contentType: loaded.contentType,
+            versionId,
+            contentAccessMode: plannedItem.contentAccessMode as "text" | "binary",
+            processingKind: plannedItem.processingKind as "document" | "media",
+            storageKey: uploaded.key,
+        };
+    });
+}
+
+function loadBinarySyncItem(
+    row: BindingGraphRow,
+    context: ConnectorAdapterContext,
+    versionId: string,
+    plannedItem: PlannedSyncItem
+): Effect.Effect<
+    {
+        bytes: Uint8Array;
+        displayName: string;
+        size: number;
+        mimeType: string;
+        contentType: string;
+    },
+    unknown
+> {
+    if (!context.adapter.openFile) {
+        return Effect.fail(
+            new UnsupportedSyncStrategyError({
+                strategy: "cursor",
+                message: "Connector adapter advertised binary files without openFile",
+                capability: "binaryFiles",
+            })
+        );
+    }
+    return Effect.map(
+        context.adapter.openFile({
+            resourceId: row.binding.providerResourceId,
+            path: plannedItem.path,
+            versionId,
+            etag: plannedItem.etag,
+        }),
+        (file) => {
+            const bytes = file.bytes instanceof Uint8Array ? file.bytes : new Uint8Array(file.bytes);
+            const contentType =
+                file.contentType ?? plannedItem.contentType ?? plannedItem.mimeType ?? "application/octet-stream";
+            return {
+                bytes,
+                displayName: plannedItemDisplayName(plannedItem),
+                size: file.size ?? plannedItem.size ?? bytes.byteLength,
+                mimeType: plannedItem.mimeType ?? contentType,
+                contentType,
+            };
+        }
+    );
+}
+
+function loadTextFileSyncItem(
+    row: BindingGraphRow,
+    context: ConnectorAdapterContext,
+    versionId: string,
+    plannedItem: PlannedSyncItem
+): Effect.Effect<
+    {
+        bytes: Uint8Array;
+        displayName: string;
+        size: number;
+        mimeType: string;
+        contentType: string;
+    },
+    unknown
+> {
+    return Effect.map(
+        context.adapter.readFile({
+            resourceId: row.binding.providerResourceId,
+            path: plannedItem.path,
+            versionId,
+        }),
+        (content) => {
+            const bytes = new TextEncoder().encode(content);
+            const contentType = plannedItem.contentType ?? plannedItem.mimeType ?? "text/plain";
+            return {
+                bytes,
+                displayName: plannedItemDisplayName(plannedItem),
+                size: plannedItem.size ?? bytes.byteLength,
+                mimeType: plannedItem.mimeType ?? contentType,
+                contentType,
+            };
+        }
+    );
+}
+
+function createContentChecksum(bytes: Uint8Array): string {
+    return createHash("sha256").update(bytes).digest("hex");
+}
+
+function connectorSnapshotToSyncSnapshot(row: BindingGraphRow, snapshot: ConnectorResourceSnapshot): CodeSyncSnapshot {
+    return {
+        resourceId: snapshot.resource.id,
+        versionName: snapshot.version.name,
+        versionId: snapshot.version.versionId,
+        items: snapshot.files.map((file) => providerCodeFileToSyncItem(row, snapshot.version.versionId, file)),
+    };
+}
+
+function connectorDeltaToSyncDelta(delta: ConnectorResourceDelta): SyncDelta {
+    return {
+        isIncremental: delta.isIncremental,
+        fromVersionId: delta.fromVersionId,
+        toVersionId: delta.toVersionId,
+        changes: delta.changes.map(connectorChangeToSyncChange),
+    };
+}
+
+function connectorChangeToSyncChange(change: ConnectorResourceChange): SyncedExternalItemChange {
+    const record = change as ConnectorResourceChange & Record<string, unknown>;
+    const providerItemId =
+        typeof record.providerItemId === "string"
+            ? record.providerItemId
+            : change.status === "deleted"
+              ? change.oldPath
+              : change.newPath;
+    const path =
+        typeof record.path === "string"
+            ? record.path
+            : typeof record.newPath === "string"
+              ? record.newPath
+              : change.status === "deleted"
+                ? change.oldPath
+                : undefined;
+    const displayName = typeof record.displayName === "string" ? record.displayName : undefined;
+    const parentProviderItemId =
+        typeof record.parentProviderItemId === "string" || record.parentProviderItemId === null
+            ? record.parentProviderItemId
+            : undefined;
+    const mimeType = typeof record.mimeType === "string" ? record.mimeType : undefined;
+    const contentType = typeof record.contentType === "string" ? record.contentType : undefined;
+    const size = typeof record.size === "number" ? record.size : undefined;
+    const checksum = typeof record.checksum === "string" ? record.checksum : undefined;
+    const etag = typeof record.etag === "string" ? record.etag : undefined;
+    const webUrl = typeof record.webUrl === "string" ? record.webUrl : undefined;
+    const rawUrl = typeof record.rawUrl === "string" ? record.rawUrl : undefined;
+    const contentAccessMode =
+        record.contentAccessMode === "text" ||
+        record.contentAccessMode === "binary" ||
+        record.contentAccessMode === "external" ||
+        record.contentAccessMode === "unavailable"
+            ? record.contentAccessMode
+            : undefined;
+    const processingKind =
+        record.processingKind === "code" || record.processingKind === "document" || record.processingKind === "media"
+            ? record.processingKind
+            : undefined;
+    const item: SyncedExternalItem | undefined =
+        change.status === "deleted" || !path
+            ? undefined
+            : {
+                  providerItemId,
+                  ...(parentProviderItemId !== undefined ? { parentProviderItemId } : {}),
+                  path,
+                  displayName: displayName ?? path.split("/").at(-1) ?? path,
+                  ...(mimeType ? { mimeType } : {}),
+                  ...(contentType ? { contentType } : {}),
+                  ...(size !== undefined ? { size } : {}),
+                  ...(checksum ? { checksum } : {}),
+                  ...(etag ? { etag } : {}),
+                  ...(webUrl ? { webUrl } : {}),
+                  ...(rawUrl ? { rawUrl } : {}),
+                  contentAccessMode: contentAccessMode ?? "text",
+                  processingKind: processingKind ?? "code",
+              };
+    switch (change.status) {
+        case "added":
+        case "modified":
+            return { status: change.status, providerItemId, path, ...(item ? { item } : {}) };
+        case "deleted":
+            return { status: "deleted", providerItemId, path };
+        case "renamed":
+            return {
+                status: "renamed",
+                providerItemId,
+                oldPath: change.oldPath,
+                path,
+                ...(item ? { item } : {}),
+            };
+    }
 }
 
 function loadActiveBindingFiles(bindingId: string): Effect.Effect<ActiveBindingFile[], unknown, Database> {
@@ -293,13 +682,7 @@ function loadActiveBindingFiles(bindingId: string): Effect.Effect<ActiveBindingF
                     metadata: filesTable.metadata,
                 })
                 .from(filesTable)
-                .where(
-                    and(
-                        eq(filesTable.connectorBindingId, bindingId),
-                        eq(filesTable.type, "code"),
-                        eq(filesTable.deleted, false)
-                    )
-                )
+                .where(and(eq(filesTable.connectorBindingId, bindingId), eq(filesTable.deleted, false)))
         );
 
         const filesByPath = new Map<string, ActiveBindingFile>();
@@ -317,6 +700,7 @@ function loadActiveBindingFiles(bindingId: string): Effect.Effect<ActiveBindingF
                 id: row.id,
                 size: row.size,
                 path: metadata.path,
+                ...(metadata.providerFileId ? { providerItemId: metadata.providerFileId } : {}),
             });
         }
 
@@ -324,76 +708,168 @@ function loadActiveBindingFiles(bindingId: string): Effect.Effect<ActiveBindingF
     });
 }
 
-function activeFilesByPath(files: ActiveBindingFile[]): Map<string, ActiveBindingFile> {
-    return new Map(files.map((file) => [file.path, file]));
+function activeBindingFiles(files: ActiveBindingFile[]): ActiveBindingFiles {
+    const byPath = new Map<string, ActiveBindingFile>();
+    const byProviderItemId = new Map<string, ActiveBindingFile>();
+    for (const file of files) {
+        byPath.set(file.path, file);
+        if (file.providerItemId) {
+            byProviderItemId.set(file.providerItemId, file);
+        }
+    }
+    return { byPath, byProviderItemId };
 }
 
 function planIncrementalChanges(
-    activeFiles: Map<string, ActiveBindingFile>,
-    changes: ConnectorResourceChange[]
+    activeFiles: ActiveBindingFiles,
+    changes: readonly SyncedExternalItemChange[]
 ): IncrementalSyncPlan {
-    const seenPaths = new Set<string>();
-    const newPaths: string[] = [];
+    const seenLocators = new Set<string>();
+    const newItems: PlannedSyncItem[] = [];
     const retiredFileIds = new Set<string>();
 
-    const trackPath = (path: string) => {
-        if (seenPaths.has(path)) {
-            throw new Error(`Provider delta contained duplicate path ${path}`);
+    const trackLocator = (path?: string, providerItemId?: string) => {
+        const locator = path ? { key: `path:${path}`, label: `path ${path}` } : null;
+        const itemLocator = providerItemId ? { key: `item:${providerItemId}`, label: `item ${providerItemId}` } : null;
+        const selected = locator ?? itemLocator;
+        if (!selected) {
+            throw new UnsupportedSyncStrategyError({
+                strategy: "versioned-resource",
+                message: "Connector deltas require a path or provider item id",
+            });
         }
-        seenPaths.add(path);
+        if (seenLocators.has(selected.key)) {
+            throw new Error(`Provider delta contained duplicate ${selected.label}`);
+        }
+        seenLocators.add(selected.key);
     };
 
-    const retirePath = (path: string) => {
-        const activeFile = activeFiles.get(path);
+    const retireLocator = (path?: string, providerItemId?: string) => {
+        const activeFile =
+            (providerItemId ? activeFiles.byProviderItemId.get(providerItemId) : undefined) ??
+            (path ? activeFiles.byPath.get(path) : undefined);
         if (activeFile) {
             retiredFileIds.add(activeFile.id);
         }
     };
 
+    const plannedItem = (change: SyncedExternalItemChange): PlannedSyncItem => {
+        const item = "item" in change ? change.item : undefined;
+        const path = item?.path ?? ("path" in change ? change.path : undefined);
+        if (!path) {
+            throw new UnsupportedSyncStrategyError({
+                strategy: "versioned-resource",
+                message: "Connector deltas require paths for added, modified, and renamed items",
+            });
+        }
+        return {
+            path,
+            ...(change.providerItemId ? { providerItemId: change.providerItemId } : {}),
+            ...(item?.parentProviderItemId !== undefined ? { parentProviderItemId: item.parentProviderItemId } : {}),
+            ...(item?.displayName ? { displayName: item.displayName } : {}),
+            ...(item?.mimeType ? { mimeType: item.mimeType } : {}),
+            ...(item?.contentType ? { contentType: item.contentType } : {}),
+            ...(item?.size !== undefined ? { size: item.size } : {}),
+            ...(item?.checksum ? { checksum: item.checksum } : {}),
+            ...(item?.etag ? { etag: item.etag } : {}),
+            ...(item?.webUrl ? { webUrl: item.webUrl } : {}),
+            ...(item?.rawUrl ? { rawUrl: item.rawUrl } : {}),
+            ...(item?.contentAccessMode ? { contentAccessMode: item.contentAccessMode } : {}),
+            ...(item?.processingKind ? { processingKind: item.processingKind } : {}),
+        };
+    };
+
     for (const change of changes) {
         switch (change.status) {
             case "added":
-            case "modified":
-                trackPath(change.newPath);
-                newPaths.push(change.newPath);
-                retirePath(change.newPath);
+            case "modified": {
+                const item = plannedItem(change);
+                trackLocator(item.path, item.providerItemId);
+                newItems.push(item);
+                retireLocator(item.path, item.providerItemId);
                 break;
+            }
             case "deleted":
-                trackPath(change.oldPath);
-                retirePath(change.oldPath);
+                trackLocator(change.path, change.providerItemId);
+                retireLocator(change.path, change.providerItemId);
                 break;
-            case "renamed":
-                trackPath(change.oldPath);
-                trackPath(change.newPath);
-                retirePath(change.oldPath);
-                retirePath(change.newPath);
-                newPaths.push(change.newPath);
+            case "renamed": {
+                if (change.oldPath) {
+                    trackLocator(change.oldPath);
+                }
+                const item = plannedItem(change);
+                trackLocator(item.path, item.providerItemId);
+                retireLocator(change.oldPath, item.providerItemId);
+                retireLocator(item.path, item.providerItemId);
+                newItems.push(item);
                 break;
+            }
         }
     }
 
     return {
-        newPaths,
+        newItems,
         retiredFileIds: [...retiredFileIds],
     };
 }
 
-function buildConnectorFile(
+function buildCodeSyncItem(
     row: BindingGraphRow,
     context: ConnectorAdapterContext,
     versionId: string,
-    path: string,
+    plannedItem: PlannedSyncItem,
     content: string
-): ConnectorSyncFile {
-    const urls = gitFileUrls(row, context, versionId, path);
+): CodeSyncedExternalItem {
+    const urls = gitFileUrls(row, context, versionId, plannedItem.path);
+    const parentPathEnd = plannedItem.path.lastIndexOf("/");
+    const contentChecksum = createHash("sha256").update(content, "utf8").digest("hex");
     return {
-        path,
+        providerItemId: plannedItem.providerItemId ?? plannedItem.path,
+        parentProviderItemId:
+            plannedItem.parentProviderItemId !== undefined
+                ? plannedItem.parentProviderItemId
+                : parentPathEnd > 0
+                  ? plannedItem.path.slice(0, parentPathEnd)
+                  : null,
+        path: plannedItem.path,
+        displayName: plannedItem.displayName ?? plannedItem.path.split("/").at(-1) ?? plannedItem.path,
+        mimeType: plannedItem.mimeType ?? "text/plain",
+        contentType: plannedItem.contentType ?? plannedItem.mimeType ?? "text/plain",
         size: Buffer.byteLength(content, "utf8"),
-        checksum: createHash("sha256").update(content, "utf8").digest("hex"),
-        htmlUrl: urls.webUrl,
-        ...(urls.rawUrl ? { rawUrl: urls.rawUrl } : {}),
-        content,
+        checksum: plannedItem.checksum ?? contentChecksum,
+        webUrl: plannedItem.webUrl ?? urls.webUrl,
+        ...((plannedItem.rawUrl ?? urls.rawUrl) ? { rawUrl: plannedItem.rawUrl ?? urls.rawUrl } : {}),
+        ...(plannedItem.etag ? { etag: plannedItem.etag } : {}),
+        ...(row.binding.versionName ? { versionName: row.binding.versionName } : {}),
         versionId,
+        contentAccessMode: "text",
+        processingKind: "code",
+        textContent: content,
+    };
+}
+
+function providerCodeFileToSyncItem(
+    row: BindingGraphRow,
+    versionId: string,
+    file: ProviderCodeFile
+): CodeSyncedExternalItem {
+    const parentPathEnd = file.path.lastIndexOf("/");
+    return {
+        providerItemId: file.path,
+        parentProviderItemId: parentPathEnd > 0 ? file.path.slice(0, parentPathEnd) : null,
+        path: file.path,
+        displayName: file.path.split("/").at(-1) ?? file.path,
+        mimeType: "text/plain",
+        contentType: "text/plain",
+        size: file.size,
+        checksum: file.checksum,
+        webUrl: file.htmlUrl,
+        ...(file.rawUrl ? { rawUrl: file.rawUrl } : {}),
+        ...(row.binding.versionName ? { versionName: row.binding.versionName } : {}),
+        versionId,
+        contentAccessMode: "text",
+        processingKind: "code",
+        textContent: file.content,
     };
 }
 
@@ -425,39 +901,38 @@ function gitFileUrls(
 }
 
 function assertBindingSnapshotLimits(
-    activeFiles: Map<string, ActiveBindingFile>,
+    activeFiles: ActiveBindingFiles,
     retiredFileIds: string[],
-    newFiles: ConnectorSyncFile[]
+    newFiles: LoadedSyncedExternalItem[]
 ) {
     const retiredIds = new Set(retiredFileIds);
     const totalFileCount =
-        [...activeFiles.values()].filter((file) => !retiredIds.has(file.id)).length + newFiles.length;
+        [...activeFiles.byPath.values()].filter((file) => !retiredIds.has(file.id)).length + newFiles.length;
     if (totalFileCount > MAX_CONNECTOR_CODE_FILES) {
         throw new ConnectorProviderError("limit", "Connector resource contains too many supported code files");
     }
 
     const totalBytes =
-        [...activeFiles.values()].reduce((sum, file) => sum + (retiredIds.has(file.id) ? 0 : file.size), 0) +
+        [...activeFiles.byPath.values()].reduce((sum, file) => sum + (retiredIds.has(file.id) ? 0 : file.size), 0) +
         newFiles.reduce((sum, file) => sum + file.size, 0);
     if (totalBytes > MAX_CONNECTOR_CODE_BYTES) {
         throw new ConnectorProviderError("limit", "Connector resource contains too much supported code");
     }
 }
 
-function connectorFileKey(bindingId: string, file: ConnectorSyncFile, versionId: string): string {
+function connectorFileKey(bindingId: string, file: LoadedSyncedExternalItem, versionId: string): string {
     const fileVersionId = file.versionId ?? versionId;
-    return file.providerFileId
-        ? `connector:${bindingId}:${file.providerFileId}:${fileVersionId}`
+    return file.providerItemId !== file.path
+        ? `connector:${bindingId}:${file.providerItemId}:${fileVersionId}`
         : `connector:${bindingId}:${fileVersionId}:${file.path}`;
 }
 
 function connectorFileMetadata(
     row: BindingGraphRow,
-    file: ConnectorSyncFile,
+    file: LoadedSyncedExternalItem,
     versionId: string
 ): ConnectorFileMetadataInput {
     const fileVersionId = file.versionId ?? versionId;
-    const webUrl = file.webUrl ?? file.htmlUrl;
     return {
         schemaVersion: 2,
         provider: connectorProvider(row),
@@ -466,11 +941,11 @@ function connectorFileMetadata(
         providerResourceId: row.binding.providerResourceId,
         resourceDisplayName: row.binding.resourceDisplayName,
         path: file.path,
-        displayName: file.displayName ?? file.path.split("/").at(-1) ?? file.path,
+        displayName: file.displayName,
         ...(fileVersionId ? { versionId: fileVersionId } : {}),
-        ...(file.providerFileId ? { providerFileId: file.providerFileId } : {}),
+        providerFileId: file.providerItemId,
         ...(file.etag ? { etag: file.etag } : {}),
-        ...(webUrl ? { webUrl } : {}),
+        webUrl: file.webUrl,
         ...(file.rawUrl ? { rawUrl: file.rawUrl } : {}),
         ...(row.binding.resourceKind === "git-repository" && fileVersionId
             ? {
@@ -478,17 +953,36 @@ function connectorFileMetadata(
                       repositoryName: row.binding.resourceDisplayName,
                       repositoryUrl: row.binding.resourceWebUrl,
                       commitSha: fileVersionId,
-                      branch: row.binding.versionName,
+                      ...(row.binding.versionName ? { branch: row.binding.versionName } : {}),
                   },
               }
             : {}),
     };
 }
 
-function fileRows(row: BindingGraphRow, files: ConnectorSyncFile[], versionId: string): ConnectorFileRow[] {
+function fileRows(row: BindingGraphRow, files: LoadedSyncedExternalItem[], versionId: string): ConnectorFileRow[] {
     return files.map((file) => {
         const key = connectorFileKey(row.binding.id, file, versionId);
         const fileVersionId = file.versionId ?? versionId;
+        const metadata = serializeCodeFileMetadata(connectorFileMetadata(row, file, versionId));
+        if (file.processingKind !== "code") {
+            return {
+                graphId: row.binding.graphId,
+                name: file.path,
+                size: file.size,
+                type: inferGraphFileType({ name: file.displayName, type: file.mimeType }),
+                mimeType: file.mimeType,
+                key: file.storageKey,
+                storageKind: "internal",
+                externalUrl: file.webUrl ?? file.rawUrl ?? null,
+                externalProvider: row.connector.provider,
+                connectorBindingId: row.binding.id,
+                checksum: `${fileVersionId}:${file.providerItemId}:${file.checksum}`,
+                metadata,
+                id: crypto.randomUUID(),
+            };
+        }
+
         return {
             graphId: row.binding.graphId,
             name: file.path,
@@ -497,11 +991,11 @@ function fileRows(row: BindingGraphRow, files: ConnectorSyncFile[], versionId: s
             mimeType: "text/plain",
             key,
             storageKind: "external",
-            externalUrl: file.webUrl ?? file.htmlUrl ?? file.rawUrl,
+            externalUrl: file.webUrl ?? file.rawUrl ?? row.binding.resourceWebUrl,
             externalProvider: row.connector.provider,
             connectorBindingId: row.binding.id,
-            checksum: `${fileVersionId}:${file.providerFileId ?? file.path}:${file.checksum}`,
-            metadata: serializeCodeFileMetadata(connectorFileMetadata(row, file, versionId)),
+            checksum: `${fileVersionId}:${file.providerItemId}:${file.checksum}`,
+            metadata,
             id: crypto.randomUUID(),
         };
     });
@@ -634,7 +1128,7 @@ function findReusableProcessRun(
 
 function insertConnectorFiles(
     row: BindingGraphRow,
-    files: ConnectorSyncFile[],
+    files: LoadedSyncedExternalItem[],
     versionId: string,
     cursor?: string
 ): Effect.Effect<InsertedConnectorFiles, unknown, Database> {
@@ -758,11 +1252,21 @@ function markBindingFailed(bindingId: string) {
     );
 }
 
+function repositoryProcessOptions(
+    files: readonly LoadedSyncedExternalItem[],
+    retiredFileIds: string[]
+): { kind: "repository"; retiredFileIds?: string[] } | undefined {
+    if (retiredFileIds.length > 0 || files.some((file) => file.processingKind === "code")) {
+        return { kind: "repository", retiredFileIds };
+    }
+    return undefined;
+}
+
 function runProcessFilesWithCleanup(
     step: WorkflowStep,
     graphId: string,
     created: InsertedConnectorFiles,
-    retiredFileIds: string[]
+    code?: { kind: "repository"; retiredFileIds?: string[] }
 ) {
     return Effect.tryPromise({
         try: async () => {
@@ -775,7 +1279,7 @@ function runProcessFilesWithCleanup(
                     graphId,
                     fileIds: created.fileIds,
                     processRunId: created.processRunId,
-                    code: { kind: "repository", retiredFileIds },
+                    ...(code ? { code } : {}),
                 });
             } catch (error) {
                 await Promise.all(
@@ -800,15 +1304,79 @@ export const syncConnectorResourceGraph = defineWorkflow(
             const row = await step.run({ name: "load-binding" }, async () =>
                 runWorkerEffect(loadBindingGraph(input.bindingId))
             );
-            if (
-                !row ||
-                row.connector.status !== "active" ||
-                row.installation.status !== "active" ||
-                !row.binding.webhookEnabled
-            ) {
+            if (!row || row.connector.status !== "active" || row.installation.status !== "active") {
+                return { skipped: true };
+            }
+            if ("syncEnabled" in row.binding && row.binding.syncEnabled === false) {
                 return { skipped: true };
             }
 
+            const syncStrategy = await step.run({ name: "select-sync-strategy" }, async () =>
+                runWorkerEffect(selectBindingSyncStrategy(row))
+            );
+            if (syncStrategy === "cursor") {
+                const activeFileRows = await step.run({ name: "load-active-binding-files" }, async () =>
+                    runWorkerEffect(loadActiveBindingFiles(row.binding.id))
+                );
+                const activeFiles = activeBindingFiles(activeFileRows);
+                const cursor =
+                    input.cursor ??
+                    ("syncCursor" in row.binding && typeof row.binding.syncCursor === "string"
+                        ? row.binding.syncCursor
+                        : undefined);
+                const delta = await step.run({ name: "list-cursor-changes" }, async () =>
+                    runWorkerEffect(listCursorChanges(row, cursor))
+                );
+                const versionId = delta.toVersionId ?? delta.cursor;
+                if (!versionId) {
+                    throw new UnsupportedSyncStrategyError({
+                        strategy: "cursor",
+                        message: "Cursor sync did not return a next cursor",
+                    });
+                }
+                const plan = planIncrementalChanges(activeFiles, delta.changes);
+                if (plan.newItems.length === 0 && plan.retiredFileIds.length === 0) {
+                    await step.run({ name: "mark-binding-synced" }, async () =>
+                        runWorkerEffect(markBindingSynced(row.binding.id, versionId, delta.cursor))
+                    );
+                    return { versionId, fileCount: 0 };
+                }
+                const changedItems =
+                    plan.newItems.length > 0
+                        ? await step.run({ name: "load-changed-files" }, async () =>
+                              runWorkerEffect(loadChangedItems(row, versionId, plan.newItems))
+                          )
+                        : [];
+                assertBindingSnapshotLimits(activeFiles, plan.retiredFileIds, changedItems);
+                if (changedItems.length > 0) {
+                    const created = await step.run({ name: "commit-external-files" }, async () =>
+                        runWorkerEffect(insertConnectorFiles(row, changedItems, versionId, delta.cursor))
+                    );
+                    await runWorkerEffect(
+                        runProcessFilesWithCleanup(
+                            step,
+                            row.binding.graphId,
+                            created,
+                            repositoryProcessOptions(changedItems, plan.retiredFileIds)
+                        )
+                    );
+                    await step.run({ name: "mark-binding-synced" }, async () =>
+                        runWorkerEffect(markBindingSynced(row.binding.id, versionId, delta.cursor))
+                    );
+                    return { versionId, fileCount: created.fileIds.length };
+                }
+                await step.runWorkflow(processFilesSpec, {
+                    graphId: row.binding.graphId,
+                    fileIds: [],
+                    code: { kind: "repository", retiredFileIds: plan.retiredFileIds },
+                });
+                await step.run({ name: "mark-binding-synced" }, async () =>
+                    runWorkerEffect(markBindingSynced(row.binding.id, versionId, delta.cursor))
+                );
+                return { versionId, fileCount: 0 };
+            }
+
+            await runWorkerEffect(requireVersionedSyncStrategy(syncStrategy));
             const versionId = await step.run({ name: "resolve-target-version" }, async () =>
                 runWorkerEffect(resolveTargetVersion(row, input.versionId))
             );
@@ -828,7 +1396,7 @@ export const syncConnectorResourceGraph = defineWorkflow(
                 const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
                     runWorkerEffect(loadSnapshot(row, versionId))
                 );
-                if (snapshot.files.length === 0) {
+                if (snapshot.items.length === 0) {
                     await step.run({ name: "mark-empty-binding-synced" }, async () =>
                         runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
                     );
@@ -836,9 +1404,16 @@ export const syncConnectorResourceGraph = defineWorkflow(
                 }
 
                 const created = await step.run({ name: "commit-external-files" }, async () =>
-                    runWorkerEffect(insertConnectorFiles(row, snapshot.files, versionId, input.cursor))
+                    runWorkerEffect(insertConnectorFiles(row, [...snapshot.items], versionId, input.cursor))
                 );
-                await runWorkerEffect(runProcessFilesWithCleanup(step, row.binding.graphId, created, []));
+                await runWorkerEffect(
+                    runProcessFilesWithCleanup(
+                        step,
+                        row.binding.graphId,
+                        created,
+                        repositoryProcessOptions([...snapshot.items], [])
+                    )
+                );
 
                 await step.run({ name: "mark-binding-synced" }, async () =>
                     runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
@@ -849,7 +1424,7 @@ export const syncConnectorResourceGraph = defineWorkflow(
             const activeFileRows = await step.run({ name: "load-active-binding-files" }, async () =>
                 runWorkerEffect(loadActiveBindingFiles(row.binding.id))
             );
-            const activeFiles = activeFilesByPath(activeFileRows);
+            const activeFiles = activeBindingFiles(activeFileRows);
             const delta = await step.run({ name: "compare-resource-versions" }, async () =>
                 runWorkerEffect(compareResourceVersions(row, row.binding.lastSyncedVersionId!, versionId))
             );
@@ -857,15 +1432,20 @@ export const syncConnectorResourceGraph = defineWorkflow(
                 const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
                     runWorkerEffect(loadSnapshot(row, versionId))
                 );
-                const retiredFileIds = [...activeFiles.values()].map((file) => file.id);
-                assertBindingSnapshotLimits(activeFiles, retiredFileIds, snapshot.files);
+                const retiredFileIds = [...activeFiles.byPath.values()].map((file) => file.id);
+                assertBindingSnapshotLimits(activeFiles, retiredFileIds, [...snapshot.items]);
 
-                if (snapshot.files.length > 0) {
+                if (snapshot.items.length > 0) {
                     const created = await step.run({ name: "commit-external-files" }, async () =>
-                        runWorkerEffect(insertConnectorFiles(row, snapshot.files, versionId, input.cursor))
+                        runWorkerEffect(insertConnectorFiles(row, [...snapshot.items], versionId, input.cursor))
                     );
                     await runWorkerEffect(
-                        runProcessFilesWithCleanup(step, row.binding.graphId, created, retiredFileIds)
+                        runProcessFilesWithCleanup(
+                            step,
+                            row.binding.graphId,
+                            created,
+                            repositoryProcessOptions([...snapshot.items], retiredFileIds)
+                        )
                     );
 
                     await step.run({ name: "mark-binding-synced" }, async () =>
@@ -888,27 +1468,32 @@ export const syncConnectorResourceGraph = defineWorkflow(
             }
 
             const plan = planIncrementalChanges(activeFiles, delta.changes);
-            if (plan.newPaths.length === 0 && plan.retiredFileIds.length === 0) {
+            if (plan.newItems.length === 0 && plan.retiredFileIds.length === 0) {
                 await step.run({ name: "mark-binding-synced" }, async () =>
                     runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
                 );
                 return { versionId, fileCount: 0 };
             }
 
-            const changedFiles =
-                plan.newPaths.length > 0
+            const changedItems =
+                plan.newItems.length > 0
                     ? await step.run({ name: "load-changed-files" }, async () =>
-                          runWorkerEffect(loadChangedFiles(row, versionId, plan.newPaths))
+                          runWorkerEffect(loadChangedItems(row, versionId, plan.newItems))
                       )
                     : [];
-            assertBindingSnapshotLimits(activeFiles, plan.retiredFileIds, changedFiles);
+            assertBindingSnapshotLimits(activeFiles, plan.retiredFileIds, changedItems);
 
-            if (changedFiles.length > 0) {
+            if (changedItems.length > 0) {
                 const created = await step.run({ name: "commit-external-files" }, async () =>
-                    runWorkerEffect(insertConnectorFiles(row, changedFiles, versionId, input.cursor))
+                    runWorkerEffect(insertConnectorFiles(row, changedItems, versionId, input.cursor))
                 );
                 await runWorkerEffect(
-                    runProcessFilesWithCleanup(step, row.binding.graphId, created, plan.retiredFileIds)
+                    runProcessFilesWithCleanup(
+                        step,
+                        row.binding.graphId,
+                        created,
+                        repositoryProcessOptions(changedItems, plan.retiredFileIds)
+                    )
                 );
                 await step.run({ name: "mark-binding-synced" }, async () =>
                     runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))

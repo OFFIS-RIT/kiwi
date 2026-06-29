@@ -17,7 +17,11 @@ export function receiveConnectorWebhook(
     );
 }
 
-export function handleConnectorWebhookRequest(input: { provider: string; request: Request }) {
+export function handleConnectorWebhookRequest(input: {
+    provider: string;
+    connectorIdOrSlug?: string;
+    request: Request;
+}) {
     return Effect.runPromise(
         Effect.provide(
             Effect.match(
@@ -29,6 +33,7 @@ export function handleConnectorWebhookRequest(input: { provider: string; request
 
                     return yield* receiveConnectorWebhook({
                         provider: input.provider,
+                        connectorIdOrSlug: input.connectorIdOrSlug,
                         headers: input.request.headers,
                         rawBody,
                     });

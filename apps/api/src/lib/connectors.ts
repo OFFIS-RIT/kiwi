@@ -49,6 +49,10 @@ export type ConnectorState = {
     purpose: "github-manifest" | "github-installation" | "gitlab-oauth";
     userId: string;
     connectorId?: string;
+    subjectKind?: "user" | "team" | "organization";
+    subjectUserId?: string;
+    subjectTeamId?: string;
+    subjectOrganizationId?: string;
     organizationId?: string;
     teamId?: string;
     createdAt: number;
@@ -80,7 +84,27 @@ export function toPublicConnector(row: ConnectorRow): PublicConnector {
     };
 }
 
-export function toPublicInstallation(row: InstallationRow) {
+export type PublicInstallation = {
+    id: string;
+    connectorId: string;
+    provider: ConnectorProvider;
+    providerInstallationId: string;
+    providerAccountLogin: string;
+    providerAccountType: string | null;
+    subjectKind: "user" | "team" | "organization";
+    subjectUserId: string | null;
+    subjectTeamId: string | null;
+    subjectOrganizationId: string | null;
+    installedByUserId: string | null;
+    organizationId: string | null;
+    teamId: string | null;
+    repositorySelection: string;
+    status: string;
+    createdAt: string | null;
+    updatedAt: string | null;
+};
+
+export function toPublicInstallation(row: InstallationRow): PublicInstallation {
     return {
         id: row.id,
         connectorId: row.connectorId,
@@ -88,6 +112,11 @@ export function toPublicInstallation(row: InstallationRow) {
         providerInstallationId: row.providerInstallationId,
         providerAccountLogin: row.providerAccountLogin,
         providerAccountType: row.providerAccountType,
+        subjectKind: row.subjectKind,
+        subjectUserId: row.subjectUserId,
+        subjectTeamId: row.subjectTeamId,
+        subjectOrganizationId: row.subjectOrganizationId,
+        installedByUserId: row.installedByUserId,
         organizationId: row.organizationId,
         teamId: row.teamId,
         repositorySelection: row.repositorySelection,
