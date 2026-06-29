@@ -12,6 +12,12 @@ import {
     normalizeGitLabWebhookEvent,
     verifyGitLabWebhookToken,
 } from "./gitlab";
+import {
+    createNextcloudAdapter,
+    NEXTCLOUD_PROVIDER,
+    NEXTCLOUD_RESOURCE_CAPABILITIES,
+    nextcloudCredentialDescriptors,
+} from "./nextcloud";
 import type {
     ConnectorAdapter,
     ConnectorAdapterFactoryOptions,
@@ -176,6 +182,53 @@ const builtInConnectorAdapterRegistry = {
         normalizeWebhook(options) {
             return normalizeGitLabWebhookEvent(options);
         },
+    }),
+    [NEXTCLOUD_PROVIDER]: withDefaultCredentialValidators({
+        provider: NEXTCLOUD_PROVIDER,
+        family: "resource-source",
+        display: {
+            name: "Nextcloud",
+            description: "Nextcloud WebDAV folder source",
+            docsUrl: "https://docs.nextcloud.com/server/latest/developer_manual/client_apis/WebDAV/basic.html",
+        },
+        resourceKind: "folder",
+        capabilities: NEXTCLOUD_RESOURCE_CAPABILITIES,
+        setup: [
+            {
+                kind: "manualCredentials",
+                label: "Nextcloud server",
+                description: "Register the Nextcloud server URL used for WebDAV file access.",
+            },
+        ],
+        install: [
+            {
+                kind: "manualActivation",
+                label: "Nextcloud folder",
+                description: "Store an app-password credential and folder path for the team or organization.",
+            },
+        ],
+        credentialDescriptors: nextcloudCredentialDescriptors,
+        create: Effect.fn("ConnectorRegistry.nextcloud.create")(function* (options: ConnectorAdapterFactoryOptions) {
+            const credentials = yield* Effect.try({
+                try: () => requireConnectorCredentialData(options.provider, "app", options.credentials),
+                catch: toConnectorProviderError,
+            });
+            const installation = yield* Effect.try({
+                try: () => requireConnectorCredentialData(options.provider, "installation", options.installation),
+                catch: toConnectorProviderError,
+            });
+            return yield* Effect.try({
+                try: () =>
+                    createNextcloudAdapter({
+                        baseUrl: credentials.baseUrl as string,
+                        username: installation.username as string,
+                        appPassword: installation.appPassword as string,
+                        folderPath: installation.folderPath as string,
+                        fetch: options.fetch,
+                    }),
+                catch: toConnectorProviderError,
+            });
+        }),
     }),
 } satisfies Record<string, ConnectorAdapterRegistryEntry>;
 

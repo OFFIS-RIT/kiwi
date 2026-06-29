@@ -9,6 +9,7 @@
         "./github": "./src/github.ts",
         "./gitlab": "./src/gitlab.ts",
         "./in-memory-resource": "./src/in-memory-resource.ts",
+        "./nextcloud": "./src/nextcloud.ts",
         "./webhooks": "./src/webhooks.ts"
     },
     "scripts": {

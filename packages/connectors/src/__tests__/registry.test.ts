@@ -11,6 +11,7 @@ import {
 } from "../registry";
 import type { ConnectorResource, FetchLike } from "../types";
 import { IN_MEMORY_RESOURCE_PROVIDER, inMemoryResourceConnectorRegistryEntry } from "../in-memory-resource";
+import { NEXTCLOUD_PROVIDER } from "../nextcloud";
 
 const GITHUB_RESOURCE: ConnectorResource = {
     provider: "github",
@@ -174,6 +175,34 @@ describe("connector adapter registry", () => {
             branch: "main",
             commitSha: "commit-sha",
         });
+    });
+
+    test("includes Nextcloud as a built-in folder source provider", () => {
+        const descriptor = getConnectorAdapterRegistryEntry(NEXTCLOUD_PROVIDER);
+        expect(descriptor).toMatchObject({
+            provider: NEXTCLOUD_PROVIDER,
+            family: "resource-source",
+            resourceKind: "folder",
+            capabilities: { versions: false, cursorSync: true, children: true, binaryFiles: true },
+        });
+        expect(descriptor.setup.map((setup) => setup.kind)).toEqual(["manualCredentials"]);
+        expect(descriptor.install.map((install) => install.kind)).toEqual(["manualActivation"]);
+        expect(
+            descriptor.validateCredentials?.({
+                provider: NEXTCLOUD_PROVIDER,
+                subject: "app",
+                version: "v1",
+                data: { baseUrl: "https://cloud.example.com" },
+            })
+        ).toBe(true);
+        expect(
+            descriptor.validateInstallation?.({
+                provider: NEXTCLOUD_PROVIDER,
+                subject: "installation",
+                version: "v1",
+                data: { username: "alice", appPassword: "app-password", folderPath: "/Team" },
+            })
+        ).toBe(true);
     });
 
     test("supports the in-memory non-git provider descriptor with cursor children and binary capabilities", async () => {

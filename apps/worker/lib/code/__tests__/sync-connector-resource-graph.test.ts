@@ -31,10 +31,17 @@ let adapterCapabilities = { versions: true, cursorSync: false, children: false, 
 let listChangesResult: {
     changes: Array<ConnectorResourceChange & Record<string, unknown>>;
     cursor: string;
+    versionId?: string;
     isInitial: boolean;
 } | null = null;
 const listChangesCalls: Array<{ resourceId: string; cursor: string | undefined }> = [];
-const openFileCalls: Array<{ resourceId: string; path: string; versionId?: string; etag?: string }> = [];
+const openFileCalls: Array<{
+    resourceId: string;
+    path: string;
+    versionId?: string;
+    etag?: string;
+    resourceKind?: string;
+}> = [];
 const openFileContents: Record<string, { bytes: Uint8Array; size: number; contentType?: string }> = {};
 let loadSnapshotCalls = 0;
 let activeReadFileCalls = 0;
@@ -268,7 +275,13 @@ mock.module("@kiwi/connectors", () => ({
                     }
                     return listChangesResult;
                 }),
-            openFile: (locator: { resourceId: string; path: string; versionId?: string; etag?: string }) =>
+            openFile: (locator: {
+                resourceId: string;
+                path: string;
+                versionId?: string;
+                etag?: string;
+                resourceKind?: string;
+            }) =>
                 Effect.sync(() => {
                     openFileCalls.push(locator);
                     const file = openFileContents[locator.path];
@@ -395,6 +408,23 @@ function fakeStorageBinding(lastSyncedVersionId: string | null) {
             resourceKind: "folder",
             resourceDisplayName: "Team Drive",
             resourceWebUrl: "https://storage.test/team-drive",
+            versionName: null,
+            syncCursor: lastSyncedVersionId,
+            webhookEnabled: false,
+            syncEnabled: true,
+        },
+        connector: { provider: "fixture-storage" },
+        installation: { encryptedCredentials: "encrypted-installation" },
+    });
+}
+
+function fakeStorageFileBinding(lastSyncedVersionId: string | null) {
+    return bindingRow(lastSyncedVersionId, {
+        binding: {
+            providerResourceId: "Team/Docs/manual.pdf",
+            resourceKind: "file",
+            resourceDisplayName: "manual.pdf",
+            resourceWebUrl: "https://storage.test/team-drive/Docs/manual.pdf",
             versionName: null,
             syncCursor: lastSyncedVersionId,
             webhookEnabled: false,
@@ -619,6 +649,7 @@ describe("syncConnectorResourceGraph", () => {
         };
         listChangesResult = {
             cursor: "cursor-next",
+            versionId: "version-next",
             isInitial: false,
             changes: [
                 {
@@ -645,26 +676,32 @@ describe("syncConnectorResourceGraph", () => {
 
         const result = await runWorkflow({ bindingId: "binding-1", reason: "manual" });
 
-        expect(result).toMatchObject({ versionId: "cursor-next", fileCount: 1 });
+        expect(result).toMatchObject({ versionId: "version-next", fileCount: 1 });
         expect(listChangesCalls).toEqual([{ resourceId: "drive-1", cursor: "cursor-old" }]);
         expect(openFileCalls).toEqual([
-            { resourceId: "drive-1", path: "Documents/report.pdf", versionId: "cursor-next", etag: "etag-pdf" },
+            {
+                resourceId: "drive-1",
+                path: "Documents/report.pdf",
+                versionId: "version-next",
+                etag: "etag-pdf",
+                resourceKind: "folder",
+            },
         ]);
         expect(uploadedNamedFiles).toMatchObject([
             {
                 name: "report.pdf",
-                path: "graphs/graph-1/connector-resources/binding-1/cursor-next",
+                path: "graphs/graph-1/connector-resources/binding-1/version-next",
             },
         ]);
         expect(insertedFileValues[0]).toMatchObject({
             name: "Documents/report.pdf",
             type: "pdf",
             mimeType: "application/pdf",
-            storageKind: "internal",
+            storageKind: "external",
             externalUrl: "https://storage.test/team-drive/Documents/report.pdf",
             externalProvider: "fixture-storage",
             connectorBindingId: "binding-1",
-            checksum: "cursor-next:pdf-1:etag-pdf",
+            checksum: "version-next:pdf-1:etag-pdf",
         });
         expect(processWorkflowInputs).toHaveLength(1);
         expect(processWorkflowInputs[0]).toMatchObject({
@@ -675,11 +712,70 @@ describe("syncConnectorResourceGraph", () => {
         expect(processWorkflowInputs[0]).not.toHaveProperty("code");
         expect(bindingUpdates).toContainEqual({
             syncStatus: "synced",
-            lastSeenVersionId: "cursor-next",
-            lastSyncedVersionId: "cursor-next",
+            lastSeenVersionId: "version-next",
+            lastSyncedVersionId: "version-next",
             syncErrorCode: null,
             syncCursor: "cursor-next",
         });
+    });
+
+    test("single file cursor resources open the selected file path directly", async () => {
+        useFakeStorageAdapter();
+        openFileContents["manual.pdf"] = {
+            bytes: new Uint8Array([37, 80, 68, 70]),
+            size: 4,
+            contentType: "application/pdf",
+        };
+        listChangesResult = {
+            cursor: "cursor-next",
+            versionId: "version-next",
+            isInitial: true,
+            changes: [
+                {
+                    status: "added",
+                    providerItemId: "file-manual",
+                    newPath: "manual.pdf",
+                    displayName: "manual.pdf",
+                    mimeType: "application/pdf",
+                    contentType: "application/pdf",
+                    size: 4,
+                    checksum: "etag-manual",
+                    etag: "etag-manual",
+                    webUrl: "https://storage.test/team-drive/Docs/manual.pdf",
+                    contentAccessMode: "binary",
+                    processingKind: "document",
+                },
+            ] as Array<ConnectorResourceChange & Record<string, unknown>>,
+        };
+        selectResults = [
+            { kind: "limit", value: [fakeStorageFileBinding(null)] },
+            { kind: "where", value: [] },
+        ];
+
+        const result = await runWorkflow({ bindingId: "binding-1", reason: "manual" });
+
+        expect(result).toMatchObject({ versionId: "version-next", fileCount: 1 });
+        expect(listChangesCalls).toEqual([{ resourceId: "Team/Docs/manual.pdf", cursor: undefined }]);
+        expect(openFileCalls).toEqual([
+            {
+                resourceId: "Team/Docs/manual.pdf",
+                path: "manual.pdf",
+                versionId: "version-next",
+                etag: "etag-manual",
+                resourceKind: "file",
+            },
+        ]);
+        expect(insertedFileValues[0]).toMatchObject({
+            name: "manual.pdf",
+            type: "pdf",
+            mimeType: "application/pdf",
+            storageKind: "external",
+            externalUrl: "https://storage.test/team-drive/Docs/manual.pdf",
+            externalProvider: "fixture-storage",
+            connectorBindingId: "binding-1",
+            checksum: "version-next:file-manual:etag-manual",
+        });
+        expect(processWorkflowInputs).toHaveLength(1);
     });
 
     test("limits concurrent provider reads for incremental changed files", async () => {

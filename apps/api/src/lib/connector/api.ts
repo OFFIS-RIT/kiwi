@@ -4,6 +4,7 @@ import { connectorResourceBindingsTable } from "@kiwi/db/tables/connectors";
 import { graphTable } from "@kiwi/db/tables/graph";
 import type {
     ConnectorBindingCreateInput as ContractConnectorBindingCreateInput,
+    ConnectorDiscoveryItemRecord,
     ConnectorProvider,
     ConnectorRepositoryRecord,
     ConnectorResourceKind as ContractConnectorResourceKind,
@@ -16,16 +17,16 @@ import {
     makeApiError,
     type ApiError,
 } from "@kiwi/contracts/errors";
-import type { ProviderBranch, ProviderRepository } from "@kiwi/connectors";
+import type { ConnectorResource, ConnectorResourceChild, ProviderBranch } from "@kiwi/connectors";
 import { syncConnectorResourceGraphSpec } from "@kiwi/worker/sync-connector-resource-graph-spec";
-import { eq } from "@kiwi/db/drizzle";
+import { and, eq, sql } from "@kiwi/db/drizzle";
 import {
     assertCanUseInstallation,
     requireActiveConnector,
     type ConnectorInstallationRow,
     type ConnectorRow,
 } from "../connector-access";
-import { listProviderBranches, listProviderRepositories } from "../connectors";
+import { listProviderBranches, listProviderChildren, listProviderResources } from "../connectors";
 import { requireOrganizationAdmin, requireTeamGraphCreateAccess } from "../team/access";
 import type { AuthUser } from "../../middleware/auth";
 import { ow } from "../../openworkflow";
@@ -186,32 +187,40 @@ export function requireConnectorInstallationContext(input: {
     });
 }
 
-export function toConnectorResource(repository: ProviderRepository): ResolvedConnectorResource {
+export function toConnectorResource(resource: ConnectorResource): ResolvedConnectorResource {
+    const defaultVersionName = resource.defaultVersion?.name ?? resource.defaultBranch ?? null;
+    const defaultVersionId = resource.defaultVersion?.versionId;
+    const git =
+        resource.kind === "git-repository"
+            ? {
+                  id: resource.id,
+                  provider: resource.provider,
+                  fullName: resource.displayName,
+                  name: resource.displayName.split("/").at(-1) ?? resource.displayName,
+                  htmlUrl: resource.webUrl,
+                  defaultBranch: resource.defaultBranch ?? null,
+                  private: resource.private,
+                  resourceKind: "git-repository",
+                  resourceId: resource.id,
+                  providerResourceId: resource.id,
+                  resourceDisplayName: resource.displayName,
+                  resourceWebUrl: resource.webUrl,
+                  displayName: resource.displayName,
+                  webUrl: resource.webUrl,
+                  defaultVersionName: defaultVersionName ?? undefined,
+                  defaultVersionId,
+              }
+            : undefined;
     return {
-        provider: repository.provider,
-        kind: "git-repository",
-        id: repository.id,
-        displayName: repository.fullName,
-        webUrl: repository.htmlUrl,
-        private: repository.private,
-        defaultVersionName: repository.defaultBranch,
-        git: {
-            id: repository.id,
-            provider: repository.provider,
-            fullName: repository.fullName,
-            name: repository.name,
-            htmlUrl: repository.htmlUrl,
-            defaultBranch: repository.defaultBranch,
-            private: repository.private,
-            resourceKind: "git-repository",
-            resourceId: repository.id,
-            providerResourceId: repository.id,
-            resourceDisplayName: repository.fullName,
-            resourceWebUrl: repository.htmlUrl,
-            displayName: repository.fullName,
-            webUrl: repository.htmlUrl,
-            defaultVersionName: repository.defaultBranch ?? undefined,
-        },
+        provider: resource.provider,
+        kind: resource.kind,
+        id: resource.id,
+        displayName: resource.displayName,
+        webUrl: resource.webUrl,
+        private: resource.private,
+        defaultVersionName,
+        ...(defaultVersionId ? { defaultVersionId } : {}),
+        ...(git ? { git } : {}),
     };
 }
 
@@ -226,8 +235,79 @@ export function listConnectorResourceRecords(
     connector: ConnectorRow,
     installation: ConnectorInstallationRow
 ): Effect.Effect<ResolvedConnectorResource[], ApiError> {
-    return Effect.map(listProviderRepositories(connector, installation), (repositories) =>
-        repositories.map(toConnectorResource)
+    return Effect.map(listProviderResources(connector, installation), (resources) =>
+        resources.map(toConnectorResource)
+    );
+}
+
+export function toConnectorDiscoveryItem(resource: ResolvedConnectorResource): ConnectorDiscoveryItemRecord {
+    const itemKind = resource.kind === "folder" ? "folder" : "resource";
+    return {
+        ...resource.git,
+        id: resource.id,
+        provider: resource.provider,
+        resourceKind: resource.kind,
+        resourceId: resource.id,
+        providerResourceId: resource.id,
+        providerItemId: resource.id,
+        resourceDisplayName: resource.displayName,
+        resourceWebUrl: resource.webUrl,
+        itemKind,
+        parentId: null,
+        name: resource.displayName,
+        path: resource.id,
+        canBind: true,
+        canHaveChildren: resource.kind === "folder",
+        defaultVersionName: resource.defaultVersionName ?? undefined,
+        defaultVersionId: resource.defaultVersionId,
+        metadata: undefined,
+        displayName: resource.displayName,
+        webUrl: resource.webUrl,
+    };
+}
+
+export function toConnectorChildDiscoveryItem(
+    provider: ConnectorProvider,
+    child: ConnectorResourceChild
+): ConnectorDiscoveryItemRecord {
+    return {
+        id: child.id,
+        provider,
+        resourceKind: child.kind,
+        resourceId: child.id,
+        providerResourceId: child.id,
+        providerItemId: child.providerItemId ?? child.id,
+        resourceDisplayName: child.name,
+        resourceWebUrl: child.webUrl,
+        itemKind: child.kind,
+        parentId: child.parentId,
+        name: child.name,
+        path: child.path,
+        canBind: child.kind === "folder" || child.kind === "file",
+        canHaveChildren: child.kind === "folder",
+        defaultVersionName: undefined,
+        defaultVersionId: child.versionId,
+        metadata: undefined,
+        size: child.size,
+        versionId: child.versionId,
+        displayName: child.name,
+        webUrl: child.webUrl,
+    };
+}
+
+export function listConnectorDiscoveryRecords(input: {
+    connector: ConnectorRow;
+    installation: ConnectorInstallationRow;
+    parentId?: string;
+}): Effect.Effect<ConnectorDiscoveryItemRecord[], ApiError> {
+    if (input.parentId) {
+        return Effect.map(listProviderChildren(input.connector, input.installation, input.parentId), (children) =>
+            children.map((child) => toConnectorChildDiscoveryItem(input.connector.provider, child))
+        );
+    }
+
+    return Effect.map(listConnectorResourceRecords(input.connector, input.installation), (resources) =>
+        resources.map(toConnectorDiscoveryItem)
     );
 }
 
@@ -319,7 +399,7 @@ export function createGraphBinding(input: {
                         name: input.body.name,
                         description: null,
                         state: "updating",
-                        type: "code",
+                        type: input.body.resourceKind === "git-repository" ? "code" : null,
                     })
                     .returning();
 
@@ -336,8 +416,7 @@ export function createGraphBinding(input: {
                         versionName: input.version?.name ?? input.body.versionName ?? null,
                         lastSeenVersionId: input.version?.versionId ?? input.body.versionId ?? null,
                         syncCursor: input.body.syncCursor,
-                        resourceMetadata:
-                            input.body.metadata === undefined ? null : JSON.stringify(input.body.metadata),
+                        resourceMetadata: serializeConnectorResourceMetadata(input.body),
                         syncEnabled: input.body.syncEnabled ?? true,
                         webhookEnabled: input.body.webhookEnabled ?? input.body.resourceKind === "git-repository",
                         syncStatus: "pending",
@@ -348,6 +427,76 @@ export function createGraphBinding(input: {
             })
         )
     );
+}
+
+export function disableFileBindingsCoveredByFolder(input: {
+    installation: ConnectorInstallationRow;
+    folderResourceId: string;
+    folderResourcePath?: string;
+}): Effect.Effect<void, DatabaseError, Database> {
+    const folderPath = normalizeStorageResourcePath(input.folderResourcePath ?? input.folderResourceId);
+    const folderPattern = `${escapeSqlLike(folderPath)}/%`;
+    const fileResourcePath = sql<string>`coalesce(nullif(${connectorResourceBindingsTable.resourceMetadata}::jsonb ->> 'resourcePath', ''), ${connectorResourceBindingsTable.providerResourceId})`;
+    return tryDbVoid((db) =>
+        db
+            .update(connectorResourceBindingsTable)
+            .set({ syncEnabled: false })
+            .where(
+                and(
+                    eq(connectorResourceBindingsTable.connectorInstallationId, input.installation.id),
+                    eq(connectorResourceBindingsTable.resourceKind, "file"),
+                    eq(connectorResourceBindingsTable.syncEnabled, true),
+                    folderPath
+                        ? sql`(${fileResourcePath} = ${folderPath} or ${fileResourcePath} like ${folderPattern} escape '\\')`
+                        : sql`${fileResourcePath} <> ''`
+                )
+            )
+    );
+}
+
+function serializeConnectorResourceMetadata(body: ConnectorBindingCreateInput): string | null {
+    const resourceIdentity = connectorResourceIdentityMetadata(body);
+    if (!resourceIdentity && body.metadata === undefined) {
+        return null;
+    }
+    if (!resourceIdentity) {
+        return JSON.stringify(body.metadata);
+    }
+    if (isPlainRecord(body.metadata)) {
+        return JSON.stringify({ ...body.metadata, ...resourceIdentity });
+    }
+    if (body.metadata === undefined || body.metadata === null) {
+        return JSON.stringify(resourceIdentity);
+    }
+    return JSON.stringify({ value: body.metadata, ...resourceIdentity });
+}
+
+function connectorResourceIdentityMetadata(body: ConnectorBindingCreateInput): Record<string, string> | null {
+    const metadata: Record<string, string> = {};
+    if (body.resourcePath !== undefined) {
+        metadata.resourcePath = normalizeStorageResourcePath(body.resourcePath);
+    }
+    if (body.providerItemId !== undefined) {
+        metadata.providerItemId = body.providerItemId.trim();
+    }
+    return Object.keys(metadata).length > 0 ? metadata : null;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeStorageResourcePath(resourceId: string): string {
+    return resourceId
+        .trim()
+        .split("/")
+        .map((segment) => segment.trim())
+        .filter(Boolean)
+        .join("/");
+}
+
+function escapeSqlLike(value: string): string {
+    return value.replace(/[\\%_]/gu, (character) => `\\${character}`);
 }
 
 export function enqueueInitialBindingSync(input: {

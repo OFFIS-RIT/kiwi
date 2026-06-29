@@ -81,6 +81,8 @@ mock.module("@kiwi/connectors/credentials", () => ({
     decryptConnectorSecret: () => "secret",
     encryptConnectorCredentials: () => "encrypted",
     encryptConnectorSecret: () => "encrypted-secret",
+    isConnectorCredentialsForProvider: () => true,
+    isInstallationCredentialsForProvider: () => true,
 }));
 
 mock.module("../env", () => ({

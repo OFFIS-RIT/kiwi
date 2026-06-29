@@ -23,11 +23,13 @@ const conflictConfigs: Array<Record<string, unknown>> = [];
 const installationAccountCalls: string[] = [];
 const listBranchesCalls: Array<Record<string, unknown>> = [];
 const listRepositoriesCalls: Array<Record<string, unknown>> = [];
+const listChildrenCalls: Array<Record<string, unknown>> = [];
 const updateValues: Array<Record<string, unknown>> = [];
 const workflowInputs: Array<Record<string, unknown>> = [];
 const signedStates: Array<Record<string, unknown>> = [];
 const organizationAdminChecks: Array<string | undefined> = [];
 let installationConnectorId = "connector-1";
+let activeConnectorProvider = "github";
 let teamAccessOrganizationId = "org-1";
 let verifiedState: Record<string, unknown> = {
     purpose: "github-installation",
@@ -98,7 +100,7 @@ mock.module("../../lib/connector-access", () => ({
             teamId: null,
         }),
     assertCanViewBinding: () => Effect.succeed({ binding: { id: "binding-1" } }),
-    requireActiveConnector: (id: string) => Effect.succeed({ ...connector, id }),
+    requireActiveConnector: (id: string) => Effect.succeed({ ...connector, provider: activeConnectorProvider, id }),
 }));
 
 mock.module("../../lib/connectors", () => ({
@@ -132,6 +134,44 @@ mock.module("../../lib/connectors", () => ({
                     htmlUrl: "https://github.com/acme/app",
                     defaultBranch: "main",
                     private: true,
+                },
+            ];
+        }),
+    listProviderResources: (connector: { id: string }, installation: { id: string }) =>
+        Effect.sync(() => {
+            listRepositoriesCalls.push({ connectorId: connector.id, installationId: installation.id });
+            return [
+                {
+                    id: "repo-1",
+                    provider: "github",
+                    kind: "git-repository",
+                    displayName: "acme/app",
+                    webUrl: "https://github.com/acme/app",
+                    defaultBranch: "main",
+                    private: true,
+                },
+            ];
+        }),
+    listProviderChildren: (connector: { id: string }, installation: { id: string }, parentId?: string) =>
+        Effect.sync(() => {
+            listChildrenCalls.push({ connectorId: connector.id, installationId: installation.id, parentId });
+            return [
+                {
+                    id: "folder-docs",
+                    parentId: parentId ?? null,
+                    name: "Docs",
+                    path: "Team/Docs",
+                    kind: "folder",
+                    webUrl: "https://cloud.example.com/apps/files/?dir=%2FTeam%2FDocs",
+                },
+                {
+                    id: "file-readme",
+                    parentId: parentId ?? null,
+                    name: "readme.txt",
+                    path: "Team/readme.txt",
+                    kind: "file",
+                    webUrl: "https://cloud.example.com/apps/files/?dir=%2FTeam%2Freadme.txt",
+                    size: 12,
                 },
             ];
         }),
@@ -239,10 +279,13 @@ describe("connector route", () => {
         installationAccountCalls.length = 0;
         listBranchesCalls.length = 0;
         listRepositoriesCalls.length = 0;
+        listChildrenCalls.length = 0;
+        activeConnectorProvider = "github";
         workflowInputs.length = 0;
         updateValues.length = 0;
         signedStates.length = 0;
         organizationAdminChecks.length = 0;
+        authUser.isSystemAdmin = false;
         installationConnectorId = "connector-1";
         teamAccessOrganizationId = "org-1";
         verifiedState = {
@@ -280,6 +323,145 @@ describe("connector route", () => {
             repositorySelection: "selected",
             status: "active",
             installedByUserId: "user-1",
+        });
+    });
+
+    test("creates a Nextcloud connector app for system admins", async () => {
+        authUser.isSystemAdmin = true;
+
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/nextcloud", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    name: "Nextcloud",
+                    slug: "nextcloud",
+                    baseUrl: "https://cloud.example.com/remote.php/dav/",
+                }),
+            })
+        );
+
+        expect(response.status).toBe(200);
+        expect(insertValues[0]).toMatchObject({
+            provider: "nextcloud",
+            name: "Nextcloud",
+            slug: "nextcloud",
+            status: "active",
+            encryptedCredentials: "encrypted",
+            webhookSecretEncrypted: "encrypted-secret",
+            createdByUserId: "user-1",
+        });
+    });
+
+    test("creates a team-scoped Nextcloud folder installation for team admins", async () => {
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-1/nextcloud/installations", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    username: "alice",
+                    appPassword: "app-password",
+                    folderPath: "/Team",
+                    owner: { kind: "team", teamId: "team-1" },
+                }),
+            })
+        );
+
+        expect(response.status).toBe(200);
+        expect(insertValues[0]).toMatchObject({
+            connectorId: "connector-1",
+            provider: "nextcloud",
+            providerInstallationId: "alice:Team",
+            providerAccountLogin: "alice",
+            providerAccountType: "user",
+            subjectKind: "team",
+            subjectTeamId: "team-1",
+            organizationId: "org-1",
+            teamId: "team-1",
+            installedByUserId: "user-1",
+            encryptedCredentials: "encrypted",
+            repositorySelection: "selected",
+            status: "active",
+        });
+        expect(conflictConfigs[0]?.target).toHaveLength(3);
+        expect(conflictConfigs[0]).toHaveProperty("targetWhere");
+        expect(conflictConfigs[0]?.set).toMatchObject({
+            providerAccountLogin: "alice",
+            providerAccountType: "user",
+            encryptedCredentials: "encrypted",
+            repositorySelection: "selected",
+            status: "active",
+            installedByUserId: "user-1",
+        });
+    });
+
+    test("discovers repositories at the connector root", async () => {
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-1/discover?installationId=installation-1")
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(listRepositoriesCalls).toEqual([{ connectorId: "connector-1", installationId: "installation-1" }]);
+        expect(body).toMatchObject({
+            status: "success",
+            data: [
+                {
+                    provider: "github",
+                    resourceKind: "git-repository",
+                    resourceId: "repo-1",
+                    itemKind: "resource",
+                    canBind: true,
+                    canHaveChildren: false,
+                    resourceDisplayName: "acme/app",
+                    resourceWebUrl: "https://github.com/acme/app",
+                },
+            ],
+        });
+    });
+
+    test("discovers hierarchical connector children below a selected folder", async () => {
+        activeConnectorProvider = "nextcloud";
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-1/discover?installationId=installation-1&parentId=Team")
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(listChildrenCalls).toEqual([
+            { connectorId: "connector-1", installationId: "installation-1", parentId: "Team" },
+        ]);
+        expect(body).toMatchObject({
+            status: "success",
+            data: [
+                {
+                    id: "folder-docs",
+                    provider: "nextcloud",
+                    resourceKind: "folder",
+                    resourceId: "folder-docs",
+                    providerItemId: "folder-docs",
+                    path: "Team/Docs",
+                    itemKind: "folder",
+                    parentId: "Team",
+                    canBind: true,
+                    canHaveChildren: true,
+                    resourceDisplayName: "Docs",
+                    resourceWebUrl: "https://cloud.example.com/apps/files/?dir=%2FTeam%2FDocs",
+                },
+                {
+                    id: "file-readme",
+                    provider: "nextcloud",
+                    resourceKind: "file",
+                    resourceId: "file-readme",
+                    providerItemId: "file-readme",
+                    path: "Team/readme.txt",
+                    itemKind: "file",
+                    parentId: "Team",
+                    canBind: true,
+                    canHaveChildren: false,
+                    size: 12,
+                },
+            ],
         });
     });
 
@@ -369,7 +551,69 @@ describe("connector route", () => {
         });
     });
 
+    test("rejects file bindings for git repository connectors", async () => {
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-1/resource-graphs", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    connectorInstallationId: "installation-1",
+                    resourceKind: "file",
+                    resourceId: "src/index.ts",
+                    resourceDisplayName: "index.ts",
+                    resourceWebUrl: "https://github.com/acme/app/blob/main/src/index.ts",
+                    name: "index.ts",
+                    owner: { kind: "organization" },
+                }),
+            })
+        );
+
+        expect(response.status).toBe(400);
+        expect(insertValues).toEqual([]);
+        expect(workflowInputs).toEqual([]);
+    });
+
+    test("creates provider-neutral file bindings for storage connectors", async () => {
+        activeConnectorProvider = "nextcloud";
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-1/resource-graphs", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    connectorInstallationId: "installation-1",
+                    resourceKind: "file",
+                    resourceId: "opaque-file-id",
+                    resourcePath: "Team/readme.txt",
+                    providerItemId: "file-readme",
+                    resourceDisplayName: "readme.txt",
+                    resourceWebUrl: "https://cloud.example.com/apps/files/?dir=%2FTeam%2Freadme.txt",
+                    name: "readme.txt",
+                    owner: { kind: "organization" },
+                }),
+            })
+        );
+
+        expect(response.status).toBe(200);
+        expect(insertValues[1]).toMatchObject({
+            provider: "nextcloud",
+            resourceKind: "file",
+            providerResourceId: "opaque-file-id",
+            resourceDisplayName: "readme.txt",
+            syncStatus: "pending",
+        });
+        const fileMetadata = insertValues[1]?.resourceMetadata;
+        expect(typeof fileMetadata === "string" ? JSON.parse(fileMetadata) : fileMetadata).toEqual({
+            resourcePath: "Team/readme.txt",
+            providerItemId: "file-readme",
+        });
+        expect(workflowInputs[0]).toEqual({
+            bindingId: "row-1",
+            reason: "initial",
+        });
+    });
+
     test("creates provider-neutral folder bindings without a branch version lookup", async () => {
+        activeConnectorProvider = "nextcloud";
         const response = await connectorRoute.handle(
             new Request("http://localhost/connectors/connector-1/resource-graphs", {
                 method: "POST",
@@ -377,7 +621,9 @@ describe("connector route", () => {
                 body: JSON.stringify({
                     connectorInstallationId: "installation-1",
                     resourceKind: "folder",
-                    resourceId: "drive-1",
+                    resourceId: "opaque-folder-id",
+                    resourcePath: "Team",
+                    providerItemId: "folder-team",
                     resourceDisplayName: "Team Drive",
                     resourceWebUrl: "https://storage.test/team-drive",
                     metadata: { driveType: "team" },
@@ -392,9 +638,9 @@ describe("connector route", () => {
         expect(response.status).toBe(200);
         expect(listBranchesCalls).toEqual([]);
         expect(insertValues[1]).toMatchObject({
-            provider: "github",
+            provider: "nextcloud",
             resourceKind: "folder",
-            providerResourceId: "drive-1",
+            providerResourceId: "opaque-folder-id",
             resourceDisplayName: "Team Drive",
             resourceWebUrl: "https://storage.test/team-drive",
             versionName: null,
@@ -403,11 +649,16 @@ describe("connector route", () => {
             syncStatus: "pending",
         });
         const metadata = insertValues[1]?.resourceMetadata;
-        expect(typeof metadata === "string" ? JSON.parse(metadata) : metadata).toEqual({ driveType: "team" });
+        expect(typeof metadata === "string" ? JSON.parse(metadata) : metadata).toEqual({
+            driveType: "team",
+            resourcePath: "Team",
+            providerItemId: "folder-team",
+        });
         expect(workflowInputs[0]).toEqual({
             bindingId: "row-1",
             reason: "initial",
         });
+        expect(updateValues).toContainEqual({ syncEnabled: false });
     });
 
     test("marks manual repository graph sync failed when workflow enqueue fails", async () => {
@@ -420,6 +671,16 @@ describe("connector route", () => {
         expect(response.status).toBe(400);
         expect(updateValues).toContainEqual({ syncStatus: "pending", syncErrorCode: null });
         expect(updateValues).toContainEqual({ syncStatus: "failed", syncErrorCode: "enqueue_failed" });
+    });
+
+    test("rejects discovery when installation belongs to another connector", async () => {
+        const response = await connectorRoute.handle(
+            new Request("http://localhost/connectors/connector-2/discover?installationId=installation-1")
+        );
+
+        expect(response.status).toBe(403);
+        expect(listRepositoriesCalls).toEqual([]);
+        expect(listChildrenCalls).toEqual([]);
     });
 
     test("rejects repository listing when installation belongs to another connector", async () => {

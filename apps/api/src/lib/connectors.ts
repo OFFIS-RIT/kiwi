@@ -3,12 +3,13 @@ import * as Effect from "effect/Effect";
 import {
     createConnectorAdapter,
     getGitHubInstallationAccount,
+    type ConnectorAdapter,
     type ConnectorInstallationCredentials,
     type ConnectorProvider,
+    type ConnectorResource,
+    type ConnectorResourceChild,
     type GitHubConnectorCredentials,
     type GitResourceAdapter,
-    type GitLabConnectorCredentials,
-    type GitLabInstallationCredentials,
     type ProviderInstallationAccount,
     type ProviderBranch,
     type ProviderRepository,
@@ -18,6 +19,8 @@ import {
     decryptConnectorSecret,
     encryptConnectorCredentials,
     encryptConnectorSecret,
+    isConnectorCredentialsForProvider,
+    isInstallationCredentialsForProvider,
     type ConnectorSecretPayload,
 } from "@kiwi/connectors/credentials";
 import type { connectorsTable, connectorInstallationsTable } from "@kiwi/db/tables/connectors";
@@ -142,14 +145,6 @@ function isGitHubConnectorCredentials(value: ConnectorSecretPayload): value is G
     return "provider" in value && value.provider === "github";
 }
 
-function isGitLabConnectorCredentials(value: ConnectorSecretPayload): value is GitLabConnectorCredentials {
-    return "provider" in value && value.provider === "gitlab" && "baseUrl" in value;
-}
-
-function isGitLabInstallationCredentials(value: ConnectorSecretPayload): value is GitLabInstallationCredentials {
-    return "provider" in value && value.provider === "gitlab" && "accessToken" in value;
-}
-
 export function signConnectorState(state: Omit<ConnectorState, "createdAt">): string {
     const payload = Buffer.from(JSON.stringify({ ...state, createdAt: Date.now() })).toString("base64url");
     const signature = createHmac("sha256", env.AUTH_SECRET).update(payload).digest("base64url");
@@ -251,26 +246,30 @@ export function exchangeGitHubManifestCode(code: string): Effect.Effect<
     });
 }
 
-export function createProviderClient(
+export function createConnectorProviderClient(
     connector: ConnectorRow,
     installation: InstallationRow
-): Effect.Effect<GitResourceAdapter, ApiError> {
+): Effect.Effect<ConnectorAdapter, ApiError> {
     return Effect.gen(function* () {
         const credentials = decryptConnectorCredentials(connector.encryptedCredentials, env.AUTH_SECRET);
+        if (!isConnectorCredentialsForProvider(credentials, connector.provider)) {
+            return yield* Effect.fail(connectorRequestError(new Error("Invalid connector credentials")));
+        }
+
         let installationCredentials: ConnectorInstallationCredentials;
         if (connector.provider === "github") {
-            if (!isGitHubConnectorCredentials(credentials)) {
-                return yield* Effect.fail(connectorRequestError(new Error("Invalid connector credentials")));
-            }
             installationCredentials = { provider: "github", installationId: installation.providerInstallationId };
         } else {
-            if (!isGitLabConnectorCredentials(credentials)) {
-                return yield* Effect.fail(connectorRequestError(new Error("Invalid connector credentials")));
+            if (!installation.encryptedCredentials) {
+                return yield* Effect.fail(
+                    connectorRequestError(new Error("Invalid connector installation credentials"))
+                );
             }
-            const decryptedInstallation = installation.encryptedCredentials
-                ? decryptConnectorCredentials(installation.encryptedCredentials, env.AUTH_SECRET)
-                : null;
-            if (!decryptedInstallation || !isGitLabInstallationCredentials(decryptedInstallation)) {
+            const decryptedInstallation = decryptConnectorCredentials(
+                installation.encryptedCredentials,
+                env.AUTH_SECRET
+            );
+            if (!isInstallationCredentialsForProvider(decryptedInstallation, connector.provider)) {
                 return yield* Effect.fail(
                     connectorRequestError(new Error("Invalid connector installation credentials"))
                 );
@@ -278,15 +277,25 @@ export function createProviderClient(
             installationCredentials = decryptedInstallation;
         }
 
-        return (yield* Effect.mapError(
+        return yield* Effect.mapError(
             createConnectorAdapter({
                 provider: connector.provider,
                 credentials,
                 installation: installationCredentials,
             }),
             connectorRequestError
-        )) as GitResourceAdapter;
+        );
     });
+}
+
+export function createProviderClient(
+    connector: ConnectorRow,
+    installation: InstallationRow
+): Effect.Effect<GitResourceAdapter, ApiError> {
+    return Effect.map(
+        createConnectorProviderClient(connector, installation),
+        (adapter) => adapter as GitResourceAdapter
+    );
 }
 
 export function getGitHubConnectorInstallationAccount(
@@ -306,6 +315,33 @@ export function getGitHubConnectorInstallationAccount(
             }),
             connectorRequestError
         );
+    });
+}
+
+export function listProviderResources(
+    connector: ConnectorRow,
+    installation: InstallationRow
+): Effect.Effect<ConnectorResource[], ApiError> {
+    return Effect.gen(function* () {
+        const client = yield* createConnectorProviderClient(connector, installation);
+        return yield* Effect.mapError(client.listResources(), connectorRequestError);
+    });
+}
+
+export function listProviderChildren(
+    connector: ConnectorRow,
+    installation: InstallationRow,
+    parentId?: string
+): Effect.Effect<ConnectorResourceChild[], ApiError> {
+    return Effect.gen(function* () {
+        const client = yield* createConnectorProviderClient(connector, installation);
+        if (!client.capabilities?.children || !client.listChildren) {
+            return yield* Effect.fail(
+                connectorRequestError(new Error("Connector provider does not support child discovery"))
+            );
+        }
+
+        return yield* Effect.mapError(client.listChildren(parentId), connectorRequestError);
     });
 }
 

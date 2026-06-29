@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import type * as Effect from "effect/Effect";
 
-export type BuiltInConnectorProvider = "github" | "gitlab";
+export type BuiltInConnectorProvider = "github" | "gitlab" | "nextcloud";
 export type ConnectorProvider = string;
 
 export type ConnectorProviderFamily = "resource-source" | "chat-bot";
@@ -89,6 +89,7 @@ export type ConnectorFileLocator = {
     path: string;
     versionId?: string;
     etag?: string;
+    resourceKind?: ConnectorResourceKind;
 };
 
 export type ConnectorResourceSnapshot = {
@@ -323,6 +324,7 @@ export type ConnectorResourceChild = {
     parentId: string | null;
     name: string;
     path: string;
+    providerItemId?: string;
     kind: "folder" | "file";
     webUrl?: string;
     size?: number;
@@ -334,6 +336,7 @@ export type ConnectorResourceChild = {
 export type ConnectorResourceChangeSet = {
     changes: ConnectorResourceChange[];
     cursor: string;
+    versionId?: string;
     isInitial: boolean;
 };
 

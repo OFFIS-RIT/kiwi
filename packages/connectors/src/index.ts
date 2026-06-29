@@ -2,6 +2,7 @@ export * from "./credentials";
 export * from "./types";
 export * from "./github";
 export * from "./gitlab";
+export * from "./nextcloud";
 export * from "./adapters";
 export * from "./registry";
 export * from "./in-memory-resource";

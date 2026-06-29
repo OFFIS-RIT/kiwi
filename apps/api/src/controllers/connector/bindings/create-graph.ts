@@ -7,6 +7,7 @@ import type { AuthUser } from "../../../middleware/auth";
 import {
     assertCanBindResourceGraph,
     createGraphBinding,
+    disableFileBindingsCoveredByFolder,
     enqueueInitialBindingSync,
     requireConnectorInstallationContext,
     requireConnectorResource,
@@ -28,6 +29,8 @@ export type ConnectorGraphCreateRequest = {
     versionName?: string;
     versionId?: string;
     syncCursor?: string;
+    resourcePath?: string;
+    providerItemId?: string;
     metadata?: unknown;
     resourceMetadata?: unknown;
     syncEnabled?: boolean;
@@ -56,6 +59,8 @@ function toConnectorBindingCreateInput(body: ConnectorGraphCreateRequest): Conne
         versionName: body.versionName ?? body.branch,
         versionId: body.versionId,
         syncCursor: body.syncCursor,
+        resourcePath: body.resourcePath,
+        providerItemId: body.providerItemId,
         metadata: body.metadata ?? body.resourceMetadata,
         syncEnabled: body.syncEnabled,
         webhookEnabled: body.webhookEnabled,
@@ -90,10 +95,16 @@ function toRequestedConnectorResourceVersion(
     };
 }
 
+function assertConnectorResourceKindSupported(provider: string, resourceKind: ConnectorResourceKind) {
+    if ((provider === "github" || provider === "gitlab") && resourceKind !== "git-repository") {
+        throw new Error("Git connectors only support repository resources");
+    }
+}
+
 export type ConnectorGraphBindingCreateResult = {
     graph: typeof graphTable.$inferSelect;
     binding: ConnectorBindingResponse;
-    workflowRunId: string;
+    workflowRunId: string | null;
 };
 
 export const createConnectorGraphBinding: (input: {
@@ -110,6 +121,10 @@ export const createConnectorGraphBinding: (input: {
                     connectorId: input.connectorId,
                     installationId: body.connectorInstallationId,
                 });
+                yield* tryApiSync(
+                    () => assertConnectorResourceKindSupported(connector.provider, body.resourceKind),
+                    connectorApiErrorOptions
+                );
 
                 const ownerScope = yield* assertCanBindResourceGraph({
                     user: input.user,
@@ -142,6 +157,13 @@ export const createConnectorGraphBinding: (input: {
                     resource,
                     version,
                 });
+                if (body.resourceKind === "folder") {
+                    yield* disableFileBindingsCoveredByFolder({
+                        installation,
+                        folderResourceId: resource.id,
+                        folderResourcePath: body.resourcePath,
+                    });
+                }
                 const workflowRunId = yield* enqueueInitialBindingSync({
                     graphId: created.graph.id,
                     bindingId: created.binding.id,

@@ -79,6 +79,34 @@ export type ConnectorResourceRecord = MutableSchemaType<Schema.Schema.Type<typeo
 export const ConnectorRepositoryRecordSchema = ConnectorResourceRecordSchema;
 export type ConnectorRepositoryRecord = ConnectorResourceRecord;
 
+export type ConnectorDiscoveryItemKind = "resource" | "folder" | "file";
+export const ConnectorDiscoveryItemRecordSchema = Schema.Struct({
+    id: NonEmptyTrimmedStringSchema,
+    provider: ConnectorProviderSchema,
+    resourceKind: ConnectorResourceKindSchema,
+    resourceId: NonEmptyTrimmedStringSchema,
+    providerResourceId: OptionalNonEmptyTrimmedStringSchema,
+    providerItemId: OptionalNonEmptyTrimmedStringSchema,
+    resourceDisplayName: NonEmptyTrimmedStringSchema,
+    resourceWebUrl: Schema.optional(UrlStringSchema),
+    itemKind: Schema.Literals(["resource", "folder", "file"] as const),
+    parentId: NullableStringSchema,
+    name: NonEmptyTrimmedStringSchema,
+    path: NonEmptyTrimmedStringSchema,
+    canBind: Schema.Boolean,
+    canHaveChildren: Schema.Boolean,
+    defaultVersionName: OptionalNonEmptyTrimmedStringSchema,
+    defaultVersionId: OptionalNonEmptyTrimmedStringSchema,
+    metadata: Schema.optional(Schema.Unknown),
+    size: Schema.optional(Schema.Number),
+    versionId: OptionalNonEmptyTrimmedStringSchema,
+    displayName: NonEmptyTrimmedStringSchema,
+    webUrl: Schema.optional(UrlStringSchema),
+});
+export type ConnectorDiscoveryItemRecord = MutableSchemaType<
+    Schema.Schema.Type<typeof ConnectorDiscoveryItemRecordSchema>
+>;
+
 export const ConnectorResourceVersionRecordSchema = Schema.Struct({
     versionName: NonEmptyTrimmedStringSchema,
     versionId: OptionalNonEmptyTrimmedStringSchema,
@@ -160,6 +188,15 @@ export const GitLabConnectorCreateInputSchema = Schema.Struct({
 });
 export type GitLabConnectorCreateInput = MutableSchemaType<Schema.Schema.Type<typeof GitLabConnectorCreateInputSchema>>;
 
+export const NextcloudConnectorCreateInputSchema = Schema.Struct({
+    name: NonEmptyTrimmedStringSchema,
+    slug: NonEmptyTrimmedStringSchema,
+    baseUrl: UrlStringSchema,
+});
+export type NextcloudConnectorCreateInput = MutableSchemaType<
+    Schema.Schema.Type<typeof NextcloudConnectorCreateInputSchema>
+>;
+
 export const ConnectorPatchInputSchema = Schema.Struct({
     name: OptionalNonEmptyTrimmedStringSchema,
     status: Schema.optional(Schema.Literals(["active", "disabled"] as const)),
@@ -189,6 +226,12 @@ export const ConnectorResourceQuerySchema = Schema.Struct({
 });
 export type ConnectorResourceQuery = MutableSchemaType<Schema.Schema.Type<typeof ConnectorResourceQuerySchema>>;
 
+export const ConnectorDiscoverQuerySchema = Schema.Struct({
+    installationId: NonEmptyTrimmedStringSchema,
+    parentId: OptionalNonEmptyTrimmedStringSchema,
+});
+export type ConnectorDiscoverQuery = MutableSchemaType<Schema.Schema.Type<typeof ConnectorDiscoverQuerySchema>>;
+
 export const ConnectorRepositoryQuerySchema = ConnectorResourceQuerySchema;
 export type ConnectorRepositoryQuery = ConnectorResourceQuery;
 
@@ -211,6 +254,16 @@ export const ConnectorOwnerScopeInputSchema = Schema.Union([
     UserConnectorOwnerScopeInputSchema,
 ]);
 
+export const NextcloudConnectorInstallationCreateInputSchema = Schema.Struct({
+    username: NonEmptyTrimmedStringSchema,
+    appPassword: NonEmptyTrimmedStringSchema,
+    folderPath: NonEmptyTrimmedStringSchema,
+    owner: ConnectorOwnerScopeInputSchema,
+});
+export type NextcloudConnectorInstallationCreateInput = MutableSchemaType<
+    Schema.Schema.Type<typeof NextcloudConnectorInstallationCreateInputSchema>
+>;
+
 export const ConnectorBindingCreateInputSchema = Schema.Struct({
     connectorInstallationId: NonEmptyTrimmedStringSchema,
     resourceKind: ConnectorResourceKindSchema,
@@ -220,6 +273,8 @@ export const ConnectorBindingCreateInputSchema = Schema.Struct({
     versionName: OptionalNonEmptyTrimmedStringSchema,
     versionId: OptionalNonEmptyTrimmedStringSchema,
     syncCursor: OptionalNonEmptyTrimmedStringSchema,
+    resourcePath: OptionalNonEmptyTrimmedStringSchema,
+    providerItemId: OptionalNonEmptyTrimmedStringSchema,
     metadata: Schema.optional(Schema.Unknown),
     syncEnabled: Schema.optional(Schema.Boolean),
     webhookEnabled: Schema.optional(Schema.Boolean),
@@ -239,6 +294,8 @@ export const ConnectorResourceGraphCreateInputSchema = Schema.Struct({
     versionName: OptionalNonEmptyTrimmedStringSchema,
     versionId: OptionalNonEmptyTrimmedStringSchema,
     syncCursor: OptionalNonEmptyTrimmedStringSchema,
+    resourcePath: OptionalNonEmptyTrimmedStringSchema,
+    providerItemId: OptionalNonEmptyTrimmedStringSchema,
     metadata: Schema.optional(Schema.Unknown),
     syncEnabled: Schema.optional(Schema.Boolean),
     webhookEnabled: Schema.optional(Schema.Boolean),
@@ -300,12 +357,24 @@ export type GitLabConnectorCreateResponse = ApiResponse<
     ConnectorRecord,
     "UNAUTHORIZED" | "FORBIDDEN" | "INVALID_NAME" | "INTERNAL_SERVER_ERROR"
 >;
+export type NextcloudConnectorCreateResponse = ApiResponse<
+    ConnectorRecord,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INVALID_NAME" | "INTERNAL_SERVER_ERROR"
+>;
+export type NextcloudConnectorInstallationCreateResponse = ApiResponse<
+    ConnectorInstallationRecord,
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
 export type ConnectorInstallationListResponse = ApiResponse<
     ConnectorInstallationRecord[],
     "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
 >;
 export type ConnectorResourceListResponse = ApiResponse<
     ConnectorResourceRecord[],
+    "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
+>;
+export type ConnectorDiscoverResponse = ApiResponse<
+    ConnectorDiscoveryItemRecord[],
     "UNAUTHORIZED" | "FORBIDDEN" | "INTERNAL_SERVER_ERROR"
 >;
 export type ConnectorResourceVersionListResponse = ApiResponse<

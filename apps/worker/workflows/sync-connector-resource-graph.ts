@@ -390,7 +390,7 @@ function listCursorChanges(row: BindingGraphRow, cursor?: string): Effect.Effect
         return {
             isIncremental: !changeSet.isInitial,
             fromVersionId: cursor,
-            toVersionId: changeSet.cursor,
+            toVersionId: changeSet.versionId ?? changeSet.cursor,
             cursor: changeSet.cursor,
             changes: changeSet.changes.map(connectorChangeToSyncChange),
         };
@@ -445,6 +445,7 @@ function loadChangedItem(
             resourceId: row.binding.providerResourceId,
             path: plannedItem.path,
             versionId,
+            resourceKind: row.binding.resourceKind,
         }),
         (content) => buildCodeSyncItem(row, context, versionId, plannedItem, content)
     );
@@ -525,6 +526,7 @@ function loadBinarySyncItem(
             path: plannedItem.path,
             versionId,
             etag: plannedItem.etag,
+            resourceKind: row.binding.resourceKind,
         }),
         (file) => {
             const bytes = file.bytes instanceof Uint8Array ? file.bytes : new Uint8Array(file.bytes);
@@ -561,6 +563,7 @@ function loadTextFileSyncItem(
             resourceId: row.binding.providerResourceId,
             path: plannedItem.path,
             versionId,
+            resourceKind: row.binding.resourceKind,
         }),
         (content) => {
             const bytes = new TextEncoder().encode(content);
@@ -973,8 +976,8 @@ function fileRows(row: BindingGraphRow, files: LoadedSyncedExternalItem[], versi
                 type: inferGraphFileType({ name: file.displayName, type: file.mimeType }),
                 mimeType: file.mimeType,
                 key: file.storageKey,
-                storageKind: "internal",
-                externalUrl: file.webUrl ?? file.rawUrl ?? null,
+                storageKind: "external",
+                externalUrl: file.webUrl ?? file.rawUrl ?? row.binding.resourceWebUrl,
                 externalProvider: row.connector.provider,
                 connectorBindingId: row.binding.id,
                 checksum: `${fileVersionId}:${file.providerItemId}:${file.checksum}`,
