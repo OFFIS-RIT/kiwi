@@ -30,7 +30,7 @@
         "better-result": "catalog:",
         "drizzle-orm": "catalog:",
         "js-tiktoken": "^1.0.21",
-        "jsonrepair": "^3.14.0",
+        "jsonrepair": "^3.14.1",
         "zod": "catalog:"
     },
     "devDependencies": {

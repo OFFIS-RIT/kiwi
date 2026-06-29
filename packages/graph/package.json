@@ -21,7 +21,7 @@
         "@kiwi/ai": "workspace:*",
         "@kiwi/contracts": "workspace:*",
         "@kiwi/files": "workspace:*",
-        "@libpdf/core": "^0.3.6",
+        "@libpdf/core": "^0.4.0",
         "@platformatic/vfs": "^0.4.0",
         "@xmldom/xmldom": "^0.9.10",
         "ai": "catalog:",
@@ -30,7 +30,7 @@
         "htmlparser2": "^12.0.0",
         "js-tiktoken": "^1.0.21",
         "jszip": "^3.10.1",
-        "pdf-to-img": "^6.1.0",
+        "pdf-to-img": "^6.2.0",
         "ulid": "^3.0.2",
         "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
         "zod": "catalog:"
