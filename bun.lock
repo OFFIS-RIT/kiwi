@@ -208,7 +208,9 @@
       "dependencies": {
         "@kiwi/contracts": "workspace:*",
         "drizzle-orm": "catalog:",
+        "openworkflow": "catalog:",
         "pg": "catalog:",
+        "postgres": "catalog:",
         "ulid": "^3.0.2",
       },
       "devDependencies": {

@@ -15,6 +15,11 @@ export const env = createEnv({
         AUTH_COOKIE_DOMAIN: z.string().optional(),
 
         DATABASE_DIRECT_URL: z.string(),
+        OPENWORKFLOW_DB_POOL_MAX: z.coerce.number().int().positive().default(2),
+        OPENWORKFLOW_RUN_MIGRATIONS: z
+            .enum(["true", "false"])
+            .default("true")
+            .transform((value) => value === "true"),
         S3_ACCESS_KEY_ID: z.string(),
         S3_SECRET_ACCESS_KEY: z.string(),
         S3_ENDPOINT: z.url(),

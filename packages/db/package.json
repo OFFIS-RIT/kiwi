@@ -4,6 +4,7 @@
     "type": "module",
     "exports": {
         "./utils": "./src/utils.ts",
+        "./openworkflow": "./src/openworkflow.ts",
         ".": "./src/index.ts",
         "./tables/*": "./src/tables/*.ts"
     },
@@ -14,7 +15,9 @@
     "dependencies": {
         "@kiwi/contracts": "workspace:*",
         "drizzle-orm": "catalog:",
+        "openworkflow": "catalog:",
         "pg": "catalog:",
+        "postgres": "catalog:",
         "ulid": "^3.0.2"
     },
     "devDependencies": {

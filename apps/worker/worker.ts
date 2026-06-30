@@ -1,3 +1,4 @@
+import { OPENWORKFLOW_MIGRATIONS_READY_ENV, runOpenWorkflowMigrations } from "@kiwi/db/openworkflow";
 import cluster from "node:cluster";
 import { availableParallelism } from "node:os";
 
@@ -6,14 +7,19 @@ const WATCH_PARENT_PROCESS = process.env.KIWI_WORKER_WATCH_PARENT === "1";
 const WORKER_CONCURRENCY_ENV = "KIWI_WORKER_CONCURRENCY_SLOT";
 
 if (!WATCH_PARENT_PROCESS && cluster.isPrimary) {
-    startClusterPrimary();
+    await startClusterPrimary();
 } else {
     await startWorkerProcess();
 }
 
-function startClusterPrimary() {
+async function startClusterPrimary() {
+    const { env } = await import("./env");
+    if (env.OPENWORKFLOW_RUN_MIGRATIONS) {
+        await runOpenWorkflowMigrations(env.DATABASE_DIRECT_URL);
+    }
+
     let shuttingDown = false;
-    const totalConcurrency = readPositiveInteger(process.env.WORKER_CONCURRENCY, 1);
+    const totalConcurrency = env.WORKER_CONCURRENCY;
     const processCount = Math.min(availableParallelism(), totalConcurrency);
     const concurrencySlots = splitConcurrency(totalConcurrency, processCount);
     const concurrencyByWorkerId = new Map<number, number>();
@@ -96,7 +102,10 @@ function startClusterPrimary() {
     }
 
     function forkWorker(concurrency: number) {
-        const worker = cluster.fork({ [WORKER_CONCURRENCY_ENV]: String(concurrency) });
+        const worker = cluster.fork({
+            [WORKER_CONCURRENCY_ENV]: String(concurrency),
+            [OPENWORKFLOW_MIGRATIONS_READY_ENV]: "1",
+        });
         concurrencyByWorkerId.set(worker.id, concurrency);
     }
 }
