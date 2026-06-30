@@ -4,6 +4,7 @@ import { and, asc, eq, gt, ilike } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { tool } from "ai";
 import z from "zod";
+import { fileContentScopePredicate, type GraphContentScope } from "./content-scope";
 import { runToolSafely } from "./lib/execute";
 
 const listFilesSchema = z.object({
@@ -13,6 +14,7 @@ const listFilesSchema = z.object({
 });
 
 type FileToolOptions = {
+    contentScope?: GraphContentScope;
     onConsideredFileIds?: (fileIds: Iterable<string>) => void;
 };
 
@@ -37,6 +39,10 @@ export const listFilesTool = (graphId: string, options: FileToolOptions = {}) =>
                         Effect.gen(function* () {
                             const db = yield* Database;
                             const clauses = [eq(filesTable.graphId, graphId), eq(filesTable.deleted, false)];
+                            const scopePredicate = fileContentScopePredicate(options.contentScope, filesTable);
+                            if (scopePredicate) {
+                                clauses.push(scopePredicate);
+                            }
 
                             if (cursor) {
                                 clauses.push(gt(filesTable.id, cursor));

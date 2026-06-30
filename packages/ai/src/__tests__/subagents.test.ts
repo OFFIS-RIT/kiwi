@@ -40,7 +40,8 @@ mock.module("@kiwi/db", () => ({
     db: {},
 }));
 
-const { buildSubagentToolset, compactConversationHistory } = await import("../agents/subagents");
+const { buildCodeSearchSubagentToolset, buildSubagentToolset, compactConversationHistory } =
+    await import("../agents/subagents");
 
 describe("subagent tools", () => {
     test("delegates graph exploration with the specialized task prompt", async () => {
@@ -117,6 +118,47 @@ describe("subagent tools", () => {
         expect(call.prompt).toContain("Refinement query: roadmap");
         expect(call.abortSignal).toBeUndefined();
         expect(result).toBe(`generated:${call.prompt}`);
+    });
+
+    test("delegates code search with a code-focused task prompt", async () => {
+        generateMock.mockClear();
+
+        const toolset = buildCodeSearchSubagentToolset({
+            graphId: "graph-1",
+            embeddingModel: {} as never,
+            model: {} as never,
+        });
+
+        expect(Object.keys(toolset)).toEqual(["code_search"]);
+
+        const result = await toolset.code_search.execute?.(
+            {
+                task: "Find call sites",
+                query: "runTask",
+                paths: ["packages/ai"],
+                symbols: ["entity-1"],
+            },
+            { abortSignal: undefined }
+        );
+
+        const call = generateMock.mock.calls[0]?.[0] as { prompt: string };
+        expect(call.prompt).toContain("Complete this code search task for the parent agent.");
+        expect(call.prompt).toContain("Task: Find call sites");
+        expect(call.prompt).toContain("Query anchor: runTask");
+        expect(call.prompt).toContain("Path focus: packages/ai");
+        expect(call.prompt).toContain("Symbol IDs: entity-1");
+        expect(result).toBe(`generated:${call.prompt}`);
+    });
+
+    test("omits code search from the full subagent toolset when disabled", () => {
+        const toolset = buildSubagentToolset({
+            graphId: "graph-1",
+            embeddingModel: {} as never,
+            model: {} as never,
+            includeCodeSearch: false,
+        });
+
+        expect(Object.keys(toolset).sort()).toEqual(["curate_sources_with_subagent", "explore_graph_with_subagent"]);
     });
 
     test("runs the compaction helper with the dedicated prompt and output cap", async () => {

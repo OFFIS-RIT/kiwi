@@ -29,7 +29,8 @@ import { getFileTypeProcessingConfig } from "../lib/files/type-config";
 import { requireReadableContentText } from "../lib/files/readable-text";
 import { classifyFileProcessError } from "../lib/files/process-error";
 import { collectPendingDescriptionTargets, saveGraphToDatabase } from "../lib/graph/save";
-import { prepareCodeManifest } from "../lib/code/manifest";
+import { loadCodeRepositoryContextsByBranch, uploadCodeManifest } from "../lib/code/manifest";
+import { buildAndSaveFastCodeGraphLayerFromContext } from "../lib/code/fast-layer";
 import { invalidateSupersededRepositorySources } from "../lib/code/repository-finalizer";
 import { updateFileProcessingState, stopIfFileDeleted } from "../lib/files/processing-state";
 import { runWorkerEffect } from "../lib/runtime/effect";
@@ -114,21 +115,59 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
         const fileTypes = new Map(fileTypeRows.map((file) => [file.id, coerceGraphFileType(file.type)]));
         const hasCodeFiles = [...fileTypes.values()].some((type) => type === "code");
 
-        const codeManifestKey =
+        const codeFileIds = input.fileIds.filter((fileId) => fileTypes.get(fileId) === "code");
+        const codeRepositoryContexts =
             input.code && hasCodeFiles
-                ? await step.run({ name: "prepare-code-manifest" }, async () =>
+                ? await step.run({ name: "load-code-repository-contexts" }, async () =>
                       runWorkerEffect(
-                          prepareCodeManifest({
-                              graphId: input.graphId,
-                              fileIds: input.fileIds.filter((fileId) => fileTypes.get(fileId) === "code"),
-                              processRunId: input.processRunId,
-                          })
+                          loadCodeRepositoryContextsByBranch({ graphId: input.graphId, fileIds: codeFileIds })
                       )
                   )
-                : undefined;
-
+                : [];
+        const defaultCodeRepositoryContext = codeRepositoryContexts.find((context) => context.isDefaultBranch);
+        const defaultCodeFileIds = new Set(defaultCodeRepositoryContext?.files.map((file) => file.fileId) ?? []);
+        const defaultSelectedCodeFileIds = codeFileIds.filter((fileId) => defaultCodeFileIds.has(fileId));
+        const fastOnlyCodeFileIds = codeFileIds.filter((fileId) => !defaultCodeFileIds.has(fileId));
+        const codeManifestKey = defaultCodeRepositoryContext
+            ? await step.run({ name: "prepare-code-manifest" }, async () =>
+                  runWorkerEffect(
+                      uploadCodeManifest(defaultCodeRepositoryContext, {
+                          graphId: input.graphId,
+                          processRunId: input.processRunId,
+                      })
+                  )
+              )
+            : undefined;
+        if (codeRepositoryContexts.length > 0) {
+            await step.run({ name: "save-fast-code-layers" }, async () =>
+                runWorkerEffect(
+                    Effect.gen(function* () {
+                        for (const context of codeRepositoryContexts) {
+                            yield* buildAndSaveFastCodeGraphLayerFromContext(context, {
+                                graphId: input.graphId,
+                                processRunId: input.processRunId,
+                            });
+                        }
+                    })
+                )
+            );
+        }
+        if (fastOnlyCodeFileIds.length > 0) {
+            await step.run({ name: "mark-fast-only-code-files" }, async () =>
+                runWorkerEffect(
+                    Effect.gen(function* () {
+                        for (const fileId of fastOnlyCodeFileIds) {
+                            yield* updateFileProcessingState(fileId, "completed", "processed");
+                        }
+                    })
+                )
+            );
+        }
+        const fileIdsForComplexProcessing = input.fileIds.filter(
+            (fileId) => fileTypes.get(fileId) !== "code" || defaultCodeFileIds.has(fileId)
+        );
         const fileResults = await Promise.allSettled(
-            input.fileIds.map((fileId) => {
+            fileIdsForComplexProcessing.map((fileId) => {
                 const workflow = fileProcessingWorkflow(input.graphId, fileId, fileTypes.get(fileId), codeManifestKey);
                 return step.runWorkflow(workflow.spec, workflow.input);
             })
@@ -153,7 +192,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
                               }
                             : {
                                   graphId: input.graphId,
-                                  latestFileIds: input.fileIds.filter((fileId) => fileTypes.get(fileId) === "code"),
+                                  latestFileIds: defaultSelectedCodeFileIds,
                               }
                     )
                 )

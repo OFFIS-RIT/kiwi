@@ -14,6 +14,7 @@ import { env } from "../../env";
 import { API_ERROR_CODES, internalServerError, isApiError, makeApiError, type ApiError } from "../../types";
 import type { AuthSession, AuthUser } from "../../middleware/auth";
 import { mcpJsonRpcErrorResponse } from "./responses";
+import { registerMcpCodeTools } from "./code-tools";
 import { runApiEffect } from "../../effect";
 
 const getGraphsOutput = z.object({
@@ -139,6 +140,7 @@ function researchToolResult({ request, user }: McpRequestContext, input: { graph
                     resolveCitationDocumentLink(input.graphId, citation, {
                         baseUrl: getPublicApiBaseUrl(request, env.API_URL),
                         signed: true,
+                        contentScope: "documents",
                     })
                 ),
         });
@@ -163,6 +165,16 @@ function registerMcpTools(server: McpServer, context: McpRequestContext) {
         "Research a question against one graph/project and return a Markdown answer with document links.",
         researchInput,
         async ({ graphId, question }) => runApiEffect(researchToolResult(context, { graphId, question }))
+    );
+
+    registerMcpCodeTools(
+        server,
+        (graphId) =>
+            Effect.gen(function* () {
+                yield* assertMcpGraphViewPermission(context.request.headers);
+                yield* assertMcpCanViewGraph(context.user, graphId);
+            }),
+        runApiEffect
     );
 }
 

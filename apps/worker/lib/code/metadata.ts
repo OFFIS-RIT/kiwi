@@ -21,6 +21,8 @@ export function codeRepositoryFileFieldsFromMetadata(
         repositoryUrl: metadata.git?.repositoryUrl ?? `connector:${metadata.bindingId}:${metadata.providerResourceId}`,
         repositoryName: metadata.git?.repositoryName ?? metadata.resourceDisplayName,
         commitSha: metadata.git?.commitSha ?? metadata.versionId ?? "unknown",
+        ...(metadata.git?.branch ? { branch: metadata.git.branch } : {}),
+        ...(metadata.git?.defaultBranch ? { defaultBranch: metadata.git.defaultBranch } : {}),
         path: metadata.path,
     };
 }

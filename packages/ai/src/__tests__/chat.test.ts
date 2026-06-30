@@ -342,6 +342,7 @@ describe("citation fences", () => {
 
         expect(Object.keys(toolset)).toContain("ask_clarifying_questions");
         expect(Object.keys(toolset)).toContain("explore_graph_with_subagent");
+        expect(Object.keys(toolset)).toContain("code_search");
         expect(Object.keys(toolset)).toContain("correction");
         expect(chatMessageMetadataSchema.parse({ totalTokens: 12 })).toEqual({ totalTokens: 12 });
         expect(chatDataPartSchemas.step.parse({ name: "thinking" })).toEqual({ name: "thinking" });

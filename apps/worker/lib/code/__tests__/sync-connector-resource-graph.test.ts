@@ -24,6 +24,8 @@ let processFilesError: Error | null = null;
 let compareChanges: Array<ConnectorResourceChange & Record<string, unknown>> = [];
 let compareIsIncremental = true;
 let snapshotFiles: Array<ProviderCodeFile & Record<string, unknown>> = [];
+let snapshotFilesByVersionName: Record<string, Array<ProviderCodeFile & Record<string, unknown>>> = {};
+let resourceVersions: Array<{ resourceId: string; name: string; versionId: string }> = [];
 let readFileContents: Record<string, string> = {};
 let adapterProvider = "github";
 let adapterResourceKind = "git-repository";
@@ -215,14 +217,16 @@ mock.module("@kiwi/connectors", () => ({
                     kind: "git-repository",
                     id: "1",
                     displayName: "acme/widgets",
+                    defaultBranch: "main",
                     webUrl: "https://github.com/acme/widgets",
                     private: true,
                 }),
             listResources: () => Effect.succeed([]),
-            listResourceVersions: () => Effect.succeed([{ resourceId: "1", name: "main", versionId: "commit-new" }]),
-            loadSnapshot: () =>
+            listResourceVersions: () => Effect.succeed(resourceVersions),
+            loadSnapshot: (_resourceId: string, versionName: string, versionId?: string) =>
                 Effect.sync(() => {
                     loadSnapshotCalls += 1;
+                    const files = snapshotFilesByVersionName[versionName] ?? snapshotFiles;
                     return {
                         resource: {
                             provider: "github",
@@ -230,10 +234,11 @@ mock.module("@kiwi/connectors", () => ({
                             id: "1",
                             displayName: "acme/widgets",
                             webUrl: "https://github.com/acme/widgets",
+                            defaultBranch: "main",
                             private: true,
                         },
-                        version: { resourceId: "1", name: "main", versionId: "commit-new" },
-                        files: snapshotFiles,
+                        version: { resourceId: "1", name: versionName, versionId: versionId ?? "commit-new" },
+                        files,
                     };
                 }),
             compareVersions: (_resourceId: string, fromVersionId: string, toVersionId: string) =>
@@ -497,6 +502,8 @@ describe("syncConnectorResourceGraph", () => {
         compareChanges = [];
         compareIsIncremental = true;
         snapshotFiles = [];
+        snapshotFilesByVersionName = {};
+        resourceVersions = [{ resourceId: "1", name: "main", versionId: "commit-new" }];
         readFileContents = {};
         adapterProvider = "github";
         adapterResourceKind = "git-repository";
@@ -1005,6 +1012,58 @@ describe("syncConnectorResourceGraph", () => {
             graphId: "graph-1",
             processRunId: "process-run-1",
             code: { kind: "repository", retiredFileIds: ["old-file", "shared-file"] },
+        });
+    });
+
+    test("indexes discovered non-default branches as fast-only code", async () => {
+        resourceVersions = [
+            { resourceId: "1", name: "main", versionId: "commit-main" },
+            { resourceId: "1", name: "feature", versionId: "commit-feature" },
+        ];
+        snapshotFilesByVersionName = {
+            main: [
+                {
+                    path: "src/index.ts",
+                    size: 24,
+                    checksum: "main-sha",
+                    htmlUrl: "https://github.com/acme/widgets/blob/commit-main/src/index.ts",
+                    rawUrl: "https://raw.githubusercontent.com/acme/widgets/commit-main/src/index.ts",
+                    content: "export const main = true;\n",
+                },
+            ],
+            feature: [
+                {
+                    path: "src/feature.ts",
+                    size: 27,
+                    checksum: "feature-sha",
+                    htmlUrl: "https://github.com/acme/widgets/blob/commit-feature/src/feature.ts",
+                    rawUrl: "https://raw.githubusercontent.com/acme/widgets/commit-feature/src/feature.ts",
+                    content: "export const feature = true;\n",
+                },
+            ],
+        };
+        selectResults = [
+            { kind: "limit", value: [bindingRow(null)] },
+            { kind: "where", value: [] },
+        ];
+
+        const result = await runWorkflow({ bindingId: "binding-1", reason: "initial" });
+
+        expect(result).toMatchObject({ versionId: "commit-main", fileCount: 2 });
+        expect(loadSnapshotCalls).toBe(2);
+        expect(insertedFileValues.map((row) => row.name)).toEqual(["src/index.ts", "src/feature.ts"]);
+        expect(insertedFileValues.map((row) => JSON.parse(String(row.metadata)).git.branch)).toEqual([
+            "main",
+            "feature",
+        ]);
+        expect(insertedFileValues.map((row) => JSON.parse(String(row.metadata)).git.defaultBranch)).toEqual([
+            "main",
+            "main",
+        ]);
+        expect(processWorkflowInputs).toHaveLength(2);
+        expect(processWorkflowInputs[1]).toMatchObject({
+            graphId: "graph-1",
+            code: { kind: "repository", retiredFileIds: [] },
         });
     });
 

@@ -25,6 +25,7 @@ import {
     truncateWords,
     type RankCursor,
 } from "./lib/search";
+import { fileContentScopePredicate, fileContentScopeSql, type GraphContentScope } from "./content-scope";
 import { runToolSafely } from "./lib/execute";
 import z from "zod";
 
@@ -63,8 +64,9 @@ function buildExactBoostExpression(terms: string[]) {
     );
 }
 
-function buildFileScopeExpression(fileIds: string[]) {
-    if (fileIds.length === 0) {
+function buildFileScopeExpression(fileIds: string[], contentScope: GraphContentScope | undefined) {
+    const scopeFilter = fileContentScopeSql(contentScope, "file");
+    if (fileIds.length === 0 && !scopeFilter) {
         return sql``;
     }
 
@@ -77,10 +79,15 @@ function buildFileScopeExpression(fileIds: string[]) {
             where source.entity_id = e.id
               and ${currentSourceSql("source")}
               and ${visibleFileSql("file")}
-              and text_unit.file_id in (${sql.join(
-                  fileIds.map((fileId) => sql`${fileId}`),
-                  sql`, `
-              )})
+              ${scopeFilter ? sql`and ${scopeFilter}` : sql``}
+              ${
+                  fileIds.length > 0
+                      ? sql`and text_unit.file_id in (${sql.join(
+                            fileIds.map((fileId) => sql`${fileId}`),
+                            sql`, `
+                        )})`
+                      : sql``
+              }
         )
     `;
 }
@@ -108,6 +115,7 @@ const searchEntitiesSchema = z.object({
 });
 
 type EntityToolOptions = {
+    contentScope?: GraphContentScope;
     onConsideredFileIds?: (fileIds: Iterable<string>) => void;
 };
 
@@ -143,7 +151,7 @@ export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel
                                     abortSignal: signal,
                                 })
                             );
-                            const fileScope = buildFileScopeExpression(fileIds);
+                            const fileScope = buildFileScopeExpression(fileIds, options.contentScope);
                             const keywordBoost = buildKeywordBoostExpression(terms);
                             const exactBoost = buildExactBoostExpression(terms);
                             const semanticScore = sql<number>`greatest(0::double precision, 1 - (${cosineDistance(sql`e.embedding`, embedding)}))`;
@@ -260,7 +268,8 @@ export const listEntitiesTool = (graphId: string, options: EntityToolOptions = {
                                 clauses.push(gt(entityTable.id, cursor));
                             }
 
-                            if (fileIds.length > 0) {
+                            const scopePredicate = fileContentScopePredicate(options.contentScope, filesTable);
+                            if (fileIds.length > 0 || scopePredicate) {
                                 clauses.push(
                                     exists(
                                         db
@@ -272,8 +281,11 @@ export const listEntitiesTool = (graphId: string, options: EntityToolOptions = {
                                                 and(
                                                     eq(sourcesTable.entityId, entityTable.id),
                                                     currentSourcePredicate(sourcesTable),
-                                                    inArray(textUnitTable.fileId, fileIds),
-                                                    visibleFilePredicate(filesTable)
+                                                    visibleFilePredicate(filesTable),
+                                                    ...(fileIds.length > 0
+                                                        ? [inArray(textUnitTable.fileId, fileIds)]
+                                                        : []),
+                                                    ...(scopePredicate ? [scopePredicate] : [])
                                                 )
                                             )
                                     )

@@ -48,6 +48,7 @@ const { estimateToken, toUIMessage } = await import("@kiwi/ai");
 const {
     deriveActiveCompaction,
     getProtectedTailStartIndex,
+    hasIndexedCodeGraphContent,
     shouldRefreshGraphDataAfterCompletedWorkflow,
     isContextOverflowError,
     normalizeChatRequest,
@@ -184,6 +185,84 @@ describe("citation document links", () => {
                     )
                 )
             ).resolves.toBe("[src/index.ts](https://github.com/acme/widgets/blob/commit-1/src/index.ts)");
+        } finally {
+            dbMock.select = undefined;
+        }
+    });
+
+    test("rejects code citations when document scope is requested", async () => {
+        const row = {
+            sourceId: "src-1",
+            unitId: "unit-1",
+            fileId: "file-1",
+            fileName: "src/index.ts",
+            fileType: "code",
+            startPage: null,
+            endPage: null,
+            storageKind: "external",
+            externalUrl: "https://github.com/acme/widgets/blob/commit-1/src/index.ts",
+        };
+        const query = {
+            from: mock(() => query),
+            innerJoin: mock(() => query),
+            where: mock(() => query),
+            limit: mock(async () => [row]),
+        };
+        dbMock.select = mock(() => query);
+
+        try {
+            await expect(
+                runApiTestEffect(
+                    resolveCitationDocumentLink(
+                        "graph-1",
+                        {
+                            type: "cite",
+                            sourceId: "src-1",
+                        },
+                        {
+                            baseUrl: "https://api.example.com",
+                            signed: true,
+                            contentScope: "documents",
+                        }
+                    )
+                )
+            ).resolves.toBe("[source unavailable]");
+        } finally {
+            dbMock.select = undefined;
+        }
+    });
+});
+
+describe("code graph availability", () => {
+    test("reports indexed code graph content when current code sources exist", async () => {
+        const query = {
+            from: mock(() => query),
+            innerJoin: mock(() => query),
+            where: mock(() => query),
+            limit: mock(async () => [{ id: "source-1" }]),
+        };
+        dbMock.select = mock(() => query);
+
+        try {
+            await expect(runApiTestEffect(hasIndexedCodeGraphContent("graph-1"))).resolves.toBe(true);
+            expect(query.innerJoin).toHaveBeenCalledTimes(2);
+            expect(query.limit).toHaveBeenCalledWith(1);
+        } finally {
+            dbMock.select = undefined;
+        }
+    });
+
+    test("hides code search when no current code source exists", async () => {
+        const query = {
+            from: mock(() => query),
+            innerJoin: mock(() => query),
+            where: mock(() => query),
+            limit: mock(async () => []),
+        };
+        dbMock.select = mock(() => query);
+
+        try {
+            await expect(runApiTestEffect(hasIndexedCodeGraphContent("graph-1"))).resolves.toBe(false);
         } finally {
             dbMock.select = undefined;
         }

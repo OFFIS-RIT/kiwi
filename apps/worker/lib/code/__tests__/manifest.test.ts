@@ -70,6 +70,7 @@ const fileContents: Record<string, string> = {
     "key-connector-new": "import { shared } from '../../__tests__/shared';\nexport const main = () => shared;\n",
     "key-connector-existing": "export const shared = 1;\n",
     "key-connector-other-binding": "export const shared = 2;\n",
+    "key-connector-feature": "export const feature = true;\n",
 };
 
 let rows = [...baseRows];
@@ -91,6 +92,10 @@ const mockDb = {
 };
 
 mock.module("@kiwi/db/effect", () => ({
+    tryDb: (work: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) => {
+        const result = work(mockDb);
+        return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
+    },
     Database: Effect.succeed(mockDb),
     DatabaseError: class DatabaseError extends Error {
         override readonly cause: unknown;
@@ -131,7 +136,8 @@ mock.module("../../../env", () => ({
 }));
 
 // Dynamic import is required so module mocks and env are installed before worker modules are evaluated.
-const { prepareCodeManifest } = await import("../manifest");
+const { loadCodeRepositoryContext, loadCodeRepositoryContextsByBranch, prepareCodeManifest } =
+    await import("../manifest");
 const { readFileContentSource } = await import("../../files/content-source");
 
 describe("prepareCodeManifest", () => {
@@ -152,6 +158,15 @@ describe("prepareCodeManifest", () => {
             "src/helper.ts",
             "src/index.ts",
         ]);
+    });
+
+    test("returns repository scopes for fast layer persistence", async () => {
+        const context = await runWorkerTestEffect(
+            loadCodeRepositoryContext({ graphId: "graph-1", fileIds: ["file-new"] })
+        );
+
+        expect(context?.repositoryScopes).toEqual(["repository:https://github.com/acme/widgets.git\0commit-1"]);
+        expect(context?.files.map((file) => file.path).sort()).toEqual(["src/helper.ts", "src/index.ts"]);
     });
 
     test("includes unchanged connector siblings from the same binding across mixed commits", async () => {
@@ -216,6 +231,75 @@ describe("prepareCodeManifest", () => {
         expect(
             (uploadedManifest as { files: Array<{ fileId: string }> }).files.map((file) => file.fileId).sort()
         ).toEqual(["file-connector-existing", "file-connector-new"]);
+    });
+
+    test("groups connector repository contexts by selected branch", async () => {
+        rows = [
+            {
+                id: "file-main",
+                name: "widgets/src/index.ts",
+                key: "key-new",
+                storageKind: "internal",
+                externalUrl: null,
+                externalProvider: null,
+                connectorBindingId: "binding-1",
+                metadata: JSON.stringify({
+                    schemaVersion: 2,
+                    provider: "github",
+                    bindingId: "binding-1",
+                    resourceKind: "git-repository",
+                    providerResourceId: "repo-1",
+                    resourceDisplayName: "widgets",
+                    path: "src/index.ts",
+                    displayName: "index.ts",
+                    versionId: "commit-main",
+                    git: {
+                        repositoryName: "widgets",
+                        repositoryUrl: "https://github.com/acme/widgets.git",
+                        commitSha: "commit-main",
+                        branch: "main",
+                        defaultBranch: "main",
+                    },
+                }),
+            },
+            {
+                id: "file-feature",
+                name: "widgets/src/feature.ts",
+                key: "key-connector-feature",
+                storageKind: "internal",
+                externalUrl: null,
+                externalProvider: null,
+                connectorBindingId: "binding-1",
+                metadata: JSON.stringify({
+                    schemaVersion: 2,
+                    provider: "github",
+                    bindingId: "binding-1",
+                    resourceKind: "git-repository",
+                    providerResourceId: "repo-1",
+                    resourceDisplayName: "widgets",
+                    path: "src/feature.ts",
+                    displayName: "feature.ts",
+                    versionId: "commit-feature",
+                    git: {
+                        repositoryName: "widgets",
+                        repositoryUrl: "https://github.com/acme/widgets.git",
+                        commitSha: "commit-feature",
+                        branch: "feature",
+                        defaultBranch: "main",
+                    },
+                }),
+            },
+        ];
+        selectedFileIds = ["file-feature"];
+
+        const contexts = await runWorkerTestEffect(
+            loadCodeRepositoryContextsByBranch({ graphId: "graph-1", fileIds: selectedFileIds })
+        );
+
+        expect(contexts).toHaveLength(1);
+        expect(contexts[0]?.branch).toBe("feature");
+        expect(contexts[0]?.isDefaultBranch).toBe(false);
+        expect(contexts[0]?.files.map((file) => file.fileId)).toEqual(["file-feature"]);
     });
 
     test("includes external GitHub files from the same repository commit", async () => {

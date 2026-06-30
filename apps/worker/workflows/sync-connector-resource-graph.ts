@@ -26,6 +26,7 @@ import type {
     ConnectorResourceChange,
     ConnectorResourceDelta,
     ConnectorResourceKind,
+    ConnectorResourceVersion,
     ConnectorResourceSnapshot,
     GitLabConnectorCredentials,
     ProviderCodeFile,
@@ -75,6 +76,8 @@ type CodeSyncedExternalItem = SyncedExternalItem & {
     checksum: string;
     webUrl: string;
     versionId: string;
+    versionName?: string;
+    defaultBranch?: string;
     contentAccessMode: "text";
     processingKind: "code";
     textContent: string;
@@ -98,10 +101,12 @@ type LoadedSyncedExternalItem = CodeSyncedExternalItem | StoredSyncedExternalIte
 
 type CodeSyncSnapshot = Omit<SyncSnapshot, "items"> & {
     items: readonly CodeSyncedExternalItem[];
+    defaultBranch?: string;
 };
 
 type ActiveBindingFile = {
     id: string;
+    branch?: string;
     size: number;
     path: string;
     providerItemId?: string;
@@ -161,13 +166,12 @@ type ConnectorFileRow = {
     metadata: string;
     id: string;
 };
-type WorkflowStep = Pick<Parameters<Workflow<unknown, unknown, unknown>["fn"]>[0]["step"], "runWorkflow">;
 
 type CompatibleCodeFileMetadata = {
     path: string;
     providerFileId?: string;
     versionId?: string;
-    git?: { commitSha?: string };
+    git?: { commitSha?: string; branch?: string; defaultBranch?: string };
 };
 
 type ConnectorFileMetadataInput = {
@@ -189,8 +193,10 @@ type ConnectorFileMetadataInput = {
         repositoryUrl?: string;
         commitSha: string;
         branch?: string;
+        defaultBranch?: string;
     };
 };
+type WorkflowStep = Pick<Parameters<Workflow<unknown, unknown, unknown>["fn"]>[0]["step"], "run" | "runWorkflow">;
 
 const NO_RETRY = { maximumAttempts: 1 } as const;
 const PROVIDER_FILE_READ_CONCURRENCY = 4;
@@ -333,14 +339,18 @@ const requireVersionedSyncStrategy = Effect.fn("requireVersionedSyncStrategy")(f
     );
 });
 
-function resolveTargetVersion(row: BindingGraphRow, inputVersionId?: string): Effect.Effect<string, unknown> {
+function resolveTargetVersion(
+    row: BindingGraphRow,
+    inputVersionId?: string,
+    versionNameOverride?: string
+): Effect.Effect<string, unknown> {
     if (inputVersionId) {
         return Effect.succeed(inputVersionId);
     }
 
     return Effect.gen(function* () {
         const { adapter } = yield* createAdapterContext(row);
-        const versionName = requireBindingVersionName(row);
+        const versionName = versionNameOverride ?? requireBindingVersionName(row);
         const version = (yield* adapter.listResourceVersions(row.binding.providerResourceId)).find(
             (candidate) => candidate.name === versionName
         );
@@ -354,12 +364,39 @@ function resolveTargetVersion(row: BindingGraphRow, inputVersionId?: string): Ef
     });
 }
 
-function loadSnapshot(row: BindingGraphRow, versionId: string): Effect.Effect<CodeSyncSnapshot, unknown> {
+function loadSnapshot(
+    row: BindingGraphRow,
+    versionId: string,
+    versionNameOverride?: string
+): Effect.Effect<CodeSyncSnapshot, unknown> {
+    const versionName = versionNameOverride ?? requireBindingVersionName(row);
+    return loadSnapshotVersion(row, versionName, versionId);
+}
+
+function loadSnapshotVersion(
+    row: BindingGraphRow,
+    versionName: string,
+    versionId: string
+): Effect.Effect<CodeSyncSnapshot, unknown> {
     return Effect.gen(function* () {
         const context = yield* createAdapterContext(row);
-        const versionName = requireBindingVersionName(row);
         const snapshot = yield* context.adapter.loadSnapshot(row.binding.providerResourceId, versionName, versionId);
         return connectorSnapshotToSyncSnapshot(row, snapshot);
+    });
+}
+
+function listBranchVersions(row: BindingGraphRow): Effect.Effect<ConnectorResourceVersion[], unknown> {
+    return Effect.gen(function* () {
+        const { adapter } = yield* createAdapterContext(row);
+        return yield* adapter.listResourceVersions(row.binding.providerResourceId);
+    });
+}
+
+function resolveRepositoryDefaultBranch(row: BindingGraphRow): Effect.Effect<string, unknown> {
+    return Effect.gen(function* () {
+        const { adapter } = yield* createAdapterContext(row);
+        const resource = yield* adapter.getResource(row.binding.providerResourceId);
+        return resource.defaultBranch ?? resource.defaultVersion?.name ?? row.binding.versionName ?? "default";
     });
 }
 
@@ -400,7 +437,9 @@ function listCursorChanges(row: BindingGraphRow, cursor?: string): Effect.Effect
 function loadChangedItems(
     row: BindingGraphRow,
     versionId: string,
-    plannedItems: PlannedSyncItem[]
+    plannedItems: PlannedSyncItem[],
+    versionName?: string,
+    defaultBranch?: string
 ): Effect.Effect<LoadedSyncedExternalItem[], unknown, FileStorage> {
     return Effect.gen(function* () {
         const context = yield* createAdapterContext(row);
@@ -409,7 +448,9 @@ function loadChangedItems(
             const batch = plannedItems.slice(index, index + PROVIDER_FILE_READ_CONCURRENCY);
             items.push(
                 ...(yield* Effect.all(
-                    batch.map((plannedItem) => loadChangedItem(row, context, versionId, plannedItem)),
+                    batch.map((plannedItem) =>
+                        loadChangedItem(row, context, versionId, plannedItem, versionName, defaultBranch)
+                    ),
                     { concurrency: PROVIDER_FILE_READ_CONCURRENCY }
                 ))
             );
@@ -422,7 +463,9 @@ function loadChangedItem(
     row: BindingGraphRow,
     context: ConnectorAdapterContext,
     versionId: string,
-    plannedItem: PlannedSyncItem
+    plannedItem: PlannedSyncItem,
+    versionName?: string,
+    defaultBranch?: string
 ): Effect.Effect<LoadedSyncedExternalItem, unknown, FileStorage> {
     if (plannedItem.processingKind === "document" || plannedItem.processingKind === "media") {
         return loadStoredSyncItem(row, context, versionId, plannedItem);
@@ -447,7 +490,7 @@ function loadChangedItem(
             versionId,
             resourceKind: row.binding.resourceKind,
         }),
-        (content) => buildCodeSyncItem(row, context, versionId, plannedItem, content)
+        (content) => buildCodeSyncItem(row, context, versionId, plannedItem, content, versionName, defaultBranch)
     );
 }
 
@@ -584,11 +627,15 @@ function createContentChecksum(bytes: Uint8Array): string {
 }
 
 function connectorSnapshotToSyncSnapshot(row: BindingGraphRow, snapshot: ConnectorResourceSnapshot): CodeSyncSnapshot {
+    const defaultBranch = snapshot.resource.defaultBranch ?? snapshot.resource.defaultVersion?.name ?? undefined;
     return {
         resourceId: snapshot.resource.id,
         versionName: snapshot.version.name,
         versionId: snapshot.version.versionId,
-        items: snapshot.files.map((file) => providerCodeFileToSyncItem(row, snapshot.version.versionId, file)),
+        ...(defaultBranch ? { defaultBranch } : {}),
+        items: snapshot.files.map((file) =>
+            providerCodeFileToSyncItem(row, snapshot.version.name, snapshot.version.versionId, file, defaultBranch)
+        ),
     };
 }
 
@@ -675,7 +722,10 @@ function connectorChangeToSyncChange(change: ConnectorResourceChange): SyncedExt
     }
 }
 
-function loadActiveBindingFiles(bindingId: string): Effect.Effect<ActiveBindingFile[], unknown, Database> {
+function loadActiveBindingFiles(
+    bindingId: string,
+    branch?: string
+): Effect.Effect<ActiveBindingFile[], unknown, Database> {
     return Effect.gen(function* () {
         const rows = yield* withWorkerDb((db) =>
             db
@@ -694,13 +744,20 @@ function loadActiveBindingFiles(bindingId: string): Effect.Effect<ActiveBindingF
             if (!metadata) {
                 return yield* Effect.fail(new Error(`Active connector file ${row.id} is missing connector metadata`));
             }
+            const fileBranch = metadata.git?.branch ?? metadata.git?.defaultBranch ?? branch ?? "default";
+            if (branch && fileBranch !== branch) {
+                continue;
+            }
             if (filesByPath.has(metadata.path)) {
                 return yield* Effect.fail(
-                    new Error(`Connector binding ${bindingId} has multiple active rows for ${metadata.path}`)
+                    new Error(
+                        `Connector binding ${bindingId} has multiple active rows for ${metadata.path} on ${fileBranch}`
+                    )
                 );
             }
             filesByPath.set(metadata.path, {
                 id: row.id,
+                branch: fileBranch,
                 size: row.size,
                 path: metadata.path,
                 ...(metadata.providerFileId ? { providerItemId: metadata.providerFileId } : {}),
@@ -821,7 +878,9 @@ function buildCodeSyncItem(
     context: ConnectorAdapterContext,
     versionId: string,
     plannedItem: PlannedSyncItem,
-    content: string
+    content: string,
+    versionName?: string,
+    defaultBranch?: string
 ): CodeSyncedExternalItem {
     const urls = gitFileUrls(row, context, versionId, plannedItem.path);
     const parentPathEnd = plannedItem.path.lastIndexOf("/");
@@ -843,7 +902,8 @@ function buildCodeSyncItem(
         webUrl: plannedItem.webUrl ?? urls.webUrl,
         ...((plannedItem.rawUrl ?? urls.rawUrl) ? { rawUrl: plannedItem.rawUrl ?? urls.rawUrl } : {}),
         ...(plannedItem.etag ? { etag: plannedItem.etag } : {}),
-        ...(row.binding.versionName ? { versionName: row.binding.versionName } : {}),
+        ...((versionName ?? row.binding.versionName) ? { versionName: versionName ?? row.binding.versionName! } : {}),
+        ...(defaultBranch ? { defaultBranch } : {}),
         versionId,
         contentAccessMode: "text",
         processingKind: "code",
@@ -853,8 +913,10 @@ function buildCodeSyncItem(
 
 function providerCodeFileToSyncItem(
     row: BindingGraphRow,
+    versionName: string,
     versionId: string,
-    file: ProviderCodeFile
+    file: ProviderCodeFile,
+    defaultBranch?: string
 ): CodeSyncedExternalItem {
     const parentPathEnd = file.path.lastIndexOf("/");
     return {
@@ -868,7 +930,8 @@ function providerCodeFileToSyncItem(
         checksum: file.checksum,
         webUrl: file.htmlUrl,
         ...(file.rawUrl ? { rawUrl: file.rawUrl } : {}),
-        ...(row.binding.versionName ? { versionName: row.binding.versionName } : {}),
+        versionName,
+        ...(defaultBranch ? { defaultBranch } : {}),
         versionId,
         contentAccessMode: "text",
         processingKind: "code",
@@ -925,9 +988,12 @@ function assertBindingSnapshotLimits(
 
 function connectorFileKey(bindingId: string, file: LoadedSyncedExternalItem, versionId: string): string {
     const fileVersionId = file.versionId ?? versionId;
+    const isNonDefaultBranch =
+        file.versionName !== undefined && file.defaultBranch !== undefined && file.versionName !== file.defaultBranch;
+    const versionKey = isNonDefaultBranch ? `${file.versionName}:${fileVersionId}` : fileVersionId;
     return file.providerItemId !== file.path
-        ? `connector:${bindingId}:${file.providerItemId}:${fileVersionId}`
-        : `connector:${bindingId}:${fileVersionId}:${file.path}`;
+        ? `connector:${bindingId}:${file.providerItemId}:${versionKey}`
+        : `connector:${bindingId}:${versionKey}:${file.path}`;
 }
 
 function connectorFileMetadata(
@@ -936,6 +1002,8 @@ function connectorFileMetadata(
     versionId: string
 ): ConnectorFileMetadataInput {
     const fileVersionId = file.versionId ?? versionId;
+    const branchName = file.versionName ?? row.binding.versionName;
+    const defaultBranch = file.defaultBranch ?? branchName;
     return {
         schemaVersion: 2,
         provider: connectorProvider(row),
@@ -956,7 +1024,8 @@ function connectorFileMetadata(
                       repositoryName: row.binding.resourceDisplayName,
                       repositoryUrl: row.binding.resourceWebUrl,
                       commitSha: fileVersionId,
-                      ...(row.binding.versionName ? { branch: row.binding.versionName } : {}),
+                      ...(branchName ? { branch: branchName } : {}),
+                      ...(defaultBranch ? { defaultBranch } : {}),
                   },
               }
             : {}),
@@ -1255,6 +1324,59 @@ function markBindingFailed(bindingId: string) {
     );
 }
 
+function workflowStepSuffix(value: string): string {
+    return value.replace(/[^a-zA-Z0-9_.-]+/g, "-").slice(0, 48) || "branch";
+}
+
+async function indexDiscoveredFastBranches(
+    step: WorkflowStep,
+    row: BindingGraphRow,
+    defaultBranchName: string
+): Promise<number> {
+    const versions = await step.run({ name: "list-fast-branch-versions" }, async () =>
+        runWorkerEffect(listBranchVersions(row))
+    );
+    let indexedFileCount = 0;
+    let branchIndex = 0;
+    const seenBranches = new Set<string>();
+    for (const version of versions) {
+        if (version.name === defaultBranchName || seenBranches.has(version.name)) {
+            continue;
+        }
+        branchIndex += 1;
+        seenBranches.add(version.name);
+        const suffix = `${branchIndex}-${workflowStepSuffix(version.name)}`;
+        const snapshot = await step.run({ name: `load-fast-branch-snapshot-${suffix}` }, async () =>
+            runWorkerEffect(loadSnapshotVersion(row, version.name, version.versionId))
+        );
+        if (snapshot.items.length === 0) {
+            continue;
+        }
+        const activeFileRows = await step.run({ name: `load-active-fast-branch-files-${suffix}` }, async () =>
+            runWorkerEffect(loadActiveBindingFiles(row.binding.id, version.name))
+        );
+        const activeFiles = activeBindingFiles(activeFileRows);
+        const snapshotPaths = new Set(snapshot.items.map((item) => item.path));
+        const retiredFileIds = [...activeFiles.byPath.values()]
+            .filter((file) => !snapshotPaths.has(file.path))
+            .map((file) => file.id);
+        assertBindingSnapshotLimits(activeFiles, retiredFileIds, [...snapshot.items]);
+        const created = await step.run({ name: `commit-fast-branch-files-${suffix}` }, async () =>
+            runWorkerEffect(insertConnectorFiles(row, [...snapshot.items], version.versionId))
+        );
+        await runWorkerEffect(
+            runProcessFilesWithCleanup(
+                step,
+                row.binding.graphId,
+                created,
+                repositoryProcessOptions([...snapshot.items], retiredFileIds)
+            )
+        );
+        indexedFileCount += created.fileIds.length;
+    }
+    return indexedFileCount;
+}
+
 function repositoryProcessOptions(
     files: readonly LoadedSyncedExternalItem[],
     retiredFileIds: string[]
@@ -1380,9 +1502,13 @@ export const syncConnectorResourceGraph = defineWorkflow(
             }
 
             await runWorkerEffect(requireVersionedSyncStrategy(syncStrategy));
-            const versionId = await step.run({ name: "resolve-target-version" }, async () =>
-                runWorkerEffect(resolveTargetVersion(row, input.versionId))
+            const defaultBranchName = await step.run({ name: "resolve-default-branch" }, async () =>
+                runWorkerEffect(resolveRepositoryDefaultBranch(row))
             );
+            const versionId = await step.run({ name: "resolve-target-version" }, async () =>
+                runWorkerEffect(resolveTargetVersion(row, input.versionId, defaultBranchName))
+            );
+            const indexFastBranchFileCount = () => indexDiscoveredFastBranches(step, row, defaultBranchName);
 
             if (row.binding.lastSyncedVersionId === versionId) {
                 if (input.deliveryId) {
@@ -1397,13 +1523,14 @@ export const syncConnectorResourceGraph = defineWorkflow(
 
             if (!row.binding.lastSyncedVersionId) {
                 const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
-                    runWorkerEffect(loadSnapshot(row, versionId))
+                    runWorkerEffect(loadSnapshot(row, versionId, defaultBranchName))
                 );
                 if (snapshot.items.length === 0) {
+                    const fastBranchFileCount = await indexFastBranchFileCount();
                     await step.run({ name: "mark-empty-binding-synced" }, async () =>
                         runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
                     );
-                    return { versionId, fileCount: 0 };
+                    return { versionId, fileCount: fastBranchFileCount };
                 }
 
                 const created = await step.run({ name: "commit-external-files" }, async () =>
@@ -1418,14 +1545,15 @@ export const syncConnectorResourceGraph = defineWorkflow(
                     )
                 );
 
+                const fastBranchFileCount = await indexFastBranchFileCount();
                 await step.run({ name: "mark-binding-synced" }, async () =>
                     runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
                 );
-                return { versionId, fileCount: created.fileIds.length };
+                return { versionId, fileCount: created.fileIds.length + fastBranchFileCount };
             }
 
             const activeFileRows = await step.run({ name: "load-active-binding-files" }, async () =>
-                runWorkerEffect(loadActiveBindingFiles(row.binding.id))
+                runWorkerEffect(loadActiveBindingFiles(row.binding.id, defaultBranchName))
             );
             const activeFiles = activeBindingFiles(activeFileRows);
             const delta = await step.run({ name: "compare-resource-versions" }, async () =>
@@ -1433,7 +1561,7 @@ export const syncConnectorResourceGraph = defineWorkflow(
             );
             if (!delta.isIncremental) {
                 const snapshot = await step.run({ name: "load-provider-snapshot" }, async () =>
-                    runWorkerEffect(loadSnapshot(row, versionId))
+                    runWorkerEffect(loadSnapshot(row, versionId, defaultBranchName))
                 );
                 const retiredFileIds = [...activeFiles.byPath.values()].map((file) => file.id);
                 assertBindingSnapshotLimits(activeFiles, retiredFileIds, [...snapshot.items]);
@@ -1451,10 +1579,11 @@ export const syncConnectorResourceGraph = defineWorkflow(
                         )
                     );
 
+                    const fastBranchFileCount = await indexFastBranchFileCount();
                     await step.run({ name: "mark-binding-synced" }, async () =>
                         runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
                     );
-                    return { versionId, fileCount: created.fileIds.length };
+                    return { versionId, fileCount: created.fileIds.length + fastBranchFileCount };
                 }
 
                 if (retiredFileIds.length > 0) {
@@ -1464,24 +1593,28 @@ export const syncConnectorResourceGraph = defineWorkflow(
                         code: { kind: "repository", retiredFileIds },
                     });
                 }
+                const fastBranchFileCount = await indexFastBranchFileCount();
                 await step.run({ name: "mark-binding-synced" }, async () =>
                     runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
                 );
-                return { versionId, fileCount: 0 };
+                return { versionId, fileCount: fastBranchFileCount };
             }
 
             const plan = planIncrementalChanges(activeFiles, delta.changes);
             if (plan.newItems.length === 0 && plan.retiredFileIds.length === 0) {
+                const fastBranchFileCount = await indexFastBranchFileCount();
                 await step.run({ name: "mark-binding-synced" }, async () =>
                     runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
                 );
-                return { versionId, fileCount: 0 };
+                return { versionId, fileCount: fastBranchFileCount };
             }
 
             const changedItems =
                 plan.newItems.length > 0
                     ? await step.run({ name: "load-changed-files" }, async () =>
-                          runWorkerEffect(loadChangedItems(row, versionId, plan.newItems))
+                          runWorkerEffect(
+                              loadChangedItems(row, versionId, plan.newItems, defaultBranchName, defaultBranchName)
+                          )
                       )
                     : [];
             assertBindingSnapshotLimits(activeFiles, plan.retiredFileIds, changedItems);
@@ -1498,10 +1631,11 @@ export const syncConnectorResourceGraph = defineWorkflow(
                         repositoryProcessOptions(changedItems, plan.retiredFileIds)
                     )
                 );
+                const fastBranchFileCount = await indexFastBranchFileCount();
                 await step.run({ name: "mark-binding-synced" }, async () =>
                     runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
                 );
-                return { versionId, fileCount: created.fileIds.length };
+                return { versionId, fileCount: created.fileIds.length + fastBranchFileCount };
             }
 
             await step.runWorkflow(processFilesSpec, {
@@ -1509,10 +1643,11 @@ export const syncConnectorResourceGraph = defineWorkflow(
                 fileIds: [],
                 code: { kind: "repository", retiredFileIds: plan.retiredFileIds },
             });
+            const fastBranchFileCount = await indexFastBranchFileCount();
             await step.run({ name: "mark-binding-synced" }, async () =>
                 runWorkerEffect(markBindingSynced(row.binding.id, versionId, input.cursor))
             );
-            return { versionId, fileCount: 0 };
+            return { versionId, fileCount: fastBranchFileCount };
         } catch (error) {
             if (run.retryTerminal) {
                 await step.run({ name: "mark-binding-failed", retryPolicy: NO_RETRY }, async () =>

@@ -11,42 +11,72 @@ import {
     similarSourcesCheckTool,
 } from "./source";
 import { askQuestionTool } from "./user";
+import { normalizeGraphContentScope, type GraphContentScope } from "./content-scope";
 
+export type { GraphContentScope } from "./content-scope";
 export type { CorrectionToolContext } from "./correction";
 
 export type GraphToolsetOptions = {
     graphId: string;
     embeddingModel: EmbeddingModelV3;
     correction?: CorrectionToolContext;
+    contentScope?: GraphContentScope;
     onConsideredFileIds?: (fileIds: Iterable<string>) => void;
 };
 
-export function buildGraphExplorationToolset({ graphId, embeddingModel, onConsideredFileIds }: GraphToolsetOptions) {
+export function buildGraphExplorationToolset({
+    graphId,
+    embeddingModel,
+    contentScope,
+    onConsideredFileIds,
+}: GraphToolsetOptions) {
+    const scope = normalizeGraphContentScope(contentScope);
     return {
-        list_files: listFilesTool(graphId, { onConsideredFileIds }),
-        search_entities: searchEntityTool(graphId, embeddingModel, { onConsideredFileIds }),
-        list_entities: listEntitiesTool(graphId, { onConsideredFileIds }),
-        search_relationships: searchRelationshipsTool(graphId, embeddingModel, { onConsideredFileIds }),
-        get_relationships: getRelationshipsTool(graphId),
-        get_entity_neighbours: getNeighboursTool(graphId),
-        get_path_between_entities: getPathBetweenTool(graphId),
+        list_files: listFilesTool(graphId, { contentScope: scope, onConsideredFileIds }),
+        search_entities: searchEntityTool(graphId, embeddingModel, { contentScope: scope, onConsideredFileIds }),
+        list_entities: listEntitiesTool(graphId, { contentScope: scope, onConsideredFileIds }),
+        search_relationships: searchRelationshipsTool(graphId, embeddingModel, {
+            contentScope: scope,
+            onConsideredFileIds,
+        }),
+        get_relationships: getRelationshipsTool(graphId, { contentScope: scope }),
+        get_entity_neighbours: getNeighboursTool(graphId, { contentScope: scope }),
+        get_path_between_entities: getPathBetweenTool(graphId, { contentScope: scope }),
     } satisfies ToolSet;
 }
 
-export function buildSourceGroundingToolset({ graphId, embeddingModel, onConsideredFileIds }: GraphToolsetOptions) {
+export function buildSourceGroundingToolset({
+    graphId,
+    embeddingModel,
+    contentScope,
+    onConsideredFileIds,
+}: GraphToolsetOptions) {
+    const scope = normalizeGraphContentScope(contentScope);
     return {
-        get_entity_sources: getEntitySourcesTool(graphId, embeddingModel, { onConsideredFileIds }),
-        get_relationship_sources: getRelationshipSourcesTool(graphId, embeddingModel, { onConsideredFileIds }),
-        similar_sources_check: similarSourcesCheckTool(graphId, { onConsideredFileIds }),
+        get_entity_sources: getEntitySourcesTool(graphId, embeddingModel, { contentScope: scope, onConsideredFileIds }),
+        get_relationship_sources: getRelationshipSourcesTool(graphId, embeddingModel, {
+            contentScope: scope,
+            onConsideredFileIds,
+        }),
+        similar_sources_check: similarSourcesCheckTool(graphId, { contentScope: scope, onConsideredFileIds }),
     } satisfies ToolSet;
 }
 
 export function buildSourceCurationToolset(options: GraphToolsetOptions) {
+    const scope = normalizeGraphContentScope(options.contentScope);
     return {
-        ...buildSourceGroundingToolset(options),
+        ...buildSourceGroundingToolset({ ...options, contentScope: scope }),
         get_source_file_metadata: getSourceFileMetadataTool(options.graphId, {
+            contentScope: scope,
             onConsideredFileIds: options.onConsideredFileIds,
         }),
+    } satisfies ToolSet;
+}
+
+export function buildCodeSearchToolset(options: GraphToolsetOptions) {
+    return {
+        ...buildGraphExplorationToolset({ ...options, contentScope: "code" }),
+        ...buildSourceCurationToolset({ ...options, contentScope: "code" }),
     } satisfies ToolSet;
 }
 
@@ -72,5 +102,5 @@ export function buildDeepResearchToolset(subagentToolset: ToolSet) {
 }
 
 export function buildMcpResearchToolset(options: GraphToolsetOptions) {
-    return buildServerToolset(options);
+    return buildServerToolset({ ...options, contentScope: "documents", correction: undefined });
 }

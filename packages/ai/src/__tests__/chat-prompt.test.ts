@@ -11,6 +11,7 @@ describe("createChatPrompt", () => {
 
         expect(prompt).not.toContain("explore_graph_with_subagent");
         expect(prompt).not.toContain("curate_sources_with_subagent");
+        expect(prompt).not.toContain("code_search:");
     });
 
     test("mentions correction only when correction tool is enabled", () => {
@@ -22,6 +23,36 @@ describe("createChatPrompt", () => {
         expect(correctionPrompt).toContain("- correction:");
         expect(correctionPrompt).toContain("# Correction Suggestion Rules");
         expect(correctionPrompt).toContain("stores only; admins apply or delete suggestions later");
+    });
+
+    test("mentions code search only when the code search tool is enabled", () => {
+        const defaultPrompt = createChatPrompt();
+        const codePrompt = createChatPrompt({ includeCodeSearchTool: true });
+
+        expect(defaultPrompt).not.toContain("code_search:");
+        expect(codePrompt).toContain("code_search:");
+        expect(codePrompt).toContain(
+            "Use only source IDs returned by get_entity_sources, get_relationship_sources, similar_sources_check, code_search"
+        );
+    });
+
+    test("mentions code search in subagent-only prompts only when enabled", () => {
+        const deepPrompt = createChatPrompt({
+            includeGraphTools: false,
+            includeClientTools: false,
+            includeSubagentTools: true,
+        });
+        const codeDeepPrompt = createChatPrompt({
+            includeGraphTools: false,
+            includeClientTools: false,
+            includeSubagentTools: true,
+            includeCodeSearchTool: true,
+        });
+
+        expect(deepPrompt).toContain("explore_graph_with_subagent");
+        expect(deepPrompt).not.toContain("code_search:");
+        expect(codeDeepPrompt).toContain("code_search:");
+        expect(codeDeepPrompt).toContain("curate_sources_with_subagent, code_search");
     });
 
     test("warns when prior graph tool results may be stale", () => {

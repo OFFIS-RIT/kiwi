@@ -20,6 +20,7 @@ import {
     truncateWords,
     type RankCursor,
 } from "./lib/search";
+import { fileContentScopeSql, type GraphContentScope } from "./content-scope";
 import { runToolSafely } from "./lib/execute";
 import { z } from "zod";
 
@@ -71,24 +72,34 @@ function buildRelationshipExactBoostExpression(terms: string[]) {
     );
 }
 
-function buildRelationshipFileScopeExpression(fileIds: string[]) {
-    if (fileIds.length === 0) {
-        return sql``;
+function buildRelationshipSourceScopeExpression(
+    relationshipAlias: "r" | "relationships",
+    fileIds: string[],
+    contentScope: GraphContentScope | undefined
+) {
+    const scopeFilter = fileContentScopeSql(contentScope, "file");
+    if (fileIds.length === 0 && !scopeFilter) {
+        return null;
     }
 
     return sql`
-        and exists (
+        exists (
             select 1
             from sources source
             inner join text_units text_unit on text_unit.id = source.text_unit_id
             inner join files file on file.id = text_unit.file_id
-            where source.relationship_id = r.id
+            where source.relationship_id = ${sql.raw(`"${relationshipAlias}"."id"`)}
               and ${currentSourceSql("source")}
               and ${visibleFileSql("file")}
-              and text_unit.file_id in (${sql.join(
-                  fileIds.map((fileId) => sql`${fileId}`),
-                  sql`, `
-              )})
+              ${scopeFilter ? sql`and ${scopeFilter}` : sql``}
+              ${
+                  fileIds.length > 0
+                      ? sql`and text_unit.file_id in (${sql.join(
+                            fileIds.map((fileId) => sql`${fileId}`),
+                            sql`, `
+                        )})`
+                      : sql``
+              }
         )
     `;
 }
@@ -145,6 +156,7 @@ const searchRelationshipsSchema = z.object({
 });
 
 type RelationshipToolOptions = {
+    contentScope?: GraphContentScope;
     onConsideredFileIds?: (fileIds: Iterable<string>) => void;
 };
 
@@ -184,7 +196,11 @@ export const searchRelationshipsTool = (
                                     abortSignal: signal,
                                 })
                             );
-                            const fileScope = buildRelationshipFileScopeExpression(fileIds);
+                            const fileScope = buildRelationshipSourceScopeExpression(
+                                "r",
+                                fileIds,
+                                options.contentScope
+                            );
                             const keywordBoost = buildRelationshipKeywordBoostExpression(terms);
                             const exactBoost = buildRelationshipExactBoostExpression(terms);
                             const semanticScore = sql<number>`greatest(0::double precision, 1 - (${cosineDistance(sql`r.embedding`, embedding)}))`;
@@ -219,7 +235,7 @@ export const searchRelationshipsTool = (
                                         left join entities target_entity on target_entity.id = r.target_id
                                         where r.graph_id = ${graphId}
                                           and r.active = true
-                                          ${fileScope}
+                                          ${fileScope ? sql`and ${fileScope}` : sql``}
                                     ), limited_ranked as materialized (
                                         select
                                             ranked.id,
@@ -288,7 +304,7 @@ const getRelationshipsSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-export const getRelationshipsTool = (graphId: string) =>
+export const getRelationshipsTool = (graphId: string, options: RelationshipToolOptions = {}) =>
     tool({
         description:
             "Use when you already have entity IDs and want the direct edges touching them. Good for understanding how a small set of entities is connected.",
@@ -314,10 +330,16 @@ export const getRelationshipsTool = (graphId: string) =>
                                 return "## Relationships\n- none";
                             }
 
+                            const sourceScope = buildRelationshipSourceScopeExpression(
+                                "relationships",
+                                [],
+                                options.contentScope
+                            );
                             const clauses = [
                                 eq(relationshipTable.graphId, graphId),
                                 eq(relationshipTable.active, true),
                                 or(inArray(relationshipTable.sourceId, ids), inArray(relationshipTable.targetId, ids))!,
+                                ...(sourceScope ? [sourceScope] : []),
                             ];
 
                             if (cursor) {
@@ -382,7 +404,7 @@ const getNeighbourSchema = z.object({
     cursor: z.string().describe("Pagination cursor from a previous result page.").optional(),
 });
 
-export const getNeighboursTool = (graphId: string) =>
+export const getNeighboursTool = (graphId: string, options: RelationshipToolOptions = {}) =>
     tool({
         description:
             "Use when you have one entity ID and want the entities directly connected to it, along with the relationship that connects them.",
@@ -402,10 +424,16 @@ export const getNeighboursTool = (graphId: string) =>
                     () =>
                         Effect.gen(function* () {
                             const db = yield* Database;
+                            const sourceScope = buildRelationshipSourceScopeExpression(
+                                "relationships",
+                                [],
+                                options.contentScope
+                            );
                             const clauses = [
                                 eq(relationshipTable.graphId, graphId),
                                 eq(relationshipTable.active, true),
                                 or(eq(relationshipTable.sourceId, entityId), eq(relationshipTable.targetId, entityId))!,
+                                ...(sourceScope ? [sourceScope] : []),
                             ];
 
                             if (cursor) {
@@ -476,7 +504,7 @@ const getPathBetweenSchema = z.object({
     targetEntityId: z.string().describe("Target entity ID."),
 });
 
-export const getPathBetweenTool = (graphId: string) =>
+export const getPathBetweenTool = (graphId: string, options: RelationshipToolOptions = {}) =>
     tool({
         description:
             "Use when you have two entity IDs and want one short connection path between them. This searches direct graph hops and returns a compact path summary.",
@@ -515,6 +543,11 @@ export const getPathBetweenTool = (graphId: string) =>
                                 return ["## Path", `- ${entity.id}, ${entity.name}, ${entity.type}`].join("\n");
                             }
 
+                            const sourceScope = buildRelationshipSourceScopeExpression(
+                                "relationships",
+                                [],
+                                options.contentScope
+                            );
                             const maxDepth = 5;
                             const visited = new Set([sourceEntityId]);
                             const previous = new Map<string, { entityId: string; relationshipId: string }>();
@@ -540,7 +573,8 @@ export const getPathBetweenTool = (graphId: string) =>
                                             or(
                                                 inArray(relationshipTable.sourceId, frontier),
                                                 inArray(relationshipTable.targetId, frontier)
-                                            )!
+                                            )!,
+                                            ...(sourceScope ? [sourceScope] : [])
                                         )
                                     )
                                     .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));

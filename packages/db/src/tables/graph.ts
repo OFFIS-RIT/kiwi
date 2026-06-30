@@ -332,6 +332,131 @@ export const sourcesTable = pgTable.withRLS(
     ]
 );
 
+export type CodeGraphLayerMetadata = {
+    processRunId?: string;
+    fileCount?: number;
+    checksum?: string;
+    branch?: string;
+    defaultBranch?: string;
+    isDefaultBranch?: boolean;
+};
+
+export type CodeGraphNodeProperties = Record<string, unknown>;
+export type CodeGraphEdgeProperties = Record<string, unknown>;
+
+export const codeGraphLayersTable = pgTable.withRLS(
+    "code_graph_layers",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        graphId: text("graph_id")
+            .notNull()
+            .references(() => graphTable.id, { onDelete: "cascade" }),
+        layer: text("layer").notNull(),
+        repositoryScope: text("repository_scope").notNull(),
+        branch: text("branch").notNull().default("default"),
+        snapshotKey: text("snapshot_key").notNull(),
+        status: text("status", { enum: ["current", "replaced"] })
+            .notNull()
+            .default("current"),
+        nodeCount: integer("node_count").notNull().default(0),
+        edgeCount: integer("edge_count").notNull().default(0),
+        metadata: json("metadata")
+            .$type<CodeGraphLayerMetadata>()
+            .notNull()
+            .default(sql`'{}'::json`),
+        replacedAt: timestamp("replaced_at", { withTimezone: true, mode: "date" }),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [
+        uniqueIndex("code_graph_layers_identity_idx").on(
+            table.graphId,
+            table.layer,
+            table.repositoryScope,
+            table.branch,
+            table.snapshotKey
+        ),
+        index("code_graph_layers_current_idx")
+            .on(table.graphId, table.layer, table.repositoryScope, table.branch, table.createdAt)
+            .where(sql`${table.status} = 'current'`),
+    ]
+);
+
+export const codeGraphNodesTable = pgTable.withRLS(
+    "code_graph_nodes",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        layerId: text("layer_id")
+            .notNull()
+            .references(() => codeGraphLayersTable.id, { onDelete: "cascade" }),
+        nodeKey: text("node_key").notNull(),
+        nodeKind: text("node_kind").notNull(),
+        name: text("name").notNull(),
+        fileId: text("file_id").references(() => filesTable.id, { onDelete: "set null" }),
+        path: text("path"),
+        startLine: integer("start_line"),
+        endLine: integer("end_line"),
+        startIndex: integer("start_index"),
+        endIndex: integer("end_index"),
+        properties: json("properties")
+            .$type<CodeGraphNodeProperties>()
+            .notNull()
+            .default(sql`'{}'::json`),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [
+        uniqueIndex("code_graph_nodes_layer_key_idx").on(table.layerId, table.nodeKey),
+        index("code_graph_nodes_layer_kind_name_idx").on(table.layerId, table.nodeKind, table.name),
+        index("code_graph_nodes_layer_file_idx").on(table.layerId, table.fileId),
+        index("code_graph_nodes_layer_path_idx").on(table.layerId, table.path),
+    ]
+);
+
+export const codeGraphEdgesTable = pgTable.withRLS(
+    "code_graph_edges",
+    {
+        id: text("id")
+            .primaryKey()
+            .$default(() => ulid()),
+        layerId: text("layer_id")
+            .notNull()
+            .references(() => codeGraphLayersTable.id, { onDelete: "cascade" }),
+        edgeKey: text("edge_key").notNull(),
+        sourceKey: text("source_key").notNull(),
+        targetKey: text("target_key").notNull(),
+        edgeKind: text("edge_kind").notNull(),
+        fileId: text("file_id").references(() => filesTable.id, { onDelete: "set null" }),
+        path: text("path"),
+        startLine: integer("start_line"),
+        endLine: integer("end_line"),
+        startIndex: integer("start_index"),
+        endIndex: integer("end_index"),
+        properties: json("properties")
+            .$type<CodeGraphEdgeProperties>()
+            .notNull()
+            .default(sql`'{}'::json`),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+            .defaultNow()
+            .$onUpdate(() => sql`NOW()`),
+    },
+    (table) => [
+        uniqueIndex("code_graph_edges_layer_key_idx").on(table.layerId, table.edgeKey),
+        index("code_graph_edges_layer_source_kind_idx").on(table.layerId, table.sourceKey, table.edgeKind),
+        index("code_graph_edges_layer_target_kind_idx").on(table.layerId, table.targetKey, table.edgeKind),
+        index("code_graph_edges_layer_file_idx").on(table.layerId, table.fileId),
+    ]
+);
+
 export const processStatsTable = pgTable.withRLS("process_stats", {
     id: text("id")
         .primaryKey()

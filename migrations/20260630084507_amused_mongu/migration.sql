@@ -1,0 +1,2 @@
+-- Custom migration scaffold reserved intentionally.
+-- The generated schema migration for fast code graph tables is migrations/20260630085739_loose_emma_frost/migration.sql.

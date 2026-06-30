@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+    createCodeSearchSubagentPrompt,
+    createCodeSearchSubagentTaskPrompt,
     createExploreSubagentPrompt,
     createExploreSubagentTaskPrompt,
     createSourceCuratorSubagentPrompt,
@@ -30,6 +32,14 @@ describe("subagent prompts", () => {
         expect(prompt).toContain("do not settle on one answer");
     });
 
+    test("code search prompt gives the subagent a code-only report contract", () => {
+        const prompt = createCodeSearchSubagentPrompt();
+
+        expect(prompt).toContain("inspect only code graph facts");
+        expect(prompt).toContain("## Relevant Files And Symbols");
+        expect(prompt).toContain("## Citation Candidates");
+    });
+
     test("subagent prompts include request information when provided", () => {
         const requestInformation = {
             currentDate: "2026-06-08",
@@ -53,5 +63,13 @@ describe("subagent prompts", () => {
                 query: "binding agreement",
             })
         ).toContain("Find the best source evidence for the parent agent.");
+
+        expect(
+            createCodeSearchSubagentTaskPrompt({
+                task: "Find the parser implementation",
+                query: "parser",
+                paths: ["packages/graph"],
+            })
+        ).toContain("Complete this code search task for the parent agent.");
     });
 });

@@ -70,6 +70,7 @@ export type SyncedExternalItem = {
     readonly webUrl?: string;
     readonly rawUrl?: string;
     readonly versionName?: string;
+    readonly defaultBranch?: string;
     readonly versionId?: string;
     readonly contentAccessMode: SyncedExternalItemContentAccessMode;
     readonly processingKind: SyncedExternalItemProcessingKind;
@@ -100,6 +101,7 @@ export type SyncedExternalItemChange =
 export type SyncSnapshot = {
     readonly resourceId: string;
     readonly versionName?: string;
+    readonly defaultBranch?: string;
     readonly versionId?: string;
     readonly cursor?: string;
     readonly items: readonly SyncedExternalItem[];

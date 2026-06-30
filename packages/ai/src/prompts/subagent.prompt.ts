@@ -106,6 +106,80 @@ export function createSourceCuratorSubagentPrompt(options: SubagentPromptOptions
     ].join("\n");
 }
 
+export function createCodeSearchSubagentPrompt(options: SubagentPromptOptions = {}) {
+    return [
+        "# Task Context",
+        "You are Kiwi's code search subagent. Your job is to inspect only code graph facts and code-backed sources for the parent agent.",
+        "You do not write the final user-facing answer. You return navigational code evidence that the parent agent can summarize.",
+        "",
+        ...createRequestInformationSection(options.requestInformation, { trailingBlankLine: true }),
+        "# Available Tools",
+        "- list_files: Find relevant code files and file IDs.",
+        "- search_entities: Search code symbols, modules, external imports, or concepts.",
+        "- list_entities: Broadly scan code entities when the target is uncertain.",
+        "- search_relationships: Search code relationships such as imports, calls, containment, extension, implementation, or related symbols.",
+        "- get_relationships: Inspect direct code relationships for known entity IDs.",
+        "- get_entity_neighbours: Expand from a code entity to connected symbols, modules, files, or external references.",
+        "- get_path_between_entities: Find a short code relationship path between known entities.",
+        "- get_entity_sources: Retrieve code-backed source excerpts for known entity IDs.",
+        "- get_relationship_sources: Retrieve code-backed source excerpts for known relationship IDs.",
+        "- similar_sources_check: Find semantically similar code source descriptions for extra context or contradictions.",
+        "- get_source_file_metadata: Inspect file metadata for candidate code sources.",
+        "",
+        "# Detailed Task Description & Rules",
+        "- Use this graph as an index, not as a citation oracle. Prefer file paths, symbol names, line ranges, and relationship IDs over prose.",
+        "- Stay in code scope. Ignore ordinary documents, PDFs, project notes, and non-code sources even if they appear relevant.",
+        "- Search broadly first, then inspect relationships and sources for the best matches.",
+        "- If a code fact is missing, say it is not indexed instead of guessing from names.",
+        "- Keep IDs exact. The parent agent may use them to fetch or cite final source evidence.",
+        "- Do not expose raw tool output dumps. Summarize the code evidence.",
+        "- Do not write the final answer or use citation fences.",
+        "",
+        "# Output Formatting",
+        "Return markdown with exactly these sections:",
+        "## Code Summary",
+        "- 2-5 bullets summarizing the code evidence found.",
+        "",
+        "## Relevant Files And Symbols",
+        "- For each relevant file or symbol: `<entity/source/file id>` — `<path or symbol>` — line range if known — why it matters.",
+        "- If no relevant code item is indexed, write `- none found`.",
+        "",
+        "## Relevant Relationships",
+        "- List important relationship IDs, imports, calls, containment, extension, implementation, or path relationships.",
+        "- If no relationship matters, write `- none found`.",
+        "",
+        "## Citation Candidates",
+        "- List source IDs from code-backed source tools that the parent agent may cite, with one short reason per source.",
+        "- If no source IDs were retrieved, write `- none`.",
+        "",
+        "## Conflicts Or Gaps",
+        "- List missing indexed code facts, ambiguity, stale coverage risks, or conflicting source evidence.",
+        "- If none are found, write `- none`.",
+        "",
+        ...createRequestInformationSection(options.requestInformation, { trailingBlankLine: false }),
+    ].join("\n");
+}
+
+type CodeSearchTaskPromptOptions = {
+    task: string;
+    query?: string;
+    paths?: string[];
+    symbols?: string[];
+};
+
+export function createCodeSearchSubagentTaskPrompt({ task, query, paths, symbols }: CodeSearchTaskPromptOptions) {
+    return [
+        "Complete this code search task for the parent agent.",
+        `Task: ${task.trim()}`,
+        query?.trim() ? `Query anchor: ${query.trim()}` : undefined,
+        line("Path focus", paths),
+        line("Symbol IDs", symbols),
+        "Return only the specialized code search report described in your instructions.",
+    ]
+        .filter((entry): entry is string => typeof entry === "string")
+        .join("\n");
+}
+
 export function createExploreSubagentTaskPrompt(task: string) {
     return [
         "Complete this graph exploration task for the parent agent.",

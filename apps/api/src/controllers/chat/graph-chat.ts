@@ -67,7 +67,7 @@ export const graphChatTargetSpec: ChatRouteSpec<GraphChatTarget> = {
                             tools: started.tools,
                             promptGuidance: started.promptGuidance,
                         },
-                        promptOptions,
+                        promptOptions: { ...promptOptions, includeCodeSearchTool: Boolean(started.tools.code_search) },
                         forceCompaction: true,
                         abortSignal,
                     }),

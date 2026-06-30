@@ -4,6 +4,7 @@ export type ChatPromptOptions = {
     includeGraphTools?: boolean;
     includeClientTools?: boolean;
     includeSubagentTools?: boolean;
+    includeCodeSearchTool?: boolean;
     includeCorrectionTool?: boolean;
     requestInformation?: RequestInformation;
     graphDataRefresh?: {
@@ -43,6 +44,7 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
     const includeClientTools = options.includeClientTools ?? true;
     const includeSubagentTools = options.includeSubagentTools ?? false;
     const includeCorrectionTool = options.includeCorrectionTool ?? false;
+    const includeCodeSearchTool = options.includeCodeSearchTool ?? false;
     const useSubagentOnlyInstructions = !includeGraphTools && includeSubagentTools;
     const graphDataRefreshSection = createGraphDataRefreshSection({
         notice: options.graphDataRefresh,
@@ -52,16 +54,16 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
     const availableToolLines = [
         ...(includeGraphTools
             ? [
-                  "- list_files: List files in the current graph, optionally filtered by partial name. Use this to find file IDs before narrowing other tools.",
-                  "- search_entities: Search for entities with semantic retrieval on the query, plus keyword-based name boosting when exact names or spellings matter. Use this when you need entity IDs.",
-                  "- list_entities: Broadly scan entities in the graph or inside specific files when you do not yet know which entities matter. This is an unranked browse tool.",
-                  "- search_relationships: Search for relationships with semantic retrieval on the query, plus keyword boosting on connected entity names and relation labels. Use this when the connection itself may answer the question.",
-                  "- get_relationships: Retrieve direct incoming and outgoing relationships for one or more entity IDs.",
-                  "- get_entity_neighbours: Retrieve entities directly connected to one entity ID, together with the relationship that connects them.",
-                  "- get_path_between_entities: Find one short connection path between two entity IDs.",
-                  "- get_entity_sources: Retrieve grounding source excerpts for already-identified entity IDs. If you provide a refinement query, it uses semantic retrieval with keyword boosting. Use source IDs returned by this tool for citations.",
-                  "- get_relationship_sources: Retrieve grounding source excerpts for already-identified relationship IDs. If you provide a refinement query, it uses semantic retrieval with keyword boosting. Use source IDs returned by this tool for citations.",
-                  "- similar_sources_check: Given source IDs you already found, retrieve new semantically similar source descriptions from the same graph. Use this to check whether answer-determining evidence has similar sources that support, qualify, or contradict it.",
+                  "- list_files: List non-code files in the current document graph, optionally filtered by partial name. Use this to find file IDs before narrowing other tools.",
+                  "- search_entities: Search document entities with semantic retrieval on the query, plus keyword-based name boosting when exact names or spellings matter. Use this when you need entity IDs.",
+                  "- list_entities: Broadly scan entities in the document graph or inside specific non-code files when you do not yet know which entities matter. This is an unranked browse tool.",
+                  "- search_relationships: Search document relationships with semantic retrieval on the query, plus keyword boosting on connected entity names and relation labels. Use this when the connection itself may answer the question.",
+                  "- get_relationships: Retrieve direct incoming and outgoing document relationships for one or more entity IDs.",
+                  "- get_entity_neighbours: Retrieve document entities directly connected to one entity ID, together with the relationship that connects them.",
+                  "- get_path_between_entities: Find one short document relationship path between two entity IDs.",
+                  "- get_entity_sources: Retrieve non-code grounding source excerpts for already-identified entity IDs. If you provide a refinement query, it uses semantic retrieval with keyword boosting. Use source IDs returned by this tool for citations.",
+                  "- get_relationship_sources: Retrieve non-code grounding source excerpts for already-identified relationship IDs. If you provide a refinement query, it uses semantic retrieval with keyword boosting. Use source IDs returned by this tool for citations.",
+                  "- similar_sources_check: Given source IDs you already found, retrieve new semantically similar non-code source descriptions from the same graph. Use this to check whether answer-determining evidence has similar sources that support, qualify, or contradict it.",
               ]
             : []),
         ...(includeClientTools
@@ -78,6 +80,11 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
             ? [
                   "- explore_graph_with_subagent: Delegate deep graph exploration and relevant-entity discovery.",
                   "- curate_sources_with_subagent: Delegate source curation and important-fact selection.",
+              ]
+            : []),
+        ...(includeCodeSearchTool
+            ? [
+                  "- code_search: Delegate implementation, symbol, call, import, or code-file questions to a code-focused subagent that uses code-scoped graph tools and returns citation candidates.",
               ]
             : []),
     ];
@@ -237,11 +244,19 @@ export function createChatPrompt(options: ChatPromptOptions = {}) {
         '- Invalid examples: `[[src_123]]`, `:::{"id":"src_123","type":"cite"}:::`, `:::{"type":"citation","id":"src_123"}:::`, or any escaped variant like `:::{\\"type\\"...`.',
         includeGraphTools
             ? includeSubagentTools
-                ? "- Use only source IDs returned by get_entity_sources, get_relationship_sources, similar_sources_check, curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information."
-                : "- Use only source IDs returned by get_entity_sources, get_relationship_sources, similar_sources_check, or source IDs already cited earlier in the chat history when reusing that same cited information."
+                ? includeCodeSearchTool
+                    ? "- Use only source IDs returned by get_entity_sources, get_relationship_sources, similar_sources_check, curate_sources_with_subagent, code_search, or source IDs already cited earlier in the chat history when reusing that same cited information."
+                    : "- Use only source IDs returned by get_entity_sources, get_relationship_sources, similar_sources_check, curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information."
+                : includeCodeSearchTool
+                  ? "- Use only source IDs returned by get_entity_sources, get_relationship_sources, similar_sources_check, code_search, or source IDs already cited earlier in the chat history when reusing that same cited information."
+                  : "- Use only source IDs returned by get_entity_sources, get_relationship_sources, similar_sources_check, or source IDs already cited earlier in the chat history when reusing that same cited information."
             : useSubagentOnlyInstructions
-              ? "- Use only source IDs returned by curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information."
-              : "- Use only source IDs already cited earlier in the chat history when reusing that same cited information.",
+              ? includeCodeSearchTool
+                  ? "- Use only source IDs returned by curate_sources_with_subagent, code_search, or source IDs already cited earlier in the chat history when reusing that same cited information."
+                  : "- Use only source IDs returned by curate_sources_with_subagent, or source IDs already cited earlier in the chat history when reusing that same cited information."
+              : includeCodeSearchTool
+                ? "- Use only source IDs returned by code_search, or source IDs already cited earlier in the chat history when reusing that same cited information."
+                : "- Use only source IDs already cited earlier in the chat history when reusing that same cited information.",
         "- Do not use legacy citation formats such as [[id]], markdown footnotes, bare IDs, or a separate sources list.",
         "- Place citations directly with the statement they support.",
         "- If no citation applies, do not present the statement as fact.",

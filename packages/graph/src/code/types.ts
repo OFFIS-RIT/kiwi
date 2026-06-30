@@ -36,6 +36,8 @@ export type CodeRepositoryFile = {
     repositoryUrl: string;
     repositoryName: string;
     commitSha: string;
+    branch?: string;
+    defaultBranch?: string;
     path: string;
     content: string;
 };

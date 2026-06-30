@@ -6,18 +6,26 @@ import { withAiSlotEffect, type AiSlotError } from "../concurrency";
 import { createCompactionPrompt, createCompactionTaskPrompt } from "../prompts/compaction.prompt";
 import { prependPromptGuidance, type ScopedPromptGuidance } from "../prompts/guidance.prompt";
 import {
+    createCodeSearchSubagentPrompt,
+    createCodeSearchSubagentTaskPrompt,
     createExploreSubagentPrompt,
     createExploreSubagentTaskPrompt,
     createSourceCuratorSubagentPrompt,
     createSourceCuratorTaskPrompt,
 } from "../prompts/subagent.prompt";
 import type { RequestInformation } from "../prompts/request-info.prompt";
-import { buildGraphExplorationToolset, buildSourceCurationToolset, type GraphToolsetOptions } from "../tools/toolsets";
+import {
+    buildCodeSearchToolset,
+    buildGraphExplorationToolset,
+    buildSourceCurationToolset,
+    type GraphToolsetOptions,
+} from "../tools/toolsets";
 
 type SubagentOptions = GraphToolsetOptions & {
     model: LanguageModelV3;
     promptGuidance?: ScopedPromptGuidance;
     requestInformation?: RequestInformation;
+    includeCodeSearch?: boolean;
 };
 
 export function createGraphExploreAgent({
@@ -54,6 +62,23 @@ export function createSourceCuratorAgent({
     });
 }
 
+export function createCodeSearchAgent({
+    model,
+    graphId,
+    embeddingModel,
+    requestInformation,
+    onConsideredFileIds,
+}: SubagentOptions) {
+    return new ToolLoopAgent({
+        id: "code-search-agent",
+        model,
+        instructions: createCodeSearchSubagentPrompt({ requestInformation }),
+        tools: buildCodeSearchToolset({ graphId, embeddingModel, onConsideredFileIds }),
+        temperature: 0.1,
+        stopWhen: stepCountIs(24),
+    });
+}
+
 const exploreGraphSchema = z.object({
     task: z.string().trim().min(1).describe("The graph exploration task to complete."),
 });
@@ -64,6 +89,16 @@ const curateSourcesSchema = z.object({
     relationshipIds: z.array(z.string()).describe("Relationship IDs to gather source evidence for.").optional(),
     query: z.string().describe("Optional short refinement query for source relevance.").optional(),
     files: z.array(z.string()).describe("Optional file IDs to narrow the source search.").optional(),
+});
+
+const codeSearchSchema = z.object({
+    task: z.string().trim().min(1).describe("The code search task to complete."),
+    query: z.string().describe("Optional natural-language or symbol query anchor.").optional(),
+    paths: z.array(z.string()).describe("Optional repository paths to prioritize.").optional(),
+    symbols: z
+        .array(z.string())
+        .describe("Optional graph entity or symbol IDs already known to be relevant.")
+        .optional(),
 });
 
 function combineAbortSignals(
@@ -82,9 +117,31 @@ function combineAbortSignals(
     return AbortSignal.any([slotSignal, externalSignal]);
 }
 
+function createCodeSearchTool(options: SubagentOptions, codeSearchAgent: ReturnType<typeof createCodeSearchAgent>) {
+    return tool({
+        description:
+            "Delegate code-focused graph exploration to a specialized subagent. Use this for questions about implementation, symbols, imports, calls, or file-level code evidence.",
+        inputSchema: codeSearchSchema,
+        execute: ({ task, query, paths, symbols }, { abortSignal }) => {
+            const program = withAiSlotEffect("text", (signal) =>
+                codeSearchAgent.generate({
+                    prompt: prependPromptGuidance(
+                        createCodeSearchSubagentTaskPrompt({ task, query, paths, symbols }),
+                        options.promptGuidance
+                    ),
+                    abortSignal: combineAbortSignals(signal, abortSignal),
+                })
+            ).pipe(Effect.map((result) => result.text));
+
+            return Effect.runPromise(program);
+        },
+    });
+}
+
 export function buildSubagentToolset(options: SubagentOptions) {
     const exploreAgent = createGraphExploreAgent(options);
     const sourceCuratorAgent = createSourceCuratorAgent(options);
+    const codeSearchAgent = options.includeCodeSearch === false ? undefined : createCodeSearchAgent(options);
 
     return {
         explore_graph_with_subagent: tool({
@@ -126,6 +183,15 @@ export function buildSubagentToolset(options: SubagentOptions) {
                 return Effect.runPromise(program);
             },
         }),
+        ...(codeSearchAgent ? { code_search: createCodeSearchTool(options, codeSearchAgent) } : {}),
+    } satisfies ToolSet;
+}
+
+export function buildCodeSearchSubagentToolset(options: SubagentOptions) {
+    const codeSearchAgent = createCodeSearchAgent(options);
+
+    return {
+        code_search: createCodeSearchTool(options, codeSearchAgent),
     } satisfies ToolSet;
 }
 

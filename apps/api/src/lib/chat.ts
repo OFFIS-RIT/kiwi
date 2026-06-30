@@ -1,6 +1,7 @@
 import {
     buildChatValidationToolset,
     buildDeepResearchToolset,
+    buildCodeSearchSubagentToolset,
     buildMcpResearchToolset,
     buildServerAndClientToolset,
     buildServerToolset,
@@ -16,6 +17,7 @@ import {
     type ChatUIMessage,
     type CorrectionToolContext,
     type CitationFence,
+    type GraphContentScope,
     type GraphToolsetOptions,
     type RequestInformation,
     type ResolvedCitationFence,
@@ -114,6 +116,7 @@ const GRAPH_RETRIEVAL_TOOL_NAMES = new Set([
     "get_relationship_sources",
     "explore_graph_with_subagent",
     "curate_sources_with_subagent",
+    "code_search",
 ]);
 const ACKNOWLEDGEMENT_ONLY_PATTERN =
     /^(?:thanks?|thank you|thx|ok(?:ay)?|got it|great|nice|cool|perfect|sounds good|all right|alright|yes|yeah|yep|no|nope)[.!?\s]*$/i;
@@ -141,6 +144,27 @@ function buildBaseToolset(options: GraphToolsetOptions, toolset: RuntimeToolset)
             return buildServerToolset(options);
     }
 }
+
+export const hasIndexedCodeGraphContent = Effect.fn("hasIndexedCodeGraphContent")(function* (graphId: string) {
+    const rows = yield* tryDb((db) =>
+        db
+            .select({ id: sourcesTable.id })
+            .from(sourcesTable)
+            .innerJoin(textUnitTable, eq(textUnitTable.id, sourcesTable.textUnitId))
+            .innerJoin(filesTable, eq(filesTable.id, textUnitTable.fileId))
+            .where(
+                and(
+                    eq(filesTable.graphId, graphId),
+                    currentSourcePredicate(sourcesTable),
+                    visibleFilePredicate(filesTable),
+                    eq(filesTable.type, "code")
+                )
+            )
+            .limit(1)
+    );
+
+    return rows.length > 0;
+});
 
 function normalizePromptTexts(rows: PromptTextRow[]) {
     return rows.map((row) => row.prompt.trim()).filter((prompt) => prompt.length > 0);
@@ -492,6 +516,7 @@ function createGraphResearchRuntime(options: {
     promptGuidance: ResearchPromptGuidance;
     requestInformation?: RequestInformation;
     correction?: CorrectionToolContext;
+    includeCodeSearchTool?: boolean;
 }) {
     const consideredFileIds = new Set<string>();
     const toolsetOptions = {
@@ -505,16 +530,21 @@ function createGraphResearchRuntime(options: {
         },
     } satisfies GraphToolsetOptions;
     const baseToolset = buildBaseToolset(toolsetOptions, options.toolset);
+    const subagentOptions = {
+        ...toolsetOptions,
+        model: options.client.subagent ?? options.client.text,
+        promptGuidance: options.promptGuidance,
+        requestInformation: options.requestInformation,
+        includeCodeSearch: options.includeCodeSearchTool,
+    };
     const tools = options.deep
-        ? buildDeepResearchToolset(
-              buildSubagentToolset({
-                  ...toolsetOptions,
-                  model: options.client.subagent ?? options.client.text,
-                  promptGuidance: options.promptGuidance,
-                  requestInformation: options.requestInformation,
-              })
-          )
-        : baseToolset;
+        ? buildDeepResearchToolset(buildSubagentToolset(subagentOptions))
+        : {
+              ...baseToolset,
+              ...(options.includeCodeSearchTool && options.toolset !== "mcp"
+                  ? buildCodeSearchSubagentToolset(subagentOptions)
+                  : {}),
+          };
 
     return {
         client: options.client,
@@ -556,6 +586,7 @@ export const getGraphResearchRuntime = Effect.fn("getGraphResearchRuntime")(func
         organizationId,
         requestedModelId: options.requestedModelId,
     });
+    const includeCodeSearchTool = options.toolset !== "mcp" && (yield* hasIndexedCodeGraphContent(graphId));
 
     return createGraphResearchRuntime({
         graphId,
@@ -564,6 +595,7 @@ export const getGraphResearchRuntime = Effect.fn("getGraphResearchRuntime")(func
         deep: options.deep,
         promptGuidance,
         requestInformation: options.requestInformation,
+        includeCodeSearchTool,
         correction: options.correction,
     });
 });
@@ -722,11 +754,15 @@ export const startReply = Effect.fn("startReply")(function* (
               }
             : undefined,
     });
+    const availablePromptOptions = {
+        ...promptOptions,
+        includeCodeSearchTool: Boolean(runtime.tools.code_search),
+    };
     const { contextMessages, validatedMessages, estimatedPromptTokens, systemPrompt } = yield* refreshReplyContext({
         chatId: normalizedRequest.id,
         graphId,
         runtime,
-        promptOptions,
+        promptOptions: availablePromptOptions,
         abortSignal: options.abortSignal,
     });
     const assistantId = yield* createPendingAssistantMessage(normalizedRequest.id);
@@ -836,7 +872,7 @@ export const updateMessagePartsBatch = Effect.fn("updateMessagePartsBatch")((
 export const resolveCitationDocumentLink = Effect.fn("resolveCitationDocumentLink")((
     graphId: string,
     citation: CitationFence,
-    options: { baseUrl?: string; signed?: boolean } = {}
+    options: { baseUrl?: string; signed?: boolean; contentScope?: GraphContentScope } = {}
 ) => {
     const unavailable = (error: unknown) =>
         Effect.sync(() => {
@@ -859,6 +895,10 @@ export const resolveCitationDocumentLink = Effect.fn("resolveCitationDocumentLin
         const resolvedCitation = enrichedCitation ?? fallbackCitation;
 
         if (!resolvedCitation?.fileId) {
+            return "[source unavailable]";
+        }
+
+        if (options.contentScope === "documents" && resolvedCitation.fileType === "code") {
             return "[source unavailable]";
         }
 

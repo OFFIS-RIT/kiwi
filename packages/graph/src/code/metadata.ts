@@ -6,6 +6,7 @@ export type CodeFileGitMetadata = {
     repositoryUrl?: string;
     commitSha: string;
     branch?: string;
+    defaultBranch?: string;
 };
 
 export type CodeFileMetadata = {
@@ -96,7 +97,8 @@ function parseGitMetadata(value: unknown): CodeFileGitMetadata | undefined | nul
 
     const repositoryUrl = optionalNonEmptyString(candidate.repositoryUrl);
     const branch = optionalNonEmptyString(candidate.branch);
-    if (repositoryUrl === null || branch === null) {
+    const defaultBranch = optionalNonEmptyString(candidate.defaultBranch);
+    if (repositoryUrl === null || branch === null || defaultBranch === null) {
         return null;
     }
 
@@ -105,6 +107,7 @@ function parseGitMetadata(value: unknown): CodeFileGitMetadata | undefined | nul
         ...(repositoryUrl ? { repositoryUrl } : {}),
         commitSha: candidate.commitSha,
         ...(branch ? { branch } : {}),
+        ...(defaultBranch ? { defaultBranch } : {}),
     };
 }
 

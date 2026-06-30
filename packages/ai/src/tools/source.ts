@@ -25,6 +25,7 @@ import {
     truncateWords,
     type RankCursor,
 } from "./lib/search";
+import { fileContentScopePredicate, fileContentScopeSql, type GraphContentScope } from "./content-scope";
 import { runToolSafely } from "./lib/execute";
 import { z } from "zod";
 
@@ -77,16 +78,22 @@ function buildSourceExactBoostExpression(terms: string[]) {
     );
 }
 
-function buildFileScopeExpression(fileIds: string[]) {
-    if (fileIds.length === 0) {
+function buildFileScopeExpression(fileIds: string[], contentScope: GraphContentScope | undefined) {
+    const scopeFilter = fileContentScopeSql(contentScope, "file");
+    if (fileIds.length === 0 && !scopeFilter) {
         return sql``;
     }
 
     return sql`
-        and text_unit.file_id in (${sql.join(
-            fileIds.map((fileId) => sql`${fileId}`),
-            sql`, `
-        )})
+        ${
+            fileIds.length > 0
+                ? sql`and text_unit.file_id in (${sql.join(
+                      fileIds.map((fileId) => sql`${fileId}`),
+                      sql`, `
+                  )})`
+                : sql``
+        }
+        ${scopeFilter ? sql`and ${scopeFilter}` : sql``}
     `;
 }
 function buildExcludedSourceExpression(sourceIds: string[]) {
@@ -248,6 +255,7 @@ const similarSourcesCheckSchema = z.object({
 });
 
 type SourceToolOptions = {
+    contentScope?: GraphContentScope;
     onConsideredFileIds?: (fileIds: Iterable<string>) => void;
 };
 
@@ -260,6 +268,7 @@ type GetScopedSourcesArgs = {
     limit: number;
     cursor?: string;
     onConsideredFileIds?: SourceToolOptions["onConsideredFileIds"];
+    contentScope?: GraphContentScope;
 };
 
 function getScopedSources(
@@ -274,6 +283,7 @@ function getScopedSources(
         limit,
         cursor,
         onConsideredFileIds,
+        contentScope,
     }: GetScopedSourcesArgs
 ): Effect.Effect<string, DatabaseError | AiSlotError, Database> {
     return Effect.gen(function* () {
@@ -291,6 +301,10 @@ function getScopedSources(
                 eq(filesTable.graphId, graphId),
                 visibleFilePredicate(filesTable),
             ];
+            const scopePredicate = fileContentScopePredicate(contentScope, filesTable);
+            if (scopePredicate) {
+                clauses.push(scopePredicate);
+            }
             if (cursor) {
                 clauses.push(gt(sourcesTable.id, cursor));
             }
@@ -350,7 +364,7 @@ function getScopedSources(
         }
 
         const next = decodeCursor(cursor, "source search");
-        const fileScope = buildFileScopeExpression(fileIds);
+        const fileScope = buildFileScopeExpression(fileIds, contentScope);
         const subjectScope = buildSubjectScopeExpression(entityIds, relationshipIds);
         const keywordBoost = buildSourceKeywordBoostExpression(terms);
         const exactBoost = buildSourceExactBoostExpression(terms);
@@ -454,9 +468,11 @@ function getScopedSources(
 }
 function loadSeedSourceRows(
     graphId: string,
-    sourceIds: string[]
+    sourceIds: string[],
+    contentScope: GraphContentScope | undefined
 ): Effect.Effect<SeedSourceRow[], DatabaseError, Database> {
     return Effect.gen(function* () {
+        const scopePredicate = fileContentScopePredicate(contentScope, filesTable);
         if (sourceIds.length === 0) {
             return [];
         }
@@ -479,7 +495,8 @@ function loadSeedSourceRows(
                     currentSourcePredicate(sourcesTable),
                     eq(filesTable.graphId, graphId),
                     visibleFilePredicate(filesTable),
-                    inArray(sourcesTable.id, sourceIds)
+                    inArray(sourcesTable.id, sourceIds),
+                    ...(scopePredicate ? [scopePredicate] : [])
                 )
             )
             .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
@@ -494,12 +511,14 @@ function getSimilarSources(
         files,
         limit,
         onConsideredFileIds,
+        contentScope,
     }: {
         sourceIds: string[];
         excludeSourceIds?: string[];
         files?: string[];
         limit: number;
         onConsideredFileIds?: SourceToolOptions["onConsideredFileIds"];
+        contentScope?: GraphContentScope;
     }
 ): Effect.Effect<string, DatabaseError, Database> {
     return Effect.gen(function* () {
@@ -508,8 +527,8 @@ function getSimilarSources(
         const fileIds = uniqueTerms(files ?? []);
         const excludedSourceIds = uniqueTerms([...sourceIds, ...(excludeSourceIds ?? [])]);
         const excludedSourceScope = buildExcludedSourceExpression(excludedSourceIds);
-        const fileScope = buildFileScopeExpression(fileIds);
-        const seedRows = yield* loadSeedSourceRows(graphId, sourceIds);
+        const candidateScope = buildFileScopeExpression(fileIds, contentScope);
+        const seedRows = yield* loadSeedSourceRows(graphId, sourceIds, contentScope);
         const seedById = new Map(seedRows.map((row) => [row.id, row]));
         const seenSourceIds = new Set(excludedSourceIds);
         const output: string[] = [
@@ -558,7 +577,7 @@ function getSimilarSources(
                     inner join files file on file.id = text_unit.file_id
                     where file.graph_id = ${graphId}
                       and ${visibleFileSql("file")}
-                      ${fileScope}
+                      ${candidateScope}
                       ${excludedSourceScope}
                     order by distance asc, candidate.id asc
                     limit ${candidateLimit}
@@ -630,6 +649,7 @@ export const getEntitySourcesTool = (
                             limit,
                             cursor,
                             onConsideredFileIds: options.onConsideredFileIds,
+                            contentScope: options.contentScope,
                         })
                 )
             ),
@@ -665,6 +685,7 @@ export const getRelationshipSourcesTool = (
                             limit,
                             cursor,
                             onConsideredFileIds: options.onConsideredFileIds,
+                            contentScope: options.contentScope,
                         })
                 )
             ),
@@ -695,6 +716,7 @@ export const similarSourcesCheckTool = (graphId: string, options: SourceToolOpti
                             files,
                             limit,
                             onConsideredFileIds: options.onConsideredFileIds,
+                            contentScope: options.contentScope,
                         })
                 )
             ),
@@ -721,6 +743,7 @@ export const getSourceFileMetadataTool = (graphId: string, options: SourceToolOp
                         Effect.gen(function* () {
                             const db = yield* Database;
                             const ids = uniqueTerms(sourceIds);
+                            const scopePredicate = fileContentScopePredicate(options.contentScope, filesTable);
                             if (ids.length === 0) {
                                 return "## Source File Metadata\n- none";
                             }
@@ -748,7 +771,8 @@ export const getSourceFileMetadataTool = (graphId: string, options: SourceToolOp
                                         currentSourcePredicate(sourcesTable),
                                         eq(filesTable.graphId, graphId),
                                         visibleFilePredicate(filesTable),
-                                        inArray(sourcesTable.id, ids)
+                                        inArray(sourcesTable.id, ids),
+                                        ...(scopePredicate ? [scopePredicate] : [])
                                     )
                                 )
                                 .pipe(Effect.mapError((cause) => new DatabaseError({ cause })));
