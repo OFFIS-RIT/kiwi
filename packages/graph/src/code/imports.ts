@@ -16,6 +16,8 @@ import { childForField, fieldText, walk } from "./syntax";
 
 const ECMASCRIPT_RESOLVE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx"];
 const ZIG_RESOLVE_EXTENSIONS = [".zig"];
+const PYTHON_RESOLVE_EXTENSIONS = [".py", ".pyi", ".pyw"];
+const BASH_RESOLVE_EXTENSIONS = [".sh", ".bash", ".zsh"];
 
 export function collectImports(root: TreeSitterNode, language: CodeLanguage): ImportRecord[] {
     switch (language) {
@@ -29,6 +31,22 @@ export function collectImports(root: TreeSitterNode, language: CodeLanguage): Im
             return collectZigImports(root);
         case "c":
             return collectCImports(root);
+        case "java":
+            return collectJavaImports(root);
+        case "kotlin":
+            return collectKotlinImports(root);
+        case "python":
+            return collectPythonImports(root);
+        case "go":
+            return collectGoImports(root);
+        case "cpp":
+            return collectCImports(root);
+        case "csharp":
+            return collectCSharpImports(root);
+        case "php":
+            return collectPhpImports(root);
+        case "bash":
+            return collectBashImports(root);
     }
 }
 
@@ -107,6 +125,26 @@ export function buildManifestExports(
             }
 
             if (record.kind === "reexport") {
+                if (record.importedName === "*") {
+                    const targetFile = filesByPath.get(targetPath);
+                    if (targetFile) {
+                        resolved.set(record.exportedName, {
+                            entityId: targetFile.entityId,
+                            fileId: targetFile.fileId,
+                            path: targetFile.path,
+                            repositoryUrl: targetFile.repositoryUrl,
+                            repositoryName: targetFile.repositoryName,
+                            commitSha: targetFile.commitSha,
+                            simpleName: record.exportedName,
+                            qualifiedName: record.exportedName,
+                            type: "CODE_MODULE",
+                            exportedName: record.exportedName,
+                            exportedPath: filePath,
+                        });
+                    }
+                    continue;
+                }
+
                 const definition = resolveExportedDefinition(targetPath, record.importedName, stack);
                 if (definition) {
                     resolved.set(record.exportedName, {
@@ -153,15 +191,52 @@ export function importLocalNames(importRecord: ImportRecord): string[] {
 export function parseHeritage(text: string): Array<{ kind: "EXTENDS" | "IMPLEMENTS"; name: string }> {
     const items: Array<{ kind: "EXTENDS" | "IMPLEMENTS"; name: string }> = [];
     const head = text.split("{")[0] ?? text;
-    const extendsMatch = head.match(/\bextends\s+([A-Za-z_$][\w$]*)/u)?.[1];
-    if (extendsMatch) items.push({ kind: "EXTENDS", name: extendsMatch });
+    const seen = new Set<string>();
+    const add = (kind: "EXTENDS" | "IMPLEMENTS", name: string | undefined) => {
+        const normalized = normalizeHeritageName(name);
+        if (!normalized) return;
+        const key = `${kind}:${normalized}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        items.push({ kind, name: normalized });
+    };
+
+    const extendsList = head.match(/\bextends\s+([^{}]+)/u)?.[1]?.split(/\bimplements\b/u)[0];
+    if (extendsList) {
+        for (const extended of extendsList.split(",")) {
+            add("EXTENDS", extended);
+        }
+    }
 
     const implementsMatch = head.match(/\bimplements\s+([^{}]+)/u)?.[1];
     if (implementsMatch) {
         for (const implemented of implementsMatch.split(",")) {
-            const name = implemented.trim().match(/^([A-Za-z_$][\w$]*)/u)?.[1];
-            if (name) items.push({ kind: "IMPLEMENTS", name });
+            add("IMPLEMENTS", implemented);
         }
+    }
+
+    const pythonBases = head.match(/\bclass\s+[A-Za-z_$][\w$]*\s*\(([^)]*)\)/u)?.[1];
+    if (pythonBases) {
+        for (const base of pythonBases.split(",")) {
+            add("EXTENDS", base);
+        }
+    }
+
+    const goStructBody = text.match(/(?:\btype\s+)?[A-Za-z_$][\w$]*\s+struct\s*\{([^}]*)\}/u)?.[1];
+    if (goStructBody) {
+        for (const line of goStructBody.split(/\r?\n/u)) {
+            const embedded = line.trim().match(/^\*?([A-Za-z_$][\w$]*)\b/u)?.[1];
+            if (embedded) {
+                add("EXTENDS", embedded);
+            }
+        }
+    }
+
+    const colonBases = head.match(
+        /\b(?:class|struct|record|interface)\s+[A-Za-z_$][\w$]*(?:\s*<[^>{}]*>)?[^:{]*:\s*([^{}]+)/u
+    )?.[1];
+    if (colonBases) {
+        colonBases.split(",").forEach((base, index) => add(index === 0 ? "EXTENDS" : "IMPLEMENTS", base));
     }
 
     return items;
@@ -187,6 +262,15 @@ export function resolveImportTargetPath(
                 filesByPath,
                 ZIG_RESOLVE_EXTENSIONS
             );
+        case "python":
+            return resolvePythonImportPath(importRecord.specifier, currentFilePath, filesByPath);
+        case "bash":
+            return resolveRelativeImportPath(
+                importRecord.specifier,
+                currentFilePath,
+                filesByPath,
+                BASH_RESOLVE_EXTENSIONS
+            );
         case "c-local":
             return resolveLocalIncludePath(importRecord.specifier, currentFilePath, filesByPath);
         case "rust":
@@ -199,9 +283,29 @@ export function resolveImportTargetPath(
 function collectEcmaScriptImports(root: TreeSitterNode): ImportRecord[] {
     const imports: ImportRecord[] = [];
     walk(root, (node) => {
-        if (node.type !== "import_statement") return;
-        const parsed = parseImportStatement(node);
-        if (parsed) imports.push(parsed);
+        if (node.type === "import_statement") {
+            const parsed = parseImportStatement(node);
+            if (parsed) imports.push(parsed);
+            return;
+        }
+
+        if (node.type === "variable_declarator") {
+            const parsed = parseRequireDeclarator(node);
+            if (parsed) imports.push(parsed);
+            return;
+        }
+
+        if (node.type === "call_expression" && node.parent?.type !== "variable_declarator") {
+            const specifier = requireOrDynamicImportSpecifier(node);
+            if (specifier) {
+                imports.push({
+                    node,
+                    specifier,
+                    resolutionMode: specifier.startsWith(".") ? "relative" : "external",
+                    namedImports: [],
+                });
+            }
+        }
     });
     return imports;
 }
@@ -281,6 +385,303 @@ function collectCImports(root: TreeSitterNode): ImportRecord[] {
     return imports;
 }
 
+function collectPythonImports(root: TreeSitterNode): ImportRecord[] {
+    const imports: ImportRecord[] = [];
+    walk(root, (node) => {
+        if (node.type === "import_statement") {
+            imports.push(...parsePythonImportStatement(node));
+            return;
+        }
+
+        if (node.type === "import_from_statement") {
+            imports.push(...parsePythonFromImport(node));
+        }
+    });
+    return imports;
+}
+
+function collectGoImports(root: TreeSitterNode): ImportRecord[] {
+    const imports: ImportRecord[] = [];
+    walk(root, (node) => {
+        if (node.type !== "import_spec") {
+            return;
+        }
+
+        const specifier = unquote(fieldText(node, "path") ?? "");
+        if (!specifier) {
+            return;
+        }
+
+        const importName = fieldText(node, "name");
+        imports.push({
+            node,
+            specifier,
+            resolutionMode: "external",
+            namespaceImport:
+                importName && importName !== "." && importName !== "_" ? importName : goImportLocalName(specifier),
+            namedImports: [],
+            importAllDefinitions: importName === ".",
+        });
+    });
+    return imports;
+}
+
+function collectCSharpImports(root: TreeSitterNode): ImportRecord[] {
+    const imports: ImportRecord[] = [];
+    walk(root, (node) => {
+        if (node.type !== "using_directive") {
+            return;
+        }
+
+        const body = node.text
+            .replace(/^using\s+/u, "")
+            .replace(/;$/u, "")
+            .trim();
+        if (!body) {
+            return;
+        }
+
+        if (body.startsWith("static ")) {
+            imports.push({
+                node,
+                specifier: body.replace(/^static\s+/u, "").trim(),
+                resolutionMode: "external",
+                namedImports: [],
+                importAllDefinitions: true,
+            });
+            return;
+        }
+
+        const [alias, specifier] = body.split(/\s*=\s*/u);
+        const importSpecifier = specifier?.trim() ?? body;
+        imports.push({
+            node,
+            specifier: importSpecifier,
+            resolutionMode: "external",
+            namespaceImport: specifier ? alias?.trim() : importSpecifier.split(".").at(-1),
+            namedImports: [],
+            importAllDefinitions: !specifier,
+        });
+    });
+    return imports;
+}
+
+function collectPhpImports(root: TreeSitterNode): ImportRecord[] {
+    const imports: ImportRecord[] = [];
+    walk(root, (node) => {
+        if (
+            node.type === "include_expression" ||
+            node.type === "include_once_expression" ||
+            node.type === "require_expression" ||
+            node.type === "require_once_expression"
+        ) {
+            const specifier = firstQuotedString(node.text);
+            if (specifier) {
+                imports.push({
+                    node,
+                    specifier,
+                    resolutionMode: specifier.startsWith(".") ? "relative" : "external",
+                    namedImports: [],
+                    importAllDefinitions: true,
+                });
+            }
+            return;
+        }
+
+        if (node.type !== "namespace_use_declaration") {
+            return;
+        }
+
+        const body = node.text
+            .replace(/^use\s+(?:function\s+|const\s+)?/u, "")
+            .replace(/;$/u, "")
+            .trim();
+        for (const segment of body.split(",")) {
+            const [specifier, alias] = segment.trim().split(/\s+as\s+/iu);
+            if (!specifier) {
+                continue;
+            }
+            const local = alias?.trim() ?? specifier.split("\\").at(-1);
+            imports.push({
+                node,
+                specifier,
+                resolutionMode: "external",
+                namespaceImport: local,
+                namedImports: [],
+            });
+        }
+    });
+    return imports;
+}
+
+function collectBashImports(root: TreeSitterNode): ImportRecord[] {
+    const imports: ImportRecord[] = [];
+    walk(root, (node) => {
+        if (node.type !== "command") {
+            return;
+        }
+
+        const commandName = childForField(node, "name")?.text;
+        if (commandName !== "source" && commandName !== ".") {
+            return;
+        }
+
+        const specifier = unquote(childForField(node, "argument")?.text ?? "");
+        if (!specifier) {
+            return;
+        }
+
+        imports.push({
+            node,
+            specifier,
+            resolutionMode: specifier.startsWith(".") ? "bash" : "external",
+            namedImports: [],
+            importAllDefinitions: true,
+        });
+    });
+    return imports;
+}
+
+function parsePythonImportStatement(node: TreeSitterNode): ImportRecord[] {
+    return node.text
+        .replace(/^import\s+/u, "")
+        .split(",")
+        .map((segment) => parseAliasedImportSegment(segment.trim()))
+        .filter((parsed): parsed is { specifier: string; local?: string } => Boolean(parsed?.specifier))
+        .map(({ specifier, local }) => ({
+            node,
+            specifier,
+            resolutionMode: "python" as const,
+            namespaceImport: local ?? specifier.split(".")[0],
+            namedImports: [],
+        }));
+}
+
+function parsePythonFromImport(node: TreeSitterNode): ImportRecord[] {
+    const [, moduleName, importList] = /^from\s+(.+?)\s+import\s+(.+)$/u.exec(node.text) ?? [];
+    const specifier = moduleName?.trim();
+    if (!specifier || !importList) {
+        return [];
+    }
+
+    const parsedImports = importList
+        .replace(/[()]/gu, "")
+        .split(",")
+        .map((segment) => parseAliasedImportSegment(segment.trim()))
+        .filter((parsed): parsed is { specifier: string; local?: string } => Boolean(parsed?.specifier));
+
+    if (/^\.+$/u.test(specifier)) {
+        return parsedImports.map(({ specifier: imported, local }) => ({
+            node,
+            specifier: `${specifier}${imported}`,
+            resolutionMode: "python" as const,
+            namespaceImport: local ?? imported,
+            namedImports: [],
+        }));
+    }
+
+    if (importList.trim() === "*") {
+        return [
+            {
+                node,
+                specifier,
+                resolutionMode: "python",
+                namedImports: [],
+                importAllDefinitions: true,
+            },
+        ];
+    }
+
+    return [
+        {
+            node,
+            specifier,
+            resolutionMode: "python",
+            namedImports: parsedImports.map(({ specifier: imported, local }) => ({
+                imported,
+                local: local ?? imported,
+            })),
+        },
+    ];
+}
+
+function parseAliasedImportSegment(segment: string): { specifier: string; local?: string } | null {
+    const [specifier, alias] = segment.split(/\s+as\s+/iu);
+    const trimmedSpecifier = specifier?.trim();
+    if (!trimmedSpecifier) {
+        return null;
+    }
+    return { specifier: trimmedSpecifier, ...(alias?.trim() ? { local: alias.trim() } : {}) };
+}
+
+function goImportLocalName(specifier: string): string {
+    return (
+        specifier
+            .split("/")
+            .at(-1)
+            ?.replace(/\.git$/u, "") ?? specifier
+    );
+}
+
+function collectJavaImports(root: TreeSitterNode): ImportRecord[] {
+    const imports: ImportRecord[] = [];
+    walk(root, (node) => {
+        if (node.type !== "import_declaration") {
+            return;
+        }
+
+        const specifier = node.text
+            .replace(/^import\s+(?:static\s+)?/u, "")
+            .replace(/;$/u, "")
+            .trim();
+        if (!specifier) {
+            return;
+        }
+
+        imports.push(jvmImportRecord(node, specifier));
+    });
+    return imports;
+}
+
+function collectKotlinImports(root: TreeSitterNode): ImportRecord[] {
+    const imports: ImportRecord[] = [];
+    walk(root, (node) => {
+        if (node.type !== "import") {
+            return;
+        }
+
+        const [, body = ""] = /^import\s+(.+)$/u.exec(node.text) ?? [];
+        const [specifier = "", alias] = body.split(/\s+as\s+/u);
+        if (!specifier.trim()) {
+            return;
+        }
+
+        imports.push(jvmImportRecord(node, specifier.trim(), alias?.trim()));
+    });
+    return imports;
+}
+
+function jvmImportRecord(node: TreeSitterNode, specifier: string, alias?: string): ImportRecord {
+    const wildcardSuffix = ".*";
+    if (specifier.endsWith(wildcardSuffix)) {
+        return {
+            node,
+            specifier: specifier.slice(0, -wildcardSuffix.length),
+            resolutionMode: "external",
+            namedImports: [],
+            importAllDefinitions: true,
+        };
+    }
+
+    const imported = specifier.split(".").at(-1);
+    return {
+        node,
+        specifier,
+        resolutionMode: "external",
+        namedImports: imported ? [{ imported, local: alias ?? imported }] : [],
+    };
+}
+
 function parseImportStatement(node: TreeSitterNode): ImportRecord | null {
     const specifier = parseStringSpecifier(node);
     if (!specifier) return null;
@@ -333,6 +734,23 @@ function parseExportStatement(node: TreeSitterNode): ExportRecord[] {
                 localName: value.text,
             },
         ];
+    }
+
+    const namespaceReExport = node.text.match(/export\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+["']([^"']+)["']/u);
+    if (namespaceReExport) {
+        const [, exportedName, namespaceSpecifier] = namespaceReExport;
+        return namespaceSpecifier
+            ? [
+                  {
+                      node,
+                      kind: "reexport",
+                      exportedName: exportedName ?? "default",
+                      importedName: "*",
+                      specifier: namespaceSpecifier,
+                      resolutionMode: namespaceSpecifier.startsWith(".") ? "relative" : "external",
+                  },
+              ]
+            : [];
     }
 
     const specifier = parseStringSpecifier(node);
@@ -490,7 +908,14 @@ function collectExportClauseBindings(node: TreeSitterNode): ImportBinding[] {
 }
 
 function collectDeclarationNames(node: TreeSitterNode): string[] {
-    if (node.type === "function_declaration" || node.type === "class_declaration") {
+    if (
+        node.type === "function_declaration" ||
+        node.type === "class_declaration" ||
+        node.type === "abstract_class_declaration" ||
+        node.type === "interface_declaration" ||
+        node.type === "enum_declaration" ||
+        node.type === "type_alias_declaration"
+    ) {
         const name = fieldText(node, "name");
         return name ? [name] : [];
     }
@@ -541,6 +966,61 @@ function zigImportSpecifier(node: TreeSitterNode): string | null {
     return stringNode ? unquote(stringNode.text) : null;
 }
 
+function parseRequireDeclarator(node: TreeSitterNode): ImportRecord | null {
+    const value = childForField(node, "value");
+    const specifier = value ? requireOrDynamicImportSpecifier(value) : null;
+    if (!specifier) {
+        return null;
+    }
+
+    const name = fieldText(node, "name");
+    const base = {
+        node,
+        specifier,
+        resolutionMode: specifier.startsWith(".") ? ("relative" as const) : ("external" as const),
+    };
+    if (!name) {
+        return { ...base, namedImports: [] };
+    }
+
+    if (name.startsWith("{")) {
+        return { ...base, namedImports: parseRequireObjectPattern(name) };
+    }
+
+    return { ...base, namespaceImport: name, namedImports: [] };
+}
+
+function requireOrDynamicImportSpecifier(node: TreeSitterNode): string | null {
+    if (node.type !== "call_expression") {
+        return null;
+    }
+    const callee = childForField(node, "function")?.text ?? node.namedChild(0)?.text;
+    if (callee !== "require" && callee !== "import") {
+        return null;
+    }
+    return firstQuotedString(node.text);
+}
+
+function parseRequireObjectPattern(pattern: string): ImportBinding[] {
+    return pattern
+        .replace(/[{}]/gu, "")
+        .split(",")
+        .map((segment) => segment.trim())
+        .filter(Boolean)
+        .flatMap((segment) => {
+            const [imported, local] = segment.split(/\s*:\s*/u);
+            const importedName = imported?.trim();
+            if (!importedName || importedName.startsWith("...")) {
+                return [];
+            }
+            return [{ imported: importedName, local: local?.trim() || importedName }];
+        });
+}
+
+function firstQuotedString(text: string): string | null {
+    return /["']([^"']+)["']/u.exec(text)?.[1] ?? null;
+}
+
 function resolveRelativeImportPath(
     specifier: string,
     currentFilePath: string,
@@ -564,6 +1044,47 @@ function resolveLocalIncludePath(
 ): string | null {
     const candidate = path.posix.normalize(path.posix.join(path.posix.dirname(currentFilePath), specifier));
     return filesByPath.has(candidate) ? candidate : null;
+}
+
+function resolvePythonImportPath(
+    specifier: string,
+    currentFilePath: string,
+    filesByPath: ReadonlyMap<string, CodeManifestFile>
+): string | null {
+    const leadingDots = specifier.match(/^\.+/u)?.[0] ?? "";
+    const moduleName = specifier.slice(leadingDots.length);
+    const modulePath = moduleName.replace(/\./gu, "/");
+    const candidates: string[] = [];
+
+    if (leadingDots) {
+        let baseDirectory = path.posix.dirname(currentFilePath);
+        for (let index = 1; index < leadingDots.length; index += 1) {
+            baseDirectory = path.posix.dirname(baseDirectory);
+        }
+        const basePath = modulePath ? path.posix.join(baseDirectory, modulePath) : baseDirectory;
+        candidates.push(...pythonModuleCandidates(basePath));
+    } else {
+        candidates.push(...pythonModuleCandidates(modulePath));
+        const suffixes = pythonModuleCandidates(modulePath).map((candidate) => `/${candidate}`);
+        for (const filePath of filesByPath.keys()) {
+            if (suffixes.some((suffix) => filePath.endsWith(suffix))) {
+                candidates.push(filePath);
+            }
+        }
+    }
+
+    const matches = dedupePaths(candidates).filter((candidate) => filesByPath.has(candidate));
+    return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function pythonModuleCandidates(basePath: string): string[] {
+    return [
+        basePath,
+        ...PYTHON_RESOLVE_EXTENSIONS.map((extension) =>
+            basePath.endsWith(extension) ? basePath : `${basePath}${extension}`
+        ),
+        path.posix.join(basePath, "__init__.py"),
+    ];
 }
 
 function resolveRustImportPath(
@@ -637,6 +1158,22 @@ function namedChildren(node: TreeSitterNode): TreeSitterNode[] {
         }
     }
     return children;
+}
+
+function normalizeHeritageName(value: string | undefined): string | null {
+    const cleaned = value
+        ?.trim()
+        .replace(/\b(public|private|protected|virtual|override|final|open|abstract|sealed|internal)\b/gu, "")
+        .replace(/\([^)]*\)/gu, "")
+        .replace(/<[^>]*>/gu, "")
+        .trim();
+    if (!cleaned) return null;
+    return (
+        cleaned
+            .split(/::|\.|\\/u)
+            .at(-1)
+            ?.match(/^[A-Za-z_$][\w$]*/u)?.[0] ?? null
+    );
 }
 
 function dedupePaths(paths: string[]) {

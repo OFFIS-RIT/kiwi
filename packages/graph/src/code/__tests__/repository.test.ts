@@ -884,6 +884,587 @@ describe("code repository graph builder", () => {
         ]);
     });
 
+    test("parses Java classes, imports, and method calls", () => {
+        const file = baseFile({
+            fileId: "file-java-runner",
+            path: "src/main/java/com/acme/Runner.java",
+            content: [
+                "package com.acme;",
+                "import java.util.List;",
+                "class Runner {",
+                "  void run() {",
+                "    helper();",
+                "  }",
+                "  void helper() {}",
+                "}",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(entityByName(graph, `${repositoryPrefix}:src/main/java/com/acme/Runner.java#Runner`)).toMatchObject({
+            type: "CODE_CLASS",
+        });
+        expect(
+            hasRelationship(
+                graph,
+                "IMPORTS",
+                `${repositoryPrefix}:src/main/java/com/acme/Runner.java`,
+                "widgets:external:java.util.List"
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/main/java/com/acme/Runner.java#Runner.run`,
+                `${repositoryPrefix}:src/main/java/com/acme/Runner.java#Runner.helper`
+            )
+        ).toBe(true);
+    });
+
+    test("parses Kotlin classes, imports, and method calls", () => {
+        const file = baseFile({
+            fileId: "file-kotlin-runner",
+            path: "src/main/kotlin/com/acme/Runner.kt",
+            content: [
+                "package com.acme",
+                "import kotlin.collections.List",
+                "class Runner {",
+                "  fun run() {",
+                "    helper()",
+                "  }",
+                "  fun helper() {",
+                "  }",
+                "}",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(entityByName(graph, `${repositoryPrefix}:src/main/kotlin/com/acme/Runner.kt#Runner`)).toMatchObject({
+            type: "CODE_CLASS",
+        });
+        expect(
+            hasRelationship(
+                graph,
+                "IMPORTS",
+                `${repositoryPrefix}:src/main/kotlin/com/acme/Runner.kt`,
+                "widgets:external:kotlin.collections.List"
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/main/kotlin/com/acme/Runner.kt#Runner.run`,
+                `${repositoryPrefix}:src/main/kotlin/com/acme/Runner.kt#Runner.helper`
+            )
+        ).toBe(true);
+    });
+
+    test("parses Python classes, imports, and method calls", () => {
+        const file = baseFile({
+            fileId: "file-python-runner",
+            path: "src/runner.py",
+            content: [
+                "import os",
+                "from pathlib import Path as P",
+                "class Runner:",
+                "    def run(self):",
+                "        self.helper()",
+                "    def helper(self):",
+                "        return os.getcwd()",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(entityByName(graph, `${repositoryPrefix}:src/runner.py#Runner`)).toMatchObject({
+            type: "CODE_CLASS",
+        });
+        expect(hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:src/runner.py`, "widgets:external:pathlib")).toBe(
+            true
+        );
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/runner.py#Runner.run`,
+                `${repositoryPrefix}:src/runner.py#Runner.helper`
+            )
+        ).toBe(true);
+    });
+
+    test("parses Go structs, imports, and function calls", () => {
+        const file = baseFile({
+            fileId: "file-go-runner",
+            path: "cmd/runner/main.go",
+            content: [
+                "package main",
+                'import "fmt"',
+                "type Runner struct{}",
+                "func (r Runner) Run() {",
+                "  helper()",
+                '  fmt.Println("hi")',
+                "}",
+                "func helper() {}",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(entityByName(graph, `${repositoryPrefix}:cmd/runner/main.go#Runner`)).toMatchObject({
+            type: "CODE_CLASS",
+        });
+        expect(
+            hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:cmd/runner/main.go`, "widgets:external:fmt")
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:cmd/runner/main.go#Runner.Run`,
+                `${repositoryPrefix}:cmd/runner/main.go#helper`
+            )
+        ).toBe(true);
+    });
+
+    test("parses C++ classes, includes, and method calls", () => {
+        const file = baseFile({
+            fileId: "file-cpp-runner",
+            path: "src/runner.cpp",
+            content: [
+                "#include <vector>",
+                "class Runner {",
+                "public:",
+                "  void run() { helper(); }",
+                "  void helper() {}",
+                "};",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(entityByName(graph, `${repositoryPrefix}:src/runner.cpp#Runner`)).toMatchObject({
+            type: "CODE_CLASS",
+        });
+        expect(hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:src/runner.cpp`, "widgets:external:vector")).toBe(
+            true
+        );
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/runner.cpp#Runner.run`,
+                `${repositoryPrefix}:src/runner.cpp#Runner.helper`
+            )
+        ).toBe(true);
+    });
+
+    test("parses C# classes, using directives, and method calls", () => {
+        const file = baseFile({
+            fileId: "file-csharp-runner",
+            path: "src/Runner.cs",
+            content: [
+                "using System;",
+                "class Runner {",
+                "  void Run() {",
+                "    Helper();",
+                "  }",
+                "  void Helper() {}",
+                "}",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(entityByName(graph, `${repositoryPrefix}:src/Runner.cs#Runner`)).toMatchObject({
+            type: "CODE_CLASS",
+        });
+        expect(hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:src/Runner.cs`, "widgets:external:System")).toBe(
+            true
+        );
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/Runner.cs#Runner.Run`,
+                `${repositoryPrefix}:src/Runner.cs#Runner.Helper`
+            )
+        ).toBe(true);
+    });
+
+    test("parses PHP classes, namespace uses, and method calls", () => {
+        const file = baseFile({
+            fileId: "file-php-runner",
+            path: "src/Runner.php",
+            content: [
+                "<?php",
+                "use Foo\\Bar as Bar;",
+                "class Runner {",
+                "  function run() {",
+                "    $this->helper();",
+                "  }",
+                "  function helper() {}",
+                "}",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(entityByName(graph, `${repositoryPrefix}:src/Runner.php#Runner`)).toMatchObject({
+            type: "CODE_CLASS",
+        });
+        expect(
+            hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:src/Runner.php`, "widgets:external:Foo\\Bar")
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/Runner.php#Runner.run`,
+                `${repositoryPrefix}:src/Runner.php#Runner.helper`
+            )
+        ).toBe(true);
+    });
+
+    test("parses Bash source directives and function calls", () => {
+        const file = baseFile({
+            fileId: "file-bash-runner",
+            path: "scripts/run.sh",
+            content: [
+                "#!/usr/bin/env bash",
+                "source ./lib.sh",
+                "helper() {",
+                "  echo hi",
+                "}",
+                "run() {",
+                "  helper",
+                "}",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(
+            hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:scripts/run.sh`, "widgets:external:./lib.sh")
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:scripts/run.sh#run`,
+                `${repositoryPrefix}:scripts/run.sh#helper`
+            )
+        ).toBe(true);
+    });
+
+    test("resolves Python relative imports, inheritance, and imported calls", () => {
+        const base = baseFile({
+            fileId: "file-python-base",
+            path: "src/pkg/base.py",
+            content: ["class Base:", "    pass", "def helper():", "    return 1"].join("\n"),
+        });
+        const runner = baseFile({
+            fileId: "file-python-runner-relative",
+            path: "src/pkg/runner.py",
+            content: [
+                "from .base import Base, helper",
+                "class Runner(Base):",
+                "    def run(self):",
+                "        helper()",
+                "        self.local()",
+                "    def local(self):",
+                "        return 1",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([base, runner]);
+        const graph = buildCodeFileGraph(runner, manifest);
+
+        expect(
+            hasRelationship(
+                graph,
+                "IMPORTS",
+                `${repositoryPrefix}:src/pkg/runner.py`,
+                `${repositoryPrefix}:src/pkg/base.py`
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "EXTENDS",
+                `${repositoryPrefix}:src/pkg/runner.py#Runner`,
+                `${repositoryPrefix}:src/pkg/base.py#Base`
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/pkg/runner.py#Runner.run`,
+                `${repositoryPrefix}:src/pkg/base.py#helper`
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/pkg/runner.py#Runner.run`,
+                `${repositoryPrefix}:src/pkg/runner.py#Runner.local`
+            )
+        ).toBe(true);
+    });
+
+    test("resolves Go aliases, interfaces, embedding, and receiver calls", () => {
+        const file = baseFile({
+            fileId: "file-go-receiver",
+            path: "pkg/runner/runner.go",
+            content: [
+                "package runner",
+                "type ID = string",
+                "type Base struct{}",
+                "type Runner struct { Base }",
+                "type Runnable interface { Run() }",
+                "func (r Runner) Run() {",
+                "  r.Helper()",
+                "}",
+                "func (r Runner) Helper() {}",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(entityByName(graph, `${repositoryPrefix}:pkg/runner/runner.go#ID`)).toMatchObject({ type: "CODE_TYPE" });
+        expect(entityByName(graph, `${repositoryPrefix}:pkg/runner/runner.go#Runnable`)).toMatchObject({
+            type: "CODE_INTERFACE",
+        });
+        expect(
+            hasRelationship(
+                graph,
+                "EXTENDS",
+                `${repositoryPrefix}:pkg/runner/runner.go#Runner`,
+                `${repositoryPrefix}:pkg/runner/runner.go#Base`
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:pkg/runner/runner.go#Runner.Run`,
+                `${repositoryPrefix}:pkg/runner/runner.go#Runner.Helper`
+            )
+        ).toBe(true);
+    });
+
+    test("resolves C++ class heritage and extensionless includes", () => {
+        const header = baseFile({
+            fileId: "file-cpp-header",
+            path: "src/base.h",
+            content: "struct Base {};",
+        });
+        const runner = baseFile({
+            fileId: "file-cpp-heritage",
+            path: "src/runner.cpp",
+            content: [
+                '#include "base.h"',
+                "class Runner : public Base {",
+                "public:",
+                "  void run() { helper(); }",
+                "  void helper() {}",
+                "};",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([header, runner]);
+        const graph = buildCodeFileGraph(runner, manifest);
+
+        expect(
+            hasRelationship(graph, "IMPORTS", `${repositoryPrefix}:src/runner.cpp`, `${repositoryPrefix}:src/base.h`)
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "EXTENDS",
+                `${repositoryPrefix}:src/runner.cpp#Runner`,
+                `${repositoryPrefix}:src/base.h#Base`
+            )
+        ).toBe(true);
+    });
+
+    test("resolves CommonJS named imports and ECMAScript namespace re-exports", () => {
+        const helper = baseFile({
+            fileId: "file-cjs-helper",
+            path: "src/helper.ts",
+            content: "export function helper() { return 1; }",
+        });
+        const barrel = baseFile({
+            fileId: "file-cjs-barrel",
+            path: "src/barrel.ts",
+            content: 'export * as tools from "./helper";',
+        });
+        const runner = baseFile({
+            fileId: "file-cjs-runner",
+            path: "src/runner.ts",
+            content: [
+                'const { helper: localHelper } = require("./helper");',
+                "export function run() {",
+                "  localHelper();",
+                "}",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([helper, barrel, runner]);
+        const graph = buildCodeFileGraph(runner, manifest);
+
+        expect(manifest.exports).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ exportedPath: "src/barrel.ts", exportedName: "tools", type: "CODE_MODULE" }),
+            ])
+        );
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/runner.ts#run`,
+                `${repositoryPrefix}:src/helper.ts#helper`
+            )
+        ).toBe(true);
+    });
+
+    test("resolves C# records, constructors, structs, and base lists", () => {
+        const file = baseFile({
+            fileId: "file-csharp-record",
+            path: "src/Runner.cs",
+            content: [
+                "namespace Acme.Core;",
+                "interface IRun { void Run(); }",
+                "class Base {}",
+                "record Runner : Base, IRun {",
+                "  public Runner() {}",
+                "  public void Run() { Helper(); }",
+                "  void Helper() {}",
+                "}",
+                "struct Point {}",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(entityByName(graph, `${repositoryPrefix}:src/Runner.cs#Acme.Core`)).toMatchObject({
+            type: "CODE_MODULE",
+        });
+        expect(entityByName(graph, `${repositoryPrefix}:src/Runner.cs#Runner`)).toMatchObject({ type: "CODE_CLASS" });
+        expect(entityByName(graph, `${repositoryPrefix}:src/Runner.cs#Point`)).toMatchObject({ type: "CODE_CLASS" });
+        expect(
+            hasRelationship(
+                graph,
+                "EXTENDS",
+                `${repositoryPrefix}:src/Runner.cs#Runner`,
+                `${repositoryPrefix}:src/Runner.cs#Base`
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "IMPLEMENTS",
+                `${repositoryPrefix}:src/Runner.cs#Runner`,
+                `${repositoryPrefix}:src/Runner.cs#IRun`
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/Runner.cs#Runner.Run`,
+                `${repositoryPrefix}:src/Runner.cs#Runner.Helper`
+            )
+        ).toBe(true);
+    });
+
+    test("resolves PHP interfaces, traits, enums, imports, heritage, and constructors", () => {
+        const file = baseFile({
+            fileId: "file-php-types",
+            path: "src/Runner.php",
+            content: [
+                "<?php",
+                "namespace Acme;",
+                "use Vendor\\Base;",
+                "interface Runnable { public function run(); }",
+                "trait Logs { function log() {} }",
+                "enum State: string { case Ready = 'ready'; }",
+                "class Runner extends Base implements Runnable {",
+                "  use Logs;",
+                "  function __construct() {}",
+                "  function run() { new State(); }",
+                "}",
+            ].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([file]);
+        const graph = buildCodeFileGraph(file, manifest);
+
+        expect(entityByName(graph, `${repositoryPrefix}:src/Runner.php#Acme`)).toMatchObject({ type: "CODE_MODULE" });
+        expect(entityByName(graph, `${repositoryPrefix}:src/Runner.php#Runnable`)).toMatchObject({
+            type: "CODE_INTERFACE",
+        });
+        expect(entityByName(graph, `${repositoryPrefix}:src/Runner.php#Logs`)).toMatchObject({ type: "CODE_TRAIT" });
+        expect(entityByName(graph, `${repositoryPrefix}:src/Runner.php#State`)).toMatchObject({ type: "CODE_ENUM" });
+        expect(
+            hasRelationship(
+                graph,
+                "EXTENDS",
+                `${repositoryPrefix}:src/Runner.php#Runner`,
+                "widgets:external:Vendor\\Base"
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "IMPLEMENTS",
+                `${repositoryPrefix}:src/Runner.php#Runner`,
+                `${repositoryPrefix}:src/Runner.php#Runnable`
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:src/Runner.php#Runner.run`,
+                `${repositoryPrefix}:src/Runner.php#State`
+            )
+        ).toBe(true);
+    });
+
+    test("resolves Bash extensionless source imports across files", () => {
+        const library = baseFile({
+            fileId: "file-bash-lib",
+            path: "scripts/lib.sh",
+            content: "helper() { :; }",
+        });
+        const runner = baseFile({
+            fileId: "file-bash-extensionless",
+            path: "scripts/run.sh",
+            content: ["#!/usr/bin/env bash", ". ./lib", "run() {", "  helper", "}"].join("\n"),
+        });
+        const manifest = buildCodeRepositoryManifest([library, runner]);
+        const graph = buildCodeFileGraph(runner, manifest);
+
+        expect(
+            hasRelationship(
+                graph,
+                "IMPORTS",
+                `${repositoryPrefix}:scripts/run.sh`,
+                `${repositoryPrefix}:scripts/lib.sh`
+            )
+        ).toBe(true);
+        expect(
+            hasRelationship(
+                graph,
+                "CALLS",
+                `${repositoryPrefix}:scripts/run.sh#run`,
+                `${repositoryPrefix}:scripts/lib.sh#helper`
+            )
+        ).toBe(true);
+    });
+
     test("returns an empty graph for unsupported code paths", () => {
         const file = baseFile({ fileId: "file-readme", path: "README.md", content: "# docs" });
         const graph = buildCodeFileGraph(file, buildCodeRepositoryManifest([file]));

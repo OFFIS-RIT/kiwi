@@ -3,7 +3,7 @@ import type { Entity, Graph, Relationship, Source, TextUnitSourceChunk, Unit } f
 import { definitionKey, entityName, fileEntityId, fileEntityName, stableId } from "./identity";
 import { buildManifestExports, collectImports, parseHeritage, resolveImportTargetPath } from "./imports";
 import { parseCodeFile } from "./parser";
-import { callName, collectDefinitions, nodeSnippet, spanSize, walk } from "./syntax";
+import { callName, childForField, collectDefinitions, fieldText, nodeSnippet, spanSize, walk } from "./syntax";
 import type {
     CodeManifestDefinition,
     CodeManifestExport,
@@ -232,12 +232,27 @@ class CodeFileGraphBuilder {
 
     private indexCallsAndHeritage() {
         walk(this.file.root, (node) => {
-            if (node.type === "call_expression") {
+            if (
+                node.type === "call_expression" ||
+                node.type === "method_invocation" ||
+                node.type === "call" ||
+                node.type === "invocation_expression" ||
+                node.type === "function_call_expression" ||
+                node.type === "member_call_expression" ||
+                node.type === "scoped_call_expression" ||
+                node.type === "object_creation_expression" ||
+                node.type === "implicit_object_creation_expression" ||
+                node.type === "explicit_constructor_invocation" ||
+                node.type === "constructor_invocation" ||
+                node.type === "new_expression" ||
+                node.type === "macro_invocation" ||
+                node.type === "command"
+            ) {
                 this.collectCall(node);
                 return;
             }
 
-            if (node.type === "class_declaration" || node.type === "interface_declaration") {
+            if (this.nodeCanCarryHeritage(node)) {
                 this.collectHeritage(node);
             }
         });
@@ -297,9 +312,19 @@ class CodeFileGraphBuilder {
             const finalName = segments.at(-1);
 
             if ((objectName === "this" || objectName === "self") && finalName && caller) {
-                const className = caller.qualifiedName.split(".").at(0);
+                const className = caller.parentQualifiedName ?? caller.qualifiedName.split(".").at(0);
                 const method = this.definitions.find(
                     (definition) => definition.qualifiedName === `${className}.${finalName}`
+                );
+                if (method) {
+                    return this.entityForManifestDefinition(method);
+                }
+            }
+
+            const goReceiver = caller ? this.goReceiver(caller) : null;
+            if (goReceiver && objectName === goReceiver.name && finalName) {
+                const method = this.definitions.find(
+                    (definition) => definition.qualifiedName === `${goReceiver.typeName}.${finalName}`
                 );
                 if (method) {
                     return this.entityForManifestDefinition(method);
@@ -361,6 +386,55 @@ class CodeFileGraphBuilder {
             this.manifestDefinitionsByPathAndName.get(definitionKey(targetPath, importedName)) ??
             null
         );
+    }
+
+    private nodeCanCarryHeritage(node: TreeSitterNode): boolean {
+        return (
+            node.type === "class_declaration" ||
+            node.type === "abstract_class_declaration" ||
+            node.type === "class_definition" ||
+            node.type === "interface_declaration" ||
+            node.type === "enum_declaration" ||
+            node.type === "record_declaration" ||
+            node.type === "struct_declaration" ||
+            node.type === "class_specifier" ||
+            node.type === "struct_specifier" ||
+            node.type === "type_spec" ||
+            node.type === "object_declaration" ||
+            node.type === "trait_declaration"
+        );
+    }
+
+    private goReceiver(definition: Definition): { name: string; typeName: string } | null {
+        if (this.file.language !== "go" || definition.node.type !== "method_declaration") {
+            return null;
+        }
+
+        const receiver = childForField(definition.node, "receiver");
+        const [, name, typeName] = /^\(\s*([A-Za-z_]\w*)\s+\*?([A-Za-z_]\w*)/u.exec(receiver?.text ?? "") ?? [];
+        if (name && typeName) {
+            return { name, typeName };
+        }
+
+        const parameter = receiver ? this.findNodeByType(receiver, "parameter_declaration") : null;
+        const fallbackName = parameter ? fieldText(parameter, "name") : null;
+        const fallbackType = receiver ? this.findNodeByType(receiver, "type_identifier")?.text : null;
+        return fallbackName && fallbackType ? { name: fallbackName, typeName: fallbackType } : null;
+    }
+
+    private findNodeByType(node: TreeSitterNode, type: string): TreeSitterNode | null {
+        if (node.type === type) {
+            return node;
+        }
+
+        for (let index = 0; index < node.namedChildCount; index += 1) {
+            const child = node.namedChild(index);
+            if (!child) continue;
+            const match = this.findNodeByType(child, type);
+            if (match) return match;
+        }
+
+        return null;
     }
 
     private enclosingDefinition(node: TreeSitterNode): Definition | null {

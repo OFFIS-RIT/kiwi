@@ -8,6 +8,7 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const requireFromGraph = createRequire(join(repoRoot, "packages", "graph", "package.json"));
 const buildCommand = ["node-gyp", "rebuild"];
 const platformTag = `${process.platform}-${process.arch}`;
+const shouldRebuild = process.argv.includes("--rebuild");
 
 type BindingPatch = {
     packageName: string;
@@ -22,11 +23,74 @@ const patches: BindingPatch[] = [
         sources: [join("build", "Release", "tree_sitter_runtime_binding.node")],
     },
     {
+        packageName: "tree-sitter-c",
+        target: join("prebuilds", platformTag, "tree-sitter-c.node"),
+        sources: [join("build", "Release", "tree_sitter_c_binding.node")],
+    },
+    {
+        packageName: "tree-sitter-bash",
+        target: join("prebuilds", platformTag, "tree-sitter-bash.node"),
+        sources: [join("build", "Release", "tree_sitter_bash_binding.node")],
+    },
+    {
+        packageName: "tree-sitter-c-sharp",
+        target: join("prebuilds", platformTag, "tree-sitter-c-sharp.node"),
+        sources: [join("build", "Release", "tree_sitter_c_sharp_binding.node")],
+    },
+    {
+        packageName: "tree-sitter-cpp",
+        target: join("prebuilds", platformTag, "tree-sitter-cpp.node"),
+        sources: [join("build", "Release", "tree_sitter_cpp_binding.node")],
+    },
+    {
+        packageName: "tree-sitter-java",
+        target: join("prebuilds", platformTag, "tree-sitter-java.node"),
+        sources: [join("build", "Release", "tree_sitter_java_binding.node")],
+    },
+    {
+        packageName: "tree-sitter-javascript",
+        target: join("prebuilds", platformTag, "tree-sitter-javascript.node"),
+        sources: [join("build", "Release", "tree_sitter_javascript_binding.node")],
+    },
+    {
+        packageName: "tree-sitter-go",
+        target: join("prebuilds", platformTag, "tree-sitter-go.node"),
+        sources: [join("build", "Release", "tree_sitter_go_binding.node")],
+    },
+    {
+        packageName: "tree-sitter-php",
+        target: join("prebuilds", platformTag, "tree-sitter-php.node"),
+        sources: [join("build", "Release", "tree_sitter_php_binding.node")],
+    },
+    {
+        packageName: "tree-sitter-python",
+        target: join("prebuilds", platformTag, "tree-sitter-python.node"),
+        sources: [join("build", "Release", "tree_sitter_python_binding.node")],
+    },
+    {
+        packageName: "tree-sitter-rust",
+        target: join("prebuilds", platformTag, "tree-sitter-rust.node"),
+        sources: [join("build", "Release", "tree_sitter_rust_binding.node")],
+    },
+    {
+        packageName: "tree-sitter-typescript",
+        target: join("prebuilds", platformTag, "tree-sitter-typescript.node"),
+        sources: [join("build", "Release", "tree_sitter_typescript_binding.node")],
+    },
+    {
         packageName: "@tree-sitter-grammars/tree-sitter-zig",
         target: join("prebuilds", platformTag, "tree-sitter-zig.node"),
         sources: [
-            join("prebuilds", platformTag, "@tree-sitter-grammars+tree-sitter-zig.node"),
             join("build", "Release", "tree_sitter_zig_binding.node"),
+            join("prebuilds", platformTag, "@tree-sitter-grammars+tree-sitter-zig.node"),
+        ],
+    },
+    {
+        packageName: "@tree-sitter-grammars/tree-sitter-kotlin",
+        target: join("prebuilds", platformTag, "tree-sitter-kotlin.node"),
+        sources: [
+            join("build", "Release", "tree_sitter_kotlin_binding.node"),
+            join("prebuilds", platformTag, "@tree-sitter-grammars+tree-sitter-kotlin.node"),
         ],
     },
 ];
@@ -37,8 +101,12 @@ for (const patch of patches) {
     const packageRoot = resolvePackageRoot(patch.packageName);
     const target = join(packageRoot, patch.target);
 
-    if (existsSync(target)) {
+    if (!shouldRebuild && existsSync(target)) {
         continue;
+    }
+
+    if (shouldRebuild) {
+        runBuild(packageRoot, patch.packageName);
     }
 
     let source = findSource(packageRoot, patch.sources);
@@ -61,7 +129,9 @@ for (const patch of patches) {
     mkdirSync(dirname(target), { recursive: true });
     copyFileSync(source, target);
     repaired = true;
-    console.log(`[tree-sitter] Created ${relative(repoRoot, target)} from ${relative(repoRoot, source)}.`);
+    console.log(
+        `[tree-sitter] ${shouldRebuild ? "Rebuilt" : "Created"} ${relative(repoRoot, target)} from ${relative(repoRoot, source)}.`
+    );
 }
 
 if (!repaired) {

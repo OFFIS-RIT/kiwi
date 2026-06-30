@@ -27,9 +27,23 @@ export type TreeSitterParser = {
     parse: (source: string) => TreeSitterTree | null;
 };
 
-export type CodeLanguage = "javascript" | "typescript" | "tsx" | "rust" | "zig" | "c";
+export type CodeLanguage =
+    | "javascript"
+    | "typescript"
+    | "tsx"
+    | "rust"
+    | "zig"
+    | "c"
+    | "java"
+    | "kotlin"
+    | "python"
+    | "go"
+    | "cpp"
+    | "csharp"
+    | "php"
+    | "bash";
 
-export type ImportResolutionMode = "relative" | "zig" | "rust" | "c-local" | "external";
+export type ImportResolutionMode = "relative" | "zig" | "rust" | "c-local" | "python" | "bash" | "external";
 
 export type CodeRepositoryFile = {
     fileId: string;

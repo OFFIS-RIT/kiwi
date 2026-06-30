@@ -12,7 +12,8 @@
         "lint": "oxlint",
         "format": "oxfmt",
         "tree-sitter:repair": "bun scripts/repair-tree-sitter-bindings.ts",
-        "postinstall": "bun run tree-sitter:repair",
+        "tree-sitter:rebuild": "bun scripts/repair-tree-sitter-bindings.ts --rebuild",
+        "postinstall": "bun run tree-sitter:rebuild",
         "worker:dash": "dotenv -- bun run --filter @kiwi/worker dashboard",
         "db:generate": "dotenv -- drizzle-kit generate",
         "db:migrate": "dotenv -- drizzle-kit migrate",
@@ -70,10 +71,18 @@
     },
     "trustedDependencies": [
         "@tree-sitter-grammars/tree-sitter-zig",
+        "@tree-sitter-grammars/tree-sitter-kotlin",
         "tree-sitter",
+        "tree-sitter-bash",
         "tree-sitter-c",
+        "tree-sitter-c-sharp",
+        "tree-sitter-cpp",
         "tree-sitter-javascript",
+        "tree-sitter-java",
+        "tree-sitter-go",
         "tree-sitter-rust",
+        "tree-sitter-php",
+        "tree-sitter-python",
         "tree-sitter-typescript"
     ]
 }
