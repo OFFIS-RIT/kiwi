@@ -3,6 +3,7 @@ import { PDF, degrees, measureText, rgb } from "@libpdf/core";
 import { transcribePrompt } from "@kiwi/ai/prompts/transcribe.prompt";
 import { EventEmitter } from "node:events";
 import { inflateSync } from "node:zlib";
+import { DEFAULT_RASTER_SCALE } from "../pdf/constants";
 
 let fullOCRPageOutputs: string[] = [];
 let rasterizedPages: Uint8Array[] = [];
@@ -1448,7 +1449,7 @@ describe("PDFLoader", () => {
         expect(document.sourceChunks?.map((chunk) => chunk.text).join(" ")).toContain("word259");
     });
 
-    test("keeps normal pages at scale 2 for full OCR rasterization", async () => {
+    test("uses default scale for normal full OCR rasterization", async () => {
         const bytes = await buildPDFBinary((pdf) => {
             pdf.addPage({ size: "letter" });
         });
@@ -1466,10 +1467,10 @@ describe("PDFLoader", () => {
         }).getText();
 
         expect(pdfToImgMock).toHaveBeenCalledTimes(1);
-        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 2 });
+        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: DEFAULT_RASTER_SCALE });
     });
 
-    test("caps huge full OCR rasterized pages to 2000px", async () => {
+    test("caps huge full OCR rasterized pages to 3000px", async () => {
         const bytes = await buildPDFBinary((pdf) => {
             pdf.addPage({ width: 3000, height: 1000 });
         });
@@ -1487,7 +1488,7 @@ describe("PDFLoader", () => {
         }).getText();
 
         expect(pdfToImgMock).toHaveBeenCalledTimes(1);
-        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 2000 / 3000 });
+        expect(pdfToImgMock.mock.calls[0]?.[1]).toMatchObject({ scale: 1 });
     });
 
     test("throws when full OCR mode is missing a model", async () => {
