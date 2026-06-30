@@ -15,7 +15,7 @@ import type {
     PDFPageLike,
     PDFPageTranscription,
 } from "./types";
-const MAX_RASTER_DIMENSION_PIXELS = 2000;
+const MAX_RASTER_DIMENSION_PIXELS = 3000;
 const OCR_RETRY_SCALE_MULTIPLIERS = [1.25, 1.5] as const;
 const OCR_RETRY_ROTATION: PDFOCRRotation = 90;
 
@@ -100,7 +100,8 @@ export async function defaultRasterizeSelectedPages(
     pages: PDFOCRPageSelection[],
     scale?: number
 ): Promise<Map<number, Uint8Array>> {
-    const resolvedScale = scale ?? Math.min(DEFAULT_RASTER_SCALE, ...pages.map(getPageRasterScale));
+    const desiredScale = scale ?? DEFAULT_RASTER_SCALE;
+    const resolvedScale = Math.min(desiredScale, ...pages.map((page) => getPageRasterScale(page, desiredScale)));
     return rasterizeSelectedPDFPages(content, pages, resolvedScale);
 }
 
@@ -127,7 +128,7 @@ async function transcribeOCRPageWithRetries(options: {
         const pageImages = await options.rasterizeSelectedPages(
             options.content,
             [options.page],
-            getPageRasterScale(options.page) * scaleMultiplier
+            getPageRasterScale(options.page, DEFAULT_RASTER_SCALE * scaleMultiplier)
         );
         const pageImage = pageImages.get(options.page.index);
         if (!pageImage) {
@@ -188,13 +189,16 @@ export async function resolveRasterScale(content: Uint8Array): Promise<number> {
     }
 }
 
-export function getPageRasterScale(page: Pick<PDFPageLike, "width" | "height">): number {
+export function getPageRasterScale(
+    page: Pick<PDFPageLike, "width" | "height">,
+    desiredScale = DEFAULT_RASTER_SCALE
+): number {
     const longEdge = Math.max(page.width, page.height);
     if (longEdge <= 0) {
-        return DEFAULT_RASTER_SCALE;
+        return Math.min(desiredScale, DEFAULT_RASTER_SCALE);
     }
 
-    return Math.min(DEFAULT_RASTER_SCALE, MAX_RASTER_DIMENSION_PIXELS / longEdge);
+    return Math.min(desiredScale, MAX_RASTER_DIMENSION_PIXELS / longEdge);
 }
 
 export async function defaultTranscribePage(image: Uint8Array, model: LanguageModelV3): Promise<PDFPageTranscription> {

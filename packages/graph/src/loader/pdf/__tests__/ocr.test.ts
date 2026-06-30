@@ -220,6 +220,18 @@ describe("shouldUsePageOCRFallback", () => {
         expect(shouldUsePageOCRFallback(pageText(fragmentedLines), contentWithImages(0))).toBe(true);
     });
 
+    test("keeps detected rotated drawn table pages on the hybrid text path", () => {
+        const fixture = rotatedTablePage();
+
+        expect(shouldUsePageOCRFallback(fixture.pageText, fixture.content)).toBe(false);
+    });
+
+    test("uses full-page OCR for vertical fragments without a detected drawn table", () => {
+        const fixture = rotatedTablePage();
+
+        expect(shouldUsePageOCRFallback(fixture.pageText, { ...fixture.content, explicitEdges: [] })).toBe(true);
+    });
+
     test("keeps normal technical prose on the hybrid text path", () => {
         const proseLines = Array.from({ length: 24 }, (_, index) =>
             [
@@ -248,10 +260,13 @@ describe("getPageOCRRotation", () => {
     });
 });
 describe("getPageRasterScale", () => {
-    test("uses scale 2 unless the rendered image would exceed 2000px", () => {
+    test("uses scale 3 unless the rendered image would exceed 3000px", () => {
         expect(getPageRasterScale({ width: 595.28, height: 841.89 })).toBe(DEFAULT_RASTER_SCALE);
-        expect(getPageRasterScale({ width: 1190.56, height: 1683.78 })).toBeCloseTo(2000 / 1683.78);
-        expect(getPageRasterScale({ width: 3000, height: 1000 })).toBeCloseTo(2000 / 3000);
+        expect(getPageRasterScale({ width: 1190.56, height: 1683.78 })).toBeCloseTo(3000 / 1683.78);
+        expect(getPageRasterScale({ width: 3000, height: 1000 })).toBeCloseTo(1);
+        expect(getPageRasterScale({ width: 595.28, height: 841.89 }, DEFAULT_RASTER_SCALE * 1.25)).toBeCloseTo(
+            3000 / 841.89
+        );
     });
 });
 
@@ -312,7 +327,7 @@ describe("extractOCRTextFromPDFPages", () => {
 
         const textByPage = await extractOCRTextFromPDFPages(
             new Uint8Array([9]),
-            [{ index: 0, width: 595.28, height: 841.89 }],
+            [{ index: 0, width: 400, height: 600 }],
             {} as never,
             {
                 rasterizeSelectedPages,
@@ -329,6 +344,27 @@ describe("extractOCRTextFromPDFPages", () => {
         ]);
     });
 
+    test("caps retry raster scales at the max page dimension", async () => {
+        const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
+        const rasterizeSelectedPages = mock(
+            async (_content: Uint8Array, pages: PDFOCRPageSelection[], _scale?: number) =>
+                new Map(pages.map((page) => [page.index, image] as const))
+        );
+        const transcribePage = mock(async () => ({ text: "partial page", finishReason: "length" as const }));
+
+        const textByPage = await extractOCRTextFromPDFPages(
+            new Uint8Array([9]),
+            [{ index: 0, width: 3000, height: 1000 }],
+            {} as never,
+            {
+                rasterizeSelectedPages,
+                transcribePage,
+            }
+        );
+
+        expect(textByPage).toEqual(new Map());
+        expect(rasterizeSelectedPages.mock.calls.map((call) => call[2])).toEqual([undefined, 1, 1]);
+    });
     test("skips OCR pages when every retry finishes because of length", async () => {
         const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
         const rasterizeSelectedPages = mock(
@@ -339,7 +375,7 @@ describe("extractOCRTextFromPDFPages", () => {
 
         const textByPage = await extractOCRTextFromPDFPages(
             new Uint8Array([9]),
-            [{ index: 0, width: 595.28, height: 841.89 }],
+            [{ index: 0, width: 400, height: 600 }],
             {} as never,
             {
                 rasterizeSelectedPages,
