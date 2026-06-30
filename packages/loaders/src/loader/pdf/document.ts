@@ -282,15 +282,23 @@ function pageContentEntriesForBlock(
 }
 
 export function getPageOCRRotation(pageText: PreparedPage["pageText"], content: PageContentAnalysis): PDFOCRRotation {
+    const rotatedDrawnTable = getRotatedDrawnTableSignal(pageText, content);
+    return rotatedDrawnTable.hasLargeDetectedTable || rotatedDrawnTable.hasHighConfidenceGrid ? 90 : 0;
+}
+
+function getRotatedDrawnTableSignal(
+    pageText: PreparedPage["pageText"],
+    content: PageContentAnalysis
+): { hasLargeDetectedTable: boolean; hasHighConfidenceGrid: boolean } {
     const textLines = pageText.lines.filter((line) => getLineText(line).length > 0);
     if (textLines.length < 12) {
-        return 0;
+        return { hasLargeDetectedTable: false, hasHighConfidenceGrid: false };
     }
 
     const verticalLineRatio =
         textLines.filter((line) => inferLineDirection(line) === "vertical").length / textLines.length;
     if (verticalLineRatio < 0.85) {
-        return 0;
+        return { hasLargeDetectedTable: false, hasHighConfidenceGrid: false };
     }
 
     const nonStrictDrawnEdges = content.explicitEdges.filter(
@@ -303,7 +311,7 @@ export function getPageOCRRotation(pageText: PreparedPage["pageText"], content: 
         horizontalEdgeCount < 4 ||
         !looksLikeRotatedDrawnTableLayout(pageText.lines, nonStrictDrawnEdges)
     ) {
-        return 0;
+        return { hasLargeDetectedTable: false, hasHighConfidenceGrid: false };
     }
 
     const tables = detectTables(
@@ -314,15 +322,20 @@ export function getPageOCRRotation(pageText: PreparedPage["pageText"], content: 
         "lines_strict"
     );
     const pageArea = pageText.width * pageText.height;
-    const hasLargeDetectedTable = tables.some(
-        (table) =>
-            table.rowCount >= 4 &&
-            table.colCount >= 2 &&
-            table.cells.length >= 8 &&
-            (table.bbox.width * table.bbox.height) / pageArea >= 0.12
-    );
+    const hasLargeDetectedTable =
+        pageArea > 0 &&
+        tables.some(
+            (table) =>
+                table.rowCount >= 4 &&
+                table.colCount >= 2 &&
+                table.cells.length >= 8 &&
+                (table.bbox.width * table.bbox.height) / pageArea >= 0.12
+        );
 
-    return hasLargeDetectedTable || hasHighConfidenceRotatedDrawnGrid(pageText, nonStrictDrawnEdges) ? 90 : 0;
+    return {
+        hasLargeDetectedTable,
+        hasHighConfidenceGrid: hasHighConfidenceRotatedDrawnGrid(pageText, nonStrictDrawnEdges),
+    };
 }
 
 function hasHighConfidenceRotatedDrawnGrid(
@@ -388,6 +401,9 @@ export function shouldUsePageOCRFallback(pageText: PreparedPage["pageText"], con
 
     if (lineCount === 0) {
         return imageAreaRatio(pageText, content) >= 0.5;
+    }
+    if (getRotatedDrawnTableSignal(pageText, content).hasLargeDetectedTable) {
+        return false;
     }
 
     const shortLineRatio = lines.filter((line) => line.text.length <= 16).length / lineCount;
