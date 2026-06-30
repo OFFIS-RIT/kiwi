@@ -142,6 +142,60 @@ index 32ce29913c66439e0ddd3808bc3b3afbdfb8c0e5..cc595556ff082ebd734be25e79b3a514
          // mark success
          executionFence.deactivate();
          await executeWorkflowRunTransition({
+diff --git a/dist/worker/worker.js b/dist/worker/worker.js
+index 8f95a1635cd0cfd938d53e2171addaaaab8eefab..e9ea1773ea8a982de41c3a9dfaf5eb52f3c6a1f9 100644
+--- a/dist/worker/worker.js
++++ b/dist/worker/worker.js
+@@ -198,6 +198,7 @@ class WorkflowExecution {
+     workflowRun;
+     workerId;
+     heartbeatTimer = null;
++    stopped = false;
+     constructor(options) {
+         this.backend = options.backend;
+         this.workflowRun = options.workflowRun;
+@@ -208,9 +209,13 @@ class WorkflowExecution {
+      * duration.
+      */
+     startHeartbeat() {
++        this.stopped = false;
+         const leaseDurationMs = DEFAULT_LEASE_DURATION_MS;
+         const heartbeatIntervalMs = leaseDurationMs / 2;
+         this.heartbeatTimer = setInterval(() => {
++            if (this.stopped) {
++                return;
++            }
+             this.backend
+                 .extendWorkflowRunLease({
+                 workflowRunId: this.workflowRun.id,
+@@ -218,6 +223,10 @@ class WorkflowExecution {
+                 leaseDurationMs,
+             })
+                 .catch((error) => {
++                if (this.stopped || isLeaseExtensionLost(error)) {
++                    this.stopHeartbeat();
++                    return;
++                }
+                 console.error("Heartbeat failed:", error);
+             });
+         }, heartbeatIntervalMs);
+@@ -226,12 +235,16 @@ class WorkflowExecution {
+      * Stop the heartbeat loop.
+      */
+     stopHeartbeat() {
++        this.stopped = true;
+         if (this.heartbeatTimer) {
+             clearInterval(this.heartbeatTimer);
+             this.heartbeatTimer = null;
+         }
+     }
++}
++function isLeaseExtensionLost(error) {
++    return error instanceof Error && error.message === "Failed to extend lease for workflow run";
+ }
+ /**
+  * Sleep for a given duration.
+  * @param ms - Milliseconds to sleep
 diff --git a/dist/postgres/backend.js b/dist/postgres/backend.js
 index fdd92c63d9edab4d7ef70a03a3f7452ef6d04990..ac6ae01e1ee1665a16538c7c9dd6b44a6b5261e0 100644
 --- a/dist/postgres/backend.js
@@ -192,7 +246,7 @@ diff --git a/dist/sqlite/backend.js b/dist/sqlite/backend.js
 index 9bf3971559e4d4a569a9a422d5a432c480f25a6d..c14ce437165cb4b93f7c9e1f29bbaaf15297b970 100644
 --- a/dist/sqlite/backend.js
 +++ b/dist/sqlite/backend.js
-@@ -254,6 +254,14 @@ export class BackendSqlite {
+@@ -254,7 +254,15 @@ export class BackendSqlite {
            AND "status" IN ('pending', 'running', 'sleeping')
            AND "available_at" <= ?
            AND ("deadline_at" IS NULL OR "deadline_at" > ?)
@@ -207,3 +261,4 @@ index 9bf3971559e4d4a569a9a422d5a432c480f25a6d..c14ce437165cb4b93f7c9e1f29bbaaf1
          ORDER BY
            CASE WHEN "status" = 'pending' THEN 0 ELSE 1 END,
            "available_at",
+           "created_at"
