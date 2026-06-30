@@ -1,13 +1,13 @@
-import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { generateText, stepCountIs } from "ai";
+import type { LanguageModel } from "ai";
+import { generateText, isStepCount } from "ai";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { withAiSlotEffect, type AiSlotError } from "../concurrency";
+import { AI_REQUEST_TIMEOUT, withAiSlotEffect, type AiProviderError } from "../concurrency";
 import { prependPromptGuidance, type ScopedPromptGuidance } from "../prompts/guidance.prompt";
 
 export type RunMcpResearchOptions<E = never, R = never> = {
-    model: LanguageModelV3;
-    system?: string;
+    model: LanguageModel;
+    instructions?: string;
     question: string;
     tools?: Parameters<typeof generateText>[0]["tools"];
     promptGuidance?: ScopedPromptGuidance;
@@ -35,7 +35,7 @@ function extractFinalText(content: Awaited<ReturnType<typeof generateText>>["con
 
 export function runMcpResearch<E = never, R = never>(
     options: RunMcpResearchOptions<E, R>
-): Effect.Effect<McpResearchRunResult, AiSlotError | McpResearchEmptyAnswerError | E, R> {
+): Effect.Effect<McpResearchRunResult, AiProviderError | McpResearchEmptyAnswerError | E, R> {
     return Effect.gen(function* () {
         const result = yield* withAiSlotEffect("text", (signal) =>
             generateText({
@@ -46,11 +46,12 @@ export function runMcpResearch<E = never, R = never>(
                         content: prependPromptGuidance(options.question, options.promptGuidance),
                     },
                 ],
-                system: options.system,
+                instructions: options.instructions,
                 tools: options.tools,
                 temperature: options.temperature ?? 0.3,
-                stopWhen: stepCountIs(options.maxSteps ?? 50),
+                stopWhen: isStepCount(options.maxSteps ?? 50),
                 providerOptions: options.providerOptions,
+                timeout: AI_REQUEST_TIMEOUT,
                 abortSignal: signal,
             })
         );

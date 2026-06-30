@@ -3,8 +3,8 @@ import * as Config from "effect/Config";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { withAiSlotEffect } from "@kiwi/ai/lock";
+import type { LanguageModel } from "ai";
+import { AI_REQUEST_TIMEOUT, withAiSlotEffect } from "@kiwi/ai/lock";
 import { embeddedImagePrompt } from "@kiwi/ai/prompts/image.prompt";
 import { FileStorageLive, putNamedFile, type FileStorage } from "@kiwi/files";
 import { generateText } from "ai";
@@ -21,7 +21,7 @@ type OCRImageStorage = {
 };
 
 type OCRImageEffectDeps = {
-    describeImageEffect?: (image: OCRImageAsset, model: LanguageModelV3) => Effect.Effect<string, unknown>;
+    describeImageEffect?: (image: OCRImageAsset, model: LanguageModel) => Effect.Effect<string, unknown>;
     uploadImageEffect?: (
         name: string,
         content: Uint8Array,
@@ -30,7 +30,7 @@ type OCRImageEffectDeps = {
 };
 
 type OCRImageDeps = OCRImageEffectDeps & {
-    describeImage?: (image: OCRImageAsset, model: LanguageModelV3) => Promise<string>;
+    describeImage?: (image: OCRImageAsset, model: LanguageModel) => Promise<string>;
     uploadImage?: (name: string, content: Uint8Array, storage: OCRImageStorage) => Promise<{ key: string }>;
 };
 
@@ -44,7 +44,7 @@ export class OCRImageError extends Schema.TaggedErrorClass<OCRImageError>()("OCR
 
 export function describeOCRImages(
     images: OCRImageAsset[],
-    model: LanguageModelV3,
+    model: LanguageModel,
     deps: Pick<OCRImageDeps, "describeImage" | "describeImageEffect"> = {}
 ): Promise<Map<string, string>> {
     return Effect.runPromise(describeOCRImagesEffect(images, model, deps));
@@ -52,7 +52,7 @@ export function describeOCRImages(
 
 export const describeOCRImagesEffect = Effect.fn("describeOCRImagesEffect")(function* (
     images: OCRImageAsset[],
-    model: LanguageModelV3,
+    model: LanguageModel,
     deps: Pick<OCRImageDeps, "describeImage" | "describeImageEffect"> = {}
 ) {
     const describeImage = describeImageEffectForDeps(deps);
@@ -112,7 +112,7 @@ export const describeOCRImagesEffect = Effect.fn("describeOCRImagesEffect")(func
 export function processOCRImages(
     text: string,
     images: OCRImageAsset[],
-    model: LanguageModelV3,
+    model: LanguageModel,
     storage: OCRImageStorage,
     deps: OCRImageDeps = {}
 ): Promise<string> {
@@ -124,7 +124,7 @@ export function processOCRImages(
 export const processOCRImagesEffect = Effect.fn("processOCRImagesEffect")(function* (
     text: string,
     images: OCRImageAsset[],
-    model: LanguageModelV3,
+    model: LanguageModel,
     storage: OCRImageStorage,
     deps: OCRImageDeps = {}
 ) {
@@ -256,7 +256,7 @@ export const processOCRImagesEffect = Effect.fn("processOCRImagesEffect")(functi
 
 function describeImageEffectForDeps(
     deps: Pick<OCRImageDeps, "describeImage" | "describeImageEffect">
-): (image: OCRImageAsset, model: LanguageModelV3) => Effect.Effect<string, OCRImageError> {
+): (image: OCRImageAsset, model: LanguageModel) => Effect.Effect<string, OCRImageError> {
     if (deps.describeImageEffect) {
         return (image, model) =>
             deps.describeImageEffect!(image, model).pipe(
@@ -325,10 +325,7 @@ function normalizeImageBatchSize(value: number): number {
     return !Number.isFinite(value) || value < 1 ? DEFAULT_IMAGE_BATCH_SIZE : Math.floor(value);
 }
 
-function defaultDescribeImageEffect(
-    image: OCRImageAsset,
-    model: LanguageModelV3
-): Effect.Effect<string, OCRImageError> {
+function defaultDescribeImageEffect(image: OCRImageAsset, model: LanguageModel): Effect.Effect<string, OCRImageError> {
     const mimeType = image.type || "application/octet-stream";
     const base64 = Buffer.from(image.content).toString("base64");
 
@@ -336,16 +333,18 @@ function defaultDescribeImageEffect(
         const { text } = yield* withAiSlotEffect("image", (signal) =>
             generateText({
                 model,
-                system: embeddedImagePrompt,
+                instructions: embeddedImagePrompt,
                 temperature: 0.1,
+                timeout: AI_REQUEST_TIMEOUT,
                 abortSignal: signal,
                 messages: [
                     {
                         role: "user",
                         content: [
                             {
-                                type: "image",
-                                image: `data:${mimeType};base64,${base64}`,
+                                type: "file",
+                                data: { type: "data", data: base64 },
+                                mediaType: mimeType,
                             },
                         ],
                     },

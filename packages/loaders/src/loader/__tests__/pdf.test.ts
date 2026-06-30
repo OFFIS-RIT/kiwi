@@ -10,8 +10,8 @@ import { DEFAULT_RASTER_SCALE } from "../pdf/constants";
 let fullOCRPageOutputs: string[] = [];
 let rasterizedPages: Uint8Array[] = [];
 
-const generateTextMock = mock(async ({ system }: { system?: string }) => {
-    if (system === transcribePrompt) {
+const generateTextMock = mock(async ({ instructions }: { instructions?: string }) => {
+    if (instructions === transcribePrompt) {
         return {
             text: fullOCRPageOutputs.shift() ?? "",
         };
@@ -244,7 +244,13 @@ function isPNG(bytes: Uint8Array): boolean {
 
 function getGeneratedImageBytes(callIndex = 0): Uint8Array {
     const message = generateTextMock.mock.calls[callIndex]?.[0]?.messages?.[0];
-    const image = Array.isArray(message?.content) ? message.content.find((part) => part.type === "image")?.image : null;
+    const content = Array.isArray(message?.content) ? message.content : [];
+    const file = content.find((part) => part.type === "file");
+    if (file?.data?.type === "data" && typeof file.data.data === "string") {
+        return Uint8Array.from(Buffer.from(file.data.data, "base64"));
+    }
+
+    const image = content.find((part) => part.type === "image")?.image;
     if (typeof image !== "string") {
         return new Uint8Array();
     }
@@ -1053,7 +1059,7 @@ describe("PDFLoader", () => {
 
         expect(text).toBe(":::PAGE-1:::\n\n# OCR fallback\nReadable page text");
         expect(generateTextMock).toHaveBeenCalledTimes(1);
-        expect(generateTextMock.mock.calls[0]?.[0]).toMatchObject({ system: transcribePrompt });
+        expect(generateTextMock.mock.calls[0]?.[0]).toMatchObject({ instructions: transcribePrompt });
         expect(putNamedFileMock).not.toHaveBeenCalled();
     });
 
@@ -1080,7 +1086,7 @@ describe("PDFLoader", () => {
         expect(text).toBe(":::PAGE-1:::\n\nFallback OCR found the general sentence.");
         expect(pdfToImgMock).toHaveBeenCalledTimes(1);
         expect(generateTextMock).toHaveBeenCalledTimes(1);
-        expect(generateTextMock.mock.calls[0]?.[0]).toMatchObject({ system: transcribePrompt });
+        expect(generateTextMock.mock.calls[0]?.[0]).toMatchObject({ instructions: transcribePrompt });
         expect(putNamedFileMock).not.toHaveBeenCalled();
     });
 

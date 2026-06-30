@@ -1,4 +1,5 @@
 import {
+    AI_REQUEST_TIMEOUT,
     createChatSystemPrompt,
     getProviderOptions,
     splitTextWithCitationFences,
@@ -17,7 +18,7 @@ import { runDatabaseEffect, tryDb, type Database, type DatabaseError } from "@ki
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { filesTable, graphTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { currentSourcePredicate, visibleFilePredicate } from "@kiwi/db/source-validity";
-import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from "ai";
+import { generateText, isStepCount, tool, type ModelMessage, type ToolSet } from "ai";
 import * as Effect from "effect/Effect";
 import { and, asc, eq, inArray, isNull } from "@kiwi/db/drizzle";
 import { z } from "zod";
@@ -311,7 +312,7 @@ function querySingleGraph(options: {
         const result = yield* tryUnknownPromise(() =>
             generateText({
                 model: runtime.client.subagent ?? runtime.client.text,
-                system: createChatSystemPrompt({
+                instructions: createChatSystemPrompt({
                     includeGraphTools: true,
                     includeClientTools: false,
                     includeSubagentTools: false,
@@ -326,8 +327,9 @@ function querySingleGraph(options: {
                 ),
                 tools: runtime.tools,
                 temperature: 0.2,
-                stopWhen: stepCountIs(50),
+                stopWhen: isStepCount(50),
                 providerOptions: getProviderOptions({ thinking: "medium" }),
+                timeout: AI_REQUEST_TIMEOUT,
                 abortSignal: options.abortSignal,
             })
         );
@@ -339,9 +341,9 @@ function querySingleGraph(options: {
             source_ids: [...new Set(collectCitationSourceIds(result.text))],
             considered_file_ids: [...(runtime.getAdditionalUsage?.().consideredFileIds ?? [])],
             usage: {
-                totalTokens: result.totalUsage.totalTokens,
-                inputTokens: result.totalUsage.inputTokens,
-                outputTokens: result.totalUsage.outputTokens,
+                totalTokens: result.usage.totalTokens,
+                inputTokens: result.usage.inputTokens,
+                outputTokens: result.usage.outputTokens,
             },
         };
     });

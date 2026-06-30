@@ -1,4 +1,4 @@
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModel } from "ai";
 import type { LoadedGraphDocument } from "../../types";
 import { describeOCRImages } from "../../lib/ocr-image";
 import { stripPageFences } from "../../lib/page-fence";
@@ -34,7 +34,7 @@ import { repairPageTextLoneSurrogates } from "./unicode";
 
 type PDFHybridOCRFallbackOptions = Pick<FullOCRDeps, "rasterizeSelectedPages" | "transcribePage"> & {
     content: Uint8Array;
-    model: LanguageModelV3;
+    model: LanguageModel;
 };
 
 type PDFDocumentExtractionOptions = PDFParserOptions & {
@@ -55,7 +55,7 @@ export async function extractPDFDocumentFromDocument(
 export async function extractFullOCRDocumentFromPDF(
     content: Uint8Array,
     pdf: PDFDocumentLike,
-    model: LanguageModelV3,
+    model: LanguageModel,
     deps: Pick<FullOCRDeps, "rasterizeSelectedPages" | "transcribePage"> = {}
 ): Promise<LoadedGraphDocument> {
     const builder = new PDFDocumentBuilder();

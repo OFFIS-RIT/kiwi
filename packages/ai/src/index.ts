@@ -5,10 +5,10 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type { EmbeddingModelV3, JSONValue, LanguageModelV3, TranscriptionModelV3 } from "@ai-sdk/provider";
+import type { TranscriptionModelV4 } from "@ai-sdk/provider";
+import type { EmbeddingModel, JSONValue, LanguageModel, ModelMessage } from "ai";
 import type { MessagePart, MessageToolPart } from "@kiwi/contracts/chat";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
-import type { ModelMessage } from "ai";
 import { Tiktoken } from "js-tiktoken/lite";
 import o200k_base from "js-tiktoken/ranks/o200k_base";
 import { prepareCitationFencesForModel } from "./citation";
@@ -81,43 +81,6 @@ type ToolResultOutput = ToolResultPart["output"];
 
 const CLIENT_TOOL_NAMES = new Set(["ask_clarifying_questions"]);
 
-export const AI_REQUEST_TIMEOUT_MS = 90 * 60 * 1000;
-
-export function normalizeOptionalString(value: string | undefined): string | undefined {
-    const normalized = value?.trim();
-    return normalized ? normalized : undefined;
-}
-
-export function isSupportedTranscriptionAdapter(value: string): value is TranscriptionAdapterName {
-    return value === "openai" || value === "azure" || value === "openaiAPI";
-}
-
-function getRequestSignal(signal: AbortSignal | null | undefined): AbortSignal {
-    const timeoutSignal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS);
-
-    if (!signal) {
-        return timeoutSignal;
-    }
-
-    if (signal.aborted) {
-        return signal;
-    }
-
-    return AbortSignal.any([signal, timeoutSignal]);
-}
-
-export function createProviderFetch(fetchFn: typeof globalThis.fetch = globalThis.fetch): typeof globalThis.fetch {
-    return Object.assign((input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
-        const nextInit: RequestInit = {
-            ...init,
-            signal: getRequestSignal(init?.signal),
-        };
-
-        return fetchFn(input, nextInit);
-    }, fetchFn);
-}
-
-const providerFetch = createProviderFetch();
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 
 function createProvider(adapter: Adapter) {
@@ -125,7 +88,6 @@ function createProvider(adapter: Adapter) {
         case "openai":
             return createOpenAI({
                 apiKey: adapter.credentials?.apiKey ?? "",
-                fetch: providerFetch,
             });
         case "openaiAPI":
             return createOpenAICompatible({
@@ -134,18 +96,15 @@ function createProvider(adapter: Adapter) {
                 baseURL: adapter.credentials?.url ?? DEFAULT_OPENAI_BASE_URL,
                 includeUsage: true,
                 supportsStructuredOutputs: true,
-                fetch: providerFetch,
             });
         case "anthropic":
             return createAnthropic({
                 apiKey: adapter.credentials?.apiKey ?? "",
-                fetch: providerFetch,
             });
         case "azure":
             return createAzure({
                 resourceName: adapter.credentials?.resourceName ?? "",
                 apiKey: adapter.credentials?.apiKey ?? "",
-                fetch: providerFetch,
             });
     }
 }
@@ -160,12 +119,12 @@ export type ClientConfig = {
 };
 
 export type Client = {
-    text?: LanguageModelV3;
-    subagent?: LanguageModelV3;
-    embedding?: EmbeddingModelV3;
-    image?: LanguageModelV3;
-    audio?: TranscriptionModelV3;
-    video?: TranscriptionModelV3;
+    text?: LanguageModel;
+    subagent?: LanguageModel;
+    embedding?: EmbeddingModel;
+    image?: LanguageModel;
+    audio?: TranscriptionModelV4;
+    video?: TranscriptionModelV4;
 };
 
 export type AiClientFactoryService = {
@@ -215,7 +174,7 @@ export function makeAiClient(config: ClientConfig): Effect.Effect<Client, never,
     return AiClientFactory.use((factory) => factory.getClient(config));
 }
 
-function createTranscriptionModel(adapter: Adapter, capability: "audio" | "video"): TranscriptionModelV3 {
+function createTranscriptionModel(adapter: Adapter, capability: "audio" | "video"): TranscriptionModelV4 {
     switch (adapter.type) {
         case "openai":
             return new OpenAICompatibleTranscriptionModel({
@@ -223,7 +182,6 @@ function createTranscriptionModel(adapter: Adapter, capability: "audio" | "video
                 model: adapter.model,
                 apiKey: adapter.credentials?.apiKey ?? "",
                 baseURL: DEFAULT_OPENAI_BASE_URL,
-                fetch: providerFetch,
                 style: "openai",
                 capability,
             });
@@ -233,14 +191,12 @@ function createTranscriptionModel(adapter: Adapter, capability: "audio" | "video
                 model: adapter.model,
                 apiKey: adapter.credentials?.apiKey ?? "",
                 baseURL: adapter.credentials?.url ?? DEFAULT_OPENAI_BASE_URL,
-                fetch: providerFetch,
                 capability,
             });
         case "azure":
             return createAzure({
                 resourceName: adapter.credentials?.resourceName ?? "",
                 apiKey: adapter.credentials?.apiKey ?? "",
-                fetch: providerFetch,
             }).transcription(adapter.model);
         case "anthropic":
             return new UnsupportedTranscriptionModel({

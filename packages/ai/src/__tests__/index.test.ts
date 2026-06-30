@@ -1,65 +1,40 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-mock.module("@kiwi/db", () => ({
-    betterAuthDb: {},
-    db: {},
-}));
-
-const { AI_REQUEST_TIMEOUT_MS, createProviderFetch, isSupportedTranscriptionAdapter, normalizeOptionalString } =
-    await import("../index");
+import { AI_REQUEST_TIMEOUT, AI_REQUEST_TIMEOUT_MS, getProviderOptions } from "../index";
 
 describe("AI config helpers", () => {
-    test("normalizes optional strings", () => {
-        expect(normalizeOptionalString(undefined)).toBeUndefined();
-        expect(normalizeOptionalString(" \t ")).toBeUndefined();
-        expect(normalizeOptionalString("  value  ")).toBe("value");
+    test("omits provider-specific options when thinking is not configured", () => {
+        expect(getProviderOptions({})).toBeUndefined();
     });
 
-    test("identifies supported transcription adapters", () => {
-        expect(isSupportedTranscriptionAdapter("openai")).toBe(true);
-        expect(isSupportedTranscriptionAdapter("azure")).toBe(true);
-        expect(isSupportedTranscriptionAdapter("openaiAPI")).toBe(true);
-        expect(isSupportedTranscriptionAdapter("anthropic")).toBe(false);
+    test("maps thinking effort to each provider's v7 option shape", () => {
+        expect(getProviderOptions({ thinking: "high" })).toEqual({
+            openAI: {
+                reasoningEffort: "high",
+                parallelToolCalls: true,
+            },
+            anthropic: {
+                thinking: {
+                    type: "adaptive",
+                },
+                effort: "high",
+                toolStreaming: true,
+            },
+            openaiAPI: {
+                thinking: "high",
+                parallelToolCalls: true,
+            },
+            azure: {
+                reasoningEffort: "high",
+                parallelToolCalls: true,
+            },
+        });
     });
 });
 
-describe("createProviderFetch", () => {
-    test("applies the shared request timeout", async () => {
-        let capturedInit: RequestInit | undefined;
-
-        const providerFetch = createProviderFetch(async (_input, init) => {
-            capturedInit = init;
-            return new Response("ok");
-        });
-
-        await providerFetch("https://example.com", {
-            headers: { "x-test": "1" },
-        });
-
-        expect(capturedInit).toBeDefined();
-        expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
-        expect(capturedInit?.signal?.aborted).toBe(false);
-        expect(AI_REQUEST_TIMEOUT_MS).toBe(90 * 60 * 1000);
-    });
-
-    test("propagates caller aborts through the merged signal", async () => {
-        let capturedSignal: AbortSignal | undefined;
-
-        const providerFetch = createProviderFetch(async (_input, init) => {
-            capturedSignal = init?.signal ?? undefined;
-            return new Response("ok");
-        });
-
-        const controller = new AbortController();
-        await providerFetch("https://example.com", { signal: controller.signal });
-
-        expect(capturedSignal).toBeDefined();
-        expect(capturedSignal).not.toBe(controller.signal);
-        expect(capturedSignal?.aborted).toBe(false);
-
-        controller.abort(new Error("boom"));
-
-        expect(capturedSignal?.aborted).toBe(true);
-        expect(capturedSignal?.reason).toEqual(controller.signal.reason);
+describe("AI SDK timeout config", () => {
+    test("exports the SDK total timeout used by AI calls", () => {
+        expect(AI_REQUEST_TIMEOUT_MS).toBe(10 * 60 * 1000);
+        expect(AI_REQUEST_TIMEOUT).toEqual({ totalMs: AI_REQUEST_TIMEOUT_MS });
     });
 });

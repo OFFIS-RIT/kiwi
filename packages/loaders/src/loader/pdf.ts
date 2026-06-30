@@ -1,5 +1,5 @@
 import { PDF } from "@libpdf/core";
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModel } from "ai";
 import type { GraphBinaryLoader, GraphDocumentLoader, LoadedGraphDocument } from "../types";
 import { extractFullOCRDocumentFromPDF, extractPDFDocumentFromDocument } from "./pdf/document";
 import type { PDFDocumentLike, PDFTableMode } from "./pdf/types";
@@ -17,7 +17,7 @@ export class PDFLoader implements GraphDocumentLoader {
             loader: GraphBinaryLoader;
             mode?: PDFMode;
             tableMode?: PDFTableMode;
-            model?: LanguageModelV3;
+            model?: LanguageModel;
             storage?: { bucket: string; imagePrefix: string };
         }
     ) {}

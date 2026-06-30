@@ -1,5 +1,5 @@
 import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
-import type { EmbeddingModelV3 } from "@ai-sdk/provider";
+import type { EmbeddingModel } from "ai";
 import { entityTable, relationshipTable } from "@kiwi/db/tables/graph";
 import { currentSourceSql, visibleFileSql } from "@kiwi/db/source-validity";
 import { and, asc, cosineDistance, eq, gt, inArray, or, sql } from "@kiwi/db/drizzle";
@@ -162,7 +162,7 @@ type RelationshipToolOptions = {
 
 export const searchRelationshipsTool = (
     graphId: string,
-    embeddingModel: EmbeddingModelV3,
+    embeddingModel: EmbeddingModel,
     options: RelationshipToolOptions = {}
 ) =>
     tool({

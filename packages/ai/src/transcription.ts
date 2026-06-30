@@ -1,7 +1,7 @@
-import type { JSONObject, JSONValue, TranscriptionModelV3, TranscriptionModelV3CallOptions } from "@ai-sdk/provider";
+import type { JSONObject, JSONValue, TranscriptionModelV4, TranscriptionModelV4CallOptions } from "@ai-sdk/provider";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { withAiSlotEffect, type AICapability, type AiSlotError } from "./concurrency";
+import { AiProviderError, type AICapability } from "./concurrency";
 
 type OpenAICompatibleTranscriptionStyle = "openai" | "openrouter";
 
@@ -15,7 +15,7 @@ type OpenAICompatibleTranscriptionOptions = {
     capability?: Extract<AICapability, "audio" | "video">;
 };
 
-type TranscriptionGenerateResult = Awaited<ReturnType<TranscriptionModelV3["doGenerate"]>>;
+type TranscriptionGenerateResult = Awaited<ReturnType<TranscriptionModelV4["doGenerate"]>>;
 
 type TranscriptionSegment = TranscriptionGenerateResult["segments"][number];
 
@@ -47,7 +47,7 @@ export class TranscriptionParseError extends Schema.TaggedErrorClass<Transcripti
     }
 ) {}
 
-export type TranscriptionError = AiSlotError | TranscriptionResponseError | TranscriptionParseError;
+export type TranscriptionError = AiProviderError | TranscriptionResponseError | TranscriptionParseError;
 
 type RawTranscriptionResponse = JSONObject & {
     text?: JSONValue;
@@ -60,8 +60,8 @@ type RawTranscriptionResponse = JSONObject & {
 
 const PROVIDER_OPTION_KEYS = ["openaiAPI", "openai", "openrouter", "vllm"] as const;
 
-export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 {
-    readonly specificationVersion = "v3";
+export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV4 {
+    readonly specificationVersion = "v4";
     readonly provider: string;
     readonly modelId: string;
 
@@ -81,7 +81,7 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
         this.capability = options.capability ?? "audio";
     }
 
-    doGenerate(options: TranscriptionModelV3CallOptions): Promise<TranscriptionGenerateResult> {
+    doGenerate(options: TranscriptionModelV4CallOptions): Promise<TranscriptionGenerateResult> {
         return Effect.runPromise(
             this.style === "openrouter"
                 ? this.generateOpenRouterTranscription(options)
@@ -90,7 +90,7 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
     }
 
     private generateOpenAITranscription(
-        options: TranscriptionModelV3CallOptions
+        options: TranscriptionModelV4CallOptions
     ): Effect.Effect<TranscriptionGenerateResult, TranscriptionError> {
         return Effect.gen({ self: this }, function* () {
             const currentDate = new Date();
@@ -125,14 +125,21 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
                 formData.append("temperature", String(providerOptions.temperature));
             }
 
-            const response = yield* withAiSlotEffect(this.capability, (signal) =>
-                this.fetch(transcriptionURL(this.baseURL), {
-                    method: "POST",
-                    headers: buildHeaders(this.apiKey, options.headers),
-                    body: formData,
-                    signal: combineAbortSignals(signal, options.abortSignal),
-                })
-            );
+            const response = yield* Effect.tryPromise({
+                try: () =>
+                    this.fetch(transcriptionURL(this.baseURL), {
+                        method: "POST",
+                        headers: buildHeaders(this.apiKey, options.headers),
+                        body: formData,
+                        signal: options.abortSignal,
+                    }),
+                catch: (cause) =>
+                    new AiProviderError({
+                        capability: this.capability,
+                        message: `AI ${this.capability} transcription request failed`,
+                        cause,
+                    }),
+            });
 
             const rawResponse = yield* parseTranscriptionResponse(response, responseFormat);
             const { segments, speakers } = parseSegments(rawResponse);
@@ -162,7 +169,7 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
     }
 
     private generateOpenRouterTranscription(
-        options: TranscriptionModelV3CallOptions
+        options: TranscriptionModelV4CallOptions
     ): Effect.Effect<TranscriptionGenerateResult, TranscriptionError> {
         return Effect.gen({ self: this }, function* () {
             const currentDate = new Date();
@@ -187,17 +194,24 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
                 body.provider = providerOptions.provider;
             }
 
-            const response = yield* withAiSlotEffect(this.capability, (signal) =>
-                this.fetch(transcriptionURL(this.baseURL), {
-                    method: "POST",
-                    headers: {
-                        ...buildHeaders(this.apiKey, options.headers),
-                        "content-type": "application/json",
-                    },
-                    body: JSON.stringify(body),
-                    signal: combineAbortSignals(signal, options.abortSignal),
-                })
-            );
+            const response = yield* Effect.tryPromise({
+                try: () =>
+                    this.fetch(transcriptionURL(this.baseURL), {
+                        method: "POST",
+                        headers: {
+                            ...buildHeaders(this.apiKey, options.headers),
+                            "content-type": "application/json",
+                        },
+                        body: JSON.stringify(body),
+                        signal: options.abortSignal,
+                    }),
+                catch: (cause) =>
+                    new AiProviderError({
+                        capability: this.capability,
+                        message: `AI ${this.capability} transcription request failed`,
+                        cause,
+                    }),
+            });
 
             const rawResponse = yield* parseTranscriptionResponse(response);
             const { segments, speakers } = parseSegments(rawResponse);
@@ -231,8 +245,8 @@ export class OpenAICompatibleTranscriptionModel implements TranscriptionModelV3 
     }
 }
 
-export class UnsupportedTranscriptionModel implements TranscriptionModelV3 {
-    readonly specificationVersion = "v3";
+export class UnsupportedTranscriptionModel implements TranscriptionModelV4 {
+    readonly specificationVersion = "v4";
     readonly provider: string;
     readonly modelId: string;
 
@@ -393,7 +407,7 @@ function getOpenAIResponseFormat(modelId: string, configured: string | undefined
 }
 
 function readTranscriptionProviderOptions(
-    providerOptions: TranscriptionModelV3CallOptions["providerOptions"]
+    providerOptions: TranscriptionModelV4CallOptions["providerOptions"]
 ): TranscriptionProviderOptions {
     const raw = PROVIDER_OPTION_KEYS.map((key) => providerOptions?.[key]).find(isJSONObject) ?? {};
 
@@ -531,19 +545,6 @@ function buildProviderMetadata(
             ...(usage !== undefined ? { usage } : {}),
         },
     };
-}
-
-function combineAbortSignals(primary: AbortSignal, secondary: AbortSignal | undefined): AbortSignal {
-    if (!secondary) {
-        return primary;
-    }
-    if (primary.aborted) {
-        return primary;
-    }
-    if (secondary.aborted) {
-        return secondary;
-    }
-    return AbortSignal.any([primary, secondary]);
 }
 
 function readString(value: JSONValue | undefined): string | undefined {

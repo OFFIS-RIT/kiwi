@@ -1,7 +1,9 @@
-import type { JSONObject, TranscriptionModelV3 } from "@ai-sdk/provider";
+import type { JSONObject, TranscriptionModelV4 } from "@ai-sdk/provider";
 import { audioTranscriptPrompt } from "@kiwi/ai/prompts/audio-transcript.prompt";
 import { type AICapability, withAiSlot } from "@kiwi/ai/lock";
 import type { GraphBinaryLoader, GraphLoader } from "../types";
+
+type TranscriptionResult = Awaited<ReturnType<TranscriptionModelV4["doGenerate"]>>;
 
 const UNKNOWN_SPEAKER = "Speaker unknown";
 const TRANSCRIPTION_PROVIDER_OPTIONS = {
@@ -22,12 +24,11 @@ const TRANSCRIPTION_PROVIDER_OPTIONS = {
     },
 };
 
-type TranscriptionResult = Awaited<ReturnType<TranscriptionModelV3["doGenerate"]>>;
 type MediaTranscriptCapability = Extract<AICapability, "audio" | "video">;
 
 export type MediaTranscriptLoaderOptions = {
     loader: GraphBinaryLoader;
-    model: TranscriptionModelV3;
+    model: TranscriptionModelV4;
     mimeType?: string | null;
     capability: MediaTranscriptCapability;
     title: string;
@@ -38,7 +39,7 @@ export class AudioLoader implements GraphLoader {
     constructor(
         private options: {
             loader: GraphBinaryLoader;
-            model: TranscriptionModelV3;
+            model: TranscriptionModelV4;
             mimeType?: string | null;
         }
     ) {}

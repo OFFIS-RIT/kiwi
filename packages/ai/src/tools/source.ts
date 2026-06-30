@@ -1,5 +1,5 @@
 import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
-import type { EmbeddingModelV3 } from "@ai-sdk/provider";
+import type { EmbeddingModel } from "ai";
 import { filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import {
     currentSourcePredicate,
@@ -10,7 +10,7 @@ import {
 import { and, asc, cosineDistance, eq, gt, inArray, or, sql, type SQL } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import { embed, tool } from "ai";
-import { withAiSlotEffect, type AiSlotError } from "../concurrency";
+import { withAiSlotEffect, type AiProviderError } from "../concurrency";
 import {
     decodeCursor,
     doubleLiteral,
@@ -273,7 +273,7 @@ type GetScopedSourcesArgs = {
 
 function getScopedSources(
     graphId: string,
-    embeddingModel: EmbeddingModelV3,
+    embeddingModel: EmbeddingModel,
     {
         query,
         keywords,
@@ -285,7 +285,7 @@ function getScopedSources(
         onConsideredFileIds,
         contentScope,
     }: GetScopedSourcesArgs
-): Effect.Effect<string, DatabaseError | AiSlotError, Database> {
+): Effect.Effect<string, DatabaseError | AiProviderError, Database> {
     return Effect.gen(function* () {
         const db = yield* Database;
         const fileIds = uniqueTerms(files ?? []);
@@ -621,7 +621,7 @@ function getSimilarSources(
 
 export const getEntitySourcesTool = (
     graphId: string,
-    embeddingModel: EmbeddingModelV3,
+    embeddingModel: EmbeddingModel,
     options: SourceToolOptions = {}
 ) =>
     tool({
@@ -657,7 +657,7 @@ export const getEntitySourcesTool = (
 
 export const getRelationshipSourcesTool = (
     graphId: string,
-    embeddingModel: EmbeddingModelV3,
+    embeddingModel: EmbeddingModel,
     options: SourceToolOptions = {}
 ) =>
     tool({

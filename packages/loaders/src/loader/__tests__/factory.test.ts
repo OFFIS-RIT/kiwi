@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MockTranscriptionModelV3 } from "ai/test";
+import { MockTranscriptionModelV4 } from "ai/test";
 
 import { AudioLoader } from "../audio";
 import { CSVLoader } from "../csv";
@@ -452,7 +452,7 @@ describe("createDetectedGraphLoader", () => {
             content: toArrayBuffer(Uint8Array.of(0x49, 0x44, 0x33, 0x04)),
             declaredType: "audio",
             mimeType: "audio/mpeg",
-            audioModel: new MockTranscriptionModelV3(),
+            audioModel: new MockTranscriptionModelV4(),
         });
 
         expect(result.loader).toBeInstanceOf(AudioLoader);
@@ -464,7 +464,7 @@ describe("createDetectedGraphLoader", () => {
             content: toArrayBuffer(Uint8Array.of(0x1a, 0x45, 0xdf, 0xa3, 0x00)),
             declaredType: "audio",
             mimeType: "audio/webm",
-            audioModel: new MockTranscriptionModelV3(),
+            audioModel: new MockTranscriptionModelV4(),
         });
 
         expect(result.loader).toBeInstanceOf(AudioLoader);
@@ -476,8 +476,8 @@ describe("createDetectedGraphLoader", () => {
             content: toArrayBuffer(fakeEBMLWithTrackType(2)),
             declaredType: "video",
             mimeType: "video/webm",
-            audioModel: new MockTranscriptionModelV3(),
-            videoModel: new MockTranscriptionModelV3(),
+            audioModel: new MockTranscriptionModelV4(),
+            videoModel: new MockTranscriptionModelV4(),
         });
 
         expect(result.loader).toBeInstanceOf(AudioLoader);
@@ -493,7 +493,7 @@ describe("createDetectedGraphLoader", () => {
             content: toArrayBuffer(fakeEBMLWithTrackType(2)),
             declaredType: "video",
             mimeType: "video/webm",
-            videoModel: new MockTranscriptionModelV3(),
+            videoModel: new MockTranscriptionModelV4(),
         });
 
         expect(result.loader).toBeInstanceOf(VideoLoader);
@@ -509,7 +509,7 @@ describe("createDetectedGraphLoader", () => {
             content: toArrayBuffer(encodeASCII("not enough for sniffing")),
             declaredType: "video",
             mimeType: "video/mp4",
-            videoModel: new MockTranscriptionModelV3(),
+            videoModel: new MockTranscriptionModelV4(),
         });
 
         expect(result.loader).toBeInstanceOf(VideoLoader);

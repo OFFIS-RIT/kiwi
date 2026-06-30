@@ -1,4 +1,4 @@
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModel } from "ai";
 import type { GraphBinaryLoader, GraphLoader } from "../types";
 import { processOCRImages } from "../lib/ocr-image";
 import { parseDOCX } from "./doc/document";
@@ -12,7 +12,7 @@ export class DOCXLoader implements GraphLoader {
         private options: {
             loader: GraphBinaryLoader;
             ocr?: boolean;
-            model?: LanguageModelV3;
+            model?: LanguageModel;
             storage?: { bucket: string; imagePrefix: string };
         }
     ) {}

@@ -1,8 +1,8 @@
-import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { generateText, stepCountIs, ToolLoopAgent, tool, type ToolSet } from "ai";
+import type { LanguageModel } from "ai";
+import { generateText, isStepCount, ToolLoopAgent, tool, type ToolSet } from "ai";
 import * as Effect from "effect/Effect";
 import { z } from "zod";
-import { withAiSlotEffect, type AiSlotError } from "../concurrency";
+import { AI_REQUEST_TIMEOUT, withAiSlotEffect, type AiProviderError } from "../concurrency";
 import { createCompactionPrompt, createCompactionTaskPrompt } from "../prompts/compaction.prompt";
 import { prependPromptGuidance, type ScopedPromptGuidance } from "../prompts/guidance.prompt";
 import {
@@ -22,7 +22,7 @@ import {
 } from "../tools/toolsets";
 
 type SubagentOptions = GraphToolsetOptions & {
-    model: LanguageModelV3;
+    model: LanguageModel;
     promptGuidance?: ScopedPromptGuidance;
     requestInformation?: RequestInformation;
     includeCodeSearch?: boolean;
@@ -41,7 +41,8 @@ export function createGraphExploreAgent({
         instructions: createExploreSubagentPrompt({ requestInformation }),
         tools: buildGraphExplorationToolset({ graphId, embeddingModel, onConsideredFileIds }),
         temperature: 0.2,
-        stopWhen: stepCountIs(30),
+        stopWhen: isStepCount(30),
+        timeout: AI_REQUEST_TIMEOUT,
     });
 }
 
@@ -58,7 +59,8 @@ export function createSourceCuratorAgent({
         instructions: createSourceCuratorSubagentPrompt({ requestInformation }),
         tools: buildSourceCurationToolset({ graphId, embeddingModel, onConsideredFileIds }),
         temperature: 0.1,
-        stopWhen: stepCountIs(20),
+        stopWhen: isStepCount(20),
+        timeout: AI_REQUEST_TIMEOUT,
     });
 }
 
@@ -75,7 +77,8 @@ export function createCodeSearchAgent({
         instructions: createCodeSearchSubagentPrompt({ requestInformation }),
         tools: buildCodeSearchToolset({ graphId, embeddingModel, onConsideredFileIds }),
         temperature: 0.1,
-        stopWhen: stepCountIs(24),
+        stopWhen: isStepCount(24),
+        timeout: AI_REQUEST_TIMEOUT,
     });
 }
 
@@ -196,12 +199,12 @@ export function buildCodeSearchSubagentToolset(options: SubagentOptions) {
 }
 
 export function compactConversationHistory(options: {
-    model: LanguageModelV3;
+    model: LanguageModel;
     transcript: string;
     promptGuidance?: ScopedPromptGuidance;
     previousSummary?: string;
     abortSignal?: AbortSignal;
-}): Effect.Effect<string, AiSlotError> {
+}): Effect.Effect<string, AiProviderError> {
     return Effect.gen(function* () {
         const compactionGuidance = {
             graphPrompts: options.promptGuidance?.graphPrompts,
@@ -210,7 +213,7 @@ export function compactConversationHistory(options: {
         const result = yield* withAiSlotEffect("text", (signal) =>
             generateText({
                 model: options.model,
-                system: createCompactionPrompt(),
+                instructions: createCompactionPrompt(),
                 prompt: prependPromptGuidance(
                     createCompactionTaskPrompt({
                         previousSummary: options.previousSummary,
@@ -220,6 +223,7 @@ export function compactConversationHistory(options: {
                 ),
                 temperature: 0.1,
                 maxOutputTokens: 6_000,
+                timeout: AI_REQUEST_TIMEOUT,
                 abortSignal: combineAbortSignals(signal, options.abortSignal),
             })
         );

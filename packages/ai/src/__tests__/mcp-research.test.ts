@@ -23,7 +23,7 @@ mock.module("ai", async () => ({
     embed: embedMock,
     generateText: generateTextMock,
     simulateReadableStream: simulateReadableStreamMock,
-    stepCountIs: () => Symbol("stop"),
+    isStepCount: () => Symbol("stop"),
     ToolLoopAgent: class {
         generate = mock(async () => ({ text: "" }));
     },

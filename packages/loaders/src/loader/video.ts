@@ -1,4 +1,4 @@
-import type { TranscriptionModelV3 } from "@ai-sdk/provider";
+import type { TranscriptionModelV4 } from "@ai-sdk/provider";
 import type { GraphBinaryLoader, GraphLoader } from "../types";
 import { loadMediaTranscript } from "./audio";
 
@@ -6,7 +6,7 @@ export class VideoLoader implements GraphLoader {
     constructor(
         private options: {
             loader: GraphBinaryLoader;
-            model: TranscriptionModelV3;
+            model: TranscriptionModelV4;
             mimeType?: string | null;
         }
     ) {}

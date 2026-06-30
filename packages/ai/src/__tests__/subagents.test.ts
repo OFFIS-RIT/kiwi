@@ -26,7 +26,7 @@ mock.module("ai", async () => {
         embed: embedMock,
         generateText: generateTextMock,
         simulateReadableStream: simulateReadableStreamMock,
-        stepCountIs: () => Symbol("stop"),
+        isStepCount: () => Symbol("stop"),
         ToolLoopAgent: class {
             generate = generateMock;
         },
@@ -180,7 +180,7 @@ describe("subagent tools", () => {
 
         const call = generateTextMock.mock.calls[0]?.[0] as {
             model: unknown;
-            system: string;
+            instructions: string;
             prompt: string;
             temperature: number;
             maxOutputTokens: number;
@@ -188,7 +188,7 @@ describe("subagent tools", () => {
         };
 
         expect(call.model).toBe(model);
-        expect(call.system).toContain("chat compaction agent");
+        expect(call.instructions).toContain("chat compaction agent");
         expect(call.prompt).not.toContain("## User Specific Prompts");
         expect(call.prompt).not.toContain("Prefer terse summaries.");
         expect(call.prompt).not.toContain("## Team Specific Prompts");

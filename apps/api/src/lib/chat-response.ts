@@ -1,4 +1,5 @@
 import {
+    AI_REQUEST_TIMEOUT,
     createCitationFenceStreamParser,
     getProviderOptions,
     stringifyCitationFence,
@@ -13,7 +14,7 @@ import {
     createUIMessageStreamResponse,
     generateText,
     smoothStream,
-    stepCountIs,
+    isStepCount,
     streamText,
     type ModelMessage,
     type ToolSet,
@@ -239,11 +240,13 @@ export const runChatCompletion = Effect.fn("runChatCompletion")(function* (reply
             return generateText({
                 model: reply.client.text,
                 messages: activeContextMessages,
-                system: activeSystemPrompt,
+                instructions: activeSystemPrompt,
+                allowSystemInMessages: true,
                 tools: reply.tools,
                 temperature: 0.3,
-                stopWhen: stepCountIs(50),
+                stopWhen: isStepCount(50),
                 providerOptions: getProviderOptions({ thinking: "medium" }),
+                timeout: AI_REQUEST_TIMEOUT,
                 abortSignal: signal,
             });
         });
@@ -291,9 +294,9 @@ export const runChatCompletion = Effect.fn("runChatCompletion")(function* (reply
         reply,
         startedAt,
         firstOutputAt,
-        totalTokens: result.totalUsage.totalTokens,
-        inputTokens: result.totalUsage.inputTokens,
-        outputTokens: result.totalUsage.outputTokens,
+        totalTokens: result.usage.totalTokens,
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
         modelId: reply.client.textModelId,
         citationFileIds,
     });
@@ -397,20 +400,22 @@ export function createChatStreamResponse(reply: StartedChatReply) {
                 streamText({
                     model: reply.client.text,
                     messages: activeContextMessages,
-                    system: activeSystemPrompt,
+                    instructions: activeSystemPrompt,
+                    allowSystemInMessages: true,
                     tools: reply.tools,
                     temperature: 0.3,
-                    stopWhen: stepCountIs(50),
+                    stopWhen: isStepCount(50),
                     experimental_transform: smoothStream({
                         delayInMs: 20,
                         chunking: "word",
                     }),
                     providerOptions: getProviderOptions({ thinking: "medium" }),
+                    timeout: AI_REQUEST_TIMEOUT,
                 });
 
             const processResult = (result: ReturnType<typeof streamText>): Effect.Effect<boolean, unknown, Database> =>
                 Effect.gen(function* () {
-                    const iterator = result.fullStream[Symbol.asyncIterator]();
+                    const iterator = result.stream[Symbol.asyncIterator]();
 
                     while (true) {
                         const next = yield* chatEffect(() => iterator.next());

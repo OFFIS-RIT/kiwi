@@ -1,10 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { ulid } from "ulid";
-import { withAiSlotEffect } from "@kiwi/ai/lock";
+import { AI_REQUEST_TIMEOUT, withAiSlotEffect } from "@kiwi/ai/lock";
 import { extractPrompt } from "@kiwi/ai/prompts/extract.prompt";
 import { generateText, NoObjectGeneratedError, Output } from "ai";
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModel } from "ai";
 import type { Graph, GraphChunker, GraphFile, GraphTextChunk, LoaderSourceChunk, TextUnitSourceChunk, Unit } from ".";
 import { SemanticChunker } from "@kiwi/loaders/chunker/semantic";
 import { loadGraphDocumentEffect } from "@kiwi/loaders/loader/document";
@@ -244,16 +244,17 @@ function isNoObjectGeneratedCause(cause: unknown): boolean {
     return false;
 }
 
-const extractGraphData = Effect.fn("extractGraphData")(function* (unit: Unit, model: LanguageModelV3, prompt: string) {
+const extractGraphData = Effect.fn("extractGraphData")(function* (unit: Unit, model: LanguageModel, prompt: string) {
     const extractionInput = buildExtractionInput(unit);
 
     for (let attempt = 1; attempt <= EXTRACT_OUTPUT_MAX_ATTEMPTS; attempt += 1) {
         const output = yield* withAiSlotEffect("text", (signal) =>
             generateText({
                 model,
-                system: prompt,
+                instructions: prompt,
                 prompt: extractionInput,
                 temperature: 0.1,
+                timeout: AI_REQUEST_TIMEOUT,
                 abortSignal: signal,
                 output: Output.object({
                     description: "The extracted entities and relationships from the text.",
@@ -355,7 +356,7 @@ function mapGraphRelationships(
 
 export const processUnit = Effect.fn("processUnit")(function* (
     unit: Unit,
-    model: LanguageModelV3,
+    model: LanguageModel,
     documentName = unit.fileId,
     metadata?: string
 ) {

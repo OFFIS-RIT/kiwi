@@ -1,4 +1,5 @@
-import type { LanguageModelV3, TranscriptionModelV3 } from "@ai-sdk/provider";
+import type { TranscriptionModelV4 } from "@ai-sdk/provider";
+import type { LanguageModel } from "ai";
 import { FILE_TYPE_DOCUMENT_MODE_VALUES, type FileTypeDocumentMode } from "@kiwi/contracts/file-types";
 import type { GraphBinaryLoader, GraphLoader } from "../types";
 import type { GraphFileType } from "../file-type";
@@ -172,8 +173,8 @@ export function detectGraphLoaderFileFormat(input: {
     content: ArrayBuffer;
     declaredType: GraphFileType;
     mimeType?: string | null;
-    audioModel?: TranscriptionModelV3;
-    videoModel?: TranscriptionModelV3;
+    audioModel?: TranscriptionModelV4;
+    videoModel?: TranscriptionModelV4;
 }): DetectedGraphFileFormat {
     const format = detectGraphFileFormat(input);
     if (shouldUseVideoFallbackForAudioWebM(input, format)) {
@@ -194,9 +195,9 @@ export function createDetectedGraphLoader(input: {
     format?: DetectedGraphFileFormat;
     documentMode?: PDFMode;
     htmlMode?: HTMLLoaderMode;
-    imageModel?: LanguageModelV3;
-    audioModel?: TranscriptionModelV3;
-    videoModel?: TranscriptionModelV3;
+    imageModel?: LanguageModel;
+    audioModel?: TranscriptionModelV4;
+    videoModel?: TranscriptionModelV4;
     derivedImageStorage?: { bucket: string; imagePrefix: string };
 }): {
     format: DetectedGraphFileFormat;
@@ -348,8 +349,8 @@ export function createDetectedGraphLoader(input: {
 function shouldUseVideoFallbackForAudioWebM(
     input: {
         declaredType: GraphFileType;
-        audioModel?: TranscriptionModelV3;
-        videoModel?: TranscriptionModelV3;
+        audioModel?: TranscriptionModelV4;
+        videoModel?: TranscriptionModelV4;
     },
     format: DetectedGraphFileFormat
 ): boolean {
@@ -364,7 +365,7 @@ function shouldUseVideoFallbackForAudioWebM(
 
 function buildPDFLoaderOptions(
     loader: GraphBinaryLoader,
-    model: LanguageModelV3 | undefined,
+    model: LanguageModel | undefined,
     storage: { bucket: string; imagePrefix: string } | undefined,
     mode: PDFMode
 ): ConstructorParameters<typeof PDFLoader>[0] {
@@ -381,7 +382,7 @@ function buildPDFLoaderOptions(
     return options;
 }
 
-function requireImageModel(model: LanguageModelV3 | undefined, context: string): LanguageModelV3 {
+function requireImageModel(model: LanguageModel | undefined, context: string): LanguageModel {
     if (!model) {
         throw new Error(`${context} requires an image-capable model`);
     }
@@ -389,7 +390,7 @@ function requireImageModel(model: LanguageModelV3 | undefined, context: string):
     return model;
 }
 
-function requireAudioModel(model: TranscriptionModelV3 | undefined, context: string): TranscriptionModelV3 {
+function requireAudioModel(model: TranscriptionModelV4 | undefined, context: string): TranscriptionModelV4 {
     if (!model) {
         throw new Error(`${context} requires an audio transcription model`);
     }
@@ -397,7 +398,7 @@ function requireAudioModel(model: TranscriptionModelV3 | undefined, context: str
     return model;
 }
 
-function requireVideoModel(model: TranscriptionModelV3 | undefined, context: string): TranscriptionModelV3 {
+function requireVideoModel(model: TranscriptionModelV4 | undefined, context: string): TranscriptionModelV4 {
     if (!model) {
         throw new Error(`${context} requires a video transcription model`);
     }

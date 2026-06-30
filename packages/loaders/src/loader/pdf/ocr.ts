@@ -1,6 +1,6 @@
 import { PDF } from "@libpdf/core";
-import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { withAiSlot } from "@kiwi/ai/lock";
+import type { LanguageModel } from "ai";
+import { AI_REQUEST_TIMEOUT, withAiSlot } from "@kiwi/ai/lock";
 import { transcribePrompt } from "@kiwi/ai/prompts/transcribe.prompt";
 import { generateText } from "ai";
 import { DEFAULT_RASTER_SCALE, PNG_MIME_TYPE } from "./constants";
@@ -21,7 +21,7 @@ const OCR_RETRY_ROTATION: PDFOCRRotation = 90;
 
 export async function extractFullOCRTextFromPDF(
     content: ArrayBuffer,
-    model: LanguageModelV3,
+    model: LanguageModel,
     deps: FullOCRDeps = {}
 ): Promise<string> {
     const contentBytes = new Uint8Array(content);
@@ -62,7 +62,7 @@ export async function defaultRasterizePages(content: Uint8Array): Promise<Uint8A
 export async function extractOCRTextFromPDFPages(
     content: Uint8Array,
     pages: PDFOCRPageSelection[],
-    model: LanguageModelV3,
+    model: LanguageModel,
     deps: Pick<FullOCRDeps, "rasterizeSelectedPages" | "transcribePage"> = {}
 ): Promise<Map<number, string>> {
     if (pages.length === 0) {
@@ -109,7 +109,7 @@ async function transcribeOCRPageWithRetries(options: {
     content: Uint8Array;
     page: PDFOCRPageSelection;
     image: Uint8Array;
-    model: LanguageModelV3;
+    model: LanguageModel;
     rasterizeSelectedPages: NonNullable<FullOCRDeps["rasterizeSelectedPages"]>;
     transcribePage: NonNullable<FullOCRDeps["transcribePage"]>;
 }): Promise<readonly [number, string] | undefined> {
@@ -163,7 +163,7 @@ async function transcribeOCRPageWithRetries(options: {
 async function transcribePageImage(
     image: Uint8Array,
     rotation: PDFOCRRotation | undefined,
-    model: LanguageModelV3,
+    model: LanguageModel,
     transcribePage: NonNullable<FullOCRDeps["transcribePage"]>
 ): Promise<PDFPageTranscription> {
     const pageImage = rotation ? rotatePNG(image, rotation) : image;
@@ -201,21 +201,23 @@ export function getPageRasterScale(
     return Math.min(desiredScale, MAX_RASTER_DIMENSION_PIXELS / longEdge);
 }
 
-export async function defaultTranscribePage(image: Uint8Array, model: LanguageModelV3): Promise<PDFPageTranscription> {
+export async function defaultTranscribePage(image: Uint8Array, model: LanguageModel): Promise<PDFPageTranscription> {
     const base64 = Buffer.from(image).toString("base64");
     const { text, finishReason } = await withAiSlot("image", (signal) =>
         generateText({
             model,
-            system: transcribePrompt,
+            instructions: transcribePrompt,
             temperature: 0,
+            timeout: AI_REQUEST_TIMEOUT,
             abortSignal: signal,
             messages: [
                 {
                     role: "user",
                     content: [
                         {
-                            type: "image",
-                            image: `data:${PNG_MIME_TYPE};base64,${base64}`,
+                            type: "file",
+                            data: { type: "data", data: base64 },
+                            mediaType: PNG_MIME_TYPE,
                         },
                     ],
                 },

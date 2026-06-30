@@ -131,7 +131,7 @@ function researchToolResult({ request, user }: McpRequestContext, input: { graph
         const result = yield* runMcpResearch({
             model: client.text!,
             question: input.question,
-            system: createChatSystemPrompt({ includeClientTools: false }),
+            instructions: createChatSystemPrompt({ includeClientTools: false }),
             tools,
             promptGuidance,
             providerOptions: getProviderOptions({ thinking: "medium" }),

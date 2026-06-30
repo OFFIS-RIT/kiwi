@@ -1,4 +1,4 @@
-import type { EmbeddingModelV3 } from "@ai-sdk/provider";
+import type { EmbeddingModel } from "ai";
 import type { ToolSet } from "ai";
 import { correctionTool, type CorrectionToolContext } from "./correction";
 import { listEntitiesTool, searchEntityTool } from "./entity";
@@ -18,7 +18,7 @@ export type { CorrectionToolContext } from "./correction";
 
 export type GraphToolsetOptions = {
     graphId: string;
-    embeddingModel: EmbeddingModelV3;
+    embeddingModel: EmbeddingModel;
     correction?: CorrectionToolContext;
     contentScope?: GraphContentScope;
     onConsideredFileIds?: (fileIds: Iterable<string>) => void;

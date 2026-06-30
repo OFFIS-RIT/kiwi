@@ -1,5 +1,5 @@
 import type { FlexibleSchema, ModelMessage, Tool, ToolExecuteFunction } from "ai";
-import type { EmbeddingModelV3, LanguageModelV3 } from "@ai-sdk/provider";
+import type { EmbeddingModel, LanguageModel } from "ai";
 import type { MessagePart, MessageToolPart } from "@kiwi/contracts/chat";
 import type { ChatMessage } from "@kiwi/db/tables/chats";
 import { toModelMessage } from "./index";
@@ -36,7 +36,7 @@ type ChatValidationToolOutput = any;
 
 type ChatValidationTool = Tool<ChatValidationToolInput, ChatValidationToolOutput> &
     (
-        | { execute: ToolExecuteFunction<ChatValidationToolInput, ChatValidationToolOutput> }
+        | { execute: ToolExecuteFunction<ChatValidationToolInput, ChatValidationToolOutput, never> }
         | { outputSchema: FlexibleSchema<ChatValidationToolOutput> }
     );
 
@@ -86,7 +86,7 @@ export function buildEmbeddingAdapter(
     }
 }
 
-export function buildChatTools(graphId: string, embeddingModel: EmbeddingModelV3) {
+export function buildChatTools(graphId: string, embeddingModel: EmbeddingModel) {
     return buildServerAndClientToolset({ graphId, embeddingModel });
 }
 
@@ -94,8 +94,8 @@ export type { CorrectionToolContext } from "./tools/correction";
 
 export function buildChatValidationToolset(options: {
     graphId: string;
-    embeddingModel: EmbeddingModelV3;
-    model: LanguageModelV3;
+    embeddingModel: EmbeddingModel;
+    model: LanguageModel;
 }): ChatValidationToolset {
     return {
         ...buildServerAndClientToolset({

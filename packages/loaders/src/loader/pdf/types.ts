@@ -1,4 +1,4 @@
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModel } from "ai";
 
 export type PDFOCRImage = {
     id: string;
@@ -27,7 +27,7 @@ export type PDFPageTranscription = {
     text: string;
     finishReason?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown";
 };
-export type PDFPageTranscriber = (image: Uint8Array, model: LanguageModelV3) => Promise<string | PDFPageTranscription>;
+export type PDFPageTranscriber = (image: Uint8Array, model: LanguageModel) => Promise<string | PDFPageTranscription>;
 
 export type FullOCRDeps = {
     rasterizePages?: PDFPageRasterizer;

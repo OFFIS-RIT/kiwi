@@ -1,5 +1,5 @@
 import { chatTitlePrompt } from "@kiwi/ai/prompts/title.prompt";
-import type { ChatUIMessage, Client } from "@kiwi/ai";
+import { AI_REQUEST_TIMEOUT, type ChatUIMessage, type Client } from "@kiwi/ai";
 import { withAiSlotEffect } from "@kiwi/ai/lock";
 import { runDatabaseEffect, tryDbVoid } from "@kiwi/db/effect";
 import { chatTable } from "@kiwi/db/tables/chats";
@@ -105,9 +105,10 @@ export function startChatTitleGeneration({
         const result = yield* withAiSlotEffect("text", (signal) =>
             generateText({
                 model,
-                system: chatTitlePrompt,
+                instructions: chatTitlePrompt,
                 prompt: messageText,
                 temperature: 0.2,
+                timeout: AI_REQUEST_TIMEOUT,
                 abortSignal: signal,
             })
         );
@@ -117,7 +118,6 @@ export function startChatTitleGeneration({
     }).pipe(
         Effect.catchTags({
             AiProviderError: (error) => recoverGeneratedTitleFailure(chatId, fallbackTitle, error),
-            AiRequestTimeoutError: (error) => recoverGeneratedTitleFailure(chatId, fallbackTitle, error),
             "@kiwi/db/DatabaseError": (error) => recoverGeneratedTitleFailure(chatId, fallbackTitle, error),
         })
     );

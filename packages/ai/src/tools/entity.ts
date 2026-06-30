@@ -1,5 +1,5 @@
 import { Database, DatabaseError, runDatabaseEffect } from "@kiwi/db/effect";
-import type { EmbeddingModelV3 } from "@ai-sdk/provider";
+import type { EmbeddingModel } from "ai";
 import { entityTable, filesTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import {
     currentSourcePredicate,
@@ -119,7 +119,7 @@ type EntityToolOptions = {
     onConsideredFileIds?: (fileIds: Iterable<string>) => void;
 };
 
-export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModelV3, options: EntityToolOptions = {}) =>
+export const searchEntityTool = (graphId: string, embeddingModel: EmbeddingModel, options: EntityToolOptions = {}) =>
     tool({
         description:
             "Use when you need entity IDs before calling relationship or source tools. Semantic search is primary, with keyword terms used to boost exact or near-exact name matches.",

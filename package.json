@@ -19,6 +19,9 @@
         "db:migrate": "dotenv -- drizzle-kit migrate",
         "db:studio": "dotenv -- drizzle-kit studio"
     },
+    "dependencies": {
+        "force": "^0.0.3"
+    },
     "devDependencies": {
         "@types/bun": "catalog:",
         "dotenv-cli": "^11.0.0",
@@ -57,14 +60,14 @@
         "@types/node": "^25.9.4",
         "@types/react": "^19.2.17",
         "@types/react-dom": "^19",
-        "@ai-sdk/anthropic": "^3.0.81",
-        "@ai-sdk/azure": "^3.0.76",
-        "@ai-sdk/openai": "^3.0.73",
-        "@ai-sdk/openai-compatible": "^2.0.51",
-        "@ai-sdk/provider": "^3.0.10",
-        "@ai-sdk/react": "^3.0.210",
+        "@ai-sdk/anthropic": "^4.0.0",
+        "@ai-sdk/azure": "^4.0.1",
+        "@ai-sdk/openai": "^4.0.1",
+        "@ai-sdk/openai-compatible": "^3.0.0",
+        "@ai-sdk/provider": "^4.0.0",
+        "@ai-sdk/react": "^4.0.4",
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "ai": "^6.0.208"
+        "ai": "^7.0.3"
     },
     "patchedDependencies": {
         "openworkflow@0.9.0": "patches/openworkflow@0.9.0.patch"

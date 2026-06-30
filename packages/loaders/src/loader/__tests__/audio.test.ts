@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { configureAIConcurrency } from "@kiwi/ai/lock";
-import type { TranscriptionModelV3 } from "@ai-sdk/provider";
-import { MockTranscriptionModelV3 } from "ai/test";
+import type { TranscriptionModelV4 } from "@ai-sdk/provider";
+import { MockTranscriptionModelV4 } from "ai/test";
 import { AudioLoader } from "../audio";
 import { BufferedGraphBinaryLoader } from "../factory";
 
 describe("AudioLoader", () => {
     test("formats transcription segments as markdown with speakers and timestamps", async () => {
-        let capturedOptions: Parameters<TranscriptionModelV3["doGenerate"]>[0] | undefined;
-        const model = new MockTranscriptionModelV3({
+        let capturedOptions: Parameters<TranscriptionModelV4["doGenerate"]>[0] | undefined;
+        const model = new MockTranscriptionModelV4({
             doGenerate: async (options) => {
                 capturedOptions = options;
                 return buildTranscriptionResult({
@@ -49,7 +49,7 @@ describe("AudioLoader", () => {
     });
 
     test("formats text-only transcription output with unknown time and speaker", async () => {
-        const model = new MockTranscriptionModelV3({
+        const model = new MockTranscriptionModelV4({
             doGenerate: async () =>
                 buildTranscriptionResult({
                     text: "A transcript without provider segments.",
@@ -78,8 +78,8 @@ describe("AudioLoader", () => {
     });
 
     test("normalizes speaker metadata", async () => {
-        let capturedOptions: Parameters<TranscriptionModelV3["doGenerate"]>[0] | undefined;
-        const model = new MockTranscriptionModelV3({
+        let capturedOptions: Parameters<TranscriptionModelV4["doGenerate"]>[0] | undefined;
+        const model = new MockTranscriptionModelV4({
             doGenerate: async (options) => {
                 capturedOptions = options;
 
@@ -111,8 +111,8 @@ describe("AudioLoader", () => {
     });
 
     test("preserves application/ogg media type for transcription", async () => {
-        let capturedOptions: Parameters<TranscriptionModelV3["doGenerate"]>[0] | undefined;
-        const model = new MockTranscriptionModelV3({
+        let capturedOptions: Parameters<TranscriptionModelV4["doGenerate"]>[0] | undefined;
+        const model = new MockTranscriptionModelV4({
             doGenerate: async (options) => {
                 capturedOptions = options;
 
@@ -134,7 +134,7 @@ describe("AudioLoader", () => {
     });
 
     test("rejects empty transcription output", async () => {
-        const model = new MockTranscriptionModelV3({
+        const model = new MockTranscriptionModelV4({
             doGenerate: async () =>
                 buildTranscriptionResult({
                     text: "   ",
@@ -155,7 +155,7 @@ describe("AudioLoader", () => {
 
         let active = 0;
         let maxActive = 0;
-        const model = new MockTranscriptionModelV3({
+        const model = new MockTranscriptionModelV4({
             doGenerate: async () => {
                 active += 1;
                 maxActive = Math.max(maxActive, active);
@@ -191,8 +191,8 @@ describe("AudioLoader", () => {
 });
 
 function buildTranscriptionResult(
-    options: Partial<Awaited<ReturnType<TranscriptionModelV3["doGenerate"]>>>
-): Awaited<ReturnType<TranscriptionModelV3["doGenerate"]>> {
+    options: Partial<Awaited<ReturnType<TranscriptionModelV4["doGenerate"]>>>
+): Awaited<ReturnType<TranscriptionModelV4["doGenerate"]>> {
     return {
         text: options.text ?? "",
         segments: options.segments ?? [],

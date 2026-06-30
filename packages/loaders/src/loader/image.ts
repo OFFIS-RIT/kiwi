@@ -1,34 +1,35 @@
 import type { GraphBinaryLoader, GraphLoader } from "../types";
-import { withAiSlot } from "@kiwi/ai/lock";
+import { AI_REQUEST_TIMEOUT, withAiSlot } from "@kiwi/ai/lock";
 import { generateText } from "ai";
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModel } from "ai";
 
 export class ImageLoader implements GraphLoader {
     constructor(
         private options: {
             loader: GraphBinaryLoader;
-            model: LanguageModelV3;
+            model: LanguageModel;
         }
     ) {}
 
     async getText(): Promise<string> {
         const content = await this.options.loader.getBinary();
-        const mimeType = getImageMimeType(content);
+        const mimeType = getImageMimeType(content) ?? "application/octet-stream";
         const base64 = Buffer.from(content).toString("base64");
 
         const { text } = await withAiSlot("image", (signal) =>
             generateText({
                 model: this.options.model,
-                system: "",
                 temperature: 0.1,
+                timeout: AI_REQUEST_TIMEOUT,
                 abortSignal: signal,
                 messages: [
                     {
                         role: "user",
                         content: [
                             {
-                                type: "image",
-                                image: `data:${mimeType};base64,${base64}`,
+                                type: "file",
+                                data: { type: "data", data: base64 },
+                                mediaType: mimeType,
                             },
                         ],
                     },

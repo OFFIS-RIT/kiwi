@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { TranscriptionModelV3 } from "@ai-sdk/provider";
+import type { TranscriptionModelV4 } from "@ai-sdk/provider";
 import { configureAIConcurrency } from "@kiwi/ai/lock";
-import { MockTranscriptionModelV3 } from "ai/test";
+import { MockTranscriptionModelV4 } from "ai/test";
 import { BufferedGraphBinaryLoader } from "../factory";
 import { VideoLoader } from "../video";
 
 describe("VideoLoader", () => {
     test("formats video transcription output as transcript markdown", async () => {
-        let capturedOptions: Parameters<TranscriptionModelV3["doGenerate"]>[0] | undefined;
-        const model = new MockTranscriptionModelV3({
+        let capturedOptions: Parameters<TranscriptionModelV4["doGenerate"]>[0] | undefined;
+        const model = new MockTranscriptionModelV4({
             doGenerate: async (options) => {
                 capturedOptions = options;
 
@@ -41,8 +41,8 @@ describe("VideoLoader", () => {
     });
 
     test("defaults unknown video MIME types to video/mp4", async () => {
-        let capturedOptions: Parameters<TranscriptionModelV3["doGenerate"]>[0] | undefined;
-        const model = new MockTranscriptionModelV3({
+        let capturedOptions: Parameters<TranscriptionModelV4["doGenerate"]>[0] | undefined;
+        const model = new MockTranscriptionModelV4({
             doGenerate: async (options) => {
                 capturedOptions = options;
 
@@ -68,7 +68,7 @@ describe("VideoLoader", () => {
 
         let active = 0;
         let maxActive = 0;
-        const model = new MockTranscriptionModelV3({
+        const model = new MockTranscriptionModelV4({
             doGenerate: async () => {
                 active += 1;
                 maxActive = Math.max(maxActive, active);
@@ -103,7 +103,7 @@ describe("VideoLoader", () => {
     });
 
     test("rejects empty transcription output", async () => {
-        const model = new MockTranscriptionModelV3({
+        const model = new MockTranscriptionModelV4({
             doGenerate: async () =>
                 buildTranscriptionResult({
                     text: "   ",
@@ -121,8 +121,8 @@ describe("VideoLoader", () => {
 });
 
 function buildTranscriptionResult(
-    options: Partial<Awaited<ReturnType<TranscriptionModelV3["doGenerate"]>>>
-): Awaited<ReturnType<TranscriptionModelV3["doGenerate"]>> {
+    options: Partial<Awaited<ReturnType<TranscriptionModelV4["doGenerate"]>>>
+): Awaited<ReturnType<TranscriptionModelV4["doGenerate"]>> {
     return {
         text: options.text ?? "",
         segments: options.segments ?? [],
