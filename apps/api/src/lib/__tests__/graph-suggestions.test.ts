@@ -48,8 +48,8 @@ mock.module("../../env", () => ({
     },
 }));
 
-mock.module("../../openworkflow", () => ({
-    ow: {
+mock.module("../../workflow", () => ({
+    wo: {
         runWorkflow: async () => ({ workflowRun: { id: "workflow-1" } }),
     },
 }));

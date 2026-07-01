@@ -16,7 +16,7 @@ describe("estimateProcessRunEta", () => {
         });
     });
 
-    test("spreads queued file work across worker concurrency slots", () => {
+    test("sums queued file work for the single-job worker", () => {
         expect(
             estimateProcessRunEta({
                 status: "pending",
@@ -28,11 +28,10 @@ describe("estimateProcessRunEta", () => {
                 ],
                 bucketAverages: new Map(),
                 typeAverages: new Map(),
-                workerConcurrency: 2,
             })
         ).toEqual({
-            process_estimated_duration: 76667,
-            process_time_remaining: 76667,
+            process_estimated_duration: 153334,
+            process_time_remaining: 153334,
         });
     });
 
@@ -45,7 +44,6 @@ describe("estimateProcessRunEta", () => {
                 files: [{ type: "text", size: 500_000, state: "active" }],
                 bucketAverages: new Map(),
                 typeAverages: new Map(),
-                workerConcurrency: 4,
             })
         ).toEqual({
             process_estimated_duration: 38334,

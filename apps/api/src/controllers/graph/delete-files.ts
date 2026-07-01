@@ -9,7 +9,7 @@ import { API_ERROR_CODES, internalServerError, makeApiError, noChangesError } fr
 import { assertCanManageGraphFiles, selectGraphFields } from "../../lib/graph/access";
 import { cancelActiveFileProcessingWorkflowRuns } from "../../lib/workflow-cancellation";
 import type { AuthUser } from "../../middleware/auth";
-import { ow } from "../../openworkflow";
+import { wo } from "../../workflow";
 import { toApiError } from "../_shared/api-effect";
 
 function normalizeFileKeys(fileKeys: GraphDeleteFilesFields["fileKeys"]) {
@@ -79,7 +79,7 @@ export function deleteGraphFiles(input: { user: AuthUser; graphId: string; body:
                     Effect.catchDefect(
                         Effect.gen(function* () {
                             const handle = yield* Effect.tryPromise({
-                                try: () => ow.runWorkflow(deleteGraphFilesSpec, { graphId: existingGraph.id, fileIds }),
+                                try: () => wo.runWorkflow(deleteGraphFilesSpec, { graphId: existingGraph.id, fileIds }),
                                 catch: (error) => error,
                             });
                             yield* Effect.matchEffect(

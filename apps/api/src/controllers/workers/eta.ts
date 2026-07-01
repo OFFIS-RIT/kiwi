@@ -9,7 +9,6 @@ import {
     processStatsTable,
 } from "@kiwi/db/tables/graph";
 import * as Effect from "effect/Effect";
-import { env } from "../../env";
 import { assertCanViewGraph } from "../../lib/graph/access";
 import { findProcessDescriptionProgress } from "../../lib/workflow-progress";
 import {
@@ -168,7 +167,6 @@ export const getGraphWorkerEta = Effect.fn("getGraphWorkerEta")(function* (input
         typeAverages,
         globalAverage,
         descriptionProgress: descriptionProgressByRunId.get(run.id),
-        workerConcurrency: env.WORKER_CONCURRENCY,
     });
 
     return {

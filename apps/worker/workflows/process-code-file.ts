@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import { withWorkerDb, withWorkerDbVoid } from "../lib/runtime/effect";
 import { filesTable, processStatsTable } from "@kiwi/db/tables/graph";
 import { and, eq } from "@kiwi/db/drizzle";
-import { defineWorkflow } from "openworkflow";
+import { defineWorkflow } from "@kiwi/workflow";
 import { estimateToken } from "@kiwi/ai";
 import type { Graph } from "@kiwi/graph";
 import type { CodeRepositoryFile } from "@kiwi/graph/code/repository";

@@ -90,8 +90,8 @@ mock.module("../../lib/connectors", () => ({
     decryptSecret: () => "secret",
 }));
 
-mock.module("../../openworkflow", () => ({
-    ow: {
+mock.module("../../workflow", () => ({
+    wo: {
         runWorkflow: async (_spec: unknown, input: Record<string, unknown>) => {
             workflowInputs.push(input);
             if (workflowFailureIndex === workflowInputs.length) {

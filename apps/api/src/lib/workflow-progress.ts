@@ -4,7 +4,7 @@ import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { sql } from "@kiwi/db/drizzle";
 import type { DeleteProgress, StepProgress } from "./process-progress";
 
-const OPENWORKFLOW_NAMESPACE_ID = "default";
+const WORKFLOW_NAMESPACE_ID = "default";
 const ACTIVE_WORKFLOW_RUN_STATUSES = ["pending", "running", "sleeping"] as const;
 
 type DeleteWorkflowRun = {
@@ -79,8 +79,8 @@ export const findActiveDeleteGraphFilesProgress: (
                        "input"->>'graphId' AS "graphId",
                        "status" AS "status",
                        COALESCE("input"->'fileIds', '[]'::jsonb) AS "fileIds"
-                FROM openworkflow.workflow_runs
-                WHERE "namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
+                FROM workflow_runs
+                WHERE "namespace_id" = ${WORKFLOW_NAMESPACE_ID}
                   AND "workflow_name" = 'delete-graph-files'
                   AND "status" = ANY(${textArray(ACTIVE_WORKFLOW_RUN_STATUSES)})
                   AND "input"->>'graphId' = ANY(${textArray(graphIds)})
@@ -104,21 +104,21 @@ export const findActiveDeleteGraphFilesProgress: (
                                              OR cleanup_step."id" IS NOT NULL
                                          )
                                    )::int AS "completedFileCount"
-                            FROM openworkflow.workflow_runs parent
-                            LEFT JOIN openworkflow.step_attempts delete_step
+                            FROM workflow_runs parent
+                            LEFT JOIN workflow_step_attempts delete_step
                                 ON delete_step."namespace_id" = parent."namespace_id"
                                AND delete_step."workflow_run_id" = parent."id"
                                AND delete_step."kind" = 'workflow'
-                            LEFT JOIN openworkflow.workflow_runs delete_child
+                            LEFT JOIN workflow_runs delete_child
                                 ON delete_child."namespace_id" = delete_step."child_workflow_run_namespace_id"
                                AND delete_child."id" = delete_step."child_workflow_run_id"
                                AND delete_child."workflow_name" = 'delete-file'
-                            LEFT JOIN openworkflow.step_attempts cleanup_step
+                            LEFT JOIN workflow_step_attempts cleanup_step
                                 ON cleanup_step."namespace_id" = delete_child."namespace_id"
                                AND cleanup_step."workflow_run_id" = delete_child."id"
                                AND cleanup_step."step_name" = 'remove-file-graph-data'
                                AND cleanup_step."status" IN ('completed', 'succeeded')
-                            WHERE parent."namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
+                            WHERE parent."namespace_id" = ${WORKFLOW_NAMESPACE_ID}
                               AND parent."id" = ANY(${textArray(runIds)})
                             GROUP BY parent."id"
                         `),
@@ -131,24 +131,24 @@ export const findActiveDeleteGraphFilesProgress: (
                                        WHERE description_child."status" IN ('completed', 'succeeded')
                                    )::int AS "completedDescriptionCount",
                                    COUNT(DISTINCT description_child."id")::int AS "totalDescriptionCount"
-                            FROM openworkflow.workflow_runs parent
-                            INNER JOIN openworkflow.step_attempts delete_step
+                            FROM workflow_runs parent
+                            INNER JOIN workflow_step_attempts delete_step
                                 ON delete_step."namespace_id" = parent."namespace_id"
                                AND delete_step."workflow_run_id" = parent."id"
                                AND delete_step."kind" = 'workflow'
-                            INNER JOIN openworkflow.workflow_runs delete_child
+                            INNER JOIN workflow_runs delete_child
                                 ON delete_child."namespace_id" = delete_step."child_workflow_run_namespace_id"
                                AND delete_child."id" = delete_step."child_workflow_run_id"
                                AND delete_child."workflow_name" = 'delete-file'
-                            INNER JOIN openworkflow.step_attempts description_step
+                            INNER JOIN workflow_step_attempts description_step
                                 ON description_step."namespace_id" = delete_child."namespace_id"
                                AND description_step."workflow_run_id" = delete_child."id"
                                AND description_step."kind" = 'workflow'
-                            INNER JOIN openworkflow.workflow_runs description_child
+                            INNER JOIN workflow_runs description_child
                                 ON description_child."namespace_id" = description_step."child_workflow_run_namespace_id"
                                AND description_child."id" = description_step."child_workflow_run_id"
                                AND description_child."workflow_name" = 'update-descriptions'
-                            WHERE parent."namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
+                            WHERE parent."namespace_id" = ${WORKFLOW_NAMESPACE_ID}
                               AND parent."id" = ANY(${textArray(runIds)})
                             GROUP BY parent."id"
                         `),
@@ -226,14 +226,14 @@ export const findProcessDescriptionProgress: (
                                child."workflow_name" AS "childWorkflowName",
                                child."status" AS "childStatus",
                                child."input" AS "childInput"
-                        FROM openworkflow.workflow_runs parent
-                        INNER JOIN openworkflow.step_attempts step_attempt
+                        FROM workflow_runs parent
+                        INNER JOIN workflow_step_attempts step_attempt
                             ON step_attempt."namespace_id" = parent."namespace_id"
                            AND step_attempt."workflow_run_id" = parent."id"
-                        INNER JOIN openworkflow.workflow_runs child
+                        INNER JOIN workflow_runs child
                             ON child."namespace_id" = step_attempt."child_workflow_run_namespace_id"
                            AND child."id" = step_attempt."child_workflow_run_id"
-                        WHERE parent."namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
+                        WHERE parent."namespace_id" = ${WORKFLOW_NAMESPACE_ID}
                           AND parent."workflow_name" = 'process-files'
                           AND parent."status" = ANY(${textArray(ACTIVE_WORKFLOW_RUN_STATUSES)})
                           AND parent."input"->>'processRunId' = ANY(${textArray(runIds)})
@@ -273,11 +273,11 @@ export const findProcessDescriptionProgress: (
                                    jsonb_array_length(COALESCE(description_child."input"->'relationshipIds', '[]'::jsonb))
                                )::int AS "itemCount"
                         FROM description_groups description_group
-                        INNER JOIN openworkflow.step_attempts description_step
+                        INNER JOIN workflow_step_attempts description_step
                             ON description_step."namespace_id" = description_group."childNamespaceId"
                            AND description_step."workflow_run_id" = description_group."childWorkflowRunId"
                            AND description_step."kind" = 'workflow'
-                        INNER JOIN openworkflow.workflow_runs description_child
+                        INNER JOIN workflow_runs description_child
                             ON description_child."namespace_id" = description_step."child_workflow_run_namespace_id"
                            AND description_child."id" = description_step."child_workflow_run_id"
                            AND description_child."workflow_name" = 'update-descriptions'

@@ -184,8 +184,8 @@ mock.module("../../lib/connectors", () => ({
     verifyConnectorState: () => verifiedState,
 }));
 
-mock.module("../../openworkflow", () => ({
-    ow: {
+mock.module("../../workflow", () => ({
+    wo: {
         runWorkflow: async (_spec: unknown, input: Record<string, unknown>) => {
             workflowInputs.push(input);
             if (workflowError) {

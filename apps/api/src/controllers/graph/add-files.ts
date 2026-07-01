@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from "@kiwi/db/drizzle";
+import { and, eq, isNotNull, sql } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { ulid } from "ulid";
@@ -7,6 +7,8 @@ import { filesTable } from "@kiwi/db/tables/graph";
 import { putGraphFile } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
+import { processCodeFileSpec } from "@kiwi/worker/process-code-file-spec";
+import { processFileSpec } from "@kiwi/worker/process-file-spec";
 import { API_ERROR_CODES, internalServerError, makeApiError } from "@kiwi/contracts/errors";
 import { env } from "../../env";
 import { expandArchiveUploadFiles } from "../../lib/archive-upload";
@@ -21,7 +23,7 @@ import {
     type UploadedFile,
 } from "../../lib/graph/route";
 import type { AuthUser } from "../../middleware/auth";
-import { ow } from "../../openworkflow";
+import { wo } from "../../workflow";
 import { toApiError } from "../_shared/api-effect";
 import { archiveUploadError, getGraphOwnerModelOrganizationId, unsupportedUploadError } from "./upload-helpers";
 
@@ -36,6 +38,39 @@ class ProcessFilesWorkflowEnqueueError extends Schema.TaggedErrorClass<ProcessFi
         cause: Schema.optional(Schema.Unknown),
     }
 ) {}
+
+type ActiveProcessFilesWorkflowRun = {
+    id: string;
+    processRunId: string;
+};
+
+const ACTIVE_WORKFLOW_RUN_STATUSES = ["pending", "running", "sleeping"] as const;
+
+function textList(values: readonly string[]) {
+    return sql.join(
+        values.map((value) => sql`${value}`),
+        sql`, `
+    );
+}
+
+function findActiveProcessFilesWorkflowRun(graphId: string) {
+    return Effect.map(
+        tryDb((db) =>
+            db.execute(sql<ActiveProcessFilesWorkflowRun>`
+                SELECT "id", "input"->>'processRunId' AS "processRunId"
+                FROM workflow_runs
+                WHERE "namespace_id" = 'default'
+                  AND "workflow_name" = 'process-files'
+                  AND "status" IN (${textList(ACTIVE_WORKFLOW_RUN_STATUSES)})
+                  AND "input"->>'graphId' = ${graphId}
+                  AND "input"->>'processRunId' IS NOT NULL
+                ORDER BY "created_at" DESC, "id" DESC
+                LIMIT 1
+            `)
+        ),
+        (rows) => (rows as readonly ActiveProcessFilesWorkflowRun[])[0] ?? null
+    );
+}
 
 export const addGraphFiles = Effect.fn("addGraphFiles")((input: { user: AuthUser; graphId: string; files: File[] }) =>
     Effect.mapError(
@@ -122,20 +157,29 @@ export const addGraphFiles = Effect.fn("addGraphFiles")((input: { user: AuthUser
                 }
             );
 
-            const result = yield* Effect.matchEffect(commitGraphFileUploads({ graph: existingGraph, uploadedFiles }), {
-                onFailure: (dbPatchError) =>
-                    Effect.gen(function* () {
-                        const failedDeletes = yield* cleanupUploadedKeys(uploadedFiles.map((file) => file.key));
-                        logError("graph file add failed during database update", {
-                            graphId: existingGraph.id,
-                            uploadedKeyCount: uploadedFiles.length,
-                            failedS3CleanupCount: failedDeletes,
-                            error: dbPatchError,
-                        });
-                        return yield* Effect.fail(internalServerError());
-                    }),
-                onSuccess: Effect.succeed,
-            });
+            const activeProcessFilesRun = yield* findActiveProcessFilesWorkflowRun(existingGraph.id);
+
+            const result = yield* Effect.matchEffect(
+                commitGraphFileUploads({
+                    graph: existingGraph,
+                    uploadedFiles,
+                    processRunId: activeProcessFilesRun?.processRunId,
+                }),
+                {
+                    onFailure: (dbPatchError) =>
+                        Effect.gen(function* () {
+                            const failedDeletes = yield* cleanupUploadedKeys(uploadedFiles.map((file) => file.key));
+                            logError("graph file add failed during database update", {
+                                graphId: existingGraph.id,
+                                uploadedKeyCount: uploadedFiles.length,
+                                failedS3CleanupCount: failedDeletes,
+                                error: dbPatchError,
+                            });
+                            return yield* Effect.fail(internalServerError());
+                        }),
+                    onSuccess: Effect.succeed,
+                }
+            );
 
             if (result.addedFiles.length === 0) {
                 return { graph: result.graph, addedFiles: result.addedFiles, workflowRunId: null };
@@ -147,9 +191,33 @@ export const addGraphFiles = Effect.fn("addGraphFiles")((input: { user: AuthUser
                         return yield* Effect.fail(new ProcessRunCreationError({ message: "Missing process run id" }));
                     }
 
+                    if (activeProcessFilesRun && activeProcessFilesRun.processRunId === result.processRunId) {
+                        yield* Effect.tryPromise({
+                            try: () =>
+                                Promise.all(
+                                    result.addedFiles.map((file) => {
+                                        const spec = file.type === "code" ? processCodeFileSpec : processFileSpec;
+                                        return wo.addChildWorkflowRun(
+                                            activeProcessFilesRun.id,
+                                            `${spec.name}:${file.id}`,
+                                            spec,
+                                            { graphId: existingGraph.id, fileId: file.id }
+                                        );
+                                    })
+                                ),
+                            catch: (cause) =>
+                                new ProcessFilesWorkflowEnqueueError({
+                                    message: "Failed to add files to active process workflow",
+                                    cause,
+                                }),
+                        });
+
+                        return { graph: result.graph, addedFiles: result.addedFiles, workflowRunId: activeProcessFilesRun.id };
+                    }
+
                     const handle = yield* Effect.tryPromise({
                         try: () =>
-                            ow.runWorkflow(processFilesSpec, {
+                            wo.runWorkflow(processFilesSpec, {
                                 graphId: existingGraph.id,
                                 fileIds: result.addedFiles.map((file) => file.id),
                                 processRunId: result.processRunId!,

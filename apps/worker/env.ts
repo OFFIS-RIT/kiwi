@@ -13,15 +13,9 @@ export const env = createEnv({
 
         // DB
         DATABASE_URL: z.string(),
-        DATABASE_DIRECT_URL: z.string(),
-        OPENWORKFLOW_DB_POOL_MAX: z.coerce.number().int().positive().default(2),
-        OPENWORKFLOW_RUN_MIGRATIONS: z
-            .enum(["true", "false"])
-            .default("true")
-            .transform((value) => value === "true"),
+
 
         // Settings
-        WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
         AI_TEXT_CONCURRENCY: z.coerce.number().int().positive().default(64),
         AI_IMAGE_CONCURRENCY: z.coerce.number().int().positive().default(64),
         AI_EMBEDDING_CONCURRENCY: z.coerce.number().int().positive().default(64),

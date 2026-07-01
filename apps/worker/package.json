@@ -9,8 +9,7 @@
         "build": "bunx tsc --noEmit",
         "test": "bun test --isolate",
         "worker": "bun worker.ts",
-        "dev": "KIWI_WORKER_WATCH_PARENT=1 bun worker.ts",
-        "dashboard": "bunx @openworkflow/cli dashboard --port 4000"
+        "dev": "bun dev-worker.ts"
     },
     "dependencies": {
         "@kiwi/ai": "workspace:*",
@@ -22,16 +21,11 @@
         "@kiwi/loaders": "workspace:*",
         "@kiwi/logger": "workspace:*",
         "@kiwi/sync": "workspace:*",
-        "@openworkflow/cli": "^0.4.4",
+        "@kiwi/workflow": "workspace:*",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "effect": "catalog:",
-        "openworkflow": "catalog:",
-        "postgres": "catalog:",
         "zod": "catalog:"
-    },
-    "devDependencies": {
-        "@openworkflow/dashboard": "^0.1.9"
     },
     "peerDependencies": {
         "typescript": "catalog:"

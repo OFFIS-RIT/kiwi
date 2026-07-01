@@ -1,10 +1,10 @@
-import { defineWorkflowSpec } from "openworkflow";
+import { defineWorkflowSpec } from "@kiwi/workflow";
 import z from "zod";
 
 /**
  * Maximum number of update-descriptions sub-workflow calls per group.
  * Keep this low enough that the group workflow itself stays well under
- * the OpenWorkflow step limit (1000), while ensuring the number of groups
+ * the WorkflowClient step limit (1000), while ensuring the number of groups
  * spawned by process-files also stays bounded.
  */
 export const DESCRIPTION_BATCHES_PER_GROUP = 50;

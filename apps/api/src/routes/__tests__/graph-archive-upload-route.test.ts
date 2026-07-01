@@ -247,8 +247,8 @@ mock.module("@kiwi/files", () => ({
     },
 }));
 
-mock.module("../../openworkflow", () => ({
-    ow: {
+mock.module("../../workflow", () => ({
+    wo: {
         runWorkflow: async (_spec: unknown, input: { graphId: string; fileIds: string[]; processRunId: string }) => {
             workflowInputs.push(input);
             return { workflowRun: { id: "workflow-1" } };

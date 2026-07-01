@@ -11,7 +11,7 @@ import { putGraphFile, type FileStorage } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { updateDescriptionsSpec } from "@kiwi/worker/update-descriptions-spec";
 import { env } from "../env";
-import { ow } from "../openworkflow";
+import { wo } from "../workflow";
 import { API_ERROR_CODES } from "../types";
 import { cleanupUploadedKeys } from "./graph/route";
 import type { AuthUser } from "../middleware/auth";
@@ -279,7 +279,7 @@ function enqueueDescriptionUpdate(
 
     return Effect.map(
         tryUnknownPromise(() =>
-            ow.runWorkflow(updateDescriptionsSpec, {
+            wo.runWorkflow(updateDescriptionsSpec, {
                 graphId,
                 entityIds,
                 relationshipIds,

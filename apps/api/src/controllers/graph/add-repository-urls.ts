@@ -24,7 +24,7 @@ import {
     type UploadedFile,
 } from "../../lib/graph/route";
 import type { AuthUser } from "../../middleware/auth";
-import { ow } from "../../openworkflow";
+import { wo } from "../../workflow";
 import { toApiError } from "../_shared/api-effect";
 import { getGraphOwnerModelOrganizationId } from "./upload-helpers";
 
@@ -264,7 +264,7 @@ export const addGraphRepositoryUrls = Effect.fn("addGraphRepositoryUrls")(
 
                         const handle = yield* Effect.tryPromise({
                             try: () =>
-                                ow.runWorkflow(processFilesSpec, {
+                                wo.runWorkflow(processFilesSpec, {
                                     graphId: existingGraph.id,
                                     fileIds: result.addedFiles.map((file) => file.id),
                                     processRunId: result.processRunId!,

@@ -47,8 +47,8 @@ import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "
 import type { ProcessRunStatus } from "@kiwi/db/tables/graph";
 import { serializeCodeFileMetadata } from "@kiwi/graph/code/metadata";
 import { and, eq, inArray } from "@kiwi/db/drizzle";
-import { defineWorkflow } from "openworkflow";
-import type { Workflow } from "openworkflow";
+import { defineWorkflow } from "@kiwi/workflow";
+import type { Workflow } from "@kiwi/workflow";
 import { parseCodeFileMetadata } from "../lib/code/metadata";
 import { env } from "../env";
 import { deleteFileSpec } from "./delete-file-spec";

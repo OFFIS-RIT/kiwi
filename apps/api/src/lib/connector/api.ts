@@ -29,7 +29,7 @@ import {
 import { listProviderBranches, listProviderChildren, listProviderResources } from "../connectors";
 import { requireOrganizationAdmin, requireTeamGraphCreateAccess } from "../team/access";
 import type { AuthUser } from "../../middleware/auth";
-import { ow } from "../../openworkflow";
+import { wo } from "../../workflow";
 
 function connectorEffectError(error: unknown): ApiError | DatabaseError {
     if (error instanceof DatabaseError) {
@@ -508,7 +508,7 @@ export function enqueueInitialBindingSync(input: {
         return yield* Effect.matchEffect(
             Effect.tryPromise({
                 try: async () => {
-                    const handle = await ow.runWorkflow(syncConnectorResourceGraphSpec, {
+                    const handle = await wo.runWorkflow(syncConnectorResourceGraphSpec, {
                         bindingId: input.bindingId,
                         reason: "initial",
                         ...(input.versionId ? { versionId: input.versionId } : {}),
@@ -556,7 +556,7 @@ export function enqueueManualBindingSync(binding: ConnectorResourceBinding): Eff
         const workflowRunId = yield* Effect.matchEffect(
             Effect.tryPromise({
                 try: async () => {
-                    const handle = await ow.runWorkflow(syncConnectorResourceGraphSpec, {
+                    const handle = await wo.runWorkflow(syncConnectorResourceGraphSpec, {
                         bindingId: binding.id,
                         reason: "manual",
                     });

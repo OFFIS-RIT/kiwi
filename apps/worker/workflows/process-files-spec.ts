@@ -1,4 +1,4 @@
-import { defineWorkflowSpec } from "openworkflow";
+import { defineWorkflowSpec } from "@kiwi/workflow";
 import z from "zod";
 
 export const processFilesSpec = defineWorkflowSpec({

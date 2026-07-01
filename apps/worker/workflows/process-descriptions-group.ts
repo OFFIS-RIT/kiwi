@@ -1,4 +1,4 @@
-import { defineWorkflow } from "openworkflow";
+import { defineWorkflow } from "@kiwi/workflow";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { processDescriptionsGroupsSpec } from "./process-descriptions-group-spec";
 import { chunkItems } from "../lib/collections/chunk";

@@ -10,13 +10,13 @@ BEGIN
     WHERE status IN ('completed', 'failed')
       AND COALESCE(completed_at, updated_at, created_at) < NOW() - INTERVAL '1 week';
 
-    IF to_regclass('openworkflow.workflow_runs') IS NOT NULL THEN
-        IF to_regclass('openworkflow.step_attempts') IS NOT NULL
-           AND to_regclass('openworkflow.workflow_signals') IS NOT NULL THEN
-            DELETE FROM openworkflow.workflow_signals signal
+    IF to_regclass('public.workflow_runs') IS NOT NULL THEN
+        IF to_regclass('public.workflow_step_attempts') IS NOT NULL
+           AND to_regclass('public.workflow_signals') IS NOT NULL THEN
+            DELETE FROM public.workflow_signals signal
             WHERE EXISTS (
                     SELECT 1
-                    FROM openworkflow.workflow_runs run
+                    FROM public.workflow_runs run
                     WHERE run.namespace_id = signal.namespace_id
                       AND run.id = signal.workflow_run_id
                       AND run.status IN ('completed', 'succeeded', 'failed', 'canceled')
@@ -24,8 +24,8 @@ BEGIN
                 )
                OR EXISTS (
                     SELECT 1
-                    FROM openworkflow.step_attempts attempt
-                    INNER JOIN openworkflow.workflow_runs run
+                    FROM public.workflow_step_attempts attempt
+                    INNER JOIN public.workflow_runs run
                         ON run.namespace_id = attempt.namespace_id
                        AND run.id = attempt.workflow_run_id
                     WHERE attempt.namespace_id = signal.namespace_id
@@ -35,7 +35,7 @@ BEGIN
                 );
         END IF;
 
-        DELETE FROM openworkflow.workflow_runs
+        DELETE FROM public.workflow_runs
         WHERE status IN ('completed', 'succeeded', 'failed', 'canceled')
           AND COALESCE(finished_at, updated_at, created_at) < NOW() - INTERVAL '1 week';
     END IF;

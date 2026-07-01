@@ -26,14 +26,14 @@ COPY packages/db/package.json packages/db/package.json
 COPY packages/files/package.json packages/files/package.json
 COPY packages/graph/package.json packages/graph/package.json
 COPY packages/logger/package.json packages/logger/package.json
+COPY packages/workflow/package.json packages/workflow/package.json
 
 RUN CXXFLAGS="-std=c++20" bun install --frozen-lockfile
 
 COPY apps/worker/index.ts apps/worker/index.ts
 COPY apps/worker/env.ts apps/worker/env.ts
 COPY apps/worker/worker.ts apps/worker/worker.ts
-COPY apps/worker/openworkflow.config.ts apps/worker/openworkflow.config.ts
-COPY apps/worker/openworkflow-migrate.ts apps/worker/openworkflow-migrate.ts
+
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.json
 COPY apps/worker/lib apps/worker/lib
 COPY apps/worker/workflows apps/worker/workflows
@@ -51,6 +51,8 @@ COPY packages/graph/src packages/graph/src
 COPY packages/graph/tsconfig.json packages/graph/tsconfig.json
 COPY packages/logger/src packages/logger/src
 COPY packages/logger/tsconfig.json packages/logger/tsconfig.json
+COPY packages/workflow/src packages/workflow/src
+COPY packages/workflow/tsconfig.json packages/workflow/tsconfig.json
 
 WORKDIR /app/apps/worker
 

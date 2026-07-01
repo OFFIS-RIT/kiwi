@@ -14,18 +14,12 @@ export const env = createEnv({
         AUTH_CROSS_SUBDOMAIN_COOKIES: z.string().optional(),
         AUTH_COOKIE_DOMAIN: z.string().optional(),
 
-        DATABASE_DIRECT_URL: z.string(),
-        OPENWORKFLOW_DB_POOL_MAX: z.coerce.number().int().positive().default(2),
-        OPENWORKFLOW_RUN_MIGRATIONS: z
-            .enum(["true", "false"])
-            .default("true")
-            .transform((value) => value === "true"),
+        DATABASE_URL: z.string(),
         S3_ACCESS_KEY_ID: z.string(),
         S3_SECRET_ACCESS_KEY: z.string(),
         S3_ENDPOINT: z.url(),
         S3_REGION: z.string(),
         S3_BUCKET: z.string(),
-        WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
     },
     runtimeEnv: process.env,
 });

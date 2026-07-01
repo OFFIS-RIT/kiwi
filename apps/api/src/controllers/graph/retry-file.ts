@@ -8,7 +8,7 @@ import { processFilesSpec } from "@kiwi/worker/process-files-spec";
 import { API_ERROR_CODES, internalServerError, makeApiError } from "@kiwi/contracts/errors";
 import { assertCanManageGraphFiles, selectGraphFields } from "../../lib/graph/access";
 import type { AuthUser } from "../../middleware/auth";
-import { ow } from "../../openworkflow";
+import { wo } from "../../workflow";
 import { toApiError } from "../_shared/api-effect";
 
 class ProcessRunCreationError extends Schema.TaggedErrorClass<ProcessRunCreationError>()("ProcessRunCreationError", {
@@ -107,7 +107,7 @@ export const retryGraphFile = Effect.fn("retryGraphFile")(
                     Effect.gen(function* () {
                         const handle = yield* Effect.tryPromise({
                             try: () =>
-                                ow.runWorkflow(processFilesSpec, {
+                                wo.runWorkflow(processFilesSpec, {
                                     graphId: existingGraph.id,
                                     fileIds: [file.id],
                                     processRunId: retry.runId,

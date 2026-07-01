@@ -14,7 +14,6 @@
         "tree-sitter:repair": "bun scripts/repair-tree-sitter-bindings.ts",
         "tree-sitter:rebuild": "bun scripts/repair-tree-sitter-bindings.ts --rebuild",
         "postinstall": "bun run tree-sitter:rebuild",
-        "worker:dash": "dotenv -- bun run --filter @kiwi/worker dashboard",
         "db:generate": "dotenv -- drizzle-kit generate",
         "db:migrate": "dotenv -- drizzle-kit migrate",
         "db:studio": "dotenv -- drizzle-kit studio"
@@ -44,8 +43,6 @@
         "pg": "^8.22.0",
         "@types/pg": "^8.18.0",
         "@t3-oss/env-core": "^0.13.11",
-        "openworkflow": "^0.9.0",
-        "postgres": "^3.4.9",
         "@types/bun": "1.3.14",
         "typescript": "^6.0.3",
         "better-auth": "1.6.19",
@@ -68,9 +65,6 @@
         "@ai-sdk/react": "^4.0.4",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "ai": "^7.0.3"
-    },
-    "patchedDependencies": {
-        "openworkflow@0.9.0": "patches/openworkflow@0.9.0.patch"
     },
     "trustedDependencies": [
         "@tree-sitter-grammars/tree-sitter-zig",

@@ -1,0 +1,25 @@
+{
+    "name": "@kiwi/workflow",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./worker": "./src/worker.ts",
+        "./backend": "./src/backend.ts"
+    },
+    "scripts": {
+        "build": "bunx tsc --noEmit",
+        "test": "bun test --pass-with-no-tests --isolate"
+    },
+    "dependencies": {
+        "@kiwi/db": "workspace:*",
+        "effect": "catalog:",
+        "ulid": "^3.0.2"
+    },
+    "devDependencies": {
+        "@types/bun": "catalog:"
+    },
+    "peerDependencies": {
+        "typescript": "catalog:"
+    }
+}

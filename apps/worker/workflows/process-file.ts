@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import { withWorkerDb, withWorkerDbVoid } from "../lib/runtime/effect";
 import { filesTable, graphTable, processRunsTable, processStatsTable } from "@kiwi/db/tables/graph";
 import { and, eq, inArray, sql } from "@kiwi/db/drizzle";
-import { defineWorkflow } from "openworkflow";
+import { defineWorkflow } from "@kiwi/workflow";
 import { S3Loader } from "@kiwi/loaders/loader/s3";
 import { createGraphChunker } from "@kiwi/loaders/chunker/factory";
 import { env } from "../env";
@@ -219,7 +219,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
         );
 
         // Two-level fan-out: spawn groups of description batches to avoid exceeding
-        // the OpenWorkflow step limit (1000) on large projects with many entities/relationships.
+        // the WorkflowClient step limit (1000) on large projects with many entities/relationships.
         // Each group spawns update-descriptions sub-workflows internally, so the parent workflow
         // only counts one step per group instead of one step per batch.
         const totalEntityBatches = chunkItems(descriptions.entityIds, DESCRIPTION_BATCH_SIZE).length;

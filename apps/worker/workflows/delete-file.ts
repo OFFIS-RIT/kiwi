@@ -3,7 +3,7 @@ import { withWorkerDb } from "../lib/runtime/effect";
 import { entityTable, filesTable, relationshipTable, sourcesTable, textUnitTable } from "@kiwi/db/tables/graph";
 import { deleteFile as deleteStoredFile } from "@kiwi/files";
 import { and, eq, inArray, isNotNull, sql } from "@kiwi/db/drizzle";
-import { defineWorkflow } from "openworkflow";
+import { defineWorkflow } from "@kiwi/workflow";
 import { env } from "../env";
 import { chunkItems } from "../lib/collections/chunk";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/descriptions/workflow";

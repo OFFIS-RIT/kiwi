@@ -33,7 +33,6 @@ export type WorkerEtaProcessRunInput = WorkerEtaHistory & {
     startedAt?: Date | string | null;
     files: readonly WorkerEtaFile[];
     descriptionProgress?: WorkerEtaProgress;
-    workerConcurrency?: number;
     now?: Date;
 };
 
@@ -157,23 +156,8 @@ function toDate(value: Date | string | null | undefined): Date | undefined {
     return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-function estimateParallelDuration(durations: number[], workerConcurrency: number): number {
-    if (durations.length === 0) {
-        return 0;
-    }
-
-    const slots = Array.from({ length: Math.min(durations.length, workerConcurrency) }, () => 0);
-    for (const duration of [...durations].sort((a, b) => b - a)) {
-        let targetIndex = 0;
-        for (let index = 1; index < slots.length; index++) {
-            if (slots[index]! < slots[targetIndex]!) {
-                targetIndex = index;
-            }
-        }
-        slots[targetIndex] += duration;
-    }
-
-    return Math.max(...slots);
+function estimateSerialDuration(durations: number[]): number {
+    return durations.reduce((sum, duration) => sum + duration, 0);
 }
 
 export function estimateProcessRunEta(input: WorkerEtaProcessRunInput): WorkerEtaEstimate | undefined {
@@ -181,10 +165,6 @@ export function estimateProcessRunEta(input: WorkerEtaProcessRunInput): WorkerEt
         return undefined;
     }
 
-    const workerConcurrency =
-        Number.isFinite(input.workerConcurrency) && input.workerConcurrency && input.workerConcurrency > 0
-            ? Math.floor(input.workerConcurrency)
-            : 1;
     const fileDurations: number[] = [];
     const waitingDurations: number[] = [];
     const activeDurations: number[] = [];
@@ -212,13 +192,9 @@ export function estimateProcessRunEta(input: WorkerEtaProcessRunInput): WorkerEt
     const activeRemainingDurations = activeDurations.map((duration) =>
         Math.max(duration * MIN_ACTIVE_REMAINING_RATIO, duration - elapsed)
     );
-    const fileDuration = estimateParallelDuration(fileDurations, workerConcurrency);
-    const fileTimeRemaining = estimateParallelDuration(
-        [...waitingDurations, ...activeRemainingDurations],
-        workerConcurrency
-    );
-    const descriptionParallelism = Math.min(workerConcurrency, input.descriptionProgress?.total ?? input.files.length);
-    const descriptionDuration = (totalFileDuration * DESCRIPTION_TO_FILE_RATIO) / Math.max(1, descriptionParallelism);
+    const fileDuration = estimateSerialDuration(fileDurations);
+    const fileTimeRemaining = estimateSerialDuration([...waitingDurations, ...activeRemainingDurations]);
+    const descriptionDuration = totalFileDuration * DESCRIPTION_TO_FILE_RATIO;
     const descriptionRemaining = descriptionDuration * (1 - progressRatio(input.descriptionProgress));
     const totalDuration = fileDuration + descriptionDuration;
     const timeRemaining = fileTimeRemaining + descriptionRemaining;

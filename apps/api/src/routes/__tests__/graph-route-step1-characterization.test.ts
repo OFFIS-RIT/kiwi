@@ -360,8 +360,8 @@ mock.module("../../middleware/permissions", () => ({
     requirePermissions: () => () => undefined,
 }));
 
-mock.module("../../openworkflow", () => ({
-    ow: {
+mock.module("../../workflow", () => ({
+    wo: {
         runWorkflow: async (spec: { name: string }) => {
             operationLog.push(`workflow-enqueued:${spec.name}`);
             return {

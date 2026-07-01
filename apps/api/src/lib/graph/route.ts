@@ -294,6 +294,7 @@ export function commitGraphFileUploads(options: {
     graph: GraphRecord;
     uploadedFiles: UploadedFile[];
     supersedeRepositoryUrls?: string[];
+    processRunId?: string;
 }): Effect.Effect<GraphFileUploadCommit, unknown, Database | FileStorage> {
     return Effect.gen(function* () {
         const result = yield* tryDb((db) =>
@@ -362,13 +363,18 @@ export function commitGraphFileUploads(options: {
                         .where(eq(graphTable.id, options.graph.id))
                         .returning(selectGraphFields);
 
-                    const [processRun] = yield* tx
-                        .insert(processRunsTable)
-                        .values({
-                            graphId: options.graph.id,
-                            status: "pending",
-                        })
-                        .returning({ id: processRunsTable.id });
+                    const processRun =
+                        options.processRunId !== undefined
+                            ? { id: options.processRunId }
+                            : (
+                                  yield* tx
+                                      .insert(processRunsTable)
+                                      .values({
+                                          graphId: options.graph.id,
+                                          status: "pending",
+                                      })
+                                      .returning({ id: processRunsTable.id })
+                              )[0];
                     if (!processRun) {
                         return yield* Effect.fail(new Error("Failed to create process run"));
                     }
@@ -676,7 +682,6 @@ export function mapGraphListItemsWithProcessing(
                     typeAverages,
                     globalAverage,
                     descriptionProgress,
-                    workerConcurrency: env.WORKER_CONCURRENCY,
                 });
 
                 items.push(

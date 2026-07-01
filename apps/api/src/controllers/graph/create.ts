@@ -26,7 +26,7 @@ import {
     type UploadedFile,
 } from "../../lib/graph/route";
 import type { AuthUser } from "../../middleware/auth";
-import { ow } from "../../openworkflow";
+import { wo } from "../../workflow";
 import { toApiError } from "../_shared/api-effect";
 import {
     archiveUploadError,
@@ -264,7 +264,7 @@ export const createGraph = Effect.fn("createGraph")(
 
                         const handle = yield* Effect.tryPromise({
                             try: () =>
-                                ow.runWorkflow(processFilesSpec, {
+                                wo.runWorkflow(processFilesSpec, {
                                     graphId: graph.id,
                                     fileIds: createdFiles.map((file) => file.id),
                                     processRunId: processRun.id,

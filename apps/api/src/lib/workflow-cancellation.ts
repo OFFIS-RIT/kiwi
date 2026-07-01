@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 import { tryDb, type Database, type DatabaseError } from "@kiwi/db/effect";
 import { error as logError } from "@kiwi/logger";
 import { sql } from "@kiwi/db/drizzle";
-import { ow } from "../openworkflow";
+import { wo } from "../workflow";
 
 type WorkflowRunIdRow = {
     id: string;
@@ -29,7 +29,7 @@ class WorkflowCancellationError extends Schema.TaggedErrorClass<WorkflowCancella
     }
 ) {}
 
-const OPENWORKFLOW_NAMESPACE_ID = "default";
+const WORKFLOW_NAMESPACE_ID = "default";
 const ACTIVE_WORKFLOW_STATUSES = ["pending", "running", "sleeping"] as const;
 const MAX_CANCELLATION_PASSES = 5;
 
@@ -69,8 +69,8 @@ function findActiveWorkflowRunIds(context: CancellationContext): Effect.Effect<s
         tryDb((db) =>
             db.execute(sql<WorkflowRunIdRow>`
                 SELECT "id"
-                FROM openworkflow.workflow_runs
-                WHERE "namespace_id" = ${OPENWORKFLOW_NAMESPACE_ID}
+                FROM workflow_runs
+                WHERE "namespace_id" = ${WORKFLOW_NAMESPACE_ID}
                   AND "status" IN (${textList(ACTIVE_WORKFLOW_STATUSES)})
                   AND "input"->>'graphId' IN (${textList(context.graphIds)})
                   ${fileFilter}
@@ -94,7 +94,7 @@ function cancelWorkflowRunIds(
         for (const workflowRunId of workflowRunIds) {
             const status = yield* Effect.match(
                 Effect.tryPromise({
-                    try: () => ow.cancelWorkflowRun(workflowRunId),
+                    try: () => wo.cancelWorkflowRun(workflowRunId),
                     catch: (cause) =>
                         new WorkflowCancellationError({
                             message: cause instanceof Error ? cause.message : "Failed to cancel workflow run",

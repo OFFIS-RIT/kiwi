@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 mock.module("../../env", () => ({
     env: {
         AUTH_SECRET: "test-project-file-access-token-secret",
-        DATABASE_DIRECT_URL: "postgres://test:test@localhost:5432/test",
+        DATABASE_URL: "postgres://test:test@localhost:5432/test",
         S3_ACCESS_KEY_ID: "test",
         S3_SECRET_ACCESS_KEY: "test",
         S3_ENDPOINT: "http://localhost:9000",

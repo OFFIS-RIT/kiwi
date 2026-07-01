@@ -8,7 +8,7 @@ import {
 } from "@kiwi/db/tables/connectors";
 import { syncConnectorResourceGraphSpec } from "@kiwi/worker/sync-connector-resource-graph-spec";
 import { and, eq, or } from "@kiwi/db/drizzle";
-import { ow } from "../../../openworkflow";
+import { wo } from "../../../workflow";
 import { toApiError } from "../../_shared/api-effect";
 import type { ConnectorWebhookCandidate, NormalizedConnectorWebhook } from "./request";
 
@@ -66,7 +66,7 @@ function enqueueBindingWorkflows(
             Effect.tryPromise({
                 try: async () => {
                     for (const binding of bindings) {
-                        await ow.runWorkflow(syncConnectorResourceGraphSpec, {
+                        await wo.runWorkflow(syncConnectorResourceGraphSpec, {
                             bindingId: binding.id,
                             reason: "webhook",
                             ...(trigger.versionId ? { versionId: trigger.versionId } : {}),

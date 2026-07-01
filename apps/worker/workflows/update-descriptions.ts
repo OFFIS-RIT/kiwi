@@ -1,5 +1,5 @@
 import { runWorkerEffect } from "../lib/runtime/effect";
-import { defineWorkflow } from "openworkflow";
+import { defineWorkflow } from "@kiwi/workflow";
 import { regenerateEntities, regenerateRelationships } from "../lib/descriptions/regenerate";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
 
