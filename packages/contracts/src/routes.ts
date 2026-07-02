@@ -301,6 +301,27 @@ export type ModelPatchInput = {
     credentials?: ModelCredentialsPatchInput;
 };
 
+export const MODEL_TEST_FAILURE_REASON_VALUES = ["auth", "not_found", "unreachable", "unknown"] as const;
+export type ModelTestFailureReason = (typeof MODEL_TEST_FAILURE_REASON_VALUES)[number];
+
+export type ModelTestResult = { ok: true } | { ok: false; reason: ModelTestFailureReason; message: string };
+
+// Like ModelCredentialsPatchInput, the API key is optional: when omitted the
+// backend reuses the stored key of the model referenced by model_id.
+export type ModelTestCredentialsInput = {
+    apiKey?: string;
+    url?: string;
+    resourceName?: string;
+};
+
+export type ModelTestInput = {
+    model_id?: string;
+    type: AiModelType;
+    adapter: AiModelAdapter;
+    provider_model: string;
+    credentials: ModelTestCredentialsInput;
+};
+
 export type FileTypeConfigRecord = {
     file_type: FileTypeValue;
     loader: string;

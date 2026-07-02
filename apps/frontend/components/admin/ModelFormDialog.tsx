@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ApiError } from "@/lib/api/client";
-import { createModel, updateModel } from "@/lib/api/models";
+import { createModel, testModelConnection, updateModel } from "@/lib/api/models";
 import { useAppTranslations } from "@/lib/i18n/use-app-translations";
 import { useApiClient } from "@/providers/ApiClientProvider";
 import type {
@@ -26,7 +26,7 @@ import type {
     ModelPatchInput,
 } from "@kiwi/contracts";
 import { AI_MODEL_ADAPTER_VALUES } from "@kiwi/contracts";
-import { Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -79,6 +79,8 @@ export function slugifyModelId(value: string): string {
         .replace(/^-+|-+$/g, "");
 }
 
+type ConnectionError = { text: string; detail?: string };
+
 type ModelFormDialogProps = {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -106,6 +108,7 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
     const [resourceName, setResourceName] = useState("");
     const [isDefault, setIsDefault] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [connectionError, setConnectionError] = useState<ConnectionError | null>(null);
 
     useEffect(() => {
         if (!open) {
@@ -118,11 +121,18 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
         setProviderModel(model?.provider_model ?? "");
         setContextWindow(String(model?.context_window ?? DEFAULT_CONTEXT_WINDOW_TOKENS));
         setContextWindowError(null);
+        setConnectionError(null);
         setApiKey("");
         setUrl(model?.url ?? "");
         setResourceName(model?.resource_name ?? "");
         setIsDefault(false);
     }, [open, model, type]);
+
+    // The error only describes the configuration it was tested against, so
+    // any change to the connection fields invalidates it.
+    useEffect(() => {
+        setConnectionError(null);
+    }, [adapter, providerModel, apiKey, url, resourceName]);
 
     const adapterOptions = adapterOptionsForType(type);
     const modelId = modelIdTouched ? modelIdInput : slugifyModelId(displayName);
@@ -155,6 +165,42 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
         (!requireUrl || url.trim().length > 0) &&
         (!requireResourceName || resourceName.trim().length > 0);
 
+    // On edit a save only needs a probe when connection config changed; a
+    // pure rename must not fail because the provider is briefly unreachable.
+    const connectionChanged =
+        !isEdit ||
+        !model ||
+        adapter !== model.adapter ||
+        providerModel.trim() !== model.provider_model ||
+        apiKey.trim().length > 0 ||
+        url.trim() !== (model.url ?? "") ||
+        resourceName.trim() !== (model.resource_name ?? "");
+
+    // Probes the connection with the current form values; on edit a blank API
+    // key means the stored key is used, referenced via model_id.
+    const verifyConnection = async (): Promise<boolean> => {
+        const result = await testModelConnection(apiClient, {
+            type,
+            adapter,
+            provider_model: providerModel.trim(),
+            credentials: {
+                ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+                ...(url.trim() ? { url: url.trim() } : {}),
+                ...(resourceName.trim() ? { resourceName: resourceName.trim() } : {}),
+            },
+            ...(isEdit && model && !apiKey.trim() ? { model_id: model.model_id } : {}),
+        });
+
+        if (!result.ok) {
+            setConnectionError({
+                text: t(`settings.models.test.error.${result.reason}`),
+                detail: result.message,
+            });
+        }
+
+        return result.ok;
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (showContextWindow && contextWindowValue === null) {
@@ -167,8 +213,12 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
             return;
         }
         setContextWindowError(null);
+        setConnectionError(null);
         setLoading(true);
         try {
+            if (connectionChanged && !(await verifyConnection())) {
+                return;
+            }
             if (isEdit && model) {
                 const patch: ModelPatchInput = {};
                 if (displayName.trim() !== model.display_name) {
@@ -373,6 +423,17 @@ export function ModelFormDialog({ open, onOpenChange, type, model, onSaved }: Mo
                         <div className="flex items-center justify-between gap-3">
                             <Label htmlFor="model-is-default">{t("settings.models.field.isDefault")}</Label>
                             <Switch id="model-is-default" checked={isDefault} onCheckedChange={setIsDefault} />
+                        </div>
+                    ) : null}
+                    {connectionError ? (
+                        <div className="space-y-1">
+                            <p className="flex items-center gap-1.5 text-xs text-destructive">
+                                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                                {connectionError.text}
+                            </p>
+                            {connectionError.detail ? (
+                                <p className="text-xs text-muted-foreground break-words">{connectionError.detail}</p>
+                            ) : null}
                         </div>
                     ) : null}
                     <DialogFooter>
