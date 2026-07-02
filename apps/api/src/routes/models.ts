@@ -295,6 +295,10 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
                     const membership = await requireOrganizationAdmin(currentUser);
                     let apiKey = body.credentials.apiKey;
 
+                    // Reusing the stored key with caller-supplied connection
+                    // config grants nothing a PATCH does not already allow
+                    // (kept key + new url); org admins are trusted with the
+                    // credentials of the models they administer.
                     if (!apiKey) {
                         if (!body.model_id) {
                             throw new Error(API_ERROR_CODES.INVALID_MODEL);
