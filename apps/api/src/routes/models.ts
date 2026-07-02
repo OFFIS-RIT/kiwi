@@ -10,6 +10,7 @@ import {
     toPublicModelRecord,
     type ModelCredentials,
 } from "@kiwi/ai/models";
+import { probeModelConfiguration } from "@kiwi/ai/probe";
 import { db } from "@kiwi/db";
 import {
     AI_MODEL_ADAPTER_VALUES,
@@ -61,6 +62,20 @@ const patchCredentialsSchema = z.object({
     resourceName: z.string().trim().optional(),
 });
 
+// The test probe mirrors the create shape, except the API key may be omitted
+// when model_id points at a stored model whose key should be reused.
+const testModelSchema = z.object({
+    model_id: z.string().trim().min(1).optional(),
+    type: modelTypeSchema,
+    adapter: modelAdapterSchema,
+    provider_model: z.string().trim().min(1),
+    credentials: z.object({
+        apiKey: z.string().trim().min(1).optional(),
+        url: z.string().trim().min(1).optional(),
+        resourceName: z.string().trim().min(1).optional(),
+    }),
+});
+
 const patchModelSchema = z.object({
     display_name: z.string().trim().min(1).optional(),
     adapter: modelAdapterSchema.optional(),
@@ -74,7 +89,11 @@ function mapModelError(status: RouteStatus, error: unknown) {
         return status(500, errorResponse("Internal server error", API_ERROR_CODES.INTERNAL_SERVER_ERROR));
     }
 
-    switch (error.message) {
+    // Result.tryPromise wraps thrown errors in an UnhandledException whose
+    // cause carries the original error code (same pattern as mapChatError).
+    const errorCode = error.cause instanceof Error ? error.cause.message : error.message;
+
+    switch (errorCode) {
         case API_ERROR_CODES.UNAUTHORIZED:
             return status(401, errorResponse("Unauthorized", API_ERROR_CODES.UNAUTHORIZED));
         case API_ERROR_CODES.FORBIDDEN:
@@ -264,6 +283,55 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
             }),
         {
             body: createModelSchema,
+        }
+    )
+    .post(
+        "/test",
+        async ({ body, status, user }) =>
+            runModelAction({
+                user,
+                status,
+                action: async (currentUser) => {
+                    const membership = await requireOrganizationAdmin(currentUser);
+                    let apiKey = body.credentials.apiKey;
+
+                    // Reusing the stored key with caller-supplied connection
+                    // config grants nothing a PATCH does not already allow
+                    // (kept key + new url); org admins are trusted with the
+                    // credentials of the models they administer.
+                    if (!apiKey) {
+                        if (!body.model_id) {
+                            throw new Error(API_ERROR_CODES.INVALID_MODEL);
+                        }
+                        const storedModel = await getModelForUpdate(db, membership.organizationId, body.model_id);
+                        apiKey = decryptModelCredentials(storedModel.encryptedCredentials, env.AUTH_SECRET).apiKey;
+                    }
+
+                    const credentials = normalizeCredentials({
+                        apiKey,
+                        url: body.credentials.url,
+                        resourceName: body.credentials.resourceName,
+                    });
+                    const providerModel = body.provider_model.trim();
+
+                    assertCreateModelInput({
+                        type: body.type,
+                        adapter: body.adapter,
+                        providerModel,
+                        credentials,
+                    });
+
+                    return probeModelConfiguration({
+                        type: body.type,
+                        adapter: body.adapter,
+                        providerModel,
+                        credentials,
+                    });
+                },
+                success: (value) => status(200, successResponse(value)),
+            }),
+        {
+            body: testModelSchema,
         }
     )
     .patch(
